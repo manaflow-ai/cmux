@@ -4,7 +4,8 @@
 //! whose agent was still working (waiting on a build, a review or a reply),
 //! and Chief went on driving an agent the sidebar no longer showed (Aziz
 //! 2026-11-05: "why are your agents disappearing from sidebar?"). Only the
-//! person's own `OPTCHAT_SUBAGENT_ON_FINISH=close` closes finished ones.
+//! person's opt-in setting `subagents.closeFinishedWorkspaces` closes finished
+//! ones.
 
 mod common;
 
@@ -98,7 +99,10 @@ fn finish_a1(report: &str, ran: Duration) -> (Vec<String>, Option<String>) {
 /// `finish_a1` with the person's close-on-finish setting on or off.
 fn finish_a1_with(report: &str, ran: Duration, close: bool) -> (Vec<String>, Option<String>) {
     let mut h = Harness::new(script());
-    h.brain.set_sub_close_on_finish(close);
+    if close {
+        h.brain
+            .set_user_settings(Some(json!({"subagents": {"closeFinishedWorkspaces": true}})));
+    }
     let recorder = Arc::new(Recorder::default());
     let ws: Arc<dyn Workspaces> = recorder.clone();
     h.brain.set_workspaces(Some(ws.clone()));
@@ -224,6 +228,7 @@ fn the_persons_close_setting_still_closes_a_finished_workspace() {
         Duration::from_secs(45 * 60),
         true,
     );
-    assert_eq!(closed.len(), 1, "OPTCHAT_SUBAGENT_ON_FINISH=close closes it");
+    assert_eq!(closed.len(), 1, "subagents.closeFinishedWorkspaces closes it");
     assert_eq!(workspace, None, "and forgets its key");
 }
+

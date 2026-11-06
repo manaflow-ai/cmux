@@ -296,6 +296,7 @@ impl Brain {
                 ));
                 return;
             };
+            self.trace_workspace_close(&id, "control_hide");
             if let Some(s) = self.state.sub_mut(&id) {
                 s.workspace = None;
                 s.ws_id = None;

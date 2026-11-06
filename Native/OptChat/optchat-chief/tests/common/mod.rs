@@ -1291,7 +1291,7 @@ impl Harness {
     ) -> Harness {
         let agents = FakeAgents::new(script);
         let (tx, rx) = channel();
-        let brain = Brain::new(
+        let mut brain = Brain::new(
             chat.clone(),
             agents.clone(),
             settings,
@@ -1299,6 +1299,8 @@ impl Harness {
             tx.clone(),
             log,
         );
+        // Never the real user's ~/.config/cmux settings file.
+        brain.set_user_settings(None);
         Harness {
             dir,
             chat,

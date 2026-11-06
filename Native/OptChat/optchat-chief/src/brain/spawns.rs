@@ -894,6 +894,7 @@ impl Brain {
                 s.workspace.as_deref() != Some(key.as_str())
             }
         }) {
+            self.trace_workspace_close(id, "superseded");
             if let Some(workspaces) = self.workspaces.clone() {
                 let (log, id) = (self.log.clone(), id.to_owned());
                 std::thread::spawn(move || {
@@ -1741,19 +1742,19 @@ impl Brain {
         crate::trace::requests(&self.trace, &scope, fold.requests());
     }
 
-    /// Under the close setting (`OPTCHAT_SUBAGENT_ON_FINISH=close`, which the
-    /// person sets), closes a finished subagent's workspace. Without it a
-    /// subagent's workspace never closes by itself, short task or long,
-    /// running or finished: only the person closes it. A short-task close
-    /// (runs under 30 minutes) closed workspaces whose agent was still
-    /// working, waiting on a build or a reply, and Chief went on driving it
-    /// with nothing left in the sidebar (Aziz 2026-11-05: "why are your
-    /// agents disappearing from sidebar?"; a38's closed mid-run).
+    /// Under the person's opt-in `subagents.closeFinishedWorkspaces`
+    /// (subagent_settings.rs, off by default), closes a finished subagent's
+    /// workspace. Without it a subagent's workspace never closes by itself,
+    /// short task or long, running or finished: only the person closes it. A
+    /// short-task close (runs under 30 minutes) closed workspaces whose agent
+    /// was still working, waiting on a build or a reply, and Chief went on
+    /// driving it with nothing left in the sidebar (Aziz 2026-11-05: "why
+    /// are your agents disappearing from sidebar?"; a38's closed mid-run).
     /// Its name is never changed (Lawrence 2026-10-19: "I don't like the
     /// checkmark"): the chat tab's own idle state shows that it is done, and
     /// a name the user or the Chief gave it stays.
     fn mark_workspace(&mut self, id: &str, done: bool) {
-        if !done || !self.sub_close_on_finish {
+        if !done || !self.close_finished_subagent_workspaces() {
             return;
         }
         let (Some(workspaces), Some((_, sub))) = (self.workspaces.clone(), self.state.sub(id))
@@ -1763,7 +1764,8 @@ impl Brain {
         let Some(key) = sub.workspace.clone() else {
             return;
         };
-        // The close setting closes every finished one and forgets it.
+        self.trace_workspace_close(id, "close_finished_setting");
+        // The setting closes every finished one and forgets it.
         if let Some(sub) = self.state.sub_mut(id) {
             sub.workspace = None;
             super::control::retire_slot_key(sub);
