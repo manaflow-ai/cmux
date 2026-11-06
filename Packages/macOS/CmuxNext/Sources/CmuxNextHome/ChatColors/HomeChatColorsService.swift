@@ -108,14 +108,18 @@ public final class HomeChatColorsService {
     }
 
     /// Stops the colour panel picking for this chat, and closes it when Custom Color opened it.
+    /// The shared panel is touched only while it is still open and attached here: once the person
+    /// closed it (ordering a child out detaches it), another part of the app may have it, so only
+    /// this panel's own claim is dropped.
     private func releaseColorPanel() {
         guard ownsColorPanel else { return }
         ownsColorPanel = false
         colorTarget.onPick = nil
         let colors = NSColorPanel.shared
+        guard let panel, colors.parent === panel, colors.isVisible else { return }
         colors.setTarget(nil)
         colors.setAction(nil)
-        if colors.parent === panel { panel?.removeChildWindow(colors) }
+        panel.removeChildWindow(colors)
         colors.orderOut(nil)
     }
 }

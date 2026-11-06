@@ -2,16 +2,9 @@ import AppKit
 import CmuxHomeRender
 import CmuxNextCompat
 import CmuxNextDesign
-public import CmuxNextPages
+import CmuxNextPages
 import CmuxNextSettings
 import Foundation
-
-extension PageDescriptor {
-    /// Chat Colors (design/home.md "Chat Colors"): cmux-page://cmux.home-chat-colors/, built by
-    /// scripts/cmux-next/build-pages-web.sh from webviews/src/pages/home-chat-colors.
-    public static let homeChatColors = PageDescriptor(id: "cmux.home-chat-colors", resource: "home-chat-colors",
-                                               namespaces: [HomeChatColorsProvider.prefix], commands: [])
-}
 
 /// The Chat Colors page's ops (`cmux.home.chatColors.*`, webviews/src/pages/home-chat-colors/host.ts).
 /// The page owns no data: a pick runs ``HomeChatColorStore/set(_:for:)``, the same code
