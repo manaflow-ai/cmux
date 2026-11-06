@@ -17,11 +17,7 @@
 //!   file written by `cmux link peer add`).
 //! - [`registration`]: `link.json` in the daemon state dir, which names
 //!   the running link's socket.
-//! - [`connect_info`]: Cloud host ids resolved through
-//!   `cloud.machine.connect_info`, cached without their tokens.
 //! - [`token`]: the host side's link token check (deny by default).
-//! - [`keyset`]: the Cloud host's link-token keyset: the reader of a keyset
-//!   answer and its refresh schedule.
 //! - [`caller`]: who may connect to the link's socket and to the daemon's
 //!   remote entry (same user, and on macOS the cmux code signature).
 //! - [`app_caller`]: whether a local peer, named by its audit token, is the
@@ -29,12 +25,9 @@
 
 pub mod app_caller;
 pub mod caller;
-pub mod connect_info;
 pub mod dial;
 pub mod elapsed;
 pub mod entry_path;
-pub mod keyset;
-pub mod native_token;
 pub mod overlay_addr;
 pub mod owner_session;
 pub mod pairing;

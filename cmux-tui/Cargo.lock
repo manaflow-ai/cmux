@@ -1337,7 +1337,6 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-environment",
- "cmux-cloud-wire",
  "cmux-json",
  "cmux-link",
  "cmux-server",
@@ -1353,9 +1352,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
- "x25519-dalek",
  "yaml-rust",
- "zeroize",
 ]
 
 [[package]]
@@ -1429,7 +1426,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "zeroize",
 ]
 
 [[package]]

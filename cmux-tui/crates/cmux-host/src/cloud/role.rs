@@ -215,26 +215,6 @@ impl Http for PosterHttp {
         self.0.post(url, body, bearer)
     }
 
-    fn request_until(
-        &self,
-        url: &str,
-        body: Option<&Value>,
-        bearer: Option<&str>,
-        deadline: Instant,
-    ) -> Result<(u16, Vec<u8>), String> {
-        self.0.request_until(url, body, bearer, deadline)
-    }
-
-    fn request_with_deadline(
-        &self,
-        url: &str,
-        body: Option<&Value>,
-        bearer: Option<&str>,
-        deadline: &cmux_server::cloud_http::RequestDeadline,
-    ) -> Result<(u16, Vec<u8>), String> {
-        self.0.request_with_deadline(url, body, bearer, deadline)
-    }
-
     fn reset(&self) {
         self.0.reset();
     }
@@ -482,11 +462,6 @@ struct Live {
 
 struct Worker {
     bootstrap: Option<super::bootstrap_role::WorkerBridge>,
-    bootstrap_retry_at: Option<u64>,
-    bootstrap_backoff: Backoff,
-    /// The Native receiving failure last logged, so a retry loop logs each
-    /// new reason once instead of failing silently or flooding the journal.
-    bootstrap_last_error: Option<String>,
     paths: Paths,
     store: FileStore,
     instance_id: String,
@@ -530,9 +505,6 @@ impl Worker {
         forget_harness_login_state(&paths);
         Ok(Worker {
             bootstrap: None,
-            bootstrap_retry_at: None,
-            bootstrap_backoff: Backoff::new(1_000, 30_000),
-            bootstrap_last_error: None,
             store: FileStore::new(paths.clone()),
             paths,
             instance_id,
@@ -577,12 +549,13 @@ impl Worker {
             log("no bind.json and no bound.json; waiting for bind.json");
         }
         loop {
-            self.drive_bootstrap();
+            if let Some(bridge) = &self.bootstrap {
+                bridge.drive();
+            }
             let deadline = [
                 self.live.as_ref().and_then(|l| l.session.next_deadline()),
                 self.bind_retry_at,
                 self.activity.retry_at,
-                self.bootstrap_retry_at,
                 self.workload_at,
             ]
             .into_iter()
@@ -633,7 +606,6 @@ impl Worker {
                 return Ok(());
             }
             // The retained bootstrap descriptors wake the next loop's drive.
-            // Process control and binding changes before preparing private data.
             if ready(1) {
                 let bind = self.inotify.read_events()?.iter().any(|e| e.name == "bind.json");
                 if bind {
@@ -681,8 +653,6 @@ impl Worker {
                     if let Some(live) = &self.live {
                         live.client.reset_transport();
                     }
-                    self.bootstrap_retry_at = None;
-                    self.bootstrap_backoff.reset();
                     if let Some(bridge) = &mut self.bootstrap {
                         bridge.resume();
                         if self.live.is_some() {
@@ -773,60 +743,6 @@ impl Worker {
                 continue;
             }
             let now = self.now();
-            if serde_json::from_str::<Value>(&line).is_ok_and(|v| {
-                v.get("op").and_then(Value::as_str) == Some(super::receiver::POLICY_OP)
-            }) {
-                let Some(client) = self.clients.get(i) else { continue };
-                if !client.output.is_empty() {
-                    closed.push(i);
-                    continue;
-                }
-                // A queued batch must not hold shutdown behind up to sixteen
-                // separate network deadlines. Check the role's control fd
-                // before every policy request, not only before the batch.
-                if self.control_words().unwrap_or(true) {
-                    return true;
-                }
-                // The request is deliberately parameterless. The role owns
-                // every identity and credential used for this hidden read.
-                #[derive(serde::Deserialize)]
-                #[serde(deny_unknown_fields)]
-                struct Request {
-                    op: String,
-                }
-                let valid = serde_json::from_str::<Request>(&line)
-                    .is_ok_and(|r| r.op == super::receiver::POLICY_OP);
-                let value = if valid {
-                    self.live.as_mut().map(|live| {
-                        super::receiver_files::reply(
-                            &self.paths,
-                            &self.instance_id,
-                            &mut live.client,
-                            wall_ms(),
-                        )
-                    })
-                } else {
-                    None
-                };
-                // `refused` revokes the receiver's retained policy at once;
-                // `unavailable` (no answer) lets local admission keep it.
-                let value = match value {
-                    Some(Ok(value)) => value,
-                    Some(Err(error)) if super::receiver::is_refusal(&error) => {
-                        json!({ "ok": false, "error": super::receiver::POLICY_REFUSED })
-                    }
-                    _ => json!({ "ok": false, "error": super::receiver::POLICY_UNAVAILABLE }),
-                };
-                let Some(client) = self.clients.get_mut(i) else { continue };
-                client.output = serde_json::to_vec(&value).unwrap_or_default();
-                if client.output.len() > 1024 * 1024 {
-                    closed.push(i);
-                    continue;
-                }
-                client.output.push(b'\n');
-                client.write_deadline = Some(self.epoch.elapsed().as_millis() as u64 + 1000);
-                continue;
-            }
             let Some(live) = self.live.as_mut() else { continue };
             let (reqs, note) = live.session.line(&line, now);
             if let Some(note) = note {
@@ -1323,6 +1239,3 @@ pub fn print_daemon_info(paths: &Paths, timeout: Duration) -> Result<Value, Stri
 #[cfg(test)]
 #[path = "role_tests.rs"]
 mod role_tests;
-
-#[path = "role_bootstrap.rs"]
-mod bootstrap;
