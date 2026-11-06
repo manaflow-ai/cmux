@@ -32,6 +32,20 @@ import Testing
         #expect(row?.defaultValue == .string("fullAccess"))
     }
 
+    /// A file written by an earlier Computer Use development build (`"mode": "standard"`, found in
+    /// a real cmux-next.json) reads as the nearest mode today, with no invalid-value warning.
+    @Test func earlierBuildModesReadAsTheNearestModeWithoutAWarning() {
+        let cases: [(String, ComputerUseMode)] = [
+            ("standard", .fullAccess), ("unrestricted", .fullAccess), ("bounded", .approvedApps), ("ask", .askEveryTime),
+        ]
+        for (raw, mode) in cases {
+            let snapshot = CmuxConfigSnapshot.parse(.object(["computerUse": .object(["mode": .string(raw)])]),
+                                                    validDensities: [], validMetrics: [])
+            #expect(snapshot.computerUse.mode == mode, "\(raw)")
+            #expect(!snapshot.diagnostics.contains { $0.path.hasPrefix("computerUse") }, "\(raw)")
+        }
+    }
+
     /// The Swift copy of the deny list is the engine's, entry for entry and in order.
     @Test func theDefaultDenyListMatchesTheEngine() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()

@@ -13,6 +13,18 @@ public nonisolated enum ComputerUseMode: String, Sendable, Hashable, CaseIterabl
     case approvedApps
     /// Any app except the denied ones, without asking (the default).
     case fullAccess
+
+    /// The modes of earlier Computer Use development builds, read as the nearest mode today, so a
+    /// file written by one shows no invalid-value warning: `standard` and `unrestricted` asked no
+    /// questions (full access), `bounded` kept a grown list of apps (approved apps), `ask` asked.
+    public init?(earlierBuildValue value: String) {
+        switch value {
+        case "standard", "unrestricted": self = .fullAccess
+        case "bounded": self = .approvedApps
+        case "ask": self = .askEveryTime
+        default: return nil
+        }
+    }
 }
 
 /// `computerUse.*` in cmux.json: what agents may do with the apps on this Mac through cmux
@@ -76,7 +88,9 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["computerUse"], diagnostics: &diagnostics) else { return settings }
-        if let value = reader.choice("mode", ComputerUseMode.self) {
+        if let raw = reader.members["mode"]?.stringValue, let earlier = ComputerUseMode(earlierBuildValue: raw) {
+            settings.mode = earlier
+        } else if let value = reader.choice("mode", ComputerUseMode.self) {
             settings.mode = value
         } else if reader.members["mode"] == nil, reader.members["enabled"]?.boolValue == false {
             // The retired switch: an old file's "enabled": false keeps Computer Use off.

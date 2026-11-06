@@ -38,9 +38,10 @@ impl Mode {
         Some(match text {
             "off" => Mode::Off,
             "lookOnly" | "look_only" => Mode::LookOnly,
+            // `ask`, `bounded`, `standard`, `unrestricted`: earlier development builds' modes.
             "askEveryTime" | "ask_every_time" | "ask" => Mode::AskEveryTime,
-            "approvedApps" | "approved_apps" => Mode::ApprovedApps,
-            "fullAccess" | "full_access" | "unrestricted" => Mode::FullAccess,
+            "approvedApps" | "approved_apps" | "bounded" => Mode::ApprovedApps,
+            "fullAccess" | "full_access" | "unrestricted" | "standard" => Mode::FullAccess,
             _ => return None,
         })
     }
@@ -539,6 +540,15 @@ mod tests {
             decide(&PolicyConfig::cloud_vm(), &SavedApprovals::default(), &r),
             Decision::Allow
         );
+    }
+
+    #[test]
+    fn earlier_build_modes_read_as_the_nearest_mode() {
+        assert_eq!(Mode::parse("standard"), Some(Mode::FullAccess));
+        assert_eq!(Mode::parse("unrestricted"), Some(Mode::FullAccess));
+        assert_eq!(Mode::parse("bounded"), Some(Mode::ApprovedApps));
+        assert_eq!(Mode::parse("ask"), Some(Mode::AskEveryTime));
+        assert_eq!(Mode::parse("god"), None);
     }
 
     #[test]
