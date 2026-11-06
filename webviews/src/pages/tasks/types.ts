@@ -130,6 +130,8 @@ export interface TaskEvent {
 export interface TasksChanged {
   change?: TaskEvent;
   lost?: boolean;
+  /** From the page relay after a reconnect or an event overflow: events may be missing. */
+  resync?: boolean;
 }
 
 /** A mutation's reply: the owner's result and its committed sequence after the request. */

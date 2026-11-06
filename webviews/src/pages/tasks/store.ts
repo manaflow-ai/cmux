@@ -94,6 +94,10 @@ export class TasksStore {
   private readonly onVisibility = () => {
     if (this.visible() && this.snapshot.connection === "unreachable") this.scheduleRetry(true);
   };
+  /** The start in flight, so a second `start()` waits for the same one. */
+  private starting?: Promise<void>;
+  /** A resync came while a read was in flight: read once more after it. */
+  private readAgain = false;
 
   constructor(
     private readonly client: PageClient | null,
@@ -123,29 +127,27 @@ export class TasksStore {
     };
   };
 
-  /** Subscribes to the owner's changes, then reads the snapshot. Idempotent. */
-  async start(): Promise<void> {
-    if (!this.client || this.running) return;
+  /** Follows the page connection, subscribes to the owner's changes, then reads the snapshot.
+   * Idempotent: a second call while one runs returns the same promise. */
+  start(): Promise<void> {
+    if (!this.client) return Promise.resolve();
+    if (this.running) return this.starting ?? Promise.resolve();
     this.running = true;
-    const lifetime = ++this.lifetime;
+    const starting = this.begin(this.client, ++this.lifetime).finally(() => {
+      if (this.starting === starting) this.starting = undefined;
+    });
+    this.starting = starting;
+    return starting;
+  }
+
+  private async begin(client: PageClient, lifetime: number): Promise<void> {
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.onVisibility);
     try {
-      const unsubscribe = await this.client.subscribe<TasksChanged>(TasksOps.changed, (data) => {
-        if (lifetime === this.lifetime) this.onChanged(data);
-      });
-      if (lifetime !== this.lifetime) return unsubscribe();
-      this.unsubscribe = unsubscribe;
-    } catch (error) {
-      if (lifetime !== this.lifetime) return;
-      this.set({ connection: "unreachable", reject: message(error) });
-      return;
-    }
-    try {
-      const unpage = await subscribePageStreams(this.client, {
+      const unpage = await subscribePageStreams(client, {
         onConnection: (connected) => {
           if (lifetime !== this.lifetime) return;
           if (!connected) this.set({ connection: "unreachable" });
-          else if (this.snapshot.connection === "unreachable") void this.read();
+          else if (this.snapshot.connection === "unreachable") void this.connect();
         },
       });
       if (lifetime !== this.lifetime) return unpage();
@@ -153,12 +155,40 @@ export class TasksStore {
     } catch {
       // A host without the connection stream still answers reads.
     }
+    await this.connect();
+  }
+
+  /** Subscribes to the owner's changes when not yet subscribed, then reads the snapshot. A failed
+   * subscribe is unreachable and retried on the same backoff as a failed read. */
+  private async connect(): Promise<void> {
+    const client = this.client;
+    if (!client || !this.running) return;
+    const lifetime = this.lifetime;
+    if (!this.unsubscribe) {
+      try {
+        const unsubscribe = await client.subscribe<TasksChanged>(TasksOps.changed, (data) => {
+          if (lifetime === this.lifetime) this.onChanged(data);
+        });
+        if (lifetime !== this.lifetime) return unsubscribe();
+        this.unsubscribe = unsubscribe;
+      } catch (error) {
+        if (lifetime !== this.lifetime) return;
+        this.set(
+          unreachable(error) ? { connection: "unreachable" } : { connection: "unreachable", reject: message(error) },
+        );
+        this.scheduleRetry();
+        return;
+      }
+    }
     await this.read();
   }
 
   stop(): void {
     ++this.lifetime;
     this.running = false;
+    this.starting = undefined;
+    this.readAgain = false;
+    this.reading = false;
     this.cancelRetry();
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.onVisibility);
     this.unsubscribe?.();
@@ -174,7 +204,11 @@ export class TasksStore {
 
   /** Reads the snapshot; events that came meanwhile apply on top of it. */
   private async read(): Promise<void> {
-    if (!this.client || this.reading) return;
+    if (!this.client) return;
+    if (this.reading) {
+      this.readAgain = true;
+      return;
+    }
     const lifetime = this.lifetime;
     this.reading = true;
     this.early = [];
@@ -197,7 +231,13 @@ export class TasksStore {
         this.set({ connection: "unreachable", reject: message(error) });
       }
     } finally {
-      if (lifetime === this.lifetime) this.reading = false;
+      if (lifetime === this.lifetime) {
+        this.reading = false;
+        if (this.readAgain) {
+          this.readAgain = false;
+          void this.read();
+        }
+      }
     }
   }
 
@@ -207,7 +247,7 @@ export class TasksStore {
     this.retryDelay = Math.min(this.retryDelay * 2, this.options.backoff?.maximum ?? 10_000);
     const run = () => {
       this.retryTimer = undefined;
-      if (this.running && this.visible()) void this.read();
+      if (this.running && this.visible()) void this.connect();
     };
     this.retryTimer = this.options.schedule ? this.options.schedule(run, delay) : timeout(run, delay);
   }
@@ -218,6 +258,11 @@ export class TasksStore {
   }
 
   private onChanged(data: TasksChanged): void {
+    if (data.resync) {
+      // The relay reconnected or dropped events: keep the rows and pending intents, read again.
+      void this.read();
+      return;
+    }
     if (data.lost) {
       // The daemon's link to the owner ended: keep the rows, refuse changes, read again.
       this.set({ connection: "unreachable" });

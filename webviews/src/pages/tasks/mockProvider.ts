@@ -33,6 +33,8 @@ export class MockTasksProvider implements PageClient {
   answerImmediately = true;
   /** When true, a reply arrives before its echo events (`release` sends the events later). */
   echoAfterReply = false;
+  /** How many `cmux.tasks.changed` subscribes fail before one works (a relay still recovering). */
+  failSubscribes = 0;
   readonly page = new MockPageStreams();
   private readonly subs = new Map<number, (data: unknown, seq: number) => void>();
   private nextSub = 1;
@@ -197,6 +199,10 @@ export class MockTasksProvider implements PageClient {
     const pageStream = this.page.subscribe(stream, onEvent as (data: unknown, seq: number) => void);
     if (pageStream) return pageStream;
     if (stream !== TasksOps.changed) throw pageError("cmux.protocol.unknown_op", stream);
+    if (this.failSubscribes > 0) {
+      this.failSubscribes -= 1;
+      throw pageError("cmux.protocol.closed", "the relay is not connected", true);
+    }
     const sub = this.nextSub++;
     this.subs.set(sub, onEvent as (data: unknown, seq: number) => void);
     return () => {

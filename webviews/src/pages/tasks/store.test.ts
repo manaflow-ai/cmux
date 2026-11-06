@@ -179,6 +179,44 @@ describe("TasksStore", () => {
     expect(store.getSnapshot().tasks.find((t) => t.id === "task_2")?.title).toBe("During the read");
   });
 
+  test("a resync from the relay reads the snapshot again and keeps the rows", async () => {
+    const { store, provider } = await started();
+    const task = { ...provider.state.tasks[0]!, title: "Changed while events were lost" };
+    provider.state.tasks[0] = task;
+    provider.state.seq += 1;
+    const reads = provider.calls.filter((call) => call.op === TasksOps.snapshot).length;
+    provider.publish({ resync: true });
+    expect(store.getSnapshot().tasks.length).toBe(11);
+    await tick();
+    expect(provider.calls.filter((call) => call.op === TasksOps.snapshot).length).toBe(reads + 1);
+    expect(store.getSnapshot().tasks.find((t) => t.id === task.id)?.title).toBe("Changed while events were lost");
+    expect(store.getSnapshot().connection).toBe("connected");
+  });
+
+  test("a failed event subscribe is unreachable and retried until the relay answers", async () => {
+    const provider = new MockTasksProvider();
+    provider.failSubscribes = 2;
+    const { store, timers, stop } = await started(provider);
+    expect(store.getSnapshot().connection).toBe("unreachable");
+    expect(provider.subscriberCount).toBe(0);
+    expect(timers.queue.length).toBe(1);
+    await timers.fire();
+    expect(store.getSnapshot().connection).toBe("unreachable");
+    await timers.fire();
+    expect(provider.subscriberCount).toBe(1);
+    expect(store.getSnapshot().connection).toBe("connected");
+    stop();
+  });
+
+  test("a second start waits for the one in flight", async () => {
+    const provider = new MockTasksProvider();
+    const store = new TasksStore(provider, { visible: () => true });
+    store.subscribe(() => {});
+    await store.start();
+    expect(store.getSnapshot().connection).toBe("connected");
+    expect(provider.subscriberCount).toBe(1);
+  });
+
   test("assignee choices send update or delegate", async () => {
     const { store, provider } = await started();
     expect(store.choose("task_5", { type: "person", id: "usr_austin" })).toBe(true);
