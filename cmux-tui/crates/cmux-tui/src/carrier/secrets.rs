@@ -76,9 +76,15 @@ pub(super) fn parse(args: &[String]) -> Option<SecretsArgs> {
     Some(SecretsArgs { machine, deadline })
 }
 
+/// A string moved, not copied, into a buffer that is wiped when dropped.
+fn zeroizing<'de, D: serde::Deserializer<'de>>(input: D) -> Result<Zeroizing<String>, D::Error> {
+    String::deserialize(input).map(Zeroizing::new)
+}
+
 #[derive(Deserialize)]
 struct NamedValue {
     name: String,
+    #[serde(deserialize_with = "zeroizing")]
     value: Zeroizing<String>,
 }
 
@@ -90,6 +96,7 @@ enum Op {
     },
     InstallHarnessLogin {
         harness: String,
+        #[serde(deserialize_with = "zeroizing")]
         login_base64: Zeroizing<String>,
         #[serde(default)]
         allow_team_guest: bool,
@@ -99,6 +106,7 @@ enum Op {
 #[derive(Deserialize)]
 struct Request {
     api: String,
+    #[serde(deserialize_with = "zeroizing")]
     credential: Zeroizing<String>,
     #[serde(flatten)]
     op: Op,
