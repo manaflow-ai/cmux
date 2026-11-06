@@ -3989,6 +3989,10 @@ button.cv-video-frames__frame:focus-visible {
   display: inline-flex;
   flex: none;
   align-items: center;
+  /* The line's height, as the overlay's inset was: its 24px footer row centers in it, never standing
+     out of the 22px line (transcript-row-pitch-browser.test.ts). */
+  align-self: stretch;
+  max-height: 100%;
   margin-inline-start: auto;
   opacity: 0;
   pointer-events: none;
