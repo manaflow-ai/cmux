@@ -37,7 +37,8 @@ struct BrowserPaneMotionPointerAreasTests {
             try Data("<html><body><p>pointer areas</p><a href=\"#x\">a link</a><input value=\"field\"></body></html>".utf8).write(to: page)
             let surface = try await connection.newFrontendBrowserTab(url: page.absoluteString, engine: .webkit, in: pane.pane.handle, activate: true).surface
             try await PasswordManagerRouteTests.until({ services.daemon.store.tab(surface: surface).map { pane.selectedTab?.id == $0.id } == true },
-                                                      report: { WindowStateReport.describe(services, surface: surface) })
+                                                      within: .seconds(60),
+                                                      report: { "selected \(pane.selectedTab?.id ?? "none"); " + WindowStateReport.describe(services, surface: surface) })
             let layout = try #require(controller.content?.layoutView)
             try await PasswordManagerRouteTests.until({ !layout.isInLayoutMotion }, report: { "the split never landed" })
             // At rest first: every view's tracking areas and cursor rects are in place before the press.
