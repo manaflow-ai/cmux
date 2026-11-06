@@ -337,6 +337,8 @@ private struct InteractivePopEnabler: UIViewControllerRepresentable {
 /// on a Mac publish, not the workspace screen and the tabs under it.
 struct WorkspaceGridHeader: View {
     let source: WorkspaceTabsSource
+    /// TabsKit's top-control metrics, so Back matches More and the bottom bar.
+    private let metrics = TabsKitTheme.mobile.metrics
 
     var body: some View {
         ZStack {
@@ -351,9 +353,9 @@ struct WorkspaceGridHeader: View {
                     source.exit()
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: metrics.toolbarGlyph, weight: .medium))
                         .foregroundStyle(theme.colors.label.color)
-                        .frame(width: 36, height: 36)
+                        .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)

@@ -248,7 +248,8 @@ struct TabOverview<Source: TabsDataSource>: View {
                     LinearGradient(colors: [theme.colors.overviewTop, theme.colors.overviewTop.opacity(0.6), .clear],
                                    startPoint: .top, endPoint: .bottom)
                 }
-                .frame(height: layout.safeTop + 52)
+                // Down to the grid's first row, under the top controls.
+                .frame(height: layout.safeTop + 12 + theme.metrics.overviewTopControl)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -515,7 +516,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "ellipsis").font(.system(size: 17, weight: .semibold))
+                    Image(systemName: "ellipsis").font(.system(size: theme.metrics.toolbarGlyph, weight: .medium))
                         .frame(width: d, height: d).contentShape(.rect)
                 }
                 .disabled(selection.isEmpty)
@@ -525,9 +526,11 @@ struct TabOverview<Source: TabsDataSource>: View {
             .padding(.horizontal, 6)
             .glassEffect(.regular.interactive(), in: .capsule)
             .fixedSize()
-            .position(x: 20 + 70, y: y)
+            // Leading edge 20 pt in, whatever the group's width at this size.
+            .frame(width: layout.size.width - 40, alignment: .leading)
+            .position(x: layout.size.width / 2, y: y)
             Button { endSelecting() } label: {
-                Image(systemName: "checkmark").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+                Image(systemName: "checkmark").font(.system(size: theme.metrics.doneGlyph, weight: .semibold)).foregroundStyle(.white)
                     .frame(width: d, height: d).contentShape(.circle)
             }
             .buttonStyle(.plain)
@@ -552,7 +555,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                 Button("Close All Tabs", systemImage: "xmark", role: .destructive, action: onCloseAll)
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: theme.metrics.toolbarGlyph, weight: .medium))
                     .foregroundStyle(theme.colors.label)
                     .frame(width: d, height: d)
                     .contentShape(.circle)
