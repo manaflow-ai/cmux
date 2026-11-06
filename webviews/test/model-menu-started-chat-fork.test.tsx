@@ -572,6 +572,23 @@ test("chat.handoff.prepare lands the held model, then adds the message to the re
   ]);
 });
 
+test("a fork that fails after the new chat showed keeps the held pick", async () => {
+  // Review of #37196: the new chat's selection closed this chat's composer, whose cleanup dropped
+  // the pick; a model or save that then failed left the message with no pick.
+  const { holdFork, heldFork, clearHeldFork, sendHeldFork } = await import("../src/agent-session/acpmux/forkHold");
+  holdFork({ sessionId: "s1", harness: "codex", model: "gpt-6" });
+  const sent = sendHeldFork("s1", "fix the build", {
+    images: 0,
+    ready: true,
+    prepare: async () => {
+      clearHeldFork("s1");
+      throw new Error("model not set");
+    },
+  });
+  await expect(sent as Promise<string>).rejects.toThrow();
+  expect(heldFork("s1")).toEqual({ sessionId: "s1", harness: "codex", model: "gpt-6" });
+});
+
 test("a review still loading when the new chat shows is read again, and the message joins it", async () => {
   // Review of #37196: the new chat's selection starts its review's read; the record was read
   // before it came in, so the message failed to join the review.

@@ -93,13 +93,22 @@ export function sendHeldFork(
     ...(pick.effort ? { effort: pick.effort } : {}),
     ...(pick.fast ? { fast: true } : {}),
     message: text,
-  }).then((target) => {
-    // l10n-allow: a developer error for the composer's promise; the composer keeps the text, never shows this.
-    if (!target) throw new Error("chat.handoff.prepare made no review");
-    clearHeldFork(pick.sessionId);
-    sent?.(pick.sessionId);
-    return target;
-  });
+  }).then(
+    (target) => {
+      // l10n-allow: a developer error for the composer's promise; the composer keeps the text, never shows this.
+      if (!target) throw new Error("chat.handoff.prepare made no review");
+      clearHeldFork(pick.sessionId);
+      sent?.(pick.sessionId);
+      return target;
+    },
+    (error: unknown) => {
+      // The fork selected its new chat before it failed, which closed this chat's composer and
+      // dropped the pick with it: the pick comes back, unless another was made since (review of
+      // #37196: a failed fork lost the held model).
+      if (!heldFork(pick.sessionId)) holdFork(pick);
+      throw error;
+    },
+  );
 }
 
 /// What `chat.handoff.prepare` gets from a send with a held pick (sendHeldFork).
