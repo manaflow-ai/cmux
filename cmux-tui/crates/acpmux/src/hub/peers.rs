@@ -258,12 +258,12 @@ impl Hub {
         let mut settled = {
             // A saved peer takes the name over from a lease (`peer_lease.rs`),
             // under the lease lock so no notice of the leased peer finds the
-            // name unleased first (lock order: `peer_leases`, then `peers`).
+                // name unleased first (lock order: `peer_leases`, then `peers`, then rows).
             let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
             if leases.remove(name).is_some() {
                 // The leased machine's peer goes before its rows: a late
                 // notice of it then finds it gone, or lands before the purge
-                // (`apply_peer_notice` checks under the rows lock). The saved
+                // (`apply_peer_notice` checks while holding peers then rows). The saved
                 // peer lists its own.
                 let leased = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
                 if let Some(leased) = leased {
@@ -527,8 +527,8 @@ impl Hub {
         // Read before `peers` is locked (lock order: `peer_leases`, then `peers`).
         let leased: std::collections::HashSet<String> =
             self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
-        // Released before the rows are counted (lock order: `remote_sessions`,
-        // then `peers`; `apply_peer_notice`).
+        // Released before the rows are counted, so this read takes `peers` and
+        // `remote_sessions` separately and never in the reverse nested order.
         let (listed, brokers): (Vec<(String, Value)>, std::collections::HashSet<String>) = {
             let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
             let listed = peers.values().map(|p| (p.name.clone(), p.summary())).collect();
@@ -672,13 +672,33 @@ impl Hub {
 
     /// The row transition after a continuous outage's grace has elapsed.
     pub(super) fn mark_peer_unreachable(&self, peer: &str, generation: u64) {
-        let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
-            return;
+        let changed = {
+            let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(current) = peers.get(peer).filter(|p| p.generation == generation).cloned()
+            else {
+                return;
+            };
+            let fence = current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire);
+            let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            if current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire) != fence {
+                return;
+            }
+            let last_seen = current.link().last_seen;
+            let changed = map.mark_peer_stale(peer, last_seen);
+            if !changed.is_empty() {
+                current.remote_rows_epoch.fetch_add(1, std::sync::atomic::Ordering::Release);
+            }
+            changed
         };
-        let fence = current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire);
-        self.mark_peer_unreachable_at_fence(&current, peer, generation, fence);
+        if !changed.is_empty() {
+            self.save_peer_cache(peer, generation, true);
+        }
+        for summary in changed {
+            self.announce_remote(peer, summary, "status");
+        }
     }
 
+    #[cfg(test)]
     fn mark_peer_unreachable_at_fence(
         &self,
         current: &Arc<crate::peer::Peer>,
@@ -716,7 +736,7 @@ impl Hub {
         // peer replaced or removed since (`add_peer`, `remove_peer`,
         // `end_peer_lease`, each of which unregisters the peer before it
         // drops its rows) must not add rows back or save them. So every path
-        // that changes rows checks again under the rows lock.
+        // that changes rows checks again while holding the `peers` then rows locks.
         use crate::peer::PeerNotice;
         let peer = peer.to_owned();
         {
@@ -838,7 +858,9 @@ impl Hub {
                             .collect::<Vec<_>>();
                         #[cfg(test)]
                         self.pause_after_peer_session_projection_for_test();
-                        let Some(current) = self.peer(&peer).filter(|p| p.generation == generation)
+                        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+                        let Some(current) =
+                            peers.get(&peer).filter(|p| p.generation == generation).cloned()
                         else {
                             return;
                         };
@@ -897,8 +919,11 @@ impl Hub {
                     };
                     if kind == "purged" {
                         let removed = {
+                            #[cfg(test)]
+                            self.pause_after_peer_session_projection_for_test();
+                            let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
                             let Some(current) =
-                                self.peer(&peer).filter(|p| p.generation == generation)
+                                peers.get(&peer).filter(|p| p.generation == generation).cloned()
                             else {
                                 return;
                             };
@@ -940,7 +965,11 @@ impl Hub {
                     let Some(receipt) = session_receipt(&summary) else { return };
                     let id = receipt.qualified_id();
                     {
-                        let Some(current) = self.peer(&peer).filter(|p| p.generation == generation)
+                        #[cfg(test)]
+                        self.pause_after_peer_session_projection_for_test();
+                        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+                        let Some(current) =
+                            peers.get(&peer).filter(|p| p.generation == generation).cloned()
                         else {
                             return;
                         };
@@ -2015,6 +2044,119 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["status"], "idle", "old timer marked replacement rows stale");
         hub.peer("builder").unwrap().stop();
+    }
+
+    #[tokio::test]
+    async fn a_removed_peer_cannot_be_reinserted_by_a_paused_notice() {
+        let make_hub = || {
+            let mut cfg = crate::config::Config::default();
+            cfg.store.mode = crate::config::StoreMode::Memory;
+            let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+            let hub = Hub::new(cfg, store);
+            let (tx, _rx) = tokio::sync::mpsc::channel(8);
+            let peer = crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, tx);
+            hub.peers.lock().unwrap().insert("builder".into(), peer.clone());
+            (hub, peer)
+        };
+        let row = |status: &str| {
+            json!({"sessionId": "x", "name": "lane-x", "status": status,
+                "createdAt": 1, "updatedAt": 2})
+        };
+
+        // A full list that has projected before remove_peer must not restore its rows.
+        let (hub, peer) = make_hub();
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            crate::peer::PeerNotice::Sessions(vec![row("idle")]),
+        );
+        let hook = PeerNoticeProjectionHook::new();
+        *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
+        let applying = {
+            let hub = hub.clone();
+            let generation = peer.generation;
+            let listed = row("running");
+            std::thread::spawn(move || {
+                hub.apply_peer_notice(
+                    "builder",
+                    generation,
+                    crate::peer::PeerNotice::Sessions(vec![listed]),
+                );
+            })
+        };
+        hook.wait_reached();
+        hub.remove_peer("builder").await.unwrap();
+        hook.release();
+        applying.join().unwrap();
+        assert!(hub.remote_sessions().is_empty(), "full-list notice resurrected removed rows");
+
+        // A session_changed notice has the same removal race, including a leased peer's drop.
+        let (hub, peer) = make_hub();
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            crate::peer::PeerNotice::Sessions(vec![row("idle")]),
+        );
+        let hook = PeerNoticeProjectionHook::new();
+        *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
+        let applying = {
+            let hub = hub.clone();
+            let generation = peer.generation;
+            let changed = row("running");
+            std::thread::spawn(move || {
+                hub.apply_peer_notice(
+                    "builder",
+                    generation,
+                    crate::peer::PeerNotice::SessionChanged {
+                        session: changed,
+                        kind: "status".into(),
+                        seq: 2,
+                    },
+                );
+            })
+        };
+        hook.wait_reached();
+        hub.remove_peer("builder").await.unwrap();
+        hook.release();
+        applying.join().unwrap();
+        assert!(hub.remote_sessions().is_empty(), "session_changed resurrected removed rows");
+
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg.clone(), store);
+        let (lease, _settled) = hub
+            .lease_peer("builder", "ws://127.0.0.1:9", "token".into(), None, false, &cfg)
+            .unwrap();
+        let peer = hub.peer("builder").unwrap();
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            crate::peer::PeerNotice::Sessions(vec![row("idle")]),
+        );
+        let hook = PeerNoticeProjectionHook::new();
+        *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
+        let applying = {
+            let hub = hub.clone();
+            let generation = peer.generation;
+            let changed = row("running");
+            std::thread::spawn(move || {
+                hub.apply_peer_notice(
+                    "builder",
+                    generation,
+                    crate::peer::PeerNotice::SessionChanged {
+                        session: changed,
+                        kind: "status".into(),
+                        seq: 3,
+                    },
+                );
+            })
+        };
+        hook.wait_reached();
+        hub.end_peer_lease(&lease);
+        hook.release();
+        applying.join().unwrap();
+        assert!(hub.remote_sessions().is_empty(), "lease end resurrected rows");
     }
 
     #[test]

@@ -1419,9 +1419,9 @@ impl Store {
 impl Hub {
     /// Whether `link` is still the link of peer `peer` while `generation` is the instance
     /// registered under the name (the store checks again, in order: `Store::fresh_link`).
-    /// Sends a capture's op when it is of instance `generation` and link `link` still, checked
-    /// and sent after the peer Arc is looked up, before the rows snapshot: an instance that
-    /// replaces it cannot be reintroduced by a rows→peers lock inversion.
+    /// Sends a capture's op when it is of instance `generation` and link `link` still. The peer
+    /// Arc is looked up before the rows snapshot, so the current link check fences a stale call;
+    /// replacement itself remains serialized by the peer's generation and row checks.
     fn capture_on(&self, peer: &str, (generation, link): (u64, u64), send: impl FnOnce()) {
         let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
             return;
