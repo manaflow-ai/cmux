@@ -549,9 +549,9 @@ extension AgentTabStore {
     /// construction and on each observed sign-in/account transition, so sign-in restores it.
     func syncCloudCredentialTransferAvailability(services: AppServices) {
         if services.cloud.auth.isSignedIn {
-            tryAnotherApproach = { [weak services] (chat: String, throughSeq: Int) async throws -> [String: Any] in
+            tryAnotherApproach = { [weak services] (chat: String, session: String, throughSeq: Int) async throws -> [String: Any] in
                 guard let services else { throw CancellationError() }
-                return try await cloudTryAnotherApproach(chat: chat, throughSeq: throughSeq, services: services)
+                return try await cloudTryAnotherApproach(chat: chat, session: session, throughSeq: throughSeq, services: services)
             }
         } else {
             tryAnotherApproach = nil

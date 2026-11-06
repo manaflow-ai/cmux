@@ -38,14 +38,15 @@ private func cloudTryAnotherApproachFailure(_ message: String) -> NSError {
 
 /// App adapters for the latest-turn Cloud fork. The sequence itself lives in CmuxNextCloud.
 @MainActor
-func cloudTryAnotherApproach(chat key: String, throughSeq: Int, services: AppServices) async throws -> [String: Any] {
+func cloudTryAnotherApproach(chat key: String, session expected: String, throughSeq: Int,
+                             services: AppServices) async throws -> [String: Any] {
     let opener = CloudTryAnotherApproachChildOpener()
     let fork = CloudTryAnotherApproach(
         prepare: { chat, seq in
             guard seq > 0, services.cloud.auth.isSignedIn,
                   let (sourceTab, sourcePane) = services.locateTab(chat),
                   let sourceRecord = sourceTab.agentSession,
-                  let sourceSession = sourceRecord.session,
+                  let sourceSession = sourceRecord.session, sourceSession == expected,
                   let harness = sourceRecord.harness else {
                 throw cloudTryAnotherApproachFailure("Cloud chat is unavailable")
             }
@@ -60,9 +61,10 @@ func cloudTryAnotherApproach(chat key: String, throughSeq: Int, services: AppSer
                          parentLabel: "Try another approach · \(workspace.displayName)")
         },
         forkMachine: { plan in
+            let auth = services.cloud.auth, identity = services.cloud.installIdentity
             let owner = CloudOwnerAPIClient(
-                baseURL: FeedService.apiBaseURL(auth: services.cloud.auth),
-                accessToken: { try await services.cloud.auth.tokens().access }, teamID: { nil })
+                baseURL: FeedService.apiBaseURL(auth: auth), accessToken: { try await auth.tokens().access },
+                teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) })
             let children = try await owner.forkRun(workspace: plan.workspace, clientKey: plan.clientKey,
                                                    sourceMachine: plan.sourceMachine, session: plan.session,
                                                    harnesses: [plan.harness])

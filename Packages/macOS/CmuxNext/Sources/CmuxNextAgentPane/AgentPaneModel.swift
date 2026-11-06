@@ -305,7 +305,9 @@ public final class AgentPaneModel {
     /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
     @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?
     /// Runs the Cloud machine + latest transcript fork and opens its sibling without selecting this chat.
-    @ObservationIgnored public var onTryAnotherApproach: (@MainActor (Int) async throws -> [String: Any])?
+    /// The session is the one this pane showed when the click arrived, so a pane that switched
+    /// sessions meanwhile never forks the newly selected chat.
+    @ObservationIgnored public var onTryAnotherApproach: (@MainActor (_ throughSeq: Int, _ session: String) async throws -> [String: Any])?
     /// The application-owned marked-tab list shared by this page and the palette.
     @ObservationIgnored public let attentionTabs: AgentPaneAttentionTabs?
 
@@ -657,11 +659,14 @@ public final class AgentPaneModel {
             released = true
             return AgentPaneReply.success(["transferred": true, "promptId": request.retryPromptID, "ticket": ticket])
         case .tryAnotherApproach(let request):
-            guard remoteChat, newTab == nil, sessionId != nil, let onTryAnotherApproach else {
+            guard remoteChat, newTab == nil, let session = sessionId, let onTryAnotherApproach else {
                 return Self.unsupported(AgentPaneTryAnotherApproach.method)
             }
+            // A Cloud machine snapshot plus a durable sibling chat: only the person's click starts
+            // one (the host's authenticated click, or the legacy bridge's one-use gesture credit).
+            guard userGesture || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
             do {
-                return AgentPaneReply.success(try await onTryAnotherApproach(request.throughSeq))
+                return AgentPaneReply.success(try await onTryAnotherApproach(request.throughSeq, session))
             } catch {
                 return AgentPaneReply.failure(code: "try_another_approach_failed", message: error.localizedDescription,
                                               details: nil, retryable: true, origin: "native")
