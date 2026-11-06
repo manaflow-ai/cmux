@@ -12,9 +12,10 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarHoverAccessibilityTests {
     /// Two closable rows with a menu, one above the other, laid out in a window; `audio` makes both play sound.
-    private func rows(audio: SidebarWorkspaceAudio? = nil) -> (WorkspaceRowView, WorkspaceRowView, NSWindow) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 220, height: 56), styleMask: .borderless,
-                              backing: .buffered, defer: true)
+    /// `onScreen`: the window is ordered in (an accessibility hit test reads screen frames).
+    private func rows(audio: SidebarWorkspaceAudio? = nil, onScreen: Bool = false) -> (WorkspaceRowView, WorkspaceRowView, NSWindow) {
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 220, height: 56), styleMask: .borderless,
+                              backing: .buffered, defer: !onScreen)
         // `close()` would release a window the test still holds (a segfault on the fleet).
         window.isReleasedWhenClosed = false
         func make(_ id: String, y: CGFloat) -> WorkspaceRowView {
@@ -34,7 +35,9 @@ struct SidebarHoverAccessibilityTests {
             view.layoutSubtreeIfNeeded()
             return view
         }
-        return (make("a", y: 0), make("b", y: 28), window)
+        let rows = (make("a", y: 0), make("b", y: 28), window)
+        if onScreen { window.orderFrontRegardless() }
+        return rows
     }
 
     /// The pointer leaves `from` for `to`, then the frame's layout pass runs.
@@ -57,7 +60,7 @@ struct SidebarHoverAccessibilityTests {
     }
 
     @Test func aClearedControlIsNoAccessibilityHit() throws {
-        let (a, b, window) = rows()
+        let (a, b, window) = rows(onScreen: true)
         defer { window.close() }
         let root = try #require(window.contentView)
         a.isHovered = true
