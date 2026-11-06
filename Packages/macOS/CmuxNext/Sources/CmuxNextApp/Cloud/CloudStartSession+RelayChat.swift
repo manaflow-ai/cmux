@@ -53,19 +53,16 @@ extension CloudStartSession {
             }
             let machineID = machine.machineID, account = now()
             let promptID = (invocation["promptId"]?.stringValue?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 }
-            // The machine takes the login first; the account that asked is checked after its wait, as start-session's is.
             let login: @MainActor () async throws -> (code: String, message: String)? = {
-                // This entry (the `cloudRelayChat` action) never resumes: a paused or resuming machine outlasts its 15 s. It sends nothing and
-                // runs no login (`machine_not_ready`); `cloud start-chat` then runs start-session on it, which resumes or waits, connects, logs in.
+                // This entry never resumes a paused or resuming machine (it outlasts 15 s): no login, no send; start-chat's start-session resumes it.
                 if machine.machine.status == .paused || machine.machine.shownStatus.isChanging { return ("cloud.relay.machine_not_ready", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent)) }
-                // The link first, for the account that asked; none: no login, nothing sent, and start-chat's start-session resumes and connects.
+                // The link for the account that asked (none: no login, no send); after its wait the account again, and a run not yet answered.
                 let linking = ContinuousClock.now, asked = started.asked(machine: machine.machine.title)
                 try Self.checked(account, now: now(), asked)
                 guard await steps.link(machine) else { return ("cloud.relay.not_connected", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent)) }
-                // After the link's wait, before the login: the account that asked, and a run that has not answered yet (else no login starts).
                 try Self.checked(account, now: now(), asked)
                 guard ContinuousClock.now - linking < steps.loginWithin else { return ("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(asked)) }
-                try await steps.login(machine, started) { try Self.checked(account, now: now(), started.asked(machine: machine.machine.title)) }
+                try await steps.login(machine, started) { try Self.checked(account, now: now(), asked) }
                 let link = machine.appLink, ownership = await link?.callerOwnership ?? .unknown, state = await link?.stateWord ?? "none", decision = machine.harnessLogin
                 let refusal = relayLoginRefusal(decision, started, machine: machine.machine.title, ownership: ownership)
                 let cached = decision.map { $0.machineProbe == nil && $0.machineLogin == nil ? "unqueried" : $0.cached ? "yes" : "no" } ?? "unqueried" // verdicts only: no id, token, path or provider output
