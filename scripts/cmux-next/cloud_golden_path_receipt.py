@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -151,20 +152,6 @@ def _named_state(records: list[object], tokens: tuple[str, ...]) -> str | None:
 def _named_failures(records: list[object]) -> bool:
     return any(_entry_name(entry) and _entry_state(entry) == "fail" for entry in _dicts(records))
 
-def _unfinished_stages(records: list[object]) -> list[str]:
-    """Stages whose last lifecycle record (the orchestrator's started/ok/error) is `started`."""
-    last: dict[tuple[str, str], str] = {}
-    for entry in _dicts(records):
-        stage = entry.get("stage")
-        status = entry.get("status")
-        if not isinstance(stage, str) or not isinstance(status, str):
-            continue
-        state = _norm(status)
-        if state not in {"started", "ok", "error"}:
-            continue
-        last[(str(entry.get("request_id") or ""), stage)] = state
-    return sorted({_clean(stage) for (_request, stage), state in last.items() if state == "started"})
-
 def _explicit_true(records: list[object], aliases: set[str]) -> bool:
     return any(_truthy(value) for value in _field_values(records, aliases))
 
@@ -226,6 +213,201 @@ def _continuity(records: list[object]) -> tuple[bool, dict[str, object]]:
         },
     )
 
+def _provider_proof(records: list[object]) -> tuple[bool, bool, dict[str, object]]:
+    values = _field_values(records, {
+        "providerverified", "providersuccess", "modelverified", "providerproofverified",
+    })
+    verified = any(_truthy(value) for value in values)
+    rejected = any(_falsey(value) for value in values)
+    if not values:
+        return verified, rejected, {"observed": False}
+    detail: dict[str, object] = {"observed": verified, "verified": verified}
+    if rejected:
+        detail["rejected"] = True
+    return verified, rejected, detail
+
+def _status(blockers: list[str]) -> str:
+    if "receipt_reports_failure" in blockers or "provider_proof_rejected" in blockers:
+        return "fail"
+    return "blocked" if blockers else "pass"
+
+# cmux-platform's GoldenPathReceipt (src/server/cloud/GoldenPathProbe.ts). The CLI row and the
+# platform probe each write one for the same machine; their stages merge here.
+GOLDEN_PATH_STAGES = ("machine", "folder", "readiness", "lease", "auth", "chat", "reconnect")
+_GOLDEN_MACHINE_ID = re.compile(r"vm_[a-z0-9]{1,64}")
+
+def _is_golden_receipt(record: object) -> bool:
+    return (
+        isinstance(record, dict)
+        and record.get("version") == 1
+        and isinstance(record.get("stages"), list)
+        and all(isinstance(item, dict) and isinstance(item.get("stage"), str) for item in record["stages"])
+    )
+
+def _iso_ms(value: object) -> int | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return int(parsed.timestamp() * 1000)
+
+_EVIDENCE_FLAGS = (
+    "ok", "passed", "success", "verified", "found", "discovered", "listed",
+    "paused", "resumed", "running", "reconnected", "reply_ok",
+)
+
+def _evidence(value: dict[str, object], keys: tuple[str, ...], state: str | None = None) -> str | None:
+    """"ok", "fail" or None (no evidence) for the first of `keys` present in a stage value.
+
+    A nested object needs an explicit positive (a true flag, or `state` equal to the
+    expected one); a false flag, a failing status or a different state fails it.
+    """
+    for key in keys:
+        if key not in value or value[key] is None:
+            continue
+        item = value[key]
+        if isinstance(item, dict):
+            flags = [item[flag] for flag in _EVIDENCE_FLAGS if flag in item]
+            observed = item.get("state")
+            if (
+                _entry_state(item) == "fail"
+                or any(not _truthy(flag) for flag in flags)
+                or (state and isinstance(observed, str) and _norm(observed) != state)
+            ):
+                return "fail"
+            if any(_truthy(flag) for flag in flags) or (state and isinstance(observed, str)):
+                return "ok"
+            return None
+        if _truthy(item):
+            return "ok"
+        if _falsey(item) or item in (0, ""):
+            return "fail"
+        return None
+    return None
+
+def _golden_machine_id(receipt_value: dict[str, object]) -> str:
+    candidates = [receipt_value.get("machineId")]
+    for item in receipt_value["stages"]:
+        if item.get("stage") in {"machine", "lease"} and isinstance(item.get("value"), dict):
+            candidates.append(item["value"].get("machineId"))
+    for candidate in candidates:
+        if isinstance(candidate, str) and _GOLDEN_MACHINE_ID.fullmatch(candidate):
+            return candidate
+    return ""
+
+def _normalize_golden(records: list[object]) -> dict[str, object]:
+    receipts = [record for record in records if _is_golden_receipt(record)]
+    blockers: list[str] = []
+    machine_ids = sorted({_golden_machine_id(item) for item in receipts} - {""})
+    if len(machine_ids) > 1:
+        blockers.append("machine_id_mismatch")
+    machine_id = machine_ids[0] if len(machine_ids) == 1 else ""
+
+    reported_failure = False
+    stage_state: dict[str, str] = {}
+    stage_ms: dict[str, int] = {}
+    failures: list[dict[str, object]] = []
+    values: dict[str, list[dict[str, object]]] = {}
+    for receipt_value in receipts:
+        failure = receipt_value.get("failure")
+        failure_code = str(failure.get("code", "")) if isinstance(failure, dict) else ""
+        if receipt_value.get("outcome") != "passed" and not failure_code.endswith(".not_observable"):
+            reported_failure = True
+        for item in receipt_value["stages"]:
+            name = str(item["stage"])
+            ok = item.get("ok") is True
+            started, ended = _iso_ms(item.get("startedAt")), _iso_ms(item.get("endedAt"))
+            if started is not None and ended is not None and ended >= started:
+                stage_ms[name] = max(stage_ms.get(name, 0), ended - started)
+            if ok:
+                stage_state.setdefault(name, "ok")
+                if isinstance(item.get("value"), dict):
+                    values.setdefault(name, []).append(item["value"])
+                continue
+            stage_failure = item.get("failure") if isinstance(item.get("failure"), dict) else {}
+            code = str(stage_failure.get("code", ""))
+            failures.append({
+                "stage": _clean(name, 40),
+                "probe_id": _clean(receipt_value.get("probeId"), 80),
+                "code": _clean(code, 80) or None,
+                "message": _clean(stage_failure.get("message")) or None,
+            })
+            if code.endswith(".not_observable"):
+                if stage_state.get(name) != "failed":
+                    stage_state[name] = "not_observable"
+            else:
+                stage_state[name] = "failed"
+
+    golden_stages = {name: stage_state.get(name, "missing") for name in GOLDEN_PATH_STAGES}
+    for name in sorted(set(stage_state) - set(GOLDEN_PATH_STAGES)):
+        golden_stages[name] = stage_state[name]
+
+    chat_values = values.get("chat", [])
+    session_id = _first_text(chat_values, {"sessionid", "acpsessionid"})
+    discovery = [
+        _evidence(value, ("discovery", "session_discovery", "session_discovered", "sessionDiscovered", "acp_session"))
+        for value in chat_values
+    ]
+    reconnect_values = values.get("reconnect", [])
+    pause = [_evidence(value, ("pause", "paused"), "paused") for value in reconnect_values]
+    resume = [_evidence(value, ("resume", "resumed"), "running") for value in reconnect_values]
+    reconnected = [_evidence(value, ("reconnected",)) for value in reconnect_values]
+    explicit_failure = "fail" in discovery + pause + resume + reconnected
+    chat_ok = golden_stages["chat"] == "ok"
+    reconnect_ok = golden_stages["reconnect"] == "ok"
+    continuity_detail = {
+        "pause_observed": "ok" in pause and "fail" not in pause,
+        "resume_observed": "ok" in resume and "fail" not in resume,
+        "reconnect_observed": reconnect_ok and "fail" not in reconnected,
+        "explicit_failure": explicit_failure,
+    }
+    stages = {
+        "fresh_cloud_chat_start": all(golden_stages[name] == "ok" for name in ("machine", "folder", "readiness"))
+        and chat_ok,
+        "acpmux_session_discovery": chat_ok and bool(session_id) and "ok" in discovery and "fail" not in discovery,
+        "first_reply": chat_ok,
+        "pause_resume_reconnect": reconnect_ok and all(
+            continuity_detail[key] for key in ("pause_observed", "resume_observed", "reconnect_observed")
+        ),
+    }
+
+    provider_true, provider_false, provider_detail = _provider_proof(receipts + [
+        record for record in records if not _is_golden_receipt(record)
+    ])
+    failed_stages = [name for name, state in golden_stages.items() if state == "failed"]
+    if reported_failure or failed_stages or explicit_failure:
+        blockers.append("receipt_reports_failure")
+    blockers.extend(f"stage_failed_{name}" for name in failed_stages)
+    blockers.extend(f"stage_not_observable_{name}" for name, state in golden_stages.items() if state == "not_observable")
+    blockers.extend(f"missing_stage_{name}" for name, state in golden_stages.items() if state == "missing")
+    if provider_false:
+        blockers.append("provider_proof_rejected")
+    if not machine_id and "machine_id_mismatch" not in blockers:
+        blockers.append("missing_machine_id")
+    blockers.extend(f"missing_{stage}" for stage, passed in stages.items() if not passed)
+    if not provider_true:
+        blockers.append("provider_proof_missing")
+
+    probe_ids = [_clean(item.get("probeId"), 80) for item in receipts if item.get("probeId")]
+    return {
+        "schema": SCHEMA,
+        "status": _status(blockers),
+        "request_id": probe_ids[0] if probe_ids else None,
+        "probe_ids": probe_ids,
+        "machine_id": machine_id or None,
+        "session_id": session_id or None,
+        "stages": stages,
+        "golden_path_stages": golden_stages,
+        "stage_ms": stage_ms,
+        "failures": failures,
+        "provider_verification": provider_detail,
+        "continuity": continuity_detail,
+        "blockers": blockers,
+        "evidence": {"record_count": len(records), "receipt_count": len(receipts)},
+    }
+
 def normalize(records: list[object]) -> dict[str, object]:
     if not records:
         return {
@@ -235,25 +417,22 @@ def normalize(records: list[object]) -> dict[str, object]:
             "stages": {},
             "provider_verification": {"observed": False},
         }
+    if any(_is_golden_receipt(record) for record in records):
+        return _normalize_golden(records)
 
     machine_id = _first_id(records, {"machineid", "machine"}, _VM_ID)
     session_id = _first_text(records, {"sessionid", "acpsessionid", "session"})
     reply = _first_text(records, {"reply", "replytext", "firstreply", "firstreplytext"})
     request_id = _first_text(records, {"requestid", "probeid", "runid"})
-    # The golden-path orchestrator (cmuxterm-hq tools/cloud-golden-path) writes per-stage
-    # started/ok/error records: machine.create, chat.first_reply, session.pause/resume/reconnect.
     start_state = _named_state(records, ("startchat", "startsession", "newchat", "cloudchat"))
-    machine_state = _named_state(records, ("machinecreate",))
-    chat_state = _named_state(records, ("chatfirstreply",))
-    start = start_state != "fail" and machine_state != "fail" and chat_state != "fail" and (
+    start = start_state != "fail" and (
         start_state == "ok"
-        or (machine_state == "ok" and chat_state == "ok")
         or any(isinstance(value, dict) for value in _field_values(records, {"firstchat", "startchat"}))
         or (bool(_first_text(records, {"route"})) and bool(machine_id))
     )
     discovery_state = _named_state(
         records,
-        ("sessiondiscover", "sessionlist", "acpsession", "listsessions", "attachsession", "startsession", "chatfirstreply"),
+        ("sessiondiscover", "sessionlist", "acpsession", "listsessions", "attachsession", "startsession"),
     )
     session_discovery = (
         bool(session_id)
@@ -270,26 +449,9 @@ def normalize(records: list[object]) -> dict[str, object]:
         or bool(reply)
         or _explicit_true(records, {"replyok"})
     )
-    unfinished = _unfinished_stages(records)
-    if unfinished:
-        unfinished_tokens = {_norm(stage) for stage in unfinished}
-        if any(token in unfinished_tokens for token in ("machinecreate", "chatfirstreply")):
-            start = False
-        if "chatfirstreply" in unfinished_tokens:
-            session_discovery = first_reply = False
     continuity, continuity_detail = _continuity(records)
 
-    provider_values = _field_values(records, {
-        "providerverified", "providersuccess", "modelverified", "providerproofverified",
-    })
-    provider_true = any(_truthy(value) for value in provider_values)
-    provider_false = any(_falsey(value) for value in provider_values)
-    if not provider_values:
-        provider_detail: dict[str, object] = {"observed": False}
-    else:
-        provider_detail = {"observed": provider_true, "verified": provider_true}
-        if provider_false:
-            provider_detail["rejected"] = True
+    provider_true, provider_false, provider_detail = _provider_proof(records)
 
     stages = {
         "fresh_cloud_chat_start": start,
@@ -299,14 +461,8 @@ def normalize(records: list[object]) -> dict[str, object]:
     }
     blockers: list[str] = []
     failures = [status for status in _statuses(records) if status in {"fail", "failed", "error", "timeout", "timedout", "cancelled"}]
-    if unfinished:
-        stages["pause_resume_reconnect"] = stages["pause_resume_reconnect"] and not any(
-            token in _norm(stage) for stage in unfinished for token in ("pause", "resume", "reconnect")
-        )
-    if failures or bool(continuity_detail["explicit_failure"]) or _named_failures(records) or unfinished:
+    if failures or bool(continuity_detail["explicit_failure"]) or _named_failures(records):
         blockers.append("receipt_reports_failure")
-    if unfinished:
-        blockers.append("stage_unfinished")
     if provider_false:
         blockers.append("provider_proof_rejected")
     if not machine_id:
@@ -317,16 +473,9 @@ def normalize(records: list[object]) -> dict[str, object]:
     if not provider_true:
         blockers.append("provider_proof_missing")
 
-    if "receipt_reports_failure" in blockers or "provider_proof_rejected" in blockers:
-        status = "fail"
-    elif blockers:
-        status = "blocked"
-    else:
-        status = "pass"
-
     return {
         "schema": SCHEMA,
-        "status": status,
+        "status": _status(blockers),
         "request_id": request_id or None,
         "machine_id": machine_id or None,
         "session_id": session_id or None,
@@ -334,7 +483,6 @@ def normalize(records: list[object]) -> dict[str, object]:
         "provider_verification": provider_detail,
         "continuity": continuity_detail,
         "blockers": blockers,
-        "unfinished_stages": unfinished,
         "evidence": {"record_count": len(records)},
     }
 
