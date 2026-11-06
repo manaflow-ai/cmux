@@ -1,14 +1,16 @@
 # cmux-next sidebar: owner note
 
-- 2026-11-05: a workspace row with a notification can stand out more (`sidebar.notificationEmphasis`, Debug Settings;
-  default `standard`, the dot only, unchanged). Aziz, verbatim: "come up with 3 new uxes for surface whether a workspace
-  has a notification in the sidebar. I feel like the current way doesn't capture my attention enough." Three looks for
-  the person to pick from: `edgeBar` (a 3 pt bar down the leading edge where a `leftRail` color bar goes, and a 13%
-  wash of the row at rest, both in the dot's color), `boldPill` (the name in `TypeScale.emphasis` and a filled count pill
-  in the dot's place on the trailing column; a needs-you or failed row with nothing unread keeps its mark), `halo`
-  (a 2.5x disc of the dot's color behind it, pulsing through `Motion.indicators`). A row has a notification when its
-  badge says unread, needs you or failed (`WorkspaceRowAttention`). Row height, the trailing column and the hover
-  controls are unchanged. Regression: `SidebarNotificationEmphasisTests`.
+- 2026-11-05: the sidebar can surface a workspace with a notification much harder (`sidebar.notificationEmphasis`,
+  Debug Settings; default `standard`, the dot only, unchanged). Aziz, verbatim: "come up with 3 new uxes for surface
+  whether a workspace has a notification in the sidebar. I feel like the current way doesn't capture my attention
+  enough", then on a first round of row decorations (edge bar, count pill, halo): too timid, redo. Three structural
+  surfaces for the person to pick from: `inbox` (a Needs You shelf pinned over the top of the list with every workspace
+  that has a notification, most urgent first, wherever its row is; the list's top inset grows by its height),
+  `arrivalCard` (a "Just In" card over the bottom of the list, above the session tree's tray, for each notification that
+  arrives after the sidebar first drew; the arriving row flashes; it leaves when read or dismissed), `loudRows` (a row
+  with a notification paints solid in its badge color with white text and a white count pill, and "↑ N above" / "↓ N
+  below" beacons at the list's edges take you to rows scrolled out of view). A notification is the badge's unread,
+  needs-you or failed state (`WorkspaceRowAttention`); no surface moves a row. Regression: `SidebarNotificationEmphasisTests`.
 - 2026-11-05: every workspace row's trailing glyph box ends the row inset before its fill's end, as its leading glyph
   box starts the row inset after the fill's start. Lawrence, verbatim: "too much padding on right. padding on left/right
   of every workspace needs to be even." The trailing column centers `horizontalInset + statusGlyphSize / 2` inside the

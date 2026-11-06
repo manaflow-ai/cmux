@@ -124,7 +124,7 @@
   "sidebar.laneStatus": {"case": "keep", "why": "Off by default (Lawrence 10-21); the switch adds agent lane state to row status marks."},
   "sidebar.multiView": {"case": "keep", "why": "A multi-view prototype that is off because it is not finished."},
   "sidebar.notificationBadge": {"case": "keep", "why": "A look comparison for unread badges; the classic look is the shipped default."},
-  "sidebar.notificationEmphasis": {"case": "keep", "why": "A look comparison of how loudly a row with a notification stands out (Aziz 11-05); the dot-only default stays until a look is picked."},
+  "sidebar.notificationEmphasis": {"case": "keep", "why": "A comparison of how the sidebar surfaces a workspace with a notification (inbox shelf, arrival card, loud rows; Aziz 11-05); the dot-only default stays until one is picked."},
   "sidebar.notificationIcon": {"case": "keep", "why": "A look comparison of bell versus inbox glyphs; the bell default is the chosen one."},
   "sidebar.nowLine": {"case": "keep", "why": "Off by default (Lawrence 10-21); the switch adds a 'Now:' second line to working rows."},
   "sidebar.presenceDots": {"case": "keep", "why": "Off until the dots are styled into the row (code comment); the feed runs either way."},

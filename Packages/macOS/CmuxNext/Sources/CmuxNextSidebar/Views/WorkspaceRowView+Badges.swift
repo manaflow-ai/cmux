@@ -62,7 +62,7 @@ extension WorkspaceRowView {
         let column = columns.trailingCenter()
         let view: NSView
         if let pill = layoutEmphasisPill(column: column, cy: cy) {
-            view = pill // the bold-pill look's count, in the dot's place (WorkspaceRowView+Emphasis)
+            view = pill // a loud row's count, in the dot's place (WorkspaceRowView+Emphasis)
         } else if !rowBadge.isHidden {
             // The nearest backing pixel, so the last glyph's center stays on the column (a floor moved it up to a point left).
             // With no window the scale is unknown: whole points, on the pixel grid at every scale (a 2x guess put the 10 pt

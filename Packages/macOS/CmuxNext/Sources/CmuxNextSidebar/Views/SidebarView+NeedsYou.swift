@@ -37,7 +37,9 @@ extension SidebarView {
         let height = isEditingItems ? 0 : needsYouTray.preferredHeight, inset = Metrics.space2
         needsYouTray.frame = NSRect(x: listFrame.minX + inset, y: listFrame.maxY - height - (height > 0 ? inset : 0),
                                     width: max(0, listFrame.width - 2 * inset), height: height)
-        let bottom = height > 0 ? height + 2 * inset : 0
+        let tray = height > 0 ? height + 2 * inset : 0
+        // The notification shelves and beacons (SidebarView+Attention): the arrival card sits above the tray.
+        let bottom = tray + layoutAttention(over: listFrame, bottomTaken: tray)
         if scrollView.contentInsets.bottom != bottom { scrollView.contentInsets.bottom = bottom }
     }
 }

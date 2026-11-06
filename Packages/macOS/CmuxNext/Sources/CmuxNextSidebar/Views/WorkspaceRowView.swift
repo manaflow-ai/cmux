@@ -25,7 +25,7 @@ final class WorkspaceRowView: SidebarRowView {
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
-    /// How loudly a row with a notification stands out (`SidebarNotificationEmphasis`, WorkspaceRowView+Emphasis).
+    /// The loud-rows look's part of the row (`SidebarNotificationEmphasis`, WorkspaceRowView+Emphasis).
     let emphasis = WorkspaceRowEmphasis()
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
     let presenceDots = PresenceDotsView()

@@ -86,7 +86,7 @@ extension WorkspaceRowView {
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
             let colored = colorFill() // `workspaceColors.indicatorStyle` (#25653): fill or rail
-            let painted = paintEmphasis(over: colored ?? fill, colorFilled: colored != nil) // a notification's wash, bar, pill, halo
+            let painted = paintEmphasis(over: colored ?? fill, colorFilled: colored != nil) // the loud-rows look: solid in the notification's color
             paintFill(painted)
             // The one border: the focus ring of the group this row stands for, as its header draws it.
             layer?.borderColor = Palette.focusRing.cgColor
@@ -102,7 +102,6 @@ extension WorkspaceRowView {
         activity.dotDiameter = SidebarStyle.statusDotSize // one diameter for every status dot (Lawrence msg 19696)
         let full = layoutBounds
         layoutColorRail(in: full)
-        layoutEmphasis(in: full)
         // The name lines and the trailing cluster center in the head; the
         // status block, when shown, fills the rest below it.
         let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
