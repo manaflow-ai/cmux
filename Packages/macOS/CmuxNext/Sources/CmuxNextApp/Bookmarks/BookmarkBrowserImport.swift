@@ -154,11 +154,13 @@ struct BookmarkBrowserImport {
             }
             let items = bookmarks.map { BookmarkImportItem(title: $0.title, url: $0.url, folderPath: $0.folderPath, created: $0.dateAdded) }
             do {
-                let undo = try services.bookmarks.importSource(items, title: Self.folderTitle(profile), sourceKey: profile.id, profile: target)
-                outcome.added += undo.result.added
-                outcome.duplicates += undo.result.duplicates
+                let undo = services.bookmarks.importUndo(sourceKey: profile.id, profile: target)
+                let counts = try await services.bookmarks.routed.importSource(items, title: Self.folderTitle(profile), sourceKey: profile.id,
+                                                                       profile: target)
+                outcome.added += counts.added
+                outcome.duplicates += counts.duplicates
                 outcome.sources.append(Self.pickerTitle(profile))
-                outcome.undo.append(undo.undo)
+                outcome.undo.append(undo)
             } catch {
                 outcome.failed.append(Self.pickerTitle(profile))
             }
@@ -186,13 +188,10 @@ struct BookmarkBrowserImport {
 }
 
 extension BookmarkService {
-    /// Applies one source's import and returns how to undo it.
-    func importSource(_ items: [BookmarkImportItem], title: String, sourceKey: String, profile: String) throws
-        -> (result: BookmarkImportPlan.SourceImport, undo: BookmarkBrowserImport.Undo) {
+    /// How to put one source's folder back as it is now, before its import replaces it.
+    func importUndo(sourceKey: String, profile: String) -> BookmarkBrowserImport.Undo {
         let previous = tree(profile).folder(sourceKey: sourceKey).flatMap { tree(profile).draft(of: $0.id) }
-        let result = BookmarkImportPlan.sourceImport(title: title, sourceKey: sourceKey, items: items)
-        try apply(result.operation, profile: profile)
-        return (result, BookmarkBrowserImport.Undo(profile: profile, sourceKey: sourceKey, previous: previous))
+        return BookmarkBrowserImport.Undo(profile: profile, sourceKey: sourceKey, previous: previous)
     }
 
     /// Puts each source's folder back as it was before the import, newest first.

@@ -3,20 +3,15 @@ import CmuxNextActions
 import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextPages
 import Foundation
-import UniformTypeIdentifiers
 
-/// Opens `cmux://bookmarks` and keeps open manager pages current.
+/// Opens `cmux://bookmarks` and makes its pages (the React manager, ``PageDescriptor/bookmarks``).
 @MainActor
 final class BookmarkPageService {
     private unowned let services: AppServices
-    /// Live manager pages (weak), reloaded when their profile changes.
-    private var pages: [WeakPage] = []
-
-    private final class WeakPage {
-        weak var page: BookmarkPageTab?
-        init(_ page: BookmarkPageTab) { self.page = page }
-    }
+    /// The bookmark the next manager page shows (``open(selecting:)`` of a new page).
+    private var pendingReveal: String?
 
     init(services: AppServices) {
         self.services = services
@@ -30,11 +25,12 @@ final class BookmarkPageService {
         for pane in window.content?.panes.values.map({ $0 }) ?? [] {
             if let tab = pane.pane.tabs.first(where: { BookmarkPageAddress.matches($0.url.flatMap(URL.init(string:))) }) {
                 pane.select(StripTabID(tab.id))
-                if let id, let page = services.cache.existingBrowser(tab.id)?.tab as? BookmarkPageTab { reveal(id, in: page) }
+                if let id, let page = services.cache.existingBrowser(tab.id)?.tab as? BookmarkPageTab { page.reveal(id) }
                 return
             }
         }
         guard let pane = window.focusedPane else { return }
+        pendingReveal = id
         if let tab = pane.selectedTab, tab.kind == .browser, let page = services.cache.existingBrowser(tab.id)?.tab,
            BrowserNewTabPage.isNewTabPage(page.state.url) {
             services.cache.showAppPage(BookmarkPageAddress.url, in: tab)
@@ -43,99 +39,37 @@ final class BookmarkPageService {
         pane.newBrowserTab(url: BookmarkPageAddress.url)
     }
 
-    private func reveal(_ id: String, in page: BookmarkPageTab) {
-        page.model.reload()
-        guard let node = page.model.tree.node(id) else { return }
-        page.model.query = ""
-        page.model.folder = node.parent
-        page.model.selection = [id]
-    }
-
-    /// A manager page for tab `key`.
+    /// A manager page for tab `key`; `reveal` shows that bookmark once the page has its tree.
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> BookmarkPageTab {
-        let source = BookmarkManagerSourceAdapter(services: services, tabKey: key)
-        let page = BookmarkPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: source)
-        pages = pages.filter { $0.page != nil } + [WeakPage(page)]
-        return page
+        let host = BookmarkPageHostProvider(host: services, tabKey: key)
+        let reveal = pendingReveal
+        pendingReveal = nil
+        return BookmarkPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, host: host,
+                               webPage: webPage(host, reveal: reveal))
     }
 
     /// A manager page for top page `key` (no tab): `profile` names the
     /// bookmarks it shows (the window's workspace's browser profile).
     func makeTopPage(key: String, profile: @escaping @MainActor () -> String) -> BookmarkPageTab {
-        let source = BookmarkManagerSourceAdapter(services: services, tabKey: key)
-        source.profileOverride = profile
-        let page = BookmarkPageTab(id: BrowserTabID(rawValue: key), engine: .webkit, profile: .default, source: source)
-        pages = pages.filter { $0.page != nil } + [WeakPage(page)]
+        let host = BookmarkPageHostProvider(host: services, tabKey: key)
+        host.profileOverride = profile
+        return BookmarkPageTab(id: BrowserTabID(rawValue: key), engine: .webkit, profile: .default, host: host,
+                               webPage: webPage(host, reveal: nil))
+    }
+
+    /// The page's routes: the tree to the daemon relay, `cmux.bookmarkPage.` to `host`, the
+    /// native steps (the page's registry actions, the clipboard) to the app.
+    private func webPage(_ host: BookmarkPageHostProvider, reveal: String?) -> PageWebView? {
+        let relay = DaemonPageRelay(services: services)
+        let native = AppPageNativeProvider(services: services, page: .bookmarks)
+        native.forward = { op, params, context in try await relay.call(op, params: params, context: context) }
+        let routes = [PageRoute(prefix: "cmux.bookmarks.", provider: relay),
+                      PageRoute(prefix: BookmarkPageHostProvider.prefix, provider: host),
+                      PageRoute(prefix: "cmux.app.", provider: native)]
+        let route = reveal.flatMap { $0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) }.map { "#/?reveal=" + $0 }
+        guard let page = PageWebView(descriptor: .bookmarks, routes: routes, route: route) else { return nil }
+        native.anchor = { [weak page] in page }
+        PageConnectionWatch(page: page, store: services.machines.local.store).start()
         return page
-    }
-
-    func reload(profiles: Set<String>) {
-        for weak in pages {
-            guard let page = weak.page, profiles.contains(page.source.profile) else { continue }
-            page.model.reload()
-        }
-    }
-}
-
-/// One manager page's source: the tab's browser profile.
-@MainActor
-final class BookmarkManagerSourceAdapter: BookmarkManagerSource {
-    private unowned let services: AppServices
-    let tabKey: String
-
-    init(services: AppServices, tabKey: String) {
-        self.services = services
-        self.tabKey = tabKey
-    }
-
-    /// A top page's source names its profile; a tab's source uses the tab's.
-    var profileOverride: (@MainActor () -> String)?
-
-    var profile: String { profileOverride?() ?? services.bookmarks.profile(ofTab: tabKey) }
-
-    var managerTree: BookmarkTree { services.bookmarks.tree(profile) }
-
-    func favicon(for node: BookmarkNode) -> CGImage? {
-        if node.isFolder { return services.bookmarks.folderIconCGImage(of: node) }
-        return services.bookmarks.favicon(of: node, profile: profile, fetching: true)?.cgImage
-    }
-
-    var canSetFolderIcons: Bool { services.bookmarks.supportsFolderIcons }
-
-    /// Set Icon and Remove Icon on a folder row run the same actions as the bar's menu.
-    func setIcon(of node: BookmarkNode) { perform("bookmark.setIcon", on: node) }
-    func removeIcon(of node: BookmarkNode) { perform("bookmark.clearIcon", on: node) }
-
-    private func perform(_ id: ActionID, on node: BookmarkNode) {
-        services.registry.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .bookmark, id: node.id)))
-    }
-
-    func apply(_ operation: BookmarkOperation) -> Bool {
-        do {
-            try services.bookmarks.apply(operation, profile: profile)
-            return true
-        } catch {
-            services.registry.refuse(BookmarkAppStrings.failure(error))
-            return false
-        }
-    }
-
-    func open(_ node: BookmarkNode, disposition: BookmarkOpenDisposition) {
-        BookmarkOpener(services: services).open(node, profile: profile, disposition: disposition, fromTab: tabKey)
-    }
-
-    func openAll(in folder: String) {
-        BookmarkOpener(services: services).openAll(in: folder, profile: profile, fromTab: tabKey)
-    }
-
-    /// The ⋮ menu's rows run the registered actions on this page's profile; Add Bookmark and New
-    /// Folder add to `folder` and ask for the rest in the palette, as from the bookmarks bar.
-    func moreMenu(folder: String) -> NSMenu? {
-        services.registry.makeContextMenu(for: .bookmarkManager, arguments: ["folder": .string(folder), "profile": .string(profile)])
-    }
-
-    func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
 }
