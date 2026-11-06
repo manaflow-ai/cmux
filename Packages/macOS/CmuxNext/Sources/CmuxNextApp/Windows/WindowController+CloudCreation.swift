@@ -11,18 +11,23 @@ extension WindowController {
         return "\(id):\(mirrored)"
     }
 
+    /// The window's Cloud creation whose progress still shows: its workspace is not mirrored yet.
+    var pendingCreation: CloudMachineCreation? {
+        guard let id = state.cloudCreation, let creation = services.cloud.creations.creation(id),
+              creation.workspaceID.flatMap(services.machines.workspace(id:)) == nil else { return nil }
+        return creation
+    }
+
     /// Shows the window's Cloud creation (cx-lu8f) until its workspace is
     /// mirrored; then the window shows that workspace. False when there is
     /// none to show.
     func showCreation() -> Bool {
         guard let id = state.cloudCreation else { return false }
-        guard let creation = services.cloud.creations.creation(id) else {
+        guard let creation = pendingCreation else {
+            // Gone, or its workspace is mirrored: then the window shows that workspace.
+            let opened = services.cloud.creations.creation(id)?.workspaceID
             state.cloudCreation = nil
-            return false
-        }
-        if let opened = creation.workspaceID, services.machines.workspace(id: opened) != nil {
-            state.cloudCreation = nil
-            if state.workspaceID != opened { services.windows.select(opened, in: state) }
+            if let opened, state.workspaceID != opened { services.windows.select(opened, in: state) }
             return false
         }
         // The view in the content area is the creation's own record (no stored property).

@@ -29,7 +29,7 @@ const CALLER_TAB: &str = "tab_66666666666666666666666666666666";
 const NEW_TAB: &str = "tab_77777777777777777777777777777777";
 const NEW_BROWSER: &str = "browser_88888888888888888888888888888888";
 const URL: &str = "http://127.0.0.1:8765/opener-a.html";
-const HOME_REFUSAL: &str = "openBrowser unavailable: This page has no tabs.";
+const HOME_REFUSAL: &str = "openBrowser unavailable: This page has no panes.";
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 #[test]
@@ -198,7 +198,7 @@ fn browser_open_from_a_terminal_in_the_shown_workspace_opens_in_that_pane() {
 
 /// cmux-lawrence-2 GUI check of 772c55184089: the app starts on the Home
 /// page (no panes). From an SSH shell both verbs failed with
-/// `openBrowser unavailable: This page has no tabs.`; before 772c the daemon
+/// `openBrowser unavailable: This page has no tabs.` (the text then); before 772c the daemon
 /// opened the tab on its default pane.
 fn assert_opens_on_the_daemon_default_pane_when_the_window_shows_a_page(args: &[&str]) {
     let run = Run::app(AppMode::Home).cli(args, None);
@@ -253,7 +253,7 @@ fn an_app_refusal_prints_the_refusal_and_no_retry_note() {
         let run = Run::app(AppMode::Refuse).cli(&args, Some(CALLER_TERMINAL));
         assert!(!run.output.status.success(), "the refusal must fail the command");
         let printed = format!("{}{}", String::from_utf8_lossy(&run.output.stdout), run.stderr());
-        assert!(printed.contains("This page has no tabs."), "{printed}");
+        assert!(printed.contains("This page has no panes."), "{printed}");
         assert!(!printed.contains("outcome_unknown"), "{printed}");
         assert!(!printed.contains("idempotency"), "{printed}");
     }
@@ -467,7 +467,7 @@ fn app_response(mode: AppMode, request: &Value) -> Value {
     if refused {
         return json!({"id": request["id"], "ok": false, "error": {"code": "unavailable",
             "message": HOME_REFUSAL,
-            "data": {"action": "openBrowser", "reason": "This page has no tabs."}}});
+            "data": {"action": "openBrowser", "reason": "This page has no panes."}}});
     }
     // The real app maps created ids only after a waited run settles; a run
     // that does not wait answers `created: []` at once.

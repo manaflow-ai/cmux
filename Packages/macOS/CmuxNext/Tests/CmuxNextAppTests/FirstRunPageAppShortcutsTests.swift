@@ -90,6 +90,55 @@ struct FirstRunPageAppShortcutsTests {
         }
     }
 
+    /// A stale workspace id (a workspace that closed or moved while the page showed) must not make
+    /// the window refuse Ctrl-`: leaving the page shows the window's first listed workspace, as
+    /// `showWorkspace` does, so `leavingShowsWorkspace` must say so and the key must still make a
+    /// focused terminal (review of #35092, note a).
+    @Test func newTerminalKeyOverThePageWithAStaleWorkspaceIDStillMakesATerminal() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            let controller = try #require(services.windows.active)
+            try Self.showFirstRunPage(services, controller)
+            controller.state.workspaceID = "workspace-that-is-gone-\(UUID().uuidString)"
+            #expect(controller.leavingShowsWorkspace, "a stale id hides the workspace showWorkspace falls back to")
+            let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
+
+            let reply = Self.press("`", ["control"], services)
+            #expect(services.keyRouter.lastInterception?.ran == true, "New Terminal Tab was refused: \(Self.report(services, controller, reply))")
+            try await PasswordManagerRouteTests.until({
+                guard controller.shownTopPage == nil, case .terminal(_, let tab) = controller.focus.state.resolved else { return false }
+                return !before.contains(tab) && !ProvisionalTab.isProvisional(tab)
+            }, report: { Self.report(services, controller, reply) })
+        }
+    }
+
+    /// Leaving the page shows a waiting view, not a pane, in two cases where the window's id is
+    /// stale: its Cloud machine is paused (the paused machine's view), or a create of that workspace
+    /// returned before the store listed it (the connecting view). Ctrl-` is then refused and the page
+    /// stays: a leave would lose the key (the handler finds no pane). Lead 2026-11-04 on #35168.
+    @Test(arguments: ["paused Cloud machine", "create not listed yet"])
+    func newTerminalKeyOverThePageWhereTheLeaveShowsAWaitingViewKeepsThePage(_ waiting: String) async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            let controller = try #require(services.windows.active)
+            try Self.showFirstRunPage(services, controller)
+            let stale = "workspace-not-here-\(UUID().uuidString)"
+            if waiting == "paused Cloud machine" {
+                let session = MachineIconTests.cloudMachine(services, id: "vm-page-\(UUID().uuidString.prefix(8))")
+                session.machine.status = .paused
+                controller.state.machineID = session.machineID
+            } else {
+                services.windows.claims.pending[stale] = controller.state.id
+            }
+            controller.state.workspaceID = stale
+            #expect(!controller.leavingShowsWorkspace, "\(waiting): leaving shows a waiting view, not a pane")
+            let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
+
+            let reply = Self.press("`", ["control"], services)
+            #expect(services.keyRouter.lastInterception?.ran != true, "\(waiting): Ctrl-` ran: \(Self.report(services, controller, reply))")
+            #expect(controller.shownTopPage == .page(.importHistory), "\(waiting): the page was left for a waiting view")
+            #expect(Set(PasswordManagerRouteTests.tabs(services).map(\.id)) == before)
+        }
+    }
+
     /// The class, not one key: New Tab (Cmd-T) over the page opens a tab in the workspace too.
     @Test func newTabKeyOverTheFirstRunPageOpensATab() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in

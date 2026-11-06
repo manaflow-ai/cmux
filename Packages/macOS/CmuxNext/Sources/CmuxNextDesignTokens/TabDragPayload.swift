@@ -8,6 +8,14 @@ public nonisolated enum TabDragPayload: Hashable, Sendable {
     /// A whole tab group. `width` is the group's width in its source strip,
     /// so a destination strip can open a gap of the same size.
     case tabGroup(id: String, tabIDs: [String], sourceStripID: UUID, width: CGFloat)
+
+    /// Tab or group id, for surfaces that key a drag by one string.
+    public var dragID: String {
+        switch self {
+        case .tab(let id, _): id
+        case .tabGroup(let id, _, _, _): id
+        }
+    }
 }
 
 /// Edge of a pane for a new split.

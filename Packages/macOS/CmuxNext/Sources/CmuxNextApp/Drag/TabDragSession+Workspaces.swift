@@ -127,10 +127,3 @@ extension TabDragSession {
              cardness: 1, opacity: 0, scale: 0.7)
     }
 }
-
-extension TabDragContext {
-    /// Workspace drags never resolve tab outcomes; a neutral context.
-    static func workspaces(count: Int) -> TabDragContext {
-        TabDragContext(sourcePaneID: "", sourcePaneTabCount: 0, sourceWorkspaceID: "", sourceWorkspaceTabCount: 0, draggedTabCount: count)
-    }
-}

@@ -80,6 +80,11 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
         self.sourceGroupID = sourceGroupID
     }
 
+    /// Workspace drags never resolve tab outcomes; a neutral context.
+    public static func workspaces(count: Int) -> TabDragContext {
+        TabDragContext(sourcePaneID: "", sourcePaneTabCount: 0, sourceWorkspaceID: "", sourceWorkspaceTabCount: 0, draggedTabCount: count)
+    }
+
     /// Whether a strip drop at final `index` (clamped to the strip without
     /// the dragged tabs) joining `groupID` leaves the tabs where they are.
     func isOwnPlace(strip: UUID, index: Int, groupID: String?) -> Bool {

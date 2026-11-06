@@ -71,7 +71,7 @@ fn open_browser_passes_an_asked_engine_and_no_engine_otherwise() {
 fn only_a_run_the_app_never_started_counts_as_never_ran() {
     let refused = |error: Value| never_ran(&Failure::Resource(error));
     assert!(refused(
-        json!({"code": "unavailable", "details": {"reason": "This page has no tabs."}})
+        json!({"code": "unavailable", "details": {"reason": "This page has no panes."}})
     ));
     assert!(refused(json!({"code": "busy", "details": {"state": "not_run"}})));
     assert!(refused(json!({"code": "timeout", "details": {"not_run": true}})));
