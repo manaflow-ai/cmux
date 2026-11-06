@@ -490,6 +490,7 @@
       "terminal-ports",
       "terminal-read-range",
       "terminal-resources",
+      "terminal-last-command",
       "terminal-resume-command",
       "undo-layout",
       "ungroup-screen-group",

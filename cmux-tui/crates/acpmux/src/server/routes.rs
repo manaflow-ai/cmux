@@ -177,7 +177,13 @@ pub(super) async fn handle(
             }
             let route = text("routeId").map(str::to_owned);
             if let Some(id) = &route {
-                routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
+                let found = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
+                // A route turned off is no default: new chats would keep running on it.
+                if found.file.disabled {
+                    return Err(RpcError::invalid_params(format!(
+                        "{id} is turned off: turn it on before making it a default"
+                    )));
+                }
             }
             let bindings = routes::set_binding(&state, &scope, route.as_deref())
                 .map_err(|e| route_error(&e))?;

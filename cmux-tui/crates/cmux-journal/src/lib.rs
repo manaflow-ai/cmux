@@ -18,6 +18,9 @@
 //! - **Streams.** A [`Class::Stream`] record (terminal output, streamed agent tokens) is written in
 //!   the next batch, so a kill of every process keeps it, and synced with the next acked batch, or
 //!   [`Config::stream_sync_delay`] after its write when no acked batch comes.
+//!   [`Journal::on_written`] reports each batch's write, before its sync: a reply that promises
+//!   only that a kill of every process keeps its change (a daemon's kept class) waits for that,
+//!   and [`Journal::wait_durable`] asks for the sync at once instead of the delay.
 //!
 //! Sync levels ([`SyncLevel`]): an acked batch is synced with `F_BARRIERFSYNC` on macOS
 //! (`fdatasync` on Linux, `FlushFileBuffers` on Windows), so an acknowledged change survives a
@@ -26,7 +29,8 @@
 //! loss on macOS takes back at most that interval of acked batches, always a suffix. Rotation,
 //! seal and recovery always sync fully.
 //!
-//! Files (the journal directory): `LOCK` (an exclusive lock held by the one writer), the segments
+//! Files (the journal directory): `LOCK` (an exclusive lock held by the one writer until a seal
+//! that kept everything or the drop, so the next open after a seal never waits), the segments
 //! (`<segment number, 20 digits>.seg`: a header, then records and sync markers back to back, see
 //! `format.rs`), `quarantine/` for segments recovery could not read past damage that is not a
 //! torn tail (named `<segment>.<n>.<floor>`: no LSN at or below `floor` is used again),

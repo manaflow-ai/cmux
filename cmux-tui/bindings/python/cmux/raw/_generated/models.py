@@ -2084,6 +2084,22 @@ class TerminalKeyInput:
 
 
 @dataclass(frozen=True)
+class TerminalLastCommand:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalLastCommand'
+    command: str
+    ended_at_ms: str
+    exit_code: Union[int, None]
+    started_at_ms: str
+
+
+@dataclass(frozen=True)
+class TerminalLastCommandResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalLastCommandResult'
+    terminal_id: str
+    last_command: Union[TerminalLastCommand, None]
+
+
+@dataclass(frozen=True)
 class TerminalModifiers:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalModifiers'
     alt: bool
@@ -4942,6 +4958,13 @@ class TerminalHistoryRequest:
 
 
 @dataclass(frozen=True)
+class TerminalLastCommandRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-last-command/request'
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class TerminalPortsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/terminal-ports/request'
     surface: Id
@@ -6404,6 +6427,8 @@ __all__ = [
     'TerminalHistoryPage',
     'TerminalHistoryPagesResult',
     'TerminalKeyInput',
+    'TerminalLastCommand',
+    'TerminalLastCommandResult',
     'TerminalModifiers',
     'TerminalPlacement',
     'TerminalPortsListener',
@@ -6739,6 +6764,7 @@ __all__ = [
     'TerminalClipboardSubscribeRequest',
     'TerminalEventsRequest',
     'TerminalHistoryRequest',
+    'TerminalLastCommandRequest',
     'TerminalPortsRequest',
     'TerminalReadRangeRequest',
     'TerminalResourcesRequest',

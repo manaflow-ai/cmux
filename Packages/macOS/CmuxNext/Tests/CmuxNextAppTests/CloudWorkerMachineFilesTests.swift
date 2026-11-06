@@ -99,6 +99,18 @@ struct CloudWorkerMachineFilesTests {
         }
     }
 
+    /// Set Up GitHub's script runs on the Worker exec route, as `cmux`: a NEXT machine id is a Worker
+    /// id, which classic `/api/vm/{id}/exec` does not know.
+    @Test func gitHubSetupExecsOnTheWorkerRoute() async throws {
+        WorkerAPI.seen = []
+        let machine = "vm_aaaaaaaaaaaaaaaaaaaa", identity = CloudGitHubSetup.GitIdentity(name: "Ann", email: "ann@example.test")
+        let outcome = try await CloudGitHubSetup.run(identity, app: true, machine: machine, on: worker())
+        #expect(outcome == CloudGitHubSetup.parse(exitCode: 0, stdout: "ok"))
+        #expect(WorkerAPI.seen.map(\.url) == ["https://machines.standin.invalid/v1/cloud/machines/\(machine)/exec"])
+        #expect(WorkerAPI.seen.first?.body["command"] as? String == CloudGitHubSetup.command(identity, app: true))
+        #expect(WorkerAPI.seen.first?.body["timeoutMs"] as? Int == CloudGitHubSetup.timeoutMs)
+    }
+
     @Test func theClassicClientKeepsItsRoutesAndHeaders() async throws {
         WorkerAPI.seen = []
         let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],

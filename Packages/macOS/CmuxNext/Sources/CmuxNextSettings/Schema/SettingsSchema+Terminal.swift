@@ -38,7 +38,8 @@ nonisolated enum TerminalSettingsSchema {
                                          "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari"),
                 summary: SettingsText.keyed("settings.terminal.linkOpener.rules.summary", "Rules for program links"),
                 kind: .stringList, default: .array([]),
-                keywords: ["browser", "rules", "url", "link", "caller", "regex", "profile", "script"]
+                keywords: ["browser", "rules", "url", "link", "caller", "regex", "profile", "script"],
+                placeholder: SettingText(key: nil, text: "caller:gh github.com -> safari")
             ),
             SettingDescriptor(
                 TerminalTermSetting.configPath, section: .terminal, group: compatibility,

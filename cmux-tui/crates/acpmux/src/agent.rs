@@ -16,6 +16,7 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
+pub(crate) mod foreign_login;
 #[cfg(unix)]
 pub(crate) mod session_tmp;
 pub(crate) use command::{
@@ -1833,6 +1834,24 @@ impl ChildAgent {
         let mut guard = self.child.lock().await;
         let child = guard.as_mut()?;
         matches!(child.try_wait(), Ok(None)).then(|| f(pid))
+    }
+
+    /// The processes under its harness, for ending some of them (`hub/silent_listing.rs`),
+    /// never found from a bare pid, which a reaped process gives up: a direct child's
+    /// descendants read while it is not reaped, under its slot's lock; a hosted one's, every
+    /// process that carries its host's start nonce (`HOST_MARK`).
+    #[cfg(unix)]
+    pub(crate) async fn harness_processes(&self) -> Vec<crate::agent_host::tree::Started> {
+        if let Some(record) = self.host_record() {
+            let nonce = record.start_nonce;
+            return tokio::task::spawn_blocking(move || {
+                crate::agent_host::tree::marked(crate::agent_host::HOST_MARK, &nonce)
+            })
+            .await
+            .unwrap_or_default();
+        }
+        let guard = self.child.lock().await;
+        under_unreaped(guard.as_ref()).await
     }
 
     /// The host record when this agent runs under a host.
