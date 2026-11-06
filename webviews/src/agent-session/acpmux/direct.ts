@@ -1816,8 +1816,9 @@ function seedRoots(
 export class AcpmuxDirectClient {
   // A busy daemon may legitimately emit no frame for many seconds, so quiet alone never ends a
   // socket. While a request waits and the socket has been quiet this long, the pane asks the daemon
-  // one cheap question on it (`probeDaemon`): any frame back, an answer or a busy refusal, says it
-  // is alive and only slow, and its socket and requests are kept.
+  // one cheap question on it (`probeDaemon`): the daemon's own answer, or its busy refusal, says it
+  // is alive and only slow, and its socket and requests are kept. Any other frame proves nothing:
+  // the app's bridge answers some requests itself (`_acpmux/status`, refusals), also with no daemon.
   private static readonly DAEMON_PROBE_AFTER_MS = 5_000;
   // No frame at all this long after that question: nothing behind the open socket answers (acpmux
   // restarted under the app's bridge). The pane gives the socket up and asks its host for a fresh
@@ -1864,11 +1865,9 @@ export class AcpmuxDirectClient {
   /// failure: a busy daemon may answer later, while a close still rejects promptly.
   private daemonWaitingSince?: number;
   private daemonLastFrameAt = Date.now();
-  /// Frames this client took from its current socket: a probe is answered once it grows.
-  private daemonFrames = 0;
-  /// The liveness probe out on the current socket, with the frame count when it went; none
-  /// while no request waits.
-  private daemonProbe?: { at: number; frames: number };
+  /// The liveness probe out on the current socket, by request id and when it went; none while no
+  /// request waits or once the daemon answered it.
+  private daemonProbe?: { at: number; id: number };
   private daemonLivenessTimer?: ReturnType<typeof setTimeout>;
   /// The daemon's count of this connection's work requests: a page never sends past it
   /// (requestBudget.ts). Reset with the connection.
@@ -3580,10 +3579,7 @@ export class AcpmuxDirectClient {
   }
 
   private receive(raw: string, stale = false): void {
-    if (!stale) {
-      this.daemonLastFrameAt = Date.now();
-      this.daemonFrames += 1;
-    }
+    if (!stale) this.daemonLastFrameAt = Date.now();
     // A frame that is not a JSON object is dropped like one that is not JSON (`null` would throw at `in`).
     // Parsed once: the wire log takes the parsed frame.
     const parsed = parseJsonObjectFrame(raw);
@@ -3591,6 +3587,10 @@ export class AcpmuxDirectClient {
     const message = parsed as Reply | Notification | null;
     if (!message) return;
     if ("id" in message && (typeof message.id === "number" || typeof message.id === "string")) {
+      if (!stale && this.daemonProbe?.id === message.id) {
+        this.probeAnswered(message);
+        return;
+      }
       const request = this.pending.get(message.id);
       const busy = (message.error?.data as { reason?: unknown } | undefined)?.reason === "connection.busy";
       if (request && busy && request.retryable) {
@@ -4574,8 +4574,7 @@ export class AcpmuxDirectClient {
   private armDaemonLiveness(): void {
     if (this.daemonLivenessTimer !== undefined || this.closed) return;
     const probe = this.daemonProbe;
-    const due =
-      probe && this.daemonFrames === probe.frames
+    const due = probe
         ? probe.at + AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS
         : this.daemonLastFrameAt + AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS;
     this.daemonLivenessTimer = setTimeout(
@@ -4595,7 +4594,7 @@ export class AcpmuxDirectClient {
     }
     const now = Date.now();
     const probe = this.daemonProbe;
-    if (probe && this.daemonFrames === probe.frames) {
+    if (probe) {
       if (now - probe.at >= AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS) {
         // The socket stayed open but nothing behind it answered, not even the probe: give it up
         // now, as when it closes, so waiting requests fail through the lost path and the pane asks
@@ -4613,18 +4612,31 @@ export class AcpmuxDirectClient {
       }
     } else if (now - this.daemonLastFrameAt >= AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS) {
       this.probeDaemon(socket);
-    } else this.daemonProbe = undefined;
+    }
     this.armDaemonLiveness();
   }
 
-  /// Asks the daemon on `socket` one cheap question, outside the request budget: any frame back
-  /// (its answer, or a busy refusal) proves the daemon alive. The answer has no waiter; `receive`
-  /// drops it.
+  /// The reply to the liveness probe. Only a result, or acpmux's own busy refusal, comes from the
+  /// daemon; an error the bridge made (a refusal, an unavailable daemon) leaves the probe out, and
+  /// its deadline gives the socket up.
+  private probeAnswered(message: Reply): void {
+    const busy = (message.error?.data as { reason?: unknown } | undefined)?.reason === "connection.busy";
+    if (message.error && !busy) return;
+    this.daemonProbe = undefined;
+    if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
+    this.daemonLivenessTimer = undefined;
+    if (this.daemonWaitingSince !== undefined) this.armDaemonLiveness();
+  }
+
+  /// Asks the daemon on `socket` one cheap question, outside the request budget: its answer (or its
+  /// busy refusal) proves it alive (`probeAnswered`). `_acpmux/peers`, which the app's bridge passes
+  /// to the daemon as it is; never `_acpmux/status`, which the bridge answers itself from the
+  /// daemon's Unix socket.
   private probeDaemon(socket: WebSocket): void {
     const id = this.nextRequest++;
-    const method = "_acpmux/status";
+    const method = "_acpmux/peers";
     const text = JSON.stringify({ jsonrpc: "2.0", id, method, params: {} });
-    this.daemonProbe = { at: Date.now(), frames: this.daemonFrames };
+    this.daemonProbe = { at: Date.now(), id };
     try {
       this.wire.sent(text, method, id);
       socket.send(text);
