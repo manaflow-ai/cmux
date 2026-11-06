@@ -712,10 +712,28 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         let minY = -collectionView.adjustedContentInset.top
         let maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height + collectionView.adjustedContentInset.bottom)
         let y = min(max(frame.minY - anchor.delta, minY), maxY)
-        if abs(y - collectionView.contentOffset.y) > 0.25 { collectionView.contentOffset.y = y }
+        if abs(y - collectionView.contentOffset.y) > 0.25 {
+            trace("restore \(Int(collectionView.contentOffset.y))->\(Int(y)) top=\(control.atTop)")
+            collectionView.contentOffset.y = y
+        }
     }
 
     // MARK: Commands
+
+    /// DEBUG: what moved the list around a jump to the top, newest last, as the list's
+    /// accessibility value (the pill UI tests attach it). Release: nothing.
+    private func trace(_ line: @autoclosure () -> String) {
+        #if DEBUG
+        jumpTrace.append(String(format: "%.2f ", CACurrentMediaTime()) + line())
+        if jumpTrace.count > 40 { jumpTrace.removeFirst(jumpTrace.count - 40) }
+        collectionView?.accessibilityValue = jumpTrace.joined(separator: "\n")
+        #endif
+    }
+
+    #if DEBUG
+    private var jumpTrace: [String] = []
+    private var lastTracedOffset: CGFloat = 0
+    #endif
 
     /// A jump to the top (the "N new" pill) is under way until it lands or the person drags.
     private var jumpingToTop = false {
@@ -726,6 +744,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         guard let collectionView else { return }
         let top = CGPoint(x: 0, y: -collectionView.adjustedContentInset.top)
         jumpingToTop = animated && abs(collectionView.contentOffset.y - top.y) > 0.25
+        trace("jump from \(Int(collectionView.contentOffset.y)) to \(Int(top.y)) animated=\(jumpingToTop)")
         collectionView.setContentOffset(top, animated: jumpingToTop)
         if !jumpingToTop {
             if collectionView.contentOffset != top { collectionView.contentOffset = top }
@@ -745,6 +764,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     /// stops a fling), and the touch is the list's, never the row's that moved under the finger.
     @objc private func touchDuringJump(_ catcher: FeedJumpTouchCatcher) {
         guard catcher.state == .began, let collectionView else { return }
+        trace("touch during jump at \(Int(collectionView.contentOffset.y))")
         jumpingToTop = false
         // Within the last stretch (the pill already gone) the jump finishes: it lands at the top.
         let here = control.atTop ? CGPoint(x: 0, y: -collectionView.adjustedContentInset.top) : collectionView.contentOffset
@@ -755,10 +775,12 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     /// the top again so the jump still lands there.
     private func continueJumpToTop() {
         guard jumpingToTop, let collectionView else { return }
+        trace("re-aim at \(Int(collectionView.contentOffset.y))")
         collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: true)
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        trace("animation end at \(Int(scrollView.contentOffset.y)) jumping=\(jumpingToTop)")
         guard jumpingToTop else { return }
         jumpingToTop = false
         // Land exactly at the top, whatever changed while the list moved.
@@ -811,12 +833,23 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             // Back at the top: what scrolling brought back from disk goes back there.
             if !scrollView.isTracking { store.restoreWindow() }
         }
+        #if DEBUG
+        // A jump moves only toward the top: a step away from it is something else moving the list.
+        if jumpingToTop, scrollView.contentOffset.y > lastTracedOffset + 0.5 {
+            trace("moved away \(Int(lastTracedOffset))->\(Int(scrollView.contentOffset.y)) size=\(Int(scrollView.contentSize.height))")
+        }
+        lastTracedOffset = scrollView.contentOffset.y
+        #endif
         // At the top exactly: the jump is over, whether or not its animation reported its end.
-        if jumpingToTop, abs(scrollView.contentOffset.y + scrollView.adjustedContentInset.top) <= 0.25 { jumpingToTop = false }
+        if jumpingToTop, abs(scrollView.contentOffset.y + scrollView.adjustedContentInset.top) <= 0.25 {
+            trace("reached top")
+            jumpingToTop = false
+        }
         markMoving()
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        trace("drag at \(Int(scrollView.contentOffset.y)) jumping=\(jumpingToTop)")
         // The person took over: a jump to the top in flight ends where they caught it.
         jumpingToTop = false
         #if DEBUG

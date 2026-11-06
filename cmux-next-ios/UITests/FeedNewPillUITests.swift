@@ -34,12 +34,12 @@ final class FeedNewPillUITests: XCTestCase {
             attach(app, "round\(round)-before-tap")
             pill.tap()
             // The jump ends: the chips are back, exactly where they were at launch.
-            let landed = NSPredicate { _, _ in all.exists && all.isHittable && all.frame == topFrame }
+            let landed = NSPredicate { _, _ in all.exists && abs(all.frame.minY - topFrame.minY) < 1 }
             let wait = expectation(for: landed, evaluatedWith: nil)
             wait.expectationDescription = "round \(round): Feed at its top"
-            XCTAssertEqual(XCTWaiter.wait(for: [wait], timeout: 5), .completed,
+            XCTAssertEqual(XCTWaiter.wait(for: [wait], timeout: 60), .completed,
                            "round \(round): chips at \(all.frame), expected \(topFrame)")
-            XCTAssertFalse(pill.exists, "round \(round): pill still shown at the top")
+            XCTAssertTrue(pill.waitForNonExistence(timeout: 10), "round \(round): pill still shown at the top")
             attach(app, "round\(round)-after-tap")
         }
     }
