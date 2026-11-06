@@ -394,7 +394,13 @@ produces one notice without resolving. Failed deliveries remain visible in the l
 on a relevant session/peer change or restart. A one-shot watch is removed after delivery.
 Unreadable watch state is preserved as `watches.json.bad-<timestamp>`; the daemon starts
 with no watches. Older cursor fields default safely. Peer replay uses eight workers.
-The CLI and MCP watch tools are not exposed yet; `acpmux wait` remains the script interface.
+The same three are `acpmux watch add|ls|rm` and the `acpmux` MCP server's `watch_add`,
+`watch_ls` and `watch_rm` tools, on the local socket only; inside an agent session the recipient
+defaults to that session. A wake counts as delivered when the recipient's daemon accepts it
+(queued or steered into its turn), not when its agent has read it; `watch ls` lists every wake
+not accepted yet with its outbox state. Removing a watch stops new wakes, and wakes it already
+owes are still delivered (`watch_rm` answers how many). `acpmux wait` remains the blocking
+script interface.
 
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
