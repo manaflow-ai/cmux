@@ -93,7 +93,7 @@ import Testing
         workspace.layoutSubtreeIfNeeded()
         session.view.frame = NSRect(x: 0, y: 0, width: 700, height: 480)
         workspace.layoutSubtreeIfNeeded()
-        let coalescer = session.surfaceView.gridReportCoalescer
+        let coalescer = session.surfaceView.gridReports.coalescer
         let newest = try #require(session.surfaceView.fittedGrid)
         try #require(coalescer.pending == newest,
                      "the followed resize did not leave its newest grid \(newest) waiting (pending \(String(describing: coalescer.pending)))")

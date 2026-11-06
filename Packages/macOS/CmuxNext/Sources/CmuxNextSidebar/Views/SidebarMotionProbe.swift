@@ -63,8 +63,20 @@ final class SidebarMotionProbe {
 
     func stop() -> [SidebarMotionFrame] {
         client?.deactivate()
-        defer { frames.removeAll() }
+        defer { frames.removeAll(); names.removeAll() }
         return frames
+    }
+
+    /// Each row key's report name, made once per key: `String(describing:)` of an enum with payloads reflects
+    /// (`Mirror`), and four calls per row per frame were most of the probe's main-thread time (Time Profiler,
+    /// cmux21 at 120 Hz: 400-720 ms of `String(describing:)` over 5 sidebar row presses, SIDEBAR ROWS STATUS 15277).
+    private var names: [SidebarRowKey: String] = [:]
+
+    private func name(of key: SidebarRowKey) -> String {
+        if let name = names[key] { return name }
+        let name = String(describing: key)
+        names[key] = name
+        return name
     }
 
     private func sample(_ time: CFTimeInterval, _ tick: FrameTick) -> Bool {
@@ -75,10 +87,12 @@ final class SidebarMotionProbe {
         var selected: (key: String, frame: CGRect)?
         let fading = list.fadingRows.values.map { (key: $0.key, view: $0) }
         for (key, view) in fading + list.rowViews.map({ (key: $0.key, view: $0.value) }) { // a live row wins over a fading one
-            views[String(describing: key)] = Self.presented(view)
-            opacity[String(describing: key)] = view.layer?.presentation()?.opacity ?? Float(view.alphaValue)
-            identity[String(describing: key)] = UInt(bitPattern: ObjectIdentifier(view).hashValue)
-            if view.showsSelection { selected = (String(describing: key), Self.presented(view)) } // a live row wins
+            let name = name(of: key)
+            let shown = Self.presented(view)
+            views[name] = shown
+            opacity[name] = view.layer?.presentation()?.opacity ?? Float(view.alphaValue)
+            identity[name] = UInt(bitPattern: ObjectIdentifier(view).hashValue)
+            if view.showsSelection { selected = (name, shown) } // a live row wins
             guard let block = view as? SidebarBlockRowView else { continue }
             let origin = Self.presented(view).origin
             for (id, item) in block.region.itemViews where !id.isTransient {

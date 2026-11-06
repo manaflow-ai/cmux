@@ -208,11 +208,13 @@ extension TerminalSurfaceView {
     }
 
     /// After the presenter landed this terminal's frame, outside the Core Animation lock: the copy-mode cursor box
-    /// follows the new size, and the grid that size fits goes to the PTY owner (through the coalescer; a size drawn ahead
-    /// reported nothing when it went to Ghostty).
+    /// follows the new size (it reads Ghostty under the terminal's lock, so never inside the lock span), the grid that size
+    /// fits goes to the PTY owner (`updateSurfaceSize`: a key spring's coalesced; a size drawn ahead reported nothing when
+    /// it went to Ghostty), and a drag's grid that waited for this size to show goes (``TerminalGridReporter/shown(_:live:)``).
     func frameDidLand() {
         copyMode.syncCursor()
         updateSurfaceSize()
+        gridReports.shown(fittedGrid, live: isFollowingResizeGesture)
     }
 
     /// Shown again while Ghostty leaves new sizes to cmux: its commit is reported once its frame shows.

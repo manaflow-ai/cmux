@@ -48,7 +48,6 @@
   "browserPage.uiPointer": {"case": "keep", "why": "Off while the first slice of the page element picker is still being tried out; it is not finished."},
   "browserResize.dragResize": {"case": "keep", "why": "A comparison of drag-resize modes for Chromium pages; the default is the one the resize harness measured best."},
   "browserResize.layerHosting": {"case": "delete", "why": "On by default since 11-05 ('perf paths ship on, no switches'); deleting keeps pages drawn in the window's layers."},
-  "browserResize.pageBackdrop": {"case": "keep", "why": "On by default, but resize-lag probes turn it off to compare; remove it only if that test is dropped."},
   "chiefPet.uploadAffordance": {"case": "keep", "why": "A look comparison of three ways to offer upload; the default plus tile is the chosen one."},
   "chrome.interfaceSize": {"case": "keep", "why": "Opt-in scale for chrome sizes, off on purpose until Lawrence promotes it; Interface Scale stays hidden from Settings."},
   "chrome.mainPane.curved": {"case": "keep", "why": "A Debug override of the appearance.chromeStyle setting, which is the real control for the curved pane."},
