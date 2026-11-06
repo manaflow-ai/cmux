@@ -253,6 +253,26 @@ mod tests {
         );
     }
 
+    /// One locked stretch, however many turns run in it (review of cmux#37239): a turn that ends
+    /// and another that starts while the screen stays locked do not open a new window, nor does
+    /// a lock read that fails. Only an unlock ends the stretch.
+    #[test]
+    fn turns_one_after_another_share_one_locked_stretch() {
+        let t0 = Instant::now();
+        let at = |minutes: u64| t0 + Duration::from_secs(minutes * 60);
+        let mut tracker = Tracker::new(t0);
+        assert!(holds(tracker.step(true, Lock::Locked, 1, 0, t0).unwrap()));
+        assert_eq!(tracker.step(true, Lock::Locked, 0, 0, at(30)), None, "the turn ended: idle");
+        let next = tracker.step(true, Lock::Locked, 1, 0, at(31)).unwrap();
+        assert_eq!(next.locked_for, Duration::from_secs(31 * 60), "the same stretch: {next:?}");
+        assert!(tracker.step(true, Lock::Unknown, 1, 0, at(60)).is_some());
+        let late = tracker.step(true, Lock::Locked, 1, 0, at(120)).unwrap();
+        assert!(!holds(late), "turn after turn cannot keep a locked Mac up past the cap: {late:?}");
+        assert!(tracker.step(true, Lock::Unlocked, 1, 0, at(121)).is_some());
+        let relocked = tracker.step(true, Lock::Locked, 1, 0, at(122)).unwrap();
+        assert!(holds(relocked), "an unlock ends the stretch: {relocked:?}");
+    }
+
     #[test]
     fn the_setting_is_on_only_when_set_true_and_keep_awake_is_not_off() {
         assert!(!setting_on(None), "an unreadable file is off");
