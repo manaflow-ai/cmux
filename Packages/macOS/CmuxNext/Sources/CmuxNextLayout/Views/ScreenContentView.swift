@@ -128,7 +128,8 @@ final class ScreenContentView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
-        guard changed else { return }
+        // Never laid out: its first pass (the root's sync, `update(layout:)`) lays out at this size, once.
+        guard changed, reconciledScale != nil else { return }
         // A hidden screen (another of the workspace's screens shows) lays out once, when it shows:
         // each live-resize tick re-ran its full geometry, pane and divider reconcile.
         if isHidden { needsReconcileOnShow = true } else { reconcileAndScroll(keepsMotion: hasMotion && window?.inLiveResize != true) }
@@ -160,9 +161,12 @@ final class ScreenContentView: NSView {
     /// Only a real scale change (the window moved to a display of another scale) lays out again.
     /// AppKit also calls this inside `setBoundsSize`, which the canvas camera sets (`applyCamera`):
     /// reconciling there set the bounds again and recursed until the stack overflowed (Crash D, #24998).
+    /// A new screen joining its window is not one: it has no frames yet, and the root's sync lays it out next, at its
+    /// size (SWITCH STALL 3: that join reconciled every new screen at viewport zero, its pane hosts made and placed at
+    /// zero rects, then twice more in the same turn).
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard !isApplyingCamera, window != nil, reconciledScale != scale else { return }
+        guard !isApplyingCamera, window != nil, let reconciledScale, reconciledScale != scale else { return }
         reconcileAndScroll()
     }
 
