@@ -13,9 +13,21 @@ final class ScreenSharingSheetUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// The reported look: Dark Mode, where the label tint is white (a white track, a white knob).
     @MainActor
-    func testViewerSwitchesAreGreenWhenOn() throws {
-        let app = openSheet()
+    func testViewerSwitchesAreGreenWhenOnInDarkMode() throws {
+        try assertViewerSwitchesGreen(appearance: "dark")
+    }
+
+    /// Light Mode: the label tint is black, so an on switch read as a black track.
+    @MainActor
+    func testViewerSwitchesAreGreenWhenOnInLightMode() throws {
+        try assertViewerSwitchesGreen(appearance: "light")
+    }
+
+    @MainActor
+    private func assertViewerSwitchesGreen(appearance: String) throws {
+        let app = openSheet(appearance: appearance)
         for name in ["Fit to Display", "Show Stats"] {
             let toggle = app.switches[name].firstMatch
             if !toggle.isHittable { app.swipeUp() }
@@ -25,7 +37,7 @@ final class ScreenSharingSheetUITests: XCTestCase {
         }
         settle(0.8)
         let shot = app.screenshot()
-        attach(shot, "screen-sharing-switches-on")
+        attach(shot, "screen-sharing-switches-on-\(appearance)")
         for name in ["Fit to Display", "Show Stats"] {
             let frame = app.switches[name].firstMatch.frame
             let green = Self.greenPixels(in: shot.image, trailingOf: frame)
@@ -57,10 +69,12 @@ final class ScreenSharingSheetUITests: XCTestCase {
     // MARK: Helpers
 
     @MainActor
-    private func openSheet() -> XCUIApplication {
+    private func openSheet(appearance: String = "dark") -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore"]
+        // Settings › Appearance for this launch (the app overrides the window's style from it).
+        app.launchArguments += ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore",
+                                "-cmuxMobile.settings.appearance", appearance]
         app.launch()
         let choose = app.scrollViews["setup.teams.choose"]
         if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
