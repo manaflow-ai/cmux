@@ -17,6 +17,16 @@ struct BangCommandParserTests {
         #expect(BangCommandParser.commands(in: command + "\nExplanatory prose.") == [command])
     }
 
+    @Test func withholdsAnUnsupportedHereDocumentDelimiterInsteadOfUsingItsPrefix() {
+        let command = "! bash <<END.DATA\necho before\nEND\necho after\nEND.DATA"
+        #expect(BangCommandParser.commands(in: command) == [])
+    }
+
+    @Test func withholdsConcatenatedQuotedHereDocumentDelimiters() {
+        let command = "! bash <<'END'X\necho before\nEND\necho after\nENDX"
+        #expect(BangCommandParser.commands(in: command) == [])
+    }
+
     @Test func withholdsUnsupportedShellGroupsAndUnclosedQuotedArguments() {
         #expect(BangCommandParser.commands(in: "! (echo first\necho second)") == [])
         #expect(BangCommandParser.commands(in: "! printf '%s' 'unfinished") == [])
