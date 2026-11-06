@@ -23,7 +23,10 @@ await requireBrowserLane("attachment-upload-progress-hidden.test.tsx", async () 
     return;
   }
   const src = path.resolve(import.meta.dir, "../src");
+  // The pane's own sheets, as mount.tsx loads them: desktop.css first, which defines the tokens
+  // (`--cmux-hairline`) the hiding class sizes itself by.
   const css = [
+    "pages/shared/desktop.css",
     "agent-session/shared/styles.css",
     "agent-session/acpmux/styles.css",
     "agent-session/acpmux/composerAttachments.css",
