@@ -42,7 +42,7 @@ pub fn status(status: u16, body: &[u8]) -> GitHubApp {
         return GitHubApp::NotConfigured;
     }
     // A configured deployment names its App; an answer that does not is not this route's.
-    if !object.get("app_slug").and_then(Value::as_str).is_some_and(|slug| !slug.trim().is_empty()) {
+    if object.get("app_slug").and_then(Value::as_str).is_none_or(|slug| slug.trim().is_empty()) {
         return GitHubApp::Unknown;
     }
     // The team policy disallows GitHub: the App mints nothing, so the helper must not replace the

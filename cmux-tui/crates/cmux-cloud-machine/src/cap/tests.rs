@@ -74,8 +74,8 @@ fn the_classic_card_lists_only_the_persons_own_running_machines() {
         "never a teammate's machine, nor one not running"
     );
     assert_eq!(cap.busy[0].name, "paint");
-    assert!(busy_machines(&[mine.clone()], None).is_empty());
-    assert!(busy_machines(&[mine.clone()], Some("")).is_empty());
+    assert!(busy_machines(std::slice::from_ref(&mine), None).is_empty());
+    assert!(busy_machines(std::slice::from_ref(&mine), Some("")).is_empty());
     assert_eq!(plan(true, true, &[mine], Some("alice")), Cap { busy: Vec::new(), free_plan: true });
 }
 

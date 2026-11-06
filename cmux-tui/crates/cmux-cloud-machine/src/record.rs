@@ -176,10 +176,10 @@ impl Capabilities {
     /// The web route's boolean object (`/api/vm`) or a list of names (the Cloud app server's).
     /// A list with another element type, or an object with a field of another type, fails.
     pub fn read(value: &Value) -> Strict<Capabilities> {
-        if let Some(items) = value.as_array() {
-            if let Some(names) = items.iter().map(Value::as_str).collect::<Option<Vec<_>>>() {
-                return Ok(Capabilities::from_names(names));
-            }
+        if let Some(items) = value.as_array()
+            && let Some(names) = items.iter().map(Value::as_str).collect::<Option<Vec<_>>>()
+        {
+            return Ok(Capabilities::from_names(names));
         }
         let object = json::object(value, "capabilities")?;
         let mut capabilities = Capabilities::default();

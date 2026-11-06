@@ -49,7 +49,7 @@ fn a_failed_kill_preserves_the_older_mutation() {
         changes.returned(VM, "older");
         assert_eq!(changes.apply(&baseline, None).pending_change, Some(change));
         assert_eq!(
-            changes.unsettled(&[baseline.clone()], &[]),
+            changes.unsettled(std::slice::from_ref(&baseline), &[]),
             [VM],
             "the older transition still needs reads"
         );
