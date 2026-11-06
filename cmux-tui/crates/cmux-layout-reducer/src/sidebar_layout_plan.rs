@@ -628,7 +628,8 @@ pub fn app_ref_migration_ops(document: &Document) -> Vec<Op> {
                 continue;
             };
             let mut moved = old.clone();
-            moved.reference = ItemRef::new("app", app);
+            moved.reference.kind = "app".into();
+            moved.reference.value = (*app).into();
             ops.push(remove(&old.id));
             ops.push(Op::ItemAdd { item: moved, section: section.id.clone(), index: slot(index) });
         }

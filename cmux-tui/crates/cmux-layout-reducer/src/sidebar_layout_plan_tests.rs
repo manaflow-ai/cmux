@@ -411,12 +411,14 @@ fn the_app_ref_migration_keeps_a_label_and_newer_keys() {
     let mut home = item("itm_home", "built_in", "home", true, None);
     home.extra.insert("label".into(), json!("Home"));
     home.extra.insert("future".into(), json!({"k": 1}));
+    home.reference.extra.insert("future_ref".into(), json!(true));
     let mut top = Section::new("sec_top", Region::Top, Look::BuiltIn, Content::Items);
     top.items = vec![home.clone()];
     let document = doc(vec![top, defaults().sections[1].clone()]);
     let migrated = apply_all(&document, &app_ref_migration_ops(&document));
     let moved = &section(&migrated, "sec_top").unwrap().items[0];
-    assert_eq!(moved.reference, ItemRef::new("app", "cmux/home"));
+    assert!(moved.reference.same(&ItemRef::new("app", "cmux/home")));
+    assert_eq!(moved.reference.extra, home.reference.extra);
     assert_eq!(moved.extra, home.extra);
 }
 
