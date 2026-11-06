@@ -1405,6 +1405,7 @@ impl Hub {
             cancels: AtomicU64::new(0),
             start_retry_wake: Notify::new(),
             start_retry_waits: AtomicBool::new(false),
+            start_retry_cancels: AtomicU64::new(start_retry::NO_RETRY),
             cancel_forced_turn: StdMutex::new(None),
             unwritten_prompt: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
