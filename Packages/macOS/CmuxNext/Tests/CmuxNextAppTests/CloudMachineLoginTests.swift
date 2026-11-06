@@ -42,7 +42,7 @@ struct CloudMachineLoginTests {
             try Data().write(to: policy.appendingPathComponent("agent-config.sh"))
         }
 
-        /// As ``CloudCredentialInstaller`` leaves a transferred login.
+        /// As the daemon's `secrets-v1` leaves a transferred login.
         func installed(_ token: String) throws {
             try JSONSerialization.data(withJSONObject: ["env": ["CLAUDE_CODE_OAUTH_TOKEN": token]]).write(to: home.appendingPathComponent(".claude/settings.json"))
             try JSONSerialization.data(withJSONObject: ["claudeAiOauth": ["accessToken": token]]).write(to: home.appendingPathComponent(".claude/.credentials.json"))
@@ -53,7 +53,7 @@ struct CloudMachineLoginTests {
         func probe(cached: String?, endpoint: String, execHome: URL? = nil) async throws -> CloudMachineLogin {
             let command = CloudMachineLogin.probe(cachedFingerprint: cached.flatMap { CloudMachineLogin.fingerprint(Data($0.utf8)) }, endpoint: endpoint)
                 .replacingOccurrences(of: "/etc/cmux", with: policy.path)
-                .replacingOccurrences(of: "pwd.getpwnam('cmux').pw_dir", with: CloudCredentialInstaller.quote(home.path))
+                .replacingOccurrences(of: "pwd.getpwnam('cmux').pw_dir", with: CloudCredentialLogin.shellQuote(home.path))
             let ran = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", command],
                 environment: ["PATH": "/usr/bin:/bin", "HOME": (execHome ?? home).path], timeout: .seconds(20), clock: ContinuousClock())
             let out = String(decoding: ran.stdout, as: UTF8.self)

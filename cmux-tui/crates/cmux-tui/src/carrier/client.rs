@@ -45,6 +45,9 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 pub(super) struct Dialed {
     pub connection: Arc<ClientConnection>,
     pub multiplexer: Arc<ServiceMultiplexer>,
+    /// The daemon key the carrier answer named, which the handshake was
+    /// pinned to; `None` when the platform named none.
+    pub pinned_daemon_key: Option<[u8; 32]>,
 }
 
 /// What one dial needs.
@@ -243,7 +246,7 @@ async fn attempt(
     };
     connection.set_resume_hooks(resume.clone());
     let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-    Ok(Dialed { connection, multiplexer })
+    Ok(Dialed { connection, multiplexer, pinned_daemon_key: answer.daemon_key })
 }
 
 /// Route lines for an established session's resumes.

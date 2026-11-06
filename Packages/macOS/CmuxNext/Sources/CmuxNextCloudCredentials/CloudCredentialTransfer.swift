@@ -34,9 +34,9 @@ public import Foundation
     let teamID: String?
     let userID: String
     let openTerminal: @MainActor (String) async -> Bool
-    /// DEV and dogfood builds only (``CloudCredentialInstaller/creatorTeamGuest``): a team guest
-    /// whose creator is the caller (the platform's `vmKind == "owner"` answer, still required) may
-    /// receive the login although teammates share its Unix user. Off everywhere else.
+    /// DEV and dogfood builds only: a team guest whose creator is the caller (the platform's
+    /// `vmKind == "owner"` answer, still required) may receive the login although teammates share its
+    /// Unix user. Off everywhere else; the machine's daemon honors it only in a DEV daemon build.
     public let allowsCreatorTeamGuest: Bool
     /// How long the first guest check waits for a new guest's bind (``guestCheckBudget``; tests shorten it).
     var guestBudget = Self.guestCheckBudget
@@ -50,14 +50,8 @@ public import Foundation
         self.allowsCreatorTeamGuest = allowsCreatorTeamGuest; self.otherTeams = otherTeams; self.openTerminal = openTerminal
     }
 
-    /// The guest check this transfer runs before and after the login.
-    var preflight: String { allowsCreatorTeamGuest ? CloudCredentialInstaller.creatorTeamPreflight : CloudCredentialInstaller.preflight }
-
-    /// Exits 0 only while the guest has no kind record: its cmux-host writes /etc/cmux/vm-kind once it
-    /// binds (`record_owner_kind`), which can land after the machine reads running and takes its first exec.
-    nonisolated static let kindMissing = "[ ! -s /etc/cmux/vm-kind ]"
-    /// How many times a guest check runs while the kind record is missing, ``guestCheckPause`` apart (3 s), and
-    /// for how long at most, slow execs included: about 90 s, the journey's `waitPreflight` budget.
+    /// How many times the guest check runs while the kind record is missing, ``guestCheckPause`` apart (3 s), and
+    /// for how long at most, slow calls included: about 90 s, the journey's `waitPreflight` budget.
     public nonisolated static let guestCheckTries = 30
     public nonisolated static let guestCheckBudget: Duration = .seconds(90)
     /// No event says the guest has bound, so the checks are spaced as retries after a failure.
@@ -108,8 +102,12 @@ public import Foundation
                 callerOwnsVM: callerOwnsVM,
                 stillAllowed: stillAllowed,
                 pause: Self.guestCheckPause,
-                exec: { try await pinned.exec(machineID, command: $0, timeoutMs: 20_000).exitCode },
-                write: { try await Self.stage($1, at: $0, on: pinned, machineID: machineID) },
+                // Sealed on this Mac to the machine's daemon key and opened only there (`cmux carrier secrets`,
+                // `secrets-v1`): the login never crosses an exec, a file API or the platform.
+                install: { [provider, machineID, allowsCreatorTeamGuest] login in
+                    try await pinned.installSealedLogin(machineID, harness: provider.rawValue, login: login,
+                                                        allowTeamGuest: allowsCreatorTeamGuest)
+                },
             // Codex auth.json is never reused as a seed: its refresh token is VM-bound and may
             // rotate. A new device login is required for every transfer; a broker can supersede this.
             load: { [otherTeams] in provider == .codex ? nil : try await CloudCredentialLogin.loadAny(provider: provider, teamID: teamID, otherTeams: otherTeams, userID: userID) },
@@ -119,20 +117,6 @@ public import Foundation
                 store: { value in
                     if provider == .claude { try await CloudCredentialLogin.store(value, provider: provider, teamID: teamID, userID: userID, machineID: machineID) }
                 }))
-    }
-
-    /// Writes the credential where the installer reads it. The file routes write as root. Where exec
-    /// runs as root too (`/api/vm`), the installer chowns a 0600 file before it drops to `cmux`. A
-    /// Worker machine's exec runs as `cmux` and can't read a root 0600 file, so its folder is first
-    /// made `cmux`'s own 0700 one (an exec as `cmux`), and the file goes in 0644: only `cmux` and
-    /// root can reach it, as `deliver-secrets` stages its receiver.
-    nonisolated static func stage(_ credential: Data, at path: String, on api: CloudAPIClient, machineID: String) async throws {
-        guard api.execRunsAsWorkUser else { return try await api.writeFile(machineID, path: path, data: credential, mode: 0o600) }
-        let folder = CloudCredentialInstaller.quote((path as NSString).deletingLastPathComponent)
-        let made = try await api.exec(machineID, command: "umask 077 && mkdir -p -- \(folder) && chmod 700 -- \(folder) && test -O \(folder) && test ! -L \(folder)",
-                                      timeoutMs: 20_000)
-        guard made.exitCode == 0 else { throw Failure.deliveryFailed }
-        try await api.writeFile(machineID, path: path, data: credential, mode: 0o644)
     }
 
     /// What cmux holds of this account's login: one, none, or a Keychain that did not answer (locked,
@@ -182,8 +166,8 @@ public import Foundation
         /// Between guest checks while the guest has not bound yet (``guestCheckPause``). No default: a
         /// default async closure is a crash class.
         var pause: @Sendable () async throws -> Void
-        var exec: @Sendable (String) async throws -> Int
-        var write: @Sendable (String, Data) async throws -> Void
+        /// Seals the login to the machine's daemon and sends it over its carrier; answers the machine's verdict.
+        var install: @Sendable (Data) async throws -> CloudAPIClient.SealedDelivery
         var load: @Sendable () async throws -> Data?
         var acquire: @Sendable () async throws -> Data
         var store: @Sendable (Data) async throws -> Void
@@ -207,10 +191,9 @@ public import Foundation
             guard !machineID.isEmpty, !userID.isEmpty, currentTeamID() == teamID, currentUserID() == userID else { throw Failure.scopeChanged }
         }
         try checkScope()
-        // No credential is acquired or read until the platform says the caller owns the machine and
-        // the machine has the image's launchers.
+        // No credential is acquired or read until the platform says the caller owns the machine. The
+        // guest's own kind, launchers and configuration are the machine daemon's to check (`secrets-v1`).
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
-        try await waitForGuest(program: preflight, effects: effects, checkScope: checkScope)
         try checkScope()
         let cached = refresh ? nil : try await effects.load()
         let credential: Data
@@ -221,42 +204,37 @@ public import Foundation
         try checkScope()
         // Recheck after browser/Keychain interaction; the target may have changed meanwhile.
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
-        guard try await effects.exec(preflight) == 0 else { throw Failure.sharedMachine }
         guard await effects.stillAllowed() else { throw Failure.copyTurnedOff }
         try checkScope()
-        let path = "/home/cmux/.cmux/credential-transfer/\(UUID().uuidString).json"
-        do {
-            try checkScope()
-            try await effects.write(path, credential)
-            try checkScope()
-            guard try await effects.exec(CloudCredentialInstaller.command(provider: provider, payloadPath: path, creatorTeamGuest: allowsCreatorTeamGuest)) == 0 else {
-                throw Failure.deliveryFailed
-            }
-        } catch {
-            // A failed/cancelled delivery must not leave a second readable copy on the target.
-            // A cancelled caller cannot start an API request. An unstructured task has independent
-            // cancellation; the production exec effect bounds its own request to 20 seconds.
-            let cleanup = Task.detached(priority: .utility) {
-                _ = try? await effects.exec("rm -f -- \(CloudCredentialInstaller.quote(path))")
-            }
-            await cleanup.value
-            if error is CancellationError { throw CancellationError() }
-            // API/CLI output may contain a provider diagnostic with a secret. Never surface it.
-            throw Failure.deliveryFailed
-        }
+        try await installWhenBound(credential, effects: effects, checkScope: checkScope)
     }
 
-    /// The first guest check, run again while the guest has no kind record yet (it has not bound). A kind
-    /// record that fails the check is the guest's answer (a team guest, an image without the launchers):
-    /// refused at once. A record that never comes is ``Failure/machineNotReady``.
-    /// Every exec and pause counts against ``guestBudget``, slow ones included.
-    private func waitForGuest(program: String, effects: Effects, checkScope: () throws -> Void) async throws {
+    /// Sends the sealed login, again while the machine's guest has no kind record yet (its cmux-host writes
+    /// /etc/cmux/vm-kind once it binds, which can land after the machine reads running): the daemon answers
+    /// `not-ready` until then. A guest that is not the caller's owner guest is ``Failure/sharedMachine``; a record
+    /// that never comes is ``Failure/machineNotReady``. Every send and pause counts against ``guestBudget``.
+    private func installWhenBound(_ credential: Data, effects: Effects, checkScope: () throws -> Void) async throws {
         let deadline = ContinuousClock.now + guestBudget
         for attempt in 1...Self.guestCheckTries {
-            guard let passed = try await Self.before(deadline, { try await effects.exec(program) }) else { break }
-            if passed == 0 { return }
-            guard let missing = try await Self.before(deadline, { try await effects.exec(Self.kindMissing) }) else { break }
-            guard missing == 0 else { throw Failure.sharedMachine }
+            let answer: CloudAPIClient.SealedDelivery
+            do {
+                guard let sent = try await Self.before(deadline, { try await effects.install(credential) }) else { break }
+                answer = sent
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // A transport error may carry a provider diagnostic; never surface it.
+                throw Failure.deliveryFailed
+            }
+            switch answer {
+            case .installed: return
+            case .failed(code: "refused", refusal: "not-ready", retryable: _): break
+            case .failed(code: "refused", refusal: "not-owner-guest", retryable: _): throw Failure.sharedMachine
+            case .failed(code: "refused", refusal: "conflict", retryable: _): throw Failure.incompatibleConfiguration
+            case .failed(code: "refused", refusal: "invalid-credential", retryable: _): throw Failure.invalidCredential
+            case .failed(code: "unsupported", refusal: _, retryable: _): throw Failure.machineNotReady
+            default: throw Failure.deliveryFailed
+            }
             guard attempt < Self.guestCheckTries, try await Self.before(deadline, effects.pause) != nil else { break }
             try checkScope()
         }

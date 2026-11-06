@@ -60,13 +60,13 @@ public nonisolated enum CloudMachineLogin: String, Sendable, Equatable, CaseIter
     /// the word, never a token or the provider's reply. A Python that fails once a login is known keeps it.
     ///
     /// The classic `/api/vm` exec runs as root (``CloudAPIClient/execRunsAsWorkUser``), whose HOME is
-    /// `/root`, while the login lives in `cmux`'s home, where ``CloudCredentialInstaller`` writes it. So
+    /// `/root`, while the login lives in `cmux`'s home, where the machine's daemon writes it (`secrets-v1`). So
     /// the image's detection runs with HOME set to `cmux`'s home (``workHome``), after the config is sourced
     /// as before, so that script never writes into `cmux`'s home as root.
     static func probe(cachedFingerprint: String?, endpoint: String = endpoint) -> String {
         ". /etc/cmux/agent-config.sh >/dev/null 2>&1\n" + workHome
             + ". /etc/cmux/agent-auth.sh && cmux_agent_has_own_login claude || { echo none; exit 0; }\n"
-            + "python3 - \(CloudCredentialInstaller.quote(cachedFingerprint ?? "")) \(CloudCredentialInstaller.quote(endpoint)) <<'CMUX_LOGIN_PROBE' || echo working\n"
+            + "python3 - \(CloudCredentialLogin.shellQuote(cachedFingerprint ?? "")) \(CloudCredentialLogin.shellQuote(endpoint)) <<'CMUX_LOGIN_PROBE' || echo working\n"
             + script + "\nCMUX_LOGIN_PROBE"
     }
 

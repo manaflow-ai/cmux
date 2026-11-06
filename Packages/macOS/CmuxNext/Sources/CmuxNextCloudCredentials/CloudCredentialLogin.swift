@@ -6,6 +6,9 @@ import Foundation
 /// The transfer cache uses #25488's cmux-cloud-secret Keychain service and its stdin-only
 /// `cloud secret set` API. It is separate from the user's normal Claude/Codex login/cache.
 @MainActor enum CloudCredentialLogin {
+    /// `value` as one single-quoted shell word.
+    nonisolated static func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+
     typealias Failure = CloudCredentialTransfer.Failure
     typealias Provider = CloudCredentialTransfer.Provider
 
@@ -106,7 +109,7 @@ import Foundation
         // cancelled login may still be writing it; the shell's private umask and no shared path
         // keep a cancelled attempt unreadable. Completed attempts clean up below.
         let script = directory.appendingPathComponent("login.sh")
-        guard await openTerminal("/bin/bash " + CloudCredentialInstaller.quote(script.path)) else { throw Failure.localLoginUnavailable }
+        guard await openTerminal("/bin/bash " + CloudCredentialLogin.shellQuote(script.path)) else { throw Failure.localLoginUnavailable }
         let status = directory.appendingPathComponent("status")
         let clock = ContinuousClock(), deadline = clock.now.advanced(by: .seconds(300))
         while clock.now < deadline {
@@ -166,7 +169,7 @@ import Foundation
     }
 
     nonisolated static func loginScript(provider: Provider, directory: URL) -> String {
-        let dir = CloudCredentialInstaller.quote(directory.path)
+        let dir = CloudCredentialLogin.shellQuote(directory.path)
         // Run from the private directory, never a repository that could inject provider settings.
         // setup-token prints its minted secret: keep ALL its output out of terminal transcripts.
         // Its browser opens normally; the parent UI displays progress while approval is pending.

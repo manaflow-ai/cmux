@@ -27,6 +27,7 @@ mod answer;
 mod client;
 mod contract;
 mod noise_key;
+mod secrets;
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -121,6 +122,9 @@ fn source(args: &DialArgs) -> Result<answer::HttpSource, Failure> {
 
 /// `cmux carrier …` from `main`: the exit code.
 pub(crate) fn run(args: &[String]) -> i32 {
+    if args.first().is_some_and(|verb| verb == "secrets") {
+        return secrets::run(args);
+    }
     let Some(args) = parse(args) else {
         return usage(
             "usage: cmux carrier dial --machine vm_… [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH]",
