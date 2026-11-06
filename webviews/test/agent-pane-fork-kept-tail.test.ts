@@ -36,12 +36,12 @@ afterAll(() => {
 });
 
 type Message = { id?: number; method: string; params?: Record<string, unknown> };
-type Step = [dir: string, kind: string, msg: Record<string, unknown>];
+type Step = [dir: string, kind: string, msg: Record<string, unknown>, seq?: number];
 type Page = { events: Step[]; from?: number; at?: number };
 
 const events = (sessionId: string, page: Page) =>
-  page.events.map(([dir, kind, msg], index) => {
-    const seq = (page.from ?? 1) + index;
+  page.events.map(([dir, kind, msg, at], index) => {
+    const seq = at ?? (page.from ?? 1) + index;
     return { sessionId, seq, at: (page.at ?? START) + seq * 1000, dir, kind, msg };
   });
 
@@ -198,7 +198,7 @@ async function forkParent(pages: Map<string, Page>, fork: Record<string, unknown
   const forking = page(pages, fork, PARENT);
   const client = await forking.client;
   await flush();
-  const id = await client.fork(4, undefined, true);
+  const id = await client.fork("live", undefined, true);
   await flush();
   client.close();
   return id;
@@ -210,11 +210,13 @@ test("a fork by reference opens in its new tab drawn from the chat it forked, be
   const pages = new Map<string, Page>([
     [PARENT, { events: PARENT_HISTORY }],
     // acpmux's fork by reference: the chat's records at their own seqs, then the fork's own.
-    [FORK, { events: [...PARENT_HISTORY, ["mux", "forked", { from: PARENT }]] }],
+    [FORK, { events: [...PARENT_HISTORY, ["mux", "forked", { from: PARENT }, 7]] }],
   ]);
-  const fork = { sessionId: FORK, createdAt: FORK_CREATED, lastSeq: 5, forkSeq: 4, parentId: PARENT };
+  // The fork branches past the page's newest record: `forkSeq` counts the chat's wire records
+  // too (its turn's `response`), which no page is sent.
+  const fork = { sessionId: FORK, createdAt: FORK_CREATED, lastSeq: 7, forkSeq: 6, parentId: PARENT };
   expect(await forkParent(pages, fork)).toBe(FORK);
-  expect(host.tails.get(FORK)?.forkedThrough).toBe(4);
+  expect(host.tails.get(FORK)?.forkedThrough).toBe(6);
 
   resetKeptTailsForTests();
   const tab = page(pages, fork, FORK, true);

@@ -38,8 +38,6 @@ export const FORK_HISTORY_KINDS: ReadonlySet<string> = new Set([
 export type ForkSource = {
   /// The chat's records the page holds, oldest first.
   events: EventRecord[];
-  /// The newest seq of the chat the page has read (of any kind, drawn or not).
-  lastSeq: number;
   /// Whether `events` reach back to the chat's first record.
   historyExhausted: boolean;
   /// The record that opens the turn `events` starts in, when it is older than them.
@@ -56,8 +54,9 @@ export function forkHistoryTail(source: ForkSource, reply: Record<string, unknow
   // A copy renumbers the history from 1 and ends at or below `forkSeq`; a fork by reference
   // appends its own records (its `forked` first) past it.
   if (lastSeq <= forkSeq) return;
-  // The page has not read the chat as far as the fork branched: it lacks some of its history.
-  if (source.lastSeq < forkSeq) return;
+  // `forkSeq` counts every record of the chat, its wire traffic too, which an attached page is not
+  // sent: the page's own newest seq is often below it with all the history in hand. A record of the
+  // history the page has not got yet is caught by the fork's attach (`sameForkHistory`).
   const history = source.events.filter((event) => event.seq <= forkSeq && FORK_HISTORY_KINDS.has(event.kind));
   const events = history.slice(-KEPT_EVENTS);
   const first = events[0];
