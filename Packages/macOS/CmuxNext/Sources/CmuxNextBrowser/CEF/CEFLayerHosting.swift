@@ -380,7 +380,7 @@ final class CEFLayerHosting {
         guard !windowInWindow, firstFrameHold == .none, !isDetached, !inResizeMotion, setDetached(true) else { return }
         firstFrameHold = .detached
         afterFirstFrame = grant
-        afterCommit { [weak self] in self?.attachAfterFirstFrame() }
+        runAfterFrameShown { [weak self] in self?.attachAfterFirstFrame() }
     }
 
     private func runAfterFrameShown(_ block: @escaping @MainActor @Sendable () -> Void) {
