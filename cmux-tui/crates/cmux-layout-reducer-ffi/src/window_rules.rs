@@ -9,6 +9,9 @@ use serde_json::json;
 
 use crate::ERR_INVALID;
 
+#[path = "window_rules_workspaces.rs"]
+mod workspaces;
+
 /// Whether `operation` is one of this module's.
 pub(crate) fn handles(operation: &[u8]) -> bool {
     operation.starts_with(b"window_")
@@ -19,11 +22,17 @@ fn read<'a, T: Deserialize<'a>>(request: &'a [u8]) -> Result<T, i32> {
 }
 
 #[derive(Deserialize)]
+struct Toasting {
+    #[serde(default)]
+    tabs: Vec<ClosingTab>,
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Closing {
     #[serde(default)]
     tabs: Vec<ClosingTab>,
-    #[serde(default, flatten)]
+    #[serde(flatten)]
     warnings: Warnings,
 }
 
@@ -36,7 +45,7 @@ struct Asked {
     answers: Vec<TerminalAnswer>,
     #[serde(default)]
     unanswered_asks: bool,
-    #[serde(default, flatten)]
+    #[serde(flatten)]
     warnings: Warnings,
 }
 
@@ -44,7 +53,7 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
     let answer = match operation {
         // Whether closing these tabs together earns the undo toast.
         b"window_close_toast" => {
-            let request: Closing = read(request)?;
+            let request: Toasting = read(request)?;
             serde_json::to_value(close::toast(&request.tabs)).map_err(|_| ERR_INVALID)?
         }
         // What a close reads before it knows its question; `reads` null: it never asks.
@@ -57,7 +66,12 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Asked = read(request)?;
             json!({ "warning": close::warning(&request.agents, &request.answers, request.unanswered_asks, request.warnings) })
         }
-        _ => return Err(ERR_INVALID),
+        _ => return respond_workspaces(operation, request),
     };
     serde_json::to_vec(&answer).map_err(|_| ERR_INVALID)
+}
+
+/// The target, workspace and closed history ops (`window_rules_workspaces.rs`).
+fn respond_workspaces(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
+    workspaces::respond(operation, request)
 }
