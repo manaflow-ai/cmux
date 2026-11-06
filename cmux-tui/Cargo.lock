@@ -1972,6 +1972,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-palette-ranker",
  "cmux-process",
  "cmux-pty",
  "cmux-remote-protocol",

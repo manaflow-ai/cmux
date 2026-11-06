@@ -259,6 +259,7 @@
     "notification.clear",
     "notification.create",
     "notification.list",
+    "palette.rank",
     "palette_usage.forget",
     "palette_usage.get",
     "palette_usage.hide",

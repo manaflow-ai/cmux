@@ -111,6 +111,7 @@ impl ResourceOperation {
                 | Self::SidebarGet
                 | Self::ProjectList
                 | Self::PaletteUsageGet
+                | Self::PaletteRank
                 | Self::StashList
                 | Self::ConductorImportPlan
                 | Self::RoomList

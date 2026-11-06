@@ -384,6 +384,10 @@ const fn access(operation: Op) -> Access {
         // (page-router.json: home-channels reads participant.avatar.get).
         | Op::ParticipantAvatarSet
         | Op::ParticipantAvatarGet
+        // Ranking rows the page itself sends: a page reaches it only
+        // through its allow list (page-router.json: home-channels reads
+        // palette.rank).
+        | Op::PaletteRank
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet

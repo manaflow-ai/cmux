@@ -59,6 +59,7 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "chief.profile.history",
       "chief.profile.list",
       "chief.profile.update",
+      "palette.rank",
       "participant.avatar.get"
     ],
     "gesture": [

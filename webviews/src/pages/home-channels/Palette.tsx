@@ -1,16 +1,20 @@
 // The Cmd-K palette: the center of navigation. One field over three groups: conversations (every
 // room and person, newest first when the field is empty), the open conversation's threads (title,
 // status, reply count) and actions on what is open (new channel, resolve the thread, assign it,
-// copy a link, next unread). Rows are ranked by the command palette's own ranker (rankPalette), so
-// fuzzy and acronym rules match the app palette. The shared primitives own the keyboard, roles and
+// copy a link, next unread). The daemon ranks the rows with the shared palette ranker
+// (`cmux.home.paletteRank`, the daemon's `palette.rank`), so fuzzy and acronym rules match the app
+// palette. Each keystroke asks once; the list keeps the last answer until the next one arrives (no
+// empty frame between them), and an answer for an older query or older rows is dropped. The first
+// frame shows the rows in their order, which is the ranker's answer for the empty query. The
+// shared primitives own the keyboard, roles and
 // focus: ui/Dialog traps focus and returns it; ui/Combobox owns the combobox and listbox roles,
 // the arrows and the highlighted row. A group's name shows over its first row (not read out: each
 // row's own label says what it is).
-import { useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
-import { rankPalette, type PaletteRankEntry } from "../../palette/ranker";
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Dialog } from "../../ui/Dialog";
 import type { Strings } from "../shared/i18n";
+import { fixtureRank, type PaletteRankEntry, type PaletteRankReply, type PaletteRankRequest } from "./paletteRank";
 
 export type PaletteGroup = "conversations" | "threads" | "actions";
 
@@ -30,12 +34,23 @@ export interface PaletteItem {
 const GROUPS: readonly PaletteGroup[] = ["conversations", "threads", "actions"];
 const LIMIT = 40;
 
+/** The ranked rows, each group in its fixed place and cut to LIMIT. */
+function grouped(items: readonly PaletteItem[], reply: PaletteRankReply): PaletteItem[] {
+  const order = reply.sections.flatMap((section) =>
+    section.rows.flatMap((row) => (items[row.index] ? [items[row.index]!] : [])),
+  );
+  return GROUPS.flatMap((group) => order.filter((item) => item.group === group).slice(0, LIMIT));
+}
+
 export function Palette({
   items,
+  rank,
   strings,
   onClose,
 }: {
   items: readonly PaletteItem[];
+  /** Ranks the rows (the store's `rankPalette`: the daemon, or the fixture ranker offline). */
+  rank(request: PaletteRankRequest): Promise<PaletteRankReply>;
   strings: Strings;
   onClose(): void;
 }) {
@@ -51,12 +66,25 @@ export function Palette({
       })),
     [items],
   );
-  // Ranked within each group, groups in a fixed order.
-  const results = useMemo(() => {
-    const ranked = rankPalette({ entries, query, keepsSectionOrder: true });
-    const order = ranked.flatMap((section) => section.rows.map((row) => items[row.index]!));
-    return GROUPS.flatMap((group) => order.filter((item) => item.group === group).slice(0, LIMIT));
-  }, [entries, items, query]);
+  // Ranked within each group, groups in a fixed order. Until the first answer: the rows in order.
+  const [results, setResults] = useState<readonly PaletteItem[]>(() =>
+    grouped(items, fixtureRank({ entries, query: "", keepsSectionOrder: true })),
+  );
+  useEffect(() => {
+    // Each query or set of rows asks once; the effect's cleanup drops an answer that comes after
+    // the next ask (an older query's) or after the palette closed.
+    let current = true;
+    const request = { entries, query, keepsSectionOrder: true };
+    // A failed rank (the daemon went away) falls back to the substring filter, never to no rows.
+    void rank(request)
+      .catch(() => fixtureRank(request))
+      .then((reply) => {
+        if (current) setResults(grouped(items, reply));
+      });
+    return () => {
+      current = false;
+    };
+  }, [entries, items, query, rank]);
   const byId = useMemo(() => new Map(results.map((item) => [item.id, item])), [results]);
   const firsts = useMemo(() => {
     const seen = new Set<PaletteGroup>();

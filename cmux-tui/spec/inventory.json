@@ -117,6 +117,7 @@
     "origin.confirmation.issue",
     "pairing_request.list",
     "pairing_request.resolve",
+    "palette.rank",
     "palette_usage.forget",
     "palette_usage.get",
     "palette_usage.hide",

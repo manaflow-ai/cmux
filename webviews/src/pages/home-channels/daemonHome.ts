@@ -13,6 +13,7 @@ import { PAGE_CONNECTION } from "../shared/pageStreams";
 import type { DaemonError, DaemonSocket } from "../shared/daemonSocket";
 import { CloudHome, WS_CLOUD_CAPABILITY } from "./cloudHome";
 import { DaemonPeople } from "./daemonPeople";
+import { boundedRankRequest, fixtureRank, type PaletteRankEntry, type PaletteRankReply } from "./paletteRank";
 import { AttachmentService, messageGroups } from "./attachmentService";
 import { INLINE_TEXT_BYTES, TextUpload } from "./textUpload";
 import {
@@ -87,6 +88,8 @@ export const CLOUD_PRESENCE_CAPABILITY = "cloud-conversation-presence-v1";
 /** Participants' pictures (`participant.avatar.get`, `cloud-participant-avatar-get`, the
  * `participant-avatar-changed` event for a page that asks). */
 const AVATARS_CAPABILITY = "participant-avatars-v1";
+/** The local owner ranks palette rows (`palette.rank`, the shared palette ranker). */
+const PALETTE_RANK_CAPABILITY = "palette-rank-v1";
 
 const time = (value: unknown): number => (typeof value === "string" ? Date.parse(value) || 0 : 0);
 const num = (value: unknown): number => (typeof value === "number" ? value : 0);
@@ -997,6 +1000,21 @@ export class DaemonHomeClient implements PageClient {
         if (!(await this.capable("chief-work-v1")))
           throw pageError("cmux.page.unavailable", "Chief work is unavailable on this owner");
         return this.local.request("chief-work", { chief: params.chief });
+      case HomeOps.paletteRank: {
+        const request = boundedRankRequest({
+          entries: Array.isArray(params.entries) ? (params.entries as PaletteRankEntry[]) : [],
+          query: typeof params.query === "string" ? params.query : "",
+          keepsSectionOrder: params.keepsSectionOrder === true,
+        });
+        // A daemon from before palette-rank-v1 has no ranker to ask: the plain substring filter.
+        if (!(await this.capable(PALETTE_RANK_CAPABILITY))) return fixtureRank(request);
+        const ranked = await this.local.operation<PaletteRankReply>("palette.rank", {
+          machine: "current",
+          session: "current",
+          ...request,
+        });
+        return { sections: ranked.sections };
+      }
       case HomeOps.directory:
         return { people: await this.people.directory(participant) };
       case HomeOps.startConversation: {

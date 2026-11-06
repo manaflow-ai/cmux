@@ -20,6 +20,7 @@ fn wire_name_round_trips_through_serde() {
         "chief.retry",
         "conductor_import.plan",
         "conductor_import.record",
+        "palette.rank",
     ] {
         let operation: ResourceOperation =
             serde_json::from_str(&format!("\"{name}\"")).expect("known operation");

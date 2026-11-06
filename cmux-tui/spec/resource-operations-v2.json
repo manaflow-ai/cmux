@@ -11001,6 +11001,484 @@
       ],
       "discriminator": "kind"
     },
+    "PaletteRankEntry": {
+      "kind": "object",
+      "fields": {
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 512
+          },
+          "description": "The row's title."
+        },
+        "keywords": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 256
+              },
+              "max_items": 32
+            }
+          },
+          "description": "More words the row is found by."
+        },
+        "subtitle": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 512
+            }
+          },
+          "description": "Muted text under the title, matched below it."
+        },
+        "accessory": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 512
+            }
+          },
+          "description": "Trailing text, matched last."
+        },
+        "rankBias": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": -1000000,
+              "maximum": 1000000
+            }
+          },
+          "description": "Added to the row's score."
+        },
+        "frecencyKey": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 512
+            }
+          },
+          "description": "The row's usage key in frecency."
+        },
+        "isEnabled": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "description": "false: ranked below the enabled rows."
+        },
+        "isVisibleWhenQueryEmpty": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "description": "The row shows on the empty query."
+        },
+        "queryPrefix": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 64
+            }
+          },
+          "description": "The row matches only a query that starts with it."
+        },
+        "hidesWhenTyping": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "description": "The row shows only on the empty query."
+        },
+        "sectionIndex": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": 0,
+              "maximum": 1024
+            }
+          },
+          "description": "The row's section."
+        },
+        "entersScope": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "description": "The row enters a palette scope."
+        },
+        "typingSectionIndex": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": 0,
+              "maximum": 1024
+            }
+          },
+          "description": "The section the row joins while the user types."
+        },
+        "suggestedRank": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": 0,
+              "maximum": 1000000
+            }
+          },
+          "description": "First-use suggestion order."
+        },
+        "suggestedSectionIndex": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": 0,
+              "maximum": 1024
+            }
+          },
+          "description": "The section a suggested row shows in on the empty query."
+        },
+        "actionID": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 256
+            }
+          },
+          "description": "The action id; found by a query that is the id or starts it."
+        },
+        "demoted": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "description": "A secondary row: one tier lower than a command with the same match."
+        },
+        "hasShortcut": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "description": "The row has a keyboard shortcut: first among equal matches."
+        },
+        "keycaps": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 32
+              },
+              "max_items": 8
+            }
+          },
+          "description": "The keycaps of the row's shortcut."
+        },
+        "handles": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 64
+              },
+              "max_items": 16
+            }
+          },
+          "description": "Handles the row is known by: a query that is one ranks it first."
+        }
+      },
+      "extra": false
+    },
+    "PaletteRankFrecency": {
+      "kind": "object",
+      "fields": {
+        "entries": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "PaletteRankUse"
+              }
+            }
+          },
+          "description": "Uses by usage key (at most 5000 keys)."
+        },
+        "halfLife": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "float64"
+            }
+          },
+          "description": "Half-life of a use, in milliseconds."
+        },
+        "picks": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "PaletteRankPick"
+              },
+              "max_items": 5000
+            }
+          },
+          "description": "Learned picks."
+        },
+        "pickHalfLife": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "float64"
+            }
+          },
+          "description": "Half-life of a pick, in milliseconds."
+        },
+        "hidden": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 512
+              },
+              "max_items": 5000
+            }
+          },
+          "description": "Usage keys of rows the user hid."
+        }
+      },
+      "extra": false
+    },
+    "PaletteRankPick": {
+      "kind": "object",
+      "fields": {
+        "prefix": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 256
+          },
+          "description": "The normalized query start."
+        },
+        "key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 512
+          },
+          "description": "The usage key of the row picked."
+        },
+        "score": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Decayed pick count."
+        },
+        "lastUsed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Last pick, in milliseconds."
+        },
+        "last": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The latest row picked for prefix."
+        }
+      },
+      "extra": false
+    },
+    "PaletteRankResult": {
+      "kind": "object",
+      "fields": {
+        "sections": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "PaletteRankSection"
+            },
+            "max_items": 2048
+          },
+          "description": "The ranked sections in order."
+        }
+      },
+      "extra": false
+    },
+    "PaletteRankRow": {
+      "kind": "object",
+      "fields": {
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The row's index in entries."
+        },
+        "score": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int32"
+          },
+          "description": "The row's score; higher ranks first."
+        },
+        "highlights": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "max_items": 512
+          },
+          "description": "Character offsets into the title that matched."
+        }
+      },
+      "extra": false
+    },
+    "PaletteRankSection": {
+      "kind": "object",
+      "fields": {
+        "sectionIndex": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          },
+          "description": "The section; null is Recent (or Pinned without a pinnedSectionIndex)."
+        },
+        "rows": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "PaletteRankRow"
+            },
+            "max_items": 5000
+          },
+          "description": "Ranked rows, best first."
+        }
+      },
+      "extra": false
+    },
+    "PaletteRankUse": {
+      "kind": "object",
+      "fields": {
+        "score": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Decayed use count."
+        },
+        "lastUsed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Last use, in milliseconds."
+        }
+      },
+      "extra": false
+    },
     "PaletteUsageRow": {
       "kind": "object",
       "fields": {
@@ -22742,6 +23220,237 @@
         "operation.failed",
         "origin.forbidden",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "palette.rank": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "operation": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "enum",
+                "values": [
+                  "rank",
+                  "rankEmpty"
+                ]
+              }
+            },
+            "description": "rankEmpty ranks as the empty query; rank (the default) ranks query."
+          },
+          "entries": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "PaletteRankEntry"
+              },
+              "max_items": 5000
+            },
+            "description": "The rows to rank."
+          },
+          "query": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 1024
+              }
+            },
+            "description": "What the person typed."
+          },
+          "sectionOrders": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "array",
+                "items": {
+                  "kind": "primitive",
+                  "name": "int32",
+                  "minimum": -1000000,
+                  "maximum": 1000000
+                },
+                "max_items": 1024
+              }
+            },
+            "description": "Each section's order while typing, by section index."
+          },
+          "frecency": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "ref",
+                "name": "PaletteRankFrecency"
+              }
+            },
+            "description": "The usage history to rank with."
+          },
+          "now": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "float64"
+              }
+            },
+            "description": "Now, in milliseconds, for the history's decay."
+          },
+          "showsRecent": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "boolean"
+              }
+            },
+            "description": "The empty query shows Pinned and Recent first."
+          },
+          "keepsSectionOrder": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "boolean"
+              }
+            },
+            "description": "Rows stay in their sections, in section order, while typing."
+          },
+          "ranksPrefixFirst": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "boolean"
+              }
+            },
+            "description": "A title prefix match ranks above every other match."
+          },
+          "recentLimit": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "int32",
+                "minimum": 0,
+                "maximum": 1000
+              }
+            },
+            "description": "Most Recent rows (default 5)."
+          },
+          "aliases": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "map",
+                "values": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 256
+                  },
+                  "max_items": 32
+                }
+              }
+            },
+            "description": "The person's aliases: action id to words (at most 1000 actions)."
+          },
+          "pins": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "array",
+                "items": {
+                  "kind": "primitive",
+                  "name": "string",
+                  "max_length": 256
+                },
+                "max_items": 256
+              }
+            },
+            "description": "The person's pinned action ids, first on the empty query."
+          },
+          "pinnedSectionIndex": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "int32",
+                "minimum": 0,
+                "maximum": 1024
+              }
+            },
+            "description": "The section pinned rows show in."
+          },
+          "rowLimit": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "int32",
+                "minimum": 0,
+                "maximum": 5000
+              }
+            },
+            "description": "Most rows returned."
+          },
+          "highlightLimit": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "int32",
+                "minimum": 0,
+                "maximum": 5000
+              }
+            },
+            "description": "Most rows given highlights."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Stateless: the request carries its own entries and history, and nothing is kept between calls.",
+          "The catalog caps the entries (5000), their text, the query and every list; the daemon refuses more than 5000 history keys or 1000 aliased actions with validation.invalid, so one request does bounded work.",
+          "The result is the shared palette ranker's answer (cmux-palette-ranker rank_request): the same sections and rows the app palette gets for the same request."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "PaletteRankResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

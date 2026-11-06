@@ -177,6 +177,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("palette_usage.import", PALETTE_USAGE_REASON),
     ("palette_usage.hide", PALETTE_USAGE_REASON),
     ("palette_usage.forget", PALETTE_USAGE_REASON),
+    ("palette.rank", PALETTE_RANK_REASON),
     ("stash.create", STASH_REASON),
     ("stash.list", STASH_REASON),
     ("stash.restore", STASH_REASON),
@@ -247,6 +248,8 @@ const WINDOW_RECORD_REASON: &str = "A window record has one writer, the app that
      window; the CLI omits it too, and window_list reads the app's windows.";
 const SIDEBAR_LAYOUT_REASON: &str = "The Mac app's sidebar layout: agents edit it through the \
      app's sidebar actions (action tools), which keep the app's intent log.";
+const PALETTE_RANK_REASON: &str = "Ranks palette rows a page sends for its own palette \
+     (the Channels page); an agent has no palette to rank, and its tools already search.";
 const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \
      records and reads it; agents rank rows through palette.query, never read or write usage.";
 const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \

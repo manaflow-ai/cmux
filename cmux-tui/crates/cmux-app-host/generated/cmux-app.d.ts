@@ -304,6 +304,13 @@ declare namespace Cmux {
   type PairingPreview = { code: Cmux.PairingCode; info: Cmux.PairingInfo; public_jwk: Cmux.PublicJwk; thumbprint: string; country: string | null; expires_at: number }
   type PairingRequestSnapshot = { id: string /* pairing_request_… */; session_id: string /* session_… */; peer: string; code: string; expires_in_seconds: string; status: "pending" | "accepted" | "rejected"; extra?: Record<string, Cmux.JsonValue> }
   type PairingResolutionResult = { pairing_request: Cmux.PairingRequestSnapshot }
+  type PaletteRankEntry = { title: string; keywords?: Array<string> | null; subtitle?: string | null; accessory?: string | null; rankBias?: number | null; frecencyKey?: string | null; isEnabled?: boolean | null; isVisibleWhenQueryEmpty?: boolean | null; queryPrefix?: string | null; hidesWhenTyping?: boolean | null; sectionIndex?: number | null; entersScope?: boolean | null; typingSectionIndex?: number | null; suggestedRank?: number | null; suggestedSectionIndex?: number | null; actionID?: string | null; demoted?: boolean | null; hasShortcut?: boolean | null; keycaps?: Array<string> | null; handles?: Array<string> | null }
+  type PaletteRankFrecency = { entries?: Record<string, Cmux.PaletteRankUse> | null; halfLife?: number | null; picks?: Array<Cmux.PaletteRankPick> | null; pickHalfLife?: number | null; hidden?: Array<string> | null }
+  type PaletteRankPick = { prefix: string; key: string; score: number; lastUsed: number; last: boolean }
+  type PaletteRankResult = { sections: Array<Cmux.PaletteRankSection> }
+  type PaletteRankRow = { index: number; score: number; highlights: Array<number> }
+  type PaletteRankSection = { sectionIndex: number | null; rows: Array<Cmux.PaletteRankRow> }
+  type PaletteRankUse = { score: number; lastUsed: number }
   type PaletteUsageImportResult = { revision: string; imported: boolean }
   type PaletteUsagePick = { prefix: string; key: string; score: number; last_used_ms: string; last: boolean }
   type PaletteUsageRecordResult = { revision: string }
@@ -1185,6 +1192,10 @@ interface CmuxGlobal {
     create: CmuxOp<{ machine?: string; session?: string; title: string; subtitle?: string; body: string; level?: Cmux.NotificationLevel; desktop?: boolean; reply?: boolean; terminal_id?: string /* terminal_… */; workspace_id?: string /* workspace_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationSnapshot>>
     /** `notification.list` (read, scope `notification:read`) */
     list: CmuxOp<{ machine?: string; session?: string; limit?: number }, Array<Cmux.NotificationSnapshot>>
+  }
+  palette: {
+    /** `palette.rank` (read, scope `palette:read`) */
+    rank: CmuxOp<{ machine?: string; session?: string; operation?: "rank" | "rankEmpty" | null; entries: Array<Cmux.PaletteRankEntry>; query?: string | null; sectionOrders?: Array<number> | null; frecency?: Cmux.PaletteRankFrecency | null; now?: number | null; showsRecent?: boolean | null; keepsSectionOrder?: boolean | null; ranksPrefixFirst?: boolean | null; recentLimit?: number | null; aliases?: Record<string, Array<string>> | null; pins?: Array<string> | null; pinnedSectionIndex?: number | null; rowLimit?: number | null; highlightLimit?: number | null }, Cmux.PaletteRankResult>
   }
   palette_usage: {
     /** `palette_usage.forget` (mutation, scope `palette_usage:write`) */

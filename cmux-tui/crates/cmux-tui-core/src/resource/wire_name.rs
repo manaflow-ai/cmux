@@ -255,6 +255,7 @@ impl ResourceOperation {
             Self::PaletteUsageImport => "palette_usage.import",
             Self::PaletteUsageHide => "palette_usage.hide",
             Self::PaletteUsageForget => "palette_usage.forget",
+            Self::PaletteRank => "palette.rank",
             Self::StashCreate => "stash.create",
             Self::StashList => "stash.list",
             Self::StashRestore => "stash.restore",
