@@ -220,10 +220,15 @@ export function HomeChannelsPage({
   const host = store.host;
   const newCloudMachine = host
     ? () =>
-        void host.call(APP_ACTION_RUN, { action: NEW_CLOUD_MACHINE }).catch((error: unknown) => {
+        void host.call<{ ran?: boolean }>(APP_ACTION_RUN, { action: NEW_CLOUD_MACHINE }).then(
+          // An action the app did not run (turned off, unavailable) answers `ran: false`; one that
+          // ran and then stopped (sign-in declined) says so in the app.
+          (reply) => {
+            if (reply?.ran === false) say(t("notice.cloudNotRun"));
+          },
           // A refusal (the host's own words) shows as the page's short notice.
-          if (error instanceof Error && error.message) say(error.message);
-        })
+          (error: unknown) => say(error instanceof Error && error.message ? error.message : t("notice.cloudNotRun")),
+        )
     : undefined;
   const copyLink = (message?: HomeMessage, conversation = snap.selected) => {
     if (!conversation || !navigator.clipboard) return;

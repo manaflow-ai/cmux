@@ -55,6 +55,8 @@ type Props = {
   link?: string;
   /** Where the list shows New Cloud Machine (needs `hostBridge`: only the app host runs it). */
   cloudEntry?: CloudEntryLook;
+  /** The app does not run the action (turned off): its `cmux.app.action.run` answers `ran: false`. */
+  cloudNotRun?: boolean;
 };
 
 /** The app's side of the page bridge, in the gallery frame. The page's own calls and subscribes
@@ -68,6 +70,8 @@ class GalleryBridgeHost {
   readonly client: BridgePageClient;
   /** The app actions the page asked to run, oldest first. */
   readonly actions: unknown[] = [];
+  /** Whether the app runs the actions the page asks for (`ran` in the reply). */
+  ran = true;
 
   constructor() {
     // A private target: the frame's own `__cmuxPageReceive` global stays untouched.
@@ -78,7 +82,7 @@ class GalleryBridgeHost {
     const envelope = body as { t?: string; id?: number; op?: string; stream?: string; params?: unknown };
     if (envelope.t === "call" && envelope.op === APP_ACTION_RUN) {
       this.actions.push(envelope.params);
-      return { t: "ok", id: envelope.id, value: { ran: true } };
+      return { t: "ok", id: envelope.id, value: { ran: this.ran } };
     }
     if ((envelope.t === "ok" || envelope.t === "err") && typeof envelope.id === "number") {
       this.waiting.get(envelope.id)?.(envelope);
@@ -126,6 +130,7 @@ function HomeChannelsGallery({
   hostBridge = false,
   link,
   cloudEntry,
+  cloudNotRun = false,
 }: Props) {
   const [store] = useState(() => {
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media, teammates);
@@ -134,6 +139,7 @@ function HomeChannelsGallery({
     let host: BridgePageClient | MockHomeProvider | null = hostGrants ? provider : null;
     if (hostBridge) {
       const bridge = new GalleryBridgeHost();
+      bridge.ran = !cloudNotRun;
       (window as GalleryHostWindow).cmuxGalleryHost = bridge;
       host = bridge.client;
     }
@@ -268,6 +274,16 @@ export default componentEntry<Props>({
       note: "New Cloud Machine as a labeled row at the foot of the list.",
       props: { select: "c-release", hostBridge: true, cloudEntry: "footer" },
       play: expectCloudMachineRun,
+    },
+    "cloud-entry-not-run": {
+      note: "The app does not run New Cloud Machine (turned off): the click says so in the page's short notice.",
+      props: { select: "c-release", hostBridge: true, cloudNotRun: true },
+      play: async (ctx) => {
+        await expectCloudMachineRun(ctx);
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".lg-notice")?.textContent?.includes("Couldn't open New Cloud Machine"),
+        );
+      },
     },
     "cloud-entry-browser": {
       note: "No app host (a browser on the daemon's listener): no New Cloud Machine entry.",
