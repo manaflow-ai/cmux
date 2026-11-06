@@ -47,6 +47,11 @@ use crate::daemon_spec::{ROOT_HOME, WORK_HOME, WORK_USER, binary_path};
 use crate::linux::fds::Inotify;
 use crate::linux::spawn::lookup_user;
 
+/// How often, and how far apart, a carrier bind waits for the session
+/// host's Noise key before binding without it (about 15 s in all).
+const NOISE_KEY_WAITS: u32 = 30;
+const NOISE_KEY_WAIT_MS: u64 = 500;
+
 /// The dev-only heartbeat test override (read once at role start).
 pub const HEARTBEAT_ENV: &str = "CMUX_VM_AGENT_HEARTBEAT_MS";
 /// Where a trajectory restore stages its bundles (the work user's, 0700).
@@ -507,6 +512,9 @@ struct Worker {
     relay: Option<Relay>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
+    /// Binds put off while a carrier bind waits for the session host's
+    /// Noise key (its identity file appears once the host has started).
+    noise_key_waits: u32,
     /// The workload probe (`workload.rs`): its memory and when it runs next (while bound).
     workload: super::workload::Tracker,
     workload_at: Option<u64>,
@@ -559,6 +567,7 @@ impl Worker {
             relay: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
+            noise_key_waits: 0,
             workload: super::workload::Tracker::default(),
             workload_at: None,
             rng: SystemRandom::new(),
@@ -918,13 +927,20 @@ impl Worker {
             Ok(poster) => PosterHttp(poster),
             Err(e) => return log(&e),
         };
-        // Only a machine with the relay carrier sends its daemon's Noise key.
-        let noise_key = crate::linux::carrier_route(&self.paths).and_then(|_| {
-            let home = relay_runner().ok()?.home;
-            let file = super::daemon_noise_key::identity_path(&home, crate::daemon_spec::SESSION);
-            let file = self.paths.at(&file.to_string_lossy());
-            super::daemon_noise_key::read(&file)
-        });
+        // Only a bind with a relay carrier sends its daemon's Noise key. The
+        // token is not spent yet, so a short wait for the key costs nothing;
+        // after it the bind goes on without (the field is optional).
+        let carrier = self
+            .store
+            .read(BIND_FILE)
+            .and_then(|text| super::wire::parse_bind_file(&text).ok())
+            .is_some_and(|file| file.carrier.is_some());
+        let noise_key = carrier.then(|| self.daemon_noise_key()).flatten();
+        if carrier && noise_key.is_none() && self.noise_key_waits < NOISE_KEY_WAITS {
+            self.noise_key_waits += 1;
+            self.bind_retry_at = Some(self.now() + NOISE_KEY_WAIT_MS);
+            return log("bind: waiting for the session host's Noise key");
+        }
         let result = bind_machine(
             &mut self.store,
             &http,
@@ -948,6 +964,13 @@ impl Worker {
             }
             _ => {}
         }
+    }
+
+    /// The session host's Noise static public key, from its identity file.
+    fn daemon_noise_key(&self) -> Option<String> {
+        let home = relay_runner().ok()?.home;
+        let file = super::daemon_noise_key::identity_path(&home, crate::daemon_spec::SESSION);
+        super::daemon_noise_key::read(&self.paths.at(&file.to_string_lossy()))
     }
 
     /// The agent restarted on a bound machine: report again, unless the

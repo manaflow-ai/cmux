@@ -155,20 +155,83 @@ fn bind_posts_the_vector_fields_writes_bound_then_removes_bind() {
     assert_eq!(identity.instance_id, "i-aaa");
 }
 
-/// A machine with the relay carrier also sends its daemon's Noise key; the
-/// default bind body (above) has no such field.
+const SLOT: &str = "AAAAAAAAAAAAAAAAAAAAAA";
+
+fn bind_with_carrier(machine: &str) -> String {
+    let mut bind: Value = serde_json::from_str(&bind_text()).unwrap();
+    bind["carrier"] = json!({"relay": "relay+do://relay.cmux.dev", "machine": machine, "slot": SLOT});
+    bind.to_string()
+}
+
+/// A bind with a `carrier` section sends the daemon's Noise key and keeps
+/// the route as carrier.json (0600) with the team and the grant issuer.
 #[test]
-fn bind_sends_the_daemon_noise_key_only_when_given() {
+fn a_carrier_bind_sends_the_noise_key_and_keeps_carrier_json() {
+    use crate::carrier_entry::{CARRIER_FILE, CarrierFile, CarrierRoute, parse_file};
     let fake = Fake::new();
     let rng = SystemRandom::new();
     let mut store = MemoryStore::default();
-    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    store.write(BIND_FILE, &bind_with_carrier(MACHINE), 0o600).unwrap();
     let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
     let noise = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), Some(noise), T0);
     assert!(matches!(result, BindResult::Bound(_)), "{result:?}");
     let seen = fake.0.borrow().seen[0].clone();
     assert_eq!(seen.body["daemon_noise_key"], noise);
+    assert!(seen.body.get("carrier").is_none(), "the route is not sent back");
+    assert_eq!(store.mode_of(CARRIER_FILE), Some(0o600));
+    assert_eq!(
+        parse_file(store.read(CARRIER_FILE).as_deref()),
+        Ok(Some(CarrierFile {
+            route: CarrierRoute {
+                relay: "relay+do://relay.cmux.dev".into(),
+                machine: MACHINE.into(),
+                slot: SLOT.into(),
+            },
+            team: TEAM.into(),
+            issuer: "cmux:cloud:development".into(),
+        }))
+    );
+}
+
+/// A bind without `carrier` writes no carrier.json and keeps one that is
+/// there; the body stays the exact field set above.
+#[test]
+fn a_bind_without_carrier_changes_nothing() {
+    use crate::carrier_entry::CARRIER_FILE;
+    for existing in [None, Some("{\"kept\": true}\n")] {
+        let fake = Fake::new();
+        let rng = SystemRandom::new();
+        let mut store = MemoryStore::default();
+        if let Some(text) = existing {
+            store.write(CARRIER_FILE, text, 0o600).unwrap();
+        }
+        store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+        let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
+        let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
+        assert!(matches!(result, BindResult::Bound(_)), "{result:?}");
+        assert_eq!(store.read(CARRIER_FILE).as_deref(), existing);
+        assert!(fake.0.borrow().seen[0].body.get("daemon_noise_key").is_none());
+    }
+}
+
+#[test]
+fn a_bad_or_foreign_carrier_section_refuses_the_bind_file() {
+    assert!(parse_bind_file(&bind_with_carrier(MACHINE)).unwrap().carrier.is_some());
+    assert_eq!(parse_bind_file(&bind_text()).unwrap().carrier, None);
+    let foreign = parse_bind_file(&bind_with_carrier("vm_00000000000000000000")).unwrap_err();
+    assert!(foreign.contains("not this machine"), "{foreign}");
+    let mut bad: Value = serde_json::from_str(&bind_with_carrier(MACHINE)).unwrap();
+    bad["carrier"]["slot"] = json!("short");
+    assert!(parse_bind_file(&bad.to_string()).is_err());
+}
+
+/// Grants are signed as `cmux:cloud:<ENVIRONMENT>`, never the short tag.
+#[test]
+fn each_environment_names_its_grant_issuer() {
+    assert_eq!(Env::Dev.grant_issuer(), "cmux:cloud:development");
+    assert_eq!(Env::Stg.grant_issuer(), "cmux:cloud:staging");
+    assert_eq!(Env::Prod.grant_issuer(), "cmux:cloud:production");
 }
 
 #[test]

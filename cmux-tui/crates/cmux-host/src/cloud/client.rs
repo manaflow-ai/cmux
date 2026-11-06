@@ -209,8 +209,10 @@ impl BindResult {
 /// Spends `bind.json`'s one-time token: `POST {api_origin}/v1/cloud/bind`
 /// with no bearer. `bound.json` (0600) is written before `bind.json` goes.
 /// `daemon_noise_key` (the session host's Noise static public key,
-/// `daemon_noise_key.rs`) is sent only when given: a machine with the relay
-/// carrier configured.
+/// `daemon_noise_key.rs`) is sent only when given: a bind with a `carrier`
+/// section. That section is kept as `carrier.json` (0600,
+/// `carrier_entry.rs`) before `bound.json`; a bind without one leaves any
+/// existing `carrier.json` as it is.
 pub fn bind_machine(
     store: &mut dyn Store,
     http: &dyn Http,
@@ -271,6 +273,19 @@ pub fn bind_machine(
         keyset: value.field("keyset").clone(),
         bound_at: now_wall_ms,
     };
+    // The carrier goes down before bound.json, so a bound machine never
+    // lacks the route its bind sent; the session host respawns on it.
+    if let Some(route) = file.carrier {
+        let carrier = crate::carrier_entry::CarrierFile {
+            route,
+            team: bound.team.clone(),
+            issuer: bound.env.grant_issuer(),
+        };
+        let text = format!("{}\n", carrier.to_json());
+        if let Err(e) = store.write(crate::carrier_entry::CARRIER_FILE, &text, 0o600) {
+            return BindResult::Retry(format!("carrier.json write: {e}"));
+        }
+    }
     let saved = serde_json::to_string(&bound).unwrap_or_default();
     if let Err(e) = store.write(BOUND_FILE, &format!("{saved}\n"), 0o600) {
         return BindResult::Retry(format!("bound.json write: {e}"));

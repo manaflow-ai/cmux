@@ -1,20 +1,32 @@
 //! The session host's relay carrier route: the machine's slot on the
-//! platform's relay, from the host config `/etc/cmux/host.json` (pure).
-//! cmux design/cloud-carrier.md, "One carrier" item 1 and slice 4.
+//! platform's relay (pure). cmux design/cloud-carrier.md, "One carrier"
+//! item 1 and slice 4.
 //!
-//! Off unless the config has a `carrier` section:
+//! The platform puts the route in the bind request file
+//! `/var/lib/cmux/bind.json` as its `carrier` section:
 //!
 //! ```json
 //! {"carrier": {"relay": "relay+do://relay.example", "machine": "vm_…", "slot": "…"}}
 //! ```
 //!
-//! With it, the session host also registers on the machine's relay slot:
-//! `--relay <relay> --relay-slot <slot>`, with a ticket command that runs
-//! this binary's `host cloud carrier-ticket` for each Register. That verb
-//! asks the Cloud agent, which holds the install key, for a Register ticket
-//! (`POST /v1/cloud/machines/{machine}/carrier`, `cloud/carrier_ticket.rs`).
-//! The slot comes from the config because the platform derives it with a
-//! key the machine does not hold.
+//! At the bind commit the Cloud role keeps it in [`CARRIER_FILE`] (root,
+//! 0600), with the team and the grant issuer the session host's carrier
+//! grant verifier needs:
+//!
+//! ```json
+//! {"relay": "relay+do://…", "machine": "vm_…", "slot": "…",
+//!  "team": "team_…", "issuer": "cmux:cloud:production"}
+//! ```
+//!
+//! A machine without the file has no carrier. With it, the session host also
+//! registers on the machine's relay slot: `--relay <relay> --relay-slot
+//! <slot>`, with a ticket command that runs this binary's `host cloud
+//! carrier-ticket` for each Register. That verb asks the Cloud agent, which
+//! holds the install key, for a Register ticket (`POST
+//! /v1/cloud/machines/{machine}/carrier`, `cloud/carrier_ticket.rs`). The
+//! slot comes from the platform because it derives it with a key the
+//! machine does not hold. cmux-host respawns the session host when the file
+//! appears or changes.
 //!
 //! A ticket only lets the daemon take its slot. The session on the slot is
 //! still cmux-remote's Noise session, with the daemon key the Mac pins.
@@ -35,6 +47,37 @@ pub struct CarrierRoute {
     pub machine: String,
     /// The relay slot: 22 to 128 base64url characters.
     pub slot: String,
+}
+
+/// The machine's carrier, kept by the Cloud role at the bind commit.
+pub const CARRIER_FILE: &str = "/var/lib/cmux/carrier.json";
+
+/// [`CARRIER_FILE`]'s name in its directory.
+pub const CARRIER_FILE_NAME: &str = "carrier.json";
+
+/// The session host's flags that carry the route.
+const ROUTE_FLAGS: [&str; 4] =
+    ["--relay", "--relay-slot", "--relay-ticket-command", "--relay-ticket-command-arg"];
+
+/// [`CARRIER_FILE`]: the route, plus the team and the carrier grant issuer
+/// (`cmux:cloud:<environment>`) of the bind.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CarrierFile {
+    pub route: CarrierRoute,
+    pub team: String,
+    pub issuer: String,
+}
+
+impl CarrierFile {
+    pub fn to_json(&self) -> Value {
+        serde_json::json!({
+            "relay": self.route.relay,
+            "machine": self.route.machine,
+            "slot": self.route.slot,
+            "team": self.team,
+            "issuer": self.issuer,
+        })
+    }
 }
 
 /// The verb the ticket command runs (after the binary and its `host` verb).
@@ -60,22 +103,60 @@ impl CarrierRoute {
     }
 }
 
-/// The carrier route of `text` (the host config, `None` when absent):
-/// `Ok(None)` when it has no `carrier` section, or why it is refused.
-pub fn parse(text: Option<&str>) -> Result<Option<CarrierRoute>, String> {
-    let Some(text) = text else { return Ok(None) };
-    let root: Value =
-        serde_json::from_str(text).map_err(|e| format!("host.json is not JSON: {e}"))?;
-    let Value::Object(root) = root else { return Err("host.json is not an object".to_owned()) };
-    let section = match root.get("carrier") {
-        None => return Ok(None),
-        Some(Value::Object(section)) => section,
-        Some(_) => return Err("`carrier` is not an object".to_owned()),
+/// The `carrier` section of `bind.json`, refused unless it has exactly
+/// `relay`, `machine` and `slot`, each in its shape.
+pub fn parse_section(section: &Value) -> Result<CarrierRoute, String> {
+    let Value::Object(section) = section else {
+        return Err("`carrier` is not an object".to_owned());
     };
     if let Some(key) = section.keys().find(|k| !matches!(k.as_str(), "relay" | "machine" | "slot"))
     {
         return Err(format!("`carrier` has an unknown key {key:?}"));
     }
+    route(section)
+}
+
+/// [`CARRIER_FILE`]'s text (`None` when absent): `Ok(None)` without a file,
+/// or why it is refused.
+pub fn parse_file(text: Option<&str>) -> Result<Option<CarrierFile>, String> {
+    let Some(text) = text else { return Ok(None) };
+    let root: Value =
+        serde_json::from_str(text).map_err(|e| format!("carrier.json is not JSON: {e}"))?;
+    let Value::Object(root) = root else {
+        return Err("carrier.json is not an object".to_owned());
+    };
+    if let Some(key) = root
+        .keys()
+        .find(|k| !matches!(k.as_str(), "relay" | "machine" | "slot" | "team" | "issuer"))
+    {
+        return Err(format!("`carrier` has an unknown key {key:?}"));
+    }
+    let route = route(&root)?;
+    let team = field(&root, "team")?;
+    let issuer = field(&root, "issuer")?;
+    if !team.starts_with("team_") || !issuer.starts_with("cmux:cloud:") {
+        return Err("`carrier` has no valid team or issuer".to_owned());
+    }
+    Ok(Some(CarrierFile { route, team, issuer }))
+}
+
+/// The route flags in a session host's `argv` (`/proc/<pid>/cmdline`), in
+/// order: what [`CarrierRoute::args`] gave the running host, or nothing.
+pub fn args_in(argv: &[String]) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut rest = argv.iter();
+    while let Some(arg) = rest.next() {
+        if ROUTE_FLAGS.contains(&arg.as_str())
+            && let Some(value) = rest.next()
+        {
+            found.push(arg.clone());
+            found.push(value.clone());
+        }
+    }
+    found
+}
+
+fn route(section: &Map<String, Value>) -> Result<CarrierRoute, String> {
     let relay = field(section, "relay")?;
     let host = relay
         .strip_prefix(RELAY_SCHEME)
@@ -91,7 +172,7 @@ pub fn parse(text: Option<&str>) -> Result<Option<CarrierRoute>, String> {
     if !valid_slot(&slot) {
         return Err("`carrier.slot` is not 22 to 128 base64url characters".to_owned());
     }
-    Ok(Some(CarrierRoute { relay, machine, slot }))
+    Ok(CarrierRoute { relay, machine, slot })
 }
 
 fn field(section: &Map<String, Value>, name: &str) -> Result<String, String> {
