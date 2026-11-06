@@ -73,4 +73,13 @@ struct MotionTargetTrace {
         let bad = Set(all.map { "\($0.element)#\($0.frame)" }).count
         return "frames \(frames), bad \(bad), worst away \(worst(.away)) pt, worst jump \(worst(.jump)) pt, after end \(worst(.afterEnd)) pt"
     }
+
+    /// Each element's distance from its rest in every frame, in points (positive above or right of it): the frames a
+    /// before and after chart draws.
+    var frames: [String] {
+        tracks.sorted(by: { $0.key < $1.key }).map { element, samples in
+            let rest = settled[element] ?? samples.last?.position ?? 0
+            return "\(element): " + samples.map { String(format: "%.1f", $0.position - rest) }.joined(separator: " ")
+        }
+    }
 }

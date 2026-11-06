@@ -151,5 +151,6 @@ struct SplitMotionTargetTraceTests {
 
     static func report(_ name: String, _ trace: MotionTargetTrace) {
         print("motion-trace: \(name): \(trace.summary)")
+        for line in trace.frames { print("motion-frames: \(name): \(line)") }
     }
 }
