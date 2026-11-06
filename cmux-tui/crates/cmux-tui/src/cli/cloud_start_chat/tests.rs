@@ -459,17 +459,19 @@ fn each_wait_is_bounded_by_the_time_left() {
     let running = "@@wait 3\n@@history\n{\"turns\":[{\"seq\":2,\"status\":\"running\"}]}\n";
     let mut fake = Fake::new(vec![
         signed_in(),
-        made(),
         started(),
         exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
         exec_out(running),
         exec_out(running),
     ]);
-    let asked = request(&["--prompt", "x", "--wait", "--timeout", "7"]);
+    // The list, the start and the send take 15 s of the 22, counted from the command's start.
+    let asked =
+        request(&["--prompt", "x", "--target", "machine:vm-1", "--wait", "--timeout", "22"]);
     let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!() };
     assert_eq!(error["code"], "chat.wait_timeout");
-    assert!(fake.ran[4][5].contains("acp wait sess-1 --timeout 7 "), "{:?}", fake.ran[4]);
-    assert!(fake.ran[5][5].contains("acp wait sess-1 --timeout 2 "), "{:?}", fake.ran[5]);
+    assert!(fake.ran[3][5].contains("acp wait sess-1 --timeout 7 "), "{:?}", fake.ran[3]);
+    assert!(fake.ran[4][5].contains("acp wait sess-1 --timeout 2 "), "{:?}", fake.ran[4]);
+    assert_eq!(fake.ran.len(), 5);
 }
 
 #[test]
@@ -875,14 +877,15 @@ fn the_relay_time_counts_against_the_timeout() {
     let mut answers = vec![signed_in(), relayed(json!({"session_id": "relay-1", "ended": false}))];
     answers.extend((0..9).map(|_| exec_out(running)));
     let mut fake = Fake::new(answers);
-    // The relay step took 5 s of the 47: waits of 20 s while 20 s are left, then the rest, down to 2 s.
+    // The list and the relay step took 10 s of the 47: waits of 20 s while 20 s are left, then the rest,
+    // down to 2 s.
     let asked =
         request(&["--prompt", "x", "--target", "machine:vm-1", "--wait", "--timeout", "47"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
     assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3));
     assert!(fake.ran[2][5].contains("acp wait relay-1 --timeout 20 "), "{:?}", fake.ran[2]);
-    assert!(fake.ran[10][5].contains("acp wait relay-1 --timeout 2 "), "{:?}", fake.ran[10]);
-    assert_eq!(fake.ran.len(), 11);
+    assert!(fake.ran[9][5].contains("acp wait relay-1 --timeout 2 "), "{:?}", fake.ran[9]);
+    assert_eq!(fake.ran.len(), 10);
 }
 
 #[test]
@@ -1087,7 +1090,7 @@ fn repo_start(cwd: &str, timeout: &str) -> Request {
 
 fn is_folder_check(args: &[String], cwd: &str) -> bool {
     args[..4] == strings(&["cloud", "exec", "--target", "machine:vm-1"])
-        && args[5].contains(".cmux/bootstrap/status.json")
+        && args[5].contains(".cmux/bootstrap")
         && args[5].contains(cwd)
 }
 
