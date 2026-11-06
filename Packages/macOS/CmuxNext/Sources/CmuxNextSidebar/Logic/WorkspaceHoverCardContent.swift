@@ -93,7 +93,7 @@ struct WorkspaceHoverCardContent: Equatable {
     }
 
     /// The card for `workspace` as `options` lay it out (u3320), with its `timeline` (newest first).
-    /// `looked`: when the person last looked at it (`sidebar.sinceLooked`), for the line that says
+    /// `looked`: when the person last looked at it (`SidebarLookedStore`), for the line that says
     /// what its agents did since. `pullRequests`: the row's pull request badge
     /// (`SidebarSessionTree.pullRequests`), for the repository and the state; `home`: this Mac's
     /// home folder, which is no fact.

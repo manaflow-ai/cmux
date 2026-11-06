@@ -30,6 +30,19 @@ const ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// end and aborts it: a client never gets a bundle's last page from an aborted move.
 pub(super) static PAGES: StdMutex<()> = StdMutex::new(());
 
+/// The claim on a move's one watch (`Hub::claim_move_watch`), given back when dropped.
+pub(super) struct MoveWatch {
+    hub: Arc<Hub>,
+    transfer_id: String,
+}
+
+impl Drop for MoveWatch {
+    fn drop(&mut self) {
+        let mut watched = self.hub.watched_moves.lock().unwrap_or_else(|e| e.into_inner());
+        watched.remove(&self.transfer_id);
+    }
+}
+
 /// When the move in `dir` last heard from its client (`alive` holds the Unix time in ms), or None
 /// when it has no record of it.
 fn last_activity(dir: &Path) -> Option<std::time::SystemTime> {
@@ -149,13 +162,35 @@ impl Hub {
         }
     }
 
-    /// Watches the move `transfer_id` of `session` until it ends.
+    /// The one watch of move `transfer_id`, None when a watch, or the begin that makes the move,
+    /// holds it already. A begin claims it before it makes the bundle and hands it to its watch
+    /// once the move's `alive` stamp is written (`transfer_out.rs`): the startup pass
+    /// (`watch_transfers`) can run while a begin is still making its bundle, and a watch that
+    /// read no stamp then took the move for one idle a whole lease and ended it.
+    pub(super) fn claim_move_watch(self: &Arc<Self>, transfer_id: &str) -> Option<MoveWatch> {
+        let mut watched = self.watched_moves.lock().unwrap_or_else(|e| e.into_inner());
+        watched
+            .insert(transfer_id.to_owned())
+            .then(|| MoveWatch { hub: self.clone(), transfer_id: transfer_id.to_owned() })
+    }
+
+    /// Watches the move `transfer_id` of `session` until it ends, unless another holds its watch.
     pub(super) fn watch_transfer(self: &Arc<Self>, session: &Arc<Session>, transfer_id: &str) {
         if tokio::runtime::Handle::try_current().is_err() {
             return;
         }
-        let (hub, session, transfer_id) = (self.clone(), session.clone(), transfer_id.to_owned());
-        tokio::spawn(async move { hub.transfer_watch(&session, &transfer_id).await });
+        if let Some(watch) = self.claim_move_watch(transfer_id) {
+            self.watch_claimed(session, watch);
+        }
+    }
+
+    /// Watches the move `watch` claims until it ends; the claim goes with the watch.
+    pub(super) fn watch_claimed(self: &Arc<Self>, session: &Arc<Session>, watch: MoveWatch) {
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let (hub, session) = (self.clone(), session.clone());
+        tokio::spawn(async move { hub.transfer_watch(&session, &watch.transfer_id).await });
     }
 
     /// Every move a chat here is in, once the daemon starts. A stopped chat's move is not in

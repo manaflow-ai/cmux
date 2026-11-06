@@ -4,7 +4,7 @@
 
 nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
-        tabMoveActions() + paneExtraActions() + columnActions() + dockColumnActions() + dockedWorkspaceActions() + terminalExtraActions()
+        tabMoveActions() + paneExtraActions() + columnActions() + dockColumnActions() + dockedWorkspaceActions() + windowDockActions() + terminalExtraActions()
     }
 
     static func row(

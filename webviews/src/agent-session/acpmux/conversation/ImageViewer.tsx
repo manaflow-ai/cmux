@@ -5,11 +5,13 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
+import { useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
 import { postNative } from "../native";
 import type { ChatImage } from "./chatImages";
@@ -81,6 +83,9 @@ export function ImageViewer({
   onClose(): void;
 }) {
   const t = useT();
+  // The pane's native tab row draws over the page's top (header/tabRow.ts): the viewer starts below it,
+  // so its name never sits under the tabs (Leo, 2026-11-05: "the file nameis also way at the top").
+  const tabRowHeight = useTabRow().height;
   const image = images[index];
   const [view, setView] = useState<View>(FIT);
   // The view a pinch started from, read by the gesture listener (registered once).
@@ -237,6 +242,7 @@ export function ImageViewer({
       label={image.alt || t("image.viewer")}
       className="acpmux-image-viewer"
       backdropClassName="acpmux-image-viewer-backdrop"
+      style={tabRowHeight > 0 ? ({ "--acpmux-image-viewer-top": `${tabRowHeight}px` } as CSSProperties) : undefined}
       initialFocus={close}
       // ui-allow: the viewer's own image keys (the arrows step, + - 0 zoom), as an image canvas has.
       onKeyDown={onKeyDown}

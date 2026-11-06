@@ -24,10 +24,10 @@ struct NewTabSuccession {
 
     /// The New Tab page the new tab replaces, if it replaces one.
     let page: StripTabID?
-    /// The tab the new one goes right after; nil: the first unpinned slot.
-    let before: StripTabID?
-    /// The pane's daemon tabs when the open started.
-    let known: Set<String>
+    /// The tab the new one goes right after; nil: the first unpinned slot. Re-anchored when it closes first.
+    var before: StripTabID?
+    /// The pane's daemon tabs when the open started, in its order.
+    let known: [String]
     /// The new tab's surface once known.
     var surface: SurfaceID?
     var deadline: ContinuousClock.Instant
@@ -46,16 +46,10 @@ struct NewTabSuccession {
         return begin(page: StripTabID(key), after: index > 0 ? pane.tabs[index - 1].id : nil, in: pane, services: services)
     }
 
-    /// Starts showing the pane's next new tab right after `anchor`. Returns the open, for `made`.
+    /// Starts showing the pane's next new tab right after `anchor`, or first after its pinned tabs for nil. Returns the open, for `made`.
     @discardableResult
-    static func begin(after anchor: String, in pane: PaneModel, services: AppServices) -> DemandTimer? {
+    static func begin(after anchor: String?, in pane: PaneModel, services: AppServices) -> DemandTimer? {
         begin(page: nil, after: anchor, in: pane, services: services)
-    }
-
-    /// Starts showing the pane's next new tab first, after its pinned tabs. Returns the open, for `made`.
-    @discardableResult
-    static func begin(atStartOf pane: PaneModel, services: AppServices) -> DemandTimer? {
-        begin(page: nil, after: nil, in: pane, services: services)
     }
 
     private static func begin(page: StripTabID?, after anchor: String?, in pane: PaneModel, services: AppServices) -> DemandTimer? {
@@ -65,7 +59,7 @@ struct NewTabSuccession {
             active[ObjectIdentifier(pane)] = nil
             return nil
         }
-        let succession = NewTabSuccession(page: page, before: anchor.map { StripTabID($0) }, known: Set(pane.tabs.map(\.id)),
+        let succession = NewTabSuccession(page: page, before: anchor.map { StripTabID($0) }, known: pane.tabs.map(\.id),
                                           deadline: ContinuousClock.now.advanced(by: answerLimit), services: services, pane: pane)
         active[ObjectIdentifier(pane)] = succession
         succession.expire(after: answerLimit)
@@ -84,6 +78,9 @@ struct NewTabSuccession {
         deadline = ContinuousClock.now.advanced(by: Self.orderLimit)
         expire(after: Self.orderLimit)
     }
+
+    /// Where `open`'s new tab goes among `others` (the pane's tabs but it) once its anchor closed: after `order`'s re-anchor; nil once a later open replaced it.
+    static func rebasedSlot(in pane: PaneModel, by open: DemandTimer?, among others: [TabModel]) -> Int? { active[ObjectIdentifier(pane)].flatMap { $0.expiry === open ? $0 : nil }.map { open in open.before.flatMap { id in others.first { $0.id == id.rawValue } }.flatMap { NewTabSlot.slot(after: $0, in: others) } ?? others.prefix { $0.pinned }.count } }
 
     private func expire(after limit: Duration) {
         guard let pane else { return }
@@ -109,7 +106,7 @@ struct NewTabSuccession {
             handed = pane.pane.tabs.first { $0.id == arrived[0].id.rawValue }?.surface
             // The selection goes with the cell, in the same apply: a selected stand-in never
             // hands the pane to a neighbor for the frames until its creator hears the reply.
-            if pane.stripModel.selectedID == provisional, let handed { pane.pendingSelectSurface = handed }
+            if pane.stripModel.selectedID == provisional, let handed { pane.pendingSelect.surface = handed }
         }
         guard var succession = active[ObjectIdentifier(pane.pane)] else { return snapshot }
         guard ContinuousClock.now < succession.deadline else {
@@ -118,19 +115,20 @@ struct NewTabSuccession {
         }
         var snapshot = snapshot
         // The store's tab after a provisional one, the one made, else the tab being selected.
-        let tabs = pane.pane.tabs.filter { !succession.known.contains($0.id) }
-        let made = [handed, succession.surface, pane.pendingSelectSurface].lazy.compactMap { $0 }.first { surface in tabs.contains { $0.surface == surface } }
+        let known = Set(succession.known), tabs = pane.pane.tabs.filter { !known.contains($0.id) } // a set: O(1) per tab
+        let made = [handed, succession.surface, pane.pendingSelect.surface].lazy.compactMap { $0 }.first { surface in tabs.contains { $0.surface == surface } }
         guard let made, let tab = tabs.first(where: { $0.surface == made }), let item = snapshot.items.first(where: { $0.id.rawValue == tab.id }) else {
             // Not answered yet: a new daemon tab of this pane waits for the answer naming this one
             // (a reopened tab being selected never does). One the strip already shows stays: hidden,
             // the selection would take it for closed and move to a neighbor (census #7).
-            let fresh = Set(tabs.map(\.id)).subtracting(shown.map(\.rawValue)).subtracting(pane.pendingSelectTab.map { [$0] } ?? [])
+            let fresh = Set(tabs.map(\.id)).subtracting(shown.map(\.rawValue)).subtracting(pane.pendingSelect.tab.map { [$0] } ?? [])
             snapshot.items.removeAll { fresh.contains($0.id.rawValue) }
             return snapshot
         }
         if succession.surface != made { succession.found(made) }
         var others = snapshot.items.filter { $0.id != item.id && $0.id != succession.page }
-        // `NewTabSlot`'s slot: the page's, else right after the anchor's group, never among the pinned tabs.
+        if let before = succession.before, !others.contains(where: { $0.id == before }) { succession.before = pane.stripModel.anchor(replacing: before, newTab: left.union([item.id]), staying: Set(others.map(\.id)), opened: succession.known.map { StripTabID($0) }) }
+        // `NewTabSlot`'s slot: the page's, else right after the anchor's group (re-anchored above when it closed), never among the pinned tabs.
         var slot = others.prefix { $0.isPinned }.count
         if let before = succession.before, var index = others.firstIndex(where: { $0.id == before }) {
             if succession.page == nil, let group = others[index].groupID {

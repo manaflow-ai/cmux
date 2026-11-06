@@ -73,9 +73,14 @@ await requireBrowserLane("trailing-plates-tool-output.test.ts", async () => {
         const actionsBounds = await actions.boundingBox();
         expect(textBounds!.x + textBounds!.width).toBeLessThanOrEqual(actionsBounds!.x);
       };
+      // The corner stays clear in both wrap states. Output opens aligned (blockWrap.ts), so the
+      // click folds the long lines back under their start; the test reads the state it lands in
+      // rather than assuming which way the toggle goes.
       await expectClearCorner();
+      const before = await text.getAttribute("data-wrap");
+      expect(before).toBe("false");
       await button.click();
-      expect(await text.getAttribute("data-wrap")).toBe("false");
+      expect(await text.getAttribute("data-wrap")).toBe("true");
       await expectClearCorner();
       await page.close();
     });

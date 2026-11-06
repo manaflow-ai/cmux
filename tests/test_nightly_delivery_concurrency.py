@@ -47,8 +47,6 @@ SHARED_NIGHTLY_GROUPS = {
     "await-release-surface-ack": "nightly-next-promote-ack",
     "publish-nightly": "release-publish-",
     "republish-nightly-deltas": "release-",
-    # The release's mutable names only; the uploads (publish-nightly-next-github) have no group.
-    "publish-nightly-next-github-names": "nightly-next-github-names",
 }
 
 
@@ -78,9 +76,14 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
 
     document = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
     top = document["concurrency"]["group"]
-    # The nightly-next branch is the expression's first operand, so no other branch can win first.
+    # The nightly-next branch is the expression's first operand, so no other branch can win first. A
+    # nightly-next push shares one group, so a waiting push run is replaced by a newer one and only the
+    # newest head builds and signs (Leo, 2026-11-05: "why do multiple merges even build the f***ing
+    # nightlies anyway?"); every other nightly-next run stays run-scoped.
     assert re.match(r"nightly-build-\$\{\{[^}]*\}\}-\$\{\{ github\.ref == 'refs/heads/nightly-next' && "
-                    r"format\('run-\{0\}', github\.run_id\) \|\|", top), top
+                    r"\(github\.event_name == 'push' && 'push' \|\| format\('run-\{0\}', github\.run_id\)\) \|\|",
+                    top), top
+    assert document["concurrency"]["cancel-in-progress"] is False
     for name, job in document["jobs"].items():
         concurrency = job.get("concurrency")
         if concurrency is None:
@@ -144,7 +147,6 @@ def test_a_publish_never_shares_a_group_with_a_non_publish_job() -> None:
 NEXT_FEED_WRITERS = {
     "publish-nightly": ("nightly-next/locks/publish-nightly-next.json", "Recheck the recovered build against both feeds"),
     "publish-release-notes": ("nightly-next/locks/publish-nightly-next.json", "Recheck the NEXT publication head"),
-    "publish-nightly-identity-legacy": ("nightly-next/locks/legacy-identity-publish.json", "Skip a build the old feed already has"),
 }
 # Steps that read a feed to decide, or write the release, R2 or a feed: each runs inside the lease.
 FEED_STEP_WORDS = ("feed", "Publish", "Upload", "Recheck", "Prune", "Move channel", "Record")
@@ -206,7 +208,9 @@ def test_next_feed_writers_take_the_r2_lease() -> None:
         env = steps[lock]["env"]
         ttl, wait = int(env["LEASE_TTL"]), int(env["LEASE_WAIT"])
         renew, max_hold = int(env["LEASE_RENEW"]), int(env["LEASE_MAX_HOLD"])
-        timeout = int(jobs[name]["timeout-minutes"]) * 60
+        # With one-mini mode off: the smaller limit, the one the lease must match (one-mini mode adds
+        # room for glaeda's capacity wait before the job starts, tests/test_nightly_mini_gate_timeouts.py).
+        timeout = min(int(n) for n in re.findall(r"\b\d+\b", str(jobs[name]["timeout-minutes"]))) * 60
         assert ttl <= 15 * 60, f"{name}: a dead holder's lease ({ttl}s) blocks the feed past 15 minutes"
         assert renew * 10 <= ttl, f"{name}: renewing every {renew}s leaves under ten tries per {ttl}s TTL"
         assert max_hold <= 3 * 60 * 60 and max_hold >= timeout - wait, (

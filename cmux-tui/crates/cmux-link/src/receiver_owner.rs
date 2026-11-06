@@ -311,6 +311,15 @@ impl Owner {
         Ok(())
     }
 
+    /// A read that got no answer in time (the control plane slow or
+    /// unreachable). Retire only its intent: it can no longer publish, and,
+    /// unlike [`Owner::fail`] or dropping it, it leaves current authority to
+    /// end on its own deadline. Local admission keeps a policy this way; a
+    /// caller without it must still close authority itself.
+    pub fn keep(&self, mut refresh: Refresh) {
+        refresh.done = true;
+    }
+
     pub fn fail(&self, mut refresh: Refresh) -> bool {
         let applied = cancel(&self.verifier, &refresh);
         refresh.done = true;

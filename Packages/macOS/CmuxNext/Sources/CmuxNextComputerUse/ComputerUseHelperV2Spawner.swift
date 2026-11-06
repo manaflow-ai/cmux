@@ -40,6 +40,9 @@ nonisolated final class ComputerUseHelperV2Child: Sendable {
     func closeInput() {
         input.withLock { descriptor in
             guard descriptor >= 0 else { return }
+            // A socket (cmux Remote's channel) is shared with its reader's dup: only a shutdown
+            // reaches the far side as EOF. A pipe answers ENOTSOCK and its close below is the EOF.
+            _ = shutdown(descriptor, SHUT_WR)
             close(descriptor)
             descriptor = -1
         }

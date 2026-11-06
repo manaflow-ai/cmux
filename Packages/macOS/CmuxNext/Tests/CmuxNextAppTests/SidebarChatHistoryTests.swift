@@ -298,6 +298,45 @@ import Testing
                 "the last page has no Show More")
     }
 
+    /// Leo, 2026-11-05 (ask-26245544ff): "i cant see any chats" after a restart into a new nightly. acpmux took 42 s
+    /// under load to start its chat index and answered Earlier `ready: false` until then; the history drew nothing, which
+    /// reads as every chat gone. Until acpmux first sends Earlier's rows it keeps its header and a Loading row.
+    @Test func earlierSaysLoadingUntilAcpmuxFirstSendsItsRows() throws {
+        let inputs = SidebarChatHistoryFeed.Inputs(live: [], pinned: [], limit: 3, folded: false)
+        let windows = AcpmuxChatWindows()
+        var sent: [[String: any Sendable]] = []
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
+        windows.open(inputs.earlierSpec)
+        let generation = try #require(sent.last?["gen"] as? UInt64)
+        windows.requestNotReady(SidebarChatHistoryFeed.earlierWindow, generation: generation)
+        let earlier = windows.window(SidebarChatHistoryFeed.earlierWindow)
+        #expect(!earlier.hasAnswered)
+        let waiting = SidebarChatHistoryFeed.state(earlier: earlier.rows, more: earlier.hasMore, pinned: [], inputs: inputs,
+                                                   loading: !earlier.hasAnswered)
+        #expect(waiting.hasEarlier && waiting.showsLoading, "an index still starting is not an empty history")
+        let m = SidebarLayoutMetrics.standard
+        #expect(waiting.earlierHeight(m) == m.sectionHeaderHeight + m.rowHeight + m.rowSpacing)
+        let view = SidebarChatHistoryView(part: .earlier)
+        view.frame = NSRect(x: 0, y: 0, width: 240, height: 200)
+        view.show(waiting, metrics: m)
+        #expect(!view.more.isHidden)
+        #expect(view.more.titleText == Strings.chatHistoryLoading)
+        let limit = view.history.limit
+        view.more.onClick?()
+        #expect(view.history.limit == limit, "the Loading row asks for no page")
+
+        let full: [String: Any] = ["window": SidebarChatHistoryFeed.earlierWindow, "gen": NSNumber(value: generation),
+                                   "revision": NSNumber(value: 1), "full": true, "keys": [String](), "rows": [[String: Any]](),
+                                   "hasMore": false]
+        windows.apply(try #require(AcpmuxChatWindows.Update(params: full)))
+        #expect(earlier.hasAnswered)
+        let empty = SidebarChatHistoryFeed.state(earlier: earlier.rows, more: earlier.hasMore, pinned: [], inputs: inputs,
+                                                 loading: !earlier.hasAnswered)
+        #expect(!empty.hasEarlier && !empty.showsLoading, "an answered empty index has no Earlier")
+        #expect(!Self.make(Self.chats(2), folded: true).showsLoading)
+        #expect(!SidebarChatHistoryState(earlierFolded: true, loading: true).showsLoading, "folded Earlier keeps only its header")
+    }
+
     @Test func historyRowsCarryHarnessMarksAndStableFallbackColoursAcrossReuse() throws {
         let view = SidebarChatHistoryView(part: .earlier)
         view.frame = NSRect(x: 0, y: 0, width: 240, height: 200)

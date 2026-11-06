@@ -836,6 +836,96 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    // Tucked away (Settings > Agent Chat > Tuck Away Running Tray, TrayPullTab.tsx): the tab on the
+    // composer's top edge still flags what needs the person (Leo said "Yes", 2026-11-04, to "the
+    // tucked state, the hover tab with its dot or count"), and sits at the middle, left or right
+    // (agentPane.display.trayHandle; Leo: "maybe the left… or the right…").
+    ...Object.fromEntries(
+      (
+        [
+          [
+            "tucked-count",
+            "middle",
+            false,
+            "Tucked with three running: the chevron in the accent and a small 3 at its end.",
+          ],
+          [
+            "tucked-waiting",
+            "middle",
+            true,
+            "Tucked while a chat it started waits on you: a dot in the needs-you colour replaces the count.",
+          ],
+          [
+            "tucked-left",
+            "left",
+            false,
+            "Running Tray Handle: Left. The tab sits 12 px in from the composer's left corner.",
+          ],
+          [
+            "tucked-right",
+            "right",
+            true,
+            "Running Tray Handle: Right, with a chat waiting on you: the dot at the right.",
+          ],
+        ] as const
+      ).map(([id, side, waits, note]) => [
+        id,
+        {
+          note,
+          display: { "agentPane.display.trayTucked": true, "agentPane.display.trayHandle": side },
+          play: async (ctx: PlayContext) => {
+            await ctx.waitFor(() => ctx.document.querySelector(".acpmux-tray-pull__tab"));
+            const pull = ctx.document.querySelector(".acpmux-tray-pull")!;
+            if (pull.getAttribute("data-side") !== side)
+              throw new Error(`the tab sits ${pull.getAttribute("data-side")}`);
+            if (waits !== !!ctx.document.querySelector(".acpmux-tray-pull__dot"))
+              throw new Error(waits ? "a chat waits on you: the tab shows a dot" : "nothing waits: no dot");
+            if (!waits && ctx.document.querySelector(".acpmux-tray-pull__count")?.textContent !== "3")
+              throw new Error("the tab counts the three that run");
+          },
+          snapshot: (() => {
+            const base = chat(
+              [
+                user(prompt, 2),
+                group(
+                  [
+                    agent("Read the updater", 1.9, "running", {
+                      kind: "Explore",
+                      action: "Read Sources/Updater.swift",
+                    }),
+                    agent("Check the docs", 1.9, "running", {
+                      kind: "general-purpose",
+                      action: "Read docs/updates.md",
+                    }),
+                  ],
+                  1.9,
+                ),
+                devServer,
+                assistant("Two subagents are on it, and the dev server is up.", 1.2),
+              ],
+              { isWorking: true },
+            );
+            return waits
+              ? {
+                  ...base,
+                  sessions: [
+                    ...base.sessions,
+                    session({
+                      sessionId: "child-asks",
+                      title: "Pick the release channel",
+                      spawnedBy: SESSION_ID,
+                      startedBy: SESSION_ID,
+                      indicator: "input",
+                      status: "waiting",
+                      createdAt: minutesAgo(1.5),
+                    }),
+                  ],
+                }
+              : base;
+          })(),
+        },
+      ]),
+    ),
     "command-and-subagent": {
       note: "A turn with a subagent and a background command: a header with both counts, then a line each; the working line counts nothing, the tray is the count.",
       play: async (ctx) => {

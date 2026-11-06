@@ -71,7 +71,7 @@ pub use journal::{AppendError, Journal, JournalStats, OpenError, SealError, Wait
 pub use recovery::{Damage, OpenReport};
 #[cfg(any(test, feature = "sim"))]
 pub use sim::{Crash, SIM_PAGE, SimRng, SimStorage};
-pub use storage::{FsStorage, OpenMode, Storage, StorageFile, StorageLock, SyncLevel};
+pub use storage::{FsStorage, OpenMode, Storage, StorageFile, StorageLock, SyncLevel, sync_file};
 
 use std::time::Duration;
 

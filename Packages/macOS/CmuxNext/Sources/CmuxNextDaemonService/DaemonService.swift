@@ -82,6 +82,10 @@ public final class DaemonService {
     @ObservationIgnored public var launchSnapshotWindows: WindowStateDocument?
     /// The sidebar document the launch snapshot saved (`LaunchSnapshot.sidebarDoc`), shown before the handshake.
     @ObservationIgnored public var launchSnapshotSidebarDoc: Data?
+    /// Takes the launch snapshot's sidebar document when the snapshot is applied after the sidebar document
+    /// started (its start reads `launchSnapshotSidebarDoc` first, about 40 ms too early on an update relaunch):
+    /// called once, and the document is its own from then on.
+    @ObservationIgnored var onLaunchSnapshotSidebarDoc: (@MainActor (Data) -> Void)?
     /// The local session whose launch snapshot path each handshake records.
     @ObservationIgnored var launchSnapshotSession: String?
     @ObservationIgnored var launchSnapshotLocation = LaunchSnapshotLocation()
@@ -320,11 +324,15 @@ public final class DaemonService {
     /// the connection closes, the service stops and the store shows why.
     /// `bridge`: each connection runs this child instead of connecting to the
     /// socket (``DaemonEndpoint/bridge``). `onEnd` runs on each drop (EOF, heartbeat).
+    /// `stream`: the route for every other connection to that daemon (``remoteEndpoint``), when
+    /// asking `endpoint` again means this connection dropped (a Cloud app link's ticket); nil uses `endpoint`.
     public func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
                requiredCapabilities: [String] = DaemonCapability.required,
-               admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil) {
+               admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil,
+               stream: (@Sendable () async throws -> String)? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
-        remoteEndpoint = { DaemonEndpoint(socketPath: try await endpoint()) }
+        let streamEndpoint = stream ?? endpoint
+        remoteEndpoint = { DaemonEndpoint(socketPath: try await streamEndpoint()) }
         let store = store
         if let onEnd { store.onDisconnected = onEnd }
         let machineID = machineID
@@ -599,6 +607,21 @@ public final class DaemonService {
         let connected = detachConnection()
         await connected?.closeAndWait()
         await startup?.value
+    }
+
+    /// Restarts the daemon for a Cloud environment change while its PTY hosts keep running.
+    /// Detaches automatic recovery first so it cannot relaunch with the previous environment.
+    public func stopKeepingHosts() async throws {
+        guard isLocal else { return }
+        guard let connection = detachConnection() else { throw DaemonError.notConnected }
+        do {
+            let reply = try await connection.shutdownDaemon()
+            guard reply.accepted == true else { throw DaemonError.launchFailed("The daemon refused the environment restart.") }
+            await connection.closeAndWait()
+        } catch {
+            await connection.closeAndWait()
+            throw error
+        }
     }
 
     public func shutdownConnection() {

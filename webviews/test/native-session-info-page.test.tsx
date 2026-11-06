@@ -130,15 +130,27 @@ test("the page posts the latest geometry once per frame and withdraws it when hi
 });
 
 test("native folds and drags use the current section model and saved page state", async () => {
-  await render(props());
+  // A running subagent, so a third section (Subagents, above the Show more line) is always drawn.
+  await render({ ...props(), agents: [{ id: "a1", parent: null, name: "Research", state: "running", startedAt: 1 }] });
+  await flushFrame();
+  // Context starts folded to its line (Lucas, 2026-11-06); a fold action opens it.
+  expect(model()!.sections.find((section) => section.id === "context")!.open).toBe(false);
+  await act(async () => runNativeSessionInfoAction("fold:context:1"));
   await flushFrame();
   expect(model()!.sections.find((section) => section.id === "context")!.open).toBe(true);
-  await act(async () => runNativeSessionInfoAction("fold:context:0"));
-  await flushFrame();
-  expect(model()!.sections.find((section) => section.id === "context")!.open).toBe(false);
+  // A move above the pinned Environment lands right under it (sectionOrder.ts PINNED_TOP).
   await act(async () => runNativeSessionInfoAction("move:context:environment"));
   await flushFrame();
-  expect(model()!.sections[0]!.id).toBe("context");
+  expect(model()!.sections[0]!.id).toBe("environment");
+  expect(model()!.sections[1]!.id).toBe("context");
+  const third = model()!.sections[2]!.id;
+  await act(async () => runNativeSessionInfoAction(`move:${third}:context`));
+  await flushFrame();
+  expect(
+    model()!
+      .sections.slice(0, 3)
+      .map((section) => section.id),
+  ).toEqual(["environment", third, "context"]);
 });
 
 test("the scoped breadcrumb uses the current page handler", async () => {
@@ -275,4 +287,26 @@ test("an older failed post cannot withdraw a newer native model", async () => {
   expect(nativeSessionInfoDrawn()).toBe(true);
   await act(async () => rejects[1]!(new Error("Latest request failed")));
   expect(nativeSessionInfoDrawn()).toBe(false);
+});
+
+test("native Progress marks each step's state and meters the plan", async () => {
+  const entries = [
+    { content: "Write", status: "completed" as const },
+    { content: "Test", status: "in_progress" as const },
+    { content: "Ship", status: "pending" as const },
+  ];
+  await render({ ...props(), plan: { entries, ended: false } });
+  await flushFrame();
+  const live = model()!.sections.find((section) => section.id === "progress")!;
+  expect(live.meter).toBeCloseTo(1 / 3);
+  expect(live.rows.map((row) => [row.symbol, row.tone, Boolean(row.working)])).toEqual([
+    ["checkmark.circle.fill", "muted", false],
+    [undefined, "running", true],
+    ["circle.dashed", "waiting", false],
+  ]);
+  // A step left in progress when the turn ended gets a plain ring, never a frozen spinner.
+  await render({ ...props(), plan: { entries, ended: true } });
+  await flushFrame();
+  const ended = model()!.sections.find((section) => section.id === "progress")!;
+  expect(ended.rows[1]).toMatchObject({ symbol: "circle", tone: "waiting", working: false });
 });
