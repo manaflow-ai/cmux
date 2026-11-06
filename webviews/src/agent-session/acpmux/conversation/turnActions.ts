@@ -154,6 +154,10 @@ export const resumeThrough =
       () => undefined,
     );
 
+/// What an answer from a pane that moved to another chat since rejects with: the card says it was not
+/// sent. An error code, never shown.
+export const CHAT_CHANGED = "chat changed"; // l10n-allow: an error code for the card, never shown
+
 /// A tagged ask's answer (NextStepCard.tsx) through the composer's send (`chat.send`), as Continue
 /// sends its prompt: the person's next message, in order behind anything already sent. Settles once
 /// the send does. A send that fails rejects, so the card says it was not sent and keeps its buttons:

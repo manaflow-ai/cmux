@@ -319,6 +319,7 @@ import {
   offersCompact,
   resumeThrough,
   answerThrough,
+  CHAT_CHANGED,
   type TurnActions,
 } from "./conversation/turnActions";
 import {
@@ -3448,9 +3449,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           (owner: string) => (text: string) =>
             restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
               ? answerThrough(callNative)(text)
-              : Promise.reject(new Error("chat changed"))
-        ) // l10n-allow: an error code for the card, never shown
-        (restartChat),
+              : Promise.reject(new Error(CHAT_CHANGED))
+        )(restartChat),
       }),
       // A context-full failure's Compact sends the agent's own /compact as Continue sends its prompt,
       // with the same reach: never to a View Only chat or a read-only pane, never the next chat.
