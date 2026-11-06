@@ -588,18 +588,16 @@ pub(crate) fn paths_for(daemon_socket: &Path, state_root: &Path) -> Paths {
     Paths { endpoint, state: state_root.join("computer-use").join("state"), log }
 }
 
-/// The policy now: the owner file when trusted, else the settings.
+/// The policy now: the owner file when trusted, else the settings over the
+/// machine's base (unrestricted on a cmux Cloud VM).
 fn current_policy(mux: &Arc<crate::mux::Mux>) -> (PolicyConfig, config::Source, Option<String>) {
     let owner = config::owner_path();
+    let settings = || config::from_settings(&mux.settings_effective_root(), config::base_policy());
     match config::read_owner(&owner) {
-        Ok(Some(policy)) => return (policy, config::Source::Owner(owner), None),
-        Ok(None) => {}
-        Err(problem) => {
-            let settings = config::from_settings(&mux.settings_effective_root());
-            return (settings, config::Source::Settings, Some(problem));
-        }
+        Ok(Some(policy)) => (policy, config::Source::Owner(owner), None),
+        Ok(None) => (settings(), config::Source::Settings, None),
+        Err(problem) => (settings(), config::Source::Settings, Some(problem)),
     }
-    (config::from_settings(&mux.settings_effective_root()), config::Source::Settings, None)
 }
 
 impl crate::mux::Mux {
