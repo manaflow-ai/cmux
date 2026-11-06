@@ -149,12 +149,12 @@ struct RemoteTmuxPaneTitleMetadataTests {
         let parsed = RemoteTmuxPaneTitleMetadata.paneRectLabel(
             from: "HDR café \\\\ cmux_title_metadata_v1 \"quoted\"cmux_title_metadata_v1\u{1f}"
                 + #"café\ \\\\\ cmux_title_metadata_v1\ \"quoted\""#
-                + "\u{1f}Carls-Mac-mini.local\u{1f}Carls-Mac-mini"
+                + "\u{1f}host.example\u{1f}host"
         )
         #expect(parsed?.header == "HDR café \\\\ cmux_title_metadata_v1 \"quoted\"")
         #expect(parsed?.metadata == RemoteTmuxPaneTitleMetadata(
             title: "café \\\\ cmux_title_metadata_v1 \"quoted\"",
-            host: "Carls-Mac-mini.local", hostShort: "Carls-Mac-mini"
+            host: "host.example", hostShort: "host"
         ))
     }
 
