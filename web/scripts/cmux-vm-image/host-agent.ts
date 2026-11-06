@@ -17,6 +17,11 @@ export const HOST_CONFIG_PATH = "/etc/cmux/host.json";
 /** The frozen unit command: `<current>/bin/cmux host run`; argv[0] named `cmux` selects the `host` verb. */
 export const HOST_RUN = `${CURRENT_BIN}/cmux host run --mode system`;
 export const HOST_CLI = `${CURRENT_BIN}/cmux host`;
+/**
+ * While this file exists the machine's updater role (cmux host update) changes nothing: the bake
+ * writes it while the builder runs and removes it at park; the smoke writes it on its clones.
+ */
+export const SELF_UPDATE_OFF = "/etc/cmux/no-self-update";
 /** Verify the running root service, not just a file that systemd has not loaded. */
 export const NATIVE_RECEIVER_SMOKE = [
   `test "$(systemctl show ${HOST_UNIT} -p User --value)" = root`,

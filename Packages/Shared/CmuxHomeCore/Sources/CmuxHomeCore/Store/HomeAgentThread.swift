@@ -6,27 +6,32 @@ public import Foundation
 /// `HomeStore.agentThread(_:in:)` builds it from the Chief's run rows Home already reads (its `tell`
 /// steps and the agents' reports), so a local and a Cloud Chief give the same thread.
 public struct HomeAgentThread: Hashable, Sendable {
-    /// One message after the task: the Chief's (`outgoing`) or the agent's report or status note.
+    /// One message after the task: one to the agent (`outgoing`, the Chief's or the person's) or the agent's
+    /// report or status note.
     public struct Entry: Hashable, Sendable {
         /// The run step's id (stable across reads).
         public var id: String
-        /// True for the Chief's message to the agent; false for the agent's.
+        /// True for a message to the agent (the Chief's or the person's); false for the agent's.
         public var outgoing: Bool
         /// The message's words (a status note keeps its parentheses).
         public var text: String
         /// When the step was written.
         public var date: Date
+        /// Who wrote it: the label over it in the pane.
+        public var sender: HomeAgentSender
 
         /// - Parameters:
         ///   - id: The run step's id.
-        ///   - outgoing: True for the Chief's message.
+        ///   - outgoing: True for a message to the agent (the Chief's or the person's).
         ///   - text: The words.
         ///   - date: When the step was written.
-        public init(id: String, outgoing: Bool, text: String, date: Date) {
+        ///   - sender: Who wrote it; nil: the Chief for an outgoing message, else the agent.
+        public init(id: String, outgoing: Bool, text: String, date: Date, sender: HomeAgentSender? = nil) {
             self.id = id
             self.outgoing = outgoing
             self.text = text
             self.date = date
+            self.sender = sender ?? (outgoing ? .chief : .agent)
         }
     }
 
@@ -71,6 +76,13 @@ public struct HomeAgentThread: Hashable, Sendable {
         self.endedAt = endedAt
         self.newestReportAt = newestReportAt
         self.workspaceLink = workspaceLink
+    }
+
+    /// The agent's acpmux session id, from the Chief's link (``workspaceLink``); nil without a link.
+    public var session: String? {
+        guard let link = workspaceLink?.absoluteString, let slash = link.lastIndex(of: "/") else { return nil }
+        let token = link[link.index(after: slash)...]
+        return token.isEmpty ? nil : String(token)
     }
 
     /// How long it worked: from its first message to its end, or to `now` while it works.

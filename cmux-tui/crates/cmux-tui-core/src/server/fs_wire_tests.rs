@@ -73,6 +73,10 @@ fn the_gate_admits_exactly_the_seven_fs_ops() {
     for cmd in crate::git_seed::GIT_SEED_COMMANDS {
         assert!(gate.admit(&peer(), &json!({ "id": 1, "cmd": cmd, "job": "x" }).to_string()));
     }
+    for cmd in crate::blob_fetch::BLOB_FETCH_COMMANDS {
+        assert!(gate.admit(&peer(), &json!({ "id": 1, "cmd": cmd, "job": "x" }).to_string()));
+    }
+    assert!(!gate.admit(&peer(), r#"{"id":1,"cmd":"blob.fetch.list"}"#));
     for frame in [
         r#"{"id":1,"cmd":"git.seed.cancel"}"#,
         r#"{"id":1,"cmd":"git.seed.start","protocol":"cmux.protocol/2"}"#,
@@ -253,6 +257,13 @@ fn the_contract_request_lines_get_the_answer_shapes_cmux_cloud_reads() {
     );
 }
 
+/// Sends `line` and `body` on one dial and returns what the daemon answered.
+/// The daemon may refuse a write stream before it has read all of `body`
+/// (a deflate stream past its `decoded_size`, a failed disk write): it
+/// answers and closes, and the rest of `body` then meets a closed socket.
+/// A client stops sending there and reads the answer, so this does too.
+/// Whether that happens depends on the socket buffer (a few KiB on macOS,
+/// a few hundred on Linux), not on the daemon.
 fn routed(home: &Home, line: &str, body: &[u8]) -> (Option<()>, Vec<u8>) {
     let (daemon_side, mut client) = UnixStream::pair().unwrap();
     client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -263,8 +274,23 @@ fn routed(home: &Home, line: &str, body: &[u8]) -> (Option<()>, Vec<u8>) {
     let mut sent = home.map(line).into_bytes();
     sent.push(b'\n');
     sent.extend_from_slice(body);
-    client.write_all(&sent).unwrap();
-    client.shutdown(std::net::Shutdown::Write).unwrap();
+    // A daemon that answers a short body at once can also be gone before
+    // the shutdown (macOS then says NotConnected).
+    let closed = |error: &std::io::Error| {
+        matches!(
+            error.kind(),
+            std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::NotConnected
+        )
+    };
+    let sent = client.write_all(&sent).and_then(|()| client.shutdown(std::net::Shutdown::Write));
+    if let Err(error) = sent {
+        assert!(
+            closed(&error),
+            "only a daemon that already answered and closed stops the body: {error}"
+        );
+    }
     let mut output = Vec::new();
     let _ = client.read_to_end(&mut output);
     (daemon.join().unwrap(), output)

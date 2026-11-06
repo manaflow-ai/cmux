@@ -59,7 +59,7 @@ import { deviceHoldsKey, type DeviceHoldsKey } from "../proofs/device-holds-key.
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreateDevice, tenantMayCreateMesh } from "../proofs/mesh-may-create.ts";
 import { MESH_CREATION_LABEL } from "../proofs/mesh-creation.ts";
-import { ownedDeviceAddressRules, ownedMeshRules, sameMeshSnapshot } from "../proofs/same-mesh.ts";
+import { ownedDeviceAddressRules, ownedMeshRules, sameMeshSnapshot, type OwnedMeshRule } from "../proofs/same-mesh.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { callerActsOnDevice, callerActsOnTunnel, enrolledBy, isTenantAdmin, type CallerActsOnDevice } from "../proofs/device-owner.ts";
 import { tenantOwnsDevice, tenantOwnsMesh, tenantOwnsTunnel, tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
@@ -270,6 +270,40 @@ const ruleCreateError = (error: { readonly status: number | null }) =>
 const RULE_RECORD_BATCH = 32;
 
 /**
+ * Deletes `rules` of mesh `meshId` at the provider (8 at a time; a rule already
+ * gone there counts as deleted) and marks the deleted ones in the rule table,
+ * RULE_RECORD_BATCH per update. Every delete of a batch settles before its
+ * update, so a failed delete never leaves a sibling's deleted rule unmarked; the
+ * first failure stops before the next batch. Marked one row per statement, the
+ * deletes waited on the request's one database connection: an attach that
+ * removed a deleted VM's 138 rules took 21 s, nearly all of it these writes.
+ */
+const deleteRules = <C, M>(tenantId: Principal["tenantId"], meshId: string, rules: ReadonlyArray<OwnedMeshRule<C, M>>) =>
+  Effect.gen(function* () {
+    const store = yield* MeshStore;
+    const upstream = yield* UpstreamMesh;
+    for (let start = 0; start < rules.length; start += RULE_RECORD_BATCH) {
+      const settled = yield* Effect.forEach(
+        rules.slice(start, start + RULE_RECORD_BATCH),
+        (proof) =>
+          Effect.either(
+            upstream.deleteRule(proof).pipe(
+              // Already gone upstream (it named a tunnel or VM that was deleted): finish here.
+              Effect.catchIf((error) => error.status === 404, () => Effect.void),
+              Effect.mapError(unavailable),
+              Effect.as(proof.rule.key),
+            ),
+          ),
+        { concurrency: 8 },
+      );
+      const deleted = settled.flatMap((result) => (Either.isRight(result) ? [result.right] : []));
+      yield* store.markRulesDeleted(tenantId, meshId, deleted, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.markRulesDeleted")));
+      const failed = settled.find(Either.isLeft);
+      if (failed !== undefined) return yield* Effect.fail(failed.left);
+    }
+  });
+
+/**
  * Makes the mesh's provider rules equal `desired`: creates every missing rule
  * (8 at a time), and only when all of them exist deletes the surplus, so
  * traffic both the old and the new policy allow never stops. A failed create
@@ -394,19 +428,7 @@ const reconcile = <C, M>(
       phases.recordMs = String(recordMs);
       phases.removed = String(plan.remove.length);
     }
-    yield* phase(phases, "removeMs", Effect.forEach(
-      plan.remove,
-      ({ proof }) =>
-        Effect.gen(function* () {
-          yield* upstream.deleteRule(proof).pipe(
-            // Already gone upstream (it named a tunnel or VM that was deleted): finish here.
-            Effect.catchIf((error) => error.status === 404, () => Effect.void),
-            Effect.mapError(unavailable),
-          );
-          yield* store.markRuleDeleted(tenantId, mesh.value, proof.rule.key, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.markRuleDeleted")));
-        }),
-      { concurrency: 8, discard: true },
-    ));
+    yield* phase(phases, "removeMs", deleteRules(tenantId, mesh.value, plan.remove.map(({ proof }) => proof)));
     return { created: plan.create.length, deleted: plan.remove.length, ruleCount: desired.length };
   });
 
@@ -567,11 +589,9 @@ const closeDevice = <C, D>(
     }
     const at = yield* now;
     const rules = yield* store.listRules(tenantId, row.meshId).pipe(Effect.catchAll(dependencyDown("mesh.listRules")));
-    yield* Effect.forEach(
-      rules.filter((rule) => rule.deviceId === device.value),
-      (rule) => store.markRuleDeleted(tenantId, row.meshId, rule.key, at),
-      { discard: true },
-    ).pipe(Effect.catchAll(dependencyDown("mesh.markRuleDeleted")));
+    yield* store
+      .markRulesDeleted(tenantId, row.meshId, rules.filter((rule) => rule.deviceId === device.value).map((rule) => rule.key), at)
+      .pipe(Effect.catchAll(dependencyDown("mesh.markRulesDeleted")));
     const ownership = yield* OwnershipStore;
     yield* Effect.all([
       ownership.markDeleted(tenantId, "device", device.value, at),
@@ -1250,18 +1270,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
                   Effect.gen(function* () {
                     // The VM's rules go first: they name the VM, not the network, so leaving would not remove them.
                     const rules = yield* ownedMeshRules(caller, mesh, proofs.owns).pipe(Effect.catchAll(dependencyDown("mesh.listRules")));
-                    yield* Effect.forEach(
-                      rules.filter((proof) => proof.rule.vmId === vm.value),
-                      (proof) =>
-                        Effect.gen(function* () {
-                          yield* upstream.deleteRule(proof).pipe(
-                            Effect.catchIf((error) => error.status === 404, () => Effect.void),
-                            Effect.mapError(unavailable),
-                          );
-                          yield* store.markRuleDeleted(tenantId, mesh.value, proof.rule.key, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.markRuleDeleted")));
-                        }),
-                      { concurrency: 8, discard: true },
-                    );
+                    yield* deleteRules(tenantId, mesh.value, rules.filter((proof) => proof.rule.vmId === vm.value));
                     yield* upstream.detachVm(vm, { ownsVm, vmScope }).pipe(
                       Effect.catchIf((error) => error.status === 404, () => Effect.void),
                       Effect.mapError(unavailable),

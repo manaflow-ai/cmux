@@ -3,16 +3,16 @@ import CmuxNextDesign
 
 /// FRAME OWNER REFACTOR S3c: a springing close keeps the closed pane's host on the screen, showing only its own ground,
 /// on a frame that collapses on its neighbours' spring (``ClosingPanes``), so no frame of the close shows the shell where
-/// the pane was (the F2 hole: 710 px in a pane close, 530 px in a column close). `motion.frameOwner.contentPolicy` off
-/// (read at the close): the host hides in the close's turn, as before.
+/// the pane was (the F2 hole: 710 px in a pane close, 530 px in a column close). On a canvas the host hides in the close's
+/// turn, as before S3c.
 extension ScreenContentView {
     /// The panes `closing` left the layout in a close that springs (`reconcile`): each host retires, shown with its ground
-    /// on what its neighbours and its row column's scroll have not covered yet with the policy on (read now), else hidden.
+    /// on what its neighbours and its row column's scroll have not covered yet (hidden on a canvas).
     /// Which ones nothing closes over is known once the change's cameras are set (``settleClosing()``): the panes the strip
     /// carries start moving only then. `frame`: where it showed, before this change carried the strip.
     func retireClosing(_ closing: [(pane: PaneID, frame: AnimatedFrame?)], before: ScreenGeometry, carried: Bool, offset: CGFloat) {
         guard !closing.isEmpty else { return }
-        guard context.followsContentPolicy, !isCanvas else {
+        guard !isCanvas else {
             for (pane, _) in closing { context.retire(pane, from: screenID) }
             return
         }

@@ -2,6 +2,7 @@
 // "just now" under a minute, then "5 minutes ago", "1 hour ago", "yesterday", "3 days ago",
 // "last week", "2 months ago", "last year" (it never switches to a date there), and on hover
 // "Oct 20, 2026, 10:16 PM". Intl words both in the pane's language.
+import { hasTimestamp } from "./timestamps";
 
 /// Claude's units, largest first, in seconds: the age reads in the largest one it has reached.
 const UNITS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] = [
@@ -72,6 +73,25 @@ export function replyTime(at: number, now: number, locale?: string): string {
     return new Date(at).toLocaleString(locale, fields);
   } catch {
     return new Date(at).toLocaleString(undefined, fields);
+  }
+}
+
+/// The reply menu's quiet header, as ChatGPT writes it: today's or yesterday's time,
+/// otherwise the exact date. Format on opening only; no clock or idle work is needed.
+export function replyMenuTime(at: number, now: number, locale?: string): string {
+  if (!hasTimestamp(at)) return "";
+  const date = new Date(at);
+  const today = new Date(now);
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const current = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const delta = Math.round((day - current) / 86_400_000);
+  if (delta !== 0 && delta !== -1) return exactTime(at, locale);
+  try {
+    const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(delta, "day");
+    const label = relative.charAt(0).toLocaleUpperCase(locale) + relative.slice(1);
+    return `${label}, ${new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(date)}`;
+  } catch {
+    return exactTime(at, locale);
   }
 }
 

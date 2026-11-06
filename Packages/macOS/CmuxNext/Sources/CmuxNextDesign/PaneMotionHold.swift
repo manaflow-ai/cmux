@@ -9,15 +9,10 @@ public nonisolated struct PaneMotionHold: Equatable, Sendable {
     public var trailing: Bool
     /// Its bottom edge rides the pane's bottom edge (false: its top edge rides the top one).
     public var bottom: Bool
-    /// FRAME OWNER S3 (`motion.frameOwner.contentPolicy`, latched when the hold begins): the containers in the content
-    /// area (``PaneMotionHoldFollowing``: a terminal's host, a browser's chrome) follow the area in every frame too, and
-    /// only their producers keep their size. False: the area holds every view in it (S1).
-    public var containersFollow: Bool
 
-    public init(trailing: Bool, bottom: Bool, containersFollow: Bool = false) {
+    public init(trailing: Bool, bottom: Bool) {
         self.trailing = trailing
         self.bottom = bottom
-        self.containersFollow = containersFollow
     }
 
     /// The bounds origin of a container that is not flipped, `size` big, whose subviews keep the frames they had when it
@@ -45,8 +40,10 @@ public protocol PaneMotionHolding: NSView {
 
 /// A container in a pane's content area that follows the area in every frame of a hold (FRAME OWNER REFACTOR S3: a
 /// terminal's host, a browser's chrome). The area gives it its own bounds in each frame, so its background, padding,
-/// toolbar and scroller cover the pane; only its producer (the terminal surface, the page: pixels drawn on another
-/// thread or in another process) keeps its size, on the hold's edges, and lays out once when the hold ends.
+/// toolbar and scroller cover the pane. Its producer (the terminal surface, the page: pixels drawn on another thread or
+/// in another process) keeps its size on the hold's edges and lays out once when the hold ends; with
+/// `motion.frameOwner.terminals` on, a terminal's surface follows the area too (cmux-ad m6, S4: each size shows with
+/// its frame, or the last frame stays, top-left).
 @MainActor
 public protocol PaneMotionHoldFollowing: NSView {
     /// Whether it follows now (a page kind that cannot hold its pixels yet is held whole, as in S1).

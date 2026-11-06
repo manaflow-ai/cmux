@@ -96,7 +96,6 @@ struct PaneCloseCameraGroundTests {
     /// Closes `panes`, each `every` frames after the one before, and checks each frame along the line through the window's
     /// middle (`vertical`: top to bottom, else left to right). `moving`: the SETUP checks after the first close's turn.
     static func check(_ rig: Rig, closing panes: [PaneID], every: Int = 6, vertical: Bool, moving: () throws -> Void) throws {
-        rig.root.context.contentPolicyOverride = true
         let screen = try rig.screen
         let bounds = screen.convert(screen.bounds, to: nil)
         func span(_ rect: CGRect) -> (CGFloat, CGFloat) { vertical ? (rect.minY, rect.maxY) : (rect.minX, rect.maxX) }

@@ -14,6 +14,15 @@ struct HomeAgentChatContent: Equatable, Sendable {
         /// The person, through the pane's composer.
         case you
 
+        /// The pane's sender for a thread's ``HomeAgentSender``.
+        init(_ sender: HomeAgentSender) {
+            switch sender {
+            case .agent: self = .agent
+            case .chief: self = .chief
+            case .you: self = .you
+            }
+        }
+
         /// The label over the message; nil for the agent's own.
         var label: String? {
             switch self {
@@ -44,8 +53,11 @@ struct HomeAgentChatContent: Equatable, Sendable {
     var details: [String]
     /// Every message after the task, oldest first.
     var messages: [Message]
-    /// Where Go to workspace goes: the Chief's link to the agent's session; nil hides the button.
+    /// Where Go to workspace goes: the Chief's link to the agent's session, or the session's own link once
+    /// it moved; nil hides the button.
     var workspaceLink: URL?
+    /// The machine it moved to (a Chief move or `acpmux session move`); nil while it runs where it started.
+    var place: String?
 }
 
 extension HomeAgentChatContent {
@@ -54,7 +66,8 @@ extension HomeAgentChatContent {
     /// - Parameters:
     ///   - thread: The agent's chat with the Chief (``HomeStore/agentThread(_:in:)``).
     ///   - now: The current time, for a working agent's "Working for".
-    init(_ thread: HomeAgentThread, now: Date) {
+    ///   - session: Where its session runs, as followed (``HomeAgentSessionRef``); nil: not placed yet.
+    init(_ thread: HomeAgentThread, now: Date, session: HomeAgentSessionRef? = nil) {
         let duration = Self.duration(thread.workedFor(now: now))
         let started = thread.startedAt.formatted(date: .omitted, time: .shortened)
         var details = [String(format: String(localized: "home.agentPane.started", defaultValue: "Started %@", bundle: .module), started)]
@@ -67,8 +80,14 @@ extension HomeAgentChatContent {
                 ? String(format: String(localized: "home.agentPane.workingFor", defaultValue: "Working for %@", bundle: .module), duration)
                 : String(format: String(localized: "home.agentPane.workedFor", defaultValue: "Worked for %@", bundle: .module), duration),
             details: details,
-            messages: thread.entries.map { Message(sender: $0.outgoing ? .chief : .agent, text: $0.text) },
+            messages: thread.entries.map { Message(sender: Sender($0.sender), text: $0.text) },
             workspaceLink: thread.workspaceLink)
+        // Only this chat's session (a restarted agent has another); once it moved, its own link opens it
+        // where acpmux has it now, not the Chief's link to where it started.
+        if let session, session.session == thread.session, session.hasMoved {
+            place = session.place
+            workspaceLink = session.sessionLink ?? thread.workspaceLink
+        }
     }
 
     /// The status words for `state`.

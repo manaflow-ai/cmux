@@ -733,15 +733,34 @@ def main():
                         help="idle-cost: the CPU %% per process the verdict holds each process to")
     parser.add_argument("--md", help="idle-cost: write the per-process Markdown table here")
     parser.add_argument("--scenarios", default="terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,title,scroll,video,switch,minimized")
-    parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON)")
+    parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON); a \"debugTunables\" object is taken as --tunable values")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                         help="extra app environment, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=... (repeatable)")
+    parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
+                        help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
     parser.add_argument("--neighbor-gap", type=float, default=7, help="seconds before each neighbors-scenario switch")
     parser.add_argument("--neighbor-rounds", type=int, default=10)
     parser.add_argument("--sample-idle", action="store_true",
                         help="sample the app's stacks inside each idle window; keep the sample when the app is above 1 mW")
     parser.add_argument("--out")
     args = parser.parse_args()
+    # perf-idle-power.sh passes only settings= through: its "debugTunables" object is the run's Debug Settings, not cmux.json.
+    # The fleet controller allows no JSON characters in a step's args, so `debugTunables:KEY=JSON,KEY=JSON` says the same.
+    if args.config.startswith("debugTunables:"):
+        args.tunable += [item for item in args.config.removeprefix("debugTunables:").split(",") if item]
+        args.config = "{}"
+    config = json.loads(args.config)
+    if isinstance(config, dict) and isinstance(config.get("debugTunables"), dict):
+        args.tunable += [f"{k}={json.dumps(v)}" for k, v in config.pop("debugTunables").items()]
+        args.config = json.dumps(config)
+    if args.tunable:
+        # The build reads its Debug Settings from this file (DebugSettingsService), as chromium-host-bench.py does.
+        tunables = os.path.join(tempfile.mkdtemp(prefix="bench-power-tunables-"), "debug-tunables.json")
+        values = {k: json.loads(v) for k, v in (item.split("=", 1) for item in args.tunable)}
+        with open(tunables, "w") as f:
+            json.dump({"version": 1, "values": values}, f)
+        args.env.append(f"CMUX_NEXT_DEBUG_TUNABLES_FILE={tunables}")
+        print(f"PERF-TUNABLES {json.dumps(values)}", flush=True)
     if args.compare:
         before, after = (loaded_result(path) for path in args.compare)
         print("\n".join(perf_rows(before, after, args.harness or before.get("harness", "bench_power.py loaded"))))

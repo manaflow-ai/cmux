@@ -8,6 +8,7 @@ import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experime
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
+import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
@@ -22,6 +23,7 @@ import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/inc
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
+import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
@@ -36,12 +38,14 @@ import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine
 import { trayHeadKindsLook } from "../agent-session/acpmux/subagents/trayHeadKinds.experiment";
 import { trayOpenLook } from "../agent-session/acpmux/subagents/trayOpen.experiment";
 import { failedLineLook } from "../agent-session/acpmux/subagents/failedLine.experiment";
+import { trayLatestLook } from "../agent-session/acpmux/subagents/trayLatest.experiment";
 import { doneReportLook } from "../agent-session/acpmux/subagents/doneReport.experiment";
 import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.experiment";
 import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
+import { composerDeeplinkLook } from "../agent-session/acpmux/composer/deeplinkLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
@@ -57,6 +61,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   startedSessionCards,
   fileKindIcon,
   finishedTaskLook,
+  claudeTurnFold,
   threadMinimapLayout,
   threadMinimapHeight,
   threadMinimapGutter,
@@ -74,6 +79,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chromiumGlassUnderlay,
   questionPreviewLayout,
   toolErrorLook,
+  tableActionsPlace,
   backgroundReactionLook,
   cloudStartLook,
   agentStartLook,
@@ -88,12 +94,14 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayKindLineLook,
   trayOpenLook,
   failedLineLook,
+  trayLatestLook,
   doneReportLook,
   traySurfaceLook,
   chatSwitchMotion,
   liveBackground,
   composerPlusCommands,
   promptSuggestionLook,
+  composerDeeplinkLook,
   contextRingLook,
   planUsageLook,
   emojiShortcodeLook,

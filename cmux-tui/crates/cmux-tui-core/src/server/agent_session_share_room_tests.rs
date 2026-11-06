@@ -16,7 +16,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Instant;
 use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 
-const OWNER_TOKEN: &str = "owner-access-token";
+pub(in crate::server) const OWNER_TOKEN: &str = "owner-access-token";
 type DeleteGate = Arc<(Mutex<bool>, Condvar)>;
 
 /// What the fake room saw, in order.
@@ -73,15 +73,15 @@ struct Shared {
     hello: Mutex<Vec<Value>>,
 }
 
-struct FakeRoom {
-    url: String,
+pub(in crate::server) struct FakeRoom {
+    pub(in crate::server) url: String,
     shared: Arc<Shared>,
     seen: Receiver<Seen>,
     buffer: RefCell<VecDeque<Seen>>,
 }
 
 impl FakeRoom {
-    fn start(puts: &[u16]) -> Self {
+    pub(in crate::server) fn start(puts: &[u16]) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let shared = Arc::new(Shared::default());
@@ -145,7 +145,7 @@ impl FakeRoom {
     }
 
     /// The next `method` request: its path, bearer and body.
-    fn request(&self, method: &str) -> (String, String, Value) {
+    pub(in crate::server) fn request(&self, method: &str) -> (String, String, Value) {
         let wanted = |s: &Seen| matches!(s, Seen::Request { method: m, .. } if m == method);
         match self.take(method, wanted) {
             Seen::Request { path, bearer, body, .. } => (path, bearer, body),

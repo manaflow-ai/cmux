@@ -106,7 +106,7 @@ web server, pid file and chat folder live in --out (the fake chats themselves st
 tag's acpmux home). The app is left running after the last
 relaunch (the caller quits it and releases the slot).
 """
-import argparse, atexit, glob, hashlib, http.server, json, os, plistlib, re, shlex, shutil, signal, socket, subprocess, sys, threading, time
+import argparse, atexit, glob, hashlib, http.server, json, os, plistlib, pwd, re, shlex, shutil, signal, socket, subprocess, sys, threading, time
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -278,16 +278,13 @@ class App:
         self.info, self.pid = info, int(info["pid"])
 
     @staticmethod
-    def environment(pid):
+    def environment(pid, keys=None):
         """The app's own launch variables (`ps eww`, same user): the CMUX_* ones plus HOME and
         TMPDIR, which is what a capture slot or a test launch sets."""
         out = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
-        env = {}
-        for word in out.split():
-            key, sep, value = word.partition("=")
-            if sep and (key.startswith("CMUX_") or key in ("HOME", "TMPDIR")):
-                env[key] = value
-        return env
+        # A value runs to the next ` NAME=`, not the next space: a fleet step's HOME is under "Application Support".
+        return {key: value for key, value in re.findall(r"(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=(.*?)(?=\s[A-Za-z_][A-Za-z0-9_]*=|\s*$)", out.strip())
+                if (key in keys if keys else (key.startswith(("CMUX_", "ACPMUX_")) or key in ("HOME", "TMPDIR")))}
 
     def alive(self):
         try:
@@ -569,9 +566,34 @@ def value(answer):
     return answer.get("value", {}) if isinstance(answer, dict) else {}
 
 
-def acpmux_socket_of(home):
+ACPMUX_SOCKETS = {}  # home -> socket, as the app's running daemon reported them (running_daemon)
+
+
+def running_daemon():
+    """(ACPMUX_HOME, ACPMUX_SOCKET) of the acpmux daemon this app started (its bundled binary, `daemon run`), read from
+    the process's environment (`ps eww`, same user); None when none runs or it names neither."""
+    if not APP.bundle:
+        return None
+    binary = os.path.join(APP.bundle, "Contents", "Resources", "bin", "acpmux")
+    try:
+        listing = subprocess.run(["ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in listing.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if command.startswith(binary + " daemon run"):
+            env = App.environment(int(pid), ("ACPMUX_HOME", "ACPMUX_SOCKET"))
+            home = env.get("ACPMUX_HOME")
+            if home:
+                return home, env.get("ACPMUX_SOCKET") or acpmux_socket_of(home, derived=True)
+    return None
+
+
+def acpmux_socket_of(home, derived=False):
     """acpmux `config::socket_path()`: `<home>/acpmux.sock`, or `/tmp/acpmux-<uid>/<fnv1a64>.sock`
-    when that is too long for sun_path."""
+    when that is too long for sun_path. A home the app's daemon reported keeps the socket it reported."""
+    if not derived and home in ACPMUX_SOCKETS:
+        return ACPMUX_SOCKETS[home]
     preferred = os.path.join(home, "acpmux.sock")
     if len(preferred.encode()) < 96:
         return preferred
@@ -581,12 +603,40 @@ def acpmux_socket_of(home):
     return f"/tmp/acpmux-{os.getuid()}/{h:016x}.sock"
 
 
+def acpmux_missing():
+    """Why no acpmux home answered (once): the homes looked at, every build home with a socket, and the acpmux
+    processes running, so a seed that found none says where the app's daemon went."""
+    if ACPMUX_MISSING:
+        return
+    ACPMUX_MISSING.append(True)
+    say(f"  acpmux: none of these homes has a socket: {acpmux_home.tried}")
+    for base in {os.path.expanduser("~"), APP.env.get("HOME", ""), pwd.getpwuid(os.getuid()).pw_dir} - {""}:
+        builds = os.path.join(base, ".acpmux", "builds")
+        found = sorted(name for name in (os.listdir(builds) if os.path.isdir(builds) else [])
+                       if os.path.exists(acpmux_socket_of(os.path.join(builds, name))))
+        say(f"  acpmux: build homes with a socket under {builds}: {found}; app env ACPMUX_HOME={APP.env.get('ACPMUX_HOME')!r}")
+    try:
+        procs = subprocess.run(["pgrep", "-fl", "acpmux"], capture_output=True, text=True, timeout=10).stdout.splitlines()
+    except (OSError, subprocess.SubprocessError) as error:
+        procs = [repr(error)]
+    say(f"  acpmux: processes: {[line[:200] for line in procs[:8]]}")
+
+
+ACPMUX_MISSING = []
+
+
 def acpmux_home():
     """The app's acpmux home: <the app's HOME>/.acpmux/builds/<build key> (a slot's home on a capture
     slot), else <account home>/.acpmux/builds/<build key> (build_names.py has the app's rule), or, for a build from before per-build
     isolation, builds/com.cmuxterm.app.debug.<tag slug>. Never /tmp/acpmux-<uid> as such: other
     apps' daemons live there."""
     slug = re.sub(r"[^a-z0-9]+", "-", (APP.tag or "").lower()).strip("-")
+    # First, the app's own running daemon says where it lives (its ACPMUX_HOME and ACPMUX_SOCKET), so the lookup
+    # cannot drift from the app's rule; the derived homes below are the fallback.
+    running = running_daemon()
+    if running and os.path.exists(running[1]):
+        ACPMUX_SOCKETS[running[0]] = running[1]
+        return running[0]
     homes = []
     # A capture slot launches the app with the slot's home as HOME (capture-host since hq#4961): its
     # acpmux home is under that home, by the same build key.
@@ -596,9 +646,18 @@ def acpmux_home():
         except ValueError:
             pass
     homes += [APP.names()["acpmux_home"]] if APP.names() else []
-    for base in {os.path.expanduser("~"), APP.env.get("HOME", "")}:
+    # The app's own rule: `FileManager.homeDirectoryForCurrentUser`, the password database's home, not $HOME (a fleet
+    # step sets HOME to a home of its own under the step's folder; the app's acpmux stays under the account's).
+    account = pwd.getpwuid(os.getuid()).pw_dir
+    if APP.bundle:
+        try:
+            homes.append(build_names.of_app(APP.bundle, account)["acpmux_home"])
+        except ValueError:
+            pass
+    for base in {os.path.expanduser("~"), APP.env.get("HOME", ""), account}:
         if base:
             homes.append(os.path.join(base, ".acpmux", "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug).strip(".")))
+    acpmux_home.tried = [(home, acpmux_socket_of(home)) for home in homes]
     return next((home for home in homes if os.path.exists(acpmux_socket_of(home))), None)
 
 
@@ -1062,6 +1121,7 @@ CLI_AGENTS = {
     "codex": {"account": "CODEX_HOME", "flags": "-m gpt-5.5 --search"},
 }
 CHATS = []  # {"label", "harness", "session", "tab"}
+LONG_CHAT = {}  # --record-launch: the chat shown at each quit, with a long transcript (show_long_chat)
 TAGENTS = []  # {"label", "provider", "terminal", "tab", "session", "flags", "account"}
 ACPMUX = {}  # {"home", "client"}: the tag's acpmux, configured once for the run
 
@@ -1071,6 +1131,7 @@ def acpmux_client():
     if not ACPMUX:
         home = wait(acpmux_home, 60)
         if not home:
+            acpmux_missing()
             return None
         ACPMUX.update(home=home, client=configure_fake(home))
     elif "client" not in ACPMUX:
@@ -1116,47 +1177,72 @@ def seed_chats():
     for harness in CHAT_PROFILES:
         for i in range(AGENTS_N):
             label = f"{harness}-{i}"
-            known = {t.get("id") for t in tabs_of(workspace_named("rj-chats"))}
-            action("palette.newAgentChat", focus=True)
-            fresh = wait(lambda: next((t for t in tabs_of(workspace_named("rj-chats"))
-                                       if t.get("kind") == "conversation" and t.get("id") not in known), None), 30, 0.5)
-            if not fresh:
-                say(f"  {label}: no new chat tab")
+            chat = make_chat(client, label, harness)
+            if not chat:
                 continue
-            created = client.request("session/new", {"cwd": opts.out, "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}})
-            sid = (created.get("result") or {}).get("sessionId")
-            if not sid:
-                say(f"  {label}: session/new -> {json.dumps(created)[:200]}")
-                continue
-            _, pane = place_of(fresh["id"])
-            # The page learns of a new acpmux session a moment after it is made: select it until the
-            # tab's record names it.
-            for attempt in range(4):
-                # The new tab may not be the pane's shown tab yet; then the focused agent pane.
-                target = pane if attempt % 2 == 0 else None
-                say(f"  {label}: select_session -> {json.dumps(page(target, 'select_session', session=sid))[:160]}")
-                if wait(lambda: any(t.get("agent_session") == sid for t in tabs_of(workspace_named("rj-chats"))), 15, 1):
-                    break
-            else:
-                say(f"  {label}: the tab never recorded session {sid}")
-            pick = CHAT_PICKS[harness]
-            if pick:
-                # The pick a person makes in the composer's menus; through acpmux when the page refuses.
-                for target in (pane, None):
-                    picked = page(target, "set_model", **pick)
-                    say(f"  {label}: set_model {pick} -> {json.dumps(picked)[:200]}")
-                    if isinstance(picked, dict) and "error" not in picked:
-                        break
-                if not isinstance(picked, dict) or "error" in picked:
-                    if pick.get("model"):
-                        client.request("session/set_model", {"sessionId": sid, "modelId": pick["model"]})
-                    if pick.get("effort"):
-                        client.request("session/set_config_option", {"sessionId": sid, "configId": "effort", "value": pick["effort"]})
+            sid = chat["session"]
             for turn in range(2):
                 client.request("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": f"rj chat turn {turn} {label} {RUN}"}],
                                                   "_meta": {"acpmux": {"promptId": f"rj-{RUN}-{label}-{turn}"}}}, timeout=60)
             client.request("_acpmux/draft_set", {"sessionId": sid, "text": f"rj draft {label} {RUN}"})
-            CHATS.append({"label": label, "harness": harness, "session": sid, "tab": fresh["id"]})
+            CHATS.append(chat)
+
+
+def seed_long_chat():
+    """--record-launch: its own chat, not a seeded one (its long transcript would push a seeded chat's turns out of the
+    page's last rows, show_long_chat). Not in CHATS, so it adds no chat rows; it is the tab shown at the quit. Its own
+    seed part, so a failure in the seeded chats does not skip it."""
+    if not opts.record_launch:
+        return
+    client = acpmux_client()
+    made = make_chat(client, "long", next(iter(CHAT_PROFILES))) if client and workspace_named("rj-chats") else None
+    LONG_CHAT.update(made or {})
+    # Loud: without it the relaunch measures no chat, and nothing else would say so.
+    RESULTS.append(("seed agents: the long chat (--record-launch) is made", bool(made),
+                    made["session"] if made else ("no acpmux client" if not client else "no rj-chats workspace" if not workspace_named("rj-chats")
+                                                  else "make_chat failed (see the seed log)"), "seed"))
+
+
+def make_chat(client, label, harness):
+    """A new agent chat tab in rj-chats bound to a new acpmux session, with the harness's picks:
+    {"label", "harness", "session", "tab"}, or None when a step failed."""
+    known = {t.get("id") for t in tabs_of(workspace_named("rj-chats"))}
+    action("palette.newAgentChat", focus=True)
+    fresh = wait(lambda: next((t for t in tabs_of(workspace_named("rj-chats"))
+                               if t.get("kind") == "conversation" and t.get("id") not in known), None), 30, 0.5)
+    if not fresh:
+        say(f"  {label}: no new chat tab")
+        return None
+    created = client.request("session/new", {"cwd": opts.out, "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}})
+    sid = (created.get("result") or {}).get("sessionId")
+    if not sid:
+        say(f"  {label}: session/new -> {json.dumps(created)[:200]}")
+        return None
+    _, pane = place_of(fresh["id"])
+    # The page learns of a new acpmux session a moment after it is made: select it until the
+    # tab's record names it.
+    for attempt in range(4):
+        # The new tab may not be the pane's shown tab yet; then the focused agent pane.
+        target = pane if attempt % 2 == 0 else None
+        say(f"  {label}: select_session -> {json.dumps(page(target, 'select_session', session=sid))[:160]}")
+        if wait(lambda: any(t.get("agent_session") == sid for t in tabs_of(workspace_named("rj-chats"))), 15, 1):
+            break
+    else:
+        say(f"  {label}: the tab never recorded session {sid}")
+    pick = CHAT_PICKS[harness]
+    if pick:
+        # The pick a person makes in the composer's menus; through acpmux when the page refuses.
+        for target in (pane, None):
+            picked = page(target, "set_model", **pick)
+            say(f"  {label}: set_model {pick} -> {json.dumps(picked)[:200]}")
+            if isinstance(picked, dict) and "error" not in picked:
+                break
+        if not isinstance(picked, dict) or "error" in picked:
+            if pick.get("model"):
+                client.request("session/set_model", {"sessionId": sid, "modelId": pick["model"]})
+            if pick.get("effort"):
+                client.request("session/set_config_option", {"sessionId": sid, "configId": "effort", "value": pick["effort"]})
+    return {"label": label, "harness": harness, "session": sid, "tab": fresh["id"]}
 
 
 def screen_text(term):
@@ -1254,46 +1340,57 @@ def chat_items(label, items, raw):
     topo = topology()
     client = acpmux_client()
     with visiting("rj-chats"):
-        for chat in CHATS:
-            c = f"chat[{chat['label']}]"
-            tab = next((t for ws in rj_workspaces(topo) for t in tabs_of(ws) if t.get("agent_session") == chat["session"]), None)
-            items[f"{c}.place"], pane = place_of(tab.get("id"), topo) if tab else (None, None)
-            if client:
-                events = ((client.request("_acpmux/events", {"sessionId": chat["session"], "afterSeq": 0, "limit": 5000}).get("result") or {}).get("events")) or []
-                items[f"{c}.prompts"] = [e.get("msg", {}).get("text") for e in events if e.get("kind") == "user_message"
-                                         and "rj chat turn" in str(e.get("msg", {}).get("text"))]
-                items[f"{c}.draft"] = (client.request("_acpmux/draft_get", {"sessionId": chat["session"]}).get("result") or {}).get("draft")
-            if not tab:
-                continue
-            cli("tab", tab["id"], "focus", quiet=True)
-            state = wait(lambda: (lambda r: r if isinstance(r, dict) and "error" not in r and r.get("connection") != "connecting"
-                                  and r.get("sessionId") == chat["session"] else None)(page(pane, "chat_state")), 45, 1) or page(pane, "chat_state")
-            raw[f"{c}.chat_state"] = state
-            if not isinstance(state, dict) or "error" in state:
-                items[f"{c}.page"] = f"chat_state: {json.dumps(state)[:120]}"
-                continue
-            items[f"{c}.page.session"] = state.get("sessionId")
-            items[f"{c}.page.harness"] = state.get("harness")
-            items[f"{c}.page.missing_session"] = state.get("missingSession")
-            chips = state.get("composer") or {}
-            # The composer's chips as drawn show the model and effort picked.
-            # (The model chip may draw only its icon, so the model is read from the page's own state.)
-            pick = CHAT_PICKS.get(chat["harness"], {})
-            shown = page(pane, "models")
-            current = shown.get("current") if isinstance(shown, dict) else None
-            ok = not pick.get("model") or current == pick["model"]
-            items[f"{c}.page.picked"] = True if ok else f"chips {json.dumps(chips)[:100]}, model {current!r}; picked {json.dumps(pick)}"
-            items[f"{c}.page.transcript"] = [r.get("text") for r in state.get("transcript") or [] if "rj chat turn" in str(r.get("text"))
-                                              or str(r.get("text")).startswith("echo: rj chat turn")]
-            # Live: a new turn is answered by the agent and shows on the page. Sent through acpmux, so
-            # the composer's draft stays as seeded.
-            text = f"rj live {chat['label']} {label} {RUN}"
-            if client:
-                client.request("session/prompt", {"sessionId": chat["session"], "prompt": [{"type": "text", "text": text}],
-                                                  "_meta": {"acpmux": {"promptId": f"rj-{RUN}-{chat['label']}-{label}"}}}, timeout=60)
-            answered = wait(lambda: (lambda r: isinstance(r, dict) and (r.get("lastAssistant") or {}).get("text") == f"echo: {text}"
-                                     and not (r.get("lastAssistant") or {}).get("streaming"))(page(pane, "chat_state")), 30, 1)
-            items[f"{c}.live"] = bool(answered) or f"no answer: {json.dumps((page(pane, 'chat_state') or {}).get('lastAssistant'))[:120]}"
+        # Each chat's tab is shown to read its page; the tab each pane showed comes back after (as finish_turn_in_flight
+        # does), so the next snapshot and the quit see the selection as it was.
+        shown_tabs = {}
+        try:
+            for chat in CHATS:
+                c = f"chat[{chat['label']}]"
+                tab = next((t for ws in rj_workspaces(topo) for t in tabs_of(ws) if t.get("agent_session") == chat["session"]), None)
+                items[f"{c}.place"], pane = place_of(tab.get("id"), topo) if tab else (None, None)
+                if client:
+                    events = ((client.request("_acpmux/events", {"sessionId": chat["session"], "afterSeq": 0, "limit": 5000}).get("result") or {}).get("events")) or []
+                    items[f"{c}.prompts"] = [e.get("msg", {}).get("text") for e in events if e.get("kind") == "user_message"
+                                             and "rj chat turn" in str(e.get("msg", {}).get("text"))]
+                    items[f"{c}.draft"] = (client.request("_acpmux/draft_get", {"sessionId": chat["session"]}).get("result") or {}).get("draft")
+                if not tab:
+                    continue
+                if pane and pane not in shown_tabs:
+                    shown_tabs[pane] = pane_active_tab(pane)
+                cli("tab", tab["id"], "focus", quiet=True)
+                state = wait(lambda: (lambda r: r if isinstance(r, dict) and "error" not in r and r.get("connection") != "connecting"
+                                      and r.get("sessionId") == chat["session"] else None)(page(pane, "chat_state")), 45, 1) or page(pane, "chat_state")
+                raw[f"{c}.chat_state"] = state
+                if not isinstance(state, dict) or "error" in state:
+                    items[f"{c}.page"] = f"chat_state: {json.dumps(state)[:120]}"
+                    continue
+                items[f"{c}.page.session"] = state.get("sessionId")
+                items[f"{c}.page.harness"] = state.get("harness")
+                items[f"{c}.page.missing_session"] = state.get("missingSession")
+                chips = state.get("composer") or {}
+                # The composer's chips as drawn show the model and effort picked.
+                # (The model chip may draw only its icon, so the model is read from the page's own state.)
+                pick = CHAT_PICKS.get(chat["harness"], {})
+                shown = page(pane, "models")
+                current = shown.get("current") if isinstance(shown, dict) else None
+                ok = not pick.get("model") or current == pick["model"]
+                items[f"{c}.page.picked"] = True if ok else f"chips {json.dumps(chips)[:100]}, model {current!r}; picked {json.dumps(pick)}"
+                # The seeded turns, by first line (the long chat of --record-launch is its own chat, so these stay in the page's rows).
+                lines = [str(r.get("text")).split("\n")[0] for r in state.get("transcript") or []]
+                items[f"{c}.page.transcript"] = [t for t in lines if "rj chat turn" in t or t.startswith("echo: rj chat turn")]
+                # Live: a new turn is answered by the agent and shows on the page. Sent through acpmux, so
+                # the composer's draft stays as seeded.
+                text = f"rj live {chat['label']} {label} {RUN}"
+                if client:
+                    client.request("session/prompt", {"sessionId": chat["session"], "prompt": [{"type": "text", "text": text}],
+                                                      "_meta": {"acpmux": {"promptId": f"rj-{RUN}-{chat['label']}-{label}"}}}, timeout=60)
+                answered = wait(lambda: (lambda r: isinstance(r, dict) and (r.get("lastAssistant") or {}).get("text") == f"echo: {text}"
+                                         and not (r.get("lastAssistant") or {}).get("streaming"))(page(pane, "chat_state")), 30, 1)
+                items[f"{c}.live"] = bool(answered) or f"no answer: {json.dumps((page(pane, 'chat_state') or {}).get('lastAssistant'))[:120]}"
+        finally:
+            for tab_id in shown_tabs.values():
+                if tab_id:
+                    cli("tab", tab_id, "focus", quiet=True)
 
 
 def tagent_items(label, items, raw):
@@ -1459,12 +1556,13 @@ def seed(base):
     cleanup_earlier()
     for part, run in (("term", seed_term), ("split", seed_split), ("web", lambda: seed_web(base)),
                       ("agent", seed_agent), ("w2", lambda: seed_w2(base)), ("w3", seed_w3), ("cloud", seed_cloud),
-                      ("agents", seed_chats), ("agents", seed_tagents)):
+                      ("agents", seed_chats), ("agents", seed_long_chat), ("agents", seed_tagents)):
         if part not in SKIP:
             try:
                 run()
             except Exception as error:  # one part failing still leaves the others to check
                 say(f"  seed {part} failed: {error!r}")
+                RESULTS.append((f"seed {part}: {getattr(run, '__name__', part)} ran", False, repr(error)[:300], "seed"))
     term = workspace_named("rj-term")
     first = term and next((w for w in (topology() or {}).get("windows", []) if term["id"] in w.get("workspaces", [])), None)
     if term:
@@ -1627,6 +1725,7 @@ def snapshot(label):
     with LOCK:
         raw["page_loads"] = list(PAGE_LOADS)
     items = {}
+    shown_terminal = {}  # pane id -> its selected terminal tab's row prefix (its view rows when its workspace is shown)
     ws_by_id = {w.get("id"): w for w in topo.get("workspaces", [])}
     rj = lambda name: (name or "").startswith("rj-")
     # Windows that hold rj-* workspaces, in topology order.
@@ -1707,6 +1806,8 @@ def snapshot(label):
                         items[f"{tp}.url"] = tab.get("url")
                     elif kind == "conversation":
                         items[f"{tp}.agent_session"] = tab.get("agent_session")
+                    if kind == "terminal" and tab.get("id") == pane.get("selected_tab"):
+                        shown_terminal[pane.get("id")] = tp
                     if kind == "terminal" and tab.get("id") == pane.get("selected_tab") and pane.get("id") in views:
                         view = views[pane.get("id")]
                         items[f"{tp}.view.attach"] = view.get("attach")
@@ -1866,8 +1967,20 @@ def snapshot(label):
                 report, now = wait(lambda: (lambda r: r if rj_rows.report_error(r[0]) is None else None)(view_panes()), 60, 2) \
                     or view_panes()
             raw[f"debug.surfaces.{name}"] = report
+            if name == "rj-term" and items.get("counter.tick_in_view") is None:
+                shown_text = "\n".join(v.get("text") or "" for v in now.values())
+                shown_ticks = [int(t) for t in re.findall(r"rj-tick-(\d+)", shown_text)]
+                items["counter.tick_in_view"] = max(shown_ticks) if shown_ticks else None
+                if not items.get("view.scrollback_tail"):
+                    items["view.scrollback_tail"] = [line.strip() for line in shown_text.splitlines() if "rj-line-" in line][-3:]
             for pp, pid_ in pane_ids[name]:
                 v = now.get(pid_) or {}
+                # A terminal workspace not shown at the snapshot's start (--record-launch shows the long chat in the same
+                # window) gets its view rows here, where it is shown.
+                tp = shown_terminal.get(pid_)
+                if tp and items.get(f"{tp}.view.attach") is None and pid_ not in views:
+                    items[f"{tp}.view.attach"] = v.get("attach")
+                    items[f"{tp}.view.font_scale"] = v.get("font_scale")
                 items[f"{pp}.view.size"] = v.get("content_size")
                 items[f"{pp}.view.grid"] = (v.get("surface") or {}).get("grid")
                 RESULTS.append(grid_fits_view(label, pp, v, report))
@@ -1968,7 +2081,8 @@ def seeded(before):
         "term": [("3000 numbered lines", has(lambda k, v: k.endswith(".scrollback.numbered_lines") and v == SCROLLBACK_LINES)),
                  ("counter running", before.get("counter.alive") is True and isinstance(before.get("counter.tick_in_daemon"), int)),
                  ("top drawing", before.get("top.running") is True and before.get("top.in_view") is True),
-                 ("the counter's pane focused", before.get("focus.pane") == "ws[rj-term].s0.pane1"),
+                 # --record-launch shows the long chat at the quit instead (show_long_chat), so focus is elsewhere.
+                 *([] if opts.record_launch else [("the counter's pane focused", before.get("focus.pane") == "ws[rj-term].s0.pane1")]),
                  (f"the counter's terminal zoomed in by {FONT_STEPS} Cmd-+ steps",
                   (before.get("ws[rj-term].s0.pane1.tab0.view.font_scale") or 0) > 1.05),
                  (f"the first window's sidebar at {SIDEBAR_WIDTH} points",
@@ -1985,7 +2099,8 @@ def seeded(before):
                   ("chat tab bound to the session", (before.get("agent.tabs_bound") or 0) >= 1
                    and bool(AGENT) and before.get("agent.page.session") == AGENT["session"])],
         "agents": [*[(f"chat {c['label']} bound, picked and answering", before.get(f"chat[{c['label']}].page.session") == c["session"]
-                       and before.get(f"chat[{c['label']}].live") is True and len(before.get(f"chat[{c['label']}].prompts") or []) == 2)
+                       and before.get(f"chat[{c['label']}].live") is True and len(before.get(f"chat[{c['label']}].prompts") or []) == 2
+                       and len(before.get(f"chat[{c['label']}].page.transcript") or []) >= 4)
                       for c in CHATS],
                    *[(f"terminal agent {t['label']} reports to its hook and answers", t["hook"] == "yes"
                       and before.get(f"tagent[{t['label']}].live") is True and before.get(f"tagent[{t['label']}].signed_in") is True)
@@ -2465,6 +2580,10 @@ def finish_turn_in_flight(variant, turn):
 def journey(base):
     global SINCE
     seed(base)
+    if opts.record_launch:
+        shown = show_long_chat()
+        RESULTS.append(("seed agents: the long chat has its long transcript and is the shown tab", bool(shown),
+                        "shown" if shown else "no long chat page drew", "seed"))
     back_walk("seed")  # before any reopen: tells the live Back bug apart from a restore loss
     for n, variant in enumerate(v.strip() for v in opts.variants.split(",") if v.strip()):
         before = snapshot(f"{variant}-before")
@@ -2491,6 +2610,9 @@ def journey(base):
             # A real update relaunch opens a newer build, which shows the "cmux Updated!" card: the same build
             # relaunched shows it only when its last seen version is older (WhatsNewCenter.debugPretendUpdated).
             say(f"  update: last seen version 0.0.1 -> {json.dumps(rpc('debug.updater', {'action': 'updated', 'previous': '0.0.1'}))}")
+        if opts.record_launch:
+            at_quit = long_chat_shown()
+            RESULTS.append((f"{variant}: the long chat is the tab shown at the quit", at_quit is True, str(at_quit), "launch frames"))
         started = SINCE = time.time()
         if sampler:
             sampler.start(started)
@@ -2560,6 +2682,70 @@ def journey(base):
         back_walk(f"{variant} after the reopen")
 
 
+def show_long_chat(turns=24):
+    """--record-launch: the first seeded chat gets a long transcript (`turns` more turns, each a multi-line prompt the
+    fake agent echoes) and is the shown tab of the front window at the quit, so each relaunch restores a chat with
+    more rows than fit (Leo, 2026-11-04: the chats restoring are what shift). Stops at the first prompt that fails.
+    False when there is no chat or it is not shown."""
+    chat = LONG_CHAT or None
+    client = acpmux_client()
+    if not chat or not client:
+        say("  long chat: none (the agents part skipped or failed); the relaunch shows no chat")
+        return False
+    body = "\n".join(f"rj long line {k}: the quick brown fox jumps over the lazy dog, again and again" for k in range(10))
+    sent = 0
+    try:
+        for turn in range(turns):
+            reply = client.request("session/prompt", {"sessionId": chat["session"], "prompt": [{"type": "text", "text": f"rj long turn {turn} {RUN}\n{body}"}],
+                                                      "_meta": {"acpmux": {"promptId": f"rj-{RUN}-long-{turn}"}}}, timeout=60)
+            if not isinstance(reply, dict) or reply.get("error"):
+                say(f"  long chat: turn {turn} failed: {json.dumps(reply)[:160]}")
+                break
+            sent += 1
+    except Exception as error:  # like seed()'s parts: the journey goes on, the chat rows say what is missing
+        say(f"  long chat: prompts failed after {sent}: {error!r}")
+    shown = focus_long_chat()
+    say(f"  long chat: {sent} of {turns} turns in {chat['label']}, shown {shown}")
+    return shown
+
+
+def focus_long_chat():
+    """The long chat's tab selected in the front window, its page drawn (chat_items puts back each pane's shown tab, so
+    it stays selected through every round's snapshots)."""
+    chat = LONG_CHAT or None
+    if not chat:
+        return False
+    ws = workspace_named("rj-chats")
+    if ws:
+        cli("workspace", ws["id"], "focus")
+    cli("tab", chat["tab"], "focus")
+    return bool(wait(lambda: "first_content_ms" in (page(None, "layout_watch", ms=300) or {}), 20, 0.5))
+
+
+def long_chat_shown():
+    """True when the long chat's tab is its pane's selected tab and its workspace is its window's shown one; else why not."""
+    if not LONG_CHAT:
+        return "no long chat"
+    topo = topology() or {}
+    for window in topo.get("windows", []):
+        for ws in topo.get("workspaces", []):
+            if ws.get("id") not in window.get("workspaces", []):
+                continue
+            for screen in ws.get("screens", []):
+                for pane in screen.get("panes", []):
+                    if any(t.get("id") == LONG_CHAT["tab"] for t in pane.get("tabs", [])):
+                        if pane.get("selected_tab") != LONG_CHAT["tab"]:
+                            return f"its pane shows tab {pane.get('selected_tab')}"
+                        if window.get("workspace") != ws.get("id"):
+                            return f"its window shows workspace {ws_name(topo, window.get('workspace'))}"
+                        return True
+    return "its tab is gone"
+
+
+def ws_name(topo, ws_id):
+    return next((w.get("name") for w in topo.get("workspaces", []) if w.get("id") == ws_id), ws_id)
+
+
 def start_chat_watch():
     """From as soon as the relaunched app answers: the shown chat page's `layout_watch` (what moved on the page after
     it first drew its transcript and composer), asked again until a page answers or 15 s pass. A thread; its result
@@ -2610,6 +2796,9 @@ def launch_shift_rows(variant, record, launched, chat_watch):
     chat = summary.get("chat") or {}
     if chat and "first_content_ms" in chat:
         moved = len(chat.get("shifts") or []) + len(chat.get("scroll_jumps") or [])
+        RESULTS.append((f"{variant}: the shown chat's first paint has its transcript", (chat.get("first_rows") or 0) > 0,
+                        f"first rows {chat.get('first_rows')} at {chat.get('first_content_ms')} ms after the watch began "
+                        f"({chat.get('asked_s')} s after the relaunch)", "launch frames"))
         RESULTS.append((f"{variant}: the shown chat does not move after its first paint", moved == 0,
                         f"{len(chat.get('shifts') or [])} shifts, {len(chat.get('appeared') or [])} appeared, "
                         f"{len(chat.get('scroll_jumps') or [])} scroll jumps; first rows {chat.get('first_rows')}", "launch frames"))

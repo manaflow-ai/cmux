@@ -1,6 +1,6 @@
 // Calls to one MCP tool, drawn as one line that says what they did ("Sent 4 messages to
-// Coordination hub"). Several calls open to a row each; a call opens to its request and response,
-// pretty-printed (mcpCalls.ts). Nothing of a call's JSON is drawn until it is opened; opening and
+// Coordination hub"). Several calls open to a row each; a call opens to its arguments as labeled
+// fields and its response (ToolDetail.tsx), or to its request and response pretty-printed (mcpCalls.ts). Nothing of a call's JSON is drawn until it is opened; opening and
 // closing play the transcript's fold (fold.ts).
 import { useFindReveal } from "./chatFind";
 import { type ReactNode, useContext, useId, useMemo, useState } from "react";
@@ -20,7 +20,6 @@ import {
   mcpOutputResult,
   mcpRawName,
   prettyOutput,
-  prettyValue,
   type McpCall,
 } from "./mcpCalls";
 import { callLine, cmuxTitle, execParts, execView, isCmuxExec } from "./cmuxExec";
@@ -28,7 +27,10 @@ import { CODE_ROLE_COLOR, jsTokens, type CodeToken } from "./jsHighlight";
 import { RawToggle } from "./SentMessageLine";
 import { isFailed, isRunning } from "./toolGroups";
 import { ToolOutput } from "./ToolOutputBody";
+import { ToolDetail } from "./ToolDetail";
+import { argsSource, inputFields, requestText, type InputField } from "./toolInputFields";
 import { ToolImages } from "./ToolRow";
+import { ToolVisualRow } from "./ToolVisualPreview";
 import { VideoFramesCard } from "./VideoFramesCard";
 import { videoFrames } from "./videoFrames";
 import { useRowDisclosure, useTranscriptDisclosure } from "./transcriptDisclosure";
@@ -79,17 +81,13 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
-          <ToolGroup size={16} strokeWidth={1.2} />
+          <ToolGroup size={16} />
         </span>
         <span className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />
           {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>
@@ -146,41 +144,45 @@ function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
   const images = useMemo(() => (video ? [] : toolImages(tool)), [video, tool]);
   // An MCP server's error is often JSON: its message, in one line (toolFailure.ts).
   const failure = useMemo(() => (tool.status === "failed" ? toolFailure(tool) : undefined), [tool]);
+  // An object of arguments opens as one labeled field each (ToolDetail.tsx); any other shape, and a
+  // hook's refusal, as the request and response it came as.
+  const fields = useMemo(
+    () => (fold.present ? inputFields(call.args, argsSource(tool)) : undefined),
+    [fold.present, call, tool],
+  );
   return (
     <>
-      <button
-        type="button"
-        className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
-        aria-expanded={open}
-        aria-controls={open ? detailsId : undefined}
-        ref={fold.headerRef}
-        onClick={fold.toggle}
-      >
-        <span className="cv-tool__icon">
-          <ToolGroup size={16} strokeWidth={1.2} />
-        </span>
-        <span className="cv-tool__text" data-find-skip>
-          <ToolLabel text={label} />
-          {failure ? (
-            <span className="cv-tool__failed"> {failureWord(t, failure)}</span>
-          ) : (
-            outcome?.failed && <span className="cv-tool__failed"> {t("tools.failed")}</span>
-          )}
-          {outcome?.summary && <span className="cv-tool__detail">{`  ${outcome.summary}`}</span>}
-          <InlineFailureCause failure={failure} />
-        </span>
-        {/* The person approved this call's ask: it says so on its row (ApprovedMark.tsx). */}
-        {tool.approved && (
-          <span className="cv-command__meta cv-tool__meta">
-            <ApprovedMark />
+      <ToolVisualRow sources={images} label={label}>
+        <button
+          type="button"
+          className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
+          aria-expanded={open}
+          aria-controls={open ? detailsId : undefined}
+          ref={fold.headerRef}
+          onClick={fold.toggle}
+        >
+          <span className="cv-tool__icon">
+            <ToolGroup size={16} />
           </span>
-        )}
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
-      </button>
+          <span className="cv-tool__text" data-find-skip>
+            <ToolLabel text={label} />
+            {failure ? (
+              <span className="cv-tool__failed"> {failureWord(t, failure)}</span>
+            ) : (
+              outcome?.failed && <span className="cv-tool__failed"> {t("tools.failed")}</span>
+            )}
+            {outcome?.summary && <span className="cv-tool__detail">{`  ${outcome.summary}`}</span>}
+            <InlineFailureCause failure={failure} />
+          </span>
+          {/* The person approved this call's ask: it says so on its row (ApprovedMark.tsx). */}
+          {tool.approved && (
+            <span className="cv-command__meta cv-tool__meta">
+              <ApprovedMark />
+            </span>
+          )}
+          <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+        </button>
+      </ToolVisualRow>
       <ToolFailureCause failure={failure} />
       {video && <VideoFramesCard video={video} />}
       {images.length > 0 && <ToolImages sources={images} />}
@@ -188,6 +190,17 @@ function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
         <div {...fold.bodyProps}>
           {exec && failure?.kind !== "hook" ? (
             <CmuxExecDetails id={detailsId} tool={tool} call={call} raw={raw} reveal={reveal} />
+          ) : fields && failure?.kind !== "hook" ? (
+            <McpCallFields
+              id={detailsId}
+              call={call}
+              raw={raw}
+              fields={fields}
+              output={video ? video.text : tool.output}
+              tool={tool}
+              strip={stripsEnvelopeImages(tool)}
+              reveal={reveal}
+            />
           ) : (
             <McpCallDetails
               id={detailsId}
@@ -255,7 +268,7 @@ export function McpCallDetails({
   requestFindAlternatives?: Readonly<Record<string, string>>;
 }) {
   const t = useT();
-  const request = useMemo(() => prettyValue(call.args), [call]);
+  const request = useMemo(() => requestText(call.args, tool && argsSource(tool)), [call, tool]);
   const failure = useMemo(() => (tool ? toolFailure(tool) : undefined), [tool]);
   const blocked = failure?.kind === "hook";
   const shownOutput = blocked ? failure.output : output;
@@ -285,6 +298,68 @@ export function McpCallDetails({
         </div>
       )}
     </div>
+  );
+}
+
+/// An opened call whose arguments are an object: its machine name, then Input as one labeled field
+/// per argument and Output with its copy button (ToolDetail.tsx); the request and response as they
+/// came stay behind Raw.
+function McpCallFields({
+  id,
+  call,
+  raw,
+  fields,
+  output,
+  tool,
+  strip,
+  reveal,
+}: {
+  id: string;
+  call: McpCall;
+  raw: string;
+  fields: readonly InputField[];
+  output?: string;
+  tool: NonNullable<AcpmuxActivity["tool"]>;
+  strip: boolean;
+  reveal: number;
+}) {
+  const response = useMemo(() => mcpOutputResult(output, strip, call.tool), [output, strip, call.tool]);
+  const [rawOpen, setRawOpen] = useState(false);
+  return (
+    <ToolDetail
+      id={id}
+      fields={fields}
+      result={response}
+      reveal={reveal}
+      head={
+        <code className="cv-mcp-call__name selectable" data-find-skip>
+          {raw}
+        </code>
+      }
+      after={
+        <div className="cv-cmux-exec__raw" data-find-skip>
+          <RawToggle
+            open={rawOpen}
+            onOpenChange={setRawOpen}
+            icon={
+              <span className="cv-tool__icon">
+                <CodeBrackets size={16} />
+              </span>
+            }
+          >
+            <McpCallDetails
+              id={`${id}-raw`}
+              call={call}
+              raw={raw}
+              output={output}
+              tool={tool}
+              strip={strip}
+              reveal={reveal}
+            />
+          </RawToggle>
+        </div>
+      }
+    />
   );
 }
 
@@ -415,7 +490,7 @@ export function CmuxExecDetails({
           onOpenChange={setRawOpen}
           icon={
             <span className="cv-tool__icon">
-              <CodeBrackets size={16} strokeWidth={1.2} />
+              <CodeBrackets size={16} />
             </span>
           }
         >

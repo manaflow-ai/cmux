@@ -19,7 +19,9 @@ into numbers per window and for the whole launch:
   pixel_frames        frames after the first in which at least PIXEL_SHARE of the cells changed by more than
                       PIXEL_DELTA (a region filling in, a flash, a fade; a caret or a ticking counter stays under it)
   blank_frames        frames after the first that are flat (a flash to one color)
-  layout_passes       window layout passes after the first frame
+  layout_passes       window layout passes after the first frame, the process's (every window's) while this one
+                      records; the launch total is the largest of them, not their sum
+                      (a lower bound: the passes before a window's first frame, and after its recording ends, are not counted)
   last_change_ms      when the last geometry or pixel change came, ms after the window's first frame (0: none)
   first_vs_final      the share of cells that differ between the first and the last frame (0: the first frame was final)
   views               the views that moved most often (name -> frames), from `movedViews`
@@ -122,11 +124,16 @@ def window(frames, name="window"):
 
 
 def read(folder):
-    """Every window-N/frames.json under `folder` (a launch recording), in window order: [(name, frames or error)]."""
+    """Every window-N folder under `folder` (a launch recording), in window order: [(name, frames or error)]. A folder
+    with no frames.json is an unfinished recording: an error, never left out."""
     found = []
-    paths = glob.glob(os.path.join(folder, "window-*", "frames.json"))
-    for path in sorted(paths, key=lambda p: int(re.sub(r"\D", "", os.path.basename(os.path.dirname(p))) or 0)):
-        name = os.path.basename(os.path.dirname(path))
+    folders = glob.glob(os.path.join(folder, "window-*"))
+    for folder_path in sorted(folders, key=lambda p: int(re.sub(r"\D", "", os.path.basename(p)) or 0)):
+        name = os.path.basename(folder_path)
+        path = os.path.join(folder_path, "frames.json")
+        if not os.path.exists(path):
+            found.append((name, {"error": "no frames.json (the recording did not finish)"}))
+            continue
         try:
             with open(path) as f:
                 data = json.load(f)
@@ -151,8 +158,12 @@ def summarize(folder):
     # A window that closed while recorded (the launch's own window, replaced by the restored ones) still counts:
     # it was on screen.
     total = {"windows": len(windows), "errors": len(windows) - len(ok)}
-    for key in ("geometry_frames", "pixel_frames", "blank_frames", "layout_passes", "view_layouts", "window_moves"):
+    for key in ("geometry_frames", "pixel_frames", "blank_frames", "window_moves"):
         total[key] = sum(w[key] for w in ok)
+    # The layout counters are the process's (LayoutPassGuard), not the window's: each window's recording counts every
+    # window's layouts while it records, so the launch's total is the longest recording's, never their sum.
+    for key in ("layout_passes", "view_layouts"):
+        total[key] = max((w[key] for w in ok), default=0)
     total["blank_first"] = sum(1 for w in ok if w["blank_first"])
     total["closed_while_recorded"] = sum(1 for w in ok if w.get("ended_by") == "closed")
     paints = [w["first_paint_ms"] for w in ok if w["first_paint_ms"] is not None]

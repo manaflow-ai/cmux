@@ -17,6 +17,13 @@ public protocol WorkspaceHibernationHost: AnyObject {
     /// Frees `workspace`'s memory: unmounts it in every window, destroys its terminal surfaces,
     /// discards its pages and lets its chat pages go (each page's own checks may keep it).
     func hibernate(workspace: String)
+    /// As ``hibernate(workspace:)``; `byPerson` is the person's Hibernate Workspace, whose pages then
+    /// restore only when shown, never on a hover (plans/cmux-next/hover-preload-DESIGN.md).
+    func hibernate(workspace: String, byPerson: Bool)
+}
+
+extension WorkspaceHibernationHost {
+    public func hibernate(workspace: String, byPerson: Bool) { hibernate(workspace: workspace) }
 }
 
 extension WorkspaceHibernationHost {
@@ -105,6 +112,9 @@ public final class WorkspaceHibernation {
     private var follows: [Task<Void, Never>] = []
     /// How many workspaces it hibernated this run (`debug.surfaces`).
     public private(set) var hibernatedCount = 0
+    private let memoryPressure: MemoryPressureEvents?
+    /// A pass runs: a level reported meanwhile (its first read) is planned by that pass, not a nested one.
+    private var passing = false
 
     /// The first pass after launch: nothing is resident yet, and a launch is no time to evict.
     public static let launchDelay: Duration = .seconds(60)
@@ -113,12 +123,15 @@ public final class WorkspaceHibernation {
     ///   - host: the App's owners.
     ///   - keepAwake: the person's Keep Awake set.
     ///   - deadline: the one-shot timer of the next pass.
+    ///   - memoryPressure: the app's memory pressure events, read at each pass (``MemoryPressureEvents/refresh()``);
+    ///     the level itself arrives through ``pressureDidChange(_:)``. Nil reads nothing.
     ///   - now: the wall clock idle times are measured on.
     public init(host: any WorkspaceHibernationHost, keepAwake: WorkspaceKeepAwakeStore, deadline: any WorkspaceHibernationDeadline,
-                now: @escaping @MainActor () -> Date = { Date() }) {
+                memoryPressure: MemoryPressureEvents? = nil, now: @escaping @MainActor () -> Date = { Date() }) {
         self.host = host
         self.keepAwake = keepAwake
         self.deadline = deadline
+        self.memoryPressure = memoryPressure
         self.now = now
     }
 
@@ -191,11 +204,17 @@ public final class WorkspaceHibernation {
     public func pressureDidChange(_ level: MemoryPressureLevel) {
         guard level != pressure else { return }
         pressure = level
+        guard !passing else { return }
         if level != .normal { pass() } else { schedulePass(after: .seconds(1)) }
     }
 
-    /// Plans and hibernates what is due, then arms the deadline for the next one.
+    /// Reads the memory pressure level now (``MemoryPressureEvents/refresh()``: the kernel may never have sent
+    /// this process its event), plans and hibernates what is due, then arms the deadline for the next one.
     public func pass() {
+        guard !passing else { return }
+        passing = true
+        defer { passing = false }
+        memoryPressure?.refresh() // a changed level comes back through pressureDidChange(_:), planned by this pass
         dueAt = nil
         let time = now()
         let residents = host.hibernationResidents()
@@ -246,7 +265,7 @@ public final class WorkspaceHibernation {
     public func isHibernated(_ workspace: String) -> Bool { hibernated.contains(workspace) }
 
     private func hibernateNow(_ workspace: String, cause: String) {
-        host.hibernate(workspace: workspace)
+        host.hibernate(workspace: workspace, byPerson: cause == "person")
         hibernated.insert(workspace)
         hibernatedCount += 1
         logger.notice("hibernated workspace \(workspace, privacy: .public) cause=\(cause, privacy: .public)")

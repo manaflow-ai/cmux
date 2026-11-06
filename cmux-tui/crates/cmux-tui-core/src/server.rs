@@ -136,11 +136,12 @@ mod mobile_chat;
 #[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
-    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
-    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
-    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
-    AgentStartHost, AgentStartHostSource, start_link_share_bridge,
+    AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
+    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    start_link_share_bridge,
 };
 #[cfg(unix)]
 pub(crate) use agent_session_attach::{
@@ -155,6 +156,9 @@ mod command_args;
 #[cfg(unix)]
 mod fs_wire;
 mod input_qos;
+#[cfg(all(test, target_os = "macos"))]
+pub(crate) use input_qos::current_thread_qos as current_input_thread_qos;
+pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
 mod line_connection;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
@@ -185,6 +189,7 @@ mod conversation_attachments;
 mod conversation_live;
 mod conversation_resource;
 mod conversation_runs;
+mod remote_host_command;
 mod resource_trust;
 use resource_trust::{
     conversation_resource_client, handles_resource_connection_operation,
@@ -317,6 +322,7 @@ mod url_open;
 #[cfg(test)]
 use capabilities::advertised_capabilities;
 use capabilities::identify_capabilities;
+use cmd_panes::LayoutSizeWire;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -400,6 +406,10 @@ pub const TERMINAL_COLOR_OVERRIDES_CAPABILITY: &str = "terminal-color-overrides-
 /// to receive the replay's incomplete sequence as a separate `pending` field.
 /// Other attachments get it appended to the replay bytes, in the legacy shape.
 pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequence-v1";
+/// `replay_history_rows` on a bytes `attach-surface`: the `vt-state` replay
+/// keeps only that many of the newest history rows above the active area
+/// and says how many older ones it left out (`history_rows_omitted`).
+pub const ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY: &str = "attach-replay-history-rows-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
 pub const CREATION_ATTEMPT_KEYS_CAPABILITY: &str = "creation-attempt-keys-v1";
 pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
@@ -784,6 +794,22 @@ enum Command {
         revisions: bool,
     },
     BrowserHostProvider,
+    /// cmux Remote (`remote-host-v1`, server/remote_host_command.rs).
+    RemoteHostStatus,
+    RemoteHostCall {
+        method: String,
+        #[serde(default)]
+        params: Value,
+    },
+    RemoteHostConfig {
+        #[serde(default)]
+        computer_use: Option<bool>,
+        #[serde(default)]
+        screen_sharing: Option<bool>,
+        #[serde(default)]
+        headless: Option<bool>,
+    },
+    RemoteHostApp,
     SubscribeActivity,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
     UrlOpenSubscribe {
@@ -2304,6 +2330,11 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        /// Bytes mode: the replay keeps at most this many rows of history
+        /// above the active area (`attach-replay-history-rows-v1`); omitted,
+        /// the whole history.
+        #[serde(default)]
+        replay_history_rows: Option<u32>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },
@@ -2401,23 +2432,6 @@ impl Command {
                 | Self::BrowserActivate { .. }
                 | Self::ScrollSurface { .. }
         )
-    }
-}
-
-/// One value of `set-layout-sizes`: what `set-split-ratio` or `set-viewport-pane-width` sets.
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(untagged)]
-enum LayoutSizeWire {
-    SplitRatio { split: SplitId, ratio: f32 },
-    PaneWidth { pane: PaneId, width: f32 },
-}
-
-impl From<LayoutSizeWire> for crate::mux::LayoutSizeValue {
-    fn from(value: LayoutSizeWire) -> Self {
-        match value {
-            LayoutSizeWire::SplitRatio { split, ratio } => Self::SplitRatio { split, ratio },
-            LayoutSizeWire::PaneWidth { pane, width } => Self::PaneWidth { pane, width },
-        }
     }
 }
 
@@ -2862,6 +2876,8 @@ mod tree_json;
 #[cfg(test)]
 pub(crate) use tree_json::panes_built_for_test;
 pub(crate) use tree_json::selection_changed_json;
+#[cfg(test)]
+pub(crate) use tree_json::set_entity_check_hook_for_test;
 pub(crate) use tree_json::tree_entity_json;
 pub(crate) use tree_json::workspace_presentation_changed_json;
 pub(crate) use tree_json::workspaces_json;

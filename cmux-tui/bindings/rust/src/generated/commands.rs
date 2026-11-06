@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6f37208dc82e6a7dc146e40a18c300a49a824470d73b8e6e650d9e9e6cf175ea.
+// cmux-tui mux protocol 12, IR a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -76,6 +76,8 @@ pub struct AttachSurfaceRequest {
     pub expected_terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mode: Optional<AttachSurfaceRequestMode>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub replay_history_rows: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2963,6 +2965,44 @@ pub struct ReloadConfigResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RemoteHostAppRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoteHostCallRequest {
+    pub method: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub params: Optional<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type RemoteHostCallResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RemoteHostConfigRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub computer_use: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub headless: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen_sharing: Optional<bool>,
+}
+
+#[rustfmt::skip]
+pub type RemoteHostConfigResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RemoteHostStatusRequest {
+}
+
+#[rustfmt::skip]
+pub type RemoteHostStatusResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RemoteTerminalSnapshotRequest {
     pub surface: T::Id,
@@ -4214,6 +4254,9 @@ impl CmuxClient {
         if !request.mode.is_missing() {
             self.require_protocol_field("attach-surface", 7)?;
         }
+        if !request.replay_history_rows.is_missing() {
+            self.require_capability_field("attach-surface", "attach-replay-history-rows-v1")?;
+        }
         if !request.rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-initial-size")?;
         }
@@ -5276,6 +5319,22 @@ impl CmuxClient {
 
     pub fn reload_config(&mut self, request: ReloadConfigRequest) -> Result<ReloadConfigResult> {
         self.execute(&RELOAD_CONFIG_METADATA, &request)
+    }
+
+    pub fn remote_host_app(&mut self, request: RemoteHostAppRequest) -> Result<T::RemoteHostAppResult> {
+        self.execute(&REMOTE_HOST_APP_METADATA, &request)
+    }
+
+    pub fn remote_host_call(&mut self, request: RemoteHostCallRequest) -> Result<RemoteHostCallResult> {
+        self.execute(&REMOTE_HOST_CALL_METADATA, &request)
+    }
+
+    pub fn remote_host_config(&mut self, request: RemoteHostConfigRequest) -> Result<RemoteHostConfigResult> {
+        self.execute(&REMOTE_HOST_CONFIG_METADATA, &request)
+    }
+
+    pub fn remote_host_status(&mut self, request: RemoteHostStatusRequest) -> Result<RemoteHostStatusResult> {
+        self.execute(&REMOTE_HOST_STATUS_METADATA, &request)
     }
 
     pub fn remote_terminal_snapshot(&mut self, request: RemoteTerminalSnapshotRequest) -> Result<RemoteTerminalSnapshotResult> {

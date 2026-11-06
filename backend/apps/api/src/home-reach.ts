@@ -5,6 +5,7 @@ import { HOME_REACH_MAX_TARGETS } from "./domains/team-members.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
 import { CHIEF_AGENT_CLASS } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
+import { declared } from "./do-stub.ts"
 
 /**
  * Worker side of the human reach rule (home-messaging.md sections 4.1 and 16; the rule itself is
@@ -40,23 +41,9 @@ import type { Env } from "./env.ts"
 const MAX_TARGETS = HOME_REACH_MAX_TARGETS
 const MAX_ID = 64
 
-interface TeamReachStub {
-  homeCoMembers(entity: string, adder: string, targets: ReadonlyArray<string>): Promise<Array<{ user: string; display_name: string }>>
-}
-interface UserReachStub {
-  readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<{ ok: boolean; value?: { conversation?: string | null } }>
-  homeAllowRequestsFrom(entity: string): Promise<homeConversation.AllowRequestsFrom>
-  homeChiefDms(entity: string, agent: string, agentClass: string, targets: ReadonlyArray<string>): Promise<Array<string | null> | null>
-  homeTeamsOf(entity: string): Promise<Array<{ team: string }>>
-}
-interface ConversationReachStub {
-  homeDmLink(entity: string, adder: string, target: string): Promise<{ peer: string | null; consented: boolean } | null>
-  mayInvite(entity: string, principal: Principal): Promise<boolean>
-}
-
-const teamStub = (env: Env, team: string) => env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as TeamReachStub
-const userStub = (env: Env, user: string) => env.USER_DO.get(env.USER_DO.idFromName(user)) as unknown as UserReachStub
-const conversationStub = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as ConversationReachStub
+const teamStub = (env: Env, team: string) => env.TEAM_DO.get(env.TEAM_DO.idFromName(team))
+const userStub = (env: Env, user: string) => declared(env.USER_DO.get(env.USER_DO.idFromName(user)))
+const conversationStub = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id))
 
 export interface ReachResolution {
   /** The caller with `home_reach` set (unchanged for callers that are not a signed-in human). */
@@ -93,7 +80,7 @@ const ownDmIds = (env: Env, principal: Principal, adder: string, targets: Readon
   Promise.all(
     targets.map(async (target) => {
       const found = await userStub(env, adder).readInbox(adder, principal, "inbox.dm_peer", { peer: target })
-      return found.ok ? (found.value?.conversation ?? null) : null
+      return found.ok ? ((found.value as { conversation?: string | null } | undefined)?.conversation ?? null) : null
     })
   )
 

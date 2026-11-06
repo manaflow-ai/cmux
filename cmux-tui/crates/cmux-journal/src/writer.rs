@@ -46,7 +46,7 @@ use std::time::{Duration, Instant};
 use crate::Lsn;
 use crate::format::{self, RECORD_HEADER_LEN, SEGMENT_HEADER_LEN, SegmentHeader};
 use crate::journal::{Shared, State};
-use crate::recovery::{WriterStart, len64, make_segment};
+use crate::recovery::{LiveSegment, WriterStart, len64, make_segment};
 use crate::storage::{Storage, StorageFile, SyncLevel};
 
 /// Written and unsynced bytes past which a batch is synced at once, acked or not.
@@ -416,6 +416,11 @@ impl Writer {
             prev_last: self.durable,
         };
         let file = make_segment(self.storage.as_ref(), &self.dir, &header)?;
+        self.shared
+            .segments
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(LiveSegment { seq: header.seq, prev_last: header.prev_last });
         self.active = Some(Active { file, size: len64(SEGMENT_HEADER_LEN) });
         self.next_seq = header.seq.saturating_add(1);
         self.written = 0;

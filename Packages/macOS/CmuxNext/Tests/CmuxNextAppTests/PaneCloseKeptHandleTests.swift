@@ -68,7 +68,6 @@ struct PaneCloseKeptHandleTests {
     @Test func theTraceReportsAClosingPaneApartFromTheLivePanes() throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = true
         let screen = try rig.screen
         _ = try #require(rig.model.showPaneClose("p2"), "p2 did not close")
         rig.root.syncWithModel()
@@ -95,7 +94,6 @@ struct PaneCloseKeptHandleTests {
     static func check(layout: ScreenLayout, focused: PaneID, closing pane: PaneID, kept kind: DividerHandleView.Kind) throws {
         let rig = Rig(layout, focused: focused)
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = true
         let screen = try rig.screen
         try #require(screen.dividerViews[kind] != nil, "SETUP: no handle \(kind) before the close")
         try #require(offCentre(kind, in: screen, "at rest before the close") == nil, "SETUP: \(offCentre(kind, in: screen, "at rest") ?? "")")

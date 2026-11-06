@@ -39,11 +39,11 @@ extension TabCell {
         }
         // The form of every sample, chosen for the whole path before any is laid out: each part
         // changes at most once between what shows now and the rest form at the end.
-        let forms: [TabChromeVisibility?] = closingVisibility != nil ? keys.map { _ in nil } : TabChromeVisibility.path(
+        let forms: [TabChromeVisibility?] = TabChromeVisibility.path(
             widths: keys.map { CGFloat($0) / scale },
             from: shownForm(shownNow),
             isPinned: item.isPinned, isSelected: isSelected, isHovered: isHovered, isClosable: item.isClosable,
-            style: style, metrics: metrics
+            hasStatus: hasStatusMark, style: style, metrics: metrics
         )
         // Samples memoized by device pixel and form: a tab that shrinks a few points lays out a few times.
         struct SampleKey: Hashable { var pixel: Int; var form: TabChromeVisibility? }
