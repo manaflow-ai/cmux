@@ -19,6 +19,7 @@ pub mod auto_resume;
 pub mod backup;
 pub mod brain;
 pub mod browse;
+pub mod chief_channel;
 pub mod chief_profile;
 pub mod chief_settings;
 pub mod claude_import;

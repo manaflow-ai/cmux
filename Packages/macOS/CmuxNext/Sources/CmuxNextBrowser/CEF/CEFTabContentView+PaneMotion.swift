@@ -13,21 +13,21 @@ protocol BrowserPagePaneMotionHolding: NSView {
 
 /// A Chromium page draws in another process, some frames after its window takes a size: through a key resize the page
 /// keeps the size it had when the hold began, never scaled, with its top-left corner on the page area's (cmux-ad m6 1b,
-/// `BrowserResizeTunables.keyResizeTopLeft`; off: fixed at the pane edges that do not move), the pane clips it, and this
+/// the pane clips it, and this
 /// view paints the page's own backdrop beside it, never the shell (the drag hold's path, `startPageHold`). It lays out
 /// once when the hold ends, before the pane hears that the motion landed. A page that cannot hold any longer (DevTools
 /// docked, a side panel or a fit came up, the tab was hidden mid-hold) lays out live at the chrome's page area, as a page
 /// does in a split or close spring: never the shell, the chrome's own page area is beside it. A page hidden and shown again
 /// during the hold holds again (`resumePageHold`).
 ///
-/// With `motion.frameOwner.pages` on (FRAME OWNER S5, cmux-ad m14; latched when the hold begins) nothing holds: the page
+/// With FRAME OWNER S5 (cmux-ad m14, the only path since 2026-11-06) a key resize holds nothing: the page
 /// follows its pane's page area in every frame, at that frame's size, hosted in the window's layers, with no main-thread wait
 /// for its frame (`beginPageSync(.keyResize)`, `CEFTabContentView+PageSync`) until the hold ends. A page that places itself
 /// (docked DevTools, a side panel, a fit) follows too, with geometry only per frame: its tab container sets each view's
 /// frame once, with the occlusion set first, so each page window gets one tracker update (STATUS 13849, m18).
 extension CEFTabContentView: BrowserPagePaneMotionHolding {
     var holdsPageInPaneMotion: Bool {
-        pageMotionHold != nil || canStartPageHold || (Self.pagesOwnedByCommit && window != nil && tab != nil)
+        pageMotionHold != nil || canStartPageHold || (window != nil && tab != nil)
     }
 
     /// This key hold's page follows its pane (S5) instead of holding its size.
@@ -52,7 +52,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
             return
         }
         paneMotion(active: true)
-        if pageMotionHold == nil, Self.pagesOwnedByCommit {
+        if pageMotionHold == nil {
             // S5: no hold. The page lays out at the page area in every frame (no main-thread wait for its frame).
             beginPageSync(.keyResize)
         }
@@ -64,7 +64,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
         // A drag's own hold, or a page that cannot hold (DevTools docked, a side panel, a fit), lays out as before.
         if pageMotionHold == nil {
             guard startPageHold() else { return }
-            pageHoldTopLeft = BrowserResizeTunables.keyResizeTopLeft.value // latched for this hold
+            pageHoldTopLeft = true
         }
         pageMotionHold = hold
         needsLayout = true
