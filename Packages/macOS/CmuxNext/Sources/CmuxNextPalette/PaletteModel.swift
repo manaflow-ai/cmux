@@ -376,8 +376,8 @@ public final class PaletteModel {
             perform(handler, rowID: item.id, closing: false)
             // The run row's own provider reads now: a hidden one's kept Recent row was kept before the run,
             // so a toggled setting showed its old value for a frame (Leo, 2026-11-05: "It goes like on and off").
-            let owners = current?.providerItems.filter { $0.value.contains { $0.id == item.id } }.keys
-            reload(reading: Set(owners ?? []))
+            let owners = current.map { Set($0.providerItems.filter { $0.value.contains { $0.id == item.id } }.keys) }
+            reload(reading: owners ?? [])
         case .push(let page):
             push(page)
         case .replace(let page):
