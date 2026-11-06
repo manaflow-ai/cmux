@@ -646,6 +646,8 @@ typeset -g _CMUX_PR_POLL_PWD=""
 typeset -g _CMUX_PR_LAST_BRANCH=""
 typeset -g _CMUX_PR_NO_PR_BRANCH=""
 typeset -g _CMUX_PR_POLL_INTERVAL=45
+# Seconds to skip `gh pr view` for a branch last seen with no PR, unless forced.
+typeset -g _CMUX_PR_NO_PR_BACKOFF=900
 typeset -g _CMUX_PR_FORCE=0
 typeset -g _CMUX_PR_DEBUG=${_CMUX_PR_DEBUG:-0}
 typeset -g _CMUX_ASYNC_JOB_TIMEOUT=20
@@ -1640,9 +1642,10 @@ _cmux_report_pr_for_path() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
     local branch repo_slug="" gh_output="" gh_error="" err_file="" number state url status_opt="" gh_status
-    local now="${EPOCHSECONDS:-$SECONDS}"
+    # The cache outlives this shell, so stamp it with epoch time, not $SECONDS.
+    local now="${EPOCHSECONDS:-$(/bin/date +%s)}"
     local prefix="" branch_file="" repo_file="" result_file="" timestamp_file="" no_pr_branch_file=""
-    local cache_branch="" cache_result="" cache_no_pr_branch=""
+    local cache_branch="" cache_repo="" cache_result="" cache_no_pr_branch="" cache_timestamp=""
     local -a gh_repo_args
     gh_repo_args=()
     branch="$(_cmux_git_branch_for_path "$repo_path" 2>/dev/null || true)"
@@ -1663,6 +1666,16 @@ _cmux_report_pr_for_path() {
         [[ -r "$branch_file" ]] && cache_branch="$(<"$branch_file")"
         [[ -r "$result_file" ]] && cache_result="$(<"$result_file")"
         [[ -r "$no_pr_branch_file" ]] && cache_no_pr_branch="$(<"$no_pr_branch_file")"
+        [[ -r "$repo_file" ]] && cache_repo="$(<"$repo_file")"
+        [[ -r "$timestamp_file" ]] && cache_timestamp="$(<"$timestamp_file")"
+    fi
+
+    if [[ "$force_probe" != "1" && "$cache_no_pr_branch" == "$branch" && "$cache_repo" == "$repo_path" \
+        && "$cache_timestamp" == <-> && "$now" == <-> ]] && (( cache_timestamp <= now && now - cache_timestamp < _CMUX_PR_NO_PR_BACKOFF )); then
+        _cmux_pr_debug_log "$branch" "cache-hit:no-pr"
+        _CMUX_PR_LAST_BRANCH="$branch"
+        _CMUX_PR_NO_PR_BRANCH="$branch"
+        return 0
     fi
 
     _CMUX_PR_LAST_BRANCH="$cache_branch"
@@ -1695,30 +1708,20 @@ _cmux_report_pr_for_path() {
     fi
 
     if (( gh_status != 0 )) || [[ -z "$gh_output" ]]; then
-        if (( gh_status == 0 )) && [[ -z "$gh_output" ]]; then
+        if (( gh_status == 0 )) && [[ -z "$gh_output" ]] \
+            || _cmux_pr_output_indicates_no_pull_request "$gh_error"; then
+            local no_pr_stamp=""
+            # Stamp the backoff only once the clear is sent, so a dropped clear is retried next poll.
+            _cmux_clear_pr_for_panel && [[ "$now" == <-> ]] && no_pr_stamp="$now"
             if [[ -n "$prefix" ]]; then
                 print -r -- "$branch" >| "$branch_file"
                 print -r -- "$repo_path" >| "$repo_file"
-                print -r -- "$now" >| "$timestamp_file"
+                print -r -- "$no_pr_stamp" >| "$timestamp_file"
                 print -r -- "none" >| "$result_file"
                 print -r -- "$branch" >| "$no_pr_branch_file"
             fi
             _CMUX_PR_LAST_BRANCH="$branch"
             _CMUX_PR_NO_PR_BRANCH="$branch"
-            _cmux_clear_pr_for_panel
-            return 0
-        fi
-        if _cmux_pr_output_indicates_no_pull_request "$gh_error"; then
-            if [[ -n "$prefix" ]]; then
-                print -r -- "$branch" >| "$branch_file"
-                print -r -- "$repo_path" >| "$repo_file"
-                print -r -- "$now" >| "$timestamp_file"
-                print -r -- "none" >| "$result_file"
-                print -r -- "$branch" >| "$no_pr_branch_file"
-            fi
-            _CMUX_PR_LAST_BRANCH="$branch"
-            _CMUX_PR_NO_PR_BRANCH="$branch"
-            _cmux_clear_pr_for_panel
             return 0
         fi
 

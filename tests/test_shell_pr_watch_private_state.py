@@ -137,6 +137,35 @@ print -r -- "PREFIX=$(_cmux_pr_cache_prefix)"
             "pr\t123\tOPEN\thttps://github.com/example/repo/pull/123\n",
         )
 
+    def test_no_pr_branch_backs_off_until_forced_or_stale(self):
+        output = self.run_zsh(r'''
+gh() { print -r -- "$*" >> "$HOME/gh.log"; return 0; }
+_cmux_report_pr_for_path "$PWD"
+_cmux_report_pr_for_path "$PWD"
+print -r -- "AFTER_REPEAT=$(( $(wc -l < "$HOME/gh.log") ))"
+_cmux_report_pr_for_path "$PWD" 1
+print -r -- "AFTER_FORCE=$(( $(wc -l < "$HOME/gh.log") ))"
+print -r -- 0 >| "$(_cmux_pr_cache_prefix).timestamp"
+_cmux_report_pr_for_path "$PWD"
+print -r -- "AFTER_STALE=$(( $(wc -l < "$HOME/gh.log") ))"
+''')
+
+        counts = dict(line.split("=", 1) for line in output.split() if "=" in line)
+        self.assertEqual(int(counts["AFTER_REPEAT"]), 1, "no-PR branch was re-queried within the backoff")
+        self.assertEqual(int(counts["AFTER_FORCE"]), 2, "force probe did not bypass the backoff")
+        self.assertEqual(int(counts["AFTER_STALE"]), 3, "stale no-PR cache was not re-queried")
+
+    def test_dropped_no_pr_clear_is_retried_next_poll(self):
+        output = self.run_zsh(r'''
+gh() { print -r -- "$*" >> "$HOME/gh.log"; return 0; }
+_cmux_send_bg() { return 1; }
+_cmux_report_pr_for_path "$PWD"
+_cmux_report_pr_for_path "$PWD"
+print -r -- "CALLS=$(( $(wc -l < "$HOME/gh.log") ))"
+''')
+
+        self.assertIn("CALLS=2", output, "a dropped clear_pr was cached as a no-PR backoff")
+
     def test_debug_log_writes_no_file_in_shared_tmp(self):
         self.plant_symlink(Path("/tmp/cmux-pr-debug.log"), self.victim)
 
