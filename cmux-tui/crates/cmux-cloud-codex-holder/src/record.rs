@@ -141,7 +141,7 @@ mod tests {
         record.mark_all_for_erasure();
         assert_eq!(record.entries(), HashMap::from([("one".into(), true), ("two".into(), true)]));
         record.delivered("one");
-        assert_eq!(record.entries()["one"], false);
+        assert!(!record.entries()["one"]);
         record.forget("one");
         record.forget("two");
         assert!(!record.file.exists(), "an empty record is no file");

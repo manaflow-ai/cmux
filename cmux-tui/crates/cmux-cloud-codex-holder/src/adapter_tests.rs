@@ -49,7 +49,7 @@ impl World {
         Arc::new(Self::default())
     }
     fn machine(&self, id: &str) -> Arc<Machine> {
-        self.machines.lock().unwrap().entry(id.into()).or_insert_with(Machine::new).clone()
+        self.machines.lock().unwrap().entry(id.into()).or_default().clone()
     }
     fn read(&self, id: &str, path: &str) -> Option<Vec<u8>> {
         self.machine(id).read(path)
