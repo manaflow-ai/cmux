@@ -209,7 +209,7 @@ def normalize(records: list[object]) -> dict[str, object]:
             or any(isinstance(value, dict) for value in _field_values(records, {"turn", "acpsession"}))
         )
     )
-    first_reply = bool(reply) or _has_named_entry(records, ("firstreply", "reply", "assistantmessage"))
+    first_reply = bool(reply) or _has_named_entry(records, ("firstreply", "reply", "assistantmessage")) or _explicit_true(records, {"replyok"})
     continuity, continuity_detail = _continuity(records)
 
     provider_values = _field_values(records, {
