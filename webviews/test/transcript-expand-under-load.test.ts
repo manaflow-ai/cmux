@@ -250,9 +250,10 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
       // bound is the one-step rule below.
       if (load === "light") {
         const last = frames.at(-1)!;
-        const lastChange = frames.findLast(
-          (frame, index) => index > 0 && Math.abs(frame.height - frames[index - 1]!.height) > 0.5,
-        );
+        // The webviews lib target predates Array.prototype.findLast: the last frame whose height changed.
+        const lastChange = frames
+          .filter((frame, index) => index > 0 && Math.abs(frame.height - frames[index - 1]!.height) > 0.5)
+          .at(-1);
         expect({ load, settledAt: (lastChange ?? last).at <= 700 }).toEqual({
           load,
           settledAt: true,
