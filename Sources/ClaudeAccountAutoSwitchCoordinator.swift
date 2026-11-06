@@ -196,6 +196,10 @@ final class ClaudeAccountAutoSwitchCoordinator {
             panelId: panelId,
             toAccountNamed: target.name,
             trigger: .automatic,
+            // The automatic switch keeps its own last check before the restart (paneIsFree
+            // below) instead of the manual "Claude is responding" one: it follows Claude's
+            // usage-limit report, which ends the turn.
+            stopsRunningResponse: true,
             paneIsFree: { [weak self, weak workspace] in
                 guard let self, let workspace else { return false }
                 return self.paneInUse(request, workspace: workspace) == nil

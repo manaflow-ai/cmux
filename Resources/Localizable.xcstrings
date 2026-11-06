@@ -681940,6 +681940,256 @@
           }
         }
       }
+    },
+    "dialog.claudeAccountSwitch.agentRunning.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude started responding in this terminal while cmux prepared the switch, so the terminal was left unchanged. Choose the account again to stop the response and switch."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بدأ Claude الرد في هذه الطرفية بينما كان cmux يجهّز التبديل، لذا تُركت الطرفية دون تغيير. اختر الحساب مرة أخرى لإيقاف الرد والتبديل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude hat in diesem Terminal mit einer Antwort begonnen, während cmux den Wechsel vorbereitet hat, daher wurde das Terminal nicht verändert. Wählen Sie das Konto erneut, um die Antwort zu stoppen und zu wechseln."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude empezó a responder en esta terminal mientras cmux preparaba el cambio, así que la terminal no se modificó. Vuelve a elegir la cuenta para detener la respuesta y cambiar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude a commencé à répondre dans ce terminal pendant que cmux préparait le changement ; le terminal n'a donc pas été modifié. Choisissez de nouveau le compte pour arrêter la réponse et changer de compte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が切り替えを準備している間に Claude がこのターミナルで応答を始めたため、ターミナルは変更されていません。応答を停止して切り替えるには、もう一度アカウントを選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 전환을 준비하는 동안 Claude가 이 터미널에서 응답을 시작해 터미널을 변경하지 않았습니다. 응답을 중지하고 전환하려면 계정을 다시 선택하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 准备切换时，Claude 开始在此终端中响应，因此终端保持不变。再次选择该账号即可停止响应并切换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 準備切換時，Claude 開始在此終端機中回應，因此終端機維持不變。再次選擇該帳號即可停止回應並切換。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude je počeo odgovarati u ovom terminalu dok je cmux pripremao prebacivanje, pa je terminal ostao nepromijenjen. Ponovo odaberite račun da zaustavite odgovor i prebacite se."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude begyndte at svare i denne terminal, mens cmux forberedte skiftet, så terminalen blev ikke ændret. Vælg kontoen igen for at stoppe svaret og skifte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude ha iniziato a rispondere in questo terminale mentre cmux preparava il cambio, quindi il terminale non è stato modificato. Scegli di nuovo l'account per interrompere la risposta e cambiare account."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude បានចាប់ផ្ដើមឆ្លើយនៅក្នុងទែមីណាល់នេះ ខណៈ cmux កំពុងរៀបចំការប្ដូរ ដូច្នេះទែមីណាល់មិនត្រូវបានផ្លាស់ប្ដូរទេ។ សូមជ្រើសរើសគណនីម្ដងទៀត ដើម្បីបញ្ឈប់ការឆ្លើយ ហើយប្ដូរ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude begynte å svare i denne terminalen mens cmux forberedte byttet, så terminalen ble ikke endret. Velg kontoen på nytt for å stoppe svaret og bytte."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude zaczął odpowiadać w tym terminalu, gdy cmux przygotowywał przełączenie, więc terminal pozostał bez zmian. Wybierz konto ponownie, aby zatrzymać odpowiedź i przełączyć konto."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Claude começou a responder neste terminal enquanto o cmux preparava a troca, então o terminal não foi alterado. Escolha a conta novamente para interromper a resposta e trocar de conta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude начал отвечать в этом терминале, пока cmux готовил переключение, поэтому терминал оставлен без изменений. Выберите учётную запись ещё раз, чтобы остановить ответ и переключиться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude เริ่มตอบในเทอร์มินัลนี้ขณะที่ cmux กำลังเตรียมการสลับ เทอร์มินัลจึงไม่ถูกเปลี่ยนแปลง เลือกบัญชีอีกครั้งเพื่อหยุดการตอบและสลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux geçişi hazırlarken Claude bu terminalde yanıt vermeye başladı, bu yüzden terminal değiştirilmedi. Yanıtı durdurup geçiş yapmak için hesabı yeniden seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude почав відповідати в цьому терміналі, поки cmux готував перемикання, тому термінал залишився без змін. Виберіть обліковий запис ще раз, щоб зупинити відповідь і перемкнутися."
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.agentIndexUnavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't check which Claude processes are running this conversation (the check failed or took too long), so the terminal was left unchanged. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux التحقق من عمليات Claude التي تشغّل هذه المحادثة (فشل التحقق أو استغرق وقتًا طويلًا جدًا)، لذا تُركت الطرفية دون تغيير. أعد المحاولة بعد لحظات."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte nicht prüfen, welche Claude-Prozesse diese Unterhaltung ausführen (die Prüfung ist fehlgeschlagen oder hat zu lange gedauert), daher wurde das Terminal nicht verändert. Versuchen Sie es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo comprobar qué procesos de Claude ejecutan esta conversación (la comprobación falló o tardó demasiado), así que la terminal no se modificó. Vuelve a intentarlo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu vérifier quels processus Claude exécutent cette conversation (la vérification a échoué ou a pris trop de temps) ; le terminal n'a donc pas été modifié. Réessayez dans un instant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの会話を実行している Claude のプロセスを確認できなかったため（確認に失敗したか、時間がかかりすぎました）、ターミナルは変更されていません。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 대화를 실행 중인 Claude 프로세스를 확인하지 못해(확인에 실패했거나 너무 오래 걸림) 터미널을 변경하지 않았습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法确认哪些 Claude 进程正在运行此对话（检查失败或耗时过长），因此终端保持不变。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法確認哪些 Claude 程序正在執行此對話（檢查失敗或耗時過長），因此終端機維持不變。請稍後再試。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao provjeriti koji Claude procesi vode ovaj razgovor (provjera nije uspjela ili je trajala predugo), pa je terminal ostao nepromijenjen. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke kontrollere, hvilke Claude-processer der kører denne samtale (kontrollen mislykkedes eller tog for lang tid), så terminalen blev ikke ændret. Prøv igen om et øjeblik."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a verificare quali processi Claude eseguono questa conversazione (la verifica non è riuscita o ha richiesto troppo tempo), quindi il terminale non è stato modificato. Riprova tra un momento."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចពិនិត្យថាដំណើរការ Claude ណាខ្លះកំពុងដំណើរការការសន្ទនានេះបានទេ (ការពិនិត្យបានបរាជ័យ ឬចំណាយពេលយូរពេក) ដូច្នេះទែមីណាល់មិនត្រូវបានផ្លាស់ប្ដូរទេ។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke sjekke hvilke Claude-prosesser som kjører denne samtalen (sjekken mislyktes eller tok for lang tid), så terminalen ble ikke endret. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł sprawdzić, które procesy Claude prowadzą tę rozmowę (sprawdzanie nie powiodło się lub trwało zbyt długo), więc terminal pozostał bez zmian. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu verificar quais processos do Claude estão executando esta conversa (a verificação falhou ou demorou demais), então o terminal não foi alterado. Tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось проверить, какие процессы Claude выполняют этот разговор (проверка не удалась или заняла слишком много времени), поэтому терминал оставлен без изменений. Повторите попытку через мгновение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ตรวจสอบไม่ได้ว่ากระบวนการ Claude ใดกำลังเรียกใช้การสนทนานี้ (การตรวจสอบล้มเหลวหรือใช้เวลานานเกินไป) เทอร์มินัลจึงไม่ถูกเปลี่ยนแปลง โปรดลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bu konuşmayı hangi Claude işlemlerinin çalıştırdığını denetleyemedi (denetim başarısız oldu ya da çok uzun sürdü), bu yüzden terminal değiştirilmedi. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося перевірити, які процеси Claude виконують цю розмову (перевірка не вдалася або тривала надто довго), тому термінал залишився без змін. Спробуйте ще раз за мить."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
