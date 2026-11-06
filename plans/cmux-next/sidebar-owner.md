@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: every workspace row's trailing glyph box ends the row inset before its fill's end, as its leading glyph
+  box starts the row inset after the fill's start. Lawrence, verbatim: "too much padding on right. padding on left/right
+  of every workspace needs to be even." The trailing column centers `horizontalInset + statusGlyphSize / 2` inside the
+  fill (11 compact, 14 comfortable; was 13 / 15). Its floor (`minTrailingCenterInset`) is now the exact resize-band
+  clamp `trailingColumnFrame` applies, sized for the largest control on the column (footer Search), not the full row
+  inset plus Search's excess, which held compact 2.5 pt short. Measured: running app (compact, 2x) pin 6 pt in, spinner
+  ink 9 pt short of the end; fleet test at the base: mark box 9 pt short (pinned band, Pinned section, grouped, loose).
+  Guard: SidebarEvenRowInsetsTests.
 - 2026-11-05: a collapsing group's text fades out fast. Leo, verbatim: "when you're collapsing a group, the text needs to
   fade faster. Otherwise, you just get a ton of text like just jumbled up inside ... you still see like overlapping text
   sometimes". The rows a collapse hides faded over the whole `.move` spring, as long as their slot takes to close; they
@@ -426,6 +434,13 @@ header and keeps its no-gap drop fill (`drawsAsOneRow`, asked of the model with 
 
 - [1cc205d8d16](https://github.com/manaflow-ai/cmux/commit/1cc205d8d16) (carry of #26582): behavior-only opener bookkeeping keeps a tab's opener relationship inside its source pane when placement moves it elsewhere. No sidebar drawing or layout changes; the existing `RightPanePlacementTests` cover placement behavior. Reviewed as `Sidebar-Look: no visual change`.
 
+- 2026-11-05: the needs-input dot is the tab strip's bright yellow, not orange. Leo: "What if we try that yellow
+  dot thing that we currently have in the horizontal tab and put that in the sidebar?" `Palette.statusAttention`
+  starts from the theme's yellow (`ThemeTokens.attention`) at 3:1 on the rows, and the tab strip reads the same
+  token (`StatusIndicatorLayer.Colors.current`, `TabCell.badgeColor`). Takes back systemOrange from the 11-03
+  status-dot contrast change (c0230efd501) for this one state; blue and red stay. Sizes unchanged.
+  Gallery: `design/needs-input-dot-gallery.html`. Test: `NeedsInputDotTests`.
+
 - 2026-10-30: the "cmux Updated!" card is glass again. Leo: "I don't like the non-glassness". The card is a
   React page over the sidebar whose own CSS glass could not see the sidebar (a flat fill; solid in an opaque
   window through the theme bootstrap's html background). `SidebarUpdatedCardHost` now draws `CardSurfaceView`
@@ -541,6 +556,19 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 2. Do not take back a look another commit chose in the last week without naming that commit here.
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
+
+## The notice card's rows share one leading edge and show whole (2026-11-05)
+
+Leo 2026-11-05, on the first-run "Help Make cmux Faster?" hang-reports card: "why is the text under it? Also giving
+negative space away ... the buttons and the subtitle text is in a different indentation level". Its title and detail
+started after the icon and its buttons at the card's edge, the detail ended in "…" after two lines, and the card's
+height never depended on its width. A notice card with a symbol now draws it on its own row above the title, on the
+x's row, so the icon, title, detail, list lines and buttons all start at the card's padding
+(`SidebarNoticeCardView.GlyphPlacement.above`; the leading column and the inline icon are the gallery's other
+directions). One measure (`measureFrames`) sizes the slot and places the views: the title, detail and list lines
+wrap in full (the detail keeps two reserved lines, so loading cards keep one height), and a button that does not
+fit starts a new row. Cards without a symbol (the update status, tips, Tidy Up) keep their layout. Regression:
+`SidebarNoticeCardColumnTests`; gallery `AASidebarNoticeCardGalleryTests`.
 
 ## A dropped card covers no leaving row (2026-11-05)
 

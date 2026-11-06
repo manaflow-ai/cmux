@@ -235,6 +235,10 @@ impl Http for PosterHttp {
     ) -> Result<(u16, Vec<u8>), String> {
         self.0.request_with_deadline(url, body, bearer, deadline)
     }
+
+    fn reset(&self) {
+        self.0.reset();
+    }
 }
 
 /// One `identify` on the daemon's control socket. `timeout` bounds the whole
@@ -674,6 +678,15 @@ impl Worker {
             match word.as_str() {
                 "stop" => return Ok(true),
                 "resume" => {
+                    // Connections from before a pause are stale, and the guest's clock did not count the pause, so
+                    // nothing here would notice for a minute: the relay dials again before a chat can go down its
+                    // old socket, and the resume report below gets a fresh HTTPS connection instead of hanging.
+                    if let Some(relay) = &self.relay {
+                        relay.resumed();
+                    }
+                    if let Some(live) = &self.live {
+                        live.client.reset_transport();
+                    }
                     self.bootstrap_retry_at = None;
                     self.bootstrap_backoff.reset();
                     if let Some(bridge) = &mut self.bootstrap {
