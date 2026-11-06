@@ -40,7 +40,7 @@
     "--cwd",
     "/tmp",
     "--shell",
-    "printf ready; sleep 600"
+    "printf ready; sleep 3000"
    ],
    "shot": false
   },
