@@ -6407,6 +6407,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 10
     permissions:
+      contents: read
       actions: write
     env:
       GH_TOKEN: ${{ github.token }}
@@ -6668,7 +6669,8 @@ jobs:
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, verify-recovered-nightly-next, republish-nightly-next, publish-nightly, dispatch-published-in, published-build, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
     # Twice on nightly-next: the push run reports its build and feed, the dispatched run (cross_run) the rest.
-    if: always() && (needs.decide.outputs.should_publish == 'true' || needs.published-build.outputs.cross_run == 'true') && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.feed_check == 'failure' || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.published-build.outputs.cross_run == 'true' && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
+    # A dispatched run whose published-build fails has no record, so it reports under nightly-next's names.
+    if: always() && (needs.decide.outputs.should_publish == 'true' || needs.published-build.outputs.cross_run == 'true' || inputs.nightly_next_post_publish != '' && needs.published-build.result == 'failure') && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.feed_check == 'failure' || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.published-build.outputs.cross_run == 'true' && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     # The declared nightly-only mini is enabled after live admission is verified.
     # Keep the existing fallback; never reuse the stale builder-only placement.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
@@ -6686,13 +6688,13 @@ jobs:
           # The pushed nightly-next head (HEAD_SHA can be an older resolved build commit).
           TIP_SHA: ${{ needs.decide.outputs.head_sha || needs.published-build.outputs.head_sha }}
           RESULTS: ${{ toJSON(needs) }}
-          CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag || needs.published-build.outputs.release_tag }}
-          CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name || needs.published-build.outputs.app_name }}
+          CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag || needs.published-build.outputs.release_tag || inputs.nightly_next_post_publish != '' && 'nightly-next' || '' }}
+          CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name || needs.published-build.outputs.app_name || inputs.nightly_next_post_publish != '' && 'cmux NIGHTLY' || '' }}
           REF_NAME: ${{ github.ref_name }}
           TAG_STATUS: ${{ needs.publish-nightly.outputs.tag_status }}
           PUBLISH_SOURCE: ${{ needs.publish-nightly.outputs.source || needs.published-build.outputs.publish_source }}
           REFUSAL_REASON: ${{ needs.publish-nightly.outputs.refusal_reason }}
-          TRACK: ${{ needs.decide.outputs.track || needs.published-build.outputs.track }}
+          TRACK: ${{ needs.decide.outputs.track || needs.published-build.outputs.track || inputs.nightly_next_post_publish != '' && 'nightly-next' || '' }}
         with:
           script: |
             const { owner, repo } = context.repo;
