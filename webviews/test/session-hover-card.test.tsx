@@ -422,3 +422,66 @@ test("an agent link to a listed chat shows that chat's card, opening it as the l
     refs.resetSessionRefs();
   }
 });
+
+// An agent link's first hover or focus is what asks acpmux for its chat. Its answer coming in while
+// the card is up keeps the card the entry started (the site's), not a switch to a trigger no event
+// reached, which left no card at all (review of #36360 at 7211b8f2). The next entry shows the chat's.
+test("an agent link that resolves while its card is up keeps that card; the next entry shows the chat's", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/SessionHoverCard");
+  const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
+  const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
+  let answer: (value: unknown) => void = () => undefined;
+  refs.setSessionRefResolver(() => new Promise((resolve) => (answer = resolve)));
+  const rootElement = dom.window.document.getElementById("root")!;
+  const root = createRoot(rootElement);
+  const store = new SessionHoverStore();
+  store.set([entry({ indicator: "done", updatedAt: Date.now() })]);
+  const href = `https://cmux.com/deeplink/agent?session=${ID}`;
+  try {
+    await act(async () => {
+      root.render(
+        <UiProvider container={rootElement}>
+          <SubsessionContext.Provider value={{ store: new SubsessionStore(), open: () => undefined }}>
+            <SessionHoverContext.Provider value={{ store, open: () => undefined }}>
+              <p>
+                See <UrlChip href={href}>{href}</UrlChip>.
+              </p>
+            </SessionHoverContext.Provider>
+          </SubsessionContext.Provider>
+        </UiProvider>,
+      );
+    });
+    const link = rootElement.querySelector<HTMLAnchorElement>("a.cv-chip")!;
+    await act(async () => link.focus());
+    expect(rootElement.querySelector(".cv-link-preview")).not.toBeNull();
+    await act(async () => {
+      answer({ session: { sessionId: ID } });
+      await Promise.resolve();
+    });
+    expect(link.getAttribute("data-open-session")).toBe(ID);
+    expect(rootElement.querySelector(".cv-link-preview")).not.toBeNull();
+    await act(async () => link.blur());
+    await act(async () => link.focus());
+    expect(rootElement.querySelector(".acpmux-session-hover-card")?.getAttribute("aria-label")).toBe(
+      "Switch gh-merge-green to merge-freeze issues",
+    );
+  } finally {
+    await act(async () => root.unmount());
+    refs.setSessionRefResolver(undefined);
+    refs.resetSessionRefs();
+  }
+});
+
+test("a session listed twice is one card: an unchanged list tells no one", () => {
+  const store = new SessionHoverStore();
+  const twice = [entry(), entry()];
+  store.set(twice);
+  let told = 0;
+  store.subscribe(() => void told++);
+  store.set(twice);
+  expect(told).toBe(0);
+});
