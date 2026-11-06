@@ -379,7 +379,5 @@ import Testing
 /// Toasts with no window overlay: the center's stacks and handles only.
 @MainActor
 private final class NoticeTestHost: CmuxToastHosting {
-    func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {}
-    func move(_ toast: CmuxToastView, to slot: Int) {}
-    func hide(_ toast: CmuxToastView, animated: Bool) {}
+    func show(_ toasts: [CmuxToastShown], in window: NSWindow, center: CmuxToastCenter) {}
 }

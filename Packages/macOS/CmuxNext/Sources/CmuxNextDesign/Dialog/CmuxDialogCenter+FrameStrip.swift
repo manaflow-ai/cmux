@@ -33,8 +33,11 @@ extension CmuxDialogCenter {
         let id = present(spec, in: .window(window)) { _ in }
         let presentMs = Self.ms(since: start) - openedAt
         // The card's rect in window points, top-left origin (frames are scaled below).
-        let cardPoints = view(id).map { view -> CGRect in
-            let rect = view.convert(view.bounds, to: nil)
+        // The page lays the card out in its own turn: one frame for its rect to arrive.
+        await Self.pause(17)
+        let cardPoints = dialog(id).flatMap { dialog -> CGRect? in
+            guard let view = dialog.view else { return nil }
+            let rect = view.convert(dialog.cardRect ?? view.bounds, to: nil)
             return CGRect(x: rect.minX, y: frame.height - rect.maxY, width: rect.width, height: rect.height)
         }
 
