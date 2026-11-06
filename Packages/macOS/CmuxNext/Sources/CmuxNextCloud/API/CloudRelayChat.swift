@@ -58,6 +58,10 @@ public nonisolated struct CloudRelayChat: Sendable {
         /// The platform's own stage times for this chat, when its `sent` or `done` event carries `stages_ms` (name to
         /// milliseconds since the platform took the request). Passed through as they came; nil from an older platform.
         public var platformStages: [String: Int]?
+        /// Each time above under its answer field's name; nil until it came.
+        public var stageTimes: [String: Duration?] {
+            ["first_text_ms": firstText, "total_ms": total, "queued_ms": queuedAt, "sent_ms": sentAt, "started_ms": startedAt]
+        }
         /// Whether the machine was not connected yet when the chat arrived (it waited for it).
         public var queued = false
         /// The platform sent the chat down the machine's socket (`sent`).
