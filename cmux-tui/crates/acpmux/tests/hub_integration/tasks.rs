@@ -129,8 +129,8 @@ async fn a_task_brings_its_typed_result_back_to_the_chat_that_gave_it_once() {
     let text = brief["text"].as_str().unwrap();
     assert!(text.starts_with(&format!("Task {id} from {giver}: Land #24961")), "{text}");
     assert!(text.contains(&format!("acpmux task done {id} --summary")), "{text}");
-    let sent =
-        json!({"kind": "session_message", "from": coordinator, "fromName": giver, "to": lane});
+    let sent = json!({"kind": "session_message", "from": coordinator, "fromName": giver,
+                      "to": lane, "fromSessionId": coordinator, "fromHarness": "codex"});
     assert_eq!(brief.pointer("/_meta/provenance"), Some(&sent), "{brief}");
 
     // Only the task's own session, or the chat that gave it, ends it; a result is checked.
