@@ -474,15 +474,15 @@ export default componentEntry<Props>({
       },
     },
     "popover-compact": {
-      note: "Leo 2026-11-05, on this hover card: \"this is too big / it's just oddly spaced and oddly rendered / and i can't even scroll through the changes from that preview!\" Picked: one heading line, version to version; every change of the update, the skipped nightlies too, one line each (the title, then its line in the quiet color, cut at the edge), under New / Improved / Fixed; the list scrolls under the heading and above See all changes, both pinned; at most 360 px tall.",
+      note: "Leo 2026-11-05, on this hover card: \"this is too big / it's just oddly spaced and oddly rendered / and i can't even scroll through the changes from that preview!\" Picked: one heading line, version to version; every change of the update, the skipped nightlies too, each its title on one line and its line under it, cut to one line, the rest under New / Improved / Fixed; the list scrolls under the heading and above See all changes, both pinned; at most 360 px tall.",
+      props: { surface: "popover", data: leoData, span: leoSpan },
+    },
+    "popover-compact-one-line": {
+      note: 'Variant: each change\'s line after its title on the same line. The most changes fit, but most lines are cut to a stub ("The or…", "Closing t…"), and a long title loses its line entirely.',
       props: { surface: "popover", data: leoData, span: leoSpan, layout: "line" },
     },
-    "popover-compact-two-line": {
-      note: "Variant: each change's line under its title, both cut to one line. Calmer to read, but half as many changes show before the list scrolls.",
-      props: { surface: "popover", data: leoData, span: leoSpan, layout: "two-line" },
-    },
     "popover-compact-flat": {
-      note: "Variant: one line per change and no New / Improved / Fixed headings. The densest, but the kinds of change blur together.",
+      note: "Variant: one line per change and no New / Improved / Fixed headings. The densest, but the kinds of change blur together and lines are still cut to stubs.",
       props: { surface: "popover", data: leoData, span: leoSpan, layout: "flat" },
     },
     "popover-compact-dark": {

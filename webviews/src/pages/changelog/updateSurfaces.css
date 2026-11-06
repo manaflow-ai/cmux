@@ -158,10 +158,13 @@
    app's other hover cards (the session and link cards): one heading line, version to version; one
    line per change; See all changes pinned under the list. The head and the foot stay; only the
    list scrolls (`.wn-pop-scroll`, the shared card scroller), with the wheel, the trackpad or the
-   keys. At most --wn-pop-max tall in the gallery and in the app (surface.css), wherever the window
+   keys. Each change is its title on one line and its line under it, cut to one line. At most --wn-pop-max tall in the gallery and in the app (surface.css), wherever the window
    would give it more. Every gap is a step of the design scale (--ds-space-*). */
-.wn-pop {
+/* Inherited, so a host or a gallery stage can give the card less room. */
+:root {
   --wn-pop-max: 360px;
+}
+.wn-pop {
   --wn-pop-x: var(--ds-space-3);
   display: flex;
   flex-direction: column;

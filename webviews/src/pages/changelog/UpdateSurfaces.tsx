@@ -261,9 +261,10 @@ export function UpdatedCard({
  * of the title line (`title-row`). Gallery variants (Leo 2026-11-03: "stretched out wasted space"). */
 export type BriefLayout = "stacked" | "inline" | "title-row";
 
-/** How the popover with a change list lays out a change: one line, the title then its line, under
- * New / Improved / Fixed (`line`, shipped); the line under the title (`two-line`); or one line
- * each with no group headings (`flat`). Gallery variants (Leo 2026-11-05: "this is too big"). */
+/** How the popover with a change list lays out a change: its title on one line and its line under
+ * it, cut to one line (`two-line`, shipped); the line after the title on the same line (`line`,
+ * which cut most lines to a stub such as "The or…"); or that with no New / Improved / Fixed
+ * headings (`flat`). Gallery variants (Leo 2026-11-05: "this is too big"). */
 export type ReadyLayout = "line" | "two-line" | "flat";
 
 export function UpdateReadyHighlights({
@@ -272,7 +273,7 @@ export function UpdateReadyHighlights({
   strings,
   actions,
   briefLayout = "stacked",
-  layout = "line",
+  layout = "two-line",
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the running version up to the staged one, newest first: the
@@ -409,9 +410,9 @@ export function UpdateReadyHighlights({
   );
 }
 
-/** One change on one line (Leo 2026-11-05: "this is too big ... oddly spaced"): its title, then
- * in the quiet color only what its line adds, cut at the popover's edge as the What's New sheet's
- * rows are; `two-line` puts that line under the title, cut the same way. A picture is a small
+/** One change (Leo 2026-11-05: "this is too big ... oddly spaced"): its title on one line, then in
+ * the quiet color only what its line adds, on one line under it, each cut at the popover's edge as
+ * the What's New sheet's rows are (`line` and `flat` put both on one line). A picture is a small
  * thumbnail at the row's end; a click on it opens the change's notes. */
 function PopRow({ item, layout, onOpen }: { item: UpdateHighlightItem; layout: ReadyLayout; onOpen: () => void }) {
   const line = item.summary ? distinctSummary(item.title, item.summary) : "";
