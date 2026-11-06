@@ -106,6 +106,7 @@ def seed_templates(root):
     if missing:
         peer = icl.PeerDaemon(APP, root, AGENT)
         peer.start()
+        made = {}
         try:
             for size in missing:
                 made_at = time.monotonic()
@@ -116,12 +117,15 @@ def seed_templates(root):
                     sent = peer.acpmux("send", session, f"turn: {i}", timeout=120)
                     if sent.returncode != 0:
                         raise SystemExit(f"fork-open: send: {(sent.stdout + sent.stderr).strip()[-2000:]}")
-                got[size] = {size: icl.read_chat(peer.home, session)}
-                say(f"seeded {size}: {TURNS[size]} turns in {time.monotonic() - made_at:.1f} s")
-                if cache_root:
-                    seed_cache.put(cache_root, keys[size], specs[size], got[size], time.monotonic() - made_at)
+                made[size] = (session, time.monotonic() - made_at)
+                say(f"seeded {size}: {TURNS[size]} turns in {made[size][1]:.1f} s")
         finally:
+            # The store is journaled: a chat's session.json is written by the checkpoint a shutdown makes.
             peer.stop()
+        for size, (session, seconds) in made.items():
+            got[size] = {size: icl.read_chat(peer.home, session)}
+            if cache_root:
+                seed_cache.put(cache_root, keys[size], specs[size], got[size], seconds)
     if cache_root:
         seed_cache.prune(cache_root, keep=tuple(keys.values()))
     return {size: got[size][size] for size in SIZES}
@@ -142,9 +146,30 @@ def copy_chat(home, template, title):
     return session
 
 
-def store_sessions(home):
-    folder = os.path.join(home, "sessions")
-    return set(os.listdir(folder)) if os.path.isdir(folder) else set()
+def store_sessions(_home):
+    """Every chat the app's acpmux lists (`session/list`, every page): its store is journaled, so a new
+    chat has no folder on disk until a checkpoint."""
+    sock = acpmux_socket()
+    found, cursor = set(), None
+    for _ in range(100):
+        page = icl.rpc(sock, "session/list", {"cursor": cursor} if cursor else {}) or {}
+        for item in page.get("sessions") or []:
+            sid = item.get("sessionId") or item.get("id")
+            if sid:
+                found.add(sid)
+        cursor = page.get("nextCursor")
+        if not cursor:
+            break
+    return found
+
+
+_socket = None
+
+
+def acpmux_socket():
+    global _socket
+    _socket = _socket or bm.FakeChats.acpmux_socket(APP)
+    return _socket
 
 
 # ---------------------------------------------------------------------------------------------
@@ -225,7 +250,7 @@ def open_parent(run, session):
 
 def warm(run, session):
     """One more turn on the chat through the app's acpmux, so its agent runs (as a chat just used has it)."""
-    env = dict(os.environ, ACPMUX_SOCKET=bm.FakeChats.acpmux_socket(APP), ACPMUX_HOME=run.home)
+    env = dict(os.environ, ACPMUX_SOCKET=acpmux_socket(), ACPMUX_HOME=run.home)
     sent = subprocess.run([icl.bundled_acpmux(APP), "send", session, "turn: warm"], capture_output=True, text=True,
                           timeout=120, env=env)
     return None if sent.returncode == 0 else (sent.stdout + sent.stderr).strip()[-500:]
