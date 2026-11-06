@@ -303,7 +303,7 @@ mod tests {
     fn the_chiefs_choice_wins_under_auto_and_the_users_mode_wins_over_it() {
         let task = "Sidebar: shown\nTitle: Lookup\nlook up a sha";
         assert!(auto(task).show);
-        assert_eq!(auto("Sidebar: hidden\nRedesign the UI").show, false);
+        assert!(!auto("Sidebar: hidden\nRedesign the UI").show);
         let never = Rules::from_user(Some(&json!({"chief": {"subagentSidebar": "never"}})), true);
         assert!(!decide(task, Requested::Shown, &never).show);
         let always = Rules::from_user(Some(&json!({"chief.subagentSidebar": "always"})), false);

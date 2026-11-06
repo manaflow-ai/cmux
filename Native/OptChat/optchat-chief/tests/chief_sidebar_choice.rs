@@ -95,7 +95,7 @@ fn spawn(h: &mut Harness, sp: &Arc<Spawner>, args: serde_json::Value) -> String 
 
 const BIG: &str = "Title: Chief sidebar rework\nReplace the global on/off with a per-spawn decision by the Chief. \
 Spawn takes a visibility; auto applies heuristics the user can shape in Settings and in the settings file. \
-Write red tests first, then the fix, take real-app shots of the sidebar before and after, and land it on \
+Write red tests first, then the fix, check it in the real app before and after, and land it on \
 the feature branch with a plain push, then report the range you landed and anything left open.";
 
 #[test]
