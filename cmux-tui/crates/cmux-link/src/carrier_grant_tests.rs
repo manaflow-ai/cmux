@@ -302,6 +302,35 @@ fn replay_capacity_never_evicts_a_live_grant() {
     assert!(verifier.verify(&grant(1), &key, ATTEMPT).is_err());
 }
 
+/// next-review BLOCK at ee143b79: a spent grant whose record was dropped at
+/// expiry came back when the clock was stepped backwards.
+#[test]
+fn a_clock_stepped_back_revives_no_spent_grant() {
+    let signer = Signer::generate("k1");
+    let (verifier, now) = verifier(&signer);
+    let key = [3_u8; 32];
+    let first = signer.sign(GRANT_TYP, &claims(&key));
+    verifier.verify(&first, &key, ATTEMPT).unwrap();
+    // Past the first grant's exp, another grant's admission drops its record.
+    now.store(NOW + 200, Ordering::SeqCst);
+    let mut later = claims(&key);
+    later["jti"] = json!(URL_SAFE_NO_PAD.encode([8_u8; 16]));
+    later["iat"] = json!(NOW + 150);
+    later["exp"] = json!(NOW + 400);
+    verifier.verify(&signer.sign(GRANT_TYP, &later), &key, [2; 32]).unwrap();
+    // The clock steps back to before that exp: the first grant stays spent.
+    now.store(NOW, Ordering::SeqCst);
+    let refusal = verifier.verify(&first, &key, [3; 32]).unwrap_err();
+    assert_eq!(refusal.kind, TokenRefused::Expired);
+    // So does a grant that is new but expired by the latest time seen.
+    let mut fresh = claims(&key);
+    fresh["jti"] = json!(URL_SAFE_NO_PAD.encode([9_u8; 16]));
+    assert_eq!(
+        verifier.verify(&signer.sign(GRANT_TYP, &fresh), &key, [4; 32]).unwrap_err().kind,
+        TokenRefused::Expired
+    );
+}
+
 #[test]
 fn construction_refuses_an_empty_issuer_machine_or_team() {
     let signer = Signer::generate("k1");
