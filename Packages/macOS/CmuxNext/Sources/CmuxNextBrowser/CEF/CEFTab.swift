@@ -672,6 +672,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        runtime.spareWindow.pageLoadSettled(runtime: runtime)
         agentRelay.resumeWaiters(false)
         agentFiles.withdraw()
         titleTimer.cancel()

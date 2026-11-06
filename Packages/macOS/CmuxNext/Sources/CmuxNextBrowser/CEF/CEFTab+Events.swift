@@ -37,6 +37,7 @@ extension CEFTab {
                 // A load that ends without OnLoadEnd (stopped, aborted) also leaves the page area to its document,
                 // through its background read like a load end (`documentDidPaint`; bounded wait).
                 documentDidPaint()
+                runtime.spareWindow.pageLoadSettled(runtime: runtime)
             }
         case .loadStart(_, let url, let fromPost):
             // A new document: the link the pointer was over is gone (Chrome clears its bubble too).

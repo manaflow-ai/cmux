@@ -4,8 +4,8 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// The spare page suites' one parent. Their tests share the stand-in shim's statics (`SpareSpy`) and the
-/// `browserPage.sparePage` switch in `TunableStore.shared`, and `.serialized` orders only the tests under one
+/// The spare page suites' one parent. Their tests share the stand-in shim's statics (`SpareSpy`), and
+/// `.serialized` orders only the tests under one
 /// suite: under this parent every test of both runs one at a time, in one process too. Each test has its own
 /// `CEFRuntime`, so its spare window and page (`runtime.spareWindow`) are no other suite's. Windows are checked
 /// once, here at the top level (`.closesItsWindows`).
@@ -32,7 +32,6 @@ extension CEFSparePageSuites.CEFSparePageTests {
         let runtime = CEFRuntime(shim: try SpareSpy.library(), storage: CEFProfileStorage(root: root))
         _ = Unmanaged.passRetained(runtime)
         SpareSpy.runtime = runtime
-        setSparePage(true)
         return (runtime, root)
     }
 
@@ -45,16 +44,7 @@ extension CEFSparePageSuites.CEFSparePageTests {
         for _ in 0..<8 { RunLoop.main.run(mode: .default, before: .distantPast) }
         runtime.spareWindow.drop(runtime: runtime)
         runtime.spareWindow.onNeeded = nil
-        setSparePage(nil)
         try? FileManager.default.removeItem(at: root)
-    }
-
-    /// Debug Settings `browserPage.sparePage` (nil: the default, on).
-    static func setSparePage(_ on: Bool?) {
-        TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register([CEFSpareWindow.pageSetting.descriptor])
-        TunableStore.shared.set(CEFSpareWindow.pageSetting.key, on.map { .bool($0) })
-        #expect(CEFSpareWindow.pageSetting.value == on ?? true)
     }
 
     /// A pane showing a Chromium page in its live window (browser 10, window 1).

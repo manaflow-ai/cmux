@@ -4,8 +4,8 @@ import Foundation
 /// makes them at idle moments (`ChromiumWarmup`) and for `debug.cef`.
 extension CEFEngine {
     /// Builds the spare Chromium window once Chromium runs and no Chromium window is being built, so a
-    /// pane's first tab skips building one; with it up, makes the spare page in it instead (Debug Settings
-    /// `browserPage.sparePage`, off by default), so a new tab skips `tab_add`. Call at an idle moment:
+    /// pane's first tab skips building one; with it up, makes the spare page in it instead, so a new tab
+    /// skips `tab_add` (never while a tab's page loads, `CEFRuntime.pageLoadsInFlight`). Call at an idle moment:
     /// either holds the main thread. True when it started.
     @discardableResult
     public func prepareSpareWindow() -> Bool {

@@ -189,31 +189,34 @@ extension CEFSparePageSuites {
             #expect(SpareSpy.added.count == 2, "with no tab_add")
         }
 
-        /// The take is behind the `browserPage.sparePage` Debug Setting, off by default until the
-        /// real-fork journey passes (review of #34252 at b4b2abd2, item 1). Off, the spare window makes
-        /// no page at all, and a new tab joins with `tab_add` as before.
-        @Test func withTheSwitchOffNoSparePageIsMadeAndANewTabUsesTabAdd() throws {
+        /// The #36507 A/B (cmux23-perf, under load): a press that missed the spare page was slower than with
+        /// no spare at all (page loaded p50 121-133 ms against 108-112 ms), because the next spare page was made
+        /// while the pressed tab's page still loaded. The spare page now waits for every tab's page load to
+        /// settle, and the load's end asks for it again.
+        @Test func noSparePageIsMadeWhileATabsPageLoadsAndTheLoadsEndAsksForIt() throws {
             let (runtime, root) = try Self.runtime()
             defer { Self.tearDown(runtime, root) }
-            let (host, _, container) = try Self.liveHost(runtime)
-            Self.setSparePage(false)
-            #expect(runtime.spareWindow.prepare(runtime: runtime), "the spare window still starts")
+            _ = try Self.liveHost(runtime)
+            #expect(runtime.spareWindow.prepare(runtime: runtime), "the spare window starts")
             let spare = try #require(runtime.spareWindow.host)
             let request = try #require(runtime.pendingWindows.first { $0.value === spare }?.key)
             SpareSpy.windows[20] = 2
             runtime.handle(.afterCreated(browser: 20, request: request, window: 2))
+            var asked = 0
+            runtime.spareWindow.onNeeded = { asked += 1 }
             SpareSpy.clearRecords()
 
-            runtime.spareWindow.prepare(runtime: runtime)
-            #expect(SpareSpy.added.isEmpty, "no spare page is made")
-            #expect(runtime.spareWindow.page == nil)
+            runtime.handle(.loadingState(browser: 10, loading: true, canGoBack: false, canGoForward: false))
+            #expect(runtime.pageLoadsInFlight, "the pane's page loads")
+            #expect(!runtime.spareWindow.prepare(runtime: runtime), "no spare page while it loads")
+            #expect(SpareSpy.added.isEmpty && runtime.spareWindow.page == nil)
+            asked = 0
 
-            let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
-            host.add(link)
-            host.present(link, in: container)
-            host.createDeferred()
-            #expect(SpareSpy.added.map(\.anchor) == [10], "the tab joins with tab_add")
-            #expect(SpareSpy.moved.isEmpty)
+            runtime.handle(.loadingState(browser: 10, loading: false, canGoBack: false, canGoForward: false))
+            #expect(!runtime.pageLoadsInFlight)
+            #expect(asked == 1, "the load's end asks for the spare page again")
+            runtime.spareWindow.prepare(runtime: runtime)
+            #expect(SpareSpy.added.map(\.anchor) == [20], "the next idle moment makes it")
         }
 
         /// An extension can navigate the waiting page (`chrome.tabs.update`); its load events reach no

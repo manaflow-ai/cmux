@@ -100,6 +100,14 @@ extension CEFTab {
         guard pastFirstRealPage, !documentSettled else { return }
         documentSettled = true
         applyPageBackground()
+        runtime.spareWindow.pageLoadSettled(runtime: runtime)
+    }
+
+    /// This tab's page load holds the spare page back (`CEFRuntime.pageLoadsInFlight`): open, loading, and
+    /// its first real document not painted and settled yet. A page that keeps loading after it painted (a
+    /// stream, a slow resource) holds nothing once it settled.
+    var holdsPageLoad: Bool {
+        !isClosed && state.isLoading && !(pastFirstRealPage && documentSettled)
     }
 
     /// A real page committed, or a page opened this tab (a popup,
