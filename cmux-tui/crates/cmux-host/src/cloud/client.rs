@@ -19,7 +19,11 @@ use super::wire::{
 /// JSON HTTP operations: `(status, body)`, or a transport error.
 pub trait Http {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String>;
-    fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String>;
+    /// A POST with no body (the carrier ticket route refuses any body).
+    /// Transports opt in; the default refuses, like [`Http::request_until`].
+    fn post_empty(&self, _url: &str, _bearer: Option<&str>) -> Result<(u16, Value), String> {
+        Err("empty-body Cloud transport unavailable".into())
+    }
 
     /// Raw, bounded, no-redirect GET (`body=None`) or JSON POST. All calls
     /// in a receiving-policy read share this absolute deadline. Older
