@@ -86,6 +86,20 @@ impl JsonPoster {
         Ok((status, parsed))
     }
 
+    /// An authenticated POST without a request body. The carrier-ticket
+    /// route distinguishes no body from the JSON object `{}`.
+    pub fn post_empty(
+        &self,
+        url: &str,
+        bearer: Option<&str>,
+    ) -> Result<(u16, Value), String> {
+        let (status, bytes) =
+            self.send("POST", url, None, bearer)?;
+        let parsed =
+            serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::Object(Default::default()));
+        Ok((status, parsed))
+    }
+
     /// One original budget through authentication, policy and keyset reads.
     /// GETs never carry credentials. Errors contain neither URLs nor bodies.
     pub fn request_with_deadline(
