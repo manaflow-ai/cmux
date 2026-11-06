@@ -38,7 +38,7 @@ extension AgentPaneCloudMachines {
                     return (session.effectiveStatus, session.stageInput.daemonConnected)
                 },
                 resume: { services.machines.session(id)?.attach(origin: .user) },
-                connect: { services.machines.session(id)?.retryNow() }
+                connect: { services.machines.session(id)?.retry() }
             )
         }
         open = { [weak services] id in

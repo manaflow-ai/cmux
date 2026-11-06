@@ -5,6 +5,37 @@
 use super::*;
 
 wire_enum! {
+    PairingInfoArch {
+        X8664 = "x86_64",
+        Aarch64 = "aarch64",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PairingInvite {
+    pub invite: PairingInviteCode,
+    pub display: String,
+    pub expires_at: i64,
+    pub watch_secret: String,
+}
+
+/// A normalized invite code: 10 Crockford base32 symbols, no hyphen.
+pub type PairingInviteCode = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PairingPreview {
+    pub code: PairingCode,
+    pub info: PairingInfo,
+    pub public_jwk: PublicJwk,
+    pub thumbprint: String,
+    pub country: Option<String>,
+    pub expires_at: i64,
+}
+
+/// user_<id>, agent_<name> or addr_<26> (an invited address).
+pub type ParticipantId = String;
+
+wire_enum! {
     Platform {
         Macos = "macos",
         Ios = "ios",
@@ -868,38 +899,3 @@ pub struct TeamPolicyValuesAgentsAllowedClasses {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesDeviceSettingsValue {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesDeviceSettings {
-    pub value: TeamPolicyValuesDeviceSettingsValue,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyVersion {
-    pub version: i64,
-    pub values: TeamPolicyValues,
-    pub changed: Vec<PolicyKey>,
-    pub actor: Option<String>,
-    pub at: i64,
-    pub reason: Option<String>,
-    pub rollback_of: Option<i64>,
-}
-
-wire_enum! {
-    TeamRole {
-        Owner = "owner",
-        Admin = "admin",
-        Member = "member",
-        Billing = "billing",
-        Guest = "guest",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmAccountUser {
-    pub user: String,
-    pub uid: i64,
-    pub class: SshCertClass,
-    pub principals: Vec<String>,
-}

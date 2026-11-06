@@ -25,6 +25,8 @@ import { useEffect, useId, useRef, useState, useSyncExternalStore, type MouseEve
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
 import { ChangePullRequest } from "./ChangePullRequest";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
+import { Doodle, DoodleActions, DoodleHeadline } from "./doodle/UpdateDoodle";
+import { useDecoration } from "../../theme/decorations";
 import { distinctSummary, readableUpdate } from "./model";
 import type { Strings } from "../shared/i18n";
 import type { ReleaseNotes } from "./types";
@@ -131,6 +133,8 @@ export function UpdatedCard({
   actions,
   closeButton = true,
   glass = true,
+  decoration,
+  animate = true,
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the previous version, newest first; absent until they load. */
@@ -143,16 +147,32 @@ export function UpdatedCard({
       CardSurfaceView, SidebarUpdatedCardHost): a page's glass sees nothing of the native sidebar,
       and with no `.ui-glass` in the document the lens draws no wallpaper copy over the host's. */
   glass?: boolean;
+  /** The decoration in the card's slot (ThemeDecorations `updated-card`); undefined reads the theme's. */
+  decoration?: string | null;
+  /** The doodle draws on (false: drawn from the start, for stills). */
+  animate?: boolean;
 }) {
   const titleId = useId();
   const [copied, setCopied] = useState(false);
+  const themed = useDecoration("updated-card");
+  const doodle = (decoration === undefined ? themed : decoration) === "doodle";
   const summary = span ? summarizeUpdate(span, strings.language) : summarizeHighlights(readableUpdate(data));
   const top = summary.rows[0];
   const name = /^[^-]+-nightly\.\d+$/.test(data.version) ? strings.t("updates.card.nightly") : data.version;
   const titleKey = data.delivery === "background" ? "updates.card.updatedBehind" : "updates.card.updatedTo";
   const [before, after] = strings.format(titleKey, "\u0000").split("\u0000");
-  return (
-    <section className={glass ? "ui-glass wn-card" : "wn-card"} aria-labelledby={titleId}>
+  const whatsNew = (
+    <button type="button" className="wn-card-primary" onClick={actions.openChangelog}>
+      {strings.t("changelog.page.title")}
+    </button>
+  );
+  const card = (
+    <section
+      className={glass ? "ui-glass wn-card" : "wn-card"}
+      aria-labelledby={titleId}
+      data-decoration={doodle ? "doodle" : undefined}
+    >
+      {doodle && <DoodleHeadline version={cardVersion(data.version)} strings={strings} />}
       <div className="wn-card-title" id={titleId}>
         {before}
         <CopyVersion version={data.version} strings={strings} onCopied={setCopied}>
@@ -183,13 +203,14 @@ export function UpdatedCard({
           strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild")
         )}
       </p>
-      <div className="wn-card-actions">
-        <button type="button" className="wn-card-primary" onClick={actions.openChangelog}>
-          {strings.t("changelog.page.title")}
-        </button>
-      </div>
+      {doodle ? (
+        <DoodleActions strings={strings} whatsNew={whatsNew} onGotIt={actions.dismiss} />
+      ) : (
+        <div className="wn-card-actions">{whatsNew}</div>
+      )}
     </section>
   );
+  return doodle ? <Doodle animate={animate}>{card}</Doodle> : card;
 }
 
 /** How the popover lays out an update with no change list (title, from line, link): the link

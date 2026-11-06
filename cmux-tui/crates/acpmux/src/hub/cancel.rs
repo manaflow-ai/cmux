@@ -470,15 +470,32 @@ impl Hub {
                 let _ = release.await;
             }
         }
-        let sent = child
-            // Preserve the Stop's compaction snapshot: a delayed writer may run only
-            // after the old boundary has already cleared the translator's live flag.
-            .notify(
-                method::SESSION_CANCEL,
-                json!({"sessionId": sid, "_meta": {"acpmux": {"compactionCancelled": compacting}}}),
-            )
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()));
+        // A turn whose own prompt is not written yet: fenced under the handoff, so its writer
+        // never sends it (`steer_end.rs`). The agent runs no prompt of it to cancel, and a
+        // harness that keeps a cancel would end the next turn with this one.
+        let unwritten = turn.as_ref().is_some_and(|turn| {
+            let mut unwritten = session.unwritten_prompt.lock().unwrap_or_else(|e| e.into_inner());
+            match unwritten.as_mut() {
+                Some((id, fenced)) if *id == turn.turn_id => {
+                    *fenced = true;
+                    true
+                }
+                _ => false,
+            }
+        });
+        let sent = if unwritten {
+            Ok(())
+        } else {
+            child
+                // Preserve the Stop's compaction snapshot: a delayed writer may run only
+                // after the old boundary has already cleared the translator's live flag.
+                .notify(
+                    method::SESSION_CANCEL,
+                    json!({"sessionId": sid, "_meta": {"acpmux": {"compactionCancelled": compacting}}}),
+                )
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))
+        };
         drop(input_handoff);
         // Stop always ends the turn: an agent that does not answer the cancel
         // (Claude Code idle after a local slash command, while acpmux still

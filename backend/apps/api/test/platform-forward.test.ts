@@ -60,6 +60,8 @@ const requests: ReadonlyArray<readonly [string, () => Request]> = [
   ["cloud trajectory", () => post(`/v1/cloud/machines/${VM}/trajectories/append`, "{}")],
   ["Native network target", () => new Request(`${ORIGIN}/v1/host/network/target`)],
   ["login copy switch", () => new Request(`${ORIGIN}/v1/cloud/harness-login-copy`)],
+  // The platform's client config: the app's origins and the backend's capabilities (machine_create.bootstrap).
+  ["client config", () => new Request(`${ORIGIN}/v1/client-config`)],
   ["CloudDO mutation", () => post("/v1/ops", op(cloudMutation))],
   ["CloudDO read", () => post("/v1/read", read(cloudRead))],
   ["staying op", () => post("/v1/ops", op(stayingMutation))],
@@ -94,7 +96,7 @@ describe("PLATFORM_SURFACES", () => {
 
 describe("cloud surface on", () => {
   it("forwards NEXT Cloud's machine routes and CloudDO ops with the body intact", async () => {
-    for (const [name, make] of requests.slice(0, 10)) {
+    for (const [name, make] of requests.slice(0, 11)) {
       const platform = fakePlatform()
       const original = make()
       const body = await original.clone().text()
@@ -135,7 +137,7 @@ describe("cloud surface on", () => {
 
   it("stays here and logs when the PLATFORM binding is absent", async () => {
     const log = vi.spyOn(console, "error")
-    for (const [name, make] of requests.slice(0, 10)) {
+    for (const [name, make] of requests.slice(0, 11)) {
       const off = await call(make(), {})
       const on = await call(make(), { PLATFORM_SURFACES: "cloud" })
       expect(on.status, name).toBe(off.status)

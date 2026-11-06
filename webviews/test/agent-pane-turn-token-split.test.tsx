@@ -58,13 +58,15 @@ const worked: AcpmuxRow = {
 const workedMarkup = (row: AcpmuxRow) =>
   renderToStaticMarkup(<WorkedFor row={row} expanded={false} onToggle={() => {}} />);
 
-test("a finished turn's Worked for says its tokens split, its time in the quieter span", () => {
+test("a finished turn's Worked for says its time alone, in the quieter span, as Codex does", () => {
+  // Lucas, 2026-11-06: "just have 'Worked for 22s'". The tokens stay on the running line.
   const html = workedMarkup({ ...worked, tokens: SPLIT });
-  expect(text(html)).toBe("Worked for 1m 16s · ↓ 12.4K out ↑ 2.1M in");
+  expect(text(html)).toBe("Worked for 1m 16s");
   expect(html).toContain(
     '<span class="cv-worked__label">Worked for <span class="cv-worked__label-time">1m 16s</span></span>',
   );
-  expect(html).toMatch(SPLIT_SPAN);
+  expect(html).not.toMatch(SPLIT_SPAN);
+  expect(html).not.toContain("cv-worked__sep");
   // A turn whose result named no tokens: the time alone.
   expect(text(workedMarkup(worked))).toBe("Worked for 1m 16s");
   // An empty turn_result's all-zero split: no tokens, and no dangling separator.

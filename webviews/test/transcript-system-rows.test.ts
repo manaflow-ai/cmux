@@ -61,8 +61,9 @@ await requireBrowserLane("transcript-system-rows.test.ts", async () => {
     "gcp-agent-lane-2/cloud-clouddo",
     "Scheduled check",
     "Ran 2 commands",
-    "Check backend.yml dispatch inputs",
-    "Dispatch production promote of the candidate",
+    // A command reads as its command, never Bash's description (Codex parity).
+    "gh workflow view backend.yml",
+    "gh workflow run backend.yml",
     "Compacting the conversation",
   ];
 

@@ -39,7 +39,7 @@ enum MiscHandlerStrings {
     static var paneNotReady: String { String(localized: "handlers.misc.failed.paneNotReady", defaultValue: "This pane is still opening; try again in a moment.", table: "MiscHandlers", bundle: .module) }
     /// A create's target was a pending pane whose own create was never made (`PendingPaneNotCreated`, P0 2026-10-30).
     static var pendingPaneNotCreated: String { String(localized: "handlers.misc.failed.pendingPaneNotCreated", defaultValue: "The pane it was for was not created.", table: "MiscHandlers", bundle: .module) }
-    static var daemonOffline: String { String(localized: "handlers.misc.failed.daemonOffline", defaultValue: "The cmux-tui daemon is not connected.", table: "MiscHandlers", bundle: .module) }
+    static var daemonOffline: String { String(localized: "handlers.misc.failed.daemonOffline", defaultValue: "cmux's background service isn't connected.", table: "MiscHandlers", bundle: .module) }
     static var printUnavailable: String { String(localized: "handlers.misc.failed.printUnavailable", defaultValue: "This page can't be printed now.", table: "MiscHandlers", bundle: .module) }
     static var noPageURL: String { String(localized: "handlers.misc.failed.noPageURL", defaultValue: "The page has no URL.", table: "MiscHandlers", bundle: .module) }
     static var hardReloadEngine: String { String(localized: "handlers.misc.failed.hardReloadEngine", defaultValue: "This browser engine cannot bypass the cache; use Reload Page.", table: "MiscHandlers", bundle: .module) }
@@ -48,19 +48,6 @@ enum MiscHandlerStrings {
         String(localized: "handlers.misc.failed.noNotificationToCopy", defaultValue: "There are no notifications to copy.", table: "MiscHandlers", bundle: .module)
     }
     static var noPrompt: String { String(localized: "handlers.misc.failed.noPrompt", defaultValue: "No agent has been given a prompt yet.", table: "MiscHandlers", bundle: .module) }
-    /// `agent.openSessionTab` with a peer `host` this Mac mirrors, but no live chat of it named `session`.
-    static func noPeerSession(_ session: String, _ peer: String) -> String {
-        String(format: String(localized: "handlers.misc.failed.noPeerSession", defaultValue: "%1$@ has no running chat named %2$@.", table: "MiscHandlers", bundle: .module), peer, session)
-    }
-    /// `agent.openSessionTab` with a peer `host` where more than one live chat has the name `session`.
-    static func ambiguousPeerSession(_ session: String, _ peer: String) -> String {
-        String(format: String(localized: "handlers.misc.failed.ambiguousPeerSession", defaultValue: "%1$@ has more than one chat named %2$@. Name it by its session id.", table: "MiscHandlers", bundle: .module), peer, session)
-    }
-    /// `agent.openSessionTab` / `agent.openSessionWorkspace` with a `session` more than one live chat
-    /// here goes by (its name or harness session id).
-    static func ambiguousLocalSession(_ session: String) -> String {
-        String(format: String(localized: "handlers.misc.failed.ambiguousLocalSession", defaultValue: "More than one chat here is named %@. Name it by its session id.", table: "MiscHandlers", bundle: .module), session)
-    }
     static var sessionRequired: String { String(localized: "handlers.misc.failed.sessionRequired", defaultValue: "Name the acpmux session to open (session).", table: "MiscHandlers", bundle: .module) }
     static var noAgentSession: String { String(localized: "handlers.misc.failed.noAgentSession", defaultValue: "The focused terminal has no agent session to fork.", table: "MiscHandlers", bundle: .module) }
     static var noAgentPane: String { String(localized: "handlers.misc.failed.noAgentPane", defaultValue: "The focused pane is not showing an agent chat.", table: "MiscHandlers", bundle: .module) }
