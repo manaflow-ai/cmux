@@ -62,8 +62,11 @@ extension NSView {
             view.isHidden = false
         }
         guard !view.isHidden else { return }
+        let drawn = shown && view.alphaValue == 0
         let fades = requested && Motion.sidebar.duration(token) > 0
         fadeOpacity(view, to: shown ? 1 : 0, fades: fades, from: appears && fades ? 0 : nil, token: token)
+        // A pointer already on it (the next row's x as the pointer moves down the column) gets its tooltip.
+        if drawn { view.themedToolTipDrawn() }
     }
 
     /// Shows or hides a trailing slot (`SidebarRevealSlotView`) at `frame`: it fades as

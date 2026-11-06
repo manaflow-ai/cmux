@@ -58,6 +58,12 @@ public final class TooltipPresenter {
         resolve()
     }
 
+    /// Its view went from clear to drawn: with the pointer already inside, it takes part in the pick now.
+    func drawn(_ tracker: TooltipTracker) {
+        guard inside.contains(where: { $0 === tracker }) else { return }
+        resolve()
+    }
+
     /// The pointer left it.
     func exit(_ tracker: TooltipTracker) {
         inside.removeAll { $0 === tracker }
