@@ -164,8 +164,16 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   // opening it as the link does, in place of the site's.
   const subsessions = useContext(SubsessionContext);
   const session = useSessionHover(agent["data-open-session"] ?? "", subsessions?.openSender ?? subsessions?.open);
-  const chat = session.trigger.onPointerEnter !== undefined;
+  // A pointer or focus that came in keeps the card it started, even when the link resolves to a chat
+  // meanwhile (its first hover is what asks): the chat's card is the next one, never a lost card.
+  const [entered, setEntered] = useState<"chat" | "site" | null>(null);
+  const now = session.trigger.onPointerEnter !== undefined ? "chat" : "site";
+  const chat = (entered ?? now) === "chat";
   const trigger = chat ? session.trigger : hover.trigger;
+  const enter = () => {
+    setEntered(now);
+    return now === "chat" ? session.trigger : hover.trigger;
+  };
   return (
     <>
       <a
@@ -181,11 +189,11 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
         {...trigger}
         onPointerEnter={(event) => {
           agent.onPointerEnter?.();
-          trigger.onPointerEnter?.(event);
+          enter().onPointerEnter?.(event);
         }}
         onFocus={(event) => {
           agent.onFocus?.();
-          trigger.onFocus?.(event);
+          enter().onFocus?.(event);
         }}
         onClick={agent.onClick}
       >

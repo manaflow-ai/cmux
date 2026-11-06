@@ -106,7 +106,7 @@ export class SessionHoverStore {
   set(sessions: readonly AcpmuxSessionEntry[]): void {
     const infos = new Map<string, SessionHoverInfo>();
     const keys = new Map<string, string>();
-    let changed = sessions.length !== this.infos.size;
+    let changed = false;
     for (const entry of sessions) {
       const info = hoverInfo(entry);
       const key = JSON.stringify(info);
@@ -115,6 +115,8 @@ export class SessionHoverStore {
       infos.set(entry.sessionId, kept ?? info);
       keys.set(entry.sessionId, key);
     }
+    // A page can list a session twice: the count that matters is of ids, not of entries.
+    if (infos.size !== this.infos.size) changed = true;
     this.infos = infos;
     this.keys = keys;
     if (changed) for (const listener of this.listeners) listener();
