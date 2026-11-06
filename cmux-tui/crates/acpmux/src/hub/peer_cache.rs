@@ -600,11 +600,22 @@ mod tests {
         let peer = add_idle_peer(&hub, "builder");
         hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
         hub.cache_test_writes.store(0, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
         hub.apply_peer_notice(
             "builder",
             peer.generation,
             PeerNotice::Sessions(vec![remote("m1", "lane")]),
         );
+        for _ in 0..100_000 {
+            if hub.cache_test_write_started.load(std::sync::atomic::Ordering::Acquire)
+                && !peer.cache_write_pending.load(std::sync::atomic::Ordering::Acquire)
+            {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        assert!(hub.cache_test_write_started.load(std::sync::atomic::Ordering::Acquire));
+        assert!(!peer.cache_write_pending.load(std::sync::atomic::Ordering::Acquire));
         let mut changed = remote("m1", "lane");
         changed["status"] = json!("running");
         hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(vec![changed]));
