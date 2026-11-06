@@ -45,8 +45,14 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
 /// thought's number among the group's thoughts (-1 for a call), which names it wherever it draws.
 type StepEntry = { at: number; key: string; thought: number };
 
-/// Test probes: how many times the group built its step list and each step drew. Unset in the app.
-export const stepProbe: { build?: () => void; render?: (key: string) => void } = {};
+/// Test probes: how many times the group built its step list and each step drew, and `hold`, which
+/// takes each deferred draw of an opened run's rows (StepList) to run when the test says. Unset in
+/// the app.
+export const stepProbe: {
+  build?: () => void;
+  render?: (key: string) => void;
+  hold?: (draw: () => void) => void;
+} = {};
 
 /// The group's step entries, rebuilt only when its shape changes (a call or thought joins, or one
 /// takes another's place), never when a call already listed streams output: the transcript replaces
@@ -226,10 +232,11 @@ function StepList({
   useEffect(() => {
     if (rest <= 0 || !chunk) return;
     const wait = shown === chunk ? foldMs(list.current?.closest<HTMLElement>(".cv-fold") ?? null) : 0;
-    const timer = window.setTimeout(
-      () => setShown((now) => (now + chunk >= entries.length ? Infinity : now + chunk)),
-      wait,
-    );
+    const timer = window.setTimeout(() => {
+      const draw = () => setShown((now) => (now + chunk >= entries.length ? Infinity : now + chunk));
+      if (stepProbe.hold) stepProbe.hold(draw);
+      else draw();
+    }, wait);
     return () => window.clearTimeout(timer);
   }, [rest, shown, chunk, entries.length]);
   return (

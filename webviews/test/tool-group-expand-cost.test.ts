@@ -221,4 +221,101 @@ await requireBrowserLane("tool-group-expand-cost.test.ts", async () => {
         expect({ at, bounded: rep.firstSteps <= 40 }).toEqual({ at, bounded: true });
       }
     });
+
+  // Rows of mixed heights (a long lead thought, failures, later thoughts, images) drawn after the
+  // fold take their own heights: with the reader scrolled to the run's foot before they draw, nothing
+  // in view moves as each held draw lands (ToolGroupRow.tsx `StepList`, review of cmux#37152).
+  for (const variant of ["n100", "mixed-commands", "mixed-reads"] as const)
+    test(`${variant}: the rows drawn after the fold move nothing in view`, async () => {
+      const page = await open(variant);
+      await page.evaluate(() => window.cmuxStepDraws!.hold(true));
+      await page.locator(GROUP).click();
+      // The fold is over and the first deferred draw is waiting.
+      await page.waitForFunction(
+        (row) => {
+          const body = document.querySelector<HTMLElement>(`${row} [data-tool-group-items]`)?.parentElement;
+          return (
+            body &&
+            !body.hasAttribute("data-fold-clip") &&
+            body.getAnimations().every((each) => each.playState !== "running") &&
+            window.cmuxStepDraws!.held.length > 0
+          );
+        },
+        ROW,
+        { timeout: 10_000 },
+      );
+      // The reader scrolls to the run's foot: the reply under it in view, the rows still to draw above.
+      await page.evaluate((row) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
+        const foot = document.querySelector<HTMLElement>(row)!.getBoundingClientRect().bottom;
+        const view = scroller.getBoundingClientRect();
+        scroller.scrollTop += foot - (view.top + scroller.clientHeight / 2);
+      }, ROW);
+      await settled(page);
+      const seen = await page.evaluate(async (row) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        /// The viewport top of every row and drawn step in view, by its id.
+        const inView = () => {
+          const view = scroller.getBoundingClientRect();
+          const tops = new Map<string, number>();
+          const visible = (box: DOMRect) => box.bottom > view.top + 1 && box.top < view.bottom - 1 && box.height > 0;
+          for (const each of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
+            const box = each.getBoundingClientRect();
+            if (each.matches(row) || !visible(box)) continue;
+            tops.set(`row:${each.dataset.rowId}`, box.top);
+          }
+          const steps = [...scroller.querySelectorAll<HTMLElement>(`${row} [data-tool-group-items] > .cv-step`)];
+          steps.forEach((step, index) => {
+            const box = step.getBoundingClientRect();
+            if (visible(box)) tops.set(`step:${index}`, box.top);
+          });
+          return tops;
+        };
+        const moves: string[] = [];
+        let last = inView();
+        const rowsInView = [...last.keys()].filter((key) => key.startsWith("row:")).length;
+        const check = (what: string) => {
+          const now = inView();
+          for (const [key, top] of now) {
+            const before = last.get(key);
+            if (before !== undefined && Math.abs(top - before) > 1)
+              moves.push(`${what} ${key} ${before.toFixed(1)}->${top.toFixed(1)}`);
+          }
+          last = now;
+        };
+        const held = window.cmuxStepDraws!.held;
+        let draws = 0;
+        for (let guard = 0; guard < 50; guard++) {
+          const draw = held.shift();
+          if (draw) {
+            draws += 1;
+            await window.cmuxPaintFrame(() => draw());
+          } else await window.cmuxPaintFrame();
+          check(`draw ${draws}`);
+          if (!held.length && !document.querySelector(`${row} [data-steps-rest]`)) break;
+        }
+        for (let frame = 0; frame < 8; frame++) {
+          await window.cmuxPaintFrame();
+          check("after");
+        }
+        window.cmuxStepDraws!.hold(false);
+        return {
+          draws,
+          rowsInView,
+          moves,
+          rest: document.querySelector(`${row} [data-steps-rest]`) !== null,
+          steps: document.querySelectorAll(`${row} [data-tool-group-items] > .cv-step`).length,
+        };
+      }, ROW);
+      await page.close();
+      if (process.env.TOOL_GROUP_COST === "1") console.log(`no-jump ${variant} ${JSON.stringify(seen)}`);
+      expect({ variant, held: seen.draws > 0, inView: seen.rowsInView > 0, rest: seen.rest }).toEqual({
+        variant,
+        held: true,
+        inView: true,
+        rest: false,
+      });
+      expect({ variant, moves: seen.moves }).toEqual({ variant, moves: [] });
+    });
 });
