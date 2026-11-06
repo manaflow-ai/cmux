@@ -14,12 +14,13 @@ import Testing
 /// S4's rig on a display (`TerminalKeyResizeFrameTests.PaneScreen`, its daemon announcing each grid); a drag of the split's
 /// divider 6 pt left per frame for 40 frames, paced 12 ms apart in real time (the coalescer's 25 ms windows close as in a
 /// person's drag), then the release and its landing. After each commit the grid each shown frame fits is recorded.
-@MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)),
+@MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(5)),
                   .enabled(if: ["CMUX_TEST_REQUIRE_GUI", "CMUX_CI_DISPLAY_ROUTED"].contains { ProcessInfo.processInfo.environment[$0] == "1" }))
 struct TerminalDragShownGridTests {
     typealias Rig = TerminalKeyResizeFrameTests
 
-    @Test func everyGridADragSendsIsTheGridOfAShownFrame() async throws {
+    /// Scratch (never merged): the RESIZE OWNER's x10 run of this test on the feat tip (an intermittent `unseen` on #36478).
+    @Test(arguments: 1...10) func everyGridADragSendsIsTheGridOfAShownFrame(run: Int) async throws {
         let screen = try await Rig.PaneScreen(announcesGrids: true)
         defer { screen.close() }
         await Rig.settle(screen)
@@ -78,7 +79,7 @@ struct TerminalDragShownGridTests {
         let rested = zip(screen.sessions, screen.ios).map { session, io in
             (fits: session.surfaceView.fittedGrid.map { "\($0.columns)x\($0.rows)" }, newest: io.resizes.last.map { "\($0.columns)x\($0.rows)" })
         }
-        print("drag shown grids: PTY grids during the drag \(duringDrag); grids never shown \(unseen.count); rested \(rested)")
+        print("drag shown grids run \(run): PTY grids during the drag \(duringDrag); grids never shown \(unseen.count) \(unseen); rested \(rested)")
         #expect(duringDrag.allSatisfy { $0 >= 2 }, "a program got \(duringDrag) grids while the divider moved: it waits for the landing")
         #expect(unseen.isEmpty, "\(unseen.count) grids went to a program at a size no commit showed: \(unseen.prefix(6))")
         #expect(rested.allSatisfy { $0.fits == $0.newest }, "after the landing a program's newest grid is not its view's: \(rested)")
