@@ -168,7 +168,8 @@ test("the fixture ranker keeps the rows in order, filtered by a case-insensitive
     { sectionIndex: 1, rows: [{ index: 1, score: 0, highlights: [] }] },
   ]);
   // The mock provider (gallery and dev loop) answers the op with it.
-  expect(await new MockHomeProvider().call(HomeOps.paletteRank, { entries, query: "TRAIN" })).toEqual({
+  const mocked = await new MockHomeProvider().call<Reply>(HomeOps.paletteRank, { entries, query: "TRAIN" });
+  expect(mocked).toEqual({
     sections: [{ sectionIndex: 0, rows: [{ index: 2, score: 0, highlights: [] }] }],
   });
 });

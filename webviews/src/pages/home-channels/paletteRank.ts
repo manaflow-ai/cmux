@@ -27,7 +27,7 @@ export interface PaletteRankReply {
 }
 
 // The daemon's caps (`palette.rank` in resource-operations-v2.json) count UTF-8 bytes; a UTF-16
-// unit is at most 3 bytes, so these lengths always fit. cap-allow: route
+// unit is at most 3 bytes, so these lengths always fit.
 /** Most rows one request carries. */
 export const MAX_RANK_ENTRIES = 5000;
 const MAX_TITLE = 170;
