@@ -235,6 +235,7 @@ fn journal(hub: &Hub, id: &str) -> Vec<Value> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_session_moved_to_a_fresh_machine_from_an_older_disk_loses_no_prompt_and_no_turn() {
     let _ = HERMETIC;
+    let _ = tracing_subscriber::fmt().with_env_filter("acpmux=info").with_test_writer().try_init();
     let home = tempfile::tempdir().unwrap();
     let (b_disk, auth) = (home.path().join("b-disk"), home.path().join("b-auth"));
     std::fs::create_dir_all(&b_disk).unwrap();
@@ -291,7 +292,24 @@ async fn a_session_moved_to_a_fresh_machine_from_an_older_disk_loses_no_prompt_a
         if events.iter().any(|e| says(e, "echo: second")) {
             break events;
         }
-        assert!(Instant::now() < deadline, "p2 never ran on the fresh machine: {events:#?}");
+        if Instant::now() >= deadline {
+            let copy = ca.call("_acpmux/peer_snapshot", json!({"sessionId": "b/moved"})).await;
+            let mut sent = vec![];
+            for d in ca.call(method::MUX_SEND_STATUS, json!({"list": true})).await["deliveries"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+            {
+                sent.push(json!([d["promptId"], d["status"], d["error"], d["attempts"]]));
+            }
+            let kinds: Vec<_> = events.iter().map(|e| json!([e["seq"], e["kind"]])).collect();
+            panic!(
+                "p2 never ran on the fresh machine.\npeers: {:?}\ncopy lastSeq {} hostLastSeq {}\nsent: {sent:?}\nB2: {kinds:?}",
+                a.peers(),
+                copy["lastSeq"],
+                copy["hostLastSeq"]
+            );
+        }
         tokio::time::sleep(Duration::from_millis(200)).await;
     };
     // Every record A saw of B is in B2's journal, with its seq.
