@@ -75,7 +75,15 @@ fn fake(
             };
             let (line, headers) =
                 head.split_once("\r\n").map_or((head.clone(), String::new()), |(l, h)| {
-                    (l.to_owned(), h.to_ascii_lowercase())
+                    let headers = h
+                        .lines()
+                        .map(|l| match l.split_once(':') {
+                            Some((name, value)) => format!("{}:{value}", name.to_ascii_lowercase()),
+                            None => l.to_owned(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    (l.to_owned(), headers)
                 });
             let request = Seen { line, headers, body };
             let reply = handler(&request);
