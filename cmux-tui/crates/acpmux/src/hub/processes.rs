@@ -547,7 +547,7 @@ impl Hub {
                 // so it is kept here.
                 let tool = params.pointer("/update/toolCallId").and_then(Value::as_str);
                 let i = tool.and_then(|tool| table.find_tool(tool));
-                let p = i.map(|i| &mut table.processes[i]);
+                let p = i.and_then(|i| table.processes.get_mut(i));
                 if let (Some(p), Some(file)) = (p, output.filter(|f| !f.is_empty()))
                     && p.output_file.is_none()
                 {
@@ -808,7 +808,7 @@ impl Hub {
                     session,
                     "mux",
                     "background_wait_ended",
-                    json!({"toolCallId": tool, "timeoutMs": params["timeoutMs"], "auto": auto}),
+                    json!({"toolCallId": tool, "timeoutMs": params.get("timeoutMs"), "auto": auto}),
                 );
                 Err(RpcError::internal("Claude Code did not answer background_tasks in time"))
             }
