@@ -133,13 +133,13 @@ public import AppKit
     }
 
     func item(_ command: MenuBarMenuSpec.Command, title: String) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: #selector(perform(_:)), keyEquivalent: "")
+        let item = NSMenuItem(title: title, action: #selector(runCommand(_:)), keyEquivalent: "")
         item.target = self
         item.representedObject = command
         return item
     }
 
-    @objc private func perform(_ sender: NSMenuItem) {
+    @objc private func runCommand(_ sender: NSMenuItem) {
         guard let command = sender.representedObject as? MenuBarMenuSpec.Command else { return }
         run(command)
     }
