@@ -66,8 +66,22 @@ _SHA256_PREFIX = re.compile(r"[0-9a-f]{12}")
 _RECEIPT_KEYS = {"version", "probeId", "startedAt", "endedAt", "outcome", "machineId", "stages"}
 _STAGE_KEYS = {"stage", "requestId", "startedAt", "endedAt", "ok"}
 _FAILURE_KEYS = {"code", "message", "retryable"}
+MAX_NUMBER = 2 ** 53
+
 def _number(value: object) -> bool:
-    return type(value) in (int, float) and math.isfinite(value)
+    """A finite int or float with abs at most 2**53; never raises (a huge int cannot become a float)."""
+    if type(value) is int:
+        return -MAX_NUMBER <= value <= MAX_NUMBER
+    if type(value) is float:
+        return math.isfinite(value) and abs(value) <= MAX_NUMBER
+    return False
+
+def _amount(value: object) -> bool:
+    """A duration or a count: a _number that is not negative."""
+    return _number(value) and value >= 0
+
+def _whole(value: object) -> bool:
+    return type(value) is int and 0 <= value <= MAX_NUMBER
 
 def _flag(value: object) -> bool:
     return type(value) is bool
@@ -87,18 +101,18 @@ def _rules_ok(value: dict[str, object], rules: dict[str, object]) -> bool:
 
 _VALUE_RULES = {
     "chat": {
-        "session_id_chars": lambda value: type(value) is int and value > 0,
+        "session_id_chars": lambda value: _whole(value) and value > 0,
         "session_id_sha256": lambda value: isinstance(value, str) and bool(_SHA256_PREFIX.fullmatch(value)),
-        "session_discovered": _flag, "reply_ms": _number, "discovery_ms": _number, "ms": _number,
+        "session_discovered": _flag, "reply_ms": _amount, "discovery_ms": _amount, "ms": _amount,
     },
     "reconnect": {
-        "pause": _object({"state": _text, "ms": _number}),
-        "resume": _object({"state": _text, "ms": _number}),
-        "link": _object({"dropped_while_paused": _flag, "back": _flag, "back_ms": _number}),
-        "second_reply": _object({"ok": _flag, "ms": _number}),
-        "reconnected": _flag, "ms": _number,
+        "pause": _object({"state": _text, "ms": _amount}),
+        "resume": _object({"state": _text, "ms": _amount}),
+        "link": _object({"dropped_while_paused": _flag, "back": _flag, "back_ms": _amount}),
+        "second_reply": _object({"ok": _flag, "ms": _amount}),
+        "reconnected": _flag, "ms": _amount,
     },
-    "lease": {"machineId": _machine, "connectionMachine": _machine, "generation": lambda value: type(value) is int},
+    "lease": {"machineId": _machine, "connectionMachine": _machine, "generation": _whole},
     "auth": {"allowed": _flag},
 }
 # Stages an ok record proves only with their evidence (_proof "ok").
@@ -188,6 +202,8 @@ def _stage_ok(value: object) -> bool:
         and _time_ms(value["endedAt"]) is not None
         and type(value["ok"]) is bool
         and ("failure" not in value or _failure_ok(value["failure"]))
+        # ok:true beside a failure, gap or not, is a contradiction; a gap stage is ok:false.
+        and not (value["ok"] and "failure" in value)
     ):
         return False
     if "value" not in value:
@@ -237,6 +253,13 @@ def _blocked(blocker: str) -> dict[str, object]:
     return {"schema": SCHEMA, "status": "blocked", "blockers": [blocker], "evidence": {}}
 
 def normalize(records: list[object]) -> dict[str, object]:
+    """The normalized verdict for RECORDS; a value no check can convert blocks as receipt_malformed, never raises."""
+    try:
+        return _normalize(records)
+    except (ValueError, OverflowError, TypeError, RecursionError):
+        return _blocked("receipt_malformed")
+
+def _normalize(records: list[object]) -> dict[str, object]:
     if not records:
         return _blocked("receipt_empty")
     receipts = [record for record in records if _is_receipt(record)]
@@ -270,7 +293,7 @@ def normalize(records: list[object]) -> dict[str, object]:
             name = item["stage"]
             took = max(0, _time_ms(item["endedAt"]) - _time_ms(item["startedAt"]))
             tried_ms[name] = max(tried_ms.get(name, 0), took)
-            if item["ok"] and "failure" not in item:
+            if item["ok"]:
                 ok_ms[name] = max(ok_ms.get(name, 0), took)
                 value = item.get("value", {})
                 proof = _proof(name, value, record["machineId"])
@@ -404,7 +427,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         normalized = normalize(load_receipt(args.receipt))
-    except (ValueError, RecursionError):  # UnicodeDecodeError and JSONDecodeError are ValueErrors.
+    except (ValueError, OverflowError, RecursionError):  # UnicodeDecodeError and JSONDecodeError are ValueErrors.
         normalized = _blocked("receipt_malformed")
     except OSError:
         normalized = _blocked("receipt_unreadable")
