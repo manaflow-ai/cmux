@@ -3650,11 +3650,36 @@ class NightlyBusy(Aborted):
     """A nightly's job started during a rate-limit wait before a retried cancel (nightly_cancel())."""
 
 
+# rescue()'s answer for an unfinished nightly.yml run. The whole nightly runs on the one nightly mini and nobody
+# cancels it (Lawrence, 2026-11-04; cmux CLAUDE.md "Nightlies run on one Mac mini, and nobody cancels them"): a
+# job waiting there has no other runner to move to, so a cancel and re-run only sends the run to the back of that
+# mini's queue. Run 41970392032 (nightly-next, 2026-11-05) was cancelled and re-run here at 05:20:14Z and again at
+# 05:57:18Z while its decide waited for the mini, and each cancel let a newer push take its group. A newer push
+# still replaces a nightly that waits pending in nightly.yml's group: GitHub does that, never this rescue.
+NIGHTLY_NEVER_CANCELLED = ("not rescued: a nightly run is never cancelled; it waits for the nightly mini, and only "
+                           "GitHub's concurrency group replaces a nightly that has not started")
+
+
+def nightly_left(result: str) -> bool:
+    """Whether rescue() left a nightly as it is (NIGHTLY_BUSY, NIGHTLY_NEVER_CANCELLED): follow() watches it on, so a
+    job the fleet refuses still gets its re-run once the run finishes."""
+    return result.startswith(NIGHTLY_BUSY) or result.startswith(NIGHTLY_NEVER_CANCELLED)
+
+
+class NightlyNeverCancelled(NightlyBusy):
+    """nightly_cancel() refused a nightly.yml run (NIGHTLY_NEVER_CANCELLED). A NightlyBusy, so every caller that
+    leaves a busy nightly alone leaves this one alone too."""
+
+
 def nightly_cancel(api: GitHub, target: Target, sleep: Callable[[float], None], log: Callable[[str], None],
                    before_cancel: Callable[[], None] | None = None) -> None:
-    """api.cancel. For a nightly, its guard runs right before the cancel is sent and before every re-send
-    (GitHub.cancel()'s before_send): it drops the cancel once the run moved to another attempt or finished, and
-    raises NightlyBusy once a job of it runs. `before_cancel` (rescue()'s own guard) runs first."""
+    """api.cancel. Never for a nightly.yml run (NightlyNeverCancelled). For another delivery run, its guard runs
+    right before the cancel is sent and before every re-send (GitHub.cancel()'s before_send): it drops the cancel
+    once the run moved to another attempt or finished, and raises NightlyBusy once a job of it runs.
+    `before_cancel` (rescue()'s own guard) runs first."""
+    if target.nightly or target.path == NIGHTLY_WORKFLOW_PATH:
+        raise NightlyNeverCancelled(f"nightly run {target.run_id}")
+
     def check() -> None:
         if before_cancel is not None:
             before_cancel()
@@ -4429,6 +4454,12 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     red = nightly_compile_red(api, target, sleep, log)
     if red:
         return compile_red_answer(red)
+    if target.nightly:
+        # An unfinished nightly is never cancelled (NIGHTLY_NEVER_CANCELLED); a finished one may still have its
+        # refused jobs re-run below, which cancels nothing.
+        run = read(lambda: api.run(target.run_id), sleep, log) or {}
+        if run.get("status") != "completed":
+            return NIGHTLY_NEVER_CANCELLED
     moved = "" if keep_main else pull_moved(api, target, sleep, log)
     if moved and target.push_branch and target.path == CMUX_NEXT_WORKFLOW_PATH:
         # cmux-next.yml queues each push Mac job in a group per branch (one
@@ -4936,11 +4967,13 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
             log(result)
             # The run changed since the look (a job started, a sibling came back, a nightly job began running
             # just before the cancel): watch on, the next look decides.
-            if not (result.startswith(SIGN_NOT_YET) or result.startswith(NIGHTLY_BUSY)):
+            if not (result.startswith(SIGN_NOT_YET) or nightly_left(result)):
                 return outcome, reason, held, "done"
             if clock() >= deadline:
                 return outcome, reason, held, ("stopped: watch limit reached with a started nightly still running"
-                                               if result.startswith(NIGHTLY_BUSY) else "done")
+                                               if result.startswith(NIGHTLY_BUSY) else
+                                               "stopped: watch limit reached; a nightly run is never cancelled"
+                                               if result.startswith(NIGHTLY_NEVER_CANCELLED) else "done")
             sleep(POLL_SECONDS)
             outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
                                     log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen,
@@ -5028,7 +5061,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                         refused=(outcome == "refused") if target.e2e or target.side else None,
                         refusal=outcome == "refused", first_seen=seen)
         log(result)
-        if result.startswith(NIGHTLY_BUSY) or result.startswith(PUSH_TIP_LEFT):
+        if nightly_left(result) or result.startswith(PUSH_TIP_LEFT):
             # A sibling started after the look: watch on, as before, until nothing else runs or the watch ends.
             # A push run left at its tip is looked at again every FAILOVER_LOOK_SECONDS: its label may go quiet
             # (the failover), or a newer push may supersede it (superseded_push_cancel()).

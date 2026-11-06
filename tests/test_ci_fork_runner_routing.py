@@ -320,9 +320,6 @@ def runner_label_errors(runs_on: str) -> list[str]:
 # job that runs on a reused owned machine by design and still holds a secret there: each needs
 # its secret moved to a separate job on an ephemeral label, as #27622 did for the dogfood capture.
 SECRET_RUNNER_EXCEPTIONS = {
-    ("nightly.yml", "generate-nightly-deltas"):
-        "pick-classic-sign-runner's output, which names only Blacksmith macOS labels "
-        "(classic_nightly_build_runner.py), else the literal Blacksmith fallback",
     ("nightly.yml", "build-sign-notarize-nightly"):
         "the same picker as generate-nightly-deltas: only Blacksmith macOS labels",
     ("cmux-next-dev-daily.yml", "tip-deltas"):
