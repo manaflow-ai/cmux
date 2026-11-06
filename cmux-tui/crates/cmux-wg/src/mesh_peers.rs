@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::time::Duration;
 
 use boringtun::noise::Tunn;
 use ip_network::IpNetwork;
@@ -21,16 +20,6 @@ use crate::timers::TimerSchedule;
 /// receiver index it hands out; the low 8 bits count sessions.
 const INDEX_BITS: u32 = 24;
 const INDEX_MASK: u32 = (1 << INDEX_BITS) - 1;
-/// How often a dial that waits on a handshake sends another initiation.
-/// boringtun resends only after REKEY_TIMEOUT (5 s) plus jitter, as long as
-/// `cmux link`'s whole dial: a dial whose first initiation was dropped (a
-/// just-created Cloud VM's receiver that did not hold this key yet) sent
-/// one initiation and never saw an answer.
-const HANDSHAKE_RESEND: Duration = Duration::from_secs(1);
-/// How long after its last queued packet a dial still counts as waiting:
-/// TCP resends a SYN while its dial lasts, so a dial that gave up stops
-/// the resends within this.
-const WAIT_WINDOW: Duration = Duration::from_secs(5);
 
 pub(crate) struct Peer {
     pub(crate) tunn: Tunn,
@@ -41,11 +30,6 @@ pub(crate) struct Peer {
     /// latest authenticated datagram (a UDP address or a gateway).
     pub(crate) route: Option<PeerRoute>,
     pub(crate) schedule: TimerSchedule,
-    /// When a packet was last queued for want of a session (a dial waiting
-    /// on the handshake).
-    pub(crate) waiting: Option<Instant>,
-    /// When this side last sent the peer a handshake initiation.
-    pub(crate) initiated: Option<Instant>,
 }
 
 impl Peer {
@@ -61,18 +45,6 @@ impl Peer {
             self.route = Some(source);
         }
         self.schedule.on_activity(now);
-    }
-
-    /// Whether a dial waits on this peer's handshake and the last initiation
-    /// is [`HANDSHAKE_RESEND`] old: the driver then sends a new one.
-    pub(crate) fn resend_due(&mut self, now: Instant) -> bool {
-        if self.tunn.time_since_last_handshake().is_some()
-            || self.waiting.is_none_or(|since| now >= since + WAIT_WINDOW)
-        {
-            self.waiting = None;
-            return false;
-        }
-        self.initiated.is_none_or(|sent| now >= sent + HANDSHAKE_RESEND)
     }
 }
 
@@ -184,8 +156,6 @@ impl PeerTable {
             allowed_ips: peer.allowed_ips,
             route: peer.route.or(previous.and_then(|old| old.route)),
             schedule: TimerSchedule::new(now, keepalive),
-            waiting: None,
-            initiated: None,
         };
         self.by_index.insert(index, peer.public_key);
         self.peers.entry(peer.public_key).or_insert(entry)
