@@ -242,8 +242,7 @@ struct CloudStartSession {
         try still(name)
         try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
         if let refusal = session.harnessLogin?.refusal {
-            let reason: CloudStartSessionStrings.LoginRefusal = refusal == .machineLoginMissing ? .machineLoginMissing : refusal == .consentFirst ? .consentFirst : .loginNeeded
-            throw ActionFailure(message: CloudStartSessionStrings.loginRefused(reason, request.asked(machine: name)))
+            throw ActionFailure(message: CloudStartSessionStrings.loginRefused(Self.loginRefusal(refusal), request.asked(machine: name)))
         }
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
@@ -277,7 +276,7 @@ struct CloudStartSession {
                 started = try await Self.starting(name: name, id: id, agent: agent, account: account, now: { services.cloud.account }, asked: request.asked(machine: name)) {
                     try await CloudWait.retriedOnce({ try await remote.startNow(cwd: cwd, harness: agent) { @MainActor [services] in
                         try Self.check(account, now: services.cloud.account, CloudStartSessionStrings.Asked(machine: name, agent: agent, command: command))
-                    } }, closed: { if case DaemonError.connectionClosed = $0 { true } else { false } }, relink: { await session.linkUp(within: Self.connectWait) && session.linkHeld() })
+                    } }, closed: CloudWait.linkDropped, relink: { await session.linkUp(within: Self.connectWait) && session.linkHeld() })
                 }
             case let refused as AgentTabRefusedHost: throw refused.refusal
             default: throw AgentRemoteStartRefusal.startUnsupported(machine: name)
@@ -323,6 +322,11 @@ struct CloudStartSession {
             try check(account, now: now(), asked)
             throw AccountChanged(failure: ActionFailure(message: CloudStartSessionStrings.tabClosed(name, id: id, agent: agent)))
         }
+    }
+
+    /// The words a refused harness login gets (the strings module doesn't know the login's own reasons).
+    static func loginRefusal(_ refusal: CloudHarnessLoginDecision.Reason) -> CloudStartSessionStrings.LoginRefusal {
+        refusal == .machineLoginMissing ? .machineLoginMissing : refusal == .consentFirst ? .consentFirst : .loginNeeded
     }
 
     /// A refusal that passes a step's error mapping as it is: the account changed since the ask, or a step's precondition failed.
@@ -423,11 +427,11 @@ struct CloudStartSession {
             let origin: CloudLinkOrigin = byPerson ? .user : .script
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
         }
-        // An update of this machine already running when the start came (one that begins later finds the start in
-        // ``CloudStartGate``) restarts the daemon: the agent starts once it ended and the link is back.
+        // An update of this machine already running when the start came (one that begins later finds the start in ``CloudStartGate``)
+        // restarts the daemon: the agent starts once it ended and the link is back. The one more dial may resume it: the asking account's only.
         let up = await CloudWait.linkedAgain({ await CloudWait.linked(within: Self.connectWait, { await session.linkUp(within: Self.connectWait) }) {
             [policy = services.daemonUpdates.policy, id = CloudMachineUpdateTarget.id(session.machineID)] in await policy.turnRunning(id)
-        } }, held: session.linkHeld, redialable: { session.resumeFailure == nil && session.linkEnded != nil && session.dropRedial.lastEndRedialable }, again: session.retryNow)
+        } }, held: session.linkHeld, redialable: { account == services.cloud.account && session.resumeFailure == nil && session.linkEnded != nil && session.dropRedial.lastEndRedialable }, again: session.retryNow)
         // A sign-out, team switch or cancellation during the wait is that, not a machine that didn't connect.
         try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
         guard up else { throw failure() }

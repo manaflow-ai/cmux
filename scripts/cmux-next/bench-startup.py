@@ -875,15 +875,58 @@ def reset_state(tag):
         shutil.rmtree(directory, ignore_errors=True)
 
 
+def user_temp_dir():
+    """The user temp folder the app starts its daemon in (`TMPDIR`, DaemonLauncher.userTemporaryDirectory: confstr
+    _CS_DARWIN_USER_TEMP_DIR, else /tmp), never this process's $TMPDIR, which an SSH or fleet step leaves unset."""
+    out = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    return out or "/tmp"
+
+
+def app_session(tag):
+    """The tag's app daemon session, from its bundle (BuildIdentity.appSession, mirrored by build_names.py):
+    `cmux-app-<tag>` for a kept name (reload.sh and fleet builds, `com.cmuxterm.app.debug.<a.b>`), else
+    `cmux-app--<key hash>` (a copy whose bundle id does not end in its tag)."""
+    try:
+        from build_names import of_app  # noqa: E402
+        return of_app(bundle_path(tag))["session"]
+    except (ImportError, OSError, ValueError, SystemExit):
+        return f"cmux-app-{tag}"
+
+
+# cmux_unix_socket::MAX_PATH_BYTES on macOS: sun_path is 104 bytes with its NUL.
+SOCKET_PATH_MAX = 103
+
+
+def session_socket_path(session, base, uid=None):
+    """The socket cmux-tui listens on for `session` when its owner runs with TMPDIR=`base` and no XDG_RUNTIME_DIR
+    (how the app starts it): cmux-tui-core server/socket_path.rs default_socket_path_in_runtime_dir.
+    <base>/cmux-tui-<uid>/<session>.sock when it fits sun_path, else /tmp/cmux-tui-<uid>/<session>.sock, else the
+    session's sha256 under <base>/cmux-tui-hashed-<uid>/, else under /tmp/cmux-tui-hashed-<uid>/. A chrome-parity-*
+    tag is long enough that its owner listens in /tmp (cmux22: 105 bytes in /var/folders/.../T/)."""
+    import hashlib
+    uid = os.getuid() if uid is None else uid
+
+    def fits(path):
+        return len(os.fsencode(path)) <= SOCKET_PATH_MAX
+
+    name = f"{session}.sock"
+    for path in (os.path.join(base, f"cmux-tui-{uid}", name), os.path.join("/tmp", f"cmux-tui-{uid}", name)):
+        if fits(path):
+            return path
+    digest = hashlib.sha256(session.encode()).hexdigest() + ".sock"
+    hashed = os.path.join(base, f"cmux-tui-hashed-{uid}", digest)
+    return hashed if fits(hashed) else os.path.join("/tmp", f"cmux-tui-hashed-{uid}", digest)
+
+
 def daemon_socket(tag, timeout=20):
-    tmp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    """The tag's app daemon socket, once it exists: the one path cmux-tui gives the bundle's session."""
+    path = session_socket_path(app_session(tag), user_temp_dir())
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        found = glob.glob(os.path.join(tmp, "cmux-tui-*", f"cmux-app-{tag}.sock"))
-        if found:
-            return found[0]
-        time.sleep(0.2)
-    raise SystemExit(f"tag {tag}: no daemon socket")
+        if os.path.exists(path):
+            return path
+        time.sleep(0.2)  # bench: waits for the owner to bind, bounded by the deadline
+    raise SystemExit(f"tag {tag}: no daemon socket at {path}")
 
 
 def app_client(tag, timeout=30):
@@ -1096,11 +1139,11 @@ def one_run(tag, mode, timeout, profile=None):
         if tag_daemon_pids(tag):
             raise SystemExit(f"tag {tag}: daemon processes did not exit")
     elif mode == "restart":
-        if not owner_pids(f"cmux-app-{tag}"):
+        if not owner_pids(app_session(tag)):
             prime = Launch(tag, scratch)
             prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
             prime.quit()
-        stop(owner_pids(f"cmux-app-{tag}"))
+        stop(owner_pids(app_session(tag)))
     elif not [p for p in tag_pids(tag) if p not in app_pids(tag)]:
         prime = Launch(tag, scratch)
         prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
@@ -1215,7 +1258,7 @@ def daemon_side(tag, runs):
     binary = os.path.join(os.path.dirname(os.path.dirname(app_binary(tag))), "Resources/bin/cmux-tui")
     if app_pids(tag):
         raise SystemExit(f"tag {tag} has an app running; quit it first")
-    tmp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    tmp = user_temp_dir()
     state = os.path.join(app_support_tag(tag), "tui")
 
     def env(state_dir):
@@ -1230,7 +1273,7 @@ def daemon_side(tag, runs):
     rows = {}
     for _ in range(runs):
         rows.setdefault("spawn cmux-tui --version", []).append(timed(["--version"], state)[0])
-        session = f"cmux-app-{tag}"
+        session = app_session(tag)
         stop(owner_pids(session))
         ms, out = timed(["--session", session, "--json", "server", "ensure"], state)
         rows.setdefault("server ensure, state kept (adopt hosts)", []).append(ms)

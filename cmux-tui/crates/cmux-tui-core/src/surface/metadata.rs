@@ -27,6 +27,57 @@ impl Surface {
         }
     }
 
+    /// The newest finished shell command this terminal's tracker kept
+    /// (`shell_history::Recording`), if any.
+    pub(crate) fn last_finished_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        self.as_pty().and_then(|pty| pty.last_finished_command())
+    }
+
+    /// The command a park keeps for the freed shell: the one that runs now
+    /// (it ends with the shell), else the newest finished one.
+    pub(crate) fn kept_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        self.as_pty().and_then(|pty| pty.kept_command())
+    }
+
+    /// Finish `command` with `exit_code` on this terminal's tracker, as the
+    /// shell's OSC 133 marks do.
+    #[cfg(test)]
+    pub(crate) fn finish_command_for_test(&self, command: &str, exit_code: i32) {
+        struct Line<'a>(&'a str);
+        impl crate::shell_history::CommandScreen for Line<'_> {
+            fn input_text(&mut self) -> Option<String> {
+                Some(self.0.to_owned())
+            }
+            fn cwd(&mut self) -> Option<String> {
+                None
+            }
+        }
+        let pty = self.as_pty().expect("a PTY surface");
+        let mut tracker = pty.command_tracker.lock().unwrap();
+        let start = crate::shell_history::ShellMark::CommandStart;
+        tracker.apply(start, 1_000, &mut Line(command));
+        let end = crate::shell_history::ShellMark::CommandEnd { exit_code: Some(exit_code) };
+        tracker.apply(end, 3_000, &mut Line(""));
+    }
+
+    /// Start `command` on this terminal's tracker (OSC 133 C) without
+    /// finishing it, as a dev server that still runs.
+    #[cfg(test)]
+    pub(crate) fn start_command_for_test(&self, command: &str) {
+        struct Line<'a>(&'a str);
+        impl crate::shell_history::CommandScreen for Line<'_> {
+            fn input_text(&mut self) -> Option<String> {
+                Some(self.0.to_owned())
+            }
+            fn cwd(&mut self) -> Option<String> {
+                None
+            }
+        }
+        let pty = self.as_pty().expect("a PTY surface");
+        let start = crate::shell_history::ShellMark::CommandStart;
+        pty.command_tracker.lock().unwrap().apply(start, 5_000, &mut Line(command));
+    }
+
     pub fn pwd(&self) -> Option<String> {
         self.as_pty().and_then(|pty| pty.pwd.lock().unwrap().clone())
     }

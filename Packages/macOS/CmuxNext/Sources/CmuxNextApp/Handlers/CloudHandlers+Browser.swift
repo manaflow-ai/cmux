@@ -69,11 +69,7 @@ extension CloudHandlers {
             let names = CloudPortNames(session, port: port)
             answer("share machine preview", invocation, context, pendingAfter: answerWithin,
                    pending: ["machine_id": .string(session.machineID), "port": .int(port)]) {
-                guard let api = context.services.cloud.previewAPI else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
-                let created = try await wrapped(names) { try await api.createPreviewShareLink(session.machineID, port: port) }
-                guard let url = URL(string: created.url), url.scheme == "https", url.user == nil, url.password == nil else {
-                    throw ActionFailure(message: CloudPortStrings.failed(names, detail: "the platform returned an invalid share URL"))
-                }
+                let created = try await previewShareLink(context.services.cloud.previewAPI, machine: session.machineID, port: port, names: names)
                 context.copy(created.url)
                 return CloudAnswer(title: CloudPortStrings.previewLinkCopied, text: created.url, fields: [
                     "machine_id": .string(session.machineID), "port": .int(port),
@@ -105,7 +101,6 @@ extension CloudHandlers {
             let session = try machine(invocation, context)
             let port = invocation["port"] == nil ? nil : try Self.port(invocation, session, verb: "machine-link")
             let names = CloudPortNames(session, port: port)
-            let cloud = context.services.cloud
             answer("machine link", invocation, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID)]) {
                 var fields: [String: ActionResultValue] = ["machine_id": .string(session.machineID), "target": .string("machine:\(session.machineID)")]
                 let address = session.machine.address?.ipv4
@@ -116,12 +111,26 @@ extension CloudHandlers {
                 fields["port"] = .int(port)
                 if let address { fields["private_url"] = .string("http://\(address):\(port)") }
                 guard session.machine.allows(.ports) else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
-                let link = try await wrapped(names) { try await cloud.api.openPort(session.machineID, port: port) }
+                let link = try await previewShareLink(context.services.cloud.previewAPI, machine: session.machineID, port: port, names: names)
                 fields["url"] = .string(link.url)
-                if let open = link.openUrl { fields["open_url"] = .string(open) }
-                return CloudAnswer(title: CloudPortStrings.title, text: link.openUrl ?? link.url, fields: fields)
+                fields["linkId"] = .string(link.link.linkId)
+                fields["expiresAt"] = .int(link.link.expiresAt)
+                return CloudAnswer(title: CloudPortStrings.title, text: link.url, fields: fields)
             }
         }
+    }
+
+    /// `port`'s link (Copy Link, `cloud machine-link --port`, `cloud preview-share`): the platform's
+    /// anonymous, expiring share link (`POST /v1/cloud/machines/{id}/previews/{port}/links`), https
+    /// only. With no platform preview origin (`api` nil) there is none.
+    @MainActor
+    static func previewShareLink(_ api: CloudAPIClient?, machine: String, port: Int, names: CloudPortNames) async throws -> CloudPreviewShareLinkCreated {
+        guard let api else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
+        let created = try await wrapped(names) { try await api.createPreviewShareLink(machine, port: port) }
+        guard let url = URL(string: created.url), url.scheme == "https", url.user == nil, url.password == nil else {
+            throw ActionFailure(message: CloudPortStrings.failed(names, detail: "the platform returned an invalid share URL"))
+        }
+        return created
     }
 
     /// Opens `port` (at `path`) of the machine in a Chromium tab and answers the URL and the tab.

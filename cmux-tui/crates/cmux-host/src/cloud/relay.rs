@@ -18,11 +18,24 @@
 //!
 //! The thread reconnects with backoff (1 s doubling to 30 s), minting a fresh
 //! bearer each time, and pings every 20 s; a socket with no answer for 60 s
-//! is dropped and dialed again.
+//! is dropped and dialed again. A wake from a pause ([`Relay::resumed`], or
+//! the wall clock leaping between pings) drops the socket and dials again at
+//! once, on a fresh HTTPS connection: the thread's own clock stood still
+//! through the pause, so the old socket looks alive here while the platform
+//! may send the next chat down it.
+//!
+//! acpmux owns a chat's turn; the socket only watches it (cmux-platform `plans/cloud/ARCHITECTURE-2026-11.md`, I1:
+//! the acpmux session is the source of truth). A socket that drops, for any reason, ends no turn: the chat runs on,
+//! and its events wait for the next socket. A cmux-host that stops for a restart ([`Relay::detach`]) leaves the turn
+//! running in acpmux too; when the platform sends the chat again, the next cmux-host reattaches (`acp new --reuse`
+//! finds the chat's session, and `acp send` with the same prompt id answers the first run's outcome without running
+//! the prompt again). Only a `cancel` from the platform or a revocation (the Relay dropped by a rebind) ends a turn.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -42,6 +55,32 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// Chats run at once; the platform holds at most 8 per machine.
 const MAX_CHATS: usize = 8;
 const MAX_PROMPT_BYTES: usize = 256 * 1024;
+
+/// The chats this machine is running for the relay, from a chat's arrival to its last event up. The updater
+/// (`updater::role`) waits while any runs: its restart of cmux-host ends this socket, and the chat waits for the
+/// next cmux-host to reattach.
+static RUNNING_CHATS: AtomicUsize = AtomicUsize::new(0);
+
+/// How many relay chats run now.
+pub fn running_chats() -> usize {
+    RUNNING_CHATS.load(Ordering::SeqCst)
+}
+
+/// One running chat in a count, until it is dropped: with its task, also when the task is aborted before it ran.
+pub(crate) struct Running(&'static AtomicUsize);
+
+impl Running {
+    pub(crate) fn start(count: &'static AtomicUsize) -> Running {
+        count.fetch_add(1, Ordering::SeqCst);
+        Running(count)
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 /// A chat the platform sent down, checked.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -174,6 +213,23 @@ pub fn cancel_args(session: &str) -> Vec<String> {
     ["acp", "cancel", session].iter().map(|s| (*s).to_owned()).collect()
 }
 
+/// `acp last`'s arguments: the session's last replies.
+pub fn last_args(session: &str) -> Vec<String> {
+    ["acp", "--json", "last", session].iter().map(|s| (*s).to_owned()).collect()
+}
+
+/// The newest reply `acp --json last` printed (`{sessionId, replies: [...]}`), else `None`.
+pub fn last_reply(stdout: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(stdout.trim()).ok()?;
+    v.get("replies")?.as_array()?.last()?.as_str().map(str::to_owned)
+}
+
+/// Whether `acp --json new --reuse` found the session there already (`reused: true`).
+pub fn reused_session(stdout: &str) -> bool {
+    serde_json::from_str::<Value>(stdout.trim())
+        .is_ok_and(|v| v.get("reused").and_then(Value::as_bool) == Some(true))
+}
+
 /// The acpmux session id `acp --json new` printed, else `None`.
 pub fn created_session(stdout: &str) -> Option<String> {
     let v: Value = serde_json::from_str(stdout.trim()).ok()?;
@@ -227,6 +283,12 @@ pub fn final_event(exit: Option<i32>, stdout: &str, stderr: &str) -> Value {
 
 /// [`final_event`], where `cut` says the send's output passed [`MAX_SEND_OUT`]: its object is not whole, so
 /// `done` carries no `reply` (the streamed `text` events stand) and says so with `reply_cut`.
+///
+/// A failure keeps acpmux's type: its `--json` error envelope (`cli/errors.rs`, the last stderr line) gives the
+/// `detail` (`daemon_closed`, `trust_required`, ...), acpmux's own `code`, `retryable`, the `errorKind` and a closed
+/// daemon's `cause` (`panicked`, `crashed`, `socket_left`, ...: acpmux `client::closed_cause`) and its `recovery`, so a
+/// closed daemon, a refused permission and an auth failure stay told apart past the relay (hq#7086). Only short
+/// code-shaped words go up beside acpmux's sentence; stderr with no envelope stays a plain failure.
 pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) -> Value {
     if exit == Some(0) {
         if cut {
@@ -242,6 +304,22 @@ pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) 
         }
         return done;
     }
+    let line = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+    let envelope = serde_json::from_str::<Value>(line)
+        .ok()
+        .and_then(|v| v.get("error").cloned())
+        .filter(|e| e.get("code").is_some_and(Value::is_string));
+    let word = |key: &str| {
+        envelope
+            .as_ref()
+            .and_then(|e| e.pointer(key))
+            .and_then(Value::as_str)
+            .filter(|w| code_like(w))
+    };
+    // A signal leaves no exit status: the envelope's own exit decides then.
+    let exit = exit.or_else(|| {
+        envelope.as_ref().and_then(|e| e.get("exit")).and_then(Value::as_i64).map(|x| x as i32)
+    });
     // acpmux's exit codes (cli/errors.rs `Code`).
     let code = match exit {
         Some(3) => "chat.timeout",
@@ -249,8 +327,38 @@ pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) 
         Some(5) => "chat.permission_denied",
         _ => "chat.failed",
     };
-    let line = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
-    json!({"kind": "error", "code": code, "message": line.chars().take(300).collect::<String>()})
+    let message =
+        envelope.as_ref().and_then(|e| e.get("message")).and_then(Value::as_str).unwrap_or(line);
+    let mut event = json!({"kind": "error", "code": code, "message": message.chars().take(300).collect::<String>()});
+    if let (Some(e), Some(o)) = (&envelope, event.as_object_mut()) {
+        for (from, to) in [
+            ("/code", "acpmux_code"),
+            ("/detail", "detail"),
+            ("/errorKind", "error_kind"),
+            ("/data/cause", "cause"),
+        ] {
+            if let Some(w) = word(from) {
+                o.insert(to.to_owned(), json!(w));
+            }
+        }
+        if let Some(retryable) = e.get("retryable").and_then(Value::as_bool) {
+            o.insert("retryable".to_owned(), json!(retryable));
+        }
+        // What to do about it (acpmux `recovery.rs`): acpmux's own sentence, bounded as the message is.
+        if let Some(recovery) =
+            e.get("recovery").and_then(Value::as_str).filter(|r| !r.trim().is_empty())
+        {
+            o.insert("recovery".to_owned(), json!(recovery.chars().take(300).collect::<String>()));
+        }
+    }
+    event
+}
+
+/// A short code (`daemon_closed`, `auth.signed_out`): never a sentence, a path or a value.
+fn code_like(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_.-".contains(&b))
 }
 
 /// `https://x` to `wss://x/v1/cloud/machines/{machine}/relay`.
@@ -312,9 +420,12 @@ impl Runner {
 }
 
 /// The relay thread; dropping it stops the thread at once: its socket closes and that socket's chats end (a
-/// rebind must not leave the old machine's socket taking chats).
+/// rebind must not leave the old machine's socket taking chats). [`Relay::detach`] stops it without ending them.
 pub struct Relay {
     stop: watch::Sender<bool>,
+    resumed: watch::Sender<u64>,
+    /// Set by [`Relay::detach`] before the stop: the chats' turns run on in acpmux.
+    detached: Arc<AtomicBool>,
 }
 
 impl Drop for Relay {
@@ -362,19 +473,84 @@ impl Relay {
         log: fn(&str),
     ) -> std::io::Result<Relay> {
         let (stop, stopping) = watch::channel(false);
+        let (resumed, resumes) = watch::channel(0);
+        let detached = Arc::new(AtomicBool::new(false));
+        let owned = detached.clone();
         std::thread::Builder::new()
             .name("cmux-host-relay".to_owned())
-            .spawn(move || run(client, runner, now_wall_ms, log, stopping))?;
-        Ok(Relay { stop })
+            .spawn(move || run(client, runner, now_wall_ms, log, stopping, resumes, owned))?;
+        Ok(Relay { stop, resumed, detached })
+    }
+
+    /// The machine woke from a pause (`HostEvent::Resumed`): the socket is dropped and dialed again at once, its
+    /// chats carried on, and the bearer minted on a fresh HTTPS connection.
+    pub fn resumed(&self) {
+        self.resumed.send_modify(|n| *n = n.wrapping_add(1));
+    }
+
+    /// Stops the thread as cmux-host shuts down (a restart, an update): the socket closes and the chats' `acp send`
+    /// clients end, but their turns run on in acpmux, which owns them; the next cmux-host reattaches when the
+    /// platform sends a chat again. Only a `cancel` or a revocation (dropping the Relay) ends a turn.
+    pub fn detach(self) {
+        self.detached.store(true, Ordering::SeqCst);
+    }
+}
+
+/// How the relay reaches a socket: a fresh bearer, then [`serve`] until the socket ends. Tests dial a local one.
+trait Dial {
+    /// The next bearer goes on a fresh HTTPS connection: after a pause the pooled one is stale.
+    fn reset_transport(&mut self);
+    /// One socket, until it ends; `None` once `stop` came first.
+    fn serve(
+        &mut self,
+        rt: &tokio::runtime::Runtime,
+        stop: &mut watch::Receiver<bool>,
+        link: &mut Link,
+        resumes: &mut watch::Receiver<u64>,
+        seen: u64,
+    ) -> Option<Result<Ended, String>>;
+}
+
+/// The platform's `MachineRelay`, as this machine's VM install.
+struct Platform<H: Http> {
+    client: CloudClient<H>,
+    url: String,
+    runner: Runner,
+    now_wall_ms: fn() -> u64,
+}
+
+impl<H: Http> Dial for Platform<H> {
+    fn reset_transport(&mut self) {
+        self.client.reset_transport();
+    }
+
+    fn serve(
+        &mut self,
+        rt: &tokio::runtime::Runtime,
+        stop: &mut watch::Receiver<bool>,
+        link: &mut Link,
+        resumes: &mut watch::Receiver<u64>,
+        seen: u64,
+    ) -> Option<Result<Ended, String>> {
+        match self.client.token((self.now_wall_ms)()) {
+            Ok(token) => {
+                let serving =
+                    serve(&self.url, &token, &self.runner, link, resumes, seen, self.now_wall_ms);
+                rt.block_on(or_stop(stop, serving))
+            }
+            Err(e) => Some(Err(format!("token: {e}"))),
+        }
     }
 }
 
 fn run<H: Http>(
-    mut client: CloudClient<H>,
+    client: CloudClient<H>,
     runner: Runner,
     now_wall_ms: fn() -> u64,
     log: fn(&str),
     mut stop: watch::Receiver<bool>,
+    mut resumes: watch::Receiver<u64>,
+    detached: Arc<AtomicBool>,
 ) {
     if !child_waits_work() {
         return log(
@@ -389,19 +565,42 @@ fn run<H: Http>(
     let Some(url) = relay_url(bound.env.platform_origin(), &bound.machine) else {
         return log("relay: no relay URL for this machine");
     };
+    let mut platform = Platform { client, url, runner, now_wall_ms };
+    relay_loop(&rt, &mut platform, log, &mut stop, &mut resumes, detached);
+    // Dropping the runtime drops every chat task left, which kills its acpmux children (kill_on_drop).
+}
+
+/// Dials, serves and dials again until `stop`.
+fn relay_loop(
+    rt: &tokio::runtime::Runtime,
+    dial: &mut impl Dial,
+    log: fn(&str),
+    stop: &mut watch::Receiver<bool>,
+    resumes: &mut watch::Receiver<u64>,
+    detached: Arc<AtomicBool>,
+) {
     let mut backoff = Duration::from_secs(1);
     let mut last_error = String::new();
+    let mut seen = *resumes.borrow();
+    // The chats outlive every socket: each end leaves them running, and the next socket carries their events.
+    let mut link = Link::new(detached);
     while !*stop.borrow() {
-        let outcome = match client.token(now_wall_ms()) {
-            Ok(token) => match rt.block_on(or_stop(&mut stop, serve(&url, &token, &runner))) {
-                Some(outcome) => outcome,
-                None => break,
-            },
-            Err(e) => Err(format!("token: {e}")),
-        };
+        // A resume while no socket was up: the pooled HTTPS connection is as stale as the socket was.
+        if *resumes.borrow() != seen {
+            seen = *resumes.borrow();
+            dial.reset_transport();
+        }
+        let Some(outcome) = dial.serve(rt, stop, &mut link, resumes, seen) else { break };
         match outcome {
+            Ok(Ended::Resumed) => {
+                log("relay: the machine resumed; dialing again");
+                seen = *resumes.borrow();
+                dial.reset_transport();
+                backoff = Duration::from_secs(1);
+                continue;
+            }
             // A socket that was up resets the backoff.
-            Ok(()) => backoff = Duration::from_secs(1),
+            Ok(Ended::Dropped) => backoff = Duration::from_secs(1),
             Err(e) => {
                 if e != last_error {
                     log(&format!("relay: {e}"));
@@ -410,21 +609,34 @@ fn run<H: Http>(
                 backoff = (backoff * 2).min(Duration::from_secs(30));
             }
         }
-        pause(&rt, &mut stop, backoff);
+        pause(rt, stop, resumes, seen, backoff);
     }
-    // Dropping the runtime drops every chat task left, which kills its acpmux children (kill_on_drop).
+    // `link` goes here, aborting its chats; their tasks are dropped with the runtime.
 }
 
-/// Waits out `backoff` on the relay thread's own runtime, unless `stop` comes first. The timer is made inside the
-/// runtime: this thread is in none, and a `Sleep` made here panics, which ended the relay for good.
-fn pause(rt: &tokio::runtime::Runtime, stop: &mut watch::Receiver<bool>, backoff: Duration) {
+/// Waits out `backoff` on the relay thread's own runtime, unless `stop` or a resume past `seen` comes first. The
+/// timer is made inside the runtime: this thread is in none, and a `Sleep` made here panics, which ended the relay
+/// for good.
+fn pause(
+    rt: &tokio::runtime::Runtime,
+    stop: &mut watch::Receiver<bool>,
+    resumes: &mut watch::Receiver<u64>,
+    seen: u64,
+    backoff: Duration,
+) {
     rt.block_on(async {
-        or_stop(stop, tokio::time::sleep(backoff)).await;
+        or_stop(stop, async {
+            tokio::select! {
+                () = tokio::time::sleep(backoff) => {}
+                Ok(_) = resumes.wait_for(|n| *n != seen) => {}
+            }
+        })
+        .await;
     });
 }
 
-/// One connection, until it drops. `Ok` once it was up.
-/// The running chats of one socket; dropping it aborts them, which kills their acpmux children (kill_on_drop).
+/// The running chats; dropping them aborts them, which kills their acpmux children (kill_on_drop) and cancels their
+/// turns unless the Relay was detached ([`CancelTurn`]).
 #[derive(Default)]
 struct Chats(HashMap<String, tokio::task::AbortHandle>);
 
@@ -436,7 +648,54 @@ impl Drop for Chats {
     }
 }
 
-async fn serve(url: &str, token: &str, runner: &Runner) -> Result<(), String> {
+/// The relay's chats and the frames they queued, for whichever socket is up: they outlive every socket.
+struct Link {
+    chats: Chats,
+    tx: mpsc::Sender<String>,
+    rx: mpsc::Receiver<String>,
+    /// The Relay's [`Relay::detach`] mark, read when a chat is dropped.
+    detached: Arc<AtomicBool>,
+}
+
+impl Link {
+    fn new(detached: Arc<AtomicBool>) -> Link {
+        // Bounded: a slow socket holds the chats' readers back (and so acpmux's output) instead of queueing
+        // without end.
+        let (tx, rx) = up_queue();
+        Link { chats: Chats::default(), tx, rx, detached }
+    }
+}
+
+impl Default for Link {
+    fn default() -> Link {
+        Link::new(Arc::default())
+    }
+}
+
+/// How a socket that was up ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Ended {
+    Dropped,
+    /// The machine woke from a pause; its chats go on to the next socket.
+    Resumed,
+}
+
+/// Whether the wall clock leapt past [`DEAD_AFTER`] between two ping ticks: the machine was paused (a missed
+/// `Resumed`), since this thread's own clock does not run through a pause.
+fn slept_through(last_wall_ms: u64, now_wall_ms: u64) -> bool {
+    now_wall_ms.saturating_sub(last_wall_ms) > DEAD_AFTER.as_millis() as u64
+}
+
+/// One connection, until it drops, the machine resumes (a resume past `seen`) or `link` ends.
+async fn serve(
+    url: &str,
+    token: &str,
+    runner: &Runner,
+    link: &mut Link,
+    resumes: &mut watch::Receiver<u64>,
+    seen: u64,
+    now_wall_ms: fn() -> u64,
+) -> Result<Ended, String> {
     let mut request = url.into_client_request().map_err(|e| format!("request: {e}"))?;
     let bearer =
         HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| "bearer".to_owned())?;
@@ -451,25 +710,24 @@ async fn serve(url: &str, token: &str, runner: &Runner) -> Result<(), String> {
             e => format!("connect: {e}"),
         })?;
     let (mut sink, mut stream) = ws.split();
-    // Bounded: a slow socket holds the chats' readers back (and so acpmux's output) instead of queueing without end.
-    let (tx, mut rx) = up_queue();
-    // Every return ends the chats of this socket: the platform ended their streams with it (host_gone), and a
-    // cancel for them can only come down this socket.
-    let mut chats = Chats::default();
+    let Link { chats, tx, rx, detached } = link;
     let mut ping = tokio::time::interval(PING_EVERY);
     let mut heard = tokio::time::Instant::now();
+    let mut ticked_wall = now_wall_ms();
     loop {
         tokio::select! {
+            // Dropping the socket without a close: after a pause it is likely dead, and a close could hang on it.
+            Ok(_) = resumes.wait_for(|n| *n != seen) => return Ok(Ended::Resumed),
             msg = stream.next() => {
-                let Some(Ok(msg)) = msg else { return Ok(()) };
+                let Some(Ok(msg)) = msg else { return Ok(Ended::Dropped) };
                 heard = tokio::time::Instant::now();
                 let Message::Text(text) = msg else { continue };
                 match parse_down(text.as_str()) {
                     Down::Chat(chat) => {
                         chats.0.retain(|_, h| !h.is_finished());
-                        // One task per chat id: a repeated id (a retry) would run the prompt twice.
+                        // One task per chat id. The platform sends a chat again when its socket dropped mid-turn: the
+                        // running chat answers it, on this socket, and the prompt never runs twice.
                         if chats.0.contains_key(&chat.id) {
-                            let _ = tx.try_send(up(&chat.id, json!({"kind": "error", "code": "cloud.relay.duplicate", "message": "a chat with this id is already running"})));
                             continue;
                         }
                         if chats.0.len() >= MAX_CHATS {
@@ -477,7 +735,12 @@ async fn serve(url: &str, token: &str, runner: &Runner) -> Result<(), String> {
                             continue;
                         }
                         let id = chat.id.clone();
-                        let task = tokio::spawn(run_chat(chat, runner.clone(), tx.clone()));
+                        let running = Running::start(&RUNNING_CHATS);
+                        let chat = run_chat(chat, runner.clone(), tx.clone(), detached.clone());
+                        let task = tokio::spawn(async move {
+                            let _running = running;
+                            chat.await;
+                        });
                         chats.0.insert(id, task.abort_handle());
                     }
                     Down::Cancel(id) => {
@@ -488,15 +751,20 @@ async fn serve(url: &str, token: &str, runner: &Runner) -> Result<(), String> {
                 }
             }
             Some(frame) = rx.recv() => {
-                if sink.send(Message::text(frame)).await.is_err() { return Ok(()) }
+                if sink.send(Message::text(frame)).await.is_err() { return Ok(Ended::Dropped) }
             }
             _ = ping.tick() => {
+                let wall = now_wall_ms();
+                if slept_through(ticked_wall, wall) {
+                    return Ok(Ended::Resumed);
+                }
+                ticked_wall = wall;
                 if heard.elapsed() > DEAD_AFTER {
                     let _ = sink.close().await;
-                    return Ok(());
+                    return Ok(Ended::Dropped);
                 }
                 if sink.send(Message::text(json!({"v": 1, "t": "ping"}).to_string())).await.is_err() {
-                    return Ok(());
+                    return Ok(Ended::Dropped);
                 }
             }
         }
@@ -518,17 +786,20 @@ async fn read_capped(r: impl tokio::io::AsyncRead + Unpin, cap: u64) -> (String,
     (String::from_utf8_lossy(&kept).into_owned(), more)
 }
 
-/// Ends the session's turn in the acpmux daemon when the chat is dropped before the turn ended (a `cancel`, the
-/// socket gone, a rebind): killing `acp send` only stops the client, and the daemon would run the turn on.
+/// Ends the session's turn in the acpmux daemon when the chat is dropped before the turn ended (a `cancel`, a
+/// rebind): killing `acp send` only stops the client, and the daemon would run the turn on. A detached Relay (a
+/// cmux-host shutdown) cancels nothing: the turn runs on, and the next cmux-host reattaches to it.
 struct CancelTurn {
     runner: Runner,
     session: String,
     armed: bool,
+    /// The Relay's [`Relay::detach`] mark.
+    detached: Arc<AtomicBool>,
 }
 
 impl Drop for CancelTurn {
     fn drop(&mut self) {
-        if !self.armed {
+        if !self.armed || self.detached.load(Ordering::SeqCst) {
             return;
         }
         // A plain process, not a task: this runs while the chat's task or the whole runtime is being dropped.
@@ -560,23 +831,27 @@ async fn end_reader(mut reader: tokio::task::JoinHandle<()>, grace: Duration) {
     }
 }
 
-async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::Sender<String>) {
+async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::Sender<String>, detached: Arc<AtomicBool>) {
     let send = async |event: Value| {
         let _ = tx.send(up(&chat.id, event)).await;
     };
     let home = runner.home.to_string_lossy().into_owned();
-    let session = match &chat.session {
-        Some(s) => s.clone(),
+    // `reattached`: the chat's own session was there already (`new --reuse` said `reused`), so this chat came again
+    // after a drop or a restart, and its prompt id names the turn that ran.
+    let (session, reattached) = match &chat.session {
+        Some(s) => (s.clone(), false),
         None => {
             let out = runner.command(&new_args(&chat, &home)).stdin(Stdio::null()).output().await;
             match out {
                 Ok(out) if out.status.success() => {
-                    created_session(&String::from_utf8_lossy(&out.stdout))
-                        .unwrap_or_else(|| session_name(&chat))
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    let session = created_session(&stdout).unwrap_or_else(|| session_name(&chat));
+                    (session, reused_session(&stdout))
                 }
                 Ok(out) => {
+                    // The create's own exit: a `no_session` or a refused permission keeps its code.
                     let err = String::from_utf8_lossy(&out.stderr).into_owned();
-                    return send(final_event(Some(1), "", &err)).await;
+                    return send(final_event(out.status.code(), "", &err)).await;
                 }
                 Err(e) => return send(final_event(None, "", &format!("acpmux: {e}"))).await,
             }
@@ -615,7 +890,8 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::Sender<String>) {
         Ok(c) => c,
         Err(e) => return send(final_event(None, "", &format!("acpmux: {e}"))).await,
     };
-    let mut turn = CancelTurn { runner: runner.clone(), session: session.clone(), armed: true };
+    let mut turn =
+        CancelTurn { runner: runner.clone(), session: session.clone(), armed: true, detached };
     if let Some(mut stdin) = child.stdin.take() {
         let prompt = chat.prompt.clone();
         tokio::spawn(async move {
@@ -645,7 +921,23 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::Sender<String>) {
     if let Some(mut tail) = tail {
         let _ = tail.kill().await;
     }
-    send(final_event_of(exit, &out, cut, &err)).await;
+    let mut done = final_event_of(exit, &out, cut, &err);
+    // A reattached chat: `send` answered the first run's outcome, and that run's reply went to its own client, so the
+    // turn's reply comes from the session, which holds only this chat. A new turn with no reply stays empty.
+    if reattached
+        && done.get("kind").and_then(Value::as_str) == Some("done")
+        && done.get("reply_cut").is_none()
+        && done.get("reply").and_then(Value::as_str).is_none_or(str::is_empty)
+    {
+        let last = runner.command(&last_args(&session)).stdin(Stdio::null()).output().await;
+        if let (Some(reply), Some(o)) = (
+            last.ok().and_then(|l| last_reply(&String::from_utf8_lossy(&l.stdout))),
+            done.as_object_mut(),
+        ) {
+            o.insert("reply".to_owned(), json!(reply));
+        }
+    }
+    send(done).await;
 }
 
 /// How long `tail` may go on after the turn ended, for its last events.
@@ -654,3 +946,11 @@ const TAIL_GRACE: Duration = Duration::from_millis(300);
 #[cfg(test)]
 #[path = "relay_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "relay_resume_tests.rs"]
+mod resume_tests;
+
+#[cfg(test)]
+#[path = "relay_observer_tests.rs"]
+mod observer_tests;
