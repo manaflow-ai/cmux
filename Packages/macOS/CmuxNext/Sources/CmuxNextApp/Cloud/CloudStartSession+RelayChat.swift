@@ -14,7 +14,7 @@ import Foundation
 /// Before the send the machine takes the person's harness login, as `cloud start-session`'s start does
 /// (``passHarnessLogin(_:agent:login:still:)``; Leo: "we have the daemon, we have the token, we have the thing that
 /// can just send it over the authentication"). A chat sent without it answered "Claude is not signed in here". A
-/// login the rules refuse, or one the machine still lacks after the step, sends nothing (``relayLoginRefusal(_:_:machine:)``).
+/// login the rules refuse, or one the machine still lacks after the step, sends nothing (``relayLoginRefusal(_:_:machine:linked:)``).
 ///
 /// The person's own run only: an agent starts a Cloud chat with `cloud start-session`, which asks the person
 /// first (``CloudStartSession``).
@@ -60,9 +60,9 @@ extension CloudStartSession {
             // The machine takes the login first; the account that asked is checked after its wait, as start-session's is.
             let login: @MainActor () async throws -> (code: String, message: String)? = {
                 try await steps.login(machine, started) { try Self.checked(account, now: cloud.account, started.asked(machine: machine.machine.title)) }
-                let refusal = relayLoginRefusal(machine.harnessLogin, started, machine: machine.machine.title)
-                // The verdict only: no token, path or provider output.
-                cloud.logger.info("cloud relay chat: harness login \(refusal?.code ?? "ready", privacy: .public) before the send to \(machineID, privacy: .public)")
+                let refusal = relayLoginRefusal(machine.harnessLogin, started, machine: machine.machine.title, linked: await machine.appLink.currentLinkSocket != nil)
+                // The verdict and the rules' one-line summary only: no token, path or provider output.
+                cloud.logger.info("cloud relay chat: harness login \(refusal?.code ?? "ready", privacy: .public) (\(machine.harnessLogin?.summary ?? "no step", privacy: .public)) before the send to \(machineID, privacy: .public)")
                 return refusal
             }
             // A person's run waits for the whole turn and shows the reply, or why there is none.
@@ -103,7 +103,10 @@ extension CloudStartSession {
     /// Why the relay sends nothing after the machine's login step (`decision`, nil when none ran): the rules refused
     /// it (a run that may not ask, as start-session refuses), or Claude there still has no login (this Mac holds none
     /// of the person's to give it), or the copy failed. Nil sends. Every field is fixed text: no token or provider output.
-    static func relayLoginRefusal(_ decision: CloudHarnessLoginDecision?, _ started: Request, machine: String) -> (code: String, message: String)? {
+    /// A Claude step that skipped sends nothing either: only a login copied now or the machine's own counts. With no link, the
+    /// owner answer was never asked (only a connect gives it, ``CloudLinkSession/ownerLink``): `login_unverified` sends the
+    /// caller to start-session, which connects and runs this step with that answer. Any other skip is `login_skipped`.
+    static func relayLoginRefusal(_ decision: CloudHarnessLoginDecision?, _ started: Request, machine: String, linked: Bool) -> (code: String, message: String)? {
         guard let decision else { return nil }
         let asked = started.asked(machine: machine)
         if let reason = decision.refusal { return ("cloud.relay.login_refused", CloudStartSessionStrings.loginRefused(reason, asked)) }
@@ -114,7 +117,9 @@ extension CloudStartSession {
         if let outcome = decision.outcome, outcome.hasPrefix(CloudStartChat.loginFailed) {
             return ("cloud.relay.login_failed", CloudStartSessionStrings.relayLoginFailed(asked, reason: Self.reason(String(outcome.dropFirst(CloudStartChat.loginFailed.count)))))
         }
-        return nil
+        guard decision.provider == .claude, decision.step == .skip, decision.outcome == nil, ![.machineLoginKept, .choseNone].contains(decision.reason) else { return nil }
+        if decision.reason == .callerNotOwner, !linked { return ("cloud.relay.login_unverified", CloudStartSessionStrings.relayLoginUnverified(asked)) }
+        return ("cloud.relay.login_skipped", CloudStartSessionStrings.relayLoginSkipped(asked))
     }
 
     /// How long a CLI or MCP relay chat waits for the login step: well inside ``CloudHandlers/answerWithin``, so the turn keeps 20 s.
