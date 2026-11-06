@@ -102,7 +102,9 @@ async function reconcile(patchResponse: () => Promise<Response>) {
     const close = () => {
       const session = activeRef.current;
       activeRef.current = null;
-      return session ? transport.request({ method: "sessionClose", params: session }).then(() => {}) : Promise.resolve();
+      return session
+        ? transport.request({ method: "sessionClose", params: session }).then(() => {})
+        : Promise.resolve();
     };
     useRenderDiff(
       config,
