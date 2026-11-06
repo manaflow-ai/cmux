@@ -228,6 +228,12 @@ inline std::vector<std::pair<std::string, std::string>> PageResponseHeaders(cons
   };
 }
 
+// A header value from the page host: empty when it holds a CR or LF, so an answer cannot split a
+// header (cmux_shim_page_resource_respond_page's CSP).
+inline std::string PageHeaderValue(const std::string& value) {
+  return value.find_first_of("\r\n") == std::string::npos ? value : std::string();
+}
+
 // The headers a ranged dynamic answer adds (cmux_shim_page_resource_respond_ranged):
 // `Name: value` lines, newline-separated. Only Content-Range and Accept-Ranges
 // are kept, and a value with a CR or LF is dropped, so an answer can never set

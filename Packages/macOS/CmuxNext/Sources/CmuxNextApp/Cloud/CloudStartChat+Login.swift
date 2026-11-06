@@ -21,11 +21,17 @@ import Foundation
 extension CloudStartChat {
     /// Gives the start's machine the person's Claude or Codex login when this build passes it. Returns
     /// whether a login was installed; never throws. `cmux cloud start-session` passes it the same way, with no Codex prompt.
+    /// Every scope a person's cached Claude login may sit under: each of their teams, then their
+    /// personal scope. One login per person, whichever team is selected.
+    @MainActor static func loginScopes(_ cloud: CloudService) -> [String?] {
+        cloud.auth.teams.map { Optional($0.id) } + [nil]
+    }
+
     func passHarnessLogin(harness: String?, machine: CloudMachineSession, codexPrompt: Bool = true, ask: CloudHarnessLoginAsk = .init()) async -> Bool {
         let cloud = services.cloud, userID = cloud.auth.user?.id
         let teamID = cloud.auth.teamID, machineID = machine.machineID, api = cloud.machineAPI.pinningTeam(teamID)
         // The person's cached login under any of their teams, or their personal scope: one login per person.
-        let otherTeams: [String?] = cloud.auth.teams.map { Optional($0.id) } + [nil]
+        let otherTeams = Self.loginScopes(cloud)
         var decision = CloudHarnessLoginDecision(dogfood: DevTools.isEnabled, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard),
                                                  harness: harness, signedIn: userID != nil)
         let gate = Self.loginCopyGate(services)
@@ -49,9 +55,10 @@ extension CloudStartChat {
             // `agent_login`, #33744) signs the machine in with one click and the provider's approve
             // page, and only the person's click starts it (Leo, 2026-11-04: "we literally said we
             // were gonna do is such that you literally dont need to log in").
+            // A Keychain that did not answer is recorded as such, never as "no cached login".
             if provider == .claude, [.install, .confirmThenInstall, .askConsent].contains(verdict.step),
-               await !CloudCredentialTransfer.hasCachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams) {
-                decision.outcome = Self.signInInChat
+               let outcome = await CloudCredentialTransfer.cachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams).startOutcome {
+                decision.outcome = outcome
                 return false
             }
             switch verdict.step {
@@ -67,7 +74,8 @@ extension CloudStartChat {
             if provider == .codex { // The Mac's broker: short-lived access, a device-code sign-in only when it holds none; it checks the account itself.
                 // A machine it already serves keeps that access untouched: a failed repeat would revoke it.
                 if await cloud.codexBroker.delivers(machineID: machineID, scope: .init(userID: userID, teamID: teamID)) { decision.outcome = "already delivered"; return false }
-                try await cloud.codexBroker.run(machineID: machineID, scope: .init(userID: userID, teamID: teamID), confirmed: true) { [weak services] prompt in
+                try await cloud.codexBroker.run(machineID: machineID, scope: .init(userID: userID, teamID: teamID), confirmed: true,
+                                                askLocalSignIn: { [services] in await Self.askCodexSignIn(services, mayAsk: codexPrompt, in: nil) }) { [weak services] prompt in
                     guard codexPrompt, let window = services?.windows.active?.window else { return false }
                     return await CloudPresenter.presentCodexDeviceCode(prompt, in: .window(window))
                 }
@@ -85,7 +93,4 @@ extension CloudStartChat {
             return false
         }
     }
-
-    /// The start record's outcome when no cached login exists and the chat's own sign-in card takes over.
-    static let signInInChat = "no cached login: the chat's Sign in to Claude card"
 }

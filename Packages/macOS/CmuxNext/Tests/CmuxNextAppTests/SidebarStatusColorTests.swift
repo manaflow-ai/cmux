@@ -5,9 +5,10 @@ import CmuxNextTestSupport
 import Testing
 
 /// Lawrence msg 11983: "make sure sidebar has blue, orange/yellow for needs attention, and red for errors".
-/// Each status dot color has one meaning in every row kind: blue (`systemBlue`) is unread or new, orange
-/// (`systemOrange`) needs attention (a permission prompt, a question, waiting on the user), red (`systemRed`)
-/// is an error. A group header, open or collapsed, rolls up its subtree's most urgent state: red, then orange,
+/// Each status dot color has one meaning in every row kind: blue (`systemBlue`) is unread or new, yellow
+/// (the theme's attention yellow, `Palette.statusAttention`) needs attention (a permission prompt, a question,
+/// waiting on the user), red (`systemRed`) is an error. A group header, open or collapsed, rolls up its subtree's
+/// most urgent state: red, then yellow,
 /// then blue. Measured on the real ``SidebarView``: each row's visible status glyph and the color its
 /// indicator draws, in light and dark. Each case prints a `STATUSCOLOR|` line so a fleet log shows them.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarStatusColorTests {

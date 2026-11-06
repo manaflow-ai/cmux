@@ -50,7 +50,7 @@ struct WorkspaceSpawner {
     /// sends the daemon's own next default (`SidebarMapping.defaultWorkspaceName`),
     /// so the row's title is the daemon's from the first frame.
     func start() -> () async throws -> String {
-        let key = WorkspaceKey.generate(), daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
+        let key = spawn.key ?? WorkspaceKey.generate(), daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
         if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
         guard daemon.connection != nil else { return { [windows] in throw windows.createFailed(key.rawValue, DaemonError.notConnected) } }
         var row = spawn.slot == nil ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil

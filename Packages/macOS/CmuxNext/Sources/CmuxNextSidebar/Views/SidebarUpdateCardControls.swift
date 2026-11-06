@@ -131,7 +131,7 @@ final class SidebarUpdateButton: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = isBordered ? PopupStyle.standard.rowCornerRadius + 2 : Metrics.space2
+        layer?.cornerRadius = isBordered ? Metrics.controlCornerRadius : Metrics.insetCornerRadius
         label.font = Self.font(bordered: isBordered)
         let h = ceil(label.intrinsicContentSize.height)
         label.frame = NSRect(x: Metrics.space2, y: (bounds.height - h) / 2, width: max(0, bounds.width - 2 * Metrics.space2), height: h)

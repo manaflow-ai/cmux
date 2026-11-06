@@ -1459,7 +1459,7 @@ export function QuickModelMenu({
         <AddAccountDialog
           add={account.accounts.add}
           family={accounts.list.family}
-          existing={accounts.list.accounts.map((choice) => choice.id)}
+          existing={accounts.list.ids ?? accounts.list.accounts.map((choice) => choice.id)}
           onClose={() => setAddingAccount(false)}
           onAdded={() => {
             setAddingAccount(false);

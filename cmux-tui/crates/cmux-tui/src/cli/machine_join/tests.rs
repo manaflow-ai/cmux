@@ -269,9 +269,10 @@ fn the_credential_comes_from_stdin_a_file_or_the_env_and_errors_name_neither() {
 }
 
 #[test]
-fn the_platform_is_https_and_defaults_to_development() {
+fn the_platform_is_https_and_defaults_to_production() {
     let none = |_: &str| -> Option<String> { None };
-    assert_eq!(platform_origin(None, &none).unwrap(), DEV_ORIGIN);
+    assert_eq!(platform_origin(None, &none).unwrap(), DEFAULT_ORIGIN);
+    assert_eq!(DEFAULT_ORIGIN, "https://cmux-platform-production.debussy.workers.dev");
     let env = |key: &str| -> Option<String> {
         (key == PLATFORM_ENV).then(|| "https://platform.example/".to_owned())
     };

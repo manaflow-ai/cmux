@@ -312,7 +312,9 @@ extension SidebarListViewComponents {
             return group
         })
         var leaving: [(SidebarRowView, NSRect)] = []
+        var folding: [SidebarRowView] = []
         let removeRuns = SidebarRowTransition.runTops(of: old, missingFrom: layout)
+        let cards = flyingCardFrames
         for (key, view) in rowViews where !keep.contains(key) {
             if key == hoveredKey {
                 hoveredKey = nil
@@ -322,10 +324,12 @@ extension SidebarListViewComponents {
             rowViews[key] = nil
             let placeholder = switch key { case .emptySection, .emptyGroup: true; default: false }
             let replaced = old.row(for: key).map { returning.contains($0.section) || $0.group.map(emptied.contains) == true } ?? false
-            if adopting, !suppressed.contains(key) {
+            // Under a dropped card on its way to its slot, a leaving row goes at once (`isUnderCard`).
+            let underCard = isUnderCard(view.frame, cards)
+            if adopting, !suppressed.contains(key), !underCard {
                 // A row the drop or the model took away fades where it is (its slot closes on the rows' spring).
                 leaving.append((view, view.frame))
-            } else if suppressed.contains(key) || !animate || placeholder || replaced {
+            } else if suppressed.contains(key) || !animate || placeholder || replaced || underCard {
                 recycle(view)
             } else {
                 // A leaving row fades out without the selection fill: the
@@ -333,7 +337,9 @@ extension SidebarListViewComponents {
                 view.isSelected = false
                 // A collapsed row slides up under its header; another leaving row closes its slot.
                 let current = view.frame
-                let end = old.row(for: key).map { SidebarRowTransition.removeFrame($0, current: current, runTop: removeRuns[key], from: old, to: layout) }
+                let was = old.row(for: key)
+                let end = was.map { SidebarRowTransition.removeFrame($0, current: current, runTop: removeRuns[key], from: old, to: layout) }
+                if let was, SidebarRowTransition.isFolded(was, from: old, to: layout) { folding.append(view) }
                 view.clipsToBounds = true
                 leaving.append((view, end ?? NSRect(x: current.minX, y: current.minY, width: current.width, height: 0)))
             }
@@ -351,7 +357,7 @@ extension SidebarListViewComponents {
             return adoptRows(targets: targets, leaving: leaving, lines: lines)
         }
         RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history, insert: insertMotion,
-                  travel: insertTravel)
+                  travel: insertTravel, folding: folding)
             .run(in: self, from: old, to: layout, animated: animate)
     }
     /// The rows of `keys` (still opening) that `layout` moved by themselves, not with the rows around them: both

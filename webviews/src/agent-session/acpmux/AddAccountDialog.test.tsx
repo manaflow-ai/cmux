@@ -83,6 +83,9 @@ test("an id comes from the name and never takes one a route has", () => {
   expect(accountIdFor("", "ChatGPT 2", [])).toBe("chatgpt-2");
   expect(accountIdFor("Work", "x", ["work", "work-2"])).toBe("work-3");
   expect(accountIdFor("日本", "", [])).toBe("account");
+  // A built-in route's id is never taken: a route file of that id would replace it.
+  expect(accountIdFor("Codex login", "x", [])).toBe("codex-login-2");
+  expect(accountIdFor("cmux", "x", [])).toBe("cmux-2");
 });
 
 test("a ChatGPT account offers sign-in, the Codex CLI login found on this Mac, and an API key", async () => {
@@ -103,6 +106,7 @@ test("a ChatGPT account offers sign-in, the Codex CLI login found on this Mac, a
       family: "codex",
       name: "ChatGPT 3",
       accountHome: "~/.cmux/accounts/chatgpt-3",
+      shadow: true,
     },
   ]);
 });
@@ -122,5 +126,14 @@ test("the buttons are the shared controls, not bare buttons", async () => {
   const dialog = await render("claude", []);
   const buttons = [...dialog.querySelectorAll<HTMLButtonElement>("footer button")];
   expect(buttons.map((button) => button.dataset.variant)).toEqual(["subtle", "solid"]);
-  expect(buttons.every((button) => button.classList.contains("ui-btn"))).toBe(true);
+  for (const button of buttons) expect([...button.classList]).toEqual(expect.arrayContaining(["ui-button", "ui-btn"]));
+});
+
+test("an unavailable submit looks unavailable", async () => {
+  const dialog = await render("codex", []);
+  const key = dialog.querySelectorAll<HTMLInputElement>('input[type="radio"]')[2]!;
+  await act(async () => key.click());
+  const submit = dialog.querySelector<HTMLButtonElement>('footer button[type="submit"]')!;
+  expect(submit.disabled).toBe(true);
+  expect(submit.hasAttribute("data-disabled")).toBe(true);
 });

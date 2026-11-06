@@ -273,7 +273,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 eprintln!("{hint}");
             }
             let setup_name = launch.name.as_deref().unwrap_or("new");
-            let client = before_deadline(deadline, setup_name, connect(true)).await?;
+            let mut client = before_deadline(deadline, setup_name, connect(true)).await?;
             // A machine a person works at places command-line sessions on a fleet host
             // (`cli/place.rs` `new_target`); the app's chats never come through here.
             let interactive = crate::cli::place::here_is_interactive();
@@ -379,45 +379,42 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 Some(h) => format!("{h}/{n}"),
                 None => n.clone(),
             });
-            let mut reused = None;
-            // Found after a lost create: the winner sends the first prompt.
-            let mut lost_race = false;
-            if launch.reuse
-                && let Some(key) = &key
-            {
-                reused = before_deadline(deadline, key, launch::existing(&client, key)).await?;
-            }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             if let Some(cwd) = &cwd {
                 p["cwd"] = json!(cwd);
             }
-            let v = match reused.clone() {
-                Some(info) => info,
-                None => match if ephemeral || probe || args.no_parent {
-                    before_deadline(
-                        deadline,
-                        setup_name,
-                        client.request_parentless(method::SESSION_NEW, p),
-                    )
-                    .await
-                } else {
-                    before_deadline(deadline, setup_name, client.request(method::SESSION_NEW, p))
-                        .await
-                } {
-                    Ok(v) => v,
-                    Err(e) => {
-                        let found = match &key {
-                            Some(key) if launch.reuse && launch::name_taken(&e) => {
-                                before_deadline(deadline, key, launch::existing(&client, key))
-                                    .await?
-                            }
-                            _ => None,
-                        };
-                        reused = Some(found.ok_or(e)?);
-                        lost_race = true;
-                        reused.clone().unwrap_or_default()
+            let parentless = ephemeral || probe || args.no_parent;
+            // A daemon restarted while this create waits (the app's keyed acpmux
+            // start, a machine update) closes the connection with no reply, and the
+            // create may already have happened. A named `--reuse` launch reconnects
+            // and runs the whole find-or-create again, so it finds that session and
+            // never makes a second one; a handover can happen twice in a row
+            // (systemd's daemon taking over one the CLI started), hence two tries.
+            // Without a name to find it by, a retry could make a duplicate: no retry.
+            let mut reconnects = 0;
+            let (v, reused, lost_race) = loop {
+                match find_or_create(
+                    &client,
+                    deadline,
+                    setup_name,
+                    key.as_deref().filter(|_| launch.reuse),
+                    p.clone(),
+                    parentless,
+                )
+                .await
+                {
+                    Err(error)
+                        if launch.reuse
+                            && key.is_some()
+                            && reconnects < NEW_RECONNECTS
+                            && daemon_closed_error(&error) =>
+                    {
+                        reconnects += 1;
+                        client =
+                            before_deadline(deadline, setup_name, reconnect_after_update()).await?;
                     }
-                },
+                    found => break found?,
+                }
             };
             let id = crate::cli::resolve::routed_id(&v)?;
             let session_id = v["sessionId"].as_str().unwrap_or_default();
@@ -819,6 +816,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 let on_permission = OnPermission::parse(&on_permission)?;
                 // Never refuse: report what the prompt queues behind.
                 let info = before_deadline(deadline, &id, client.request(method::MUX_INFO, json!({"sessionId": id}))).await?;
+                // A session only the mesh hub reaches answers its info through the hub
+                // (`server/mesh_read.rs`), with no turn to follow here: the send goes through
+                // the hub as one to a name nobody here runs (below).
+                if read_through_hub(&info) {
+                    return Err(errors::AppError::no_session(&session).into());
+                }
                 announce_machine_wake_value(&info);
                 let running = info.get("status").and_then(Value::as_str) == Some("running")
                     || info.get("turn").map(|t| !t.is_null()).unwrap_or(false);
@@ -1118,6 +1121,48 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
     }
 }
 
+/// How many times a named `new --reuse` reconnects after the daemon closed its
+/// connection during the find-or-create.
+const NEW_RECONNECTS: usize = 2;
+
+/// `new`'s find-or-create: the session named `reuse_key` if it runs, else a new
+/// one; a create that loses to another launcher of that name finds the winner.
+/// Returns the session, the found session (`None` when this call made it), and
+/// whether it was found only after a lost create.
+async fn find_or_create(
+    client: &Arc<Client>,
+    deadline: Option<tokio::time::Instant>,
+    setup_name: &str,
+    reuse_key: Option<&str>,
+    p: Value,
+    parentless: bool,
+) -> Result<(Value, Option<Value>, bool)> {
+    if let Some(key) = reuse_key
+        && let Some(info) = before_deadline(deadline, key, launch::existing(client, key)).await?
+    {
+        return Ok((info.clone(), Some(info), false));
+    }
+    let created = if parentless {
+        before_deadline(deadline, setup_name, client.request_parentless(method::SESSION_NEW, p))
+            .await
+    } else {
+        before_deadline(deadline, setup_name, client.request(method::SESSION_NEW, p)).await
+    };
+    match created {
+        Ok(v) => Ok((v, None, false)),
+        Err(e) => {
+            let found = match reuse_key {
+                Some(key) if launch::name_taken(&e) => {
+                    before_deadline(deadline, key, launch::existing(client, key)).await?
+                }
+                _ => None,
+            };
+            let info = found.ok_or(e)?;
+            Ok((info.clone(), Some(info), true))
+        }
+    }
+}
+
 async fn announce_machine_wake(client: &Arc<crate::client::Client>, session: &str) {
     if !machine_wake_enabled() {
         return;
@@ -1265,6 +1310,11 @@ struct SendWait {
 /// in milliseconds whatever the load or the peer (`send_async.rs`). An agent's message and a
 /// classed one do unless the caller waits for the reply; the person's own send streams the
 /// reply as before. Leo, 2026-11-02: "sends shouldn't time out just bc of load".
+/// Whether `info` is a session this daemon read through the mesh hub (`server/mesh_read.rs`).
+fn read_through_hub(info: &Value) -> bool {
+    info.get("via").and_then(Value::as_str) == Some("hub")
+}
+
 fn send_queues(w: SendWait) -> bool {
     w.no_wait || (!w.wait && (w.classed || w.agent))
 }
@@ -1381,6 +1431,16 @@ mod tests {
         assert!(send_steers(false, false, true, true), "and so does its --no-wait send");
         assert!(!send_steers(false, true, false, true), "--no-steer opts out");
         assert!(!send_steers(false, true, true, true), "--no-steer opts out with --no-wait too");
+    }
+
+    /// A waiting send to a session only the hub reaches is sent through the hub, never run as
+    /// a local turn on the id its read named (own-machines e2e run 42071975275).
+    #[test]
+    fn a_session_read_through_the_hub_is_sent_through_the_hub() {
+        use super::read_through_hub;
+        assert!(read_through_hub(&json!({"sessionId": "s", "peer": "machine-b", "via": "hub"})));
+        assert!(!read_through_hub(&json!({"sessionId": "s", "peer": "machine-b"})));
+        assert!(!read_through_hub(&json!({"sessionId": "s"})));
     }
 
     #[test]

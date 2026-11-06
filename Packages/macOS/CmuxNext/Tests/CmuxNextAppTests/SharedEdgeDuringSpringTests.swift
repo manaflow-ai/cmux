@@ -45,7 +45,8 @@ import Testing
 /// - a pane whose anchor moves toward the dragged edge (A's edge springs into B while b1's split is held): the edge
 ///   stops at the anchor's place plus b1's minimum, never closer; a pointer that moves toward that place faster than
 ///   the edge springs there, or past it, holds the edge: it never shows behind the pointer (the split, and B's column
-///   edge with B near its minimum width);
+///   edge with B near its minimum width); and the pane between the anchor and the edge never shows under its minimum
+///   while the anchor still moves (the anchor pushes the edge once the pane reaches its minimum);
 /// - in every case the motion stops: within 2 s every pane and divider frame is at rest on its target.
 /// The test is the display clock (`driver.isManual`, 120 Hz) and checks every frame tick: the shared pane edges (side
 /// by side, and one above the other), the split divider against b1's edge, and that no pane or divider shows a
@@ -127,6 +128,9 @@ struct SharedEdgeDuringSpringTests {
         var ticks = 0
         /// The split divider frame's near edge less b1's frame's far edge at rest (their springs, not rounded).
         var dividerRest: CGFloat?
+        /// A span the checks keep at its minimum or more, as the screen shows it: from `from`'s left edge to `to`'s right
+        /// edge (a clamp: the pane or column between the anchor and the held line).
+        var minimumWatch: (from: PaneID, to: PaneID, minimum: CGFloat)?
         /// The split in column B whose divider the checks follow, b1 on its first side, and its axis.
         let split: SplitID
         let splitAxis: SplitAxis
@@ -235,6 +239,10 @@ struct SharedEdgeDuringSpringTests {
             }
             if let rest = dividerRest, let offset = dividerOffset(), abs(offset - rest) > Self.edgeSlack {
                 misses.append("\(label): the split divider shows \(Self.pt(offset)) pt from b1's edge, at rest \(Self.pt(rest)) pt")
+            }
+            if let watch = minimumWatch, let from = root.context.hosts[watch.from]?.frame, let to = root.context.hosts[watch.to]?.frame,
+               to.maxX - from.minX < watch.minimum - Self.edgeSlack {
+                misses.append("\(label): \(watch.from)...\(watch.to) shows \(Self.pt(to.maxX - from.minX)) pt wide, under its minimum \(Self.pt(watch.minimum)) pt")
             }
             guard let screen = root.screenViews["s"] else { return }
             // The springs' own values: `CGRect.width` is never negative (it reads the standardized rect).
@@ -425,6 +433,7 @@ struct SharedEdgeDuringSpringTests {
             rig.model.setColumnWidth("A", width: a + 0.07, transaction: .make(), phase: .ended)
             rig.root.syncWithModel()
             rig.frame(edges, "growth frame 1")
+            rig.minimumWatch = ("b1", "b1", minimum)
             // Held still until the clamp's spring is done: the split rests at A's rest edge plus b1's minimum.
             try rig.drag(.split("x"), dragged: "b1", moves: 1, step: 1, still: 120, floor: minimum, edges: edges) { view, pointer in
                 let shown = try rig.edge("b1", \.maxX), clamp = try rig.restEdge("b1", \.minX) + minimum, tolerance = try rig.halfPixel
@@ -444,6 +453,7 @@ struct SharedEdgeDuringSpringTests {
             rig.frame(edges, "growth frame 1")
             let drawn = try rig.edge("b1", \.maxX), clamp = try rig.restEdge("b1", \.minX) + minimum
             try #require(clamp - drawn > 40, "the split is \(Rig.pt(clamp - drawn)) pt from the clamp: no clamp to pass")
+            rig.minimumWatch = ("b1", "b1", minimum)
             try rig.drag(.split("x"), dragged: "b1", moves: 1, step: (clamp - drawn + 30).rounded(), still: 12, floor: minimum, edges: edges)
             rig.land(edges, "landing")
         case .pointerChasesTheClamp, .pointerChasesTheColumnEdgeClamp:
@@ -459,6 +469,7 @@ struct SharedEdgeDuringSpringTests {
             rig.frame(edges, "growth frame 1")
             let drawn = try rig.edge(dragged, \.maxX), clamp = try rig.restEdge("b1", \.minX) + floor
             try #require(clamp - drawn > 40, "the line is \(Rig.pt(clamp - drawn)) pt from the clamp: no clamp to chase")
+            rig.minimumWatch = ("b1", dragged, floor)
             try rig.drag(kind, dragged: dragged, moves: 3, step: ((clamp - drawn) / 4).rounded(), still: 12, floor: floor, edges: edges)
             rig.land(edges, "landing")
         case .clickDuringReleaseSpring:

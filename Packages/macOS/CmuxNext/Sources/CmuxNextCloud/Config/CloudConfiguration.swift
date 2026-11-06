@@ -12,8 +12,7 @@ public struct CloudConfiguration: Sendable, Equatable {
     public static let unavailable = CloudConfiguration(
         backend: .localOnly(inertURL), apiBaseURL: inertURL, authWebOrigin: inertURL,
         stackBaseURL: inertURL, stackProjectID: "", stackPublishableClientKey: "",
-        isProductionAuth: false, callbackScheme: "cmux", bundleID: unavailableBundleID, isDebugBuild: true,
-        linkSource: .appServer)
+        isProductionAuth: false, callbackScheme: "cmux", bundleID: unavailableBundleID, isDebugBuild: true)
     public enum Backend: Sendable, Equatable {
         /// A production selection returned by the backend.
         case production
@@ -34,23 +33,8 @@ public struct CloudConfiguration: Sendable, Equatable {
     public var callbackScheme: String
     public var bundleID: String?
     public var isDebugBuild: Bool
-    /// Where a Cloud machine's link socket comes from.
-    public var linkSource: LinkSource = .legacy
     /// The bundled CLI's selection for this launch; nil in legacy configuration fixtures.
     public var runtimeSelection: CloudRuntimeSelection?
-
-    public enum LinkSource: Sendable, Equatable {
-        /// `/api/vm` list, create and attach endpoint and a `cmux-tui remote
-        /// connect` process (frozen, contract 2.5). The default until the
-        /// first-party app packages ship in the bundle (cx-t2rz), except NEXT DEV.
-        case legacy
-        /// The Cloud app server (contract 2.1, 2.3): the machine list,
-        /// create and the `cloud.machine.connect` carrier socket, all on the
-        /// cmux-next API Worker through the host credential relay (cx-t2rz).
-        /// Signed NEXT DEV and every Debug build; `CMUX_NEXT_CLOUD_LINK=legacy` (launch env) or
-        /// `CMUX_CLOUD_LINK=legacy` (baked) keeps a Debug build on the classic link.
-        case appServer
-    }
 
     /// Existing Stack token Keychain service (`<bundle id>.auth`). Signed NEXT
     /// DEV scopes staging tokens separately so it never restores its old production session.
@@ -76,6 +60,16 @@ public struct CloudConfiguration: Sendable, Equatable {
             .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
             .appendingPathComponent(bundleID ?? "cmux", isDirectory: true)
         return authStorageProject.map { directory.appendingPathComponent($0, isDirectory: true) } ?? directory
+    }
+
+    /// The namespaced store a build with runtime selection used for this legacy default before #36384
+    /// (4198271655001 read `<bundle id>.auth.<namespace>`): a session signed in there is adopted once.
+    /// Nil for every other selection, whose own store is already namespaced or project-scoped.
+    func namespacedLegacyStorage(homeDirectory: URL) -> (keychainService: String, credentialsDirectory: URL)? {
+        guard let selection = runtimeSelection, selection.legacyStorage, selection.authStorageNamespace == nil,
+              let bundleID, !bundleID.isEmpty else { return nil }
+        return ("\(bundleID).auth.\(selection.authNamespace)",
+                credentialsDirectory(homeDirectory: homeDirectory).appendingPathComponent(selection.authNamespace, isDirectory: true))
     }
 
     func authDefaultsKey(_ key: String) -> String {
@@ -194,7 +188,7 @@ public struct CloudConfiguration: Sendable, Equatable {
             stackBaseURL: selection.stackOrigin, stackProjectID: selection.stackProjectId,
             stackPublishableClientKey: selection.stackClientKey, isProductionAuth: selection.name == "prod",
             callbackScheme: scheme, bundleID: identity, isDebugBuild: isDebugBuild,
-            linkSource: .appServer, runtimeSelection: selection)
+            runtimeSelection: selection)
     }
 
     /// The selected backend's API origin. Rust has already validated and

@@ -1,4 +1,6 @@
 import CmuxNextCompat
+import CmuxNextDaemon
+import Foundation
 public import CmuxNextWakeups
 
 /// Bounded waits on main-actor state for the Cloud flows.
@@ -77,5 +79,95 @@ public struct CloudWait {
     private static func observe(_ condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
         for await ready in ObservationStream({ condition() }) where ready { return true }
         return false
+    }
+}
+
+extension CloudWait {
+    /// Waits while `status` reads `starting` (the machine's Resume Machine runs, from this Mac or another), up to
+    /// `limit`: a start or attach waits out a resume instead of refusing it. `read` reads the record again, at
+    /// once and then after each of ``startRedial``'s delays, so a resume this Mac did not send is seen too.
+    /// Returns at once for any other status.
+    public static func outwaitResume(of status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
+                                     read: @escaping @MainActor @Sendable () async -> Void) async {
+        guard status() == .starting else { return }
+        _ = await holds(within: limit, redialing: startRedial, redial: {
+            // task-owner: one record read; the wait observes what it applies and ends at its own deadline
+            Task { @MainActor in await read() }
+        }) { status() != .starting }
+    }
+
+    /// Whether `wait` answered true within `limit`; true too when it ran past `limit`, since what it waits on
+    /// may still run. False only when `wait` answered false (nothing to wait on).
+    public static func ended(within limit: Duration, _ wait: @escaping @Sendable () async -> Bool) async -> Bool {
+        // concurrency-allow: `wait` exits on cancellation; this bounds a start's wait on its machine's update
+        await withTaskGroup(of: Bool?.self) { group -> Bool in
+            group.addTask { await wait() }
+            group.addTask {
+                // wakeup-allow: one-shot deadline for a machine update a start waits on
+                try? await Task.sleep(for: limit)
+                return nil
+            }
+            defer { group.cancelAll() }
+            return await group.next().flatMap { $0 } ?? true
+        }
+    }
+
+    /// A start's link wait: `linkUp` once and, when `updating` waited out an update of the machine that ran
+    /// meanwhile (it restarts the daemon the link reached), once more, so the agent starts on the new daemon.
+    public static func linked(within limit: Duration, _ linkUp: () async -> Bool,
+                              updating: @escaping @Sendable () async -> Bool) async -> Bool {
+        let up = await linkUp()
+        guard up, await ended(within: limit, updating) else { return up }
+        return await linkUp()
+    }
+
+    /// A start's link wait that holds only when `held` (a live daemon and no failed resume) does after it; when not, and
+    /// `redialable` says the link's last end is one another dial can help, `again` dials and the wait runs once more. A
+    /// just-resumed machine's tunnel peer may not answer the first dials (prod, 2026-11-05: "no handshake within 5 s",
+    /// then "the tunnel peer setup failed: no route to this host", state running), and the start failed at 59 s.
+    public static func linkedAgain(_ wait: () async -> Bool, held: () -> Bool, redialable: () -> Bool,
+                                   again: () -> Void) async -> Bool {
+        if await wait(), held() { return true }
+        guard redialable(), !Task.isCancelled else { return false }
+        again()
+        return await wait() && held()
+    }
+
+    /// `start`, tried once more when its first try failed on a connection that closed (`closed`), once `relink`
+    /// says the link is back: a just-resumed machine's link can drop once under a start (prod, 2026-11-05: "started
+    /// but its agent didn't (cmux-tui connection closed: EOF)"). Any other failure, a second one, or a link that
+    /// does not come back throws as it is.
+    /// Whether a start's failure is its link dropping under it, which a relink and one more try can help (``retriedOnce``'s
+    /// `closed`): the connection closed (an EOF right after a resume), or the link socket was gone or refused while its
+    /// carrier rebound it (`connect …/cmux-link-….sock failed: No such file or directory`, start matrix run 42125025387).
+    public nonisolated static func linkDropped(_ error: any Error) -> Bool {
+        switch error {
+        case DaemonError.connectionClosed: true
+        case DaemonError.connectFailed(_, let code): code == ENOENT || code == ECONNREFUSED
+        default: false
+        }
+    }
+
+    /// A refused start's machine `update`, then its new link: the update restarts the machine's daemon and its carrier
+    /// rebinds the link socket, so starting again at once dialed the socket while it was gone (start matrix run
+    /// 42125025387 on bcf992a1: a first chat with no folder on a new machine). As ``CloudOutdatedMachine/copy`` does,
+    /// this waits, up to `relink`, for `handshake` (the connection's key) to change from what it was before. False when
+    /// `update` ran no turn; true after the wait, whether the new handshake came or not (the start's next refusal stands).
+    public static func updatedThenRelinked(handshake: @escaping @MainActor @Sendable () -> String?, relink: Duration = .seconds(90),
+                                           update: () async -> Bool) async -> Bool {
+        let before = handshake()
+        guard await update() else { return false }
+        _ = await holds(within: relink) { handshake().map { $0 != before && $0 != "refused" } ?? false }
+        return true
+    }
+
+    public static func retriedOnce<T>(_ start: () async throws -> T, closed: (any Error) -> Bool,
+                                      relink: () async -> Bool) async throws -> T {
+        do {
+            return try await start()
+        } catch where closed(error) && !Task.isCancelled {
+            guard await relink() else { throw error }
+            return try await start()
+        }
     }
 }

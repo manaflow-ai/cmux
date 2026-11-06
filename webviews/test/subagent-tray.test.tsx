@@ -1207,8 +1207,9 @@ describe("the tray tells the truth", () => {
       // setup's substitution before it (commandRules.ts).
       expect(names(liveLines(root))).toEqual(["git rev-parse HEAD · cmux-ci run"]);
       expect(liveLines(root)[0]!.querySelector("button")?.getAttribute("title")).toBe(raw);
-      expect(root.textContent).not.toContain("HEAD);");
-      expect(root.textContent).not.toContain("--class");
+      // The compact activity line now exposes the raw command; the title remains the readable
+      // parsed work name and the tooltip retains the full command for inspection.
+      expect(root.textContent).toContain("SHA=$(git rev-parse HEAD); cmux-ci run --class light");
     } finally {
       await done();
     }

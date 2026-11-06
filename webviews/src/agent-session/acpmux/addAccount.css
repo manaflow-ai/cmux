@@ -1,5 +1,5 @@
 /* The picker's Add account sheet, in the Settings look: a title and one line, the ways to add as
-   radio rows, one Name field, and the shared buttons (ui/controls.css .ui-btn). The pane does not
+   radio rows, one Name field, and the shared buttons (ui/controls.css .ui-button.ui-btn). The pane does not
    load ui.css, so the key hint's look is set here. */
 .acpmux-add-account {
   width: min(420px, calc(100vw - 32px));

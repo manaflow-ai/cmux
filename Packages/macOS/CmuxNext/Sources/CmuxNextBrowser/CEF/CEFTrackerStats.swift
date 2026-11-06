@@ -38,15 +38,34 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// Full page geometries worked out (`CEFHostGeometry`: ancestor walks for the rect, the visible rect and the clip
     /// inputs, and the window's occluders), by page update requests and fork reads together.
     public var geometryBuilds = 0
+    /// Detached hosting (fork API 30): pages detached for a resize motion and attached again at its landing
+    /// (``CEFLayerHosting/resizeMotion(active:)``).
+    public var detaches = 0
+    public var attaches = 0
 
     public init() {}
 
     /// The counters `debug.cef` reports as `tracker`, by key (milliseconds for the times). Per action = the change of
     /// each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).
     public var reportFields: [String: Double] {
+        perPageHosting.merging(fieldsWithoutPages) { _, counter in counter }
+    }
+
+    /// Per shown page window, hosted (1) or not (0), by `hosted.<tab id>[.devtools]` (`CEFEngine.hostedPageFields`).
+    var perPageHosting: [String: Double] = [:]
+
+    /// These counters with the shown pages' hosting state for `debug.cef`.
+    func with(hostedPages: [String: Double]) -> CEFTrackerStats {
+        var stats = self
+        stats.perPageHosting = hostedPages
+        return stats
+    }
+
+    private var fieldsWithoutPages: [String: Double] {
         ["clip_reads": Double(clipReads), "occlusion_reads": Double(occlusionReads), "clip_builds": Double(clipBuilds),
          "clip_hits": Double(clipHits), "clip_ms": clipSeconds * 1_000, "geometry_posts": Double(geometryPosts),
-         "hosted_pages": Double(hostedPages), "hosting_refused": Double(hostingRefused), "geometry_skips": Double(geometrySkips)]
+         "hosted_pages": Double(hostedPages), "hosting_refused": Double(hostingRefused), "geometry_skips": Double(geometrySkips),
+         "detaches": Double(detaches), "attaches": Double(attaches)]
     }
 
     /// Monotonic seconds for timing a read.

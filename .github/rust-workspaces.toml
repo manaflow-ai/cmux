@@ -137,6 +137,10 @@ run = true
 args = ["--no-default-features", "--features", "bench"]
 
 [[workspace]]
+root = "cmux-tui/crates/acpmux-hot/guest"
+skip = "wasm32-wasip2 guest of the dev-only acpmux-hot prototype; built and run by hand on the fleet (crates/acpmux-hot/bench.sh), not linked into any app"
+
+[[workspace]]
 root = "cmux-tui/crates/cmux-cellgrid-bench"
 skip = "measurement tool run by hand (cell grid against video, HQ#7146 G5); not linked into the app"
 
