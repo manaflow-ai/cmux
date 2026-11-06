@@ -486,6 +486,7 @@ export type Isolation = "unverified";
 
 export interface KillParams {
   _meta?: RequestMeta;
+  cancelFork?: unknown;
   purge?: unknown;
   sessionId?: unknown;
 }

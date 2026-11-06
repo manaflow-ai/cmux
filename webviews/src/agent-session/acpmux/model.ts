@@ -994,6 +994,9 @@ export type AcpmuxSnapshot = {
   sessions: AcpmuxSessionEntry[];
   /// Who else has a shared chat open and who of them types (multiplayer/participants.ts).
   presence?: ChatPresence;
+  /// A Fork Conversation acpmux has not answered yet, since when (Unix ms): the line above the
+  /// composer with its Cancel (ForkPendingLine.tsx).
+  forkPending?: { since: number };
   /// Present only when an acpmux workflow event is available; the Labs surface stays hidden otherwise.
   workflow?: AcpmuxWorkflowWire;
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */

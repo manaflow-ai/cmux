@@ -200,7 +200,7 @@ keyed! {
     /// `initialize`.
     InitializeParams: ["protocolVersion", "clientCapabilities", "clientInfo"];
     /// `_acpmux/kill`.
-    KillParams: ["sessionId", "purge"];
+    KillParams: ["sessionId", "purge", "cancelFork"];
     /// `_acpmux/mcp/reconnect`.
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.

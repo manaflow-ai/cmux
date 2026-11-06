@@ -3073,6 +3073,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "cancelFork": true,
         "purge": true,
         "sessionId": true
       },

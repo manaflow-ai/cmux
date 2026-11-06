@@ -502,6 +502,7 @@ import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
+import { ForkPendingLine } from "./ForkPendingLine";
 import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
 import { hostLineText } from "./hostLine";
 import {
@@ -10845,6 +10846,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   </div>
                 )}
                 {hostLine}
+                {snapshot.forkPending && (
+                  <ForkPendingLine
+                    since={snapshot.forkPending.since}
+                    onCancel={() => directClient.current?.cancelFork()}
+                  />
+                )}
                 <LiveTypingLine
                   sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                   fallback={snapshot.presence}

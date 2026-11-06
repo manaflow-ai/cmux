@@ -2697,6 +2697,11 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_KILL => {
             let s = hub.resolve(session_key(&params)?)?;
+            // A Fork Conversation the person cancelled before using it (`hub/fork_cancel.rs`).
+            if params.get("cancelFork").and_then(Value::as_bool) == Some(true) {
+                heap(|| hub.cancel_fork(&s)).await?;
+                return Ok(json!({"sessionId": s.id, "purged": true}));
+            }
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             // `ifIdle`: refused unless idle, checked under the turn lock (`stop_if_idle.rs`).
             let condition = crate::hub::stop_if_idle::StopCondition::from_params(&params)?;

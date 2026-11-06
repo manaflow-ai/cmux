@@ -67,6 +67,7 @@ mod shutdown_tests;
 mod transcript_seq_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
+mod fork_cancel;
 pub(crate) mod fork_before;
 mod fork_transcript_auth;
 pub mod forum;

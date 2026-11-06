@@ -517,7 +517,12 @@ impl Hub {
         self.child_tags.note(&new);
         let creation_guard = super::lifecycle::CreationGuard::new(self.clone(), new.clone(), 0);
         // Copy the transcript-relevant history so attach replays it.
-        // Read one record at a time; only these kinds are parsed.
+        // Read one record at a time; only these kinds are parsed. The copies are stored under one
+        // hold of the fork's append lock and sent to no client one by one: nothing is attached
+        // to the fork yet, and every watcher of every chat heard each copied turn's records (a
+        // summary per record, the app's whole list lagging past 8192). Watchers hear of the
+        // fork once, from its `forked` record; an attach replays the copy from the log. Each
+        // record's paths were made canonical when its chat stored it.
         const COPIED: &[&str] = &[
             "user_message",
             "agent_message_chunk",
@@ -533,6 +538,8 @@ impl Hub {
         let mut open_tools: Vec<(String, String)> = Vec::new();
         let mut running_turn_seq: Option<u64> = None;
         {
+            let order = new.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+            self.catch_up_locked(&new);
             let copied = self.store.scan_kinds(&session.id, COPIED, &mut |e: EventRecord| {
                 if empty || e.seq > fork_seq {
                     return false;
@@ -569,7 +576,16 @@ impl Hub {
                             .and_then(Value::as_str)
                             .map(|text| short_text(text, 200));
                     }
-                    let (copy, _) = self.append_at(&new, &e.dir, &e.kind, e.msg, None, Some(e.at));
+                    let (copy, _) = self.append_at_locked(
+                        &new,
+                        &e.dir,
+                        &e.kind,
+                        e.msg,
+                        None,
+                        Some(e.at),
+                        false,
+                        false,
+                    );
                     if starts_running {
                         running_turn_seq = Some(copy.seq);
                     }
@@ -583,6 +599,7 @@ impl Hub {
                 }
                 true
             });
+            drop(order);
             if before.is_some() {
                 copied
                     .map_err(|e| super::fork_before::refused("fork.incomplete", &e.to_string()))?;
