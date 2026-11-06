@@ -314,7 +314,7 @@ test("a change's picture shows inline and a click on it opens the notes", async 
       />,
     ),
   );
-  expect(host.querySelector(".wn-pop-title")?.textContent).toBe("What's new in nightly 3932981");
+  expect(host.querySelector(".wn-pop-title")?.textContent).toBe("nightly 3917159 → nightly 3932981");
   const pictures = [...host.querySelectorAll(".wn-pop-list li")].map((li) => li.querySelectorAll("img").length);
   expect(pictures).toEqual([1, 0]);
   expect(host.querySelectorAll(".wn-pop-media").length).toBe(1);

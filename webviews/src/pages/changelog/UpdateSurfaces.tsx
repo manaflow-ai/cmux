@@ -284,7 +284,11 @@ export function UpdateReadyHighlights({
   layout?: ReadyLayout;
 }) {
   const titleId = useId();
-  const scroller = useRef<HTMLElement>(null);
+  const scroller = useRef<HTMLElement | null>(null);
+  // One callback for both scrollers: the brief popover's section and the list's div.
+  const scrollerRef = (element: HTMLElement | null) => {
+    scroller.current = element;
+  };
   const readable = withSpan(readableUpdate(data), span, strings.language);
   const items = readable.items;
   const rest = readable.rest ?? null;
@@ -322,7 +326,7 @@ export function UpdateReadyHighlights({
         className="wn-pop wn-pop-brief"
         data-layout={briefLayout}
         aria-labelledby={titleId}
-        ref={scroller}
+        ref={scrollerRef}
         {...{ [CARD_SCROLL_ATTRIBUTE]: "" }}
       >
         <div className="wn-pop-head">
@@ -362,7 +366,7 @@ export function UpdateReadyHighlights({
       <PopoverHead id={titleId} version={data.version} from={from} strings={strings} />
       <div
         className="wn-pop-scroll"
-        ref={scroller}
+        ref={scrollerRef}
         // Arrow keys, Page Up/Down, Home and End scroll the list once it has the focus.
         tabIndex={0}
         aria-labelledby={titleId}
