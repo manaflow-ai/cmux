@@ -276,10 +276,10 @@ pub(super) fn vm_error(status: u16, body: &[u8], header_code: Option<&str>) -> F
     let message = field(ui.and_then(|u| u.get("message")))
         .or_else(|| field(get("message")))
         .or_else(|| field(nested.and_then(|n| n.get("message"))));
-    if let Some(object) = &object {
-        if let Some(plan) = lifting_plan(object, code.as_deref()) {
-            return Failure::PlanRequired { message, upgrade_url: upgrade_url(object), plan };
-        }
+    if let Some(object) = &object
+        && let Some(plan) = lifting_plan(object, code.as_deref())
+    {
+        return Failure::PlanRequired { message, upgrade_url: upgrade_url(object), plan };
     }
     Failure::Http {
         status,

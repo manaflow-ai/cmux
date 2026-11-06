@@ -631,8 +631,8 @@ fn an_owner_refusal_reads_its_code_and_message() {
 fn a_fork_runs_children_read_from_a_list_an_object_or_one_child() {
     let child = json!({ "id": "c-1", "harness": "claude", "state": "starting", "machineId": null });
     let want = json!([{ "id": "c-1", "harness": "claude", "state": "starting", "machineId": null, "error": null }]);
-    assert_eq!(fork_children(json!([child.clone()])), Some(want.clone()));
-    assert_eq!(fork_children(json!({ "children": [child.clone()] })), Some(want.clone()));
+    assert_eq!(fork_children(json!([child])), Some(want.clone()));
+    assert_eq!(fork_children(json!({ "children": [child] })), Some(want.clone()));
     assert_eq!(fork_children(child), Some(want));
     assert_eq!(fork_children(json!({ "id": "c-1" })), None);
     assert_eq!(fork_children(json!("x")), None);
