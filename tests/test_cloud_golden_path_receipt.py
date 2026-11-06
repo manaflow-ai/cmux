@@ -6,7 +6,9 @@ import copy
 import importlib.util
 import json
 import random
+import shutil
 import string
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -24,7 +26,10 @@ OTHER_MACHINE = "vm_ffff0000ffff0000ffff"
 # A receipt run_probe (cmuxterm-hq tools/cloud-golden-path/golden_path.py, #7402 at fc606b38) wrote, with
 # CliBackend-shaped evidence: lease and auth fail auth.not_observable, so its outcome is "failed".
 CLI_FIXTURE = ROOT / "tests" / "fixtures" / "cloud_golden_path_cli_receipt.json"
-WRITER_DIR = Path("/home/cmux/Projects/checkouts/cmuxterm-hq/lane--golden-path-matrix/tools/cloud-golden-path")
+# The writer as committed at fc606b38 (read with `git show`, so another lane's edits in that checkout don't move it).
+WRITER_REPO = Path("/home/cmux/Projects/checkouts/cmuxterm-hq/lane--golden-path-matrix")
+WRITER_COMMIT = "fc606b38e1"
+WRITER_PATH = "tools/cloud-golden-path/golden_path.py"
 CLI_PROBE = "11111111-2222-4333-8444-555555555555"
 PLATFORM_PROBE = "66666666-7777-4888-9999-aaaaaaaaaaaa"
 ALL_STAGES = ("machine", "folder", "readiness", "lease", "auth", "chat", "reconnect")
@@ -464,9 +469,17 @@ class GoldenPathReceiptTests(unittest.TestCase):
         ], machine=machine)
 
     def test_writer_fixture_is_what_the_writer_writes(self) -> None:
-        if not (WRITER_DIR / "golden_path.py").is_file():
-            self.skipTest("cmuxterm-hq golden-path writer not checked out here")
-        spec = importlib.util.spec_from_file_location("golden_path_writer", WRITER_DIR / "golden_path.py")
+        try:
+            source = subprocess.run(
+                ["git", "-C", str(WRITER_REPO), "show", f"{WRITER_COMMIT}:{WRITER_PATH}"],
+                check=True, capture_output=True,
+            ).stdout
+        except (OSError, subprocess.CalledProcessError):
+            self.skipTest(f"cmuxterm-hq golden-path writer at {WRITER_COMMIT} not available here")
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, directory)
+        (directory / "golden_path.py").write_bytes(source)
+        spec = importlib.util.spec_from_file_location("golden_path_writer", directory / "golden_path.py")
         writer = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = writer  # its dataclasses look their module up
         self.addCleanup(sys.modules.pop, spec.name, None)
@@ -586,6 +599,55 @@ class GoldenPathReceiptTests(unittest.TestCase):
             cli["probeId"] = bad
             result = receipt.normalize([cli, self.platform_for(MACHINE), provider()])
             self.assertEqual(result["probe_ids"], [PLATFORM_PROBE], bad)
+
+    # Review BLOCK at aabd5bf1: a gap code must name its own stage.
+
+    def test_stage_gap_code_for_another_stage_is_a_real_failure(self) -> None:
+        for code in ("auth.not_observable", "lease.no_route", "not_observable", ".not_observable"):
+            cli = self.cli_from_writer()
+            machine = cli["stages"][0]
+            machine["ok"] = False
+            machine.pop("value")
+            machine["failure"] = failure(code)
+            platform = self.platform_for(MACHINE)
+            platform["stages"].append(stage("machine", 12, 9, probe=PLATFORM_PROBE, value={"machineId": MACHINE}))
+            result = receipt.normalize([cli, platform, provider()])
+
+            self.assertEqual(result["status"], "fail", code)
+            self.assertIn("receipt_reports_failure", result["blockers"], code)
+            self.assertEqual(result["golden_path_stages"]["machine"], "failed", code)
+            self.assertEqual(result["golden_path_stages"]["chat"], "missing", code)
+
+    def test_receipt_gap_code_without_its_matching_stage_failure_is_a_real_failure(self) -> None:
+        cases = {
+            # The code's stage passed in this receipt.
+            "ok stage": {"stage": "chat", "code": "chat.not_observable"},
+            # The code's stage is not in this receipt at all.
+            "absent stage": {"stage": "machine", "code": "machine.not_observable"},
+            # The code's stage failed, but with a different gap.
+            "other gap": {"stage": "lease", "code": "lease.no_route"},
+            # The code names one stage, the `stage` field another.
+            "stage field mismatch": {"stage": "auth", "code": "lease.not_observable"},
+        }
+        for label, mismatch in cases.items():
+            cli = self.cli_from_writer()
+            if label == "absent stage":
+                cli["stages"] = [item for item in cli["stages"] if item["stage"] != "machine"]
+            cli["failure"] = {**failure(mismatch["code"]), "stage": mismatch["stage"]}
+            platform = self.platform_for(MACHINE)
+            platform["stages"].append(stage("machine", 12, 9, probe=PLATFORM_PROBE, value={"machineId": MACHINE}))
+            platform["stages"].append(stage("chat", 13, 9, probe=PLATFORM_PROBE,
+                                            value={"session_id": "sess_acp_1", "session_discovered": True}))
+            result = receipt.normalize([cli, platform, provider()])
+
+            self.assertNotEqual(result["status"], "pass", label)
+            self.assertIn("receipt_reports_failure", result["blockers"], label)
+            self.assertEqual(result["golden_path_stages"]["reconnect"], "missing", label)
+
+    def test_matching_receipt_gap_still_joins(self) -> None:
+        result = receipt.normalize([self.cli_from_writer(), self.platform_for(MACHINE), provider()])
+
+        self.assertEqual(result["status"], "pass", result["blockers"])
 
 
 if __name__ == "__main__":
