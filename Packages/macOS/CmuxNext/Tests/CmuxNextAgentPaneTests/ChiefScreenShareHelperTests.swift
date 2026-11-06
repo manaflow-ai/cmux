@@ -254,7 +254,7 @@ private final class FakeHost: ChiefScreenCaptureHost, @unchecked Sendable {
         let sources = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "Sources")
         let folders = ["CmuxNextDictation/ChiefScreenShare", "CmuxNextAgentPane/ChiefScreenShare"]
-        let host = "CmuxNextApp/ComputerUse/ChiefScreenStillsUnavailable.swift"
+        let host = "CmuxNextDictation/ChiefScreenShare/ChiefScreenStillsUnavailable.swift"
         let banned = ["ScreenCaptureKit", "SCScreenshotManager", "SCShareableContent", "CGRequestScreenCaptureAccess",
                       "CGPreflightScreenCaptureAccess", "CGWindowListCopyWindowInfo", "CGWindowListCreateImage"]
         var checked = 0

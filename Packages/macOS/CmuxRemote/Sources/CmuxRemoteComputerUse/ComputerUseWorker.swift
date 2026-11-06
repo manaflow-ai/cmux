@@ -236,11 +236,11 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
 
     // MARK: The C table
 
-    private static func services(_ context: UnsafeMutableRawPointer?) -> WorkerServices? {
+    fileprivate static func services(_ context: UnsafeMutableRawPointer?) -> WorkerServices? {
         context.map { Unmanaged<WorkerServices>.fromOpaque($0).takeUnretainedValue() }
     }
 
-    private static func data(_ pointer: UnsafePointer<UInt8>?, _ length: Int) -> Data {
+    fileprivate static func data(_ pointer: UnsafePointer<UInt8>?, _ length: Int) -> Data {
         guard let pointer, length > 0 else { return Data() }
         return Data(bytes: pointer, count: length)
     }
@@ -250,23 +250,23 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
         host.struct_size = UInt32(MemoryLayout<CmuxCuHost>.size)
         host.context = context
         host.capture = { context, target, length, frame, error, capacity in
-            guard let services = services(context), let frame else { return 1 }
-            return services.capture(data(target, length), frame: frame, error: error, errorCapacity: capacity)
+            guard let services = WorkerServices.services(context), let frame else { return 1 }
+            return services.capture(WorkerServices.data(target, length), frame: frame, error: error, errorCapacity: capacity)
         }
         host.release_frame = { _, token in
             if let token { Unmanaged<FrameStorage>.fromOpaque(token).release() }
         }
         host.cursor = { context, json, length in
-            services(context)?.cursor(data(json, length))
+            WorkerServices.services(context)?.cursor(WorkerServices.data(json, length))
         }
         host.ask = { context, json, length in
-            services(context)?.ask(data(json, length)) ?? ApprovalAnswer.unavailable.rawValue
+            WorkerServices.services(context)?.ask(WorkerServices.data(json, length)) ?? ApprovalAnswer.unavailable.rawValue
         }
         host.wait_idle = { context, limit in
-            services(context)?.waitIdle(limitMilliseconds: limit) ?? true
+            WorkerServices.services(context)?.waitIdle(limitMilliseconds: limit) ?? true
         }
         host.request_permission = { context, name, length in
-            services(context)?.requestPermission(String(decoding: data(name, length), as: UTF8.self)) ?? 1
+            WorkerServices.services(context)?.requestPermission(String(decoding: WorkerServices.data(name, length), as: UTF8.self)) ?? 1
         }
         return host
     }

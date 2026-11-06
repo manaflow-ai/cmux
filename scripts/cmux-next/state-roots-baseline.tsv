@@ -12,7 +12,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/DebugSettingsService.swift	
 Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift	1	move	credentialsDirectory: this build’s own cmux/<bundle id> token files; moving to the resolver needs a migration
 Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Tunnel/CloudPaths.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildIdentity.swift	2	keep	resolver: BuildIdentity
-Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperDaemon.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher.swift	1	keep	resolver: tag daemon state (kept names, S3)
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LastAppCLIPointer.swift	1	keep	one pointer per user for the dev shim (S5 decision)
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHome.swift	1	keep	resolver: ChiefHome
