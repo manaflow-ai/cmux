@@ -143,8 +143,7 @@ extension CloudStartSession {
         ["delivered": .bool(false), "ended": .bool(true), "error_code": .string(code), "error_message": .string(message)]
     }
 
-    /// The answer's fields: what the CLI prints with `--json`.
-    /// The stage trace (cmuxterm-hq#7415): `linkLogin` is the link and login before the relay's request, from which its own times count.
+    /// The answer's fields: what the CLI prints with `--json`. `linkLogin`: the link and login before the relay's request (cmuxterm-hq#7415's stage trace).
     static func relayFields(_ answer: CloudRelayChat.Answer, machineID: String, linkLogin: Duration? = nil) -> [String: ActionResultValue] {
         var fields: [String: ActionResultValue] = ["machine_id": .string(machineID), "reply": .string(answer.reply), "queued": .bool(answer.queued),
                                                    "ended": .bool(answer.ended), "delivered": .bool(answer.delivered)]
