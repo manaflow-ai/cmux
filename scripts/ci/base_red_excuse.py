@@ -1226,6 +1226,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
     """Failed head jobs; a check that is a jobless status red the base shares adds its line to EXCUSED, and a cancelled
     job a newer run of its workflow passed adds its line to IGNORED (superseding_check)."""
     jobs: dict[int, dict] = {}
+    contexts: dict[int, list[str]] = {}  # the status contexts each job was judged for (status_job)
     seen = {} if seen is None else seen
     for run in runs:
         guards = []
@@ -1280,7 +1281,8 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                 if isinstance(job, str):
                     excused.append(job)
                     continue
-                jobs[job["id"]] = dict(job, status_context=name)
+                jobs[job["id"]] = job
+                contexts.setdefault(job["id"], []).append(name)
                 continue
             job = job_for(repo, latest[name], sha, github)
             if is_aggregate(name, repo):
@@ -1326,7 +1328,8 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                 raise Refused(f"run {guard['run_id']}: its aggregate check failed with no failed job to compare with the base")
             validate_guard_routes(repo, sha, guard, found, github)
             jobs.update((job["id"], job) for job in found)
-    return list(jobs.values())
+    # Kept apart until here, so a later entry for the same job (another status, or its check run) drops none.
+    return [dict(job, status_contexts=contexts[key]) if key in contexts else job for key, job in jobs.items()]
 
 
 def tip_suite_verdicts(repo: str, base: str, workflow, name: str, github, base_jobs: dict[int, list[dict] | None],
@@ -2192,7 +2195,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     # A status judged by its job (status_job) is named too, the way merge_hold reads the head's reds: by the
     # status's own context. Every job above was excused or ignored, or judge() raised.
     for job in jobs:
-        if context := job.get("status_context"):
+        for context in job.get("status_contexts", ()):
             name = job.get("name", "")
             verb = next((line.split(" ", 1)[0] for line in reversed(audit)
                          if line.startswith((f"excused '{name}'", f"ignored '{name}'"))), "excused")

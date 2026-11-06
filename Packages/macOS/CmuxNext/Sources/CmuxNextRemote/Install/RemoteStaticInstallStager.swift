@@ -22,26 +22,31 @@ public struct RemoteStaticInstallStager: Sendable {
 
     /// Stages the bundled build for `host`'s static install when it is older; `off` (the
     /// organization turned remote installs off) or a missing `binary` does nothing.
+    ///
+    /// - Returns: True when a newer build now waits as `cmux.staged` (a session server runs the
+    ///   binary); false when nothing was staged or the build was swapped in at once.
     public func stageIfOlder(_ host: SSHHost, link: SSHMachineLink, binary: URL?,
-                             environment: @Sendable () async -> [String: String], off: Bool) async {
+                             environment: @Sendable () async -> [String: String], off: Bool) async -> Bool {
         let path = SSHHost.staticInstallBinary
-        guard !off, host.remoteBinary != path, let binary, let commit = await BundledCmuxTUI.commit(binary: binary) else { return }
+        guard !off, host.remoteBinary != path, let binary, let commit = await BundledCmuxTUI.commit(binary: binary) else { return false }
         let env = await environment()
         guard let (probe, answer) = await host.updateCheck(remoteBinary: path, binary: binary, environment: env),
-              answer.need == "older", let platform = await link.lastReport?.platform else { return }
+              answer.need == "older", let platform = await link.lastReport?.platform else { return false }
         var lockedPlan: RemoteInstallPlan?
         do {
             var plan = try await installer.plan(commit: commit, treeKey: BundledCmuxTUI.treeKey(binary: binary), platform: platform,
                                                 remoteBinary: path)
-            guard plan.commit != probe.buildIdentity?.lowercased() else { return }
+            guard plan.commit != probe.buildIdentity?.lowercased() else { return false }
             plan.expectedRemoteIdentity = probe.buildIdentity
             lockedPlan = plan
             let swapped = try await installer.stage(plan, on: host, environment: env)
             await installer.releaseLock(plan, on: host, environment: env)
             logger.info("\(swapped ? "installed" : "staged", privacy: .public) cmux-tui \(plan.commit, privacy: .public) for \(path, privacy: .public) on \(host.destination.description, privacy: .public)")
+            return !swapped
         } catch {
             if let lockedPlan { await installer.releaseLock(lockedPlan, on: host, environment: env) }
             logger.error("staging \(path, privacy: .public) on \(host.destination.description, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 }

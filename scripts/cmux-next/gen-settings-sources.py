@@ -215,7 +215,7 @@ SECTIONS = [
         "swift": SCHEMA_DIR + "/SettingsSchema+WorkspaceHibernation.generated.swift",
         "type": "WorkspaceHibernationSettingsSchema",
         "lists": {"hibernation": ("descriptors", "WorkspaceHibernationSettings")},
-        "enums": {},
+        "enums": {"workspaces.freeing.runningCommands": "WorkspaceFreeingRunningCommandsSetting"},
     },
     {
         "source": "schemas/settings/source/feed.json",

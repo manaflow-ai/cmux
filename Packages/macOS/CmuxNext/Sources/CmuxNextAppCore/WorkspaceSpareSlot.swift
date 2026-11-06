@@ -5,7 +5,8 @@ public import CmuxNextWakeups
 /// ahead and the key only swaps: one per window, in its own slot (never a parked workspace or a saved record).
 ///
 /// ``fill()`` makes it after the frame commits, in three background tasks on the app's scheduler (each yields to the
-/// person's input; none holds the main thread longer than one step): the daemon's reserved workspace (`reserve`), its
+/// person's input and runs only in a frame with idle time, so none lands in the late frames after a switch; none holds
+/// the main thread longer than one step): the daemon's reserved workspace (`reserve`), its
 /// view on that model (`build`, unmounted), then its window entry (`mount`, hidden and parked). A key's show takes it
 /// (``take(_:)``) and builds nothing. A view whose workspace is no longer the reservation (`isReserved`) goes at the next
 /// fill; ``drop()`` lets it go now (another window became key, the window closes, memory pressure). Each step runs only

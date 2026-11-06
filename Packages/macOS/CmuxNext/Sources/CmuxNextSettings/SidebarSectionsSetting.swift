@@ -212,9 +212,10 @@ public nonisolated enum SidebarSectionsSetting {
                               kind: .choice([
                                   SettingChoice(SidebarGroupBy.none.rawValue, SettingsText.keyed("settings.choice.groupByNone", "None")),
                                   SettingChoice(SidebarGroupBy.folder.rawValue, SettingsText.keyed("settings.choice.groupByFolder", "Folder")),
+                                  SettingChoice(SidebarGroupBy.recents.rawValue, SettingsText.keyed("settings.choice.groupByRecents", "Projects and Recents")),
                               ]),
                               default: .string(SidebarSectionsPreferences.defaults.groupBy.rawValue),
-                              keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd"]),
+                              keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd", "recents", "recent", "chatgpt", "history"]),
             // The bottom band's pieces (cx-wab7m): right-click hides each, the band shows it again.
             SettingDescriptor(showSpacesPath, section: .appearance, group: group,
                               title: SettingsText.keyed("settings.sidebar.showSpaces", "Show Spaces"),
