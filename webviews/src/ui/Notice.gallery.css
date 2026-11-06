@@ -20,6 +20,36 @@
   font-size: var(--text-caption);
 }
 
+/* overlay: compare the chosen floating stack with the pane it sits over. The transcript and
+   composer are deliberately quiet placeholders; the notice is the only layer that can move. */
+.ui-notice-gallery-overlay {
+  max-width: none;
+  background: color-mix(in srgb, var(--cmux-elevated-background, Canvas) 72%, transparent);
+}
+.ui-notice-gallery-transcript {
+  display: grid;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-4);
+}
+.ui-notice-gallery-transcript span {
+  display: block;
+  height: var(--ds-space-3);
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent);
+}
+.ui-notice-gallery-transcript span:nth-child(2) { width: 72%; }
+.ui-notice-gallery-transcript span:nth-child(3) { width: 54%; }
+.ui-notice-gallery-composer {
+  position: absolute;
+  inset-inline: var(--ds-space-4);
+  bottom: var(--ds-space-4);
+  padding: var(--ds-space-3);
+  border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent);
+  border-radius: var(--ds-radius-lg);
+  color: var(--cmux-text-secondary, GrayText);
+  font-size: var(--text-detail);
+}
+
 /* line: Sonner's toast, one row: the text, then the buttons beside it; the checkmark under it. */
 .ui-notice-gallery[data-look="line"] .ui-notice {
   grid-template-columns: minmax(0, 1fr) auto auto;

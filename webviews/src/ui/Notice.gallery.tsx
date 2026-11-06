@@ -10,7 +10,7 @@ import type { Play } from "../gallery/play";
 import { Notice, type NoticeKind } from "./Notice";
 import { createNoticeQueue, NoticeStack } from "./NoticeStack";
 
-type Look = "card" | "line" | "header";
+type Look = "card" | "line" | "header" | "overlay";
 type Props = { look: Look; only?: NoticeKind | "stack" };
 
 const noop = () => undefined;
@@ -100,7 +100,36 @@ function Stack({ look }: Props) {
   );
 }
 
+function Overlay() {
+  const queue = useMemo(() => {
+    const made = createNoticeQueue();
+    made.show({
+      id: "overlay",
+      message: 'Closed “Draft chat”.',
+      actions: [{ id: "undo", label: "Undo", onSelect: noop }],
+    });
+    return made;
+  }, []);
+  return (
+    <div
+      className="ui-notice-gallery ui-notice-gallery-stage ui-notice-gallery-overlay"
+      data-look="overlay"
+    >
+      <div className="ui-notice-gallery-transcript" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="ui-notice-gallery-composer" aria-hidden="true">
+        Prompt stays in place
+      </div>
+      <NoticeStack queue={queue} dismissLabel="Dismiss" />
+    </div>
+  );
+}
+
 function NoticeGallery(props: Props) {
+  if (props.look === "overlay") return <Overlay />;
   return props.only === "stack" ? <Stack {...props} /> : <Kinds {...props} />;
 }
 
@@ -127,6 +156,10 @@ export default componentEntry<Props>({
     card: { props: { look: "card" }, note: "Shipped: mark, title, line, trailing buttons, leading checkmark." },
     line: { props: { look: "line" }, note: "Option: Sonner's one-row toast; buttons beside the text." },
     header: { props: { look: "header" }, note: "Option: Codex's limit card with a title strip." },
+    overlay: {
+      props: { look: "overlay" },
+      note: "Chosen: a toast floats over the transcript without moving the composer.",
+    },
     stack: { props: { look: "card", only: "stack" }, note: "Three toasts over a pane: newest at the bottom." },
     "ask-check": { props: { look: "card", only: "ask" }, play: checkAskFirst },
     "error-retry-first": { props: { look: "card", only: "error" }, play: retryLeads },
