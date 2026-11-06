@@ -926,4 +926,3 @@ extension AppServices {
         if PaidPlanOnboarding(defaults: .standard).hasPending { await cloud.refresh() }
     }
 }
-

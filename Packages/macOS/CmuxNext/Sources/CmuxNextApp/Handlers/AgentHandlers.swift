@@ -520,3 +520,18 @@ enum AgentHandlers {
         }
     }
 }
+
+/// Computer Use sessions in cmux Remote's worker: it lists none to the app yet, so Stop ends them all.
+private final class RemoteComputerUseSessions: ComputerUseSessionControlling {
+    let remote: CmuxRemoteService, phase: @MainActor () -> ComputerUseSetup.Phase
+    init(remote: CmuxRemoteService, phase: @escaping @MainActor () -> ComputerUseSetup.Phase) { (self.remote, self.phase) = (remote, phase) }
+    func liveSessions() async throws -> [ComputerUseLiveSession] { try ready(); return [] }
+    func stop(_ id: String) async throws { try await stopAll() }
+    func stopAll() async throws {
+        try ready()
+        do { try await remote.stopComputerUseSessions() } catch { throw ComputerUseSessionError.failed(ComputerUseSessionStrings.hostRefused(String(describing: error))) }
+    }
+    private func ready() throws {
+        guard [.ready, .starting].contains(phase()) else { throw ComputerUseSessionError.notRunning(ComputerUseSessionStrings.notRunning(phase())) }
+    }
+}

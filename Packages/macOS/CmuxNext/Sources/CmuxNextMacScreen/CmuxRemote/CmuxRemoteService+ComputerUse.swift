@@ -100,6 +100,11 @@ extension CmuxRemoteService {
         _ = await computerUseStatus()
     }
 
+    /// Ends every agent session of the Computer Use worker (`revoke_sessions`): their grants end.
+    public func stopComputerUseSessions() async throws {
+        _ = try await call("computer_use.approvals", .object(["action": .string("revoke_sessions")]))
+    }
+
     /// Asks macOS for `permission` ("accessibility" or "screen-recording") in cmux Remote, so the
     /// prompt and System Settings name cmux Remote.
     public func requestGrant(_ permission: String) async {
