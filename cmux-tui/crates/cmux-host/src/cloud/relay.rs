@@ -27,7 +27,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -396,10 +397,12 @@ impl Runner {
 }
 
 /// The relay thread; dropping it stops the thread at once: its socket closes and that socket's chats end (a
-/// rebind must not leave the old machine's socket taking chats).
+/// rebind must not leave the old machine's socket taking chats). [`Relay::detach`] stops it without ending them.
 pub struct Relay {
     stop: watch::Sender<bool>,
     resumed: watch::Sender<u64>,
+    /// Set by [`Relay::detach`] before the stop: the chats' turns run on in acpmux.
+    detached: Arc<AtomicBool>,
 }
 
 impl Drop for Relay {
@@ -448,10 +451,12 @@ impl Relay {
     ) -> std::io::Result<Relay> {
         let (stop, stopping) = watch::channel(false);
         let (resumed, resumes) = watch::channel(0);
+        let detached = Arc::new(AtomicBool::new(false));
+        let owned = detached.clone();
         std::thread::Builder::new()
             .name("cmux-host-relay".to_owned())
-            .spawn(move || run(client, runner, now_wall_ms, log, stopping, resumes))?;
-        Ok(Relay { stop, resumed })
+            .spawn(move || run(client, runner, now_wall_ms, log, stopping, resumes, owned))?;
+        Ok(Relay { stop, resumed, detached })
     }
 
     /// The machine woke from a pause (`HostEvent::Resumed`): the socket is dropped and dialed again at once, its
@@ -459,15 +464,70 @@ impl Relay {
     pub fn resumed(&self) {
         self.resumed.send_modify(|n| *n = n.wrapping_add(1));
     }
+
+    /// Stops the thread as cmux-host shuts down (a restart, an update): the socket closes and the chats' `acp send`
+    /// clients end, but their turns run on in acpmux, which owns them; the next cmux-host reattaches when the
+    /// platform sends a chat again. Only a `cancel` or a revocation (dropping the Relay) ends a turn.
+    pub fn detach(self) {
+        self.detached.store(true, Ordering::SeqCst);
+    }
+}
+
+/// How the relay reaches a socket: a fresh bearer, then [`serve`] until the socket ends. Tests dial a local one.
+trait Dial {
+    /// The next bearer goes on a fresh HTTPS connection: after a pause the pooled one is stale.
+    fn reset_transport(&mut self);
+    /// One socket, until it ends; `None` once `stop` came first.
+    fn serve(
+        &mut self,
+        rt: &tokio::runtime::Runtime,
+        stop: &mut watch::Receiver<bool>,
+        link: &mut Link,
+        resumes: &mut watch::Receiver<u64>,
+        seen: u64,
+    ) -> Option<Result<Ended, String>>;
+}
+
+/// The platform's `MachineRelay`, as this machine's VM install.
+struct Platform<H: Http> {
+    client: CloudClient<H>,
+    url: String,
+    runner: Runner,
+    now_wall_ms: fn() -> u64,
+}
+
+impl<H: Http> Dial for Platform<H> {
+    fn reset_transport(&mut self) {
+        self.client.reset_transport();
+    }
+
+    fn serve(
+        &mut self,
+        rt: &tokio::runtime::Runtime,
+        stop: &mut watch::Receiver<bool>,
+        link: &mut Link,
+        resumes: &mut watch::Receiver<u64>,
+        seen: u64,
+    ) -> Option<Result<Ended, String>> {
+        match self.client.token((self.now_wall_ms)()) {
+            Ok(token) => {
+                let serving =
+                    serve(&self.url, &token, &self.runner, link, resumes, seen, self.now_wall_ms);
+                rt.block_on(or_stop(stop, serving))
+            }
+            Err(e) => Some(Err(format!("token: {e}"))),
+        }
+    }
 }
 
 fn run<H: Http>(
-    mut client: CloudClient<H>,
+    client: CloudClient<H>,
     runner: Runner,
     now_wall_ms: fn() -> u64,
     log: fn(&str),
     mut stop: watch::Receiver<bool>,
     mut resumes: watch::Receiver<u64>,
+    detached: Arc<AtomicBool>,
 ) {
     if !child_waits_work() {
         return log(
@@ -482,34 +542,38 @@ fn run<H: Http>(
     let Some(url) = relay_url(bound.env.platform_origin(), &bound.machine) else {
         return log("relay: no relay URL for this machine");
     };
+    let mut platform = Platform { client, url, runner, now_wall_ms };
+    relay_loop(&rt, &mut platform, log, &mut stop, &mut resumes, detached);
+    // Dropping the runtime drops every chat task left, which kills its acpmux children (kill_on_drop).
+}
+
+/// Dials, serves and dials again until `stop`.
+fn relay_loop(
+    rt: &tokio::runtime::Runtime,
+    dial: &mut impl Dial,
+    log: fn(&str),
+    stop: &mut watch::Receiver<bool>,
+    resumes: &mut watch::Receiver<u64>,
+    detached: Arc<AtomicBool>,
+) {
     let mut backoff = Duration::from_secs(1);
     let mut last_error = String::new();
     let mut seen = *resumes.borrow();
-    let mut link = Link::default();
+    let mut link = Link::new(detached.clone());
     // Failed dials a resume's chats may wait out for the next socket; past them, they end as on any drop.
     let mut carry = 0u8;
     while !*stop.borrow() {
         // A resume while no socket was up: the pooled HTTPS connection is as stale as the socket was.
         if *resumes.borrow() != seen {
             seen = *resumes.borrow();
-            client.reset_transport();
+            dial.reset_transport();
         }
-        let outcome = match client.token(now_wall_ms()) {
-            Ok(token) => {
-                let serving =
-                    serve(&url, &token, &runner, &mut link, &mut resumes, seen, now_wall_ms);
-                match rt.block_on(or_stop(&mut stop, serving)) {
-                    Some(outcome) => outcome,
-                    None => break,
-                }
-            }
-            Err(e) => Err(format!("token: {e}")),
-        };
+        let Some(outcome) = dial.serve(rt, stop, &mut link, resumes, seen) else { break };
         match outcome {
             Ok(Ended::Resumed) => {
                 log("relay: the machine resumed; dialing again");
                 seen = *resumes.borrow();
-                client.reset_transport();
+                dial.reset_transport();
                 backoff = Duration::from_secs(1);
                 carry = RESUME_REDIALS;
                 continue;
@@ -533,11 +597,11 @@ fn run<H: Http>(
         if carry > 0 {
             carry -= 1;
         } else {
-            link = Link::default();
+            link = Link::new(detached.clone());
         }
-        pause(&rt, &mut stop, &mut resumes, seen, backoff);
+        pause(rt, stop, resumes, seen, backoff);
     }
-    // Dropping the runtime drops every chat task left, which kills its acpmux children (kill_on_drop).
+    // `link` goes here, aborting its chats; their tasks are dropped with the runtime.
 }
 
 /// Waits out `backoff` on the relay thread's own runtime, unless `stop` or a resume past `seen` comes first. The
@@ -578,14 +642,22 @@ struct Link {
     chats: Chats,
     tx: mpsc::Sender<String>,
     rx: mpsc::Receiver<String>,
+    /// The Relay's [`Relay::detach`] mark, read when a chat is dropped.
+    detached: Arc<AtomicBool>,
+}
+
+impl Link {
+    fn new(detached: Arc<AtomicBool>) -> Link {
+        // Bounded: a slow socket holds the chats' readers back (and so acpmux's output) instead of queueing
+        // without end.
+        let (tx, rx) = up_queue();
+        Link { chats: Chats::default(), tx, rx, detached }
+    }
 }
 
 impl Default for Link {
     fn default() -> Link {
-        // Bounded: a slow socket holds the chats' readers back (and so acpmux's output) instead of queueing
-        // without end.
-        let (tx, rx) = up_queue();
-        Link { chats: Chats::default(), tx, rx }
+        Link::new(Arc::default())
     }
 }
 
@@ -627,7 +699,7 @@ async fn serve(
             e => format!("connect: {e}"),
         })?;
     let (mut sink, mut stream) = ws.split();
-    let Link { chats, tx, rx } = link;
+    let Link { chats, tx, rx, detached } = link;
     let mut ping = tokio::time::interval(PING_EVERY);
     let mut heard = tokio::time::Instant::now();
     let mut ticked_wall = now_wall_ms();
@@ -653,7 +725,7 @@ async fn serve(
                         }
                         let id = chat.id.clone();
                         let running = Running::start(&RUNNING_CHATS);
-                        let chat = run_chat(chat, runner.clone(), tx.clone());
+                        let chat = run_chat(chat, runner.clone(), tx.clone(), detached.clone());
                         let task = tokio::spawn(async move {
                             let _running = running;
                             chat.await;
@@ -709,6 +781,9 @@ struct CancelTurn {
     runner: Runner,
     session: String,
     armed: bool,
+    /// The Relay's [`Relay::detach`] mark.
+    #[allow(dead_code)]
+    detached: Arc<AtomicBool>,
 }
 
 impl Drop for CancelTurn {
@@ -745,7 +820,7 @@ async fn end_reader(mut reader: tokio::task::JoinHandle<()>, grace: Duration) {
     }
 }
 
-async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::Sender<String>) {
+async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::Sender<String>, detached: Arc<AtomicBool>) {
     let send = async |event: Value| {
         let _ = tx.send(up(&chat.id, event)).await;
     };
@@ -801,7 +876,8 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::Sender<String>) {
         Ok(c) => c,
         Err(e) => return send(final_event(None, "", &format!("acpmux: {e}"))).await,
     };
-    let mut turn = CancelTurn { runner: runner.clone(), session: session.clone(), armed: true };
+    let mut turn =
+        CancelTurn { runner: runner.clone(), session: session.clone(), armed: true, detached };
     if let Some(mut stdin) = child.stdin.take() {
         let prompt = chat.prompt.clone();
         tokio::spawn(async move {
@@ -844,3 +920,7 @@ mod tests;
 #[cfg(test)]
 #[path = "relay_resume_tests.rs"]
 mod resume_tests;
+
+#[cfg(test)]
+#[path = "relay_observer_tests.rs"]
+mod observer_tests;
