@@ -39,9 +39,9 @@ enum PaneHandlers {
 
     /// A pane-navigation key (Focus Pane Left, Next Pane, a pane number, a column key) moves focus
     /// where the person asked, so the layout records a keyboard move: no without-a-click flash.
-    static func focusByKey(_ pane: LayoutPaneID, in content: WorkspaceContentController) {
+    static func focusByKey(_ pane: LayoutPaneID, in content: WorkspaceContentController, _ invocation: ActionInvocation) {
         DebugPaneFocus.began(content.focus)
-        content.layoutModel.focus(pane, notify: false, source: .keyboard)
+        content.layoutModel.focus(pane, notify: false, source: .keyMove(byPerson: invocation.isPersonsOwnRun))
         focus(pane, in: content)
     }
 
@@ -204,7 +204,7 @@ enum PaneHandlers {
                 guard let next = neighbor(of: pane.layoutPaneID, direction: direction, in: content) else {
                     return ctx.refuseQuietly(RefusalStrings.noPaneInDirection(RefusalStrings.direction(direction)))
                 }
-                focusByKey(next, in: content)
+                focusByKey(next, in: content, invocation)
             })
         }
         registry.bind("focusPreviousPane", invoke: { cycleFocus(ctx, $0, offset: -1) })
@@ -217,7 +217,7 @@ enum PaneHandlers {
             let order = screen.layout.visualPanes
             let index = number >= 9 ? order.count - 1 : number - 1
             guard order.indices.contains(index) else { return ctx.refuseQuietly(RefusalStrings.noPaneWithNumber) }
-            focusByKey(order[index], in: content)
+            focusByKey(order[index], in: content, invocation)
         })
     }
 
@@ -228,7 +228,7 @@ enum PaneHandlers {
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
             return ctx.refuseQuietly(RefusalStrings.screenHasOnePane)
         }
-        focusByKey(order[(index + offset + order.count) % order.count], in: content)
+        focusByKey(order[(index + offset + order.count) % order.count], in: content, invocation)
     }
 
     // MARK: Sizing

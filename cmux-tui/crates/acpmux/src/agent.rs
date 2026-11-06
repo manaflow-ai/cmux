@@ -1840,6 +1840,11 @@ impl ChildAgent {
         self.hosted.as_ref().map(|h| h.link().record.clone())
     }
 
+    /// The build its host runs (`HostRecord::host_build`), when this agent runs under a host.
+    pub fn host_build(&self) -> Option<String> {
+        self.hosted.as_ref().map(|h| h.link().record.host_build.clone())
+    }
+
     /// The hosted harness exited (its host is finishing).
     /// Tests only: its child's slot, which its reaper locks (`Fence::cut_or_end`).
     #[cfg(test)]

@@ -16,7 +16,7 @@ extension TerminalSurfaceView {
     /// The rect is the surface layer in window points with a top-left origin (the committed model); `shown` is the
     /// IOSurface the layer shows (0 before the first frame); the counters are Ghostty's render counters, cumulative
     /// (a frame that went through main is one of `frames` that is neither an off-main nor a fresh present);
-    /// `owned` is 1 while its window's commit owns its frame (`motion.frameOwner.terminals`); `presenter` is
+    /// `owned` is 1 once its window's commit owns its frame (every made surface, cmux-ad m19); `presenter` is
     /// ``TerminalFramePresenter/debugState(of:)`` (request, watch, commit or -); `host frame` is what
     /// `ghostty_surface_host_frame` answers now without presenting (owned only, else "-"). It reads only while the trace
     /// records; nothing runs when it does not.

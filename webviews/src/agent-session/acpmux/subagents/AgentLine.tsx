@@ -76,6 +76,7 @@ export function AgentLine({
   latestCode = false,
   via,
   nameLink,
+  lean = false,
 }: {
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
@@ -142,6 +143,10 @@ export function AgentLine({
   via?: string;
   /// A separate link for the visible name when the row itself opens a command.
   nameLink?: { href: string; open: () => void };
+  /// Session Info's Subagents: its glyph, its name and its time, nothing else. The state is a word on
+  /// the line only where it asks for a look (waiting, failed, stopped) or no time shows; screen readers
+  /// always hear it (Lucas, 2026-11-05, Session Info lab: "remove the green spinning circle").
+  lean?: boolean;
 }) {
   const liveProgress = useAgentProgress(progressAgent);
   progress = liveProgress ?? progress;
@@ -272,6 +277,15 @@ export function AgentLine({
             </span>
           ) : (
             <span className="acpmux-agent-line__chevron-track" aria-hidden="true" />
+          )}
+        </>
+      ) : lean ? (
+        <>
+          {time !== undefined && <span className="acpmux-summary-meta acpmux-agent-line__time">{time}</span>}
+          {time === undefined || status === "waiting" || status === "failed" || status === "stopped" ? (
+            <span className="acpmux-summary-meta acpmux-summary-agent__state">{state}</span>
+          ) : (
+            <span className="acpmux-agent-line__sr">{state}</span>
           )}
         </>
       ) : (

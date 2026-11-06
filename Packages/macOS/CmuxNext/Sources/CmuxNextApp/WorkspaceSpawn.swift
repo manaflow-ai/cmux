@@ -162,7 +162,7 @@ struct WorkspaceSpawner {
         }
         // Local terminals get the app's environment; a Cloud terminal only
         // the caller's keys. Both get the placement keys hooks read.
-        let start = spawn.terminalStart(app: daemon.isLocal ? await services.environment.terminalEnvironmentProvider()() : [:], room: room?.defaults, local: daemon.isLocal, daemonDefault: daemon.defaultCwd,
+        let start = spawn.terminalStart(app: daemon.isLocal ? await services.environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak services] in services?.settings?.snapshot.terminalTerm == .xtermGhostty })() : [:], room: room?.defaults, local: daemon.isLocal, daemonDefault: daemon.defaultCwd,
                                         workspace: key, terminal: terminal, sendsEnv: daemon.supports(DaemonCapability.terminalEnv.rawValue), reaps: daemon.supports(DaemonCapability.terminalReap.rawValue))
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         BenchSpans.mark("cmdN.create.sending")

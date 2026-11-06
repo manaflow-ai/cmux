@@ -94,6 +94,15 @@ export function useSessionHover(
     else setSwapped(null);
   }, [intent.shown]);
   useEffect(() => () => clearTimeout(leave.current), []);
+  // A chat that leaves the list takes its card and the reference's handlers with it, so no leave
+  // or blur would put the card away: drop the hover now, or the chat coming back reopens it with
+  // nothing on the reference (review of #36360, F1).
+  useEffect(() => {
+    if (listed) return;
+    clearTimeout(leave.current);
+    leave.current = undefined;
+    point(null);
+  }, [listed, point]);
   if (!hover || !listed) return { trigger: {}, card: null, takeOver: () => undefined };
   const takeOver = (anchor: HTMLElement, now: boolean) => {
     if (now) {

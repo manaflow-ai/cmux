@@ -13,6 +13,7 @@
     "permission.plan.approve": {"comment":"Agent pane: the button on a plan approval card that approves the agent's plan, so it leaves plan mode and starts the work","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"اعتماد الخطة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odobri plan"}},"da":{"stringUnit":{"state":"needs_review","value":"Godkend plan"}},"de":{"stringUnit":{"state":"needs_review","value":"Plan freigeben"}},"en":{"stringUnit":{"state":"translated","value":"Approve plan"}},"es":{"stringUnit":{"state":"needs_review","value":"Aprobar plan"}},"fr":{"stringUnit":{"state":"needs_review","value":"Approuver le plan"}},"it":{"stringUnit":{"state":"needs_review","value":"Approva il piano"}},"ja":{"stringUnit":{"state":"needs_review","value":"計画を承認"}},"km":{"stringUnit":{"state":"needs_review","value":"អនុម័តផែនការ"}},"ko":{"stringUnit":{"state":"needs_review","value":"계획 승인"}},"nb":{"stringUnit":{"state":"needs_review","value":"Godkjenn plan"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zatwierdź plan"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aprovar plano"}},"ru":{"stringUnit":{"state":"needs_review","value":"Одобрить план"}},"th":{"stringUnit":{"state":"needs_review","value":"อนุมัติแผน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Planı onayla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Схвалити план"}},"vi":{"stringUnit":{"state":"needs_review","value":"Duyệt kế hoạch"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"批准计划"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"核准計畫"}}}},
     "permission.plan.keepPlanning": {"comment":"Agent pane: the button on a plan approval card that declines the plan and opens a field for what to change, so the agent keeps planning","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"متابعة التخطيط"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nastavi planiranje"}},"da":{"stringUnit":{"state":"needs_review","value":"Bliv ved med at planlægge"}},"de":{"stringUnit":{"state":"needs_review","value":"Weiter planen"}},"en":{"stringUnit":{"state":"translated","value":"Keep planning"}},"es":{"stringUnit":{"state":"needs_review","value":"Seguir planificando"}},"fr":{"stringUnit":{"state":"needs_review","value":"Continuer à planifier"}},"it":{"stringUnit":{"state":"needs_review","value":"Continua a pianificare"}},"ja":{"stringUnit":{"state":"needs_review","value":"計画を続ける"}},"km":{"stringUnit":{"state":"needs_review","value":"បន្តរៀបចំផែនការ"}},"ko":{"stringUnit":{"state":"needs_review","value":"계속 계획하기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fortsett å planlegge"}},"pl":{"stringUnit":{"state":"needs_review","value":"Planuj dalej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Continuar planejando"}},"ru":{"stringUnit":{"state":"needs_review","value":"Продолжить планирование"}},"th":{"stringUnit":{"state":"needs_review","value":"วางแผนต่อ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Planlamaya devam et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Продовжити планування"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tiếp tục lập kế hoạch"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"继续规划"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"繼續規劃"}}}},
     "permission.plan.feedbackPlaceholder": {"comment":"Agent pane: placeholder and label of the field Keep planning opens on a plan approval card, for what the agent should change in its plan","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ما الذي يجب تغييره في الخطة؟"}},"bs":{"stringUnit":{"state":"needs_review","value":"Šta treba promijeniti u planu?"}},"da":{"stringUnit":{"state":"needs_review","value":"Hvad skal ændres i planen?"}},"de":{"stringUnit":{"state":"needs_review","value":"Was soll sich am Plan ändern?"}},"en":{"stringUnit":{"state":"translated","value":"What should change in the plan?"}},"es":{"stringUnit":{"state":"needs_review","value":"¿Qué debería cambiar en el plan?"}},"fr":{"stringUnit":{"state":"needs_review","value":"Que faut-il changer dans le plan ?"}},"it":{"stringUnit":{"state":"needs_review","value":"Cosa va cambiato nel piano?"}},"ja":{"stringUnit":{"state":"needs_review","value":"計画のどこを変えますか？"}},"km":{"stringUnit":{"state":"needs_review","value":"តើគួរផ្លាស់ប្តូរអ្វីក្នុងផែនការ?"}},"ko":{"stringUnit":{"state":"needs_review","value":"계획에서 무엇을 바꿀까요?"}},"nb":{"stringUnit":{"state":"needs_review","value":"Hva bør endres i planen?"}},"pl":{"stringUnit":{"state":"needs_review","value":"Co zmienić w planie?"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O que deve mudar no plano?"}},"ru":{"stringUnit":{"state":"needs_review","value":"Что изменить в плане?"}},"th":{"stringUnit":{"state":"needs_review","value":"ควรเปลี่ยนอะไรในแผน?"}},"tr":{"stringUnit":{"state":"needs_review","value":"Planda ne değişmeli?"}},"uk":{"stringUnit":{"state":"needs_review","value":"Що змінити в плані?"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cần thay đổi gì trong kế hoạch?"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"计划中应改动什么？"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"計畫中應修改什麼？"}}}},
+    "turn.tryAnotherApproach": {"comment":"Agent pane: turn action that branches the latest turn onto a forked Cloud machine","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جرّب نهجًا آخر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Probaj drugi pristup"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøv en anden tilgang"}},"de":{"stringUnit":{"state":"needs_review","value":"Anderen Ansatz versuchen"}},"en":{"stringUnit":{"state":"translated","value":"Try another approach"}},"es":{"stringUnit":{"state":"needs_review","value":"Probar otro enfoque"}},"fr":{"stringUnit":{"state":"needs_review","value":"Essayer une autre approche"}},"it":{"stringUnit":{"state":"needs_review","value":"Prova un altro approccio"}},"ja":{"stringUnit":{"state":"needs_review","value":"別の方法を試す"}},"km":{"stringUnit":{"state":"needs_review","value":"សាកល្បងវិធីផ្សេង"}},"ko":{"stringUnit":{"state":"needs_review","value":"다른 방법 시도"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøv en annen tilnærming"}},"pl":{"stringUnit":{"state":"needs_review","value":"Spróbuj innego podejścia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tentar outra abordagem"}},"ru":{"stringUnit":{"state":"needs_review","value":"Попробовать другой подход"}},"th":{"stringUnit":{"state":"needs_review","value":"ลองวิธีอื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başka bir yaklaşım dene"}},"uk":{"stringUnit":{"state":"needs_review","value":"Спробувати інший підхід"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thử cách khác"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"尝试其他方法"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"嘗試其他方法"}}}},
     "commandRules.pulling": {"comment":"Agent pane: a background command that pulls (git pull, docker pull)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ السحب"}},"bs":{"stringUnit":{"state":"needs_review","value":"Povlačenje"}},"da":{"stringUnit":{"state":"needs_review","value":"Puller"}},"de":{"stringUnit":{"state":"needs_review","value":"Wird gepullt"}},"en":{"stringUnit":{"state":"translated","value":"Pulling"}},"es":{"stringUnit":{"state":"needs_review","value":"Descargando cambios"}},"fr":{"stringUnit":{"state":"needs_review","value":"Récupération"}},"it":{"stringUnit":{"state":"needs_review","value":"Pull in corso"}},"ja":{"stringUnit":{"state":"needs_review","value":"プル中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងទាញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"풀 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Puller"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pobieranie zmian"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Baixando alterações"}},"ru":{"stringUnit":{"state":"needs_review","value":"Получение изменений"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังพูล"}},"tr":{"stringUnit":{"state":"needs_review","value":"Çekiliyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Отримання змін"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang kéo"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在拉取"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在拉取"}}}},
     "commandRules.fetching": {"comment":"Agent pane: a background command that runs git fetch","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ الجلب"}},"bs":{"stringUnit":{"state":"needs_review","value":"Dohvatanje"}},"da":{"stringUnit":{"state":"needs_review","value":"Henter"}},"de":{"stringUnit":{"state":"needs_review","value":"Wird abgerufen"}},"en":{"stringUnit":{"state":"translated","value":"Fetching"}},"es":{"stringUnit":{"state":"needs_review","value":"Obteniendo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Récupération des références"}},"it":{"stringUnit":{"state":"needs_review","value":"Fetch in corso"}},"ja":{"stringUnit":{"state":"needs_review","value":"フェッチ中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងទាញយក"}},"ko":{"stringUnit":{"state":"needs_review","value":"가져오는 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Henter"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pobieranie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Buscando"}},"ru":{"stringUnit":{"state":"needs_review","value":"Загрузка"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังดึงข้อมูล"}},"tr":{"stringUnit":{"state":"needs_review","value":"Getiriliyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Отримання"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang tải về"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在获取"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在擷取"}}}},
     "commandRules.committing": {"comment":"Agent pane: a background command that makes a git commit","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ الإيداع"}},"bs":{"stringUnit":{"state":"needs_review","value":"Commit u toku"}},"da":{"stringUnit":{"state":"needs_review","value":"Committer"}},"de":{"stringUnit":{"state":"needs_review","value":"Wird committet"}},"en":{"stringUnit":{"state":"translated","value":"Committing"}},"es":{"stringUnit":{"state":"needs_review","value":"Haciendo commit"}},"fr":{"stringUnit":{"state":"needs_review","value":"Commit en cours"}},"it":{"stringUnit":{"state":"needs_review","value":"Commit in corso"}},"ja":{"stringUnit":{"state":"needs_review","value":"コミット中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងបញ្ជូន"}},"ko":{"stringUnit":{"state":"needs_review","value":"커밋 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Committer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zatwierdzanie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Fazendo commit"}},"ru":{"stringUnit":{"state":"needs_review","value":"Создание коммита"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังคอมมิต"}},"tr":{"stringUnit":{"state":"needs_review","value":"Commit ediliyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Створення коміту"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang commit"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在提交"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在提交"}}}},
@@ -868,6 +869,7 @@
     "tools.skill.doneUnnamed": {"comment":"Agent pane: the row of a Skill tool call once it finished, when its input named no skill","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تم استخدام مهارة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Korištena vještina"}},"da":{"stringUnit":{"state":"needs_review","value":"Brugte en færdighed"}},"de":{"stringUnit":{"state":"needs_review","value":"Skill verwendet"}},"en":{"stringUnit":{"state":"translated","value":"Used a skill"}},"es":{"stringUnit":{"state":"needs_review","value":"Se usó una habilidad"}},"fr":{"stringUnit":{"state":"needs_review","value":"Compétence utilisée"}},"it":{"stringUnit":{"state":"needs_review","value":"Usata una skill"}},"ja":{"stringUnit":{"state":"needs_review","value":"スキルを使用しました"}},"km":{"stringUnit":{"state":"needs_review","value":"បានប្រើជំនាញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"스킬 사용함"}},"nb":{"stringUnit":{"state":"needs_review","value":"Brukte en ferdighet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Użyto umiejętności"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Skill usada"}},"ru":{"stringUnit":{"state":"needs_review","value":"Использован навык"}},"th":{"stringUnit":{"state":"needs_review","value":"ใช้สกิลแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bir beceri kullanıldı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Використано навичку"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã dùng một kỹ năng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已使用技能"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已使用技能"}}}},
     "tools.skill.running": {"comment":"Agent pane: the row of a Skill tool call while it loads the skill; {name} is the skill's name (\"code-review\", \"cmux:acpmux\"), kept as written","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ استخدام مهارة {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Koristi se vještina {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Bruger færdigheden {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"Skill {name} wird verwendet"}},"en":{"stringUnit":{"state":"translated","value":"Using the {name} skill"}},"es":{"stringUnit":{"state":"needs_review","value":"Usando la habilidad {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Utilisation de la compétence {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Uso della skill {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"スキル {name} を使用中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងប្រើជំនាញ {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name} 스킬 사용 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Bruker ferdigheten {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Używanie umiejętności {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Usando a skill {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Используется навык {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังใช้สกิล {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} becerisi kullanılıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Використовується навичка {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang dùng kỹ năng {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在使用 {name} 技能"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在使用 {name} 技能"}}}},
     "tools.skill.runningUnnamed": {"comment":"Agent pane: the row of a Skill tool call while it runs, before its input names the skill","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ استخدام مهارة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Koristi se vještina"}},"da":{"stringUnit":{"state":"needs_review","value":"Bruger en færdighed"}},"de":{"stringUnit":{"state":"needs_review","value":"Skill wird verwendet"}},"en":{"stringUnit":{"state":"translated","value":"Using a skill"}},"es":{"stringUnit":{"state":"needs_review","value":"Usando una habilidad"}},"fr":{"stringUnit":{"state":"needs_review","value":"Utilisation d’une compétence"}},"it":{"stringUnit":{"state":"needs_review","value":"Uso di una skill"}},"ja":{"stringUnit":{"state":"needs_review","value":"スキルを使用中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងប្រើជំនាញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"스킬 사용 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Bruker en ferdighet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Używanie umiejętności"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Usando uma skill"}},"ru":{"stringUnit":{"state":"needs_review","value":"Используется навык"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังใช้สกิล"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bir beceri kullanılıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Використовується навичка"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang dùng một kỹ năng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在使用技能"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在使用技能"}}}},
+    "tools.webSources": {"comment":"Agent pane: the chip under a web search or fetch call that opens the list of pages it read, before the first sites' names (\"Sources  github.com · example.com +6\")","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"المصادر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izvori"}},"da":{"stringUnit":{"state":"needs_review","value":"Kilder"}},"de":{"stringUnit":{"state":"needs_review","value":"Quellen"}},"en":{"stringUnit":{"state":"translated","value":"Sources"}},"es":{"stringUnit":{"state":"needs_review","value":"Fuentes"}},"fr":{"stringUnit":{"state":"needs_review","value":"Sources"}},"it":{"stringUnit":{"state":"needs_review","value":"Fonti"}},"ja":{"stringUnit":{"state":"needs_review","value":"ソース"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្រភព"}},"ko":{"stringUnit":{"state":"needs_review","value":"출처"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kilder"}},"pl":{"stringUnit":{"state":"needs_review","value":"Źródła"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Fontes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Источники"}},"th":{"stringUnit":{"state":"needs_review","value":"แหล่งที่มา"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kaynaklar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Джерела"}},"vi":{"stringUnit":{"state":"needs_review","value":"Nguồn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"来源"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"來源"}}}},
     "turn.live.retry.unreachable": {"comment":"Agent pane: the running turn's live line while its harness retries a model request that failed to connect (Can't reach the model · retrying (7 of 10) · 503 server error)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر الوصول إلى النموذج"}},"bs":{"stringUnit":{"state":"needs_review","value":"Model nije dostupan"}},"da":{"stringUnit":{"state":"needs_review","value":"Kan ikke nå modellen"}},"de":{"stringUnit":{"state":"needs_review","value":"Modell nicht erreichbar"}},"en":{"stringUnit":{"state":"translated","value":"Can't reach the model"}},"es":{"stringUnit":{"state":"needs_review","value":"No se puede contactar con el modelo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de joindre le modèle"}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile raggiungere il modello"}},"ja":{"stringUnit":{"state":"needs_review","value":"モデルに接続できません"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចភ្ជាប់ទៅម៉ូដែលបានទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"모델에 연결할 수 없음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Får ikke kontakt med modellen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Brak połączenia z modelem"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível acessar o modelo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Модель недоступна"}},"th":{"stringUnit":{"state":"needs_review","value":"เชื่อมต่อโมเดลไม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Modele ulaşılamıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Модель недоступна"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không kết nối được với mô hình"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法连接模型"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法連線至模型"}}}},
     "turn.live.retry.busy": {"comment":"Agent pane: the running turn's live line while its harness retries a model request the provider refused as busy or rate limited (The model is busy · retrying (2 of 10) · 529 overloaded)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"النموذج مشغول"}},"bs":{"stringUnit":{"state":"needs_review","value":"Model je zauzet"}},"da":{"stringUnit":{"state":"needs_review","value":"Modellen er optaget"}},"de":{"stringUnit":{"state":"needs_review","value":"Modell ist ausgelastet"}},"en":{"stringUnit":{"state":"translated","value":"The model is busy"}},"es":{"stringUnit":{"state":"needs_review","value":"El modelo está ocupado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Le modèle est occupé"}},"it":{"stringUnit":{"state":"needs_review","value":"Il modello è occupato"}},"ja":{"stringUnit":{"state":"needs_review","value":"モデルが混雑しています"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ូដែលកំពុងរវល់"}},"ko":{"stringUnit":{"state":"needs_review","value":"모델이 사용 중임"}},"nb":{"stringUnit":{"state":"needs_review","value":"Modellen er opptatt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Model jest zajęty"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O modelo está ocupado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Модель занята"}},"th":{"stringUnit":{"state":"needs_review","value":"โมเดลไม่ว่าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Model meşgul"}},"uk":{"stringUnit":{"state":"needs_review","value":"Модель зайнята"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mô hình đang bận"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"模型繁忙"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"模型忙碌中"}}}},
     "turn.live.retry.attempt": {"comment":"Agent pane: after the cause on a running turn's live line, which retry of a failed model request this is. {attempt} and {max} are numbers (retrying (7 of 10))","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إعادة المحاولة ({attempt} من {max})"}},"bs":{"stringUnit":{"state":"needs_review","value":"ponovni pokušaj ({attempt} od {max})"}},"da":{"stringUnit":{"state":"needs_review","value":"prøver igen ({attempt} af {max})"}},"de":{"stringUnit":{"state":"needs_review","value":"neuer Versuch ({attempt} von {max})"}},"en":{"stringUnit":{"state":"translated","value":"retrying ({attempt} of {max})"}},"es":{"stringUnit":{"state":"needs_review","value":"reintentando ({attempt} de {max})"}},"fr":{"stringUnit":{"state":"needs_review","value":"nouvel essai ({attempt} sur {max})"}},"it":{"stringUnit":{"state":"needs_review","value":"nuovo tentativo ({attempt} di {max})"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行中（{attempt}/{max}）"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងព្យាយាមម្ដងទៀត ({attempt} នៃ {max})"}},"ko":{"stringUnit":{"state":"needs_review","value":"재시도 중 ({attempt}/{max})"}},"nb":{"stringUnit":{"state":"needs_review","value":"prøver igjen ({attempt} av {max})"}},"pl":{"stringUnit":{"state":"needs_review","value":"ponawianie ({attempt} z {max})"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"tentando novamente ({attempt} de {max})"}},"ru":{"stringUnit":{"state":"needs_review","value":"повтор ({attempt} из {max})"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังลองใหม่ ({attempt} จาก {max})"}},"tr":{"stringUnit":{"state":"needs_review","value":"yeniden deneniyor ({attempt}/{max})"}},"uk":{"stringUnit":{"state":"needs_review","value":"повтор ({attempt} з {max})"}},"vi":{"stringUnit":{"state":"needs_review","value":"đang thử lại ({attempt}/{max})"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在重试（第 {attempt} 次，共 {max} 次）"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在重試（第 {attempt} 次，共 {max} 次）"}}}},
@@ -255248,7 +255250,836 @@
     "whoElse.minutes": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قبل {count} د"}},"bs":{"stringUnit":{"state":"needs_review","value":"prije {count} min"}},"da":{"stringUnit":{"state":"needs_review","value":"{count} min siden"}},"de":{"stringUnit":{"state":"needs_review","value":"vor {count} Min."}},"en":{"stringUnit":{"state":"translated","value":"{count}m ago"}},"es":{"stringUnit":{"state":"needs_review","value":"hace {count} min"}},"fr":{"stringUnit":{"state":"needs_review","value":"il y a {count} min"}},"it":{"stringUnit":{"state":"needs_review","value":"{count} min fa"}},"ja":{"stringUnit":{"state":"needs_review","value":"{count} 分前"}},"km":{"stringUnit":{"state":"needs_review","value":"{count} នាទីមុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"{count}분 전"}},"nb":{"stringUnit":{"state":"needs_review","value":"{count} min siden"}},"pl":{"stringUnit":{"state":"needs_review","value":"{count} min temu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"há {count} min"}},"ru":{"stringUnit":{"state":"needs_review","value":"{count} мин назад"}},"th":{"stringUnit":{"state":"needs_review","value":"{count} นาทีที่แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{count} dk önce"}},"uk":{"stringUnit":{"state":"needs_review","value":"{count} хв тому"}},"vi":{"stringUnit":{"state":"needs_review","value":"{count} phút trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{count} 分钟前"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{count} 分鐘前"}}}},
     "whoElse.hours": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قبل {count} س"}},"bs":{"stringUnit":{"state":"needs_review","value":"prije {count} h"}},"da":{"stringUnit":{"state":"needs_review","value":"{count} t siden"}},"de":{"stringUnit":{"state":"needs_review","value":"vor {count} Std."}},"en":{"stringUnit":{"state":"translated","value":"{count}h ago"}},"es":{"stringUnit":{"state":"needs_review","value":"hace {count} h"}},"fr":{"stringUnit":{"state":"needs_review","value":"il y a {count} h"}},"it":{"stringUnit":{"state":"needs_review","value":"{count} h fa"}},"ja":{"stringUnit":{"state":"needs_review","value":"{count} 時間前"}},"km":{"stringUnit":{"state":"needs_review","value":"{count} ម៉ោងមុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"{count}시간 전"}},"nb":{"stringUnit":{"state":"needs_review","value":"{count} t siden"}},"pl":{"stringUnit":{"state":"needs_review","value":"{count} godz. temu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"há {count} h"}},"ru":{"stringUnit":{"state":"needs_review","value":"{count} ч назад"}},"th":{"stringUnit":{"state":"needs_review","value":"{count} ชั่วโมงที่แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{count} sa önce"}},"uk":{"stringUnit":{"state":"needs_review","value":"{count} год тому"}},"vi":{"stringUnit":{"state":"needs_review","value":"{count} giờ trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{count} 小时前"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{count} 小時前"}}}},
     "whoElse.days": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قبل {count} ي"}},"bs":{"stringUnit":{"state":"needs_review","value":"prije {count} d"}},"da":{"stringUnit":{"state":"needs_review","value":"{count} d siden"}},"de":{"stringUnit":{"state":"needs_review","value":"vor {count} T."}},"en":{"stringUnit":{"state":"translated","value":"{count}d ago"}},"es":{"stringUnit":{"state":"needs_review","value":"hace {count} d"}},"fr":{"stringUnit":{"state":"needs_review","value":"il y a {count} j"}},"it":{"stringUnit":{"state":"needs_review","value":"{count} g fa"}},"ja":{"stringUnit":{"state":"needs_review","value":"{count} 日前"}},"km":{"stringUnit":{"state":"needs_review","value":"{count} ថ្ងៃមុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"{count}일 전"}},"nb":{"stringUnit":{"state":"needs_review","value":"{count} d siden"}},"pl":{"stringUnit":{"state":"needs_review","value":"{count} dni temu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"há {count} d"}},"ru":{"stringUnit":{"state":"needs_review","value":"{count} д назад"}},"th":{"stringUnit":{"state":"needs_review","value":"{count} วันที่แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{count} gün önce"}},"uk":{"stringUnit":{"state":"needs_review","value":"{count} дн тому"}},"vi":{"stringUnit":{"state":"needs_review","value":"{count} ngày trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{count} 天前"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{count} 天前"}}}},
-    "sessionInfo.alsoHere": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يعمل هنا أيضًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Takođe radi ovdje"}},"da":{"stringUnit":{"state":"needs_review","value":"Arbejder også her"}},"de":{"stringUnit":{"state":"needs_review","value":"Arbeitet auch hier"}},"en":{"stringUnit":{"state":"translated","value":"Also working here"}},"es":{"stringUnit":{"state":"needs_review","value":"También trabajan aquí"}},"fr":{"stringUnit":{"state":"needs_review","value":"Travaille aussi ici"}},"it":{"stringUnit":{"state":"needs_review","value":"Lavorano anche qui"}},"ja":{"stringUnit":{"state":"needs_review","value":"ここで作業中の他のセッション"}},"km":{"stringUnit":{"state":"needs_review","value":"ក៏កំពុងធ្វើការនៅទីនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"여기서 함께 작업 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Jobber også her"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pracują tu także"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Também trabalhando aqui"}},"ru":{"stringUnit":{"state":"needs_review","value":"Также работают здесь"}},"th":{"stringUnit":{"state":"needs_review","value":"ทำงานที่นี่ด้วย"}},"tr":{"stringUnit":{"state":"needs_review","value":"Burada da çalışıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Також працюють тут"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cũng đang làm việc ở đây"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"也在这里工作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"也在這裡工作"}}}}
+    "sessionInfo.alsoHere": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يعمل هنا أيضًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Takođe radi ovdje"}},"da":{"stringUnit":{"state":"needs_review","value":"Arbejder også her"}},"de":{"stringUnit":{"state":"needs_review","value":"Arbeitet auch hier"}},"en":{"stringUnit":{"state":"translated","value":"Also working here"}},"es":{"stringUnit":{"state":"needs_review","value":"También trabajan aquí"}},"fr":{"stringUnit":{"state":"needs_review","value":"Travaille aussi ici"}},"it":{"stringUnit":{"state":"needs_review","value":"Lavorano anche qui"}},"ja":{"stringUnit":{"state":"needs_review","value":"ここで作業中の他のセッション"}},"km":{"stringUnit":{"state":"needs_review","value":"ក៏កំពុងធ្វើការនៅទីនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"여기서 함께 작업 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Jobber også her"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pracują tu także"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Também trabalhando aqui"}},"ru":{"stringUnit":{"state":"needs_review","value":"Также работают здесь"}},"th":{"stringUnit":{"state":"needs_review","value":"ทำงานที่นี่ด้วย"}},"tr":{"stringUnit":{"state":"needs_review","value":"Burada da çalışıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Також працюють тут"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cũng đang làm việc ở đây"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"也在这里工作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"也在這裡工作"}}}},
+    "toolRun.and": {
+      "comment": "Agent pane: joins the two phrases of a folded tool run's summary, e.g. \"Read 3 files and ran 2 commands\" (conversation/toolRunSummary.ts). Keep the spaces where the language uses them.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " و"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " i "
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " og "
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " und "
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " and "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " y "
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " et "
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " e "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "、"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " និង "
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " og "
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " i "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " e "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " и "
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " และ "
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " ve "
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " і "
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " và "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "，"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "，"
+          }
+        }
+      }
+    },
+    "toolRun.serialAnd": {
+      "comment": "Agent pane: joins the last of three phrases of a folded tool run's summary, e.g. \"Ran 2 commands, changed 1 file, and performed 2 other actions\" (conversation/toolRunSummary.ts). Keep the spaces where the language uses them.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " و"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " i "
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " og "
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " und "
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ", and "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " y "
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " et "
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " e "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "、"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " និង "
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " og "
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " i "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " e "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " и "
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " และ "
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " ve "
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " і "
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": " và "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "，"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "，"
+          }
+        }
+      }
+    },
+    "toolRun.otherActions": {
+      "comment": "Agent pane; {n} is how many calls a folded tool run's first two phrases leave out, the end of its summary: \"Ran 2 commands, edited a file, and performed 2 other actions\" (conversation/toolRunSummary.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "نفّذ {n} إجراء آخر"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "نفّذ إجراءً آخر ({n})"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "نفّذ إجراءين آخرين ({n})"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "نفّذ {n} إجراءات أخرى"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "نفّذ {n} إجراءً آخر"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "نفّذ {n} إجراء آخر"
+                }
+              }
+            }
+          }
+        },
+        "bs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "izvršio još {n} radnju"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "izvršio još {n} radnje"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "izvršio još {n} radnji"
+                }
+              }
+            }
+          }
+        },
+        "da": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "udførte {n} anden handling"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "udførte {n} andre handlinger"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} weitere Aktion ausgeführt"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} weitere Aktionen ausgeführt"
+                }
+              }
+            }
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "performed {n} other action"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "performed {n} other actions"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "realizó {n} acción más"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "realizó {n} acciones más"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "realizó {n} acciones más"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "a effectué {n} autre action"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "a effectué {n} autres actions"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "a effectué {n} autres actions"
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ha eseguito {n} altra azione"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ha eseguito altre {n} azioni"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ha eseguito altre {n} azioni"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "その他 {n} 件の操作を実行"
+                }
+              }
+            }
+          }
+        },
+        "km": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "បានធ្វើសកម្មភាពផ្សេងទៀត {n}"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "기타 작업 {n}개 수행"
+                }
+              }
+            }
+          }
+        },
+        "nb": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "utførte {n} annen handling"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "utførte {n} andre handlinger"
+                }
+              }
+            }
+          }
+        },
+        "pl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "wykonano {n} inną akcję"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "wykonano {n} inne akcje"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "wykonano {n} innych akcji"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "wykonano {n} innej akcji"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "realizou {n} outra ação"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "realizou {n} outras ações"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "realizou {n} outras ações"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "выполнено ещё {n} действие"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "выполнено ещё {n} действия"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "выполнено ещё {n} действий"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "выполнено ещё {n} действия"
+                }
+              }
+            }
+          }
+        },
+        "th": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ดำเนินการอื่นอีก {n} รายการ"
+                }
+              }
+            }
+          }
+        },
+        "tr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} başka işlem yaptı"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} başka işlem yaptı"
+                }
+              }
+            }
+          }
+        },
+        "uk": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "виконано ще {n} дію"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "виконано ще {n} дії"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "виконано ще {n} дій"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "виконано ще {n} дії"
+                }
+              }
+            }
+          }
+        },
+        "vi": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "đã thực hiện {n} thao tác khác"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "执行了 {n} 个其他操作"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "執行了 {n} 個其他操作"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "sessionInfo.list.showMore": {
+      "comment": "Agent pane Session Info, Sources and Outputs: under the first rows of a list, opens the {n} more rows it holds back",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض {n} أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži još {n}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis {n} mere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} weitere anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show {n} more"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar {n} más"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher {n} de plus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra altri {n}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "さらに {n} 件を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ {n} ទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n}개 더 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis {n} til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż jeszcze {n}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar mais {n}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать ещё {n}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงอีก {n} รายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} tane daha göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати ще {n}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện thêm {n}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再显示 {n} 个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再顯示 {n} 個"
+          }
+        }
+      }
+    },
+    "sessionInfo.none": {"comment":"Agent pane Session Info: a section's value when it has nothing to list yet (Usage before the chat's spend is read, Connectors with none)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"None"}},"ar":{"stringUnit":{"state":"translated","value":"لا شيء"}},"bs":{"stringUnit":{"state":"translated","value":"Nema"}},"da":{"stringUnit":{"state":"translated","value":"Ingen"}},"de":{"stringUnit":{"state":"translated","value":"Keine"}},"es":{"stringUnit":{"state":"translated","value":"Ninguno"}},"fr":{"stringUnit":{"state":"translated","value":"Aucun"}},"it":{"stringUnit":{"state":"translated","value":"Nessuno"}},"ja":{"stringUnit":{"state":"translated","value":"なし"}},"km":{"stringUnit":{"state":"translated","value":"គ្មាន"}},"ko":{"stringUnit":{"state":"translated","value":"없음"}},"nb":{"stringUnit":{"state":"translated","value":"Ingen"}},"pl":{"stringUnit":{"state":"translated","value":"Brak"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Nenhum"}},"ru":{"stringUnit":{"state":"translated","value":"Нет"}},"th":{"stringUnit":{"state":"translated","value":"ไม่มี"}},"tr":{"stringUnit":{"state":"translated","value":"Yok"}},"uk":{"stringUnit":{"state":"translated","value":"Немає"}},"vi":{"stringUnit":{"state":"translated","value":"Không có"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"無"}}}}
   },
   "version": "1.0"
 }

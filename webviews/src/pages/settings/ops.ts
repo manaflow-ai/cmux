@@ -739,10 +739,12 @@ export type HarnessesState = {
 };
 
 /** One Harnesses gesture: Sign in and Check open a terminal tab with `harness login`; Update
- * (one `id`) and Update all start owner-bound native terminal jobs. */
+ * (one `id`) and Update all start owner-bound native terminal jobs. `focus`: Settings came forward,
+ * so an account sign-in or sign-out typed into a terminal tab since then is read back. */
 export type HarnessesRun = {
   action:
     | "refresh"
+    | "focus"
     | "signIn"
     | "check"
     | "registry"
