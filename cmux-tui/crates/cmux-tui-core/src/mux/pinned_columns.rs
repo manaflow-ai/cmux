@@ -3,10 +3,11 @@
 //! A pinned column's first tab is its pinned tab (Home's page). It never
 //! closes, never leaves the column and keeps the first place. While the
 //! column's `allow_tabs` is off (the default) no other tab enters it: a new
-//! tab, a move in or a drop is refused. A browser or conversation tab made in
-//! a pinned column alone on its screen (`pinned-dock-alone-v1`) opens in a new
-//! column right of it instead, in the same commit
-//! ([`lone_pinned_dock_taking_no_tabs`]). A pinned column is never removed,
+//! tab, a move in or a drop is refused. A terminal tab aimed at it opens in a
+//! new column right of it instead, in one `pane.split` commit
+//! ([`terminal_column_beside_closed_dock`], FC-1), and so does a browser or
+//! conversation tab made in a pinned column alone on its screen
+//! (`pinned-dock-alone-v1`, [`lone_pinned_dock_taking_no_tabs`]). A pinned column is never removed,
 //! undocked or moved to another edge either. Closing the whole workspace (or
 //! its last screen) and a terminal that exited on its own are not refusals;
 //! a tab or pane close that would empty the workspace and close it with the
@@ -144,16 +145,7 @@ pub(crate) fn ensure_pane_takes_tabs(
     state: &State,
     pane: PaneId,
 ) -> anyhow::Result<()> {
-    let refused = state
-        .workspaces
-        .iter()
-        .flat_map(|workspace| workspace.screens.iter())
-        .flat_map(|screen| screen.layout_columns.iter())
-        .any(|column| {
-            column.dock.is_some_and(|flag| flag.pinned && !flag.allow_tabs)
-                && column.root.contains(pane)
-        });
-    if !refused {
+    if !pane_in_pinned_column_taking_no_tabs(state, pane) {
         return Ok(());
     }
     Err(ResourceError::operation_failed(
@@ -162,6 +154,34 @@ pub(crate) fn ensure_pane_takes_tabs(
         serde_json::json!({"reason_code": PINNED_COLUMN_CODE}),
     )
     .into())
+}
+
+/// Whether `pane` is in a pinned column that takes no other tab (`allow_tabs` off).
+pub(crate) fn pane_in_pinned_column_taking_no_tabs(state: &State, pane: PaneId) -> bool {
+    state
+        .workspaces
+        .iter()
+        .flat_map(|workspace| workspace.screens.iter())
+        .flat_map(|screen| screen.layout_columns.iter())
+        .any(|column| {
+            column.dock.is_some_and(|flag| flag.pinned && !flag.allow_tabs)
+                && column.root.contains(pane)
+        })
+}
+
+/// The width of the new column a terminal tab aimed at `pane` opens in when
+/// `pane` is in a pinned column that takes no tabs (FC-1), else `None`:
+/// [`LONE_DOCK_NEIGHBOR_WIDTH`] beside a lone dock, as a link Home opens there;
+/// the default column width beside a dock with other columns.
+pub(crate) fn terminal_column_beside_closed_dock(state: &State, pane: PaneId) -> Option<f32> {
+    if !pane_in_pinned_column_taking_no_tabs(state, pane) {
+        return None;
+    }
+    Some(if pane_in_lone_pinned_column(state, pane) {
+        LONE_DOCK_NEIGHBOR_WIDTH
+    } else {
+        crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH
+    })
 }
 
 /// The width of the column that opens right of a lone pinned column
