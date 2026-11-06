@@ -268,6 +268,11 @@ pub struct Session {
     /// The turn id whose forced cancellation was already published. A second
     /// Stop for the same turn must not publish another forced answer.
     pub(super) cancel_forced_turn: StdMutex<Option<String>>,
+    /// The turn whose own prompt is not handed to its agent yet, and whether a Stop fenced it
+    /// meanwhile (`cancel.rs`). A fenced prompt is never written (`steer_end.rs`), so its Stop
+    /// sends the agent no `session/cancel`: with no prompt of the turn to stop, a harness could
+    /// keep that cancel and end the next turn with it.
+    pub(super) unwritten_prompt: StdMutex<Option<(String, bool)>>,
     /// The forced `turn_result` already written for a turn, if any. This is
     /// separate from `cancel_forced_turn`: several prompt waiters can observe
     /// the same forced answer, but only one may append the result.
@@ -893,5 +898,30 @@ impl SessionStderr {
             self.open.insert(source, stream);
         }
         clean
+    }
+}
+
+/// A held `spawn_lock` that a list sees: taking it and letting it go each count as a change
+/// (`list_guard::Events::changed`), so a cached session list never shows a start that began or
+/// ended since it was built. A row's `starting` reads the lease; an update waits on it.
+pub(super) struct SpawnLease<'a> {
+    guard: Option<tokio::sync::MutexGuard<'a, ()>>,
+    events: &'a super::list_guard::Events,
+}
+
+impl Drop for SpawnLease<'_> {
+    fn drop(&mut self) {
+        // Released first, then counted: a list built after the count reads it free.
+        drop(self.guard.take());
+        self.events.changed();
+    }
+}
+
+impl Hub {
+    /// `session.spawn_lock`, held as a [`SpawnLease`].
+    pub(super) async fn spawn_lease<'a>(&'a self, session: &'a Session) -> SpawnLease<'a> {
+        let guard = session.spawn_lock.lock().await;
+        self.events.changed();
+        SpawnLease { guard: Some(guard), events: &self.events }
     }
 }

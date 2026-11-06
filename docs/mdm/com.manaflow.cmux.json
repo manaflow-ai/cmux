@@ -2069,7 +2069,7 @@
       "type" : "boolean"
     },
     "computerUse.driver" : {
-      "default" : "legacy",
+      "default" : "upstream",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
       "enum" : [
         "legacy",
@@ -2781,6 +2781,24 @@
       "title" : "Bubble Style",
       "type" : "string"
     },
+    "home.chiefDock.edge" : {
+      "default" : "left",
+      "description" : "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick.",
+      "enum" : [
+        "left",
+        "right",
+        "top",
+        "bottom"
+      ],
+      "title" : "Dock Edge",
+      "type" : "string"
+    },
+    "home.chiefDock.openBeside" : {
+      "default" : true,
+      "description" : "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.",
+      "title" : "Keep Chief Docked When Opening Workspaces",
+      "type" : "boolean"
+    },
     "home.chiefEngine" : {
       "default" : "auto",
       "description" : "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.",
@@ -2858,8 +2876,8 @@
     },
     "labs.machineJoin" : {
       "default" : false,
-      "description" : "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them.",
-      "title" : "Join Any Machine with One Line",
+      "description" : "Shows this Mac's Screen sharing and Control switches in Settings > Devices once it has joined your machines. Both stay off until you turn them on.",
+      "title" : "Screen Sharing for Joined Machines",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {
@@ -3792,6 +3810,12 @@
       "title" : "Workspaces Prefix",
       "type" : "string"
     },
+    "palette.searchHistory" : {
+      "default" : true,
+      "description" : "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only.",
+      "title" : "Remember Palette Searches",
+      "type" : "boolean"
+    },
     "phone.allowConnections" : {
       "default" : false,
       "description" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
@@ -3837,12 +3861,6 @@
       },
       "title" : "Pinned Folders",
       "type" : "array"
-    },
-    "remote.enabled" : {
-      "default" : false,
-      "description" : "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts.",
-      "title" : "Use cmux Remote",
-      "type" : "boolean"
     },
     "remote.endSharingOnQuit" : {
       "default" : false,
@@ -5097,6 +5115,16 @@
       "title" : "Program Link Rules",
       "type" : "array"
     },
+    "terminal.term" : {
+      "default" : "xterm-256color",
+      "description" : "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac.",
+      "enum" : [
+        "xterm-256color",
+        "xterm-ghostty"
+      ],
+      "title" : "Terminal Type (TERM)",
+      "type" : "string"
+    },
     "ui.animations.bounce" : {
       "default" : "none",
       "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
@@ -5345,6 +5373,12 @@
       ],
       "title" : "Web UI Updates",
       "type" : "string"
+    },
+    "updates.whatsNewInstall" : {
+      "default" : false,
+      "description" : "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents.",
+      "title" : "Install Versions from What's New",
+      "type" : "boolean"
     },
     "window.titlebar" : {
       "default" : "minimal",

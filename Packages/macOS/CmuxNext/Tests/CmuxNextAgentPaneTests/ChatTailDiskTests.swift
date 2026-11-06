@@ -14,11 +14,11 @@ struct ChatTailDiskTests {
         FileManager.default.temporaryDirectory.appending(path: "chat-tail-disk-\(UUID().uuidString)")
     }
 
-    private static func withDisk(_ body: (AgentPaneTailDisk) async throws -> Void) async rethrows {
+    private static func withDisk(_ given: AgentPaneTailDisk? = nil, _ body: (AgentPaneTailDisk) async throws -> Void) async rethrows {
         let cache = AgentPaneTailCache.shared
         cache.clear()
         cache.resume()
-        let disk = AgentPaneTailDisk(directory: folder())
+        let disk = given ?? AgentPaneTailDisk(directory: folder())
         let before = cache.disk
         cache.disk = disk
         defer {
@@ -36,6 +36,10 @@ struct ChatTailDiskTests {
 
     private static func get(_ session: String) async -> Any? {
         ChatTailCacheTests.value(await AgentPaneTailCache.reply(to: "chat.tail.get", params: ["sessionId": session], host: nil))
+    }
+
+    private static func answersNothing(_ session: String) async -> Bool {
+        await get(session) is NSNull
     }
 
     /// A local chat an earlier launch read: memory is empty (the app restarted), the file is there,
@@ -108,6 +112,81 @@ struct ChatTailDiskTests {
         try Data("{\"events\":[]}".utf8).write(to: disk.url(for: "bad"))
         #expect(await disk.read("bad") == nil)
         #expect(!FileManager.default.fileExists(atPath: disk.url(for: "bad").path))
+    }
+
+    /// #36492 review F1: after a relaunch memory is empty, and a sidebar hover's read ahead
+    /// (`ifNewer`) that ends on an older record than the tail an earlier launch saved must not
+    /// replace it, or the next open draws stale rows. A newer one still wins.
+    @Test func anOlderHoverHandOverKeepsTheNewerDiskTail() async {
+        await Self.withDisk { disk in
+            disk.write(Self.json(ChatTailCacheTests.tail(5)), for: "s-1")
+            await disk.settled()
+            _ = ChatTailCacheTests.bridge("chat.tail", ["sessionId": "s-1", "tail": ChatTailCacheTests.tail(3), "ifNewer": true])
+            await AgentPaneTailCache.shared.settled()
+            #expect(ChatTailCacheTests.seqs((await disk.read("s-1"))?.foundationObject) == [1, 2, 3, 4, 5],
+                    "an older read ahead replaced the newer tail on disk")
+            #expect(ChatTailCacheTests.seqs(await Self.get("s-1")) == [1, 2, 3, 4, 5],
+                    "an older read ahead was answered over the newer tail on disk")
+            _ = ChatTailCacheTests.bridge("chat.tail", ["sessionId": "s-1", "tail": ChatTailCacheTests.tail(7), "ifNewer": true])
+            await AgentPaneTailCache.shared.settled()
+            #expect(ChatTailCacheTests.seqs(await Self.get("s-1")) == Array(1...7))
+            #expect(ChatTailCacheTests.seqs((await disk.read("s-1"))?.foundationObject) == Array(1...7))
+        }
+    }
+
+    /// The same with no memory tier read at all: the disk's own copy is what the comparison sees.
+    @Test func aNewerHoverHandOverReplacesAnOlderDiskTail() async {
+        await Self.withDisk { disk in
+            disk.write(Self.json(ChatTailCacheTests.tail(2)), for: "s-1")
+            await disk.settled()
+            _ = ChatTailCacheTests.bridge("chat.tail", ["sessionId": "s-1", "tail": ChatTailCacheTests.tail(4), "ifNewer": true])
+            await AgentPaneTailCache.shared.settled()
+            #expect(ChatTailCacheTests.seqs(await Self.get("s-1")) == [1, 2, 3, 4])
+            #expect(ChatTailCacheTests.seqs((await disk.read("s-1"))?.foundationObject) == [1, 2, 3, 4])
+        }
+    }
+
+    /// #36492 review F2: a page that forgets (or hands over a tail the host refuses) while a
+    /// `chat.tail.get` reads the disk tier must not have the old disk copy put back in memory and
+    /// answered: the page no longer stands behind that transcript.
+    @Test(arguments: [false, true]) func aForgetDuringADiskReadIsNotUndone(refused: Bool) async {
+        let gate = DispatchSemaphore(value: 0)
+        let (queued, readQueued) = AsyncStream<Void>.makeStream()
+        let disk = AgentPaneTailDisk(directory: Self.folder(), readQueued: { readQueued.yield() })
+        await Self.withDisk(disk) { disk in
+            disk.write(Self.json(ChatTailCacheTests.tail(5)), for: "s-1")
+            await disk.settled()
+            // Hold the disk queue so the read is queued ahead of the forget's removal.
+            disk.afterQueued { gate.wait() }
+            async let answeredNothing = Self.answersNothing("s-1")
+            for await _ in queued { break }
+            let forget: [String: Any] = refused
+                ? ["sessionId": "s-1", "tail": ["events": [] as [Any]]]
+                : ["sessionId": "s-1"]
+            _ = ChatTailCacheTests.bridge("chat.tail", forget)
+            gate.signal()
+            #expect(await answeredNothing, "a forgotten tail was answered from the disk read under way")
+            #expect(AgentPaneTailCache.shared.tail(for: "s-1") == nil, "a forgotten tail was put back in memory")
+            #expect(await disk.read("s-1") == nil)
+        }
+    }
+
+    /// #36492 review F3: the quit awaits the app's state files (`AppServices.stateFilesDrained`), and
+    /// that includes the chat tails' disk queue, so a quit during a save backlog still relaunches with
+    /// the tail; until it ends, the quit deadline's record names the folder as still saving.
+    @Test func theQuitDrainAwaitsTheTailSaves() async throws {
+        let parent = Self.folder()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let gate = DispatchSemaphore(value: 0)
+        let files = AgentPaneStateFiles(drainBegan: { gate.signal() })
+        let disk = files.tails(in: parent.appending(path: "agent-chat-tails"))
+        #expect(files.tails(in: parent.appending(path: "agent-chat-tails")) === disk, "two writers for one folder")
+        disk.afterQueued { gate.wait() }
+        disk.write(Self.json(ChatTailCacheTests.tail(3)), for: "s-1")
+        #expect(files.savingFileNames().contains("agent-chat-tails"), "the quit deadline would not name the tails still saving")
+        await files.drained()
+        #expect(FileManager.default.fileExists(atPath: disk.url(for: "s-1").path), "the quit drain ended before the tail was saved")
+        #expect(!files.savingFileNames().contains("agent-chat-tails"))
     }
 
     /// A session id never names a path.

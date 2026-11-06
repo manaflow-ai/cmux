@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 583,
+  "count": 587,
   "sections": [
     {
       "id": "general",
@@ -557,7 +557,7 @@
           "title": "Computer Use Driver",
           "help": "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
           "kind": "choice",
-          "default": "legacy",
+          "default": "upstream",
           "group": "Computer Use",
           "values": [
             "legacy",
@@ -1079,20 +1079,20 @@
           ]
         },
         {
+          "key": "palette.searchHistory",
+          "title": "Remember Palette Searches",
+          "help": "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Command Palette"
+        },
+        {
           "key": "picker.pinned",
           "title": "Pinned Folders",
           "help": "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths.",
           "kind": "folder_list",
           "default": [],
           "group": "Folder Picker"
-        },
-        {
-          "key": "remote.enabled",
-          "title": "Use cmux Remote",
-          "help": "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts.",
-          "kind": "toggle",
-          "default": false,
-          "group": "cmux Remote"
         },
         {
           "key": "remote.endSharingOnQuit",
@@ -1585,6 +1585,14 @@
             "nightly",
             "off"
           ]
+        },
+        {
+          "key": "updates.whatsNewInstall",
+          "title": "Install Versions from What's New",
+          "help": "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Updates"
         },
         {
           "key": "window.titlebar",
@@ -4373,6 +4381,18 @@
           "kind": "string_list",
           "default": [],
           "group": "Opening Links"
+        },
+        {
+          "key": "terminal.term",
+          "title": "Terminal Type (TERM)",
+          "help": "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac.",
+          "kind": "choice",
+          "default": "xterm-256color",
+          "group": "Compatibility",
+          "values": [
+            "xterm-256color",
+            "xterm-ghostty"
+          ]
         }
       ]
     },
@@ -5566,6 +5586,28 @@
           ]
         },
         {
+          "key": "home.chiefDock.edge",
+          "title": "Dock Edge",
+          "help": "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick.",
+          "kind": "choice",
+          "default": "left",
+          "group": "Chief Dock",
+          "values": [
+            "left",
+            "right",
+            "top",
+            "bottom"
+          ]
+        },
+        {
+          "key": "home.chiefDock.openBeside",
+          "title": "Keep Chief Docked When Opening Workspaces",
+          "help": "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Chief Dock"
+        },
+        {
           "key": "home.chiefEngine",
           "title": "Engine",
           "help": "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.",
@@ -6280,8 +6322,8 @@
         },
         {
           "key": "labs.machineJoin",
-          "title": "Join Any Machine with One Line",
-          "help": "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them.",
+          "title": "Screen Sharing for Joined Machines",
+          "help": "Shows this Mac's Screen sharing and Control switches in Settings > Devices once it has joined your machines. Both stay off until you turn them on.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

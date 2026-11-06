@@ -7,6 +7,7 @@ import type { AcpmuxRow } from "../model";
 import { copyTextResult } from "./clipboard";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
+import { WhoElseCard } from "./WhoElseCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
 import { AgentCallCard } from "./AgentCallCard";
@@ -32,7 +33,7 @@ import {
 } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
-import { hasTokens, TimedLabel, tokensText, TurnTokens } from "./TurnTokens";
+import { hasTokens, TimedLabel, tokensText } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
@@ -77,7 +78,8 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   return <TimedLabel text={(time) => t(key, { time })} time={row.durationMs} />;
 }
 
-/// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
+/// The "Worked for 15s" line; it opens the turn's commentary and tool calls. It says the time alone,
+/// as Codex does (Lucas, 2026-11-06): the turn's tokens stay on the running line (WorkingFor.tsx).
 export function WorkedFor({
   row,
   expanded,
@@ -100,14 +102,6 @@ export function WorkedFor({
       <span className="cv-worked__label">
         <WorkedLabel row={row} />
       </span>
-      {hasTokens(row.tokens) && (
-        <span className="cv-worked__count">
-          <span className="cv-worked__sep" aria-hidden="true">
-            ·
-          </span>
-          <TurnTokens split={row.tokens} />
-        </span>
-      )}
       <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
     </button>
   );
@@ -158,6 +152,8 @@ function groupNode(
       );
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
+    case "whoElse":
+      return <WhoElseCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "send":
       return (
         <AcpmuxSendLine
@@ -307,6 +303,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     fork,
     forkSeq,
     forkAny,
+    tryAnotherApproach,
     retry,
     retryFailed,
     retryWith,
@@ -501,6 +498,20 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             )}
             {!messages && fork && seq !== undefined && (forkAny || seq === forkSeq) && (
               <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
+            )}
+            {tryAnotherApproach && seq !== undefined && seq === forkSeq && (
+              <button
+                type="button"
+                className="cv-iconbtn cv-iconbtn--compact cv-turn-try-another"
+                aria-label={t("turn.tryAnotherApproach")}
+                title={t("turn.tryAnotherApproach")}
+                onClick={() =>
+                  // A refused click or a Cloud error must not become an unhandled rejection.
+                  void tryAnotherApproach(seq).catch(() => undefined)
+                }
+              >
+                {t("turn.tryAnotherApproach")}
+              </button>
             )}
             {!messages && <PinButton rowId={row.id} />}
             {!messages && timeline.toggle}

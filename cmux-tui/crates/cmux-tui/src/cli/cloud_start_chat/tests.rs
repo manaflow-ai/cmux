@@ -912,3 +912,43 @@ pub(in crate::cli) fn contract_relay_words() -> Vec<String> {
     assert_eq!(&words[..2], &strings(&["cloud", "relay-chat"]), "{:?}", fake.ran);
     words
 }
+
+#[test]
+fn a_harness_sign_in_failure_is_not_the_cmux_account_signed_out() {
+    // acpmux's Cloud text for a Claude with no sign-in (claude_auth.rs `compose_cloud`) and its typed kind:
+    // the machine's Claude, never the person's cmux account, so no `cmux cloud sign-in`.
+    let claude = "Claude is not signed in here. This Cloud machine has no Claude sign-in (Claude home ~/.claude). \
+        Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again. \
+        (Claude said: Not logged in · Please run /login)";
+    for error in [
+        json!({"code": "cloud_start_failed", "message": claude}),
+        json!({"code": "runtime", "errorKind": "auth.signed_out", "message": "Not logged in · Please run /login"}),
+        json!({"code": "chat.failed", "error_kind": "auth.expired", "message": "sign in again"}),
+        json!({"code": "auth.signed_out", "message": "Not logged in"}),
+    ] {
+        assert!(!signed_out(&error), "{error}");
+    }
+    // The cmux account's own refusals stay signed out.
+    for error in [
+        json!({"code": "unavailable", "message": "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`."}),
+        json!({"code": "not_signed_in", "message": "x"}),
+        json!({"code": "auth.required", "message": "x"}),
+        json!({"code": "cloud_signed_out", "message": "x"}),
+    ] {
+        assert!(signed_out(&error), "{error}");
+    }
+}
+
+#[test]
+fn a_relay_turn_error_keeps_the_machines_type() {
+    let relayed = json!({"machine_id": "vm-1", "session_id": "s-1", "ended": true, "delivered": true,
+        "error_code": "chat.failed", "error_message": "daemon connection closed", "error_detail": "daemon_closed",
+        "error_cause": "panicked", "error_kind": "auth.signed_out", "error_retryable": true, "error_recovery": "Run acpmux again.", "reply": ""});
+    let typed = typed_error(&relayed);
+    assert_eq!(
+        typed,
+        json!({"detail": "daemon_closed", "cause": "panicked", "kind": "auth.signed_out", "recovery": "Run acpmux again.", "retryable": true})
+    );
+    // An older app's answer has none: nothing is made up.
+    assert_eq!(typed_error(&json!({"error_code": "chat.failed"})), json!({}));
+}

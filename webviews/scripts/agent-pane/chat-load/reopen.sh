@@ -39,6 +39,10 @@ if [[ -z "$bin" ]]; then
   [[ "$(sha256sum "$work/acpmux" | cut -d' ' -f1)" == "$want" ]] || { echo "acpmux sha256 mismatch" >&2; exit 1; }
   chmod +x "$work/acpmux"; bin="$work/acpmux"
 fi
+# The bench runs from webviews/ and resolves --acpmux there: pass it an absolute path (a bare name is
+# looked up on PATH, whose entries may be relative too, and a relative path is taken from here).
+[[ "$bin" == */* ]] || bin="$(command -v "$bin")"
+bin="$(cd "$(dirname "$bin")" && pwd)/$(basename "$bin")"
 "$bin" --version
 
 (cd "$root/webviews" && bun install --frozen-lockfile >/dev/null)

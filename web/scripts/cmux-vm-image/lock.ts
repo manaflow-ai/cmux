@@ -875,8 +875,12 @@ export function parseFileManifest(tsv: string): Map<string, string> {
  * Files that differ between two bakes by design: the stamp (bake time and name)
  * and the builder's instance id, which cmux-devbox-boot reads to keep the daemon
  * parked in the snapshot. The bind agent drops the second one.
+ *
+ * An entry ending in "/" allows every file under that directory: the work user's npm cache (dep-cache.ts) is
+ * a download cache whose index records the time of each fetch and whose content is what the registry served
+ * at bake time. Nothing in the image runs from it; an install reads it and checks every tarball's integrity.
  */
-export const REPRO_ALLOWED_DIFFS: readonly string[] = ["/etc/cmux/image-stamp", "/etc/cmux/bake-instance-id"];
+export const REPRO_ALLOWED_DIFFS: readonly string[] = ["/etc/cmux/image-stamp", "/etc/cmux/bake-instance-id", "/home/cmux/.npm/_cacache/"];
 
 export function diffFileManifests(a: Map<string, string>, b: Map<string, string>, allowed: readonly string[] = REPRO_ALLOWED_DIFFS): { diffs: string[]; allowed: string[] } {
   const diffs: string[] = [];
@@ -884,7 +888,7 @@ export function diffFileManifests(a: Map<string, string>, b: Map<string, string>
   for (const file of new Set([...a.keys(), ...b.keys()])) {
     if (a.get(file) === b.get(file)) continue;
     const line = `${file}: ${a.get(file) ?? "absent"} vs ${b.get(file) ?? "absent"}`;
-    if (allowed.includes(file)) hitAllowed.push(line);
+    if (allowed.some((entry) => (entry.endsWith("/") ? file.startsWith(entry) : file === entry))) hitAllowed.push(line);
     else diffs.push(line);
   }
   return { diffs: diffs.sort(), allowed: hitAllowed.sort() };

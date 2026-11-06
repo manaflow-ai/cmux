@@ -42,6 +42,7 @@
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextOnboarding",
         "CmuxNextPages",
         "CmuxNextSettings",
         "CmuxNextWakeups"
@@ -558,6 +559,7 @@
         "CmuxNextIcons",
         "CmuxNextLayout",
         "CmuxNextRemote",
+        "CmuxNextSettings",
         "CmuxNextSidebar",
         "CmuxNextTabs"
       ],
@@ -635,6 +637,7 @@
         "CmuxNextBrowser",
         "CmuxNextBrowserAutomation",
         "CmuxNextBrowserHost",
+        "CmuxNextTestSupport",
         "CmuxNextWakeups"
       ],
       "packages": [],
@@ -832,7 +835,8 @@
       "targets": [
         "CmuxNextCloud",
         "CmuxNextCloudUI",
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -1242,8 +1246,10 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHibernation",
       "targets": [
         "CmuxNextBridge",
+        "CmuxNextBrowserCore",
         "CmuxNextCompat",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -1350,10 +1356,13 @@
         "CmuxNextActions",
         "CmuxNextBrowserImport",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextImportSuggestions",
         "CmuxNextOnboarding",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextSidebar",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -1361,7 +1370,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextImportSuggestions",
       "targets": [
-        "CmuxNextBrowserImport"
+        "CmuxNextBrowserImport",
+        "CmuxNextCompat"
       ],
       "packages": []
     },
@@ -1415,6 +1425,15 @@
         "CmuxNextCompat"
       ],
       "packages": []
+    },
+    "CmuxNextLiveCodeTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextLiveCodeTests",
+      "targets": [
+        "CmuxNextLiveCode"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextMacScreen": {
       "kind": "regular",
@@ -1836,7 +1855,8 @@
         "CmuxNextCloud",
         "CmuxNextDesign",
         "CmuxNextIcons",
-        "CmuxNextRemote"
+        "CmuxNextRemote",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },

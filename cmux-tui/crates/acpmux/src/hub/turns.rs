@@ -687,6 +687,9 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
+        // Before the turn shows: a Stop from then on fences its unwritten prompt (`cancel.rs`).
+        *session.unwritten_prompt.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((turn_id.to_string(), false));
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
         let mut cloud_exec = if let Some(envelope) = cloud_turn.as_ref() {
             if envelope.session != session.id
@@ -1415,6 +1418,9 @@ impl Hub {
                 self.save_meta(session);
             }
         }
+        // Its todo calls still held go with it, however the turn ends or is handed off
+        // (`acp_todo_plan.rs`): a late result passes through as any other tool's.
+        crate::acp_todo_plan::forget(&session.id);
         // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
         // no agent starts after it, so the lane reports nothing (`lane_reports.rs`). A restart
         // handed it to the next daemon, which continues it: its end is that daemon's to write.

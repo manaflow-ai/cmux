@@ -84,7 +84,6 @@ import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
 import {
   ANCHORED_COLLAPSE_EVENT,
-  BOTTOM_PIN_SHARE,
   atFoldBottom,
   clickFold,
   FOLD_HOLD_MIN_MS,
@@ -129,7 +128,9 @@ import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
 import { useChatDisplay } from "./chatDisplay";
 import { type Folds } from "./conversation/viewFolds";
-import { SUBAGENT_DONE } from "./subagents/subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_OF } from "./subagents/subagentRows";
+import { SubagentOfRow } from "./subagents/SubagentGroup";
+import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
@@ -141,6 +142,7 @@ import { callNative } from "./callNative";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { NoticeRow } from "./rows/NoticeRow";
 import { defaultRegistry, readOnlyRegistry } from "./rows/registry";
+import { workEnds } from "./conversation/waterfallSpans";
 
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };
@@ -269,7 +271,7 @@ function sameFields(previous: AcpmuxRow, next: AcpmuxRow): boolean {
   return keys.length === Object.keys(before).length && keys.every((key) => Object.is(before[key], after[key]));
 }
 
-function sameRowFrame(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
+export function sameRowFrame(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
   const keys = Object.keys(next);
   if (keys.length !== Object.keys(previous).length) return false;
   return keys.every((key) => {
@@ -289,7 +291,10 @@ function sameRowFrame(previous: Record<string, unknown>, next: Record<string, un
         before.id === after.id &&
         before.version === after.version &&
         before.below === after.below &&
-        before.ended === after.ended
+        before.ended === after.ended &&
+        // A turn footer's Timeline also redraws when a background shell ends after the turn, which
+        // leaves its version as it was (conversation/waterfallSpans.ts workEnds, cached per array).
+        (after.kind !== "turnSummary" || workEnds(before.turnWork) === workEnds(after.turnWork))
       );
     }
     if (key === "referenceScope")
@@ -512,7 +517,7 @@ const speaker = (kind: string, t: Translate) =>
 export const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
 
 /// A row drawn as tool rows: tool calls and thoughts, a background task's or a subagent's end, a
-/// compaction, a failover, a policy the harness cannot keep or a session start note, and the one-line
+/// compaction, a failover, a policy the harness cannot keep, and the one-line
 /// rows drawn on the tool rows' line (model.ts `isLineRow`: another agent's message, a notice, an
 /// inbox notice, a report batch's or the waiting group's head), so they all sit one line apart.
 const isStepRow = (row: AcpmuxRow | undefined) =>
@@ -524,7 +529,6 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
     row.kind === "agentPair" ||
-    row.kind === "sessionStart" ||
     row.kind === BACKGROUND_TURN ||
     (row.kind === "activity" && !isEditRow(row)));
 
@@ -1898,6 +1902,20 @@ export function VirtualTranscript({
     flushSync(roomTaken);
   }, []);
   const thread = useRef<HTMLDivElement>(null);
+  // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
+  // its row lies at rest: the scroller's top in the stage (under the header) and the thread's own top
+  // padding. Read when it comes and as the view resizes, never per streamed token.
+  const pinnedPill = paneRows[0]?.kind === SUBAGENT_OF ? paneRows[0] : undefined;
+  const pinned = pinnedPill !== undefined;
+  const [pinAt, setPinAt] = useState({ top: 0, pad: 0 });
+  useLayoutEffect(() => {
+    const scroller = ref.current;
+    if (!pinned || !scroller || !thread.current) return;
+    const style = thread.current.ownerDocument.defaultView?.getComputedStyle(thread.current);
+    const pad = Number.parseFloat(style?.paddingTop ?? "") || 0;
+    const top = scroller.offsetTop + pad;
+    setPinAt((now) => (now.top === top && now.pad === pad ? now : { top, pad }));
+  }, [pinned, height]);
   /// The footer of the turn the pointer is over (a turnSummary row's id).
   const pointedTurn = useRef<string | undefined>(undefined);
   /// Pointerover bubbles from every markdown descendant: moving between spans inside the same row
@@ -2013,6 +2031,32 @@ export function VirtualTranscript({
     if (followingRef.current) follow(false);
     scrolledTo.current = { top: node.scrollTop, atLatest: false };
     landForReader(stack.row);
+    return true;
+  };
+  /// The scroller's offset as a held line (foldAnchor) last left it: the click, then each pass that
+  /// put the line back.
+  const holdTop = useRef<number | undefined>(undefined);
+  /// A scroll made from code (scrollIntoView, Find, a link to a row) while a clicked line is held
+  /// (foldAnchor; an open at the very end holds its line too, Codex parity): the view is where the
+  /// code put it, so the hold lets go, or its next pass puts the line back (#34780, as
+  /// `releaseBottomStackFold` does for a close at the end). Only the offset moving off where the
+  /// hold left it counts: a layout change moves the line, not the offset, and a closing body's clamp
+  /// lands at the end. A view still following the latest row moves its own offset to the end until
+  /// the hold's first pass lets go of it, so nothing counts until then.
+  const releaseFoldHold = (node: HTMLElement): boolean => {
+    const left = holdTop.current;
+    if (
+      !foldAnchor.current ||
+      followingRef.current ||
+      bottomStackFold.current ||
+      left === undefined ||
+      Math.abs(node.scrollTop - left) <= FOLLOW_BOTTOM_DEADBAND_PX ||
+      atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)
+    )
+      return false;
+    foldAnchor.current = undefined;
+    holdTop.current = undefined;
+    if (followingRef.current) follow(false);
     return true;
   };
   const trimFoldRoom = useCallback((node: HTMLElement) => {
@@ -2571,6 +2615,8 @@ export function VirtualTranscript({
     const old = switched ? null : previousLayout.current;
     const oldRows = previousRows.current;
     const node = ref.current;
+    // Code that scrolled the view since the last pass wins over a held line (releaseFoldHold).
+    if (old && node) releaseFoldHold(node);
     // The view stopped following with its rows drawn up by the composer's growth (`lift`): that
     // growth is room now (`heldRoom`), and the offset moves by it in this same frame, so nothing the
     // reader sees moves.
@@ -2593,6 +2639,7 @@ export function VirtualTranscript({
     const heldFrom = node?.scrollTop ?? 0;
     const folding = Boolean(!bottomStacking && old && node && foldAnchor.current && keepFold(foldAnchor.current, node));
     if (!folding && !bottomStacking) foldAnchor.current = undefined;
+    if (folding && node) holdTop.current = node.scrollTop;
     if (folding && node && Math.abs(node.scrollTop - heldFrom) >= 0.5) {
       // The rows mounted for this frame read the held offset too, before its scroll event comes.
       const moved = node.scrollTop;
@@ -3402,7 +3449,7 @@ export function VirtualTranscript({
     }
     const programmatic = !userScrollIntent(node).isHeld();
     // Its event can come before the stack's next pass does.
-    if (programmatic) releaseBottomStackFold(node);
+    if (programmatic && !releaseBottomStackFold(node)) releaseFoldHold(node);
     // The right-hand card holds what it shows until the reader's scroll settles
     // (summary/heldWhileScrolling.ts): older history paged in under the scroll lands there once.
     if (!programmatic) noteReaderScroll();
@@ -3606,24 +3653,18 @@ export function VirtualTranscript({
       setFoldRoom(end);
     };
     // The control a click landed on, for the hold its row's collapsible asks for in the same click
-    // (holdAsked): a long prompt's Show more asks to hold its bubble, whose top is far up the view,
-    // and the share is still the Show more's, where the reader clicked.
+    // (holdAsked): a long prompt's Show more asks to hold its bubble, which has no open state of its
+    // own, so whether the click opens is the Show more's.
     let clicked: HTMLElement | undefined;
-    const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement, at: HTMLElement = toggle): boolean => {
-      // At the very bottom every disclosure pins the bottom, opening or closing (Leo, 2026-11-02:
-      // "YOU EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"; 2026-11-03:
-      // "it's weird to collapse and get all that empty space at the bottom"). What opens pushes the
-      // text above it up; what closes pulls it down. No blank room is left under the rows. A line
-      // that opens higher up than BOTTOM_PIN_SHARE of the visible view (the part above the composer
-      // and under the top inset), from its foot, opens downward instead, as anywhere else: the line
-      // and the rows over it held, the rows under it moving down (Leo, 2026-11-05: "when you get
-      // >like 50-70% up the screen from the bottom then it starts doing it normally expanding
-      // down"). A close at the bottom still pins it wherever its line is.
-      const visibleFoot = node.getBoundingClientRect().bottom - dockSpaceRef.current;
-      const visibleHeight = node.clientHeight - topInsetRef.current - dockSpaceRef.current;
+    const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
+      // At the very bottom a close pins the bottom and pulls the text above it down, so no blank room
+      // is left under the rows (Leo, 2026-11-03: "it's weird to collapse and get all that empty space
+      // at the bottom"). An open never pins it, as Codex opens a call at the end of a chat (Lucas,
+      // 2026-11-06: Codex parity): the line and the rows over it stay where the reader clicked, what
+      // opens grows down under the composer, and the view stops following, so Jump to latest shows.
       if (
-        !atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX) ||
-        (opensBody(toggle) && visibleFoot - at.getBoundingClientRect().top > visibleHeight * BOTTOM_PIN_SHARE)
+        opensBody(toggle) ||
+        !atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)
       ) {
         stopBottomStackFold();
         return false;
@@ -3672,6 +3713,7 @@ export function VirtualTranscript({
       const bottom = beginBottomStackFold(toggle, line);
       // A keyboard click (detail 0) had no press: an older, abandoned one is not its place.
       foldAnchor.current = clickFold(line, event.detail > 0 ? pressed : undefined);
+      holdTop.current = node?.scrollTop;
       pressed = undefined;
       if (!bottom) keepFoldRoom();
     };
@@ -3694,10 +3736,11 @@ export function VirtualTranscript({
         return;
       event.preventDefault();
       settleFold(header);
-      const at = clicked && clicked.closest(".acpmux-row") === header.closest(".acpmux-row") ? clicked : header;
-      const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(header, header, at);
+      const toggle = clicked && clicked.closest(".acpmux-row") === header.closest(".acpmux-row") ? clicked : header;
+      const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(toggle, header);
       // The click that asked for it already holds this line at the place it was pressed at: keep it.
       foldAnchor.current = clickFold(header, foldAnchor.current);
+      holdTop.current = node.scrollTop;
       if (!bottom) keepFoldRoom();
     };
     // The reader scrolling lets go of it.
@@ -3934,7 +3977,17 @@ export function VirtualTranscript({
           // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
           // scroll a row into view above it.
           data-docked={dockSpace > 0 || undefined}
-          style={dockSpace > 0 ? ({ "--acpmux-dock-space": `${dockSpace}px` } as React.CSSProperties) : undefined}
+          // A subagent's view keeps its "Subagent of" pill pinned over the top (pinnedPill below): rows
+          // pass out of sight under it.
+          data-pinned-top={pinnedPill ? "" : undefined}
+          style={
+            dockSpace > 0 || pinnedPill
+              ? ({
+                  ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
+                  ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
+                } as React.CSSProperties)
+              : undefined
+          }
         >
           {showMinimap && (
             <ThreadMinimap
@@ -4075,6 +4128,13 @@ export function VirtualTranscript({
             style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
           >
             {afterLatest}
+          </div>
+        )}
+        {pinnedPill && (
+          // Lucas, 2026-11-06: "the "subagent of ..." text on the subagent page is sticky and always at the
+          // top". Outside the scroller, so its soft edge never fades the pill; the row's own slot stays.
+          <div className="acpmux-pinned-top" style={{ top: pinAt.top + topInset }}>
+            <SubagentOfRow row={pinnedPill} />
           </div>
         )}
         {jumpButton && (
