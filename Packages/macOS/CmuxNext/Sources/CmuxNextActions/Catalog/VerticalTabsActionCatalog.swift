@@ -47,6 +47,6 @@ nonisolated enum VerticalTabsActionCatalog: ActionCatalogGroup {
     static var moveAllTabsToNewWorkspaceLabel: String { t("menu.tabStrip.moveAllTabsToNewWorkspace", "Move All Tabs to a New Workspace") }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "SettingsActions", bundle: .module)
+        ("\u{E000}SettingsActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: english, table: "SettingsActions", bundle: .module))
     }
 }

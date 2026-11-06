@@ -8,7 +8,7 @@ nonisolated extension WorkspaceActionCatalog {
         // brings back what is not open here, never a duplicate.
         var importClassic = ActionDescriptor(
             id: "workspace.importClassic",
-            title: String(localized: "action.workspace.importClassic", defaultValue: "Import Workspaces from Classic cmux", bundle: .module),
+            title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.workspace.importClassic") + "\u{E002}" + String(localized: "action.workspace.importClassic", defaultValue: "Import Workspaces from Classic cmux", bundle: .module)),
             keywords: ["classic", "import", "migrate", "session", "restore"], category: .workspace,
             symbol: "square.and.arrow.down", surfaces: [.palette], cliName: "workspace import-classic"
         )

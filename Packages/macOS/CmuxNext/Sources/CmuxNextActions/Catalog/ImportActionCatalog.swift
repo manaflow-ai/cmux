@@ -38,6 +38,6 @@ nonisolated enum ImportActionCatalog: ActionCatalogGroup {
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "ImportActions", bundle: .module)
+        ("\u{E000}ImportActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: english, table: "ImportActions", bundle: .module))
     }
 }

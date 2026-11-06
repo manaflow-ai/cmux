@@ -18,6 +18,6 @@ nonisolated enum FilesPaneActionCatalog: ActionCatalogGroup {
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "FilesPaneActions", bundle: .module)
+        ("\u{E000}FilesPaneActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: english, table: "FilesPaneActions", bundle: .module))
     }
 }

@@ -10,7 +10,7 @@ nonisolated enum CloudPortActionCatalog: ActionCatalogGroup {
         var actions: [ActionDescriptor] = [
             ActionDescriptor(
                 id: "cloudOpenBrowser",
-                title: String(localized: "action.cloudOpenBrowser", defaultValue: "Open Machine Port in Browser…", table: "CloudPortActions", bundle: .module),
+                title: ("\u{E000}CloudPortActions\u{E001}" + String(describing: "action.cloudOpenBrowser") + "\u{E002}" + String(localized: "action.cloudOpenBrowser", defaultValue: "Open Machine Port in Browser…", table: "CloudPortActions", bundle: .module)),
                 description: "Opens --port N (and --path, default /) of the machine (--target machine:<id>) in a Chromium tab and returns url and surface_id. New Cloud uses its private preview URL. On the classic Cloud link the tab opens in the machine's workspace (workspace_id) and its localhost is the machine's.",
                 keywords: ["vm", "cloud", "browser", "port", "localhost", "preview", "web"], category: .cloud, symbol: "safari",
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.portInt, CatalogArgument.optionalPathString],
@@ -18,14 +18,14 @@ nonisolated enum CloudPortActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "cloudPortList",
-                title: String(localized: "action.cloudPortList", defaultValue: "List Forwarded Machine Ports", table: "CloudPortActions", bundle: .module),
+                title: ("\u{E000}CloudPortActions\u{E001}" + String(describing: "action.cloudPortList") + "\u{E002}" + String(localized: "action.cloudPortList", defaultValue: "List Forwarded Machine Ports", table: "CloudPortActions", bundle: .module)),
                 description: "Lists the machine's (--target machine:<id>) ports forwarded to this Mac: forwards, each with port, local_port, url and state. Only machines on the Cloud app server link keep forwards; on the classic link use `cmux cloud open-browser --target machine:<id> --port <port>`.",
                 keywords: ["vm", "cloud", "port", "forward", "list"], category: .cloud, symbol: "list.bullet",
                 surfaces: [.palette, .contextMenu], targets: [.machine], cliName: "cloud port-list", surfacePlan: plan(rank: 212)
             ),
             ActionDescriptor(
                 id: "cloudPortForward",
-                title: String(localized: "action.cloudPortForward", defaultValue: "Forward Machine Port…", table: "CloudPortActions", bundle: .module),
+                title: ("\u{E000}CloudPortActions\u{E001}" + String(describing: "action.cloudPortForward") + "\u{E002}" + String(localized: "action.cloudPortForward", defaultValue: "Forward Machine Port…", table: "CloudPortActions", bundle: .module)),
                 description: "Forwards --port N of the machine (--target machine:<id>) to a port on this Mac and returns local_port, url (http://127.0.0.1:<local_port>/) and state. Close it with `cmux cloud port-close --target machine:<id> --port <port>`. Cloud app server link only.",
                 keywords: ["vm", "cloud", "port", "forward", "tunnel", "localhost"], category: .cloud, symbol: "arrow.left.arrow.right",
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.portInt], targets: [.machine],
@@ -33,7 +33,7 @@ nonisolated enum CloudPortActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "cloudPortClose",
-                title: String(localized: "action.cloudPortClose", defaultValue: "Close Forwarded Machine Port…", table: "CloudPortActions", bundle: .module),
+                title: ("\u{E000}CloudPortActions\u{E001}" + String(describing: "action.cloudPortClose") + "\u{E002}" + String(localized: "action.cloudPortClose", defaultValue: "Close Forwarded Machine Port…", table: "CloudPortActions", bundle: .module)),
                 description: "Stops forwarding --port N of the machine (--target machine:<id>) to this Mac and returns closed: true; a port with no forward is refused. `cmux cloud port-list --target machine:<id>` lists the forwards.",
                 keywords: ["vm", "cloud", "port", "forward", "close", "stop"], category: .cloud, symbol: "xmark.circle",
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.portInt], targets: [.machine],
@@ -41,7 +41,7 @@ nonisolated enum CloudPortActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "cloudPreviewShare",
-                title: String(localized: "action.cloudPreviewShare", defaultValue: "Share Machine Preview…", table: "CloudPortActions", bundle: .module),
+                title: ("\u{E000}CloudPortActions\u{E001}" + String(describing: "action.cloudPreviewShare") + "\u{E002}" + String(localized: "action.cloudPreviewShare", defaultValue: "Share Machine Preview…", table: "CloudPortActions", bundle: .module)),
                 description: "Creates a one-day anonymous link for --port N of the machine (--target machine:<id>), copies it to the clipboard and returns the URL and linkId. Revoke it with `cmux cloud preview-revoke --target machine:<id> --port <port> --link-id <id>`. Cloud app server link only.",
                 keywords: ["vm", "cloud", "preview", "port", "share", "link"], category: .cloud, symbol: "square.and.arrow.up",
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.portInt], targets: [.machine],
@@ -49,7 +49,7 @@ nonisolated enum CloudPortActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "cloudPreviewRevoke",
-                title: String(localized: "action.cloudPreviewRevoke", defaultValue: "Revoke Machine Preview Link…", table: "CloudPortActions", bundle: .module),
+                title: ("\u{E000}CloudPortActions\u{E001}" + String(describing: "action.cloudPreviewRevoke") + "\u{E002}" + String(localized: "action.cloudPreviewRevoke", defaultValue: "Revoke Machine Preview Link…", table: "CloudPortActions", bundle: .module)),
                 description: "Revokes --link-id for --port N of the machine (--target machine:<id>) and returns revoked: true. Cloud app server link only.",
                 keywords: ["vm", "cloud", "preview", "port", "share", "link", "revoke"], category: .cloud, symbol: "link.badge.plus",
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.portInt, linkID], targets: [.machine],
@@ -58,7 +58,7 @@ nonisolated enum CloudPortActionCatalog: ActionCatalogGroup {
             // Copy Machine Link's value for a caller with no clipboard: it answers the URL.
             ActionDescriptor(
                 id: "cloudMachineLink",
-                title: String(localized: "action.cloudMachineLink", defaultValue: "Get Machine Link…", table: "CloudPortActions", bundle: .module),
+                title: ("\u{E000}CloudPortActions\u{E001}" + String(describing: "action.cloudMachineLink") + "\u{E002}" + String(localized: "action.cloudMachineLink", defaultValue: "Get Machine Link…", table: "CloudPortActions", bundle: .module)),
                 description: "Returns the machine's (--target machine:<id>) link instead of copying it: machine_id, target and its private address. With --port N, also private_url and the platform's expiring share link for that port: url, linkId and expiresAt. Revoke it with `cmux cloud preview-revoke --target machine:<id> --port <port> --link-id <id>`.",
                 keywords: ["vm", "cloud", "link", "url", "port"], category: .cloud, symbol: "link",
                 surfaces: [.palette], arguments: [optionalPort], targets: [.machine],
@@ -78,11 +78,11 @@ nonisolated enum CloudPortActionCatalog: ActionCatalogGroup {
 
     /// `machine-link` without `--port` answers the machine's own links.
     static var optionalPort: ActionArgument {
-        ActionArgument(name: "port", title: String(localized: "argument.port", defaultValue: "Port", bundle: .module), kind: .int(1...65535),
+        ActionArgument(name: "port", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.port") + "\u{E002}" + String(localized: "argument.port", defaultValue: "Port", bundle: .module)), kind: .int(1...65535),
                        isRequired: false)
     }
 
     static var linkID: ActionArgument {
-        ActionArgument(name: "linkId", title: String(localized: "argument.linkID", defaultValue: "Link ID", table: "CloudPortActions", bundle: .module), kind: .string)
+        ActionArgument(name: "linkId", title: ("\u{E000}CloudPortActions\u{E001}" + String(describing: "argument.linkID") + "\u{E002}" + String(localized: "argument.linkID", defaultValue: "Link ID", table: "CloudPortActions", bundle: .module)), kind: .string)
     }
 }

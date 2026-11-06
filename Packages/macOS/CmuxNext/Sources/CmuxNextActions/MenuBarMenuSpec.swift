@@ -94,14 +94,14 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
     }
 
     static func agentsWorking(_ count: Int) -> String {
-        String(localized: "menu.menuBar.agentsWorking", defaultValue: "Agents working: \(count)", table: "ProfileActions", bundle: .module)
+        ("\u{E000}ProfileActions\u{E001}" + String(describing: "menu.menuBar.agentsWorking") + "\u{E002}" + String(localized: "menu.menuBar.agentsWorking", defaultValue: "Agents working: \(count)", table: "ProfileActions", bundle: .module))
     }
 
     static func needsInput(_ count: Int) -> String {
-        String(localized: "menu.menuBar.needsInput", defaultValue: "Needs input: \(count)", table: "ProfileActions", bundle: .module)
+        ("\u{E000}ProfileActions\u{E001}" + String(describing: "menu.menuBar.needsInput") + "\u{E002}" + String(localized: "menu.menuBar.needsInput", defaultValue: "Needs input: \(count)", table: "ProfileActions", bundle: .module))
     }
 
     static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "ProfileActions", bundle: .module)
+        ("\u{E000}ProfileActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: value, table: "ProfileActions", bundle: .module))
     }
 }

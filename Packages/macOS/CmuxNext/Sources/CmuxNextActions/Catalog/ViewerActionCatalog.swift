@@ -8,7 +8,7 @@ nonisolated enum ViewerActionCatalog: ActionCatalogGroup {
             // The focused pane's repository, or `path`'s; without one, the cmux picker (R89).
             ActionDescriptor(
                 id: "openDiffViewer",
-                title: String(localized: "action.openDiffViewer", defaultValue: "Open Diff Viewer", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.openDiffViewer") + "\u{E002}" + String(localized: "action.openDiffViewer", defaultValue: "Open Diff Viewer", bundle: .module)),
                 keywords: ["git", "diff", "changes"],
                 // G for git (Cmd-Ctrl-Shift-D was New Row until 2026-11-01).
                 defaultShortcut: Shortcut("g", modifiers: [.control, .shift, .command]), category: .browser,
@@ -19,7 +19,7 @@ nonisolated enum ViewerActionCatalog: ActionCatalogGroup {
             // Always the cmux picker, in folder mode (R89).
             ActionDescriptor(
                 id: "palette.openDirectoryDiffViewer",
-                title: String(localized: "action.palette.openDirectoryDiffViewer", defaultValue: "Open Diff Viewer in Folder…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.openDirectoryDiffViewer") + "\u{E002}" + String(localized: "action.palette.openDirectoryDiffViewer", defaultValue: "Open Diff Viewer in Folder…", bundle: .module)),
                 keywords: ["git", "diff", "changes", "folder", "directory"], category: .browser, symbol: "plus.forwardslash.minus",
                 surfaces: [.palette, .keyboard, .menu], targets: [.pane], cliName: "browser open-directory-diff-viewer", mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
@@ -29,7 +29,7 @@ nonisolated enum ViewerActionCatalog: ActionCatalogGroup {
             // lands, the file opens in the file preview.
             ActionDescriptor(
                 id: "openMarkdownFile",
-                title: String(localized: "action.openMarkdownFile", defaultValue: "Open Markdown File…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.openMarkdownFile") + "\u{E002}" + String(localized: "action.openMarkdownFile", defaultValue: "Open Markdown File…", bundle: .module)),
                 keywords: ["markdown", "md", "preview", "viewer", "file"], category: .browser, symbol: "doc.richtext",
                 surfaces: [.palette, .keyboard, .menu], arguments: [CatalogArgument.optionalPathString], targets: [.pane],
                 cliName: "browser open-markdown-file", mainMenu: .file,
@@ -40,7 +40,7 @@ nonisolated enum ViewerActionCatalog: ActionCatalogGroup {
             // into any app. Selects the window's Screenshots tab when one is open.
             ActionDescriptor(
                 id: "screenshots.open",
-                title: String(localized: "action.screenshots.open", defaultValue: "Screenshots", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.screenshots.open") + "\u{E002}" + String(localized: "action.screenshots.open", defaultValue: "Screenshots", bundle: .module)),
                 keywords: ["screenshots", "screen shot", "screen recording", "capture", "images", "videos", "cleanshot", "shottr", "drag"],
                 category: .browser, symbol: "photo.on.rectangle", surfaces: [.palette, .menu],
                 cliName: "screenshots open", mainMenu: .window,

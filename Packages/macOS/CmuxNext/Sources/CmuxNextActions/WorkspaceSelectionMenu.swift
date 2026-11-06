@@ -18,11 +18,11 @@ extension NSMenu {
     /// action's own title. `pins`, `mutes`: as in ``namingWorkspaceSelection(pins:mutes:)``.
     public static func workspaceSelectionTitle(_ id: ActionID, pins: Bool, mutes: Bool) -> String? {
         switch id.rawValue {
-        case "workspace.duplicate": String(localized: "workspaceSelection.duplicate", defaultValue: "Duplicate Workspaces", bundle: .module)
-        case "palette.toggleWorkspacePin": pins ? String(localized: "workspaceSelection.pin", defaultValue: "Pin Workspaces", bundle: .module)
-            : String(localized: "workspaceSelection.unpin", defaultValue: "Unpin Workspaces", bundle: .module)
-        case "workspace.toggleAudioMute": mutes ? String(localized: "workspaceSelection.mute", defaultValue: "Mute Workspaces", bundle: .module)
-            : String(localized: "workspaceSelection.unmute", defaultValue: "Unmute Workspaces", bundle: .module)
+        case "workspace.duplicate": ("\u{E000}Localizable\u{E001}" + String(describing: "workspaceSelection.duplicate") + "\u{E002}" + String(localized: "workspaceSelection.duplicate", defaultValue: "Duplicate Workspaces", bundle: .module))
+        case "palette.toggleWorkspacePin": pins ? ("\u{E000}Localizable\u{E001}" + String(describing: "workspaceSelection.pin") + "\u{E002}" + String(localized: "workspaceSelection.pin", defaultValue: "Pin Workspaces", bundle: .module))
+            : ("\u{E000}Localizable\u{E001}" + String(describing: "workspaceSelection.unpin") + "\u{E002}" + String(localized: "workspaceSelection.unpin", defaultValue: "Unpin Workspaces", bundle: .module))
+        case "workspace.toggleAudioMute": mutes ? ("\u{E000}Localizable\u{E001}" + String(describing: "workspaceSelection.mute") + "\u{E002}" + String(localized: "workspaceSelection.mute", defaultValue: "Mute Workspaces", bundle: .module))
+            : ("\u{E000}Localizable\u{E001}" + String(describing: "workspaceSelection.unmute") + "\u{E002}" + String(localized: "workspaceSelection.unmute", defaultValue: "Unmute Workspaces", bundle: .module))
         default: nil
         }
     }

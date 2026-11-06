@@ -10,14 +10,14 @@ nonisolated extension BrowserActionCatalog {
         [
             ActionDescriptor(
                 id: "browser.editSource",
-                title: String(localized: "action.browser.editSource", defaultValue: "Edit Source", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.browser.editSource") + "\u{E002}" + String(localized: "action.browser.editSource", defaultValue: "Edit Source", bundle: .module)),
                 keywords: ["browser", "html", "svg", "markdown", "md", "source", "edit", "text", "code", "editor", "view source", "open as text", "file"],
                 category: .browser, symbol: "chevron.left.forwardslash.chevron.right", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "browser edit-source"
             ),
             ActionDescriptor(
                 id: "file.openAsPage",
-                title: String(localized: "action.file.openAsPage", defaultValue: "Open as Page", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.file.openAsPage") + "\u{E002}" + String(localized: "action.file.openAsPage", defaultValue: "Open as Page", bundle: .module)),
                 keywords: ["html", "svg", "markdown", "md", "render", "rendered", "preview", "page", "browser", "view", "file"],
                 category: .browser, symbol: "doc.richtext", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "file open-as-page"

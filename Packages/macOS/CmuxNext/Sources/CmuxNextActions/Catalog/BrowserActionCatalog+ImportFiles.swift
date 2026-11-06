@@ -6,7 +6,7 @@ nonisolated extension BrowserActionCatalog {
         // Person-only like the CSV import: an agent cannot put the picker in front of the person.
         var importFiles = ActionDescriptor(
             id: "browser.importFromFiles",
-            title: String(localized: "action.browser.importFromFiles", defaultValue: "Import from Another Browser…", bundle: .module),
+            title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.browser.importFromFiles") + "\u{E002}" + String(localized: "action.browser.importFromFiles", defaultValue: "Import from Another Browser…", bundle: .module)),
             keywords: ["browser", "import", "export", "passwords", "bookmarks", "csv", "html", "chrome", "edge", "brave",
                        "firefox", "safari"],
             category: .browser, symbol: "square.and.arrow.down", surfaces: [.palette, .menu], mainMenu: .file

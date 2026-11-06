@@ -8,14 +8,14 @@ nonisolated enum AgentChatRailActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "agentPane.display.showMinimap",
-                title: String(localized: "action.agentPane.display.showMinimap", defaultValue: "Show Chat Minimap", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.display.showMinimap") + "\u{E002}" + String(localized: "action.agentPane.display.showMinimap", defaultValue: "Show Chat Minimap", bundle: .module)),
                 keywords: ["agent", "chat", "minimap", "rail", "tick", "ticks", "prompt rail", "map", "hide", "edge", "setting"],
                 category: .settings, symbol: "sidebar.right", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
                 id: "agentPane.display.railOnRight",
-                title: String(localized: "action.agentPane.display.railOnRight", defaultValue: "Prompt Rail on Right Edge", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.display.railOnRight") + "\u{E002}" + String(localized: "action.agentPane.display.railOnRight", defaultValue: "Prompt Rail on Right Edge", bundle: .module)),
                 keywords: ["agent", "chat", "minimap", "rail", "tick", "ticks", "prompt rail", "side", "left", "right", "edge", "setting"],
                 category: .settings, symbol: "arrow.left.and.right", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)

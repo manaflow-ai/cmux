@@ -55,6 +55,6 @@ nonisolated enum AutoArchiveActionCatalog: ActionCatalogGroup {
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "WorkspaceActions", bundle: .module)
+        ("\u{E000}WorkspaceActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: english, table: "WorkspaceActions", bundle: .module))
     }
 }

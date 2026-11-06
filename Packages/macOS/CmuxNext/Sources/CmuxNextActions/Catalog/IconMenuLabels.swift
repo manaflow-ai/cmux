@@ -5,6 +5,6 @@
 // name the object. Strings live in Localizable.xcstrings.
 
 nonisolated enum IconMenuLabels {
-    static var setIcon: String { String(localized: "menu.icon.set", defaultValue: "Set Icon…", bundle: .module) }
-    static var removeIcon: String { String(localized: "menu.icon.remove", defaultValue: "Remove Icon", bundle: .module) }
+    static var setIcon: String { ("\u{E000}Localizable\u{E001}" + String(describing: "menu.icon.set") + "\u{E002}" + String(localized: "menu.icon.set", defaultValue: "Set Icon…", bundle: .module)) }
+    static var removeIcon: String { ("\u{E000}Localizable\u{E001}" + String(describing: "menu.icon.remove") + "\u{E002}" + String(localized: "menu.icon.remove", defaultValue: "Remove Icon", bundle: .module)) }
 }

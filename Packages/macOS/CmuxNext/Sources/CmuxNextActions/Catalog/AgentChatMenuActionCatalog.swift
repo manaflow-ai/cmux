@@ -7,7 +7,7 @@ nonisolated enum AgentChatMenuActionCatalog: ActionCatalogGroup {
                              cli: String) -> ActionDescriptor {
         var descriptor = ActionDescriptor(
             id: id,
-            title: String(localized: key, defaultValue: title, bundle: .module),
+            title: ("\u{E000}Localizable\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: title, bundle: .module)),
             keywords: keywords,
             category: .agents,
             symbol: symbol,

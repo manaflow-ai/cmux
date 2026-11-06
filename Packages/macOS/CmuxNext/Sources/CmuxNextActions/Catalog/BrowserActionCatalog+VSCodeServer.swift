@@ -5,13 +5,13 @@ nonisolated extension BrowserActionCatalog {
         [
             ActionDescriptor(
                 id: "palette.vscodeServeWebStop",
-                title: String(localized: "action.palette.vscodeServeWebStop", defaultValue: "Stop VS Code Inline Server", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.vscodeServeWebStop") + "\u{E002}" + String(localized: "action.palette.vscodeServeWebStop", defaultValue: "Stop VS Code Inline Server", bundle: .module)),
                 keywords: ["vscode", "editor", "server"], category: .browser, symbol: "stop.fill", surfaces: [.palette],
                 targets: [.pane], cliName: "browser stop-vs-code-inline-server"
             ),
             ActionDescriptor(
                 id: "palette.vscodeServeWebRestart",
-                title: String(localized: "action.palette.vscodeServeWebRestart", defaultValue: "Restart VS Code Inline Server", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.vscodeServeWebRestart") + "\u{E002}" + String(localized: "action.palette.vscodeServeWebRestart", defaultValue: "Restart VS Code Inline Server", bundle: .module)),
                 keywords: ["vscode", "editor", "server"], category: .browser, symbol: "arrow.clockwise.circle",
                 surfaces: [.palette], targets: [.pane], cliName: "browser restart-vs-code-inline-server"
             ),

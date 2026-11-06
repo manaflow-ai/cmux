@@ -85,7 +85,7 @@ extension ActionRegistry {
 
 nonisolated enum ActionSuggestionsStrings {
     static var more: String {
-        String(localized: "argument.value.more", defaultValue: "More…", table: "ThemeActions", bundle: .module)
+        ("\u{E000}ThemeActions\u{E001}" + String(describing: "argument.value.more") + "\u{E002}" + String(localized: "argument.value.more", defaultValue: "More…", table: "ThemeActions", bundle: .module))
     }
 }
 

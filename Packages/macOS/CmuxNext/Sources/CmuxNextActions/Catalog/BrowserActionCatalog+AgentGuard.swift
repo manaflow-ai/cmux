@@ -4,7 +4,7 @@ nonisolated extension BrowserActionCatalog {
     static func agentGuardDescriptors() -> [ActionDescriptor] {
         var allowAgent = ActionDescriptor(
             id: "browser.allowAgentWithExtensions",
-            title: String(localized: "action.browser.allowAgentWithExtensions", defaultValue: "Allow Agents in This Tab…", bundle: .module),
+            title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.browser.allowAgentWithExtensions") + "\u{E002}" + String(localized: "action.browser.allowAgentWithExtensions", defaultValue: "Allow Agents in This Tab…", bundle: .module)),
             keywords: ["agent", "automation", "extension", "password", "allow"],
             category: .browser, symbol: "exclamationmark.shield", surfaces: [.palette], targets: [.pane],
             destructive: true

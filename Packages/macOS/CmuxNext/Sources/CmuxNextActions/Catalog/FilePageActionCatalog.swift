@@ -8,34 +8,34 @@ nonisolated enum FilePageActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "fileEditorGotoLine",
-                title: String(localized: "action.fileEditorGotoLine", defaultValue: "Editor: Go to Line…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.fileEditorGotoLine") + "\u{E002}" + String(localized: "action.fileEditorGotoLine", defaultValue: "Editor: Go to Line…", bundle: .module)),
                 keywords: ["editor", "line", "jump"], defaultShortcut: Shortcut("g", modifiers: [.control]),
                 category: .browser, symbol: "arrow.right.to.line", surfaces: [.keyboard], requires: [.codeEditorFocused],
                 targets: [.pane], cliName: "browser editor-go-to-line"
             ),
             ActionDescriptor(
                 id: "fileEditorReplace",
-                title: String(localized: "action.fileEditorReplace", defaultValue: "Editor: Replace…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.fileEditorReplace") + "\u{E002}" + String(localized: "action.fileEditorReplace", defaultValue: "Editor: Replace…", bundle: .module)),
                 keywords: ["editor", "find", "replace"], category: .browser, symbol: "arrow.left.arrow.right",
                 surfaces: [.keyboard], requires: [.codeEditorFocused], targets: [.pane], cliName: "browser editor-replace"
             ),
             ActionDescriptor(
                 id: "fileEditorZoomIn",
-                title: String(localized: "action.fileEditorZoomIn", defaultValue: "Editor: Zoom In", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.fileEditorZoomIn") + "\u{E002}" + String(localized: "action.fileEditorZoomIn", defaultValue: "Editor: Zoom In", bundle: .module)),
                 keywords: ["editor", "zoom", "font"], defaultShortcut: Shortcut("=", modifiers: [.command]),
                 category: .browser, symbol: "plus.magnifyingglass", surfaces: [.keyboard], requires: [.codeEditorFocused],
                 targets: [.pane], cliName: "browser editor-zoom-in"
             ),
             ActionDescriptor(
                 id: "fileEditorZoomOut",
-                title: String(localized: "action.fileEditorZoomOut", defaultValue: "Editor: Zoom Out", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.fileEditorZoomOut") + "\u{E002}" + String(localized: "action.fileEditorZoomOut", defaultValue: "Editor: Zoom Out", bundle: .module)),
                 keywords: ["editor", "zoom", "font"], defaultShortcut: Shortcut("-", modifiers: [.command]),
                 category: .browser, symbol: "minus.magnifyingglass", surfaces: [.keyboard], requires: [.codeEditorFocused],
                 targets: [.pane], cliName: "browser editor-zoom-out"
             ),
             ActionDescriptor(
                 id: "fileEditorZoomReset",
-                title: String(localized: "action.fileEditorZoomReset", defaultValue: "Editor: Actual Size", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.fileEditorZoomReset") + "\u{E002}" + String(localized: "action.fileEditorZoomReset", defaultValue: "Editor: Actual Size", bundle: .module)),
                 keywords: ["editor", "zoom", "reset"], defaultShortcut: Shortcut("0", modifiers: [.command]),
                 category: .browser, symbol: "1.magnifyingglass", surfaces: [.keyboard], requires: [.codeEditorFocused],
                 targets: [.pane], cliName: "browser editor-actual-size"
@@ -43,7 +43,7 @@ nonisolated enum FilePageActionCatalog: ActionCatalogGroup {
             // Any Monaco action (webviews/src/pages/editor/keys.ts EDITOR_ACTIONS) for a user binding.
             ActionDescriptor(
                 id: "fileEditorAction",
-                title: String(localized: "action.fileEditorAction", defaultValue: "Editor: Run Editor Action", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.fileEditorAction") + "\u{E002}" + String(localized: "action.fileEditorAction", defaultValue: "Editor: Run Editor Action", bundle: .module)),
                 keywords: ["editor", "monaco", "command"], category: .browser, symbol: "command",
                 surfaces: [.keyboard], requires: [.codeEditorFocused], arguments: [CatalogArgument.textString],
                 targets: [.pane], cliName: "browser editor-action"
@@ -53,8 +53,8 @@ nonisolated enum FilePageActionCatalog: ActionCatalogGroup {
             // set there) so they show and stay as they are. It never writes the other editor's files.
             ActionDescriptor(
                 id: "fileEditor.importEditorSettings",
-                title: String(localized: "action.fileEditor.importEditorSettings",
-                              defaultValue: "Copy Settings from VS Code or Zed", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.fileEditor.importEditorSettings") + "\u{E002}" + String(localized: "action.fileEditor.importEditorSettings",
+                              defaultValue: "Copy Settings from VS Code or Zed", bundle: .module)),
                 keywords: ["editor", "import", "vscode", "zed", "cursor", "windsurf", "vscodium", "settings", "monaco"],
                 category: .settings, symbol: "square.and.arrow.down", surfaces: [.palette],
                 cliName: "settings import-editor-settings",
@@ -66,7 +66,7 @@ nonisolated enum FilePageActionCatalog: ActionCatalogGroup {
             // notice's Open does.
             ActionDescriptor(
                 id: "file.openRecoveredDraft",
-                title: String(localized: "action.file.openRecoveredDraft", defaultValue: "Open Recovered Draft…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.file.openRecoveredDraft") + "\u{E002}" + String(localized: "action.file.openRecoveredDraft", defaultValue: "Open Recovered Draft…", bundle: .module)),
                 keywords: ["file", "editor", "recover", "recovered", "draft", "unsaved", "crash", "restore"],
                 category: .pane, symbol: "doc.badge.clock", surfaces: [.palette], cliName: "file open-recovered-draft",
                 // A palette page of drafts to pick from; scripts read the drafts with debug.filepages.

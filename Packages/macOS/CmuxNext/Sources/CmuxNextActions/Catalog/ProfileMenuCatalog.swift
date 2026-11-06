@@ -90,6 +90,6 @@ public nonisolated struct ProfileMenuSpec: Sendable {
     public static let chiefPetSetting = "home.chiefPetEnabled"
 
     static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "ProfileActions", bundle: .module)
+        ("\u{E000}ProfileActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: value, table: "ProfileActions", bundle: .module))
     }
 }

@@ -11,7 +11,7 @@ nonisolated enum ChromeStyleActionCatalog: ActionCatalogGroup {
         return [
             ActionDescriptor(
                 id: "appearance.chromeStyle.default",
-                title: String(localized: "action.appearance.chromeStyle.default", defaultValue: "Window Style: Default", table: "SettingsActions", bundle: .module),
+                title: ("\u{E000}SettingsActions\u{E001}" + String(describing: "action.appearance.chromeStyle.default") + "\u{E002}" + String(localized: "action.appearance.chromeStyle.default", defaultValue: "Window Style: Default", table: "SettingsActions", bundle: .module)),
                 keywords: ["window", "style", "chrome", "appearance", "look"],
                 category: .settings, symbol: "macwindow", surfaces: [.palette],
                 cliName: "settings window-style-default",
@@ -19,7 +19,7 @@ nonisolated enum ChromeStyleActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.chromeStyle.card",
-                title: String(localized: "action.appearance.chromeStyle.card", defaultValue: "Window Style: Card", table: "SettingsActions", bundle: .module),
+                title: ("\u{E000}SettingsActions\u{E001}" + String(describing: "action.appearance.chromeStyle.card") + "\u{E002}" + String(localized: "action.appearance.chromeStyle.card", defaultValue: "Window Style: Card", table: "SettingsActions", bundle: .module)),
                 keywords: ["window", "style", "chrome", "appearance", "look", "card", "rounded", "curved", "dividers", "minimal"],
                 category: .settings, symbol: "rectangle.inset.filled", surfaces: [.palette],
                 cliName: "settings window-style-card",
@@ -27,7 +27,7 @@ nonisolated enum ChromeStyleActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.chromeStyle.cardOutlined",
-                title: String(localized: "action.appearance.chromeStyle.cardOutlined", defaultValue: "Window Style: Card with Outlines", table: "SettingsActions", bundle: .module),
+                title: ("\u{E000}SettingsActions\u{E001}" + String(describing: "action.appearance.chromeStyle.cardOutlined") + "\u{E002}" + String(localized: "action.appearance.chromeStyle.cardOutlined", defaultValue: "Window Style: Card with Outlines", table: "SettingsActions", bundle: .module)),
                 keywords: ["window", "style", "chrome", "appearance", "look", "card", "outlined", "outline", "borders"],
                 category: .settings, symbol: "rectangle.split.2x1", surfaces: [.palette],
                 cliName: "settings window-style-card-outlined",
@@ -35,7 +35,7 @@ nonisolated enum ChromeStyleActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.chromeStyle.flat",
-                title: String(localized: "action.appearance.chromeStyle.flat", defaultValue: "Window Style: Flat", table: "SettingsActions", bundle: .module),
+                title: ("\u{E000}SettingsActions\u{E001}" + String(describing: "action.appearance.chromeStyle.flat") + "\u{E002}" + String(localized: "action.appearance.chromeStyle.flat", defaultValue: "Window Style: Flat", table: "SettingsActions", bundle: .module)),
                 keywords: ["window", "style", "chrome", "appearance", "look", "flat", "edge", "dividers", "minimal"],
                 category: .settings, symbol: "rectangle", surfaces: [.palette],
                 cliName: "settings window-style-flat",
@@ -43,7 +43,7 @@ nonisolated enum ChromeStyleActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.chromeStyle.flatSidebarLine",
-                title: String(localized: "action.appearance.chromeStyle.flatSidebarLine", defaultValue: "Window Style: Flat with Sidebar Line", table: "SettingsActions", bundle: .module),
+                title: ("\u{E000}SettingsActions\u{E001}" + String(describing: "action.appearance.chromeStyle.flatSidebarLine") + "\u{E002}" + String(localized: "action.appearance.chromeStyle.flatSidebarLine", defaultValue: "Window Style: Flat with Sidebar Line", table: "SettingsActions", bundle: .module)),
                 keywords: ["window", "style", "chrome", "appearance", "look", "flat", "sidebar", "line", "border"],
                 category: .settings, symbol: "sidebar.left", surfaces: [.palette],
                 cliName: "settings window-style-flat-sidebar-line",
@@ -51,7 +51,7 @@ nonisolated enum ChromeStyleActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.chromeStyle.bare",
-                title: String(localized: "action.appearance.chromeStyle.bare", defaultValue: "Window Style: Bare", table: "SettingsActions", bundle: .module),
+                title: ("\u{E000}SettingsActions\u{E001}" + String(describing: "action.appearance.chromeStyle.bare") + "\u{E002}" + String(localized: "action.appearance.chromeStyle.bare", defaultValue: "Window Style: Bare", table: "SettingsActions", bundle: .module)),
                 keywords: ["window", "style", "chrome", "appearance", "look", "bare", "no lines", "borderless", "seamless", "minimal"],
                 category: .settings, symbol: "rectangle.dashed", surfaces: [.palette],
                 cliName: "settings window-style-bare",
@@ -59,7 +59,7 @@ nonisolated enum ChromeStyleActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.chromeStyle.panes",
-                title: String(localized: "action.appearance.chromeStyle.panes", defaultValue: "Window Style: Panes", table: "SettingsActions", bundle: .module),
+                title: ("\u{E000}SettingsActions\u{E001}" + String(describing: "action.appearance.chromeStyle.panes") + "\u{E002}" + String(localized: "action.appearance.chromeStyle.panes", defaultValue: "Window Style: Panes", table: "SettingsActions", bundle: .module)),
                 keywords: ["window", "style", "chrome", "appearance", "look", "panes", "cards", "outlined", "gaps", "borders"],
                 category: .settings, symbol: "square.grid.2x2", surfaces: [.palette],
                 cliName: "settings window-style-panes",
@@ -67,7 +67,7 @@ nonisolated enum ChromeStyleActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.chromeStyle.twoTone",
-                title: String(localized: "action.appearance.chromeStyle.twoTone", defaultValue: "Window Style: Two-Tone", table: "SettingsActions", bundle: .module),
+                title: ("\u{E000}SettingsActions\u{E001}" + String(describing: "action.appearance.chromeStyle.twoTone") + "\u{E002}" + String(localized: "action.appearance.chromeStyle.twoTone", defaultValue: "Window Style: Two-Tone", table: "SettingsActions", bundle: .module)),
                 keywords: ["window", "style", "chrome", "appearance", "look", "two-tone", "shade", "sidebar", "background", "card"],
                 category: .settings, symbol: "rectangle.lefthalf.filled", surfaces: [.palette],
                 cliName: "settings window-style-two-tone",
@@ -75,7 +75,7 @@ nonisolated enum ChromeStyleActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.chromeStyle.floating",
-                title: String(localized: "action.appearance.chromeStyle.floating", defaultValue: "Window Style: Floating Panes", table: "SettingsActions", bundle: .module),
+                title: ("\u{E000}SettingsActions\u{E001}" + String(describing: "action.appearance.chromeStyle.floating") + "\u{E002}" + String(localized: "action.appearance.chromeStyle.floating", defaultValue: "Window Style: Floating Panes", table: "SettingsActions", bundle: .module)),
                 keywords: ["window", "style", "chrome", "appearance", "look", "floating", "panes", "cards", "gaps", "rounded", "darker", "background", "no borders"],
                 category: .settings, symbol: "square.grid.2x2.fill", surfaces: [.palette],
                 cliName: "settings window-style-floating",

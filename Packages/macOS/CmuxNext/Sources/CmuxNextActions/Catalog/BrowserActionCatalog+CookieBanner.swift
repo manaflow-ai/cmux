@@ -6,7 +6,7 @@ nonisolated extension BrowserActionCatalog {
     static func cookieBannerDescriptors() -> [ActionDescriptor] {
         [ActionDescriptor(
             id: "browser.showCookieImportBanner",
-            title: String(localized: "action.browser.showCookieImportBanner", defaultValue: "Show Import Cookies Banner", bundle: .module),
+            title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.browser.showCookieImportBanner") + "\u{E002}" + String(localized: "action.browser.showCookieImportBanner", defaultValue: "Show Import Cookies Banner", bundle: .module)),
             keywords: ["browser", "import", "cookies", "banner", "card", "offer", "sign in", "login", "reset", "dismissed", "show again"],
             category: .browser, symbol: "key",
             surfaces: [.palette],

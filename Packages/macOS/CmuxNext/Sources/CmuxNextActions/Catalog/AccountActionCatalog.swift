@@ -68,6 +68,6 @@ nonisolated enum AccountActionCatalog: ActionCatalogGroup {
     }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "AccountsActions", bundle: .module)
+        ("\u{E000}AccountsActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: value, table: "AccountsActions", bundle: .module))
     }
 }

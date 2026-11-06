@@ -33,7 +33,7 @@ extension Shortcut {
         case Self.tabKey: "⇥"
         case Self.escapeKey: "⎋"
         case Self.deleteKey, "\u{7F}": "⌫"
-        case Self.spaceKey: String(localized: "shortcut.key.space", defaultValue: "Space", bundle: .module)
+        case Self.spaceKey: ("\u{E000}Localizable\u{E001}" + String(describing: "shortcut.key.space") + "\u{E002}" + String(localized: "shortcut.key.space", defaultValue: "Space", bundle: .module))
         default: key.uppercased()
         }
     }

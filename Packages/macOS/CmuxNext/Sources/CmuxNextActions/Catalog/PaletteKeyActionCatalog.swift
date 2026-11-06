@@ -29,7 +29,7 @@ nonisolated enum PaletteKeyActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         actions.map { action in
             ActionDescriptor(
-                id: action.id, title: String(localized: action.key, defaultValue: action.title, bundle: .module),
+                id: action.id, title: ("\u{E000}Localizable\u{E001}" + String(describing: action.key) + "\u{E002}" + String(localized: action.key, defaultValue: action.title, bundle: .module)),
                 keywords: ["palette"], category: .window, symbol: action.symbol, surfaces: [.keyboard], requires: [.paletteOpen],
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.paletteInternal), cli: .exempt(.liveInput),
                                                contextMenuExemption: .paletteInternal)

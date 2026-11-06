@@ -60,7 +60,7 @@ nonisolated enum ServerActionCatalog: ActionCatalogGroup {
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "ServerActions", bundle: .module)
+        ("\u{E000}ServerActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: english, table: "ServerActions", bundle: .module))
     }
 
     /// The code and words identify the server; a process can generate both itself. Pairing grants

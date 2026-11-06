@@ -8,8 +8,8 @@ nonisolated enum HangReportsActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "diagnostics.viewHangReport",
-                title: String(localized: "action.diagnostics.viewHangReport", defaultValue: "View Hang Report",
-                              table: "HangReportsActions", bundle: .module),
+                title: ("\u{E000}HangReportsActions\u{E001}" + String(describing: "action.diagnostics.viewHangReport") + "\u{E002}" + String(localized: "action.diagnostics.viewHangReport", defaultValue: "View Hang Report",
+                              table: "HangReportsActions", bundle: .module)),
                 keywords: ["hang", "lag", "report", "diagnostics", "privacy", "telemetry", "what is sent", "metrickit"],
                 category: .settings, symbol: "doc.text.magnifyingglass", surfaces: [.palette],
                 cliName: "settings view-hang-report",

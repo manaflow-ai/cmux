@@ -102,6 +102,6 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "AppStoreActions", bundle: .module)
+        ("\u{E000}AppStoreActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: english, table: "AppStoreActions", bundle: .module))
     }
 }

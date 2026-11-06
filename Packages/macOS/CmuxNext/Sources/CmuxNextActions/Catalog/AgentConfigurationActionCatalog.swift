@@ -4,7 +4,7 @@
 /// action is callable from the palette, CLI and MCP.
 nonisolated enum AgentConfigurationActionCatalog: ActionCatalogGroup {
     private static func text(_ key: StaticString, _ fallback: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: fallback, table: "AgentConfigurationActions", bundle: .module)
+        ("\u{E000}AgentConfigurationActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: fallback, table: "AgentConfigurationActions", bundle: .module))
     }
 
     private static var modelArgument: ActionArgument { ActionArgument(

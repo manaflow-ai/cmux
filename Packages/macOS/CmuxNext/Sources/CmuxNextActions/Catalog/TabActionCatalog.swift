@@ -7,7 +7,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             // `newTab.sameKind`, which named a setting value, not what it does (legacyAliases).
             ActionDescriptor(
                 id: "newTab.default",
-                title: String(localized: "action.newTab.default", defaultValue: "New Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.newTab.default") + "\u{E002}" + String(localized: "action.newTab.default", defaultValue: "New Tab", bundle: .module)),
                 keywords: ["tab", "terminal", "browser", "create"], defaultShortcut: Shortcut("t", modifiers: [.command]),
                 category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard, .menu],
                 arguments: [CatalogArgument.cwdString.optional], targets: [.tab], cliName: "tab new", mainMenu: .file
@@ -18,7 +18,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             // other tabs.
             ActionDescriptor(
                 id: "newTab.ofKind",
-                title: String(localized: "action.newTab.ofKind", defaultValue: "New Tab of the Same Kind", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.newTab.ofKind") + "\u{E002}" + String(localized: "action.newTab.ofKind", defaultValue: "New Tab of the Same Kind", bundle: .module)),
                 keywords: ["tab", "terminal", "browser", "agent", "same", "kind", "like this", "create"],
                 category: .tab, symbol: "square.on.square.dashed", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.tab]
@@ -27,7 +27,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             // whatever `tabs.newTabPosition` says.
             ActionDescriptor(
                 id: "newTab.toRight",
-                title: String(localized: "action.newTab.toRight", defaultValue: "New Tab to the Right", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.newTab.toRight") + "\u{E002}" + String(localized: "action.newTab.toRight", defaultValue: "New Tab to the Right", bundle: .module)),
                 keywords: ["tab", "new", "right", "after", "next to", "create"],
                 category: .tab, symbol: "plus.square", surfaces: [.palette, .contextMenu],
                 targets: [.tab]
@@ -36,28 +36,28 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             // 2026-10-20). New Tab to the Right stays the tab menu's row (Chrome's name).
             ActionDescriptor(
                 id: "newTab.afterCurrent",
-                title: String(localized: "action.newTab.afterCurrent", defaultValue: "New Tab After Current Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.newTab.afterCurrent") + "\u{E002}" + String(localized: "action.newTab.afterCurrent", defaultValue: "New Tab After Current Tab", bundle: .module)),
                 keywords: ["tab", "new", "after", "current", "right", "next to", "beside", "insert", "create"],
                 category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
                 targets: [.tab], cliName: "tab new-after-current"
             ),
             ActionDescriptor(
                 id: "newTab.atStart",
-                title: String(localized: "action.newTab.atStart", defaultValue: "New Tab at Start", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.newTab.atStart") + "\u{E002}" + String(localized: "action.newTab.atStart", defaultValue: "New Tab at Start", bundle: .module)),
                 keywords: ["tab", "new", "start", "first", "beginning", "left", "front", "create"],
                 category: .tab, symbol: "backward.end", surfaces: [.palette, .keyboard],
                 targets: [.tab], cliName: "tab new-at-start"
             ),
             ActionDescriptor(
                 id: "newTab.atEnd",
-                title: String(localized: "action.newTab.atEnd", defaultValue: "New Tab at End", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.newTab.atEnd") + "\u{E002}" + String(localized: "action.newTab.atEnd", defaultValue: "New Tab at End", bundle: .module)),
                 keywords: ["tab", "new", "end", "last", "append", "create"],
                 category: .tab, symbol: "forward.end", surfaces: [.palette, .keyboard],
                 targets: [.tab], cliName: "tab new-at-end"
             ),
             ActionDescriptor(
                 id: "newTab.page",
-                title: String(localized: "action.newTab.page", defaultValue: "New Tab Page", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.newTab.page") + "\u{E002}" + String(localized: "action.newTab.page", defaultValue: "New Tab Page", bundle: .module)),
                 keywords: ["tab", "terminal", "browser", "agent", "chat", "new tab page"],
                 category: .tab, symbol: "square.grid.2x2", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.pane], cliName: "tab new-page"
@@ -67,21 +67,21 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             // New Workspace until Lawrence decides).
             ActionDescriptor(
                 id: "newTab.horizontal",
-                title: String(localized: "action.newTab.horizontal", defaultValue: "New Horizontal Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.newTab.horizontal") + "\u{E002}" + String(localized: "action.newTab.horizontal", defaultValue: "New Horizontal Tab", bundle: .module)),
                 keywords: ["tab", "tab bar", "strip", "horizontal", "inside", "create"],
                 category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
                 targets: [.pane]
             ),
             ActionDescriptor(
                 id: "newTab.submit",
-                title: String(localized: "action.newTab.submit", defaultValue: "New Tab from Text", table: "NewTabActions", bundle: .module),
+                title: ("\u{E000}NewTabActions\u{E001}" + String(describing: "action.newTab.submit") + "\u{E002}" + String(localized: "action.newTab.submit", defaultValue: "New Tab from Text", table: "NewTabActions", bundle: .module)),
                 keywords: ["tab", "url", "search", "ask", "agent", "command", "new tab page"],
                 category: .tab, symbol: "text.cursor", surfaces: [.palette],
                 arguments: newTabSubmitArguments, targets: [.pane], cliName: "tab new-from-text"
             ),
             ActionDescriptor(
                 id: "focusLocation",
-                title: String(localized: "action.focusLocation", defaultValue: "Focus Location Bar", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.focusLocation") + "\u{E002}" + String(localized: "action.focusLocation", defaultValue: "Focus Location Bar", bundle: .module)),
                 keywords: ["location", "address", "url", "omnibox", "run", "command", "new tab page"],
                 defaultShortcut: Shortcut("l", modifiers: [.command]),
                 category: .tab, symbol: "magnifyingglass", surfaces: [.palette, .keyboard],
@@ -89,14 +89,14 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "newSurface",
-                title: String(localized: "action.newSurface", defaultValue: "New Terminal Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.newSurface") + "\u{E002}" + String(localized: "action.newSurface", defaultValue: "New Terminal Tab", bundle: .module)),
                 keywords: ["tab", "terminal", "create"], defaultShortcut: Shortcut("`", modifiers: [.control]),
                 category: .tab, symbol: "terminal", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.tab], cliName: "tab new-terminal", startsTerminal: true
             ),
             ActionDescriptor(
                 id: "openBrowser",
-                title: String(localized: "action.openBrowser", defaultValue: "New Browser Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.openBrowser") + "\u{E002}" + String(localized: "action.openBrowser", defaultValue: "New Browser Tab", bundle: .module)),
                 keywords: ["tab", "web", "create"], defaultShortcut: Shortcut("l", modifiers: [.command, .shift]),
                 category: .tab, symbol: "globe.badge.chevron.backward", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [CatalogArgument.urlString, CatalogArgument.engineChoice, CatalogArgument.browserProfileString],
@@ -104,7 +104,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "macScreen.open",
-                title: String(localized: "action.macScreen.open", defaultValue: "Screen Sharing", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.macScreen.open") + "\u{E002}" + String(localized: "action.macScreen.open", defaultValue: "Screen Sharing", bundle: .module)),
                 keywords: ["mac", "screen", "remote", "control", "screen sharing", "vnc", "pair", "share this mac"],
                 category: .tab, symbol: "display", surfaces: [.palette, .menu, .contextMenu],
                 targets: [.pane], cliName: "tab new-mac-screen", mainMenu: .file
@@ -113,73 +113,73 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             // (MacScreenShareIndicator); unavailable while no device is connected.
             ActionDescriptor(
                 id: "macScreen.stopSharing",
-                title: String(localized: "action.macScreen.stopSharing", defaultValue: "Stop Sharing This Mac", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.macScreen.stopSharing") + "\u{E002}" + String(localized: "action.macScreen.stopSharing", defaultValue: "Stop Sharing This Mac", bundle: .module)),
                 keywords: ["mac", "screen", "sharing", "stop", "end", "disconnect", "viewer", "control"],
                 category: .tab, symbol: "display", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "macScreen.revokeViewer",
-                title: String(localized: "action.macScreen.revokeViewer", defaultValue: "Revoke This Device", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.macScreen.revokeViewer") + "\u{E002}" + String(localized: "action.macScreen.revokeViewer", defaultValue: "Revoke This Device", bundle: .module)),
                 keywords: ["mac", "screen", "sharing", "revoke", "device", "permission", "viewer", "block"],
                 category: .tab, symbol: "person.badge.minus", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "openBrowser.webkit",
-                title: String(localized: "action.openBrowser.webkit", defaultValue: "New WebKit Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.openBrowser.webkit") + "\u{E002}" + String(localized: "action.openBrowser.webkit", defaultValue: "New WebKit Tab", bundle: .module)),
                 keywords: ["tab", "web", "browser", "safari", "webkit", "create"],
                 category: .tab, symbol: "safari", surfaces: [.palette, .contextMenu],
                 arguments: [CatalogArgument.urlString], targets: [.tab], cliName: "tab new-webkit"
             ),
             ActionDescriptor(
                 id: "openBrowser.chromium",
-                title: String(localized: "action.openBrowser.chromium", defaultValue: "New Browser Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.openBrowser.chromium") + "\u{E002}" + String(localized: "action.openBrowser.chromium", defaultValue: "New Browser Tab", bundle: .module)),
                 keywords: ["tab", "web", "browser", "chrome", "chromium", "cef", "extensions", "create"],
                 category: .tab, symbol: "globe", surfaces: [.palette, .contextMenu],
                 arguments: [CatalogArgument.urlString], targets: [.tab], cliName: "tab new-chromium"
             ),
             ActionDescriptor(
-                id: "closeTab", title: String(localized: "action.closeTab", defaultValue: "Close Tab", bundle: .module),
+                id: "closeTab", title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.closeTab") + "\u{E002}" + String(localized: "action.closeTab", defaultValue: "Close Tab", bundle: .module)),
                 keywords: ["tab", "remove"], defaultShortcut: Shortcut("w", modifiers: [.command]), category: .tab,
                 symbol: "xmark", surfaces: [.palette, .keyboard, .menu], targets: [.tab], cliName: "tab close",
                 mainMenu: .file
             ),
             ActionDescriptor(
                 id: "closeOtherTabsInPane",
-                title: String(localized: "action.closeOtherTabsInPane", defaultValue: "Close Other Tabs", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.closeOtherTabsInPane") + "\u{E002}" + String(localized: "action.closeOtherTabsInPane", defaultValue: "Close Other Tabs", bundle: .module)),
                 keywords: ["tab", "remove"], defaultShortcut: Shortcut("t", modifiers: [.option, .command]),
                 category: .tab, symbol: "xmark.circle", surfaces: [.keyboard, .menu, .contextMenu], targets: [.tab],
                 cliName: "tab close-other", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "closeTabsToLeft",
-                title: String(localized: "action.closeTabsToLeft", defaultValue: "Close Tabs to the Left", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.closeTabsToLeft") + "\u{E002}" + String(localized: "action.closeTabsToLeft", defaultValue: "Close Tabs to the Left", bundle: .module)),
                 keywords: ["tab", "remove"], category: .tab, symbol: "arrow.left.to.line.compact",
                 surfaces: [.contextMenu], targets: [.tab], cliName: "tab close-to-left"
             ),
             ActionDescriptor(
                 id: "closeTabsToRight",
-                title: String(localized: "action.closeTabsToRight", defaultValue: "Close Tabs to the Right", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.closeTabsToRight") + "\u{E002}" + String(localized: "action.closeTabsToRight", defaultValue: "Close Tabs to the Right", bundle: .module)),
                 keywords: ["tab", "remove"], category: .tab, symbol: "arrow.right.to.line.compact",
                 surfaces: [.contextMenu], targets: [.tab], cliName: "tab close-to-right"
             ),
             ActionDescriptor(
                 id: "renameTab",
-                title: String(localized: "action.renameTab", defaultValue: "Rename Tab…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.renameTab") + "\u{E002}" + String(localized: "action.renameTab", defaultValue: "Rename Tab…", bundle: .module)),
                 keywords: ["tab", "title"], defaultShortcut: Shortcut("r", modifiers: [.command]), category: .tab,
                 symbol: "pencil", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [CatalogArgument.nameString.renamingTarget], targets: [.tab], cliName: "tab rename"
             ),
             ActionDescriptor(
                 id: "tab.restart",
-                title: String(localized: "action.tab.restart", defaultValue: "Restart Shell Here", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.tab.restart") + "\u{E002}" + String(localized: "action.tab.restart", defaultValue: "Restart Shell Here", bundle: .module)),
                 keywords: ["tab", "terminal", "restart", "relaunch", "respawn", "dead", "lost", "shell", "recover", "reconnect", "stuck", "ssh"], category: .tab,
                 symbol: "arrow.clockwise", surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab restart"
             ),
             ActionDescriptor(
                 id: "tab.focus",
-                title: String(localized: "action.tab.focus", defaultValue: "Show Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.tab.focus") + "\u{E002}" + String(localized: "action.tab.focus", defaultValue: "Show Tab", bundle: .module)),
                 keywords: ["tab", "focus", "select", "switch"], category: .tab, symbol: "scope",
                 surfaces: [.palette], targets: [.tab], cliName: "app show-tab"
             ),
@@ -188,19 +188,19 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             // (state-ownership.md 3), the same reveal as tab.focus.
             ActionDescriptor(
                 id: "pane.focus",
-                title: String(localized: "action.pane.focus", defaultValue: "Show Pane", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.pane.focus") + "\u{E002}" + String(localized: "action.pane.focus", defaultValue: "Show Pane", bundle: .module)),
                 keywords: ["pane", "focus", "select", "switch"], category: .pane, symbol: "scope",
                 surfaces: [.palette], targets: [.pane], cliName: "app show-pane"
             ),
             ActionDescriptor(
                 id: "screen.focus",
-                title: String(localized: "action.screen.focus", defaultValue: "Show Screen", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.screen.focus") + "\u{E002}" + String(localized: "action.screen.focus", defaultValue: "Show Screen", bundle: .module)),
                 keywords: ["screen", "focus", "select", "switch"], category: .screen, symbol: "scope",
                 surfaces: [.palette], targets: [.screen], cliName: "app show-screen"
             ),
             ActionDescriptor(
                 id: "palette.clearTabName",
-                title: String(localized: "action.palette.clearTabName", defaultValue: "Clear Tab Name", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.clearTabName") + "\u{E002}" + String(localized: "action.palette.clearTabName", defaultValue: "Clear Tab Name", bundle: .module)),
                 keywords: ["tab", "title", "reset"], category: .tab, symbol: "pencil.slash",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab clear-name"
             ),
@@ -209,14 +209,14 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             // `next_tab` / `previous_tab` run Next / Previous Tab in Pane (Lawrence 2026-10-20).
             ActionDescriptor(
                 id: "navigate.next",
-                title: String(localized: "action.navigate.next", defaultValue: "Next Tab or Workspace", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.navigate.next") + "\u{E002}" + String(localized: "action.navigate.next", defaultValue: "Next Tab or Workspace", bundle: .module)),
                 keywords: ["tab", "workspace", "switch", "next", "sidebar"],
                 category: .tab, symbol: "chevron.right.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 mainMenu: .file
             ),
             ActionDescriptor(
                 id: "navigate.previous",
-                title: String(localized: "action.navigate.previous", defaultValue: "Previous Tab or Workspace", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.navigate.previous") + "\u{E002}" + String(localized: "action.navigate.previous", defaultValue: "Previous Tab or Workspace", bundle: .module)),
                 keywords: ["tab", "workspace", "switch", "previous", "sidebar"],
                 category: .tab, symbol: "chevron.left.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 mainMenu: .file
@@ -226,55 +226,55 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             // its key is the leader chord Cmd-J F (LeaderLayer).
             ActionDescriptor(
                 id: "hints.show",
-                title: String(localized: "action.hints.show", defaultValue: "Click by Hint", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.hints.show") + "\u{E002}" + String(localized: "action.hints.show", defaultValue: "Click by Hint", bundle: .module)),
                 keywords: ["hint", "vimium", "keyboard", "click", "jump", "label"],
                 category: .window, symbol: "character.cursor.ibeam", surfaces: [.palette, .keyboard]
             ),
             ActionDescriptor(
                 id: "nextSurface",
-                title: String(localized: "action.nextSurface.inPane", defaultValue: "Next Tab in Pane", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.nextSurface.inPane") + "\u{E002}" + String(localized: "action.nextSurface.inPane", defaultValue: "Next Tab in Pane", bundle: .module)),
                 keywords: ["tab", "switch", "pane"], defaultShortcut: Shortcut("\t", modifiers: [.control]),
                 category: .tab, symbol: "chevron.right.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 cliName: "tab next", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "prevSurface",
-                title: String(localized: "action.prevSurface.inPane", defaultValue: "Previous Tab in Pane", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.prevSurface.inPane") + "\u{E002}" + String(localized: "action.prevSurface.inPane", defaultValue: "Previous Tab in Pane", bundle: .module)),
                 keywords: ["tab", "switch", "pane"], defaultShortcut: Shortcut("\t", modifiers: [.control, .shift]),
                 category: .tab, symbol: "chevron.left.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 cliName: "tab previous", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "moveSurfaceLeft",
-                title: String(localized: "action.moveSurfaceLeft", defaultValue: "Move Tab Left", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.moveSurfaceLeft") + "\u{E002}" + String(localized: "action.moveSurfaceLeft", defaultValue: "Move Tab Left", bundle: .module)),
                 keywords: ["tab", "reorder"], defaultShortcut: Shortcut("[", modifiers: [.shift, .option, .command]),
                 category: .tab, symbol: "arrow.left", surfaces: [.keyboard, .menu], targets: [.tab],
                 cliName: "tab move-left", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "moveSurfaceRight",
-                title: String(localized: "action.moveSurfaceRight", defaultValue: "Move Tab Right", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.moveSurfaceRight") + "\u{E002}" + String(localized: "action.moveSurfaceRight", defaultValue: "Move Tab Right", bundle: .module)),
                 keywords: ["tab", "reorder"], defaultShortcut: Shortcut("]", modifiers: [.shift, .option, .command]),
                 category: .tab, symbol: "arrow.right", surfaces: [.keyboard, .menu], targets: [.tab],
                 cliName: "tab move-right", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "moveSurfaceToPreviousPane",
-                title: String(localized: "action.moveSurfaceToPreviousPane", defaultValue: "Move Tab to Previous Pane", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.moveSurfaceToPreviousPane") + "\u{E002}" + String(localized: "action.moveSurfaceToPreviousPane", defaultValue: "Move Tab to Previous Pane", bundle: .module)),
                 keywords: ["tab", "pane"], defaultShortcut: Shortcut("[", modifiers: [.control, .shift, .command]),
                 category: .tab, symbol: "arrow.backward.to.line", surfaces: [.palette, .keyboard, .menu],
                 targets: [.tab], cliName: "tab move-to-previous-pane", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "moveSurfaceToNextPane",
-                title: String(localized: "action.moveSurfaceToNextPane", defaultValue: "Move Tab to Next Pane", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.moveSurfaceToNextPane") + "\u{E002}" + String(localized: "action.moveSurfaceToNextPane", defaultValue: "Move Tab to Next Pane", bundle: .module)),
                 keywords: ["tab", "pane"], defaultShortcut: Shortcut("]", modifiers: [.control, .shift, .command]),
                 category: .tab, symbol: "arrow.forward.to.line", surfaces: [.palette, .keyboard, .menu],
                 targets: [.tab], cliName: "tab move-to-next-pane", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "moveSurfaceToPaneLeft",
-                title: String(localized: "action.moveSurfaceToPaneLeft", defaultValue: "Move Tab to Pane Left", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.moveSurfaceToPaneLeft") + "\u{E002}" + String(localized: "action.moveSurfaceToPaneLeft", defaultValue: "Move Tab to Pane Left", bundle: .module)),
                 keywords: ["tab", "pane"],
                 defaultShortcut: Shortcut(Shortcut.leftArrowKey, modifiers: [.shift, .option, .command]),
                 category: .tab, symbol: "arrow.left.square", surfaces: [.palette, .keyboard, .menu, .contextMenu],
@@ -282,7 +282,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "moveSurfaceToPaneRight",
-                title: String(localized: "action.moveSurfaceToPaneRight", defaultValue: "Move Tab to Pane Right", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.moveSurfaceToPaneRight") + "\u{E002}" + String(localized: "action.moveSurfaceToPaneRight", defaultValue: "Move Tab to Pane Right", bundle: .module)),
                 keywords: ["tab", "pane"],
                 defaultShortcut: Shortcut(Shortcut.rightArrowKey, modifiers: [.shift, .option, .command]),
                 category: .tab, symbol: "arrow.right.square", surfaces: [.palette, .keyboard, .menu, .contextMenu],
@@ -290,7 +290,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "moveSurfaceToPaneUp",
-                title: String(localized: "action.moveSurfaceToPaneUp", defaultValue: "Move Tab to Pane Above", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.moveSurfaceToPaneUp") + "\u{E002}" + String(localized: "action.moveSurfaceToPaneUp", defaultValue: "Move Tab to Pane Above", bundle: .module)),
                 keywords: ["tab", "pane"],
                 defaultShortcut: Shortcut(Shortcut.upArrowKey, modifiers: [.shift, .option, .command]), category: .tab,
                 symbol: "arrow.up.square", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.tab],
@@ -298,7 +298,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "moveSurfaceToPaneDown",
-                title: String(localized: "action.moveSurfaceToPaneDown", defaultValue: "Move Tab to Pane Below", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.moveSurfaceToPaneDown") + "\u{E002}" + String(localized: "action.moveSurfaceToPaneDown", defaultValue: "Move Tab to Pane Below", bundle: .module)),
                 keywords: ["tab", "pane"],
                 defaultShortcut: Shortcut(Shortcut.downArrowKey, modifiers: [.shift, .option, .command]),
                 category: .tab, symbol: "arrow.down.square", surfaces: [.palette, .keyboard, .menu, .contextMenu],
@@ -306,14 +306,14 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "selectSurfaceByNumber",
-                title: String(localized: "action.selectSurfaceByNumber", defaultValue: "Select Tab 1…9", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.selectSurfaceByNumber") + "\u{E002}" + String(localized: "action.selectSurfaceByNumber", defaultValue: "Select Tab 1…9", bundle: .module)),
                 keywords: ["tab", "switch", "index"], defaultShortcut: Shortcut("1", modifiers: [.control]),
                 shortcutFamily: .digits, category: .tab, symbol: "number.square", surfaces: [.keyboard],
                 arguments: [CatalogArgument.indexNumber], targets: [.tab], cliName: "tab select-1-9"
             ),
             ActionDescriptor(
                 id: "tab.search",
-                title: String(localized: "action.tab.search", defaultValue: "Search Tabs…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.tab.search") + "\u{E002}" + String(localized: "action.tab.search", defaultValue: "Search Tabs…", bundle: .module)),
                 // Also "Go to Tab…": `palette.goToTab` is an alias (legacyAliases).
                 keywords: ["tab", "search", "find", "switch", "switcher", "go to tab", "surface", "recently closed", "url",
                            "folder", "process"],
@@ -325,75 +325,75 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.moveTabToNewWorkspace",
-                title: String(localized: "action.palette.moveTabToNewWorkspace", defaultValue: "Move Tab to New Workspace", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.moveTabToNewWorkspace") + "\u{E002}" + String(localized: "action.palette.moveTabToNewWorkspace", defaultValue: "Move Tab to New Workspace", bundle: .module)),
                 keywords: ["tab", "detach"], category: .tab, symbol: "rectangle.portrait.and.arrow.right",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab move-to-new-workspace"
             ),
             // Opt-Cmd-P, the Codex app's Toggle pin (cx-ncc.72); an agent chat's header menu shows it.
             ActionDescriptor(
                 id: "palette.toggleTabPin",
-                title: String(localized: "action.palette.toggleTabPin", defaultValue: "Pin/Unpin Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.toggleTabPin") + "\u{E002}" + String(localized: "action.palette.toggleTabPin", defaultValue: "Pin/Unpin Tab", bundle: .module)),
                 keywords: ["tab", "pin", "chat"], defaultShortcut: Shortcut("p", modifiers: [.option, .command]),
                 category: .tab, symbol: "pin", surfaces: [.palette, .contextMenu, .keyboard],
                 targets: [.tab], cliName: "tab pin-unpin"
             ),
             ActionDescriptor(
                 id: "palette.toggleTabUnread",
-                title: String(localized: "action.palette.toggleTabUnread", defaultValue: "Mark Tab Unread", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.toggleTabUnread") + "\u{E002}" + String(localized: "action.palette.toggleTabUnread", defaultValue: "Mark Tab Unread", bundle: .module)),
                 keywords: ["tab", "unread"], category: .tab, symbol: "envelope.badge", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab mark-as-unread"
             ),
             ActionDescriptor(
                 id: "palette.toggleFullWidthTab",
-                title: String(localized: "action.palette.toggleFullWidthTab", defaultValue: "Toggle Full Width Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.toggleFullWidthTab") + "\u{E002}" + String(localized: "action.palette.toggleFullWidthTab", defaultValue: "Toggle Full Width Tab", bundle: .module)),
                 keywords: ["tab", "width"], category: .tab, symbol: "arrow.left.and.right",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab toggle-full-width"
             ),
             ActionDescriptor(
                 id: "duplicateTab",
-                title: String(localized: "action.duplicateTab", defaultValue: "Duplicate Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.duplicateTab") + "\u{E002}" + String(localized: "action.duplicateTab", defaultValue: "Duplicate Tab", bundle: .module)),
                 keywords: ["tab", "copy", "clone"], category: .tab, symbol: "plus.square.on.square",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab duplicate"
             ),
             ActionDescriptor(
                 id: "reloadTab",
-                title: String(localized: "action.reloadTab", defaultValue: "Reload Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.reloadTab") + "\u{E002}" + String(localized: "action.reloadTab", defaultValue: "Reload Tab", bundle: .module)),
                 keywords: ["tab", "refresh"], category: .tab, symbol: "arrow.clockwise", surfaces: [.contextMenu],
                 targets: [.tab], cliName: "tab reload"
             ),
             ActionDescriptor(
                 id: "toggleTabAudioMute",
-                title: String(localized: "action.toggleTabAudioMute", defaultValue: "Mute/Unmute Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.toggleTabAudioMute") + "\u{E002}" + String(localized: "action.toggleTabAudioMute", defaultValue: "Mute/Unmute Tab", bundle: .module)),
                 keywords: ["tab", "audio", "sound"], category: .tab, symbol: "speaker.slash", surfaces: [.contextMenu],
                 targets: [.tab], cliName: "tab mute-unmute"
             ),
             ActionDescriptor(
                 id: "tab.muteAudio",
-                title: String(localized: "action.tab.muteAudio", defaultValue: "Mute Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.tab.muteAudio") + "\u{E002}" + String(localized: "action.tab.muteAudio", defaultValue: "Mute Tab", bundle: .module)),
                 keywords: ["tab", "audio", "sound", "silence"], category: .tab, symbol: "speaker.slash",
                 surfaces: [.palette], targets: [.tab], cliName: "tab mute"
             ),
             ActionDescriptor(
                 id: "tab.unmuteAudio",
-                title: String(localized: "action.tab.unmuteAudio", defaultValue: "Unmute Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.tab.unmuteAudio") + "\u{E002}" + String(localized: "action.tab.unmuteAudio", defaultValue: "Unmute Tab", bundle: .module)),
                 keywords: ["tab", "audio", "sound"], category: .tab, symbol: "speaker.wave.2",
                 surfaces: [.palette], targets: [.tab], cliName: "tab unmute"
             ),
             ActionDescriptor(
                 id: "tab.muteOtherAudio",
-                title: String(localized: "action.tab.muteOtherAudio", defaultValue: "Mute Other Tabs", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.tab.muteOtherAudio") + "\u{E002}" + String(localized: "action.tab.muteOtherAudio", defaultValue: "Mute Other Tabs", bundle: .module)),
                 keywords: ["tab", "audio", "sound", "silence", "others"], category: .tab, symbol: "speaker.slash",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab mute-others"
             ),
             ActionDescriptor(
                 id: "disconnectRemoteTab",
-                title: String(localized: "action.disconnectRemoteTab", defaultValue: "Disconnect SSH Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.disconnectRemoteTab") + "\u{E002}" + String(localized: "action.disconnectRemoteTab", defaultValue: "Disconnect SSH Tab", bundle: .module)),
                 keywords: ["tab", "ssh", "remote"], category: .tab, symbol: "bolt.horizontal", surfaces: [.contextMenu],
                 targets: [.tab], cliName: "tab disconnect-ssh"
             ),
             ActionDescriptor(
                 id: "palette.copyIdentifiers",
-                title: String(localized: "action.palette.copyIdentifiers", defaultValue: "Copy IDs", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.copyIdentifiers") + "\u{E002}" + String(localized: "action.palette.copyIdentifiers", defaultValue: "Copy IDs", bundle: .module)),
                 keywords: ["id", "ref", "identifiers"], category: .tab, symbol: "number.circle", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab copy-identifiers"
             ),
@@ -402,7 +402,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             // script's capture comes back with every browser page and agent chat masked.
             ActionDescriptor(
                 id: "tab.screenshot",
-                title: String(localized: "action.tab.screenshot", defaultValue: "Screenshot Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.tab.screenshot") + "\u{E002}" + String(localized: "action.tab.screenshot", defaultValue: "Screenshot Tab", bundle: .module)),
                 keywords: ["screenshot", "capture", "image", "png", "picture"], category: .tab, symbol: "camera",
                 surfaces: [.palette], arguments: [CatalogArgument.screenshotOut], targets: [.tab],
                 cliName: "tab screenshot",
@@ -410,31 +410,31 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.copyPaneID",
-                title: String(localized: "action.palette.copyPaneID", defaultValue: "Copy Pane ID", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.copyPaneID") + "\u{E002}" + String(localized: "action.palette.copyPaneID", defaultValue: "Copy Pane ID", bundle: .module)),
                 keywords: ["id", "pane"], category: .tab, symbol: "number.square", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab copy-pane-id"
             ),
             ActionDescriptor(
                 id: "palette.copyPaneLink",
-                title: String(localized: "action.palette.copyPaneLink", defaultValue: "Copy Pane Link", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.copyPaneLink") + "\u{E002}" + String(localized: "action.palette.copyPaneLink", defaultValue: "Copy Pane Link", bundle: .module)),
                 keywords: ["url", "pane"], category: .tab, symbol: "link.circle", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab copy-pane-link"
             ),
             ActionDescriptor(
                 id: "palette.copySurfaceID",
-                title: String(localized: "action.palette.copySurfaceID", defaultValue: "Copy Tab ID", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.copySurfaceID") + "\u{E002}" + String(localized: "action.palette.copySurfaceID", defaultValue: "Copy Tab ID", bundle: .module)),
                 keywords: ["id", "surface"], category: .tab, symbol: "number",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab copy-id"
             ),
             ActionDescriptor(
                 id: "palette.copySurfaceLink",
-                title: String(localized: "action.palette.copySurfaceLink", defaultValue: "Copy Tab Link", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.copySurfaceLink") + "\u{E002}" + String(localized: "action.palette.copySurfaceLink", defaultValue: "Copy Tab Link", bundle: .module)),
                 keywords: ["url", "surface"], category: .tab, symbol: "link",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab copy-link"
             ),
             ActionDescriptor(
                 id: "reopenClosedBrowserPanel",
-                title: String(localized: "action.reopenClosedBrowserPanel", defaultValue: "Reopen Last Closed Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.reopenClosedBrowserPanel") + "\u{E002}" + String(localized: "action.reopenClosedBrowserPanel", defaultValue: "Reopen Last Closed Tab", bundle: .module)),
                 keywords: ["undo", "restore"], defaultShortcut: Shortcut("t", modifiers: [.command, .shift]),
                 category: .tab, symbol: "arrow.uturn.backward", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 cliName: "tab reopen-last-closed", mainMenu: .file

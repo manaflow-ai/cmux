@@ -9,37 +9,37 @@ nonisolated enum HelpLinkActionCatalog: ActionCatalogGroup {
         return [
             ActionDescriptor(
                 id: "help.troubleshooting",
-                title: String(localized: "action.help.troubleshooting", defaultValue: "Troubleshooting and Support", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.help.troubleshooting") + "\u{E002}" + String(localized: "action.help.troubleshooting", defaultValue: "Troubleshooting and Support", bundle: .module)),
                 keywords: ["help", "support", "problem", "bug", "contact", "email"], category: .settings,
                 symbol: "lifepreserver", surfaces: [.palette, .menu], mainMenu: .help, surfacePlan: gui
             ),
             ActionDescriptor(
                 id: "help.discord",
-                title: String(localized: "action.help.discord", defaultValue: "Join the cmux Discord", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.help.discord") + "\u{E002}" + String(localized: "action.help.discord", defaultValue: "Join the cmux Discord", bundle: .module)),
                 keywords: ["discord", "community", "chat", "server", "support", "slack"], category: .settings,
                 symbol: "bubble.left.and.bubble.right", surfaces: [.palette, .menu], mainMenu: .help, surfacePlan: gui
             ),
             ActionDescriptor(
                 id: "help.followOnX",
-                title: String(localized: "action.help.followOnX", defaultValue: "Follow @cmux on X", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.help.followOnX") + "\u{E002}" + String(localized: "action.help.followOnX", defaultValue: "Follow @cmux on X", bundle: .module)),
                 keywords: ["x", "twitter", "follow", "news", "updates", "social"], category: .settings,
                 symbol: "at", surfaces: [.palette, .menu], mainMenu: .help, surfacePlan: gui
             ),
             ActionDescriptor(
                 id: "help.github",
-                title: String(localized: "action.help.github", defaultValue: "cmux on GitHub", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.help.github") + "\u{E002}" + String(localized: "action.help.github", defaultValue: "cmux on GitHub", bundle: .module)),
                 keywords: ["github", "source", "code", "repository", "issues", "star"], category: .settings,
                 symbol: "chevron.left.forwardslash.chevron.right", surfaces: [.palette, .menu], mainMenu: .help, surfacePlan: gui
             ),
             ActionDescriptor(
                 id: "help.revealLogs",
-                title: String(localized: "action.help.revealLogs", defaultValue: "Reveal Logs in Finder", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.help.revealLogs") + "\u{E002}" + String(localized: "action.help.revealLogs", defaultValue: "Reveal Logs in Finder", bundle: .module)),
                 keywords: ["logs", "errors", "diagnostics", "finder", "folder", "debug"], category: .settings,
                 symbol: "folder", surfaces: [.palette, .menu], mainMenu: .help, surfacePlan: gui
             ),
             ActionDescriptor(
                 id: "help.copyLogs",
-                title: String(localized: "action.help.copyLogs", defaultValue: "Copy Logs", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.help.copyLogs") + "\u{E002}" + String(localized: "action.help.copyLogs", defaultValue: "Copy Logs", bundle: .module)),
                 keywords: ["logs", "errors", "diagnostics", "copy", "clipboard", "bug report", "support"], category: .settings,
                 symbol: "doc.on.clipboard", surfaces: [.palette, .menu], mainMenu: .help, surfacePlan: gui
             ),

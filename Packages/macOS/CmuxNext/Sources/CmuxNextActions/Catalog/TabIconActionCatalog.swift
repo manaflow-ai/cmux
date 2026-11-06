@@ -7,14 +7,14 @@ nonisolated enum TabIconActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "tab.setIcon",
-                title: String(localized: "action.tab.setIcon", defaultValue: "Set Tab Icon…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.tab.setIcon") + "\u{E002}" + String(localized: "action.tab.setIcon", defaultValue: "Set Tab Icon…", bundle: .module)),
                 keywords: ["tab", "icon", "emoji", "symbol"], category: .tab, symbol: "face.smiling",
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.iconString.optional], targets: [.tab],
                 cliName: "tab set-icon"
             ),
             ActionDescriptor(
                 id: "tab.clearIcon",
-                title: String(localized: "action.tab.clearIcon", defaultValue: "Remove Tab Icon", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.tab.clearIcon") + "\u{E002}" + String(localized: "action.tab.clearIcon", defaultValue: "Remove Tab Icon", bundle: .module)),
                 keywords: ["tab", "icon", "emoji", "reset"], category: .tab, symbol: "circle.dashed",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab clear-icon"
             ),

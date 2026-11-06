@@ -9,18 +9,18 @@ nonisolated enum LinkActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "link.open",
-                title: String(localized: "action.link.open", defaultValue: "Open Link…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.link.open") + "\u{E002}" + String(localized: "action.link.open", defaultValue: "Open Link…", bundle: .module)),
                 keywords: ["link", "url", "deeplink", "cmux://", "go to", "jump", "paste"],
                 category: .window, symbol: "link", surfaces: [.palette, .keyboard],
                 arguments: [
-                    ActionArgument(name: "url", title: String(localized: "argument.link.url", defaultValue: "Link", bundle: .module),
+                    ActionArgument(name: "url", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.link.url") + "\u{E002}" + String(localized: "argument.link.url", defaultValue: "Link", bundle: .module)),
                                    kind: .string),
                     ActionArgument(name: "background",
-                                   title: String(localized: "argument.link.background", defaultValue: "Open in Background", bundle: .module),
+                                   title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.link.background") + "\u{E002}" + String(localized: "argument.link.background", defaultValue: "Open in Background", bundle: .module)),
                                    kind: .bool, isRequired: false),
                     // The tab the link was clicked in: a Chief subagent's chat opens on its right (a Home pill).
                     ActionArgument(name: "source",
-                                   title: String(localized: "argument.link.source", defaultValue: "Beside Tab", bundle: .module),
+                                   title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.link.source") + "\u{E002}" + String(localized: "argument.link.source", defaultValue: "Beside Tab", bundle: .module)),
                                    kind: .string, isRequired: false),
                 ],
                 cliName: "link open",

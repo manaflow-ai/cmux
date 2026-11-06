@@ -29,7 +29,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "home.show",
-                title: String(localized: "action.home.show", defaultValue: "Go to Home", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.home.show") + "\u{E002}" + String(localized: "action.home.show", defaultValue: "Go to Home", bundle: .module)),
                 keywords: ["home", "mux", "messages", "conversations", "orchestrator"], category: .window, symbol: "house",
                 surfaces: [.palette, .keyboard, .menu], cliName: "home show",
                 mainMenu: .file
@@ -456,7 +456,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
             // toast lists what stopped and offers Restart.
             ActionDescriptor(
                 id: "home.stopAllAgents",
-                title: String(localized: "action.home.stopAllAgents", defaultValue: "Stop All Agents", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.home.stopAllAgents") + "\u{E002}" + String(localized: "action.home.stopAllAgents", defaultValue: "Stop All Agents", bundle: .module)),
                 keywords: ["chief", "home", "stop", "all", "agents", "subagents", "cancel"], category: .agents,
                 symbol: "stop.circle.fill", surfaces: [.palette, .menu], mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
@@ -561,6 +561,6 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "HomeActions", bundle: .module)
+        ("\u{E000}HomeActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: english, table: "HomeActions", bundle: .module))
     }
 }

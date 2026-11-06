@@ -8,14 +8,14 @@ nonisolated enum MarkdownPageActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "markdownSave",
-                title: String(localized: "action.markdownSave", defaultValue: "Markdown: Save", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.markdownSave") + "\u{E002}" + String(localized: "action.markdownSave", defaultValue: "Markdown: Save", bundle: .module)),
                 keywords: ["markdown", "save", "file"], defaultShortcut: Shortcut("s", modifiers: [.command]),
                 category: .browser, symbol: "square.and.arrow.down", surfaces: [.palette, .keyboard],
                 requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-save"
             ),
             ActionDescriptor(
                 id: "markdownLink",
-                title: String(localized: "action.markdownLink", defaultValue: "Markdown: Insert Link", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.markdownLink") + "\u{E002}" + String(localized: "action.markdownLink", defaultValue: "Markdown: Insert Link", bundle: .module)),
                 // Decision K1: Cmd-K is Clear Screen and Scrollback only; Cmd-Shift-K inserts a link.
                 keywords: ["markdown", "link", "url"], defaultShortcut: Shortcut("k", modifiers: [.command, .shift]),
                 category: .browser, symbol: "link", surfaces: [.palette, .keyboard],
@@ -23,14 +23,14 @@ nonisolated enum MarkdownPageActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "markdownBack",
-                title: String(localized: "action.markdownBack", defaultValue: "Markdown: Back", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.markdownBack") + "\u{E002}" + String(localized: "action.markdownBack", defaultValue: "Markdown: Back", bundle: .module)),
                 keywords: ["markdown", "back", "history"], defaultShortcut: Shortcut("[", modifiers: [.command]),
                 category: .browser, symbol: "chevron.backward", surfaces: [.palette, .keyboard],
                 requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-back"
             ),
             ActionDescriptor(
                 id: "markdownForward",
-                title: String(localized: "action.markdownForward", defaultValue: "Markdown: Forward", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.markdownForward") + "\u{E002}" + String(localized: "action.markdownForward", defaultValue: "Markdown: Forward", bundle: .module)),
                 keywords: ["markdown", "forward", "history"], defaultShortcut: Shortcut("]", modifiers: [.command]),
                 category: .browser, symbol: "chevron.forward", surfaces: [.palette, .keyboard],
                 requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-forward"
@@ -38,7 +38,7 @@ nonisolated enum MarkdownPageActionCatalog: ActionCatalogGroup {
             // Reload on a Markdown tab, as on a browser page: the file again from disk, same scroll.
             ActionDescriptor(
                 id: "markdownReload",
-                title: String(localized: "action.markdownReload", defaultValue: "Markdown: Reload", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.markdownReload") + "\u{E002}" + String(localized: "action.markdownReload", defaultValue: "Markdown: Reload", bundle: .module)),
                 keywords: ["markdown", "reload", "refresh", "disk"], defaultShortcut: Shortcut("r", modifiers: [.command]),
                 category: .browser, symbol: "arrow.clockwise", surfaces: [.palette, .keyboard],
                 requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-reload"
@@ -47,7 +47,7 @@ nonisolated enum MarkdownPageActionCatalog: ActionCatalogGroup {
             // table's right-click menu resets one table, this every table of the file.
             ActionDescriptor(
                 id: "markdownResetTableWidths",
-                title: String(localized: "action.markdownResetTableWidths", defaultValue: "Markdown: Reset Table Column Widths", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.markdownResetTableWidths") + "\u{E002}" + String(localized: "action.markdownResetTableWidths", defaultValue: "Markdown: Reset Table Column Widths", bundle: .module)),
                 keywords: ["markdown", "table", "column", "width", "reset", "resize"],
                 category: .browser, symbol: "tablecells", surfaces: [.palette],
                 requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-reset-table-widths"
@@ -56,7 +56,7 @@ nonisolated enum MarkdownPageActionCatalog: ActionCatalogGroup {
             // `when: markdownReadOnlyFocused`); no default key (customization.md section 7).
             ActionDescriptor(
                 id: "markdownGoToTop",
-                title: String(localized: "action.markdownGoToTop", defaultValue: "Markdown: Go to Top", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.markdownGoToTop") + "\u{E002}" + String(localized: "action.markdownGoToTop", defaultValue: "Markdown: Go to Top", bundle: .module)),
                 keywords: ["markdown", "vim", "top", "start"], category: .browser, symbol: "arrow.up.to.line.alt",
                 surfaces: [.palette, .keyboard], requires: [.markdownReadOnlyFocused], targets: [.pane],
                 cliName: "browser markdown-go-to-top"

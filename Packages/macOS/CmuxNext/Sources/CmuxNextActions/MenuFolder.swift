@@ -63,22 +63,22 @@ public nonisolated enum MenuFolder: String, CaseIterable, Sendable, Hashable {
     /// Localized submenu title.
     public var title: String {
         switch self {
-        case .new: String(localized: "menu.folder.new", defaultValue: "New", bundle: .module)
-        case .split: String(localized: "menu.folder.split", defaultValue: "Split", bundle: .module)
-        case .agent: String(localized: "menu.folder.agent", defaultValue: "Agent", bundle: .module)
-        case .openIn: String(localized: "menu.folder.openIn", defaultValue: "Open In", bundle: .module)
-        case .appearance: String(localized: "menu.folder.appearance", defaultValue: "Appearance", bundle: .module)
-        case .options: String(localized: "menu.folder.options", defaultValue: "Options", bundle: .module)
-        case .group: String(localized: "menu.folder.group", defaultValue: "Group", bundle: .module)
-        case .move: String(localized: "menu.folder.move", defaultValue: "Move", bundle: .module)
-        case .sort: String(localized: "menu.folder.sort", defaultValue: "Sort", bundle: .module)
-        case .layout: String(localized: "menu.folder.layout", defaultValue: "Layout", bundle: .module)
-        case .connection: String(localized: "menu.folder.connection", defaultValue: "Connection", bundle: .module)
-        case .copy: String(localized: "menu.folder.copy", defaultValue: "Copy", bundle: .module)
-        case .tools: String(localized: "menu.folder.tools", defaultValue: "Tools", bundle: .module)
-        case .close: String(localized: "menu.folder.close", defaultValue: "Close", bundle: .module)
-        case .archive: String(localized: "menu.folder.archive", defaultValue: "Archive", bundle: .module)
-        case .more: String(localized: "menu.folder.more", defaultValue: "More", bundle: .module)
+        case .new: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.new") + "\u{E002}" + String(localized: "menu.folder.new", defaultValue: "New", bundle: .module))
+        case .split: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.split") + "\u{E002}" + String(localized: "menu.folder.split", defaultValue: "Split", bundle: .module))
+        case .agent: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.agent") + "\u{E002}" + String(localized: "menu.folder.agent", defaultValue: "Agent", bundle: .module))
+        case .openIn: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.openIn") + "\u{E002}" + String(localized: "menu.folder.openIn", defaultValue: "Open In", bundle: .module))
+        case .appearance: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.appearance") + "\u{E002}" + String(localized: "menu.folder.appearance", defaultValue: "Appearance", bundle: .module))
+        case .options: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.options") + "\u{E002}" + String(localized: "menu.folder.options", defaultValue: "Options", bundle: .module))
+        case .group: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.group") + "\u{E002}" + String(localized: "menu.folder.group", defaultValue: "Group", bundle: .module))
+        case .move: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.move") + "\u{E002}" + String(localized: "menu.folder.move", defaultValue: "Move", bundle: .module))
+        case .sort: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.sort") + "\u{E002}" + String(localized: "menu.folder.sort", defaultValue: "Sort", bundle: .module))
+        case .layout: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.layout") + "\u{E002}" + String(localized: "menu.folder.layout", defaultValue: "Layout", bundle: .module))
+        case .connection: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.connection") + "\u{E002}" + String(localized: "menu.folder.connection", defaultValue: "Connection", bundle: .module))
+        case .copy: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.copy") + "\u{E002}" + String(localized: "menu.folder.copy", defaultValue: "Copy", bundle: .module))
+        case .tools: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.tools") + "\u{E002}" + String(localized: "menu.folder.tools", defaultValue: "Tools", bundle: .module))
+        case .close: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.close") + "\u{E002}" + String(localized: "menu.folder.close", defaultValue: "Close", bundle: .module))
+        case .archive: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.archive") + "\u{E002}" + String(localized: "menu.folder.archive", defaultValue: "Archive", bundle: .module))
+        case .more: ("\u{E000}Localizable\u{E001}" + String(describing: "menu.folder.more") + "\u{E002}" + String(localized: "menu.folder.more", defaultValue: "More", bundle: .module))
         }
     }
 }

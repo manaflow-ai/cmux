@@ -10,6 +10,6 @@ nonisolated enum AgentChatMenuLabels {
     static var findInChat: String { text("menu.agentChat.findInChat", "Find in Chat…") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "AgentChatMenu", bundle: .module)
+        ("\u{E000}AgentChatMenu\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: value, table: "AgentChatMenu", bundle: .module))
     }
 }

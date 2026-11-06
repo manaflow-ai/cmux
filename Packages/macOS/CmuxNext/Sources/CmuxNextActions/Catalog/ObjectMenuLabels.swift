@@ -47,7 +47,7 @@ nonisolated enum ObjectMenuLabels {
     static var togglePinScreen: String { text("menu.screen.togglePin", "Pin/Unpin Screen") }
     static var toggleWorkspaceMute: String { text("menu.workspace.toggleNotificationMute", "Mute/Unmute Notifications") }
     static var notificationSound: String {
-        String(localized: "menu.notificationSound", defaultValue: "Notification Sound", bundle: .module)
+        ("\u{E000}Localizable\u{E001}" + String(describing: "menu.notificationSound") + "\u{E002}" + String(localized: "menu.notificationSound", defaultValue: "Notification Sound", bundle: .module))
     }
     static var toggleChatMute: String { text("menu.tab.toggleChatNotificationMute", "Mute/Unmute Chat Notifications") }
     /// A chat's Subagent Limit… (the palette says Chat Subagent Limit…).
@@ -74,6 +74,6 @@ nonisolated enum ObjectMenuLabels {
     static var densityExpanded: String { text("menu.sidebar.densityExpanded", "Expanded Rows") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        ("\u{E000}Localizable\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: value, bundle: .module))
     }
 }

@@ -6,17 +6,17 @@ public nonisolated struct WorkspaceHibernationActionStrings {
     public nonisolated init() {}
     /// Keep Workspace Awake's title while the workspace may hibernate.
     public static var keepAwake: String {
-        String(localized: "action.workspace.keepAwake", defaultValue: "Keep Workspace Awake", table: "HibernationActions", bundle: .module)
+        ("\u{E000}HibernationActions\u{E001}" + String(describing: "action.workspace.keepAwake") + "\u{E002}" + String(localized: "action.workspace.keepAwake", defaultValue: "Keep Workspace Awake", table: "HibernationActions", bundle: .module))
     }
 
     /// Its title while the workspace is kept awake.
     public static var allowHibernation: String {
-        String(localized: "workspaceHibernation.allowHibernation", defaultValue: "Allow Workspace to Hibernate", table: "HibernationActions", bundle: .module)
+        ("\u{E000}HibernationActions\u{E001}" + String(describing: "workspaceHibernation.allowHibernation") + "\u{E002}" + String(localized: "workspaceHibernation.allowHibernation", defaultValue: "Allow Workspace to Hibernate", table: "HibernationActions", bundle: .module))
     }
 
     /// Hibernate Workspace on a workspace shown in a window.
     public static var shownRefusal: String {
-        String(localized: "workspaceHibernation.refusal.shown", defaultValue: "A workspace on screen cannot hibernate. Switch to another workspace first.",
-               table: "HibernationActions", bundle: .module)
+        ("\u{E000}HibernationActions\u{E001}" + String(describing: "workspaceHibernation.refusal.shown") + "\u{E002}" + String(localized: "workspaceHibernation.refusal.shown", defaultValue: "A workspace on screen cannot hibernate. Switch to another workspace first.",
+               table: "HibernationActions", bundle: .module))
     }
 }

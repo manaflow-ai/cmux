@@ -34,6 +34,6 @@ nonisolated enum CertificateWarningActionCatalog: ActionCatalogGroup {
     private static var plan: ActionSurfacePlan { ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noTargetSurface) }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "PageInfoActions", bundle: .module)
+        ("\u{E000}PageInfoActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: english, table: "PageInfoActions", bundle: .module))
     }
 }

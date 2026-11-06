@@ -8,8 +8,8 @@ nonisolated enum PaletteHistoryActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "palette.clearSearchHistory",
-                title: String(localized: "action.palette.clearSearchHistory", defaultValue: "Clear Palette Search History",
-                              table: "SettingsActions", bundle: .module),
+                title: ("\u{E000}SettingsActions\u{E001}" + String(describing: "action.palette.clearSearchHistory") + "\u{E002}" + String(localized: "action.palette.clearSearchHistory", defaultValue: "Clear Palette Search History",
+                              table: "SettingsActions", bundle: .module)),
                 keywords: ["palette", "search", "history", "memory", "recent", "frecency", "ranking", "forget", "reset"],
                 category: .settings, symbol: "clock.arrow.circlepath", surfaces: [.palette],
                 cliName: "settings clear-palette-history",

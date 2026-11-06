@@ -5,28 +5,28 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "agentPaneZoomIn",
-                title: String(localized: "action.agentPaneZoomIn", defaultValue: "Agent Chat: Zoom In", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPaneZoomIn") + "\u{E002}" + String(localized: "action.agentPaneZoomIn", defaultValue: "Agent Chat: Zoom In", bundle: .module)),
                 keywords: ["agent", "chat", "zoom", "bigger"], defaultShortcut: Shortcut("=", modifiers: [.command]),
                 category: .agents, symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent zoom-in", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "agentPaneZoomOut",
-                title: String(localized: "action.agentPaneZoomOut", defaultValue: "Agent Chat: Zoom Out", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPaneZoomOut") + "\u{E002}" + String(localized: "action.agentPaneZoomOut", defaultValue: "Agent Chat: Zoom Out", bundle: .module)),
                 keywords: ["agent", "chat", "zoom", "smaller"], defaultShortcut: Shortcut("-", modifiers: [.command]),
                 category: .agents, symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent zoom-out", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "agentPaneZoomReset",
-                title: String(localized: "action.agentPaneZoomReset", defaultValue: "Agent Chat: Actual Size", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPaneZoomReset") + "\u{E002}" + String(localized: "action.agentPaneZoomReset", defaultValue: "Agent Chat: Actual Size", bundle: .module)),
                 keywords: ["agent", "chat", "zoom", "reset"], defaultShortcut: Shortcut("0", modifiers: [.command]),
                 category: .agents, symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent actual-size", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "agentChat.toggleNotificationMute",
-                title: String(localized: "action.agentChat.toggleNotificationMute", defaultValue: "Mute/Unmute Chat Notifications", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentChat.toggleNotificationMute") + "\u{E002}" + String(localized: "action.agentChat.toggleNotificationMute", defaultValue: "Mute/Unmute Chat Notifications", bundle: .module)),
                 keywords: ["mute", "silence", "quiet", "notifications", "agent", "chat"], category: .agents, symbol: "bell.slash",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab toggle-chat-notifications"
             ),
@@ -35,7 +35,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             {
                 var subagentLimit = ActionDescriptor(
                     id: "agentChat.subagentLimit",
-                    title: String(localized: "action.agentChat.subagentLimit", defaultValue: "Chat Subagent Limit…", bundle: .module),
+                    title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentChat.subagentLimit") + "\u{E002}" + String(localized: "action.agentChat.subagentLimit", defaultValue: "Chat Subagent Limit…", bundle: .module)),
                     keywords: ["subagent", "sub-session", "limit", "parallel", "concurrency", "running", "agent", "chat"],
                     category: .agents, symbol: "slider.horizontal.3", surfaces: [.palette, .contextMenu], targets: [.tab],
                     // The chat's tab and its sidebar row (the chat's own menu is at its 12-row cap).
@@ -50,7 +50,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             }(),
             ActionDescriptor(
                 id: "palette.newAgentChat",
-                title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.newAgentChat") + "\u{E002}" + String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module)),
                 // Cmd-I moved to Open Chief Dock (user 2026-11-05: "make cmd + i open the chief dock from now
                 // on"); New Agent Chat keeps the leader chord Cmd-J S (`LeaderLayer`) and the palette.
                 keywords: ["agent", "chat", "ai", "acpmux"],
@@ -59,9 +59,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // These optional values are one schema for keyboard extensions, the palette chooser,
                 // CLI and MCP. With none present the handler keeps the keyboard's inherited seed.
                 arguments: [
-                    ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module), kind: .string, isRequired: false),
-                    ActionArgument(name: "harness", title: String(localized: "argument.agent.harness", defaultValue: "Harness", bundle: .module), kind: .string, isRequired: false),
-                    ActionArgument(name: "model", title: String(localized: "argument.agent.model", defaultValue: "Model", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "cwd", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.agent.cwd") + "\u{E002}" + String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module)), kind: .string, isRequired: false),
+                    ActionArgument(name: "harness", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.agent.harness") + "\u{E002}" + String(localized: "argument.agent.harness", defaultValue: "Harness", bundle: .module)), kind: .string, isRequired: false),
+                    ActionArgument(name: "model", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.agent.model") + "\u{E002}" + String(localized: "argument.agent.model", defaultValue: "Model", bundle: .module)), kind: .string, isRequired: false),
                     CatalogArgument.agentHostMachine.optional,
                 ],
                 // A workspace target opens in its last focused pane; a pane or workspace that no
@@ -70,7 +70,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.newAgentChatOn",
-                title: String(localized: "action.palette.newAgentChatOn", defaultValue: "New Agent Chat on…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.newAgentChatOn") + "\u{E002}" + String(localized: "action.palette.newAgentChatOn", defaultValue: "New Agent Chat on…", bundle: .module)),
                 keywords: ["agent", "chat", "new", "host", "machine", "peer", "cloud", "remote"],
                 category: .agents, symbol: "bubble.left.and.bubble.right", surfaces: [.palette],
                 // Destination selection is the palette action's only step; it resolves the
@@ -80,7 +80,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.toggleSessionInfo",
-                title: String(localized: "action.agentPane.toggleSessionInfo", defaultValue: "Toggle Session Info", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.toggleSessionInfo") + "\u{E002}" + String(localized: "action.agentPane.toggleSessionInfo", defaultValue: "Toggle Session Info", bundle: .module)),
                 keywords: ["agent", "chat", "session", "session info", "context", "environment", "panel"],
                 category: .agents, symbol: "sidebar.right", surfaces: [.palette, .keyboard],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-session-info",
@@ -89,7 +89,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // The chat header's toggles (AgentPageCommand): unavailable where the header has no button.
             ActionDescriptor(
                 id: "agentPane.toggleFiles",
-                title: String(localized: "action.agentPane.toggleFiles", defaultValue: "Toggle Files Beside Chat", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.toggleFiles") + "\u{E002}" + String(localized: "action.agentPane.toggleFiles", defaultValue: "Toggle Files Beside Chat", bundle: .module)),
                 keywords: ["agent", "chat", "files", "file tree", "folder", "explorer", "beside", "split"],
                 category: .agents, symbol: "folder", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-files",
@@ -97,7 +97,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.togglePreview",
-                title: String(localized: "action.agentPane.togglePreview", defaultValue: "Toggle Preview Beside Chat", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.togglePreview") + "\u{E002}" + String(localized: "action.agentPane.togglePreview", defaultValue: "Toggle Preview Beside Chat", bundle: .module)),
                 keywords: ["agent", "chat", "preview", "page", "web", "localhost", "beside", "split"],
                 category: .agents, symbol: "play.rectangle", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-preview",
@@ -105,7 +105,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.toggleSideTabs",
-                title: String(localized: "action.agentPane.toggleSideTabs", defaultValue: "Toggle Tabs Beside Chat", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.toggleSideTabs") + "\u{E002}" + String(localized: "action.agentPane.toggleSideTabs", defaultValue: "Toggle Tabs Beside Chat", bundle: .module)),
                 keywords: ["agent", "chat", "new tab", "hide tabs", "side tabs", "beside", "column"],
                 category: .agents, symbol: "rectangle.split.2x1", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-side-tabs",
@@ -114,7 +114,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // The composer's and Session Info's controls (AgentPageCommand): unavailable where the chat has none.
             ActionDescriptor(
                 id: "agentPane.runInBackground",
-                title: String(localized: "action.agentPane.runInBackground", defaultValue: "Run in Background", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.runInBackground") + "\u{E002}" + String(localized: "action.agentPane.runInBackground", defaultValue: "Run in Background", bundle: .module)),
                 keywords: ["agent", "chat", "background", "ctrl-b", "detach", "command", "subagent", "move"],
                 category: .agents, symbol: "arrow.down.to.line", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent run-in-background",
@@ -122,7 +122,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.toggleQueueing",
-                title: String(localized: "action.agentPane.toggleQueueing", defaultValue: "Toggle Prompt Queueing", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.toggleQueueing") + "\u{E002}" + String(localized: "action.agentPane.toggleQueueing", defaultValue: "Toggle Prompt Queueing", bundle: .module)),
                 keywords: ["agent", "chat", "queue", "queueing", "steer", "send", "prompt", "turn"],
                 category: .agents, symbol: "tray.full", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-queueing",
@@ -130,7 +130,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.showSubagents",
-                title: String(localized: "action.agentPane.showSubagents", defaultValue: "Show Subagents in Session Info", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.showSubagents") + "\u{E002}" + String(localized: "action.agentPane.showSubagents", defaultValue: "Show Subagents in Session Info", bundle: .module)),
                 keywords: ["agent", "chat", "subagents", "agents", "session info", "children"],
                 category: .agents, symbol: "person.2", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-subagents",
@@ -138,7 +138,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.showBackgroundTasks",
-                title: String(localized: "action.agentPane.showBackgroundTasks", defaultValue: "Show Background Tasks in Session Info", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.showBackgroundTasks") + "\u{E002}" + String(localized: "action.agentPane.showBackgroundTasks", defaultValue: "Show Background Tasks in Session Info", bundle: .module)),
                 keywords: ["agent", "chat", "background", "tasks", "commands", "servers", "session info"],
                 category: .agents, symbol: "gearshape", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-background-tasks",
@@ -146,7 +146,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.toggleInspector",
-                title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Toggle Event Inspector", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.toggleInspector") + "\u{E002}" + String(localized: "action.agentPane.toggleInspector", defaultValue: "Toggle Event Inspector", bundle: .module)),
                 keywords: ["agent", "chat", "event", "acp", "acpmux", "inspector", "log", "debug"], category: .agents, symbol: "list.bullet.rectangle",
                 surfaces: [.palette, .contextMenu], targets: [.pane], cliName: "agent toggle-acp-inspector",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
@@ -155,7 +155,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.stopTurn",
-                title: String(localized: "action.agentPane.stopTurn", defaultValue: "Stop Agent Turn", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.stopTurn") + "\u{E002}" + String(localized: "action.agentPane.stopTurn", defaultValue: "Stop Agent Turn", bundle: .module)),
                 keywords: ["agent", "chat", "stop", "cancel", "interrupt", "turn", "working", "generation"],
                 category: .agents, symbol: "stop.circle", surfaces: [.palette, .keyboard],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent stop-turn",
@@ -174,7 +174,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.quickAgentChat",
-                title: String(localized: "action.palette.quickAgentChat", defaultValue: "Start Agent…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.quickAgentChat") + "\u{E002}" + String(localized: "action.palette.quickAgentChat", defaultValue: "Start Agent…", bundle: .module)),
                 keywords: ["agent", "start", "session", "launcher", "new", "chat", "ai", "acpmux", "quick", "composer", "summon"],
                 // Ctrl-Cmd-Return (cx-hkat): Cmd-Shift-Return is Toggle Pane Zoom.
                 defaultShortcut: Shortcut(Shortcut.returnKey, modifiers: [.control, .command]),
@@ -186,7 +186,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // stays off until `app.startAgentGlobalHotKey` (GlobalHotKeyService gates it).
                 var anyApp = ActionDescriptor(
                     id: "palette.startAgentFromAnyApp",
-                    title: String(localized: "action.palette.startAgentFromAnyApp", defaultValue: "Start Agent from Any App", bundle: .module),
+                    title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.startAgentFromAnyApp") + "\u{E002}" + String(localized: "action.palette.startAgentFromAnyApp", defaultValue: "Start Agent from Any App", bundle: .module)),
                     keywords: ["agent", "start", "global", "hotkey", "hot key", "summon", "quick", "chat"],
                     // Ctrl-Opt-Cmd-Space: clear of ChatGPT's and Claude's quick-entry defaults.
                     defaultShortcut: Shortcut(Shortcut.spaceKey, modifiers: [.control, .option, .command]),
@@ -200,7 +200,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             }(),
             ActionDescriptor(
                 id: "palette.addHarness",
-                title: String(localized: "action.palette.addHarness", defaultValue: "Integrate a Harness with an Agent…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.addHarness") + "\u{E002}" + String(localized: "action.palette.addHarness", defaultValue: "Integrate a Harness with an Agent…", bundle: .module)),
                 keywords: ["agent", "harness", "integrate", "acp", "acpmux", "custom", "bring your own"],
                 category: .agents, symbol: "puzzlepiece.extension", surfaces: [.palette, .menu], mainMenu: .file,
                 // Opens a chat that walks the user through `cmux harness guide`. Agents and
@@ -212,14 +212,14 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // the main menu, where an unavailable action shows greyed out to everyone.
             ActionDescriptor(
                 id: "stats.show",
-                title: String(localized: "action.stats.show", defaultValue: "Show Agent Stats", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.stats.show") + "\u{E002}" + String(localized: "action.stats.show", defaultValue: "Show Agent Stats", bundle: .module)),
                 keywords: ["stats", "statistics", "usage", "agent", "activity", "streak", "insights", "dashboard"],
                 category: .agents, symbol: "chart.bar.xaxis", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "palette.toggleDictation",
-                title: String(localized: "action.palette.toggleDictation", defaultValue: "Toggle Dictation", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.toggleDictation") + "\u{E002}" + String(localized: "action.palette.toggleDictation", defaultValue: "Toggle Dictation", bundle: .module)),
                 keywords: ["dictation", "dictate", "voice", "speech", "microphone", "mic", "push to talk"],
                 // Ctrl-Cmd-V: no terminal, shell or system meaning. Hold it to talk.
                 defaultShortcut: Shortcut("v", modifiers: [.control, .command]),
@@ -230,7 +230,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // a message reads through the app's one voice (CmuxNextAgentPane AgentPaneReadAloud).
             ActionDescriptor(
                 id: "agentPane.stopReadingAloud",
-                title: String(localized: "action.agentPane.stopReadingAloud", defaultValue: "Stop Reading Aloud", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.stopReadingAloud") + "\u{E002}" + String(localized: "action.agentPane.stopReadingAloud", defaultValue: "Stop Reading Aloud", bundle: .module)),
                 keywords: ["read aloud", "speak", "speech", "voice", "stop", "silence", "mute", "speaker", "tts"],
                 category: .agents, symbol: "speaker.slash", surfaces: [.palette],
                 cliName: "agent stop-reading-aloud",
@@ -238,7 +238,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.continueIn",
-                title: String(localized: "action.agentPane.continueIn", defaultValue: "Continue In…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.continueIn") + "\u{E002}" + String(localized: "action.agentPane.continueIn", defaultValue: "Continue In…", bundle: .module)),
                 keywords: ["agent", "chat", "continue", "handoff", "claude", "codex", "acpmux"],
                 category: .agents, symbol: "arrow.turn.up.right", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane],
@@ -248,7 +248,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.switchModel",
-                title: String(localized: "action.agentPane.switchModel", defaultValue: "Switch Model…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.switchModel") + "\u{E002}" + String(localized: "action.agentPane.switchModel", defaultValue: "Switch Model…", bundle: .module)),
                 keywords: ["agent", "chat", "model", "harness", "effort", "reasoning", "picker", "switch"],
                 // Ctrl-Cmd-M (Lawrence 2026-10-09): an app chord, so it works wherever the agent
                 // pane's keyboard is; the menu opens with the keyboard in its search field.
@@ -261,7 +261,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.createCheckpoint",
-                title: String(localized: "action.agentPane.createCheckpoint", defaultValue: "Create Checkpoint", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.createCheckpoint") + "\u{E002}" + String(localized: "action.agentPane.createCheckpoint", defaultValue: "Create Checkpoint", bundle: .module)),
                 keywords: ["agent", "git", "snapshot", "checkpoint", "handoff"],
                 category: .agents, symbol: "camera", surfaces: [.palette],
                 requires: [.agentPaneFocused, .checkpointCaptureAvailable], targets: [.pane],
@@ -276,7 +276,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // still bind one. Scripts call `file.search` on the page's host instead.
             ActionDescriptor(
                 id: "agentPane.searchFiles",
-                title: String(localized: "action.agentPane.searchFiles", defaultValue: "Search Files…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.searchFiles") + "\u{E002}" + String(localized: "action.agentPane.searchFiles", defaultValue: "Search Files…", bundle: .module)),
                 keywords: ["agent", "chat", "file", "files", "search", "find", "mention", "open", "quick"],
                 category: .agents, symbol: "doc.text.magnifyingglass", surfaces: [.palette, .keyboard],
                 requires: [.agentPaneFocused], targets: [.pane],
@@ -288,7 +288,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // scripts use `cmux acp` and the chat's own transcript instead.
             ActionDescriptor(
                 id: "agentPane.copyLastCodeBlock",
-                title: String(localized: "action.agentPane.copyLastCodeBlock", defaultValue: "Copy Last Code Block", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.copyLastCodeBlock") + "\u{E002}" + String(localized: "action.agentPane.copyLastCodeBlock", defaultValue: "Copy Last Code Block", bundle: .module)),
                 keywords: ["agent", "chat", "code", "block", "copy", "snippet", "answer", "reply"],
                 defaultShortcut: Shortcut(";", modifiers: [.command, .option]),
                 category: .agents, symbol: "doc.on.clipboard", surfaces: [.palette, .keyboard],
@@ -297,7 +297,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.archiveChat",
-                title: String(localized: "action.agentPane.archiveChat", defaultValue: "Archive Chat", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.archiveChat") + "\u{E002}" + String(localized: "action.agentPane.archiveChat", defaultValue: "Archive Chat", bundle: .module)),
                 keywords: ["agent", "chat", "archive", "hide", "close", "done"],
                 defaultShortcut: Shortcut("a", modifiers: [.command, .control]),
                 category: .agents, symbol: "archivebox", surfaces: [.palette, .keyboard, .contextMenu],
@@ -309,7 +309,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.git.commit",
-                title: String(localized: "action.agentPane.git.commit", defaultValue: "Commit Changes…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.git.commit") + "\u{E002}" + String(localized: "action.agentPane.git.commit", defaultValue: "Commit Changes…", bundle: .module)),
                 keywords: ["agent", "git", "commit", "changes", "stage", "message"],
                 category: .agents, symbol: "checkmark.circle", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane],
@@ -324,7 +324,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.git.push",
-                title: String(localized: "action.agentPane.git.push", defaultValue: "Push Branch", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.git.push") + "\u{E002}" + String(localized: "action.agentPane.git.push", defaultValue: "Push Branch", bundle: .module)),
                 keywords: ["agent", "git", "push", "upload", "remote", "branch", "upstream"],
                 category: .agents, symbol: "arrow.up.circle", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane],
@@ -335,54 +335,54 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.searchChats",
-                title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.searchChats") + "\u{E002}" + String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module)),
                 keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],
                 // Cmd-K outside a terminal (KeyBindingDefaults.scopedEntries; Leo 2026-10-12):
                 // decision K1 keeps Cmd-K as Clear in a terminal, so the catalog key stays
                 // unset. The command palette's chats page lists every chat.
                 category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard]
             ),
-            permissionAction("allowOnce", title: String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow Once", bundle: .module), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
-            permissionAction("allowChat", title: String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for This Chat", bundle: .module), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
-            permissionAction("deny", title: String(localized: "action.agentPane.permission.deny", defaultValue: "Deny", bundle: .module), symbol: "xmark", shortcut: Shortcut("3", modifiers: [.command, .option])),
-            permissionAction("expand", title: String(localized: "action.agentPane.permission.expand", defaultValue: "Expand Permission Details", bundle: .module), symbol: "arrow.down.right.and.arrow.up.left", shortcut: Shortcut("4", modifiers: [.command, .option])),
-            permissionAction("retry", title: String(localized: "action.agentPane.permission.retry", defaultValue: "Check and Retry Permission", bundle: .module), symbol: "arrow.clockwise"),
-            permissionAction("revoke", title: String(localized: "action.agentPane.permission.revoke", defaultValue: "Revoke Chat Permission", bundle: .module), symbol: "hand.raised"),
-            permissionAction("refresh", title: String(localized: "action.agentPane.permission.refresh", defaultValue: "Refresh Permissions", bundle: .module), symbol: "arrow.clockwise.circle"),
+            permissionAction("allowOnce", title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.permission.allowOnce") + "\u{E002}" + String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow Once", bundle: .module)), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
+            permissionAction("allowChat", title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.permission.allowChat") + "\u{E002}" + String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for This Chat", bundle: .module)), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
+            permissionAction("deny", title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.permission.deny") + "\u{E002}" + String(localized: "action.agentPane.permission.deny", defaultValue: "Deny", bundle: .module)), symbol: "xmark", shortcut: Shortcut("3", modifiers: [.command, .option])),
+            permissionAction("expand", title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.permission.expand") + "\u{E002}" + String(localized: "action.agentPane.permission.expand", defaultValue: "Expand Permission Details", bundle: .module)), symbol: "arrow.down.right.and.arrow.up.left", shortcut: Shortcut("4", modifiers: [.command, .option])),
+            permissionAction("retry", title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.permission.retry") + "\u{E002}" + String(localized: "action.agentPane.permission.retry", defaultValue: "Check and Retry Permission", bundle: .module)), symbol: "arrow.clockwise"),
+            permissionAction("revoke", title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.permission.revoke") + "\u{E002}" + String(localized: "action.agentPane.permission.revoke", defaultValue: "Revoke Chat Permission", bundle: .module)), symbol: "hand.raised"),
+            permissionAction("refresh", title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.permission.refresh") + "\u{E002}" + String(localized: "action.agentPane.permission.refresh", defaultValue: "Refresh Permissions", bundle: .module)), symbol: "arrow.clockwise.circle"),
             ActionDescriptor(
                 id: "palette.openTerminalChatView",
-                title: String(localized: "action.palette.openTerminalChatView", defaultValue: "Open Terminal as Chat", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.openTerminalChatView") + "\u{E002}" + String(localized: "action.palette.openTerminalChatView", defaultValue: "Open Terminal as Chat", bundle: .module)),
                 keywords: ["agent", "chat"], category: .agents, symbol: "text.bubble", surfaces: [.palette],
                 requires: [.terminalFocused], cliName: "agent open-terminal-as-chat"
             ),
             ActionDescriptor(
                 id: "palette.launchClaudeTeams",
-                title: String(localized: "action.palette.launchClaudeTeams", defaultValue: "Launch Claude Teams", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.launchClaudeTeams") + "\u{E002}" + String(localized: "action.palette.launchClaudeTeams", defaultValue: "Launch Claude Teams", bundle: .module)),
                 keywords: ["agent", "claude", "team"], category: .agents, symbol: "person.3", surfaces: [.palette],
                 cliName: "agent launch-claude-teams"
             ),
             ActionDescriptor(
                 id: "palette.launchCodexTeams",
-                title: String(localized: "action.palette.launchCodexTeams", defaultValue: "Launch Codex Teams", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.launchCodexTeams") + "\u{E002}" + String(localized: "action.palette.launchCodexTeams", defaultValue: "Launch Codex Teams", bundle: .module)),
                 keywords: ["agent", "codex", "team"], category: .agents, symbol: "person.3.fill", surfaces: [.palette],
                 cliName: "agent launch-codex-teams"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversation",
-                title: String(localized: "action.palette.forkAgentConversation", defaultValue: "Fork Conversation", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.forkAgentConversation") + "\u{E002}" + String(localized: "action.palette.forkAgentConversation", defaultValue: "Fork Conversation", bundle: .module)),
                 keywords: ["agent", "fork", "branch"], defaultShortcut: Shortcut("y", modifiers: [.option, .command]),
                 category: .agents, symbol: "arrow.triangle.branch", surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationTo",
-                title: String(localized: "action.palette.forkAgentConversationTo", defaultValue: "Fork To…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.forkAgentConversationTo") + "\u{E002}" + String(localized: "action.palette.forkAgentConversationTo", defaultValue: "Fork To…", bundle: .module)),
                 keywords: ["agent", "fork"], category: .agents, symbol: "arrow.turn.up.right",
                 surfaces: [.contextMenu]
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationRight",
-                title: String(localized: "action.palette.forkAgentConversationRight", defaultValue: "Fork Conversation to the Right", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.forkAgentConversationRight") + "\u{E002}" + String(localized: "action.palette.forkAgentConversationRight", defaultValue: "Fork Conversation to the Right", bundle: .module)),
                 keywords: ["agent", "fork", "branch", "split"],
                 category: .agents, symbol: "rectangle.righthalf.inset.filled",
                 surfaces: [.palette, .contextMenu],
@@ -390,21 +390,21 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationLeft",
-                title: String(localized: "action.palette.forkAgentConversationLeft", defaultValue: "Fork Conversation to the Left", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.forkAgentConversationLeft") + "\u{E002}" + String(localized: "action.palette.forkAgentConversationLeft", defaultValue: "Fork Conversation to the Left", bundle: .module)),
                 keywords: ["agent", "fork"], category: .agents, symbol: "rectangle.lefthalf.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-left"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationTop",
-                title: String(localized: "action.palette.forkAgentConversationTop", defaultValue: "Fork Conversation Above", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.forkAgentConversationTop") + "\u{E002}" + String(localized: "action.palette.forkAgentConversationTop", defaultValue: "Fork Conversation Above", bundle: .module)),
                 keywords: ["agent", "fork"], category: .agents, symbol: "rectangle.tophalf.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-above"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationBottom",
-                title: String(localized: "action.palette.forkAgentConversationBottom", defaultValue: "Fork Conversation Below", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.forkAgentConversationBottom") + "\u{E002}" + String(localized: "action.palette.forkAgentConversationBottom", defaultValue: "Fork Conversation Below", bundle: .module)),
                 keywords: ["agent", "fork"], category: .agents, symbol: "rectangle.bottomhalf.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-below"
@@ -413,67 +413,67 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // below it, as New Column Right / New Column Left / New Row open a terminal.
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewColumnRight",
-                title: String(localized: "action.palette.forkAgentConversationNewColumnRight", defaultValue: "Fork Conversation to New Column Right", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.forkAgentConversationNewColumnRight") + "\u{E002}" + String(localized: "action.palette.forkAgentConversationNewColumnRight", defaultValue: "Fork Conversation to New Column Right", bundle: .module)),
                 keywords: ["agent", "fork", "column", "right"], category: .agents, symbol: "rectangle.split.3x1",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-column-right"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewColumnLeft",
-                title: String(localized: "action.palette.forkAgentConversationNewColumnLeft", defaultValue: "Fork Conversation to New Column Left", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.forkAgentConversationNewColumnLeft") + "\u{E002}" + String(localized: "action.palette.forkAgentConversationNewColumnLeft", defaultValue: "Fork Conversation to New Column Left", bundle: .module)),
                 keywords: ["agent", "fork", "column", "left"], category: .agents, symbol: "rectangle.leftthird.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-column-left"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewRow",
-                title: String(localized: "action.palette.forkAgentConversationNewRow", defaultValue: "Fork Conversation to New Row", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.forkAgentConversationNewRow") + "\u{E002}" + String(localized: "action.palette.forkAgentConversationNewRow", defaultValue: "Fork Conversation to New Row", bundle: .module)),
                 keywords: ["agent", "fork", "row", "below"], category: .agents, symbol: "rectangle.grid.1x2",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-row"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewTab",
-                title: String(localized: "action.palette.forkAgentConversationNewTab", defaultValue: "Fork Conversation to New Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.forkAgentConversationNewTab") + "\u{E002}" + String(localized: "action.palette.forkAgentConversationNewTab", defaultValue: "Fork Conversation to New Tab", bundle: .module)),
                 keywords: ["agent", "fork"], category: .agents, symbol: "plus.square",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-tab"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewWorkspace",
-                title: String(localized: "action.palette.forkAgentConversationNewWorkspace", defaultValue: "Fork Conversation to New Workspace", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.forkAgentConversationNewWorkspace") + "\u{E002}" + String(localized: "action.palette.forkAgentConversationNewWorkspace", defaultValue: "Fork Conversation to New Workspace", bundle: .module)),
                 keywords: ["agent", "fork"], category: .agents, symbol: "rectangle.stack.badge.plus",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-workspace"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewWindow",
-                title: String(localized: "action.palette.forkAgentConversationNewWindow", defaultValue: "Fork Conversation to New Window", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.forkAgentConversationNewWindow") + "\u{E002}" + String(localized: "action.palette.forkAgentConversationNewWindow", defaultValue: "Fork Conversation to New Window", bundle: .module)),
                 keywords: ["agent", "fork", "window"], category: .agents, symbol: "macwindow.badge.plus",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-window"
             ),
             ActionDescriptor(
                 id: "palette.computerUse.setup",
-                title: String(localized: "action.palette.computerUse.setup", defaultValue: "Computer Use Setup", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.computerUse.setup") + "\u{E002}" + String(localized: "action.palette.computerUse.setup", defaultValue: "Computer Use Setup", bundle: .module)),
                 keywords: ["agent", "automation"], category: .agents, symbol: "cursorarrow.click.2",
                 surfaces: [.palette], cliName: "agent computer-use-setup"
             ),
             ActionDescriptor(
                 id: "palette.computerUse.restart",
-                title: String(localized: "action.palette.computerUse.restart", defaultValue: "Restart Computer Use Helper", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.computerUse.restart") + "\u{E002}" + String(localized: "action.palette.computerUse.restart", defaultValue: "Restart Computer Use Helper", bundle: .module)),
                 keywords: ["agent", "automation", "restart"], category: .agents, symbol: "arrow.clockwise",
                 surfaces: [.palette], cliName: "agent restart-computer-use-helper"
             ),
             ActionDescriptor(
                 id: "palette.computerUse.accessibility",
-                title: String(localized: "action.palette.computerUse.accessibility", defaultValue: "Grant Accessibility Access", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.computerUse.accessibility") + "\u{E002}" + String(localized: "action.palette.computerUse.accessibility", defaultValue: "Grant Accessibility Access", bundle: .module)),
                 keywords: ["agent", "permissions", "tcc"], category: .agents, symbol: "accessibility",
                 surfaces: [.palette], cliName: "agent grant-accessibility-access"
             ),
             ActionDescriptor(
                 id: "palette.computerUse.screenRecording",
-                title: String(localized: "action.palette.computerUse.screenRecording", defaultValue: "Grant Screen Recording Access", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.palette.computerUse.screenRecording") + "\u{E002}" + String(localized: "action.palette.computerUse.screenRecording", defaultValue: "Grant Screen Recording Access", bundle: .module)),
                 keywords: ["agent", "permissions", "tcc"], category: .agents, symbol: "record.circle",
                 surfaces: [.palette], cliName: "agent grant-screen-recording-access"
             ),
@@ -482,28 +482,28 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // acpmux session's chat.
             ActionDescriptor(
                 id: "agent.openSessionWorkspace",
-                title: String(localized: "action.agent.openSessionWorkspace", defaultValue: "Open Agent Session in New Workspace", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agent.openSessionWorkspace") + "\u{E002}" + String(localized: "action.agent.openSessionWorkspace", defaultValue: "Open Agent Session in New Workspace", bundle: .module)),
                 keywords: ["agent", "session", "acpmux", "subagent", "workspace"], category: .agents,
                 symbol: "bubble.left.and.text.bubble.right", surfaces: [.keyboard],
                 arguments: [
-                    ActionArgument(name: "session", title: String(localized: "argument.agent.session", defaultValue: "Session", bundle: .module),
+                    ActionArgument(name: "session", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.agent.session") + "\u{E002}" + String(localized: "argument.agent.session", defaultValue: "Session", bundle: .module)),
                                    kind: .string),
-                    ActionArgument(name: "name", title: String(localized: "argument.agent.workspaceName", defaultValue: "Workspace Name", bundle: .module),
+                    ActionArgument(name: "name", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.agent.workspaceName") + "\u{E002}" + String(localized: "argument.agent.workspaceName", defaultValue: "Workspace Name", bundle: .module)),
                                    kind: .string, isRequired: false),
                     // The name a workspace with no `name` takes (an unnamed launch's session name); never a predecessor's.
-                    ActionArgument(name: "defaultName", title: String(localized: "argument.agent.workspaceDefaultName", defaultValue: "Default Workspace Name", bundle: .module),
+                    ActionArgument(name: "defaultName", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.agent.workspaceDefaultName") + "\u{E002}" + String(localized: "argument.agent.workspaceDefaultName", defaultValue: "Default Workspace Name", bundle: .module)),
                                    kind: .string, isRequired: false),
-                    ActionArgument(name: "key", title: String(localized: "argument.agent.workspaceKey", defaultValue: "Workspace Key", bundle: .module),
+                    ActionArgument(name: "key", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.agent.workspaceKey") + "\u{E002}" + String(localized: "argument.agent.workspaceKey", defaultValue: "Workspace Key", bundle: .module)),
                                    kind: .string, isRequired: false),
-                    ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module),
+                    ActionArgument(name: "cwd", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.agent.cwd") + "\u{E002}" + String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module)),
                                    kind: .string, isRequired: false),
-                    ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
+                    ActionArgument(name: "host", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.agent.host") + "\u{E002}" + String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module)),
                                    kind: .string, isRequired: false),
                     // A group's name (made when missing), not a target: a launcher names it.
-                    ActionArgument(name: "group", title: String(localized: "argument.group", defaultValue: "Group", bundle: .module),
+                    ActionArgument(name: "group", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.group") + "\u{E002}" + String(localized: "argument.group", defaultValue: "Group", bundle: .module)),
                                    kind: .string, isRequired: false),
                     // `top`: first in the sidebar (below Home), over workspaces.newPlacement (#29875).
-                    ActionArgument(name: "placement", title: String(localized: "argument.agent.placement", defaultValue: "Placement", bundle: .module),
+                    ActionArgument(name: "placement", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.agent.placement") + "\u{E002}" + String(localized: "argument.agent.placement", defaultValue: "Placement", bundle: .module)),
                                    kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",
@@ -516,13 +516,13 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // Agents and scripts (`cmux agent open-tab SESSION`): an existing acpmux session's chat as a tab of a pane.
             ActionDescriptor(
                 id: "agent.openSessionTab",
-                title: String(localized: "action.agent.openSessionTab", defaultValue: "Open Agent Session in Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agent.openSessionTab") + "\u{E002}" + String(localized: "action.agent.openSessionTab", defaultValue: "Open Agent Session in Tab", bundle: .module)),
                 keywords: ["agent", "session", "acpmux", "subagent", "tab", "chat"], category: .agents,
                 symbol: "bubble.left.and.text.bubble.right", surfaces: [.keyboard],
                 arguments: [
-                    ActionArgument(name: "session", title: String(localized: "argument.agent.session", defaultValue: "Session", bundle: .module),
+                    ActionArgument(name: "session", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.agent.session") + "\u{E002}" + String(localized: "argument.agent.session", defaultValue: "Session", bundle: .module)),
                                    kind: .string),
-                    ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
+                    ActionArgument(name: "host", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.agent.host") + "\u{E002}" + String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module)),
                                    kind: .string, isRequired: false),
                 ],
                 targets: [.pane, .tab], cliName: "agent open-tab",
@@ -531,7 +531,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // The Home Chief's settings sidebar (the header's name pill does the same).
             ActionDescriptor(
                 id: "home.toggleChiefSettings",
-                title: String(localized: "action.home.toggleChiefSettings", defaultValue: "Toggle Chief Settings", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.home.toggleChiefSettings") + "\u{E002}" + String(localized: "action.home.toggleChiefSettings", defaultValue: "Toggle Chief Settings", bundle: .module)),
                 keywords: ["chief", "home", "engine", "model", "harness", "settings"], category: .agents,
                 symbol: "sidebar.right", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
@@ -540,7 +540,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // stop button, Esc and Cmd-. in its field run this one action.
             ActionDescriptor(
                 id: "home.stopChief",
-                title: String(localized: "action.home.stopChief", defaultValue: "Stop the Chief", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.home.stopChief") + "\u{E002}" + String(localized: "action.home.stopChief", defaultValue: "Stop the Chief", bundle: .module)),
                 keywords: ["chief", "home", "stop", "cancel", "interrupt", "turn"], category: .agents,
                 symbol: "stop.circle", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
@@ -550,7 +550,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // in a native pane tab in the Home right column. Every build.
             ActionDescriptor(
                 id: "chief.openMemoryInspector",
-                title: String(localized: "action.chief.openMemoryInspector", defaultValue: "Chief: Open Memory Inspector", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.chief.openMemoryInspector") + "\u{E002}" + String(localized: "action.chief.openMemoryInspector", defaultValue: "Chief: Open Memory Inspector", bundle: .module)),
                 keywords: ["chief", "memory", "optchat", "view", "zoom", "tree", "edit", "delete", "forget", "inspector"],
                 category: .agents, symbol: "brain", surfaces: [.palette], cliName: "chief memory",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
@@ -560,7 +560,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // (the same `chief` and `server` arguments).
             ActionDescriptor(
                 id: "chief.toggleMemoryInspector",
-                title: String(localized: "action.chief.toggleMemoryInspector", defaultValue: "Chief: Toggle Memory Inspector", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.chief.toggleMemoryInspector") + "\u{E002}" + String(localized: "action.chief.toggleMemoryInspector", defaultValue: "Chief: Toggle Memory Inspector", bundle: .module)),
                 keywords: ["chief", "memory", "inspector", "panel", "show", "hide", "close"],
                 category: .agents, symbol: "brain", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
@@ -573,10 +573,10 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // `cmux action run chief.moveTo --arg target=…` reaches it by id.
             ActionDescriptor(
                 id: "chief.moveTo",
-                title: String(localized: "action.chief.moveTo", defaultValue: "Move Chief To…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.chief.moveTo") + "\u{E002}" + String(localized: "action.chief.moveTo", defaultValue: "Move Chief To…", bundle: .module)),
                 keywords: ["chief", "move", "migrate", "host", "remote", "mac mini", "linux", "vm", "cloud"],
                 category: .agents, symbol: "arrow.right.circle", surfaces: [.palette],
-                arguments: [ActionArgument(name: "target", title: String(localized: "argument.chiefMoveTarget", defaultValue: "Target", table: "RemoteActions", bundle: .module),
+                arguments: [ActionArgument(name: "target", title: ("\u{E000}RemoteActions\u{E001}" + String(describing: "argument.chiefMoveTarget") + "\u{E002}" + String(localized: "argument.chiefMoveTarget", defaultValue: "Target", table: "RemoteActions", bundle: .module)),
                                            kind: .string, isRequired: false,
                                            suggestions: ActionSuggestions(source: ActionSuggestions.chiefMoveTargets, pinned: []))],
                 destructive: true,
@@ -588,7 +588,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // offers it while the Chief's home is marked moved.
             ActionDescriptor(
                 id: "chief.moveRollback",
-                title: String(localized: "action.chief.moveRollback", defaultValue: "Roll Back Chief Move", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.chief.moveRollback") + "\u{E002}" + String(localized: "action.chief.moveRollback", defaultValue: "Roll Back Chief Move", bundle: .module)),
                 keywords: ["chief", "move", "teleport", "rollback", "roll back", "undo", "back", "this mac", "cloud"],
                 category: .agents, symbol: "arrow.uturn.backward.circle", surfaces: [.palette],
                 destructive: true,
@@ -600,29 +600,29 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // import-from` is the CLI). `chief` names a Cloud Chief to import into; `source` skips the question.
             ActionDescriptor(
                 id: "chief.importMemories",
-                title: String(localized: "action.chief.importMemories", defaultValue: "Bring Your History", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.chief.importMemories") + "\u{E002}" + String(localized: "action.chief.importMemories", defaultValue: "Bring Your History", bundle: .module)),
                 keywords: ["chief", "memory", "memories", "import", "claude", "claude code", "codex", "chatgpt", "openai", "bring", "migrate", "onboard"],
                 category: .agents, symbol: "square.and.arrow.down", surfaces: [.palette],
                 arguments: [
-                    ActionArgument(name: "chief", title: String(localized: "argument.chiefImportChief", defaultValue: "Cloud Chief", bundle: .module),
+                    ActionArgument(name: "chief", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.chiefImportChief") + "\u{E002}" + String(localized: "argument.chiefImportChief", defaultValue: "Cloud Chief", bundle: .module)),
                                    kind: .string, isRequired: false),
-                    ActionArgument(name: "source", title: String(localized: "argument.chiefImportSource", defaultValue: "Source", bundle: .module),
+                    ActionArgument(name: "source", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.chiefImportSource") + "\u{E002}" + String(localized: "argument.chiefImportSource", defaultValue: "Source", bundle: .module)),
                                    kind: .string, isRequired: false),
                 ],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "chief.importMemories.undo",
-                title: String(localized: "action.chief.importMemories.undo", defaultValue: "Undo Last Memory Import", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.chief.importMemories.undo") + "\u{E002}" + String(localized: "action.chief.importMemories.undo", defaultValue: "Undo Last Memory Import", bundle: .module)),
                 keywords: ["chief", "memory", "memories", "import", "undo", "take back", "restore"],
                 category: .agents, symbol: "arrow.uturn.backward", surfaces: [.palette],
-                arguments: [ActionArgument(name: "chief", title: String(localized: "argument.chiefImportChief", defaultValue: "Cloud Chief", bundle: .module),
+                arguments: [ActionArgument(name: "chief", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.chiefImportChief") + "\u{E002}" + String(localized: "argument.chiefImportChief", defaultValue: "Cloud Chief", bundle: .module)),
                                            kind: .string, isRequired: false)],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "chief.openUsage",
-                title: String(localized: "action.chief.openUsage", defaultValue: "Chief Usage", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.chief.openUsage") + "\u{E002}" + String(localized: "action.chief.openUsage", defaultValue: "Chief Usage", bundle: .module)),
                 keywords: ["chief", "usage", "cost", "tokens", "cache", "spend", "stats", "analytics"],
                 category: .agents, symbol: "dollarsign.circle", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
@@ -632,7 +632,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // right column. Debug Settings > Home > "Chief view gallery"; DEV and NIGHTLY only.
             ActionDescriptor(
                 id: "chief.openViews",
-                title: String(localized: "action.chief.openViews", defaultValue: "Chief View Gallery", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.chief.openViews") + "\u{E002}" + String(localized: "action.chief.openViews", defaultValue: "Chief View Gallery", bundle: .module)),
                 keywords: ["chief", "views", "gallery", "agents", "where", "everybody", "board", "fleet", "landing", "timeline"],
                 category: .agents, symbol: "square.grid.2x2", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
@@ -642,36 +642,36 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // NIGHTLY, cmux NEXT DEV and Debug only.
             ActionDescriptor(
                 id: "gallery.openStage",
-                title: String(localized: "action.gallery.openStage", defaultValue: "Gallery Stage", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.gallery.openStage") + "\u{E002}" + String(localized: "action.gallery.openStage", defaultValue: "Gallery Stage", bundle: .module)),
                 keywords: ["gallery", "stage", "component", "preview", "view", "window", "hot reload", "dev"],
                 category: .window, symbol: "square.on.square.dashed", surfaces: [.palette],
                 arguments: [
-                    ActionArgument(name: "entry", title: String(localized: "argument.gallery.entry", defaultValue: "Entry", bundle: .module), kind: .string, isRequired: false),
-                    ActionArgument(name: "variant", title: String(localized: "argument.gallery.variant", defaultValue: "Variant", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "entry", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.gallery.entry") + "\u{E002}" + String(localized: "argument.gallery.entry", defaultValue: "Entry", bundle: .module)), kind: .string, isRequired: false),
+                    ActionArgument(name: "variant", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.gallery.variant") + "\u{E002}" + String(localized: "argument.gallery.variant", defaultValue: "Variant", bundle: .module)), kind: .string, isRequired: false),
                 ],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "agentActivity.open",
-                title: String(localized: "action.agentActivity.open", defaultValue: "Agent Activity", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentActivity.open") + "\u{E002}" + String(localized: "action.agentActivity.open", defaultValue: "Agent Activity", bundle: .module)),
                 keywords: ["agent", "computer use", "cua", "timeline", "screenshots", "automation"], category: .agents,
                 symbol: "cursorarrow.click.2", surfaces: [.palette, .menu], cliName: "agent activity", mainMenu: .window
             ),
             ActionDescriptor(
                 id: "computerUseFocus",
-                title: String(localized: "action.computerUseFocus", defaultValue: "Focus Computer Use", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.computerUseFocus") + "\u{E002}" + String(localized: "action.computerUseFocus", defaultValue: "Focus Computer Use", bundle: .module)),
                 keywords: ["agent", "automation"], category: .agents, symbol: "cursorarrow.rays", surfaces: [.menu],
                 cliName: "agent focus-computer-use", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "computerUseFocusCallingTerminal",
-                title: String(localized: "action.computerUseFocusCallingTerminal", defaultValue: "Focus Calling Terminal", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.computerUseFocusCallingTerminal") + "\u{E002}" + String(localized: "action.computerUseFocusCallingTerminal", defaultValue: "Focus Calling Terminal", bundle: .module)),
                 keywords: ["agent", "automation"], category: .agents, symbol: "terminal", surfaces: [.menu],
                 cliName: "agent focus-calling-terminal", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "computerUseStop",
-                title: String(localized: "action.computerUseStop", defaultValue: "Stop Computer Use", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.computerUseStop") + "\u{E002}" + String(localized: "action.computerUseStop", defaultValue: "Stop Computer Use", bundle: .module)),
                 keywords: ["agent", "automation"], category: .agents, symbol: "stop.circle", surfaces: [.menu],
                 cliName: "agent stop-computer-use", mainMenu: .file
             ),

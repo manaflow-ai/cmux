@@ -5,7 +5,7 @@ nonisolated extension CatalogArgument {
     /// Settings module's `SettingsSection` raw values (a test checks it).
     static var settingsSectionChoice: ActionArgument {
         ActionArgument(
-            name: "section", title: String(localized: "argument.section", defaultValue: "Section", table: "SettingsActions", bundle: .module),
+            name: "section", title: ("\u{E000}SettingsActions\u{E001}" + String(describing: "argument.section") + "\u{E002}" + String(localized: "argument.section", defaultValue: "Section", table: "SettingsActions", bundle: .module)),
             kind: .enumeration([
                 ActionEnumCase(value: "general", title: text("argument.value.section.general", "General")),
                 ActionEnumCase(value: "appearance", title: text("argument.value.section.appearance", "Appearance")),
@@ -24,6 +24,6 @@ nonisolated extension CatalogArgument {
     }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "SettingsActions", bundle: .module)
+        ("\u{E000}SettingsActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: value, table: "SettingsActions", bundle: .module))
     }
 }

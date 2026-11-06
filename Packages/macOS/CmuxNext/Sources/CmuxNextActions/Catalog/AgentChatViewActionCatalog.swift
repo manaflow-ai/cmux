@@ -7,11 +7,11 @@ nonisolated enum AgentChatViewActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "agentChat.view",
-                title: String(localized: "action.agentChat.view", defaultValue: "View Chat Only", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentChat.view") + "\u{E002}" + String(localized: "action.agentChat.view", defaultValue: "View Chat Only", bundle: .module)),
                 keywords: ["agent", "chat", "session", "view", "watch", "read only", "claude", "codex", "take over"],
                 category: .agents, symbol: "eye", surfaces: [.palette],
                 arguments: [
-                    ActionArgument(name: "key", title: String(localized: "argument.agentChat.key", defaultValue: "Chat", bundle: .module),
+                    ActionArgument(name: "key", title: ("\u{E000}Localizable\u{E001}" + String(describing: "argument.agentChat.key") + "\u{E002}" + String(localized: "argument.agentChat.key", defaultValue: "Chat", bundle: .module)),
                                    kind: .string),
                 ],
                 cliName: "agent view",

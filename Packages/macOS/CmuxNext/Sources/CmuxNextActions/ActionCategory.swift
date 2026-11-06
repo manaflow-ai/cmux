@@ -23,20 +23,20 @@ public nonisolated enum ActionCategory: String, CaseIterable, Sendable, Hashable
     /// Localized section title.
     public var title: String {
         switch self {
-        case .window: String(localized: "category.window", defaultValue: "Window", bundle: .module)
-        case .workspace: String(localized: "category.workspace", defaultValue: "Workspace", bundle: .module)
-        case .pane: String(localized: "category.pane", defaultValue: "Panes", bundle: .module)
-        case .screen: String(localized: "category.screen", defaultValue: "Screens", table: "ScreenActions", bundle: .module)
-        case .tab: String(localized: "category.tab", defaultValue: "Tabs", bundle: .module)
-        case .terminal: String(localized: "category.terminal", defaultValue: "Terminal", bundle: .module)
-        case .browser: String(localized: "category.browser", defaultValue: "Browser and Viewers", bundle: .module)
-        case .sidebar: String(localized: "category.sidebar", defaultValue: "Sidebar", bundle: .module)
-        case .notifications: String(localized: "category.notifications", defaultValue: "Notifications", bundle: .module)
-        case .agents: String(localized: "category.agents", defaultValue: "Agents", bundle: .module)
-        case .cloud: String(localized: "category.cloud", defaultValue: "Cloud and Account", bundle: .module)
-        case .remote: String(localized: "category.remote", defaultValue: "Remote Machines", table: "RemoteActions", bundle: .module)
-        case .settings: String(localized: "category.settings", defaultValue: "Settings and Help", bundle: .module)
-        case .other: String(localized: "category.other", defaultValue: "Other", bundle: .module)
+        case .window: ("\u{E000}Localizable\u{E001}" + String(describing: "category.window") + "\u{E002}" + String(localized: "category.window", defaultValue: "Window", bundle: .module))
+        case .workspace: ("\u{E000}Localizable\u{E001}" + String(describing: "category.workspace") + "\u{E002}" + String(localized: "category.workspace", defaultValue: "Workspace", bundle: .module))
+        case .pane: ("\u{E000}Localizable\u{E001}" + String(describing: "category.pane") + "\u{E002}" + String(localized: "category.pane", defaultValue: "Panes", bundle: .module))
+        case .screen: ("\u{E000}ScreenActions\u{E001}" + String(describing: "category.screen") + "\u{E002}" + String(localized: "category.screen", defaultValue: "Screens", table: "ScreenActions", bundle: .module))
+        case .tab: ("\u{E000}Localizable\u{E001}" + String(describing: "category.tab") + "\u{E002}" + String(localized: "category.tab", defaultValue: "Tabs", bundle: .module))
+        case .terminal: ("\u{E000}Localizable\u{E001}" + String(describing: "category.terminal") + "\u{E002}" + String(localized: "category.terminal", defaultValue: "Terminal", bundle: .module))
+        case .browser: ("\u{E000}Localizable\u{E001}" + String(describing: "category.browser") + "\u{E002}" + String(localized: "category.browser", defaultValue: "Browser and Viewers", bundle: .module))
+        case .sidebar: ("\u{E000}Localizable\u{E001}" + String(describing: "category.sidebar") + "\u{E002}" + String(localized: "category.sidebar", defaultValue: "Sidebar", bundle: .module))
+        case .notifications: ("\u{E000}Localizable\u{E001}" + String(describing: "category.notifications") + "\u{E002}" + String(localized: "category.notifications", defaultValue: "Notifications", bundle: .module))
+        case .agents: ("\u{E000}Localizable\u{E001}" + String(describing: "category.agents") + "\u{E002}" + String(localized: "category.agents", defaultValue: "Agents", bundle: .module))
+        case .cloud: ("\u{E000}Localizable\u{E001}" + String(describing: "category.cloud") + "\u{E002}" + String(localized: "category.cloud", defaultValue: "Cloud and Account", bundle: .module))
+        case .remote: ("\u{E000}RemoteActions\u{E001}" + String(describing: "category.remote") + "\u{E002}" + String(localized: "category.remote", defaultValue: "Remote Machines", table: "RemoteActions", bundle: .module))
+        case .settings: ("\u{E000}Localizable\u{E001}" + String(describing: "category.settings") + "\u{E002}" + String(localized: "category.settings", defaultValue: "Settings and Help", bundle: .module))
+        case .other: ("\u{E000}Localizable\u{E001}" + String(describing: "category.other") + "\u{E002}" + String(localized: "category.other", defaultValue: "Other", bundle: .module))
         }
     }
 

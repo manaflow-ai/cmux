@@ -11,7 +11,7 @@ nonisolated enum BrowserChromeActionCatalog: ActionCatalogGroup {
             // actions that share the chords elsewhere (Toggle Pane Zoom).
             ActionDescriptor(
                 id: "omnibar.openInBackgroundTab",
-                title: String(localized: "action.omnibar.openInBackgroundTab", defaultValue: "Open Address in New Background Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.omnibar.openInBackgroundTab") + "\u{E002}" + String(localized: "action.omnibar.openInBackgroundTab", defaultValue: "Open Address in New Background Tab", bundle: .module)),
                 keywords: ["browser", "url", "omnibox", "address bar", "new tab", "background"],
                 defaultShortcut: Shortcut(Shortcut.returnKey, modifiers: [.command]), category: .browser,
                 symbol: "plus.square.on.square", surfaces: [.keyboard], requires: [.omnibarFocused], targets: [.pane],
@@ -19,7 +19,7 @@ nonisolated enum BrowserChromeActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "omnibar.openInForegroundTab",
-                title: String(localized: "action.omnibar.openInForegroundTab", defaultValue: "Open Address in New Tab", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.omnibar.openInForegroundTab") + "\u{E002}" + String(localized: "action.omnibar.openInForegroundTab", defaultValue: "Open Address in New Tab", bundle: .module)),
                 keywords: ["browser", "url", "omnibox", "address bar", "new tab", "foreground"],
                 defaultShortcut: Shortcut(Shortcut.returnKey, modifiers: [.command, .shift]), category: .browser,
                 symbol: "plus.square", surfaces: [.keyboard], requires: [.omnibarFocused], targets: [.pane],
@@ -27,7 +27,7 @@ nonisolated enum BrowserChromeActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "browserStop",
-                title: String(localized: "action.browserStop", defaultValue: "Stop Loading", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.browserStop") + "\u{E002}" + String(localized: "action.browserStop", defaultValue: "Stop Loading", bundle: .module)),
                 keywords: ["browser", "cancel", "halt"], defaultShortcut: Shortcut(".", modifiers: [.command]),
                 category: .browser, symbol: "xmark", surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser stop-loading", mainMenu: .view,
@@ -37,7 +37,7 @@ nonisolated enum BrowserChromeActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "browser.copyURL",
-                title: String(localized: "action.browser.copyURL", defaultValue: "Copy Page URL", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.browser.copyURL") + "\u{E002}" + String(localized: "action.browser.copyURL", defaultValue: "Copy Page URL", bundle: .module)),
                 keywords: ["browser", "link", "address", "url", "clipboard", "share"],
                 defaultShortcut: Shortcut("c", modifiers: [.command, .shift]), category: .browser, symbol: "link",
                 surfaces: [.palette, .keyboard, .contextMenu], requires: [.browserFocused], targets: [.tab],
@@ -47,7 +47,7 @@ nonisolated enum BrowserChromeActionCatalog: ActionCatalogGroup {
             // this Mac's page in its place, at the address it waits for.
             ActionDescriptor(
                 id: "browser.openLocally",
-                title: String(localized: "action.browser.openLocally", defaultValue: "Open Locally Instead", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.browser.openLocally") + "\u{E002}" + String(localized: "action.browser.openLocally", defaultValue: "Open Locally Instead", bundle: .module)),
                 keywords: ["browser", "remote", "machine", "local", "this mac", "cloud", "ssh"],
                 category: .browser, symbol: "laptopcomputer",
                 surfaces: [.palette, .contextMenu], requires: [.browserFocused], targets: [.tab],
@@ -57,7 +57,7 @@ nonisolated enum BrowserChromeActionCatalog: ActionCatalogGroup {
             // machine (the This Mac chip's menu, cx-2cob).
             ActionDescriptor(
                 id: "browser.openOnMachine",
-                title: String(localized: "action.browser.openOnMachine", defaultValue: "Open on Machine", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.browser.openOnMachine") + "\u{E002}" + String(localized: "action.browser.openOnMachine", defaultValue: "Open on Machine", bundle: .module)),
                 keywords: ["browser", "remote", "machine", "cloud", "ssh", "run there"],
                 category: .browser, symbol: "server.rack",
                 surfaces: [.palette], requires: [.browserFocused], targets: [.tab],
@@ -68,7 +68,7 @@ nonisolated enum BrowserChromeActionCatalog: ActionCatalogGroup {
             // browser focused, so it wins only there (specificity rule).
             ActionDescriptor(
                 id: "browser.findPrevious",
-                title: String(localized: "action.browser.findPrevious", defaultValue: "Find Previous in Page", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.browser.findPrevious") + "\u{E002}" + String(localized: "action.browser.findPrevious", defaultValue: "Find Previous in Page", bundle: .module)),
                 keywords: ["browser", "search", "find"], defaultShortcut: Shortcut("g", modifiers: [.command, .shift]),
                 category: .browser, symbol: "chevron.up.circle", surfaces: [.keyboard], requires: [.browserFocused], targets: [.pane],
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.familyMember), cli: .exempt(.familyMember), contextMenuExemption: .familyMember)
@@ -81,21 +81,21 @@ nonisolated enum BrowserChromeActionCatalog: ActionCatalogGroup {
             // that blocked the newest download, where its choice changes.
             ActionDescriptor(
                 id: "browser.download.openBlockedSiteSettings",
-                title: String(localized: "action.browser.download.openBlockedSiteSettings", defaultValue: "Open Site Settings for Blocked Downloads", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.browser.download.openBlockedSiteSettings") + "\u{E002}" + String(localized: "action.browser.download.openBlockedSiteSettings", defaultValue: "Open Site Settings for Blocked Downloads", bundle: .module)),
                 keywords: ["browser", "download", "blocked", "automatic downloads", "multiple files", "site settings", "permission", "allow"],
                 category: .browser, symbol: "gearshape", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
                 id: "browser.prompt.allow",
-                title: String(localized: "action.browser.prompt.allow", defaultValue: "Allow Site Request", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.browser.prompt.allow") + "\u{E002}" + String(localized: "action.browser.prompt.allow", defaultValue: "Allow Site Request", bundle: .module)),
                 keywords: ["browser", "permission", "prompt", "allow", "download", "multiple files", "camera", "microphone"],
                 category: .browser, symbol: "checkmark.circle", surfaces: [.palette], requires: [.browserFocused], targets: [.tab],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.liveInput), contextMenuExemption: .liveInput)
             ),
             ActionDescriptor(
                 id: "browser.prompt.block",
-                title: String(localized: "action.browser.prompt.block", defaultValue: "Block Site Request", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.browser.prompt.block") + "\u{E002}" + String(localized: "action.browser.prompt.block", defaultValue: "Block Site Request", bundle: .module)),
                 keywords: ["browser", "permission", "prompt", "block", "deny", "never allow", "download", "camera", "microphone"],
                 category: .browser, symbol: "nosign", surfaces: [.palette], requires: [.browserFocused], targets: [.tab],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.liveInput), contextMenuExemption: .liveInput)

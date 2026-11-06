@@ -9,7 +9,7 @@ nonisolated extension WorkspaceActionCatalog {
         // Scripts and agents move sessions with `session.transfer.peers` and `.pull`.
         var moveFromBuild = ActionDescriptor(
             id: "session.moveFromBuild",
-            title: String(localized: "action.session.moveFromBuild", defaultValue: "Move Sessions from Another cmux Build…", bundle: .module),
+            title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.session.moveFromBuild") + "\u{E002}" + String(localized: "action.session.moveFromBuild", defaultValue: "Move Sessions from Another cmux Build…", bundle: .module)),
             keywords: ["move", "transfer", "import", "dev", "nightly", "build", "session", "classic", "migrate"], category: .workspace,
             symbol: "arrow.right.arrow.left", surfaces: [.palette]
         )

@@ -5,7 +5,7 @@ nonisolated enum AgentSideQuestionActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "agentPane.sideQuestion",
-                title: String(localized: "action.agentPane.sideQuestion", defaultValue: "Ask a Side Question…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.sideQuestion") + "\u{E002}" + String(localized: "action.agentPane.sideQuestion", defaultValue: "Ask a Side Question…", bundle: .module)),
                 keywords: ["agent", "chat", "btw", "side", "question", "aside", "ask", "session"],
                 category: .agents, symbol: "questionmark.bubble", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane],

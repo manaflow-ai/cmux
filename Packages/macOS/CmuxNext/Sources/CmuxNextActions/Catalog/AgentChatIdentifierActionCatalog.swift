@@ -5,7 +5,7 @@ nonisolated enum AgentChatIdentifierActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "agentChat.copyIdentifier",
-                title: String(localized: "action.agentChat.copyIdentifier", defaultValue: "Copy Agent Identifier", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentChat.copyIdentifier") + "\u{E002}" + String(localized: "action.agentChat.copyIdentifier", defaultValue: "Copy Agent Identifier", bundle: .module)),
                 keywords: ["agent", "chat", "session", "identifier", "id", "acpmux", "message", "copy"], category: .agents,
                 symbol: "at", surfaces: [.palette, .contextMenu], targets: [.tab, .workspace],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard), contextMenus: [

@@ -6,40 +6,40 @@ nonisolated enum ThemeActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "space.setTheme",
-                title: String(localized: "action.space.setTheme", defaultValue: "Set Space Theme…", table: "ThemeActions", bundle: .module),
+                title: ("\u{E000}ThemeActions\u{E001}" + String(describing: "action.space.setTheme") + "\u{E002}" + String(localized: "action.space.setTheme", defaultValue: "Set Space Theme…", table: "ThemeActions", bundle: .module)),
                 keywords: ["room", "profile", "theme", "colors", "ghostty", "appearance"], category: .workspace, symbol: "paintbrush",
                 surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.ghosttyThemeChoice], targets: [.profile],
                 cliName: "space set-theme"
             ),
             ActionDescriptor(
                 id: "space.clearTheme",
-                title: String(localized: "action.space.clearTheme", defaultValue: "Reset Space Theme", table: "ThemeActions", bundle: .module),
+                title: ("\u{E000}ThemeActions\u{E001}" + String(describing: "action.space.clearTheme") + "\u{E002}" + String(localized: "action.space.clearTheme", defaultValue: "Reset Space Theme", table: "ThemeActions", bundle: .module)),
                 keywords: ["room", "profile", "theme", "reset", "ghostty"], category: .workspace, symbol: "eraser",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.profile], cliName: "space clear-theme"
             ),
             ActionDescriptor(
                 id: "workspace.setTheme",
-                title: String(localized: "action.workspace.setTheme", defaultValue: "Set Workspace Theme…", table: "ThemeActions", bundle: .module),
+                title: ("\u{E000}ThemeActions\u{E001}" + String(describing: "action.workspace.setTheme") + "\u{E002}" + String(localized: "action.workspace.setTheme", defaultValue: "Set Workspace Theme…", table: "ThemeActions", bundle: .module)),
                 keywords: ["workspace", "theme", "colors", "ghostty", "appearance"], category: .workspace, symbol: "paintbrush",
                 surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.ghosttyThemeChoice], targets: [.workspace],
                 cliName: "workspace set-theme"
             ),
             ActionDescriptor(
                 id: "workspace.clearTheme",
-                title: String(localized: "action.workspace.clearTheme", defaultValue: "Reset Workspace Theme", table: "ThemeActions", bundle: .module),
+                title: ("\u{E000}ThemeActions\u{E001}" + String(describing: "action.workspace.clearTheme") + "\u{E002}" + String(localized: "action.workspace.clearTheme", defaultValue: "Reset Workspace Theme", table: "ThemeActions", bundle: .module)),
                 keywords: ["workspace", "theme", "reset", "ghostty"], category: .workspace, symbol: "eraser",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace clear-theme"
             ),
             ActionDescriptor(
                 id: "terminal.setTheme",
-                title: String(localized: "action.terminal.setTheme", defaultValue: "Set Terminal Theme…", table: "ThemeActions", bundle: .module),
+                title: ("\u{E000}ThemeActions\u{E001}" + String(describing: "action.terminal.setTheme") + "\u{E002}" + String(localized: "action.terminal.setTheme", defaultValue: "Set Terminal Theme…", table: "ThemeActions", bundle: .module)),
                 keywords: ["terminal", "tab", "theme", "colors", "ghostty", "palette"], category: .terminal, symbol: "paintbrush",
                 surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.ghosttyThemeChoice], targets: [.tab],
                 cliName: "terminal set-theme"
             ),
             ActionDescriptor(
                 id: "terminal.clearTheme",
-                title: String(localized: "action.terminal.clearTheme", defaultValue: "Reset Terminal Theme", table: "ThemeActions", bundle: .module),
+                title: ("\u{E000}ThemeActions\u{E001}" + String(describing: "action.terminal.clearTheme") + "\u{E002}" + String(localized: "action.terminal.clearTheme", defaultValue: "Reset Terminal Theme", table: "ThemeActions", bundle: .module)),
                 keywords: ["terminal", "tab", "theme", "reset", "ghostty"], category: .terminal, symbol: "eraser",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.tab], cliName: "terminal clear-theme"
             ),
@@ -55,13 +55,13 @@ nonisolated extension CatalogArgument {
     /// Theme names are product names and are not translated.
     static var ghosttyThemeChoice: ActionArgument {
         let config = ActionEnumCase(value: themeConfigValue,
-                                    title: String(localized: "argument.value.theme.config", defaultValue: "Use Ghostty Config", table: "ThemeActions", bundle: .module))
+                                    title: ("\u{E000}ThemeActions\u{E001}" + String(describing: "argument.value.theme.config") + "\u{E002}" + String(localized: "argument.value.theme.config", defaultValue: "Use Ghostty Config", table: "ThemeActions", bundle: .module)))
         let suggestions = ActionSuggestions(
             source: ActionSuggestions.ghosttyThemes,
             pinned: [config] + curatedThemes.map { ActionEnumCase(value: $0, title: $0) },
-            otherTitle: String(localized: "argument.value.theme.pair", defaultValue: "Light and Dark Pair…", table: "ThemeActions", bundle: .module)
+            otherTitle: ("\u{E000}ThemeActions\u{E001}" + String(describing: "argument.value.theme.pair") + "\u{E002}" + String(localized: "argument.value.theme.pair", defaultValue: "Light and Dark Pair…", table: "ThemeActions", bundle: .module))
         )
-        return ActionArgument(name: "theme", title: String(localized: "argument.theme", defaultValue: "Theme", table: "ThemeActions", bundle: .module),
+        return ActionArgument(name: "theme", title: ("\u{E000}ThemeActions\u{E001}" + String(describing: "argument.theme") + "\u{E002}" + String(localized: "argument.theme", defaultValue: "Theme", table: "ThemeActions", bundle: .module)),
                               kind: .string, suggestions: suggestions)
     }
 

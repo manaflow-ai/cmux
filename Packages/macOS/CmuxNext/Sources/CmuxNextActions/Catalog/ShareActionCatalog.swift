@@ -6,7 +6,7 @@ nonisolated enum ShareActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "app.shareCmux",
-                title: String(localized: "action.app.shareCmux", defaultValue: "Share cmux…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.app.shareCmux") + "\u{E002}" + String(localized: "action.app.shareCmux", defaultValue: "Share cmux…", bundle: .module)),
                 keywords: ["share", "invite", "friend", "recommend", "download link", "copy link", "tell a friend"],
                 category: .settings, symbol: "square.and.arrow.up", surfaces: [.palette, .menu], mainMenu: .help,
                 // A modal for a person to edit and copy; scripts have nothing to read back.

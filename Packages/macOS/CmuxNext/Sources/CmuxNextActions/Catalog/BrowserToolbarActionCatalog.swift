@@ -7,7 +7,7 @@
 nonisolated enum BrowserToolbarActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-            String(localized: key, defaultValue: value, table: "BrowserToolbarActions", bundle: .module)
+            ("\u{E000}BrowserToolbarActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: value, table: "BrowserToolbarActions", bundle: .module))
         }
         // A menu at a toolbar button: nothing to script, and every item is
         // its own action with its own CLI verb and right-click placement.

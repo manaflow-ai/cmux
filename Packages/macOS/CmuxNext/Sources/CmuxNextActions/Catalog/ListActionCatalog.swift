@@ -9,7 +9,7 @@ nonisolated enum ListActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "list.next",
-                title: String(localized: "action.list.next", defaultValue: "Next Item", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.list.next") + "\u{E002}" + String(localized: "action.list.next", defaultValue: "Next Item", bundle: .module)),
                 keywords: ["list", "down", "next", "select"], category: .window, symbol: "chevron.down",
                 surfaces: [.keyboard],
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.liveInput), cli: .exempt(.liveInput),
@@ -17,7 +17,7 @@ nonisolated enum ListActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "list.previous",
-                title: String(localized: "action.list.previous", defaultValue: "Previous Item", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.list.previous") + "\u{E002}" + String(localized: "action.list.previous", defaultValue: "Previous Item", bundle: .module)),
                 keywords: ["list", "up", "previous", "select"], category: .window, symbol: "chevron.up",
                 surfaces: [.keyboard],
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.liveInput), cli: .exempt(.liveInput),

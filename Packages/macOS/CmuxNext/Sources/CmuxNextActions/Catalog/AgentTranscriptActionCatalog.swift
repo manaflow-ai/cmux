@@ -10,7 +10,7 @@ nonisolated enum AgentTranscriptActionCatalog: ActionCatalogGroup {
             // Ctrl-Opt arrows: Ctrl-Cmd arrows are the pane-resize aliases (KeyBindingDefaults).
             ActionDescriptor(
                 id: "agentPane.previousTurn",
-                title: String(localized: "action.agentPane.previousTurn", defaultValue: "Previous Turn", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.previousTurn") + "\u{E002}" + String(localized: "action.agentPane.previousTurn", defaultValue: "Previous Turn", bundle: .module)),
                 keywords: ["agent", "chat", "turn", "prompt", "message", "previous", "up", "minimap"],
                 defaultShortcut: Shortcut(Shortcut.upArrowKey, modifiers: [.control, .option]),
                 category: .agents, symbol: "chevron.up", surfaces: [.palette, .keyboard],
@@ -19,7 +19,7 @@ nonisolated enum AgentTranscriptActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.nextTurn",
-                title: String(localized: "action.agentPane.nextTurn", defaultValue: "Next Turn", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.nextTurn") + "\u{E002}" + String(localized: "action.agentPane.nextTurn", defaultValue: "Next Turn", bundle: .module)),
                 keywords: ["agent", "chat", "turn", "prompt", "message", "next", "down", "minimap"],
                 defaultShortcut: Shortcut(Shortcut.downArrowKey, modifiers: [.control, .option]),
                 category: .agents, symbol: "chevron.down", surfaces: [.palette, .keyboard],
@@ -30,7 +30,7 @@ nonisolated enum AgentTranscriptActionCatalog: ActionCatalogGroup {
             // on their rows. Palette only: no default key (a default key needs a design call).
             ActionDescriptor(
                 id: "agentPane.previousBookmarkedPrompt",
-                title: String(localized: "action.agentPane.previousBookmarkedPrompt", defaultValue: "Previous Bookmarked Prompt", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.previousBookmarkedPrompt") + "\u{E002}" + String(localized: "action.agentPane.previousBookmarkedPrompt", defaultValue: "Previous Bookmarked Prompt", bundle: .module)),
                 keywords: ["agent", "chat", "bookmark", "bookmarked", "prompt", "turn", "previous", "minimap"],
                 category: .agents, symbol: "bookmark", surfaces: [.palette, .keyboard],
                 requires: [.agentPaneFocused], targets: [.pane],
@@ -38,7 +38,7 @@ nonisolated enum AgentTranscriptActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.nextBookmarkedPrompt",
-                title: String(localized: "action.agentPane.nextBookmarkedPrompt", defaultValue: "Next Bookmarked Prompt", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.agentPane.nextBookmarkedPrompt") + "\u{E002}" + String(localized: "action.agentPane.nextBookmarkedPrompt", defaultValue: "Next Bookmarked Prompt", bundle: .module)),
                 keywords: ["agent", "chat", "bookmark", "bookmarked", "prompt", "turn", "next", "minimap"],
                 category: .agents, symbol: "bookmark.fill", surfaces: [.palette, .keyboard],
                 requires: [.agentPaneFocused], targets: [.pane],

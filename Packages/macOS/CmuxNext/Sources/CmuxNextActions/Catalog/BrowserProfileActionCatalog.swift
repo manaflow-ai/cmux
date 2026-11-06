@@ -17,7 +17,7 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
                              destructive: destructive)
         }
         func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-            String(localized: key, defaultValue: value, table: "BrowserProfileActions", bundle: .module)
+            ("\u{E000}BrowserProfileActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: value, table: "BrowserProfileActions", bundle: .module))
         }
         let profile = CatalogArgument.browserProfile
         var deleteDescriptor = descriptor("browserProfile.delete", text("action.browserProfile.delete", "Delete Browser Profile and Its Data…"),
@@ -95,7 +95,7 @@ nonisolated extension CatalogArgument {
     /// or `--target browser-profile:<id>`); the palette lists them by name.
     static var browserProfile: ActionArgument {
         ActionArgument(name: "browserProfile",
-                       title: String(localized: "argument.browserProfile", defaultValue: "Browser Profile", table: "BrowserProfileActions", bundle: .module),
+                       title: ("\u{E000}BrowserProfileActions\u{E001}" + String(describing: "argument.browserProfile") + "\u{E002}" + String(localized: "argument.browserProfile", defaultValue: "Browser Profile", table: "BrowserProfileActions", bundle: .module)),
                        kind: .target(.browserProfile))
     }
 

@@ -12,6 +12,6 @@ nonisolated enum SpaceMenuLabels {
     static var bringHere: String { text("menu.space.bringHere", "Move to This Window") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "ProfileActions", bundle: .module)
+        ("\u{E000}ProfileActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: value, table: "ProfileActions", bundle: .module))
     }
 }

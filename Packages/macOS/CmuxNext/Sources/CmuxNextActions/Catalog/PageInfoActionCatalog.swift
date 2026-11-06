@@ -55,7 +55,7 @@ nonisolated enum PageInfoActionCatalog: ActionCatalogGroup {
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "PageInfoActions", bundle: .module)
+        ("\u{E000}PageInfoActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: english, table: "PageInfoActions", bundle: .module))
     }
 
     /// Permission ids (`SitePermissionKind.rawValue` in CmuxNextBrowser).

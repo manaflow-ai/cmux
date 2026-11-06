@@ -13,6 +13,6 @@ nonisolated extension TabActionCatalog {
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "NewTabActions", bundle: .module)
+        ("\u{E000}NewTabActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: english, table: "NewTabActions", bundle: .module))
     }
 }

@@ -10,14 +10,14 @@ nonisolated enum MachineIconActionCatalog: ActionCatalogGroup {
         [
             ActionDescriptor(
                 id: "machine.setIcon",
-                title: String(localized: "action.machine.setIcon", defaultValue: "Set Machine Icon…", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.machine.setIcon") + "\u{E002}" + String(localized: "action.machine.setIcon", defaultValue: "Set Machine Icon…", bundle: .module)),
                 keywords: ["machine", "computer", "host", "icon", "emoji", "symbol"], category: .sidebar, symbol: "face.smiling",
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.iconString.optional], targets: [.machine],
                 cliName: "machine set-icon"
             ),
             ActionDescriptor(
                 id: "machine.clearIcon",
-                title: String(localized: "action.machine.clearIcon", defaultValue: "Remove Machine Icon", bundle: .module),
+                title: ("\u{E000}Localizable\u{E001}" + String(describing: "action.machine.clearIcon") + "\u{E002}" + String(localized: "action.machine.clearIcon", defaultValue: "Remove Machine Icon", bundle: .module)),
                 keywords: ["machine", "computer", "host", "icon", "emoji", "reset"], category: .sidebar, symbol: "xmark.circle",
                 surfaces: [.palette, .contextMenu], targets: [.machine], cliName: "machine clear-icon"
             ),

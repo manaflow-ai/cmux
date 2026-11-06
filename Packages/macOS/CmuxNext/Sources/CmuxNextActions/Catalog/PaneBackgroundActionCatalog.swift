@@ -78,7 +78,7 @@ nonisolated enum PaneBackgroundActionCatalog: ActionCatalogGroup {
     }
 
     static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "LayoutActions", bundle: .module)
+        ("\u{E000}LayoutActions\u{E001}" + String(describing: key) + "\u{E002}" + String(localized: key, defaultValue: value, table: "LayoutActions", bundle: .module))
     }
 }
 
