@@ -2150,8 +2150,9 @@ impl Hub {
             "composer_draft",
             session.status() == SessionStatus::Closed,
         );
-        // Answered only once the draft is in `session.json`: "the one durable shared draft".
-        self.save_meta_answered(session)?;
+        // Answered once the draft is saved: "the one durable shared draft". A kept change: saved
+        // when written, synced with the next acked change or within a second (`meta_save.rs`).
+        self.save_meta_kept(session)?;
         Ok(draft)
     }
 
