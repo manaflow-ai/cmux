@@ -170,6 +170,11 @@ public final class MainFrameBudget {
         renderSinceRoll = 0
     }
 
+    /// Shown content changed in this turn: a workspace switch or a Cmd-N showed another workspace, or a pane
+    /// showed (or queued to show) other content. Background work waits until a display frame presented it.
+    /// (SWITCH STALL 2 red commit: not yet honored.)
+    public func presentationPending() {}
+
     /// Records one render pass (the main run loop's before-waiting phase: layout, display and the
     /// Core Animation commit), in nanoseconds. The longest pass since a window opened is charged to
     /// the next window: its scheduled work stops at ``Budgets/passTarget`` minus that pass.
