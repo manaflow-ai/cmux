@@ -447,25 +447,28 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
     throw new Error("The grip is not on its head's middle line");
 };
 
-/// A wakeup's row lights on hover exactly as a running command's does: the same tint, radius and height.
+/// A wakeup's row lights on hover exactly as a command's does: the panel's row hover tint, on the command
+/// row's radius and box. (The fixture's command opens nothing here, so its own hover cannot be read: the
+/// tint is resolved from the panel's token instead.)
 const scheduledRowHoversLikeACommand: Play = async (ctx) => {
   const command = '[data-section="tasks"] .acpmux-session-info-task--command .acpmux-session-info-task__open';
   const wakeup = '[data-section="tasks"] .acpmux-session-info-task--scheduled[data-kind="wakeup"]';
   await ctx.waitFor(() => ctx.document.querySelector(command) && ctx.document.querySelector(wakeup));
-  await ctx.hover({ selector: command });
-  await ctx.waitFor(() => style(ctx, ctx.find({ selector: command })).backgroundColor !== "rgba(0, 0, 0, 0)");
-  const lit = style(ctx, ctx.find({ selector: command }));
+  const row = ctx.find({ selector: wakeup });
+  const probe = ctx.document.createElement("div");
+  probe.style.background = "var(--acpmux-session-info-row-hover)";
+  row.parentElement!.append(probe);
+  const tint = style(ctx, probe).backgroundColor;
+  probe.remove();
+  await ctx.hover({ selector: wakeup });
+  await ctx.waitFor(() => style(ctx, row).backgroundColor === tint);
   const box = (element: Element) => {
     const rect = element.getBoundingClientRect();
-    return [rect.left, rect.right, rect.height];
+    return [style(ctx, element).borderTopLeftRadius, rect.left, rect.right, rect.height];
   };
-  const commandLook = [lit.backgroundColor, lit.borderTopLeftRadius, ...box(ctx.find({ selector: command }))];
-  await ctx.hover({ selector: wakeup });
-  await ctx.waitFor(() => style(ctx, ctx.find({ selector: wakeup })).backgroundColor === commandLook[0]);
-  const row = ctx.find({ selector: wakeup });
-  const look = [style(ctx, row).backgroundColor, style(ctx, row).borderTopLeftRadius, ...box(row)];
-  if (look.join() !== commandLook.join())
-    throw new Error(`A wakeup's row lights as ${look.join(" / ")}, a command's as ${commandLook.join(" / ")}`);
+  const look = box(row).join();
+  const commandLook = box(ctx.find({ selector: command })).join();
+  if (look !== commandLook) throw new Error(`A wakeup's lit row is ${look}, a command's ${commandLook}`);
 };
 
 /// Shows a compared grip placement: the pointer rests on the first foldable section head.
@@ -1718,7 +1721,7 @@ export default componentEntry<Props>({
       },
     },
     "tasks-scheduled-hover": {
-      note: "A running command and a wait still ahead, each under the pointer in turn: both rows light with the same pill, the panel's row hover tint, on the same radius and height; a scheduled row differs only by its clock icon and the time it wakes (Leo, 2026-11-06: \"it doesn't get highlighted in the same way that the other ones do\").",
+      note: "A running command and a wait still ahead, the wait under the pointer: it lights with the command row's pill, the panel's row hover tint on the same radius, width and height; a scheduled row differs only by its clock icon and the time it wakes (Leo, 2026-11-06: \"it doesn't get highlighted in the same way that the other ones do\").",
       props: scheduledProps,
       play: scheduledRowHoversLikeACommand,
     },
