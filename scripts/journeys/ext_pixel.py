@@ -31,6 +31,22 @@ Steps (`do`):
                the value did not take (store inactive): recorded, never a failure; the note says what the app kept.
                With `required` (a film fixture the case cannot film without, such as the tab outline) a value that does
                not take makes the round "not run" with the reason.
+  px_keep      {method, params?, name}
+               One app socket call whose whole reply goes to diag-NAME.json in the journey's folder (NAME: lowercase
+               letters, the diag names run.py fetches back), for a reply too long for result.json's line (debug.layers,
+               debug.cef at a still; m37). The result names the file, its bytes and the reply's top-level keys. A refused
+               call is written and recorded as {"error": ...}, never a failure: it is a diagnostic.
+  px_window_shots {name}
+               One capture of each app window alone, `screencapture -x -o -l <window number>` (the window server's image
+               of that one window, no shadow, no sound) run by the driver on the mini: every main window debug.layers
+               lists, then its child windows (bottom to top) and its overlay panel when that is not a child, to
+               diag-NAME<letters>.png (a, b, ... in that order). diag-NAME.json has the table: each window's number,
+               role, class, frame, level, visibility, the file and what screencapture said (exit, output, bytes, the
+               PNG's pixel size). A window that gives no image is a row with its reason, never a failure. screencapture
+               needs the Screen Recording grant, which the driver's SSH session may not have on a mini, and without it
+               would ask TCC (a dialog on a shared mini's console): so the step asks first (CGPreflightScreenCaptureAccess,
+               no prompt) and without the grant captures nothing and says so. With it, whether the system's "bypass the
+               private window picker" consent dialog shows afterwards is recorded (ext_video's check).
   px_page      {pane, bg, label?, x?, y?, z?, timeout?}
                Opens page.html (/tmp/jr-pixel-page.html, a `file` step wrote it) in a new browser tab of the named
                pane: `cmux pane <id> focus`, then `action.run openBrowser {url: file:///tmp/jr-pixel-page.html?bg=..,
@@ -122,6 +138,7 @@ Steps (`do`):
 import json
 import math
 import os
+import re
 import threading
 import time
 import urllib.parse
@@ -301,6 +318,136 @@ def step_px_tunable(j, step):
         # A fixture the case cannot film without (the tab outline): a build that does not take it is not run.
         raise D.NotRun(f"px_tunable: {key} = {json.dumps(wanted)} did not take: {rec['why']}")
     return rec
+
+
+# run.py fetches only diag-<lowercase letters>.json|png|txt of a journey's folder (RESULT_FILE).
+DIAG_NAME = re.compile(r"[a-z]+")
+SCREENCAPTURE = "/usr/sbin/screencapture"
+SHOT_TIMEOUT = 20.0
+
+
+def _diag_name(step, what):
+    name = step.get("name")
+    if not isinstance(name, str) or not DIAG_NAME.fullmatch(name):
+        raise D.StepError(f"{what}: name {name!r} must be lowercase letters (diag-<name>: the names run.py fetches)")
+    return name
+
+
+def step_px_keep(j, step):
+    name = _diag_name(step, "px_keep")
+    path = j.out / f"diag-{name}.json"
+    try:
+        reply = j.app.rpc(step["method"], j.sub(step.get("params") or {}))
+    except (D.StepError, OSError, ValueError) as error:
+        reply = {"error": str(error)[-600:]}
+    path.write_text(json.dumps(reply, indent=1, default=str) + "\n")
+    out = {"method": step["method"], "kept": path.name, "bytes": path.stat().st_size,
+           "keys": sorted(reply)[:40] if isinstance(reply, dict) else type(reply).__name__}
+    if isinstance(reply, dict) and set(reply) == {"error"}:
+        out["error"] = reply["error"]
+    return out
+
+
+def _letters(index):
+    """a, b, ..., z, ba, bb, ...: the file suffix of window INDEX (diag names are letters only)."""
+    out = ""
+    while True:
+        out = chr(ord("a") + index % 26) + out
+        index //= 26
+        if not index:
+            return out
+
+
+def shot_windows(report):
+    """The app windows of a debug.layers reply, in capture order: each main window, then its child windows (bottom to
+    top), then its overlay panel when it is not one of them. Each {window_number, role, class, ...}."""
+    rows = []
+    for w in (report or {}).get("windows") or []:
+        if not isinstance(w, dict) or not isinstance(w.get("window_number"), (int, float)):
+            continue
+        main = int(w["window_number"])
+        rows.append({"window_number": main, "role": "main", "class": None, "id": w.get("id"), "frame": w.get("frame")})
+        children = [c for c in w.get("child_windows") or [] if isinstance(c, dict) and isinstance(c.get("window_number"), (int, float))]
+        for c in children:
+            rows.append({"window_number": int(c["window_number"]), "role": c.get("role"), "class": c.get("class"), "parent": main,
+                         "frame": c.get("frame"), "level": c.get("level"), "visible": c.get("visible")})
+        panel = w.get("overlay_panel")
+        if isinstance(panel, (int, float)) and int(panel) not in {int(c["window_number"]) for c in children}:
+            rows.append({"window_number": int(panel), "role": "overlay_panel", "class": None, "parent": main,
+                         "frame": w.get("overlay_panel_frame")})
+    return rows
+
+
+def png_size(path):
+    """[width, height] of a PNG file (its IHDR), or None."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(24)
+    except OSError:
+        return None
+    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    return [int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")]
+
+
+def screen_grant():
+    """Whether this process may capture the screen: CGPreflightScreenCaptureAccess, which asks TCC and never prompts
+    (screencapture without the grant would ask TCC, which can put a dialog on a shared mini's console). None: not asked
+    (no CoreGraphics)."""
+    try:
+        import ctypes
+        fn = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics").CGPreflightScreenCaptureAccess
+    except (OSError, AttributeError):
+        return None
+    fn.restype, fn.argtypes = ctypes.c_bool, []
+    return bool(fn())
+
+
+def capture_window(number, path):
+    """`screencapture -x -o -l NUMBER PATH`: (exit code or None, what it said)."""
+    try:
+        done = D.subprocess.run([SCREENCAPTURE, "-x", "-o", "-l", str(number), str(path)], capture_output=True, text=True,
+                                timeout=SHOT_TIMEOUT)
+    except (OSError, D.subprocess.TimeoutExpired) as error:
+        return None, str(error)[-300:]
+    return done.returncode, (done.stderr or done.stdout or "").strip()[-300:]
+
+
+def step_px_window_shots(j, step):
+    name = _diag_name(step, "px_window_shots")
+    try:
+        rows = shot_windows(j.app.rpc("debug.layers"))
+    except (D.StepError, OSError, ValueError) as error:
+        rows, why = [], f"debug.layers failed: {str(error)[-300:]}"
+    else:
+        why = "" if rows else "debug.layers lists no window"
+    grant = screen_grant() if rows else None
+    if rows and grant is not True:
+        why = (f"no capture: this process has no Screen Recording grant (CGPreflightScreenCaptureAccess "
+               f"{'false' if grant is False else 'not asked'}); screencapture would ask TCC, a dialog on the mini's console")
+    for index, row in enumerate(rows):
+        path = j.out / f"diag-{name}{_letters(index)}.png"
+        if path.exists():
+            path.unlink()
+        code, said = capture_window(row["window_number"], path) if grant is True else (None, "not run: no Screen Recording grant")
+        made = path.is_file() and path.stat().st_size > 0
+        row.update(file=path.name if made else None, exit=code, said=said, bytes=path.stat().st_size if made else 0,
+                   pixels=png_size(path) if made else None)
+    table = j.out / f"diag-{name}.json"
+    table.write_text(json.dumps({"windows": rows, "why": why, "grant": grant, "app_pid": getattr(j.app, "pid", None)},
+                                indent=1, default=str) + "\n")
+    out = {"table": table.name, "windows": len(rows), "captured": sum(1 for r in rows if r["file"]), "grant": grant,
+           "shots": [{k: r.get(k) for k in ("file", "window_number", "role", "class", "exit", "said", "pixels")} for r in rows]}
+    if grant is True:
+        # A capture of a granted process can still bring the system's "bypass the private window picker" consent
+        # dialog (KIT.md 2b): its words on screen afterwards are recorded (ext_video's check, CuaDriver list_windows).
+        try:
+            out["bypass_dialog_after"] = V._bypass_dialog(j)
+        except Exception as error:  # noqa: BLE001 - a diagnostic: the check's own failure is recorded
+            out["bypass_dialog_after"] = f"not read: {str(error)[:160]}"
+    if why:
+        out["why"] = why
+    return out
 
 
 def _surface_row(j, pane_key):
@@ -1208,7 +1355,7 @@ def step_px_window_frame(j, step):
     return out
 
 
-STEPS = {"px_switch": step_px_switch, "px_agent": step_px_agent, "px_window_frame": step_px_window_frame, "px_film": step_px_film, "px_springs": step_px_springs, "px_tunable": step_px_tunable, "px_page": step_px_page,
+STEPS = {"px_switch": step_px_switch, "px_agent": step_px_agent, "px_window_frame": step_px_window_frame, "px_film": step_px_film, "px_springs": step_px_springs, "px_tunable": step_px_tunable, "px_keep": step_px_keep, "px_window_shots": step_px_window_shots, "px_page": step_px_page,
          "px_agent_css": step_px_agent_css, "px_record_start": step_px_record_start, "px_tab_new": step_px_tab_new,
          "px_equalize": step_px_equalize,
          "px_hold_tab_close": step_px_hold_tab_close,

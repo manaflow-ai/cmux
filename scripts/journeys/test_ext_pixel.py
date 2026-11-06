@@ -2358,5 +2358,213 @@ class ResizeKeyboardFixtureTests(unittest.TestCase):
                 self.assertGreater(start["seconds"], played + 2.0, film["name"])
 
 
+class DiagJourney(FakeJourney):
+    def sub(self, value):  # the driver's ${var} substitution (no vars here)
+        return value
+
+
+class DiagApp:
+    """debug.layers of one main window (number 100) with a Chromium page window and the overlay panel as its child
+    windows, and a debug.cef reply long enough that a result line would cut it."""
+
+    def __init__(self, panel_is_child=True, refuse=()):
+        self.pid, self.calls, self.refuse = 4242, [], set(refuse)
+        children = [{"window_number": 101, "role": "content", "class": "CEFPageWindow", "visible": True, "level": 0,
+                     "frame": [100, 50, 600, 760]}]
+        if panel_is_child:
+            children.append({"window_number": 102, "role": "overlay", "class": "OverlayPanel", "visible": True, "level": 0,
+                             "frame": [100, 50, 1200, 800]})
+        self.layers = {"windows": [{"id": "w1", "window_number": 100, "frame": [100, 50, 1200, 800], "child_windows": children,
+                                    "overlay_panel": 102, "overlay_panel_frame": [100, 50, 1200, 800]}], "consistent": True}
+
+    def rpc(self, method, params=None, timeout=None):
+        self.calls.append((method, params or {}))
+        if method in self.refuse:
+            raise D.StepError(f"{method}: unknown method")
+        if method == "debug.layers":
+            return self.layers
+        if method == "debug.cef":
+            return {"state": "ready", "spare_page": "none", "spare_pages_taken": 1, "start_steps": [{"name": "s", "ms": 1.0}] * 3000}
+        raise AssertionError(f"unexpected rpc {method} {params}")
+
+
+PNG_2X1 = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + (2).to_bytes(4, "big") + (1).to_bytes(4, "big") + b"\x08\x06\x00\x00\x00"
+
+
+class KeepStepTests(unittest.TestCase):
+    """px_keep (m37): one app socket call whose whole reply goes to diag-<name>.json in the journey's folder, a name run.py
+    fetches back; a refused call is written and recorded, never a failure."""
+
+    def setUp(self):
+        self.app = DiagApp()
+        self.j = DiagJourney(self.app, tempfile.mkdtemp(prefix="ext-pixel-keep-"))
+        self.j.out.mkdir(parents=True, exist_ok=True)
+
+    def test_the_whole_reply_goes_to_its_file(self):
+        out = X.step_px_keep(self.j, {"do": "px_keep", "method": "debug.cef", "name": "cef"})
+        kept = json.loads((self.j.out / "diag-cef.json").read_text())
+        self.assertEqual(len(kept["start_steps"]), 3000)
+        self.assertEqual(out["kept"], "diag-cef.json")
+        self.assertIn("spare_pages_taken", out["keys"])
+        self.assertNotIn("error", out)
+        self.assertEqual(self.app.calls, [("debug.cef", {})])
+        import run as R
+        self.assertTrue(R.RESULT_FILE.fullmatch("px-m37-v2-nohost/diag-cef.json"))
+
+    def test_a_refused_call_is_written_and_recorded(self):
+        self.app.refuse.add("debug.cef")
+        out = X.step_px_keep(self.j, {"do": "px_keep", "method": "debug.cef", "name": "cef"})
+        self.assertIn("unknown method", out["error"])
+        self.assertIn("unknown method", json.loads((self.j.out / "diag-cef.json").read_text())["error"])
+
+    def test_a_name_run_py_would_not_fetch_is_refused(self):
+        for name in ("cef-1", "Cef", "", None, "café"):
+            with self.assertRaises(D.StepError):
+                X.step_px_keep(self.j, {"do": "px_keep", "method": "debug.cef", "name": name})
+        self.assertEqual(self.app.calls, [])
+
+
+class WindowShotsTests(unittest.TestCase):
+    """px_window_shots (m37): screencapture -x -o -l of each app window alone (the main window, then its child windows and
+    its overlay panel when that is not a child) to diag-<name><letters>.png, with the table diag-<name>.json; a window that
+    gives no image (no Screen Recording grant) is a row with its reason, never a failure."""
+
+    def setUp(self):
+        self.j = DiagJourney(DiagApp(), tempfile.mkdtemp(prefix="ext-pixel-shots-"))
+        self.j.out.mkdir(parents=True, exist_ok=True)
+        self.captured = []
+
+        def fake_capture(number, path):
+            self.captured.append((number, Path(path).name))
+            if number == 102:
+                return 1, "could not create image from window"
+            Path(path).write_bytes(PNG_2X1)
+            return 0, ""
+
+        self.real, X.capture_window = X.capture_window, fake_capture
+        self.real_grant, X.screen_grant = X.screen_grant, lambda: True
+        self.real_dialog, X.V._bypass_dialog = X.V._bypass_dialog, lambda j: []
+
+    def tearDown(self):
+        X.capture_window, X.screen_grant, X.V._bypass_dialog = self.real, self.real_grant, self.real_dialog
+
+    def test_without_the_grant_nothing_is_captured_and_it_says_why(self):
+        for grant in (False, None):
+            X.screen_grant = lambda grant=grant: grant
+            out = X.step_px_window_shots(self.j, {"do": "px_window_shots", "name": "win"})
+            self.assertEqual((out["windows"], out["captured"], self.captured), (3, 0, []))
+            self.assertIn("no Screen Recording grant", out["why"])
+            self.assertNotIn("bypass_dialog_after", out)
+            table = json.loads((self.j.out / "diag-win.json").read_text())
+            self.assertEqual(table["grant"], grant)
+            self.assertEqual({r["file"] for r in table["windows"]}, {None})
+
+    def test_each_window_alone_and_the_table(self):
+        out = X.step_px_window_shots(self.j, {"do": "px_window_shots", "name": "win"})
+        self.assertEqual(self.captured, [(100, "diag-wina.png"), (101, "diag-winb.png"), (102, "diag-winc.png")])
+        self.assertEqual((out["windows"], out["captured"]), (3, 2))
+        self.assertEqual((out["grant"], out["bypass_dialog_after"]), (True, []))
+        rows = json.loads((self.j.out / "diag-win.json").read_text())["windows"]
+        self.assertEqual([(r["window_number"], r["role"], r["file"]) for r in rows],
+                         [(100, "main", "diag-wina.png"), (101, "content", "diag-winb.png"), (102, "overlay", None)])
+        self.assertEqual(rows[1]["class"], "CEFPageWindow")
+        self.assertEqual(rows[1]["pixels"], [2, 1])
+        self.assertEqual((rows[2]["exit"], rows[2]["said"], rows[2]["bytes"]), (1, "could not create image from window", 0))
+        self.assertFalse((self.j.out / "diag-winc.png").exists())
+        import run as R
+        for name in ("diag-win.json", "diag-wina.png", "diag-winb.png"):
+            self.assertTrue(R.RESULT_FILE.fullmatch(f"px-m37-v2-nohost/{name}"), name)
+
+    def test_an_overlay_panel_that_is_no_child_is_captured_too(self):
+        self.j.app = DiagApp(panel_is_child=False)
+        X.step_px_window_shots(self.j, {"do": "px_window_shots", "name": "win"})
+        self.assertEqual([n for n, _ in self.captured], [100, 101, 102])
+        rows = json.loads((self.j.out / "diag-win.json").read_text())["windows"]
+        self.assertEqual(rows[2]["role"], "overlay_panel")
+
+    def test_no_layers_is_recorded(self):
+        self.j.app = DiagApp(refuse=["debug.layers"])
+        out = X.step_px_window_shots(self.j, {"do": "px_window_shots", "name": "win"})
+        self.assertEqual((out["windows"], self.captured), (0, []))
+        self.assertIn("debug.layers failed", out["why"])
+
+    def test_the_command_and_the_letters(self):
+        seen = {}
+
+        class Done:
+            returncode, stdout, stderr = 0, "", ""
+
+        class FakeSubprocess:
+            TimeoutExpired = subprocess.TimeoutExpired
+
+            @staticmethod
+            def run(argv, **kw):
+                seen.update(argv=argv, timeout=kw.get("timeout"))
+                return Done()
+
+        real_sub, X.D.subprocess = X.D.subprocess, FakeSubprocess
+        try:
+            self.assertEqual(self.real(4321, "/tmp/x.png"), (0, ""))
+        finally:
+            X.D.subprocess = real_sub
+        self.assertEqual(seen["argv"], ["/usr/sbin/screencapture", "-x", "-o", "-l", "4321", "/tmp/x.png"])
+        self.assertEqual([X._letters(i) for i in (0, 1, 25, 26, 27)], ["a", "b", "z", "ba", "bb"])
+
+
+class M37VariantTests(unittest.TestCase):
+    """gen_m37.py (m37 variants): px-m37-newtab-still is unchanged; each variant is it plus its required tunables once the app
+    is ready (before any Chromium page) and their resets in its finally, and the app's own reads at the still (after
+    video_stop, before the clean-up). No layer hosting turns both hosting switches off (CEFHostingSwitch.hostingWanted)."""
+
+    ADDED = ("px_tunable", "px_keep", "px_window_shots")
+
+    def generated(self):
+        out = tempfile.mkdtemp(prefix="gen-m37-")
+        done = subprocess.run([sys.executable, str(HERE / "video-cases" / "gen_m37.py"), "--out", out], capture_output=True,
+                              text=True, timeout=120)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return {p.stem: json.loads(p.read_text()) for p in Path(out).glob("*.json")}
+
+    def test_variants(self):
+        specs = self.generated()
+        self.assertEqual(sorted(specs), ["px-m37-newtab-still", "px-m37-v2-nohost", "px-m37-v3-nospare", "px-m37-v4-both"])
+        committed = HERE / "journeys" / "video"
+        for jid, spec in specs.items():
+            self.assertEqual(json.loads((committed / f"{jid}.json").read_text()), spec, jid)  # the kit's files are the generator's
+        import run as R
+        self.assertEqual({k: R.validate(s) for k, s in specs.items()}, {k: [] for k in specs})
+        base = specs.pop("px-m37-newtab-still")
+        want = {"px-m37-v2-nohost": ["browserResize.layerHosting", "motion.frameOwner.pages"],
+                "px-m37-v3-nospare": ["browserPage.sparePage"],
+                "px-m37-v4-both": ["browserResize.layerHosting", "motion.frameOwner.pages", "browserPage.sparePage"]}
+        for jid, spec in specs.items():
+            steps = spec["steps"]
+            dos = [st["do"] for st in steps]
+            sets = [st for st in steps if st["do"] == "px_tunable"]
+            self.assertEqual([st["key"] for st in sets], want[jid])
+            self.assertTrue(all(st["value"] is False and st["required"] is True for st in sets), jid)
+            first_set = dos.index("px_tunable")
+            self.assertEqual(dos[first_set - 1], "smoke_ready", jid)
+            press = next(i for i, st in enumerate(steps) if st.get("mark") == "cmd-shift-l")
+            self.assertLess(first_set + len(sets), press)
+            stop = dos.index("video_stop")
+            self.assertEqual(dos[stop + 1:stop + 6], ["px_keep"] * 4 + ["px_window_shots"])
+            self.assertEqual([st["name"] for st in steps[stop + 1:stop + 6]], ["layers", "cef", "tunresize", "tunpage", "win"])
+            self.assertEqual(steps[stop + 1]["method"], "debug.layers")
+            self.assertEqual(steps[stop + 2]["method"], "debug.cef")
+            self.assertNotIn("params", steps[stop + 1])
+            self.assertNotIn("params", steps[stop + 2])
+            self.assertEqual(dos[stop + 6], "rk_focus")  # the base's clean-up follows
+            resets = [st for st in spec["finally"] if st["do"] == "px_tunable"]
+            self.assertEqual([(st["key"], st["value"]) for st in resets], [(k, None) for k in want[jid]])
+            self.assertEqual(spec["finally"][len(resets):], base["finally"])
+            self.assertEqual(spec["recordings"], [f"{jid}-still"])
+            # Identical to the base otherwise: the added steps out, the ids back.
+            rest = json.loads(json.dumps([st for st in steps if st["do"] not in self.ADDED]).replace(jid, "px-m37-newtab-still"))
+            self.assertEqual(rest, base["steps"], jid)
+            self.assertEqual({k: v for k, v in spec.items() if k not in ("id", "title", "why", "estimate_seconds", "recordings", "steps", "finally")},
+                             {k: v for k, v in base.items() if k not in ("id", "title", "why", "estimate_seconds", "recordings", "steps", "finally")})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

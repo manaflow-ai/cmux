@@ -1,0 +1,290 @@
+{
+ "id": "px-m37-v3-nospare",
+ "priority": "P1",
+ "title": "m37 still, no spare page (browserPage.sparePage false): the cmux New Tab (Cmd-T) beside a new Chromium tab (Cmd-Shift-L)",
+ "why": "RESIZE OWNER 2026-11-06 (cmux-ad m37): which layer paints the Chromium New Tab's opaque box: v3-nospare is px-m37-newtab-still with browserPage.sparePage false set before any Chromium page, the app's debug.layers, debug.cef and tunables kept at the still and each app window captured alone.",
+ "source": "PIXEL PERFECT kit (video-cases/gen_m37.py)",
+ "budget_seconds": 90,
+ "estimate_seconds": 65,
+ "recordings": [
+  "px-m37-v3-nospare-still"
+ ],
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "settings_file",
+   "title": "set-up: dark mode (Builtin Dark, app theme from the terminal), window picture velde-small-ship-storm, Chromium as the default browser engine, no close warning, no hover cards",
+   "set": {
+    "sidebar": {
+     "hoverCards": {
+      "enabled": false
+     }
+    },
+    "appearance": {
+     "theme": "Builtin Dark",
+     "appTheme": "followTerminal",
+     "background": "velde-small-ship-storm"
+    },
+    "browser": {
+     "defaultEngine": "chromium"
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    }
+   }
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "px_tunable",
+   "key": "browserPage.sparePage",
+   "value": false,
+   "required": true,
+   "title": "set-up: browserPage.sparePage = false before any Chromium page (required)"
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "px-m37-v3-nospare"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 90% x 90% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (p1)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p1"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p1",
+   "title": "set-up: focus p1 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "focus settles"
+  },
+  {
+   "do": "rk_press",
+   "key": "t",
+   "modifiers": [
+    "command"
+   ],
+   "count": 1,
+   "gap_ms": 0,
+   "mark": "cmd-t",
+   "title": "Cmd-T in p1: the cmux New Tab (real HID key)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the cmux New Tab shows"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p0",
+   "title": "set-up: focus p0 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "focus settles"
+  },
+  {
+   "do": "rk_press",
+   "key": "l",
+   "modifiers": [
+    "command",
+    "shift"
+   ],
+   "count": 1,
+   "gap_ms": 0,
+   "mark": "cmd-shift-l",
+   "title": "Cmd-Shift-L in p0: a new Chromium tab (key.openBrowser; real HID key)"
+  },
+  {
+   "do": "wait",
+   "seconds": 3.0,
+   "title": "the Chromium New Tab loads"
+  },
+  {
+   "do": "video_start",
+   "name": "px-m37-v3-nospare-still",
+   "seconds": 4.0,
+   "title": "start the movie and the geometry trace (px-m37-v3-nospare-still)",
+   "require_hz": 120
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the still: nothing moves"
+  },
+  {
+   "do": "video_stop",
+   "name": "px-m37-v3-nospare-still",
+   "tail": 0.2,
+   "title": "the motion ends; stop the recording (px-m37-v3-nospare-still)"
+  },
+  {
+   "do": "px_keep",
+   "method": "debug.layers",
+   "name": "layers",
+   "title": "the still: debug.layers whole (diag-layers.json)"
+  },
+  {
+   "do": "px_keep",
+   "method": "debug.cef",
+   "name": "cef",
+   "title": "the still: debug.cef whole (diag-cef.json)"
+  },
+  {
+   "do": "px_keep",
+   "method": "debug.tunables",
+   "params": {
+    "action": "list",
+    "section": "browserResize"
+   },
+   "name": "tunresize",
+   "title": "the still: the browserResize tunables as the app has them (diag-tunresize.json)"
+  },
+  {
+   "do": "px_keep",
+   "method": "debug.tunables",
+   "params": {
+    "action": "list",
+    "section": "browserPage"
+   },
+   "name": "tunpage",
+   "title": "the still: the browserPage tunables as the app has them (diag-tunpage.json)"
+  },
+  {
+   "do": "px_window_shots",
+   "name": "win",
+   "title": "the still: each app window alone (screencapture -l; diag-win<letters>.png, table diag-win.json)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p0",
+   "title": "set-up: focus p0 (cmux pane focus)"
+  },
+  {
+   "do": "settings_file",
+   "title": "clean-up: the fixture colors off (the next journey's theme is its own)",
+   "set": {
+    "appearance": {
+     "appTheme": "followTerminal"
+    }
+   },
+   "unset": [
+    "appearance.themeEdits",
+    "appearance.surfaces",
+    "sidebar.hoverCards"
+   ]
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "ctrlc",
+   "title": "after: a real HID Ctrl-C ends p0's load program"
+  },
+  {
+   "do": "expect",
+   "title": "after: the shell's prompt is back (the fixture ended)",
+   "since": "ctrlc",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_prompt": true
+    },
+    {
+     "app_prompt": true
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "echo rv-done-${nonce}",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "p0 echoes the line: app, daemon and frame",
+   "since": "after",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "rv-done-${nonce}"
+    },
+    {
+     "app_text_line": "rv-done-${nonce}"
+    },
+    {
+     "frame_text": "rv-done-${nonce}"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "px_tunable",
+   "key": "browserPage.sparePage",
+   "value": null,
+   "title": "clean-up: browserPage.sparePage back to its default"
+  },
+  {
+   "do": "settings_file",
+   "title": "clean-up: settings back",
+   "unset": [
+    "appearance.background",
+    "appearance.theme",
+    "browser.defaultEngine",
+    "sidebar.hoverCards"
+   ]
+  }
+ ]
+}
