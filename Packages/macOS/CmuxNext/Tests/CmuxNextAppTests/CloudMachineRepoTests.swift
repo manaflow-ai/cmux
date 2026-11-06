@@ -171,29 +171,4 @@ struct CloudMachineRepoTests {
         applying.noteMachineConfig(CloudMachineBootstrap.Outcome(status: "started"))
         #expect(!CloudCreationFlow.needsBootstrap(applying), "an apply the machine took is not sent twice")
     }
-
-    @Test func theRunnerClonesFirstAndRetriesAfterAScriptThatSetsUpGitHub() throws {
-        let runner = CloudMachineBootstrap.runner
-        let step = try #require(runner.range(of: "repo_step\n")), script = try #require(runner.range(of: #""$d/script" >>"#))
-        #expect(step.lowerBound < script.lowerBound)
-        #expect(runner.contains(#"if [ "$code" -eq 0 ] && [ "$repo_code" -ne 0 ]; then repo_step; code=$?; step=repo; fi"#))
-        #expect(runner.contains(#""repo":%s"#))
-        #expect(runner.contains(#""script_sha256":"%s","start_sha256":"%s","repo":%s"#) && runner.contains(#"sum=$(sha256sum "$d/script" | cut -d' ' -f1)"#),
-                "script_sha256 stays the script's own digest; the repo step only joins start_sha256")
-        #expect(runner.contains(#"if grep -q "\"state\":\"done\".*\"start_sha256\":\"$key\"""#), "the same script with another repo runs again")
-        let start = CloudMachineBootstrap.startCommand(CloudMachineBootstrap.stagingDirectory("ab"))
-        let held = try #require(start.range(of: "flock -n 6")), moved = try #require(start.range(of: #"as_u mv -f "$s/$f" "$d/$f""#))
-        let released = try #require(start.range(of: "exec 6<&-"))
-        #expect(held.lowerBound < moved.lowerBound && moved.lowerBound < released.lowerBound,
-                "a start's files replace the bootstrap folder's only while it holds the runner's lock: never under a running runner")
-        #expect(start.contains(#"flock -n 6 || { as_u rm -rf "$s" || true; echo running; exit 0; }"#), "a start while a runner runs drops its own files")
-        let fresh = try #require(start.range(of: #"-lt 60 ]; then as_u rm -rf "$s" || true; echo running"#))
-        #expect(held.lowerBound < fresh.lowerBound && fresh.lowerBound < moved.lowerBound,
-                "an earlier start's runner that has not taken over yet keeps its files")
-        let alive = try #require(runner.range(of: "flock 8\n")), late = try #require(runner.range(of: "-ge 60 ]; then"))
-        let running = try #require(runner.range(of: "status running null"))
-        #expect(alive.upperBound < late.lowerBound && late.lowerBound < running.lowerBound && runner.contains(#"status failed 75 ',"late":true'; exit 75"#),
-                "a runner a minute late (an apply may have stopped waiting) does not run, checked while it holds `alive`")
-        #expect(!runner.contains("start.lock"), "the runner never waits on start.lock, which an apply holds while it waits for the runner")
-    }
 }

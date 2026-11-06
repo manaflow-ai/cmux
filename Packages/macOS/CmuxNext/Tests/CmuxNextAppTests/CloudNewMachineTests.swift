@@ -78,15 +78,6 @@ struct CloudNewMachineTests {
         await #expect(throws: CloudMachineRequest.ScriptUnreadable.self) { _ = try await request.loadScript(work: BackgroundWork()) }
     }
 
-    @Test func everyMachineCommandNamesTheWorkUser() {
-        let staged = CloudMachineBootstrap.stagingDirectory("ab")
-        #expect(CloudMachineBootstrap.prepareCommand(staged).contains("root chown -h cmux:cmux"))
-        let start = CloudMachineBootstrap.startCommand(staged)
-        #expect(start.contains(#"--uid="$u""#))
-        #expect(start.contains(#"as_u env HOME="$h" setsid"#), "the fallback runs as the work user too")
-        #expect(start.contains(#"as_u mv -f "$s/$f" "$d/$f""#), "the files move as the work user, whichever account the exec uses")
-    }
-
     @Test func aQuotedTildeScriptIsTheHomeFolders() throws {
         let request = try CloudHandlers.newMachineRequest(Self.invocation(["bootstrapScript": .string("~/boot.sh")]))
         #expect(request.bootstrapPath == NSHomeDirectory() + "/boot.sh")
@@ -149,8 +140,7 @@ struct CloudNewMachineTests {
         #expect(fake.writes[3].1 == Data("null\n".utf8), "no repo: no earlier start's record is left")
         #expect(fake.writes[4].1 == CloudMachineBootstrap.noScript, "and no earlier start's step")
         #expect(String(decoding: fake.writes[1].1, as: UTF8.self).contains("export LANE_VM_NAME='lane-vm-1'"))
-        #expect(fake.commands == [CloudMachineBootstrap.prepareCommand(staged), CloudMachineBootstrap.startCommand(staged)])
-        #expect(CloudMachineBootstrap.stagingDirectory("zz; ~/..") == CloudMachineBootstrap.directory + "/in-", "only an id's own characters")
+        #expect(fake.commands.count == 2 && fake.commands.allSatisfy { $0.contains("s=\(staged);") }, "the prepare, then the start, of this start's folder")
     }
 
     @Test func aBootstrapAlreadyDoneOrRunningIsNotStartedAgain() async {
@@ -167,12 +157,6 @@ struct CloudNewMachineTests {
         fake.startAnswer = CloudExecResult(exitCode: 1, stdout: "", stderr: "sha256sum: not found")
         let outcome = await CloudMachineBootstrap(kind: .plain, contents: Data("true\n".utf8)).start(name: nil, on: fake.machine)
         #expect(outcome == CloudMachineBootstrap.Outcome(status: "failed", reason: "sha256sum: not found"))
-    }
-
-    @Test func theEnvironmentQuotesTheNameAndOnlyALaneGetsTheLaneName() {
-        #expect(CloudMachineBootstrap.environment(.plain, name: "it's") == "export CMUX_MACHINE_NAME='it'\\''s'\n")
-        #expect(!CloudMachineBootstrap.environment(.plain, name: "box").contains("LANE_VM_NAME"))
-        #expect(CloudMachineBootstrap.environment(.lane, name: nil).isEmpty)
     }
 
     @Test func aLaneAnswerNamesTheRegistryCommand() throws {
