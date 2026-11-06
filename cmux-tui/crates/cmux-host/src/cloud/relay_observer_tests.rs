@@ -3,8 +3,9 @@
 //! from the platform or a revocation (the Relay dropped by a rebind) ends it.
 //!
 //! A fake acpmux stands in for `cmux-tui`: a shell script that writes each command it ran to `$HOME/ran`, holds a
-//! turn until `$HOME/release` exists, and answers a second `send` with the same prompt id as acpmux does, with the
-//! first run's outcome and no reply of its own (acpmux `hub/turns.rs`).
+//! turn until `$HOME/release` exists, answers `new --reuse` for a session that exists with `reused: true` (acpmux
+//! `cli/run/standard.rs`), and answers a second `send` with the same prompt id as acpmux does, with the first run's
+//! outcome and no reply of its own (acpmux `hub/turns.rs`). `$HOME/reply` holds the first run's reply (default `4`).
 
 use super::*;
 
@@ -13,15 +14,15 @@ shift
 [ "$1" = "--json" ] && shift
 verb="$1"; shift
 case "$verb" in
-new) echo "new" >> "$HOME/ran"; echo '{"sessionId":"relay-c1"}' ;;
+new) echo "new" >> "$HOME/ran"
+  if [ -e "$HOME/turn" ]; then echo '{"sessionId":"relay-c1","reused":true}'; else echo '{"sessionId":"relay-c1"}'; fi ;;
 tail) exec sleep 30 ;;
 send)
   cat > /dev/null
   if [ -e "$HOME/turn" ]; then echo "send again" >> "$HOME/ran"; reply=""
-  else echo "send" >> "$HOME/ran"; : > "$HOME/turn"; reply="4"; fi
+  else echo "send" >> "$HOME/ran"; : > "$HOME/turn"; reply="$(cat "$HOME/reply" 2>/dev/null || echo 4)"; fi
   while [ ! -e "$HOME/release" ]; do sleep 0.02; done
-  if [ -n "$reply" ]; then echo '{"sessionId":"relay-c1","reply":"4","stopReason":"end_turn"}'
-  else echo '{"sessionId":"relay-c1","reply":"","stopReason":"end_turn"}'; fi ;;
+  echo "{\"sessionId\":\"relay-c1\",\"reply\":\"$reply\",\"stopReason\":\"end_turn\"}" ;;
 cancel) echo "cancel $1" >> "$HOME/ran" ;;
 last) echo "last" >> "$HOME/ran"; echo '{"sessionId":"relay-c1","replies":["4"]}' ;;
 esac
@@ -272,5 +273,26 @@ fn a_host_restart_leaves_the_turn_running_and_the_next_host_reattaches() {
         assert!(!ran.iter().any(|r| r.starts_with("cancel")), "{ran:?}");
         assert_eq!(ran.iter().filter(|r| *r == "send").count(), 1, "the prompt ran once: {ran:?}");
         after.revoke();
+    });
+}
+
+#[test]
+fn a_fresh_turn_with_no_reply_never_takes_an_older_reply() {
+    // Only a reattached chat (its session reused) reads `acp last`: a new turn that ends with no reply stays empty.
+    let (home, runner) = fake();
+    std::fs::write(home.path().join("reply"), "").unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/relay", listener.local_addr().unwrap());
+        let relay = relay_thread(vec![url], runner);
+        let mut ws = accept(&listener).await;
+        ws.send(Message::text(chat_frame())).await.unwrap();
+        event_of(&mut ws, "started").await;
+        release(&home);
+        let done = event_of(&mut ws, "done").await;
+        assert_eq!(done["reply"], "", "{done}");
+        assert_eq!(ran(&home), ["new", "send"], "no `acp last` for a new turn");
+        relay.revoke();
     });
 }
