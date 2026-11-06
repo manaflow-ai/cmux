@@ -841,11 +841,11 @@ fn relay_chat(
             }
         }
         Machine::New => {
-            let created = match step_result(&runner.cmux(&words(&["cloud", "new-machine", "--json"])))
-            {
-                Ok(created) => created,
-                Err(error) => return Relayed::Answered(start_refused(error, listed, request)),
-            };
+            let created =
+                match step_result(&runner.cmux(&words(&["cloud", "new-machine", "--json"]))) {
+                    Ok(created) => created,
+                    Err(error) => return Relayed::Answered(start_refused(error, listed, request)),
+                };
             match at(&created, "machine_id").as_str() {
                 Some(id) if at(&created, "pending").as_bool() != Some(true) => {
                     *made = Some(id.to_owned());
