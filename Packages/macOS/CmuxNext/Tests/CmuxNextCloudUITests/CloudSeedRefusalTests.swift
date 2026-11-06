@@ -106,4 +106,3 @@ struct CloudSeedRefusalTests {
         #expect(notGit.spec.buttons.map(\.id) == ["cancel", CloudSeedRefusal.copyButton], "only a private repo offers Connect GitHub")
     }
 }
-
