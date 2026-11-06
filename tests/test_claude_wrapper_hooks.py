@@ -1632,6 +1632,39 @@ def test_restore_record_settings_survive_a_different_restore_directory(failures:
             f"restore spelling: inline JSON after repeated BOMs should be a durable file, got {recorded[2]!r}",
             failures,
         )
+        for path, expected in (
+            (bom_path, {"viewMode": "default"}),
+            (repeated_bom_path, {"includeCoAuthoredBy": False}),
+        ):
+            # The merge loader reads a settings path with a plain JSON.parse, which rejects a BOM.
+            try:
+                saved = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+            except json.JSONDecodeError as error:
+                saved = f"unparseable: {error}"
+            expect(
+                saved == expected,
+                f"restore spelling: durable file {path.name} should hold plain JSON, got {saved!r}",
+                failures,
+            )
+
+        def replay_setup(_tmp: Path, env: dict[str, str]) -> None:
+            env["HOME"] = str(home)
+            env["FAKE_WRAPPER_CWD"] = str(root)
+
+        code, replay_argv, _, stderr, *_ = run_wrapper(
+            socket_state="live",
+            argv=captured[1:],
+            setup_sandbox=replay_setup,
+        )
+        expect(code == 0, f"restore spelling replay: wrapper exited {code}: {stderr}", failures)
+        replayed = parse_settings_arg(replay_argv)
+        expect(
+            replayed.get("spinnerTipsEnabled") is False
+            and replayed.get("viewMode") == "default"
+            and replayed.get("includeCoAuthoredBy") is False,
+            f"restore spelling replay: user settings missing after restore from another directory, got {replayed}",
+            failures,
+        )
 
 
 def test_live_socket_empty_settings_warns_instead_of_silent_drop(failures: list[str]) -> None:
