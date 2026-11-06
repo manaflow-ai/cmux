@@ -158,6 +158,7 @@ struct ClaudeAccountSwitchNoticeTests {
             .agentNotOwnedByPane,
             .alreadySwitching,
             .agentRunning,
+            .agentIndexUnavailable,
             .transcriptUnavailable,
             .respawnFailed,
         ]
@@ -176,6 +177,7 @@ struct ClaudeAccountSwitchNoticeTests {
             .agentNotOwnedByPane,
             .alreadySwitching,
             .agentRunning,
+            .agentIndexUnavailable,
             .transcriptUnavailable(accountName: "work"),
             .respawnFailed,
         ])

@@ -115,6 +115,7 @@ struct ClaudeAccountSwitchSocketOutcomeTests {
             (.finished(.agentNotOwnedByPane), "agent_not_owned_by_pane"),
             (.finished(.alreadySwitching), "already_switching"),
             (.finished(.transcriptUnavailable), "transcript_unavailable"),
+            (.finished(.agentIndexUnavailable), "agent_index_unavailable"),
             (.finished(.respawnFailed), "respawn_failed"),
             (.agentRunning, "agent_running"),
         ]
