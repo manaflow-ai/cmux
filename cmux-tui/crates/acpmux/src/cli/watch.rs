@@ -42,17 +42,19 @@ pub(crate) fn add_params(
     until: Vec<String>,
     match_text: Option<String>,
 ) -> Value {
-    let mut p = json!({"sessions": sessions, "once": true});
+    let mut p = serde_json::Map::new();
+    p.insert("sessions".into(), json!(sessions));
+    p.insert("once".into(), json!(true));
     if let Some(to) = to {
-        p["to"] = json!(to);
+        p.insert("to".into(), json!(to));
     }
     if !until.is_empty() {
-        p["until"] = json!(until);
+        p.insert("until".into(), json!(until));
     }
     if let Some(m) = match_text {
-        p["match"] = json!(m);
+        p.insert("match".into(), json!(m));
     }
-    p
+    Value::Object(p)
 }
 
 pub async fn run(cmd: WatchCmd, json_out: bool) -> Result<()> {
