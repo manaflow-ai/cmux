@@ -635,10 +635,12 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         guard let dataSource, let collectionView else { return }
         let present = ids.filter { shownKeys[$0] != nil && items[$0] != nil }
         guard !present.isEmpty else { return }
-        // A row the person toggled keeps its own top: anchoring the row after it (as for a row that
-        // resized on its own) pushed the toggled row's top and everything above it up as it grew.
+        // A row the person toggled keeps its own top while that top is on screen: anchoring the row
+        // after it (as for a row that resized on its own) pushed the toggled row's top and everything
+        // above it up as it grew. With its top above the screen (Show less at the end of a long body)
+        // the row after it stays put, so the row's end stays where the person tapped.
         let anchor = jumpingToTop ? nil
-            : kept.flatMap(anchor(of:)) ?? (control.atTop ? nil : visibleAnchor(excluding: Set(present)))
+            : kept.flatMap(rowAnchorIfTopShown) ?? (control.atTop ? nil : visibleAnchor(excluding: Set(present)))
         for id in present {
             guard let item = items[id] else { continue }
             let key = key(for: item)
@@ -682,10 +684,14 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         return nil
     }
 
-    /// `id`'s row where it starts relative to the scroll offset, when it is shown.
-    private func anchor(of id: String) -> Anchor? {
+    /// `id`'s row where it starts relative to the scroll offset, when its top is on screen.
+    private func rowAnchorIfTopShown(_ id: String) -> Anchor? {
         guard let collectionView, let indexPath = dataSource?.indexPath(for: id) else { return nil }
-        return Anchor(id: id, delta: collectionView.rectForRow(at: indexPath).minY - collectionView.contentOffset.y)
+        let minY = collectionView.rectForRow(at: indexPath).minY
+        let visibleTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        let visibleBottom = collectionView.contentOffset.y + collectionView.bounds.height - collectionView.adjustedContentInset.bottom
+        guard minY >= visibleTop - 0.5, minY < visibleBottom else { return nil }
+        return Anchor(id: id, delta: minY - collectionView.contentOffset.y)
     }
 
     private func restore(_ anchor: Anchor) {
@@ -729,7 +735,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     @objc private func touchDuringJump(_ catcher: FeedJumpTouchCatcher) {
         guard catcher.state == .began, let collectionView else { return }
         jumpingToTop = false
-        collectionView.setContentOffset(collectionView.contentOffset, animated: false)
+        // Within the last stretch (the pill already gone) the jump finishes: it lands at the top.
+        let here = control.atTop ? CGPoint(x: 0, y: -collectionView.adjustedContentInset.top) : collectionView.contentOffset
+        collectionView.setContentOffset(here, animated: false)
     }
 
     /// A snapshot applied during a jump to the top can move or stop the animated offset: aim at

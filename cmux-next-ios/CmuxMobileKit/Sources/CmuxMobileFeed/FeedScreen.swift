@@ -208,9 +208,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @ViewBuilder
     private var newPill: some View {
         let count = list.newAbove + store.unseenNewIDs.count
-        // The pill stays until its jump lands: had it gone at the tap, a second tap on the same spot
-        // reached the row moving under it mid-jump. The count clears when the list reaches its top.
-        if list.jumpingToTop || (count > 0 && !list.atTop) {
+        // The pill stays through its jump: had it gone at the tap, a second tap on the same spot
+        // reached the row moving under it mid-jump. Its count clears (and it goes) near the top.
+        if count > 0, !list.atTop || list.jumpingToTop {
             Button {
                 list.scrollToTop()
             } label: {
