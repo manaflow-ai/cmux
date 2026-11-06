@@ -253,8 +253,11 @@ extension SidebarListViewComponents {
                 recycle(view)
             }
         }
+        var framesComputed = 0
+        defer { SidebarPerfCounters.add(.rowFrames, framesComputed) }
         for row in layout.rows {
             let target = frame(for: row)
+            framesComputed += 1
             if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
             guard existing != nil || target.intersects(realize) else { continue }
