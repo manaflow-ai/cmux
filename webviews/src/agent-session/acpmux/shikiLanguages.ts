@@ -39,7 +39,17 @@ export const isHighlighted = (lang: string) => highlighted.has(lang);
 const BY_NAME: Record<string, string> = { makefile: "make", dockerfile: "dockerfile" };
 /// Extensions that name a bundled language under another id; any other extension that is one of
 /// the bundle's ids or aliases is its own language.
-const BY_EXTENSION: Record<string, string> = { h: "c", kt: "kotlin", kts: "kotlin", htm: "html" };
+const BY_EXTENSION: Record<string, string> = {
+  rs: "rust",
+  h: "c",
+  kt: "kotlin",
+  kts: "kotlin",
+  htm: "html",
+  yml: "yaml",
+  sh: "shellscript",
+  zsh: "shellscript",
+  bash: "shellscript",
+};
 
 /// The bundled language a file is highlighted in, by its name, else "text" (a read's lines,
 /// conversation/HighlightedLines.tsx). Read here rather than through Pierre's own table, so it needs
