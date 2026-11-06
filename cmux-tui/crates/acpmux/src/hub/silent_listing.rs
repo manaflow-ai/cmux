@@ -13,18 +13,26 @@
 
 use super::*;
 
-/// Whether `argv` is a whole-tree file listing by ripgrep: `--files` and `--hidden`, no
-/// `--max-depth`, no `--null` (Glob), and every glob, apart or attached, an exclusion.
+/// Whether `argv` is a whole-tree file listing by ripgrep: `--files` and `--hidden`, no depth
+/// bound and no `--null` (Glob) in any spelling, and every glob, apart or attached, an exclusion.
 pub(super) fn unbounded_listing(argv: &[String]) -> bool {
     let Some(program) = argv.first() else { return false };
     if std::path::Path::new(program).file_name().is_none_or(|n| n != "rg") {
         return false;
     }
     let has = |flag: &str| argv.iter().any(|a| a == flag);
-    if !has("--files") || !has("--hidden") || has("--null") {
+    // `-0` is `--null`; `-d N`, `-dN`, `--maxdepth` and `--max-depth=N` all bound the depth.
+    if !has("--files") || !has("--hidden") || has("--null") || has("-0") {
         return false;
     }
-    if argv.iter().any(|a| a == "--max-depth" || a.starts_with("--max-depth=")) {
+    let depth = |a: &str| {
+        matches!(a, "--max-depth" | "--maxdepth")
+            || a.starts_with("--max-depth=")
+            || a.starts_with("--maxdepth=")
+            || a.strip_prefix("-d")
+                .is_some_and(|n| n.is_empty() || n.bytes().all(|b| b.is_ascii_digit()))
+    };
+    if argv.iter().any(|a| depth(a)) {
         return false;
     }
     let mut words = argv.iter();

@@ -2,6 +2,11 @@
 
 use super::unbounded_listing;
 
+/// The process tests below spawn listings under this test process and look for them there: run
+/// one at a time, or one would see (and end) the other's (review F2 of #36966).
+#[cfg(target_os = "linux")]
+static PROCESSES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn words(line: &str) -> Vec<String> {
     line.split_whitespace().map(str::to_owned).collect()
 }
@@ -20,6 +25,11 @@ fn bounded_or_tool_listings_are_left_alone() {
     for line in [
         "rg --files --hidden --no-ignore --no-config --line-buffered --max-depth 4 /p",
         "rg --files --hidden --max-depth=3 /p",
+        "rg --files --hidden -d 4 /p",
+        "rg --files --hidden -d4 /p",
+        "rg --files --hidden --maxdepth 2 /p",
+        "rg --files --hidden --maxdepth=2 /p",
+        "rg --files --hidden -0 /p",
         "rg --files --null --glob *.rs --sort=modified --no-ignore --hidden /p",
         "rg --files --hidden --follow --no-ignore --glob *.md /p",
         "rg --files --hidden --glob=*.rs /p",
@@ -39,6 +49,7 @@ fn bounded_or_tool_listings_are_left_alone() {
 #[cfg(target_os = "linux")]
 #[test]
 fn terminate_under_ends_only_the_listing_it_picks() {
+    let _one = PROCESSES.lock().unwrap_or_else(|e| e.into_inner());
     use std::os::unix::process::CommandExt;
     use std::process::Command;
     // bash renamed `rg`, its argv the folder count's words; `; :` keeps it from exec'ing sleep.
@@ -71,6 +82,7 @@ fn terminate_under_ends_only_the_listing_it_picks() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_hosted_agents_listings_are_found_by_its_hosts_nonce() {
+    let _one = PROCESSES.lock().unwrap_or_else(|e| e.into_inner());
     use std::os::unix::process::CommandExt;
     use std::process::Command;
     let mark = crate::agent_host::HOST_MARK;
