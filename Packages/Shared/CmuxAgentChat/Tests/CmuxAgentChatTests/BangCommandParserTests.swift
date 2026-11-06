@@ -1,0 +1,38 @@
+import Testing
+@testable import CmuxAgentChat
+
+struct BangCommandParserTests {
+    @Test func preservesLongOriginalCommandWithoutDisplayLineBreaks() {
+        let command = "! bash ~/Documents/Projects/" + String(repeating: "long-directory/", count: 16) + "scripts/migrate.sh"
+        #expect(BangCommandParser.commands(in: "Run this:\n\(command)\n\nIt takes a while.") == [command])
+    }
+
+    @Test func extractsInlineCodeAndLabelledSuggestions() {
+        let tick = "\u{60}"
+        let text = "Run \(tick)! git status\(tick).\n- Migrations: ! bash ~/scripts/migrate.sh\n- ! pwd"
+        #expect(BangCommandParser.commands(in: text) == ["! git status", "! bash ~/scripts/migrate.sh", "! pwd"])
+    }
+
+    @Test func ignoresOrdinaryExclamationAndShellConditions() {
+        #expect(BangCommandParser.commands(in: "Hello! world\nif ! test -f file; then\n  echo 'not a command!'\n!\n") == [])
+    }
+
+    @Test func keepsBackslashContinuationsAndQuotedArguments() {
+        let command = ["! bash " + "\\", "  '~/a directory/script.sh' " + "\\", "  --query 'select * from things where id != 2'"].joined(separator: "\n")
+        #expect(BangCommandParser.commands(in: command) == [command])
+    }
+
+    @Test func preservesHereDocumentBodyAndDoesNotExtractItsBangLines() {
+        let command = "! bash <<'SCRIPT'\necho 'keep this blank line'\n\n! false\nSCRIPT"
+        #expect(BangCommandParser.commands(in: command + "\n! pwd") == [command, "! pwd"])
+    }
+
+    @Test func doesNotOfferAnUnfinishedHereDocument() {
+        #expect(BangCommandParser.commands(in: "! bash <<'SCRIPT'\necho waiting\n") == [])
+    }
+
+    @Test func deduplicatesWithoutChangingCommandContents() {
+        let command = "! printf '%s\\n' 'hello world'"
+        #expect(BangCommandParser.commands(in: command + "\n" + command) == [command])
+    }
+}
