@@ -240,7 +240,7 @@ export function ThreadMinimap({
   /// How bright a bookmarked prompt draws at rest (mark.experiment.ts), read once per pane.
   const [mark] = useState(() => MARK_OPACITY[experimentArm(threadMinimapMark)]);
   /// How other chats' messages draw (incoming.experiment.ts), read once per pane: folded per run into
-  /// one tick, dimmer at rest, both (the default) or neither.
+  /// one tick (the default), dimmer at rest, both or neither.
   const [incomingLook] = useState(() => INCOMING_LOOK[experimentArm(threadMinimapIncoming)]);
   const full = arm === "full";
   const marks = usePromptMarks(sessionId);
@@ -1277,14 +1277,15 @@ export function ThreadMinimap({
               "--acpmux-minimap-lit": lit,
               "--acpmux-minimap-mark": mark.bar,
               "--acpmux-minimap-mark-dot": mark.dot,
+              ...(incomingLook.dim === false ? {} : { "--acpmux-minimap-incoming": incomingLook.dim }),
             } as React.CSSProperties
           }
           data-hovering={hovered !== undefined || undefined}
           data-occluded={!railVisible || undefined}
           // The `dimmed` gutter arm (gutter.experiment.ts) draws the occluded rail faint instead of hidden.
           data-dim={(placement.gutterArm === "dimmed" && !railVisible) || undefined}
-          // Other chats' ticks draw a step under the person's at rest (incoming.experiment.ts).
-          data-incoming-dim={incomingLook.dim || undefined}
+          // A dimming arm draws other chats' ticks a step under the person's at rest (incoming.experiment.ts).
+          data-incoming-dim={incomingLook.dim !== false || undefined}
           data-scrubbing={scrubbing || undefined}
           data-reduce={reduce || undefined}
           data-snap={snap || undefined}

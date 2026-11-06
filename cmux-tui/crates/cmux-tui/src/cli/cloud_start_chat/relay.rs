@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::{
     GUEST_CMUX, Machine, Outcome, Request, Runner, app_failure, at, failed, follow_ups, signed_out,
-    step_result, wait_turn, words,
+    start_refused, step_result, wait_turn, words,
 };
 
 /// The longest the app's `cloud relay-chat` may take to answer: `action.run`'s result deadline.
@@ -50,7 +50,7 @@ pub(super) fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Va
             let made = match step_result(&runner.cmux(&words(&["cloud", "new-machine", "--json"])))
             {
                 Ok(made) => made,
-                Err(error) => return Relayed::Answered(app_failure(error)),
+                Err(error) => return Relayed::Answered(start_refused(error, listed, request)),
             };
             match at(&made, "machine_id").as_str() {
                 Some(id) if at(&made, "pending").as_bool() != Some(true) => id.to_owned(),
