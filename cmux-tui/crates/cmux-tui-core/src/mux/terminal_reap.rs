@@ -619,7 +619,8 @@ impl Mux {
             // The title the tab shows now; the next owner has no surface to
             // ask once the terminal ended.
             let title = runtime.as_ref().and_then(|surface| kept_title(&surface.title()));
-            // The command it last finished, for the restored marker line; an
+            // The command it runs (a park ends it; the freed shell types it
+            // again) or last finished, for the restored marker line; an
             // incognito terminal keeps none.
             let last_command = runtime
                 .as_ref()
@@ -628,7 +629,7 @@ impl Mux {
                         .terminal_public_id()
                         .is_some_and(|id| !self.output_store.is_private(self, id))
                 })
-                .and_then(|surface| surface.last_finished_command())
+                .and_then(|surface| surface.kept_command())
                 .as_ref()
                 .and_then(LastCommand::from_finished);
             rows.extend(tab_ids.into_iter().map(|tab_id| KeptTab {

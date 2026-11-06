@@ -157,6 +157,21 @@ impl CommandTracker {
         self.last.as_ref()
     }
 
+    /// The command a park ends: the one that runs now, as ended at `now_ms`
+    /// with no status, else the newest finished one. A freed shell types it
+    /// again on show (`workspaces.freeing.runningCommands: relaunch`).
+    pub(crate) fn kept(&self, now_ms: u64) -> Option<FinishedCommand> {
+        let running = self.running.as_ref().filter(|running| running.command.is_some());
+        let Some(running) = running else { return self.last.clone() };
+        Some(FinishedCommand {
+            command: running.command.clone(),
+            cwd: running.cwd.clone(),
+            exit_code: None,
+            started_at_ms: running.started_at_ms,
+            duration_ms: now_ms.saturating_sub(running.started_at_ms),
+        })
+    }
+
     fn finish(&mut self, exit_code: Option<i32>, now_ms: u64) -> Option<FinishedCommand> {
         let running = self.running.take()?;
         while self.recent.front().is_some_and(|time| now_ms.saturating_sub(*time) >= 1_000) {

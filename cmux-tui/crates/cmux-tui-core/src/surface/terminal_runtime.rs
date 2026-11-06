@@ -159,6 +159,12 @@ impl PtyTerminalRuntime {
         self.command_tracker.lock().unwrap().last().cloned()
     }
 
+    /// The command a park keeps: the running one, else the newest finished one.
+    pub(super) fn kept_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+        self.command_tracker.lock().unwrap().kept(now_ms)
+    }
+
     pub(super) fn terminal_osc_progress(&self) -> String {
         self.terminal_metadata.lock().unwrap().osc_progress().to_string()
     }

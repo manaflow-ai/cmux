@@ -33,6 +33,12 @@ impl Surface {
         self.as_pty().and_then(|pty| pty.last_finished_command())
     }
 
+    /// The command a park keeps for the freed shell: the one that runs now
+    /// (it ends with the shell), else the newest finished one.
+    pub(crate) fn kept_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        self.as_pty().and_then(|pty| pty.kept_command())
+    }
+
     /// Finish `command` with `exit_code` on this terminal's tracker, as the
     /// shell's OSC 133 marks do.
     #[cfg(test)]
