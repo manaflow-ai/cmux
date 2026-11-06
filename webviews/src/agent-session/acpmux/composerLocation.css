@@ -808,6 +808,16 @@
 .acpmux-composer-box:has(:focus-visible) {
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
+/* A running/background tray is already a glass surface immediately above the card. Its join owns
+   one hairline (the card ring); remove the material's second top-lit line and keep only the quiet
+   lower sheen. The stack-specific edge and shadow are lighter than a free-floating composer. */
+.acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer
+  > .acpmux-composer-box.ui-glass-material {
+  --acpmux-composer-rim:
+    inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0
+      color-mix(in srgb, var(--cmux-tone-light, #fff) 18%, transparent);
+  --acpmux-composer-shadow: var(--acpmux-stack-shadow);
+}
 /* Send, Stop and ↵ are the bar's 28 px, plain line glyphs in the secondary text color, as the mic is
    (Leo 2026-10-21: no discs; the secondary text color, only a hover background). Stop's square and a
    ready Send are the secondary color, a step above an empty draft's 45% Send. Their hover pill is

@@ -81,11 +81,31 @@
 .acpmux-dock {
   --acpmux-stack-gap: 0px;
   --acpmux-stack-radius: 10px;
+  /* A tray joined to the composer shares one quiet seam. Keep the stack's edge and depth
+     independent from the regular floating-card treatment so the join reads as one surface. */
+  --acpmux-stack-edge: color-mix(in srgb, var(--agent-text) 12%, var(--agent-page-bg, var(--acpmux-base)));
+  --acpmux-stack-shadow: 0 1px 2px color-mix(in srgb, black 4%, transparent);
   /* The composer's 8px narrow outset (composerLocation.css, under 298px of content width), for the
      other parts on the card's edges: the recap card (summary.css) and the host's line (styles.css)
      take --cv-inset and --cv-inset-end less this, as the running tray does above. The percentage
      resolves where it is used, against the part's own width. */
   --acpmux-stack-outset: clamp(0px, calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000), 8px);
+}
+:root[data-composer-edge="before"] .acpmux-dock {
+  --acpmux-stack-edge: var(--acpmux-composer-edge);
+  --acpmux-stack-shadow: var(--elevation-1);
+}
+:root[data-composer-edge="minimal"] .acpmux-dock {
+  --acpmux-stack-edge: color-mix(in srgb, var(--agent-text) 8%, var(--agent-page-bg, var(--acpmux-base)));
+  --acpmux-stack-shadow: 0 1px 2px color-mix(in srgb, black 2%, transparent);
+}
+.acpmux-dock > .acpmux-running-tray[data-card]:has(+ .acpmux-composer),
+.acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer {
+  --acpmux-composer-edge: var(--acpmux-stack-edge);
+}
+.acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer
+  > .acpmux-composer-box {
+  --acpmux-composer-shadow: var(--acpmux-stack-shadow);
 }
 :root[data-bottom-stack="cards"] .acpmux-dock {
   --acpmux-stack-gap: var(--ds-space-1, 4px);
