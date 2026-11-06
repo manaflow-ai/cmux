@@ -210,6 +210,9 @@ final class GroupEditorPanel: ActiveAppKeyPanel {
 
     override var canBecomeMain: Bool { false }
 
+    /// The card is transparent (between opens, or before the page has painted).
+    var isVeiled: Bool { card.alphaValue == 0 }
+
     /// Orders the panel in over `parent` at `frame` with its card transparent, so the page paints there.
     func ready(over parent: NSWindow, frame: NSRect) {
         card.alphaValue = 0

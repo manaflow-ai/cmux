@@ -133,4 +133,47 @@ import Testing
         service.dismiss()
         #expect(record.closes == 1)
     }
+
+    /// Review of #37299 (F2): a closed editor leaves no session for a page that reloads.
+    @Test func aClosedEditorLeavesNoSessionForAReload() async throws {
+        let service = GroupEditorService()
+        let parent = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        defer { parent.closeAfterTest() }
+        service.present(Self.group, items: Self.items, anchor: PopupAnchor(rect: CGRect(x: 240, y: 650, width: 100, height: 30), edge: .leading),
+                        parent: parent, themeAnchor: parent.contentView ?? NSView(), ordersFront: false, events: Self.events(Record()))
+        service.dismiss()
+        let provider = try #require(service.provider)
+        var first: JSONValue?
+        _ = try await provider.subscribe(GroupEditorProvider.sessionStream, filter: .object([:]),
+                                         context: PageCallContext(page: PageDescriptor.groupEditor.id)) { first = first ?? $0 }
+        #expect(first?["id"]?.stringValue == "", "a reload after the close drew the closed editor again")
+    }
+
+    /// Review of #37299 (F1): between opens the panel stays in its window, its card transparent and click-through,
+    /// so the page keeps painting and the next open shows at once.
+    @Test func aClosedEditorStaysWarmInItsWindow() async throws {
+        try #require(await GUIAnimationTestSupport.animatesHere(), "requires an awake fleet display; a skip is not regression evidence")
+        let design = DesignSettings.shared
+        let saved = design.animationsEnabled
+        design.animationsEnabled = false
+        defer { design.animationsEnabled = saved }
+        let service = GroupEditorService()
+        let parent = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        parent.orderFrontRegardless()
+        defer { parent.closeAfterTest() }
+        let anchor = PopupAnchor(rect: CGRect(x: 240, y: 650, width: 100, height: 30), edge: .leading)
+        service.present(Self.group, items: Self.items, anchor: anchor, parent: parent, themeAnchor: parent.contentView ?? NSView(),
+                        ordersFront: true, events: Self.events(Record()))
+        let panel = try #require(service.panel as? GroupEditorPanel)
+        defer { panel.closeAfterTest() }
+        service.provider?.onCall?(.ready(revision: 1, height: 300))
+        #expect(!panel.isVeiled)
+        service.dismiss()
+        #expect(panel.isVisible, "the closed editor left its window, so the page stops painting")
+        #expect(panel.parent === parent)
+        #expect(panel.isVeiled, "the closed editor's card still shows")
+        #expect(panel.ignoresMouseEvents, "the closed editor's card takes clicks")
+    }
 }
