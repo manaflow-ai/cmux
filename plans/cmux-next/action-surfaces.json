@@ -34716,6 +34716,11 @@
           "kind" : "string",
           "name" : "promptId",
           "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "login",
+          "required" : false
         }
       ],
       "cli" : "offered",

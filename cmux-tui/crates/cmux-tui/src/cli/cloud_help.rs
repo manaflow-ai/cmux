@@ -520,6 +520,7 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 /// `cmux cloud start-chat --help` (cloud_start_chat.rs runs it).
 pub(super) const START_CHAT_USAGE: &str = "\
 usage: cmux cloud start-chat --prompt TEXT [--agent AGENT] [--cwd DIR]
+                             [--login pass|machine|none]
                              [--name MACHINE | --target machine:MACHINE_ID]
                              [--wait] [--timeout SECONDS] [--json]
 
@@ -529,6 +530,10 @@ The chat opens as a tab in the machine's workspace in the cmux app.
   --prompt TEXT      What to send (`-` reads it from stdin)
   --agent AGENT      claude (default), codex, ...
   --cwd DIR          A folder on the machine (default: a new one under ~/chats)
+  --login pass|machine|none
+                     The agent's login there: yours from this Mac, the
+                     machine's own, or none (default: the machine's login or
+                     your earlier choice)
   --name MACHINE     Use the machine with this name, or create it
   --target machine:MACHINE_ID
                      Use this machine (`cmux cloud list-machines`)

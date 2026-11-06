@@ -1,4 +1,4 @@
-//! `cmux cloud start-chat --prompt TEXT [--agent claude] [--cwd DIR] [--name MACHINE |
+//! `cmux cloud start-chat --prompt TEXT [--agent claude] [--cwd DIR] [--login L] [--name MACHINE |
 //! --target machine:ID] [--wait] [--timeout SECONDS]`: one command takes a Cloud chat from
 //! nothing to a reply, for a person, a script or the Chief (Leo, 2026-11-02: "we need to improve
 //! the docs/instructions/commands and guidance and whatnot to make this all smoother faster more
@@ -8,7 +8,7 @@
 //! that verb's checks, keys and deadlines:
 //!
 //! 1. `cloud list-machines`: refuses at once when the app is signed out of cmux.
-//! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D]`: takes the machine (or
+//! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D] [--login L]`: takes the machine (or
 //!    creates it) and opens the chat's tab in the machine's workspace, a real chat in the app.
 //!    Without `--name` or `--target` it creates a new small machine with a new name, so the chat
 //!    never lands on a machine another workspace uses (leo-workspace `design/cloud.md`, "One
@@ -64,7 +64,11 @@ const SMALL_PROMPT_PIECE_BYTES: usize = 45 * 1024;
 
 /// This command's flags that take the next word as their value.
 const TAKES_VALUE: &[&str] =
-    &["--prompt", "-p", "--agent", "--cwd", "--name", "--target", "--timeout"];
+    &["--prompt", "-p", "--agent", "--cwd", "--login", "--name", "--target", "--timeout"];
+
+/// `--login`'s words, as `cloud start-session` takes them (`CloudHarnessLoginAsk.choice`): the person's
+/// login, the machine's own, or none.
+const LOGINS: &[&str] = &["pass", "machine", "none"];
 
 /// Which machine the chat starts on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -161,6 +165,7 @@ pub(super) fn parse(
     let mut prompt = None;
     let mut agent = None;
     let mut cwd = None;
+    let mut login = None;
     let mut name = None;
     let mut target = None;
     let mut wait = false;
@@ -187,6 +192,7 @@ pub(super) fn parse(
             "--prompt" | "-p" => prompt = Some(value()?),
             "--agent" => agent = Some(value()?),
             "--cwd" => cwd = Some(value()?),
+            "--login" => login = Some(value()?),
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
             "--timeout" => {
@@ -226,6 +232,12 @@ pub(super) fn parse(
     {
         return Err(UsageError::new(format!("--cwd {dir}: an absolute folder on the machine")));
     }
+    let login = match login.map(|word| word.trim().to_lowercase()) {
+        Some(word) if !LOGINS.contains(&word.as_str()) => {
+            return Err(UsageError::new(format!("--login {word:?}: pass, machine or none")));
+        }
+        login => login,
+    };
     let machine = match (name, target) {
         (Some(_), Some(_)) => return Err(UsageError::new("give --name or --target, not both")),
         (Some(name), None) if name.trim().is_empty() => {
@@ -241,7 +253,7 @@ pub(super) fn parse(
         }
         (None, None) => Machine::New,
     };
-    Ok(Parsed::Run(Request { prompt, agent, cwd, login: None, machine, wait, timeout }))
+    Ok(Parsed::Run(Request { prompt, agent, cwd, login, machine, wait, timeout }))
 }
 
 /// One run of this binary: its exit code and what it printed.
@@ -366,6 +378,9 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     }
     if let Some(cwd) = &request.cwd {
         words.push(format!("--cwd {}", shell_quote(cwd)));
+    }
+    if let Some(login) = &request.login {
+        words.push(format!("--login {login}"));
     }
     words.push(format!("--prompt {}", shell_quote(&request.prompt)));
     if request.wait {
@@ -553,6 +568,9 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     start.extend(["--agent".to_owned(), request.agent.clone()]);
     if let Some(cwd) = &request.cwd {
         start.extend(["--cwd".to_owned(), cwd.clone()]);
+    }
+    if let Some(login) = &request.login {
+        start.extend(["--login".to_owned(), login.clone()]);
     }
     start.push("--json".to_owned());
     let started = match step_result(&runner.cmux(&start)) {
@@ -830,6 +848,9 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
     args.extend(["--prompt".to_owned(), request.prompt.clone()]);
     if let Some(cwd) = &request.cwd {
         args.extend(["--cwd".to_owned(), cwd.clone()]);
+    }
+    if let Some(login) = &request.login {
+        args.extend(["--login".to_owned(), login.clone()]);
     }
     args.extend(["--prompt-id".to_owned(), runner.prompt_id()]);
     args.push("--json".to_owned());
