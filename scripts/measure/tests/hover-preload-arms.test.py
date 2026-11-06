@@ -10,6 +10,7 @@ import json, os, shutil, stat, subprocess, sys, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.normpath(os.path.join(HERE, "..", "hover-preload.sh"))
+SETTING_FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/BrowserHibernationSetting.swift"
 
 RELOAD = """#!/usr/bin/env bash
 # reload.sh stub: makes an empty app for the tag and prints its path as the real one does.
@@ -51,7 +52,9 @@ class Arms(unittest.TestCase):
         self.env = {**os.environ, "PATH": bin_dir + os.pathsep + os.environ["PATH"], "HOVER_TEST_APPS": self.apps,
                     "HOVER_TEST_LOG": self.log, "HOVER_TEST_REAL_GIT": shutil.which("git"),
                     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
-                    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
+                    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
+                    # The person's git config (commit signing, a hooks path) must not break the setup commits.
+                    "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
         os.makedirs(self.repo)
         self.git("init", "-q")
         with open(SCRIPT) as handle:
@@ -78,10 +81,14 @@ class Arms(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-q", "-m", message)
 
+    def run_script(self, *args):
+        return subprocess.run(["bash", "scripts/measure/hover-preload.sh", *args], cwd=self.repo, env=self.env,
+                              capture_output=True, text=True, timeout=120)
+
     def arms(self, *args):
-        result = subprocess.run(["bash", "scripts/measure/hover-preload.sh", *args], cwd=self.repo, env=self.env,
-                                capture_output=True, text=True, timeout=120)
+        result = self.run_script(*args)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.stderr = result.stderr
         self.assertEqual(self.git("rev-parse", "HEAD"), self.head, "the script must put the checkout back at head")
         with open(self.log) as handle:
             runs = [json.loads(line) for line in handle]
@@ -105,6 +112,29 @@ class Arms(unittest.TestCase):
     def test_no_base_off_arm_is_this_build_with_preload_off(self):
         runs = self.arms("--arms=OFF,ON")
         self.assertEqual(runs, [("off", "cmux DEV hoverpre.app", "0"), ("on", "cmux DEV hoverpre.app", "1")])
+
+    def test_a_passed_wake_on_hover_is_refused_and_runs_no_arm(self):
+        # The bench takes the last --wake-on-hover, so a passed one would give every arm the same value.
+        result = self.run_script("--arms=OFF,ON", "--wake-on-hover=1")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("--wake-on-hover", result.stderr)
+        self.assertFalse(os.path.exists(self.log), "no arm may run")
+
+    def test_a_base_with_no_wake_setting_is_named(self):
+        # A base before 1ff2637da6f has no browser.wakeTabsOnHover: its OFF arm preloads whenever
+        # browser.keepNeighborTabsAwake > 0, so the run must say so.
+        self.arms(f"--base-ref={self.base}", "--arms=OFF,ON")
+        self.assertIn("has no browser.wakeTabsOnHover", self.stderr)
+
+    def test_a_base_with_the_wake_setting_gets_no_warning(self):
+        write(os.path.join(self.repo, SETTING_FILE), 'if let value = browser["wakeTabsOnHover"] {}\n')
+        self.commit("base with the setting")
+        base = self.git("rev-parse", "HEAD")
+        write(os.path.join(self.repo, "later2.txt"), "later\n")
+        self.commit("head 2")
+        self.head = self.git("rev-parse", "HEAD")
+        self.arms(f"--base-ref={base}", "--arms=OFF,ON")
+        self.assertNotIn("has no browser.wakeTabsOnHover", self.stderr)
 
 
 if __name__ == "__main__":
