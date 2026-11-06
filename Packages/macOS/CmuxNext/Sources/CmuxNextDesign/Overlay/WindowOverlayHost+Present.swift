@@ -162,7 +162,13 @@ public extension WindowOverlayHost {
             if options.dimsContent || (options.isModal && options.modalRegion == nil) { return [bounds] }
             var rects: [NSRect] = []
             if let region = options.modalRegion { rects.append(region) }
-            if !options.passesThroughClicks { rects += visibleRegion(of: handle) }
+            if !options.passesThroughClicks {
+                let visible = visibleRegion(of: handle)
+                // Only where the content takes clicks (a toast stack's toasts), inside what shows of it.
+                rects += handle.hitRegions.map { regions in
+                    regions.flatMap { region in visible.map { $0.intersection(region) } }.filter { !$0.isEmpty }
+                } ?? visible
+            }
             return rects
         }
     }
