@@ -53,7 +53,7 @@ impl Default for StoreConfig {
             mode: StoreMode::Local,
             segment_bytes: default_segment_bytes(),
             closed_log_days: None,
-            journal: false,
+            journal: true,
         }
     }
 }
