@@ -150,6 +150,13 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub waits_for_slot: bool,
+    /// Its agent is being started (a start, a wake or a mode change holds the session's spawn
+    /// lease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update
+    /// waits on it as on a turn. Always sent, so a row without it is from an older acpmux,
+    /// which an update reads by its row's age instead.
+    #[serde(default)]
+    #[schemars(default)]
+    pub starting: bool,
     /// Being moved to another daemon; it takes no prompt meanwhile.
     pub moving: bool,
     /// Moved to another daemon (`acpmux session move`): where it runs now,

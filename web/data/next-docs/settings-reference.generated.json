@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 584,
+  "count": 591,
   "sections": [
     {
       "id": "general",
@@ -557,7 +557,7 @@
           "title": "Computer Use Driver",
           "help": "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
           "kind": "choice",
-          "default": "legacy",
+          "default": "upstream",
           "group": "Computer Use",
           "values": [
             "legacy",
@@ -1079,20 +1079,20 @@
           ]
         },
         {
+          "key": "palette.searchHistory",
+          "title": "Remember Palette Searches",
+          "help": "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Command Palette"
+        },
+        {
           "key": "picker.pinned",
           "title": "Pinned Folders",
           "help": "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths.",
           "kind": "folder_list",
           "default": [],
           "group": "Folder Picker"
-        },
-        {
-          "key": "remote.enabled",
-          "title": "Use cmux Remote",
-          "help": "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts.",
-          "kind": "toggle",
-          "default": false,
-          "group": "cmux Remote"
         },
         {
           "key": "remote.endSharingOnQuit",
@@ -4381,6 +4381,18 @@
           "kind": "string_list",
           "default": [],
           "group": "Opening Links"
+        },
+        {
+          "key": "terminal.term",
+          "title": "Terminal Type (TERM)",
+          "help": "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac.",
+          "kind": "choice",
+          "default": "xterm-256color",
+          "group": "Compatibility",
+          "values": [
+            "xterm-256color",
+            "xterm-ghostty"
+          ]
         }
       ]
     },
@@ -5506,6 +5518,48 @@
           "group": "Reactions"
         },
         {
+          "key": "chief.subagentSidebar",
+          "title": "Subagents in the Sidebar",
+          "help": "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Subagents",
+          "values": [
+            "auto",
+            "always",
+            "never"
+          ]
+        },
+        {
+          "key": "chief.subagentSidebarHideWords",
+          "title": "Hide Tasks That Mention",
+          "help": "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Subagents"
+        },
+        {
+          "key": "chief.subagentSidebarMinWords",
+          "title": "Show Tasks Longer Than",
+          "help": "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter.",
+          "kind": "number",
+          "default": 50,
+          "group": "Subagents",
+          "range": {
+            "min": 0,
+            "max": 1000,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "chief.subagentSidebarShowWords",
+          "title": "Show Tasks That Mention",
+          "help": "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Subagents"
+        },
+        {
           "key": "diagnostics.hangReports",
           "title": "Send Hang Reports",
           "help": "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent.",
@@ -5572,6 +5626,28 @@
             "imessage",
             "theme"
           ]
+        },
+        {
+          "key": "home.chiefDock.edge",
+          "title": "Dock Edge",
+          "help": "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick.",
+          "kind": "choice",
+          "default": "left",
+          "group": "Chief Dock",
+          "values": [
+            "left",
+            "right",
+            "top",
+            "bottom"
+          ]
+        },
+        {
+          "key": "home.chiefDock.openBeside",
+          "title": "Keep Chief Docked When Opening Workspaces",
+          "help": "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Chief Dock"
         },
         {
           "key": "home.chiefEngine",

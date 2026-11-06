@@ -66,6 +66,16 @@ from test_execution_registry import (  # noqa: E402
 )
 import workload_entrypoints  # noqa: E402
 
+try:
+    from yaml import YAMLError as BaseYAMLError
+except ImportError:  # no YAML parser here: a workflow is never parsed, so none can fail to
+    BaseYAMLError = ValueError
+
+# A base whose workflow does not parse (feat-cmux-next dd8b867f7: a colon-space in nightly.yml's
+# plain scalar) cannot be judged, so its findings warn; the pull request that fixes it is never
+# turned red by the base it fixes.
+BASE_UNREADABLE = (OSError, ValueError, ImportError, tarfile.TarError, subprocess.CalledProcessError, BaseYAMLError)
+
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -595,7 +605,7 @@ def registry_findings(root: Path, base_sha: str = "") -> tuple[list[str], list[s
     try:
         on_base = base_tree_findings(
             root, base_sha, lambda base: validate(base, added=set(), base_duplicates=set())[0])
-    except (OSError, ValueError, tarfile.TarError, subprocess.CalledProcessError) as error:
+    except BASE_UNREADABLE as error:
         note = (f"could not judge the registry at the base {base_sha}: {error}; "
                 "every finding below is a warning")
         return [], [note, *warnings, *errors], lane_counts
@@ -654,7 +664,7 @@ def pr_lane_findings(root: Path, branch: str, base_sha: str = "") -> tuple[list[
         return errors, []
     try:
         on_base = base_pr_lane_errors(root, branch, base_sha)
-    except (OSError, ValueError, ImportError, tarfile.TarError, subprocess.CalledProcessError) as error:
+    except BASE_UNREADABLE as error:
         note = (f"could not judge the pull request lanes at the base {base_sha}: {error}; "
                 "every finding below is a warning")
         return [], [note, *errors]

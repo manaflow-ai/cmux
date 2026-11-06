@@ -65,6 +65,23 @@ fn remote_refusal(live: bool) -> &'static str {
     }
 }
 
+/// What a turn fork keeps of the caller's request: the forward mark and full-access guard, and the
+/// child's `name` (`_meta.acpmux.name`, else the top-level `name`, as `session/fork` reads it).
+/// Without the name the child took the default `<parent>-fork` (cmux Try another approach labels
+/// its sibling).
+fn carried_meta(params: &Value) -> serde_json::Map<String, Value> {
+    let mut mux = serde_json::Map::new();
+    for key in ["via", "requireFullAccess", "name"] {
+        if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+            mux.insert(key.into(), value.clone());
+        }
+    }
+    if let Some(name) = params.get("name").filter(|name| name.is_string()) {
+        mux.entry("name").or_insert_with(|| name.clone());
+    }
+    mux
+}
+
 /// The `session/fork` params for an `acp.session.fork` request, or why the
 /// fork cannot happen at that turn.
 async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
@@ -163,12 +180,8 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     }
     // A working chat moved past its latest finished turn: a fork through it cuts there too.
     let earlier = earlier || working;
-    let mut mux = cancel_token(params);
-    for key in ["via", "requireFullAccess"] {
-        if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
-            mux.insert(key.into(), value.clone());
-        }
-    }
+    let mut mux = carried_meta(params);
+    mux.extend(cancel_token(params));
     if earlier {
         mux.insert("throughSeq".into(), json!(through));
     }
@@ -221,6 +234,22 @@ mod tests {
 
     /// Review of #28332: a `live` fork (Fork Conversation of a working chat) names no turn, so
     /// its refusal for a peer's chat does not say "through a turn"; a fork through a turn does.
+    #[test]
+    fn a_turn_fork_keeps_the_childs_name() {
+        let top = carried_meta(
+            &json!({"sessionId": "s", "throughSeq": 3, "name": "Try another approach · Repo"}),
+        );
+        assert_eq!(top.get("name"), Some(&json!("Try another approach · Repo")));
+        // The `_meta` name wins, as `session/fork` reads it; a non-string top-level name is dropped.
+        let meta = carried_meta(
+            &json!({"name": "top", "_meta": {"acpmux": {"name": "meta", "via": "hb"}}}),
+        );
+        assert_eq!(meta.get("name"), Some(&json!("meta")));
+        assert_eq!(meta.get("via"), Some(&json!("hb")));
+        assert!(carried_meta(&json!({"name": 7})).get("name").is_none());
+        assert!(carried_meta(&json!({"sessionId": "s"})).is_empty());
+    }
+
     #[tokio::test]
     async fn a_peer_chats_fork_is_refused_with_what_it_asked_for() {
         let hub = hub_with_a_peer_chat();

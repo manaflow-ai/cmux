@@ -265,6 +265,7 @@ import { releaseReaderScroll, useHeldWhileScrolling } from "./summary/heldWhileS
 import type { WorkflowAgent, WorkflowSummary } from "./summary/workflow";
 import { WorkflowSideTab } from "./summary/WorkflowSideTab";
 import {
+  backToOpeningChat,
   showSubagent as showSubagentIn,
   revealedSubagent,
   subagentTabTitle,
@@ -1517,6 +1518,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // This Mac's own name (`localMachineName`): `machineName` names a seeded chat's machine instead.
   const [localMachineName, setLocalMachineName] = useState<string | undefined>();
   const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
+  // The host bridge reads the current machine without re-registering every native handler.
+  const cloudMachineIDRef = useRef(cloudMachineID);
+  cloudMachineIDRef.current = cloudMachineID;
   const [cloudRepositoryAvailable, setCloudRepositoryAvailable] = useState(false);
   const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
   // A fresh composer can select a paused Cloud machine before it has a session. Keep only that
@@ -1879,6 +1883,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
   const forkAny = forksAnyTurn(snapshot.summary?.family);
+  const tryAnotherApproachInFlight = useRef<Promise<void> | undefined>(undefined);
   // Edit and resend (cx-ncc.60): rebuilt when the editable prompts change, not on every streamed row.
   // A running chat still permits editing an earlier completed prompt: editResend forks through that
   // prompt's preceding turn, leaving this branch running while the edited sibling starts its own turn.
@@ -2588,15 +2593,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [mentionsKey],
   );
   // Each session reference's hover card reads the session from one store (started/SessionHoverCard.tsx).
+  // Every reference to one of the reader's chats has it (an agent link, a session name, a sender's
+  // name; Leo, 2026-11-05), with started session cards on or off: the experiment draws the cards and
+  // the name chips of started chats, not the hover.
   const hoverStore = useRef<SessionHoverStore | null>(null);
   hoverStore.current ??= new SessionHoverStore();
   useLayoutEffect(() => {
-    if (startedOn) hoverStore.current!.set(snapshot.sessions);
-  }, [startedOn, snapshot.sessions]);
-  const sessionHover = useMemo<SessionHover | null>(
-    () => (startedOn ? { store: hoverStore.current!, open: openOfferChat } : null),
-    [startedOn],
-  );
+    hoverStore.current!.set(snapshot.sessions);
+  }, [snapshot.sessions]);
+  const sessionHover = useMemo<SessionHover>(() => ({ store: hoverStore.current!, open: openOfferChat }), []);
   // The transcript's sub-session cards read each sub-session's state from one store, so a session
   // changing never redraws a turn (subagents/subsessions.ts); a name opens its chat beside this one.
   const subsessionStore = useRef<SubsessionStore | null>(null);
@@ -2758,8 +2763,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const planInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
   // A running turn with no list of its own yet keeps the agent's earlier list with steps left in
-  // sight, marked as from before the person's last message (turns.ts earlierTurnPlan; Claude desktop's
-  // pinned task list). It stays folded in its own turn too; the copy goes once the agent writes a list.
+  // sight, marked as from before the person's last message (turns.ts earlierTurnPlan). It stays folded in its own turn too; the copy goes once the agent writes a list.
   const earlierPlanRow = useMemo(
     () =>
       snapshot.isWorking && !quick && !childRows && !liveTurnPlan(turnRowsShown)
@@ -3147,6 +3151,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   // Session Info shows: every listed chat's usage is read now (direct.ts `refreshUsage`).
   const refreshUsage = useCallback(() => directClient.current?.refreshUsage(), []);
+  // Session Info's Changes row reads the folder's git changes (session-info/changeCounts.ts).
+  const readChanges = useCallback(
+    (scope: string) => directClient.current?.gitDiffCounts(scope) ?? Promise.reject(new Error()),
+    [],
+  );
   const reconnectPeer = useCallback(
     (peer: string) => directClient.current?.reconnectPeer(peer) ?? Promise.reject(new Error()),
     [],
@@ -3461,10 +3470,31 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }),
       ...(forkable && {
         fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
-        forkSeq,
         forkAny,
         promptTurns: stablePromptSeqs,
       }),
+      // Cloud's latest-turn action is available even when the harness does not advertise the
+      // ordinary transcript fork capability; ForkRuns supplies the machine copy and this action
+      // uses the child acpmux bridge for the transcript.
+      forkSeq,
+      ...(cloudMachineID &&
+        forkSeq !== undefined && {
+          tryAnotherApproach: async (throughSeq: number) => {
+            if (tryAnotherApproachInFlight.current) return tryAnotherApproachInFlight.current;
+            // Straight to native: callNative would select the page action of the same name.
+            const task = postNative("chat.tryAnotherApproach", { throughSeq });
+            const settled = task.then(
+              () => undefined,
+              () => undefined,
+            );
+            tryAnotherApproachInFlight.current = settled;
+            try {
+              await task;
+            } finally {
+              if (tryAnotherApproachInFlight.current === settled) tryAnotherApproachInFlight.current = undefined;
+            }
+          },
+        }),
       promptImage: (id: string) => directClient.current?.promptImage(id) ?? Promise.resolve(undefined),
       ...(stableEditSeqs.size > 0 && {
         edit: {
@@ -4230,8 +4260,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }),
     [autoOpenSubagents],
   );
+  /// Shows subagent `id`'s view in place, or the chat's (`undefined`). In a pane opened on a subagent
+  /// (beside the chat that opened it), going to the chat goes back to that chat's own tab instead and
+  /// closes this one, so the chat never shows twice (subagentPanes.ts backToOpeningChat); a pane no
+  /// chat opened shows the chat in place.
+  const navigateSubagent = useCallback((id: string | undefined) => {
+    if (id !== undefined || !subagentPane.current) return setSubagentView(id);
+    void backToOpeningChat(callNative).then((back) => {
+      if (!back) setSubagentView(undefined);
+    });
+  }, []);
   // Escape closes a subagent's view to the chat's, as its pill's × does (subagents/subagentEscape.ts).
-  useEscapeClosesSubagent(!quick && !!subagentView, () => setSubagentView(undefined));
+  useEscapeClosesSubagent(!quick && !!subagentView, () => navigateSubagent(undefined));
   // A pane opened on a subagent shows the chat's other subagents in place, and its "Subagent of" pill goes
   // back to the chat: its tab's name follows what it shows (review of #28497 at 995299ff). Not before
   // the subagent it was opened on has shown, or the name the app gave the tab would flash away; and not
@@ -4402,7 +4442,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       parent: parent === null ? chatName : (chatAgents.find((agent) => agent.id === parent)?.name ?? chatName),
       agents: descendants(chatAgents, scopedAgent.id),
       // As its "Subagent of" pill: back to its parent subagent's view, else the chat's.
-      onBack: () => setSubagentView(parent ?? undefined),
+      onBack: () => navigateSubagent(parent ?? undefined),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new scope only when what it shows changes
   }, [scopedKey, cardScopedRows, chatName, chatAgents]);
@@ -4555,6 +4595,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       quick || !sessionInfoLocal
         ? undefined
         : (path) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.files, cwd: path, mode: "open" })),
+    // Environment's Changes: the header's Changes counts and what it opens (the chat folder's diff
+    // beside the chat), only where the header offers it.
+    readChanges: quick ? undefined : readChanges,
+    onOpenChanges: quick ? undefined : () => openChangesTab.current(),
     // Active chat panes do not support environment.save; the native handler accepts it only from
     // New Tab. Keep the inspector's optional callback for gallery/host integrations, but do not
     // expose a button here that would always be rejected.
@@ -7286,6 +7330,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               focus: () => composerHandle.current?.focus(),
             });
           },
+          // Cloud's Try another approach is native-owned: it snapshots the current machine,
+          // then asks the child acpmux to fork its latest transcript before opening a sibling.
+          // postNative, never callNative: callNative would pick this same page action again.
+          "chat.tryAnotherApproach": async ({ throughSeq }) => {
+            if (!cloudMachineIDRef.current || Number(throughSeq) !== latestForkSeq(snapshotRef.current?.rows ?? []))
+              return undefined;
+            return postNative("chat.tryAnotherApproach", { throughSeq: Number(throughSeq) });
+          },
           // Edit and resend (cx-ncc.60): a fork through the turn before the prompt, which then gets the
           // edited text with the prompt's attachments; the original chat stays as it was.
           "chat.editResend": async ({ rowId, throughSeq, text }) => {
@@ -8994,7 +9046,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         <SessionEditsContext.Provider value={editRows}>
                           <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                             <OfferDefaultsContext.Provider value={offerDefaultsValue}>
-                              <SubagentNavContext.Provider value={setSubagentView}>
+                              <SubagentNavContext.Provider value={navigateSubagent}>
                                 <SubagentViewsContext.Provider value={readSubagentView}>
                                   <SubagentPaneContext.Provider value={showSubagent}>
                                     <WorkingCountsContext.Provider value={workingCounts}>
@@ -9613,6 +9665,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // attached) draws no new chat's folder and environment strip.
             chatKnown={paneKnowsNewChat({ handshaken, newSession }, composerSnapshot)}
             chips={ComposerChips}
+            // The context card's Details opens Session Info on Context, unfolded and lit (main's).
             onOpenContext={sessionInfo.reveal ? () => sessionInfo.reveal?.("context") : undefined}
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
