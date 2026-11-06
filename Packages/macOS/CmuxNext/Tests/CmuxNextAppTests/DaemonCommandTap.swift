@@ -22,6 +22,18 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
     /// A connection's first store snapshot (its connect), counted apart.
     static let firstSnapshotRead = "list-workspaces (first store snapshot)"
     private var closed = false
+    /// Per command: requests answered, their total and longest reply time (seconds).
+    private var replies: [String: (count: Int, total: Double, longest: Double)] = [:]
+    /// Lines the daemon sent that answer no request (events), and their bytes.
+    private var events = (count: 0, bytes: 0)
+
+    /// Reply times by command and the event volume so far (``Timings``).
+    struct Timings: Sendable {
+        var replies: [String: (count: Int, total: Double, longest: Double)]
+        var events: (count: Int, bytes: Int)
+    }
+
+    func timings() -> Timings { lock.withLock { Timings(replies: replies, events: events) } }
 
     init() throws {
         path = "/tmp/cntap-\(UUID().uuidString.prefix(8).lowercased()).sock"
@@ -84,7 +96,7 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
             let connection = Connection()
             // task-owner: one relayed connection's two directions; each ends at its side's end of stream
             Thread.detachNewThread { [self] in pump(from: client, to: daemon, counting: connection); pair.ended() }
-            Thread.detachNewThread { [self] in pump(from: daemon, to: client, counting: nil); pair.ended() }
+            Thread.detachNewThread { [self] in pump(from: daemon, to: client, counting: nil, answering: connection); pair.ended() }
         }
     }
 
@@ -96,10 +108,12 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
         /// The store pipelines `list-saved-tab-groups` with its snapshot's `list-workspaces` (where the
         /// daemon serves it); then a `list-personal` after a `list-workspaces` is the run's own refetch.
         var pipelinesSavedGroups = false
+        /// Requests sent and not answered yet, by id: their command and when they went.
+        var pending: [Int: (command: String, sent: ContinuousClock.Instant)] = [:]
     }
 
     /// Copies `source` to `sink` until either ends; with `counting`, counts each request line's command.
-    private func pump(from source: Int32, to sink: Int32, counting: Connection?) {
+    private func pump(from source: Int32, to sink: Int32, counting: Connection?, answering: Connection? = nil) {
         var line = Data()
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
@@ -112,10 +126,11 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
                 offset += wrote
             }
             guard offset == read else { break }
-            guard let counting else { continue }
+            guard counting != nil || answering != nil else { continue }
             line.append(contentsOf: buffer[0..<read])
             while let newline = line.firstIndex(of: UInt8(ascii: "\n")) {
-                note(line[line.startIndex..<newline], on: counting)
+                if let counting { note(line[line.startIndex..<newline], on: counting) }
+                if let answering { answer(line[line.startIndex..<newline], on: answering) }
                 line.removeSubrange(line.startIndex...newline)
             }
         }
@@ -148,6 +163,26 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
                 counts[name, default: 0] += 1
             }
             if command == "list-workspaces" { connection.pendingTreeRead = true } else { counts[command, default: 0] += 1 }
+            if let id = object["id"] as? Int { connection.pending[id] = (command, .now) }
+        }
+    }
+
+    /// A daemon line: the reply to a request (its time goes to ``replies``) or an event.
+    private func answer(_ reply: Data, on connection: Connection) {
+        let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any]
+        let id = object?["id"] as? Int
+        lock.withLock {
+            guard let id, let sent = connection.pending.removeValue(forKey: id) else {
+                events.count += 1
+                events.bytes += reply.count
+                return
+            }
+            let seconds = (ContinuousClock.now - sent.sent) / .seconds(1)
+            var entry = replies[sent.command] ?? (0, 0, 0)
+            entry.count += 1
+            entry.total += seconds
+            entry.longest = max(entry.longest, seconds)
+            replies[sent.command] = entry
         }
     }
 
