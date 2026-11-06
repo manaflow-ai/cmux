@@ -147,6 +147,7 @@ import Testing
 
     static func render(_ view: NSView) throws -> CGImage {
         let window = NSWindow(contentRect: view.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false  // ARC owns it; close() releasing it too crashed the run at the autorelease drain.
         window.setFrameOrigin(NSPoint(x: -40_000, y: -40_000))
         window.appearance = view.appearance
         window.backgroundColor = view.appearance?.name == .darkAqua ? NSColor(white: 0.12, alpha: 1) : NSColor(white: 0.93, alpha: 1)

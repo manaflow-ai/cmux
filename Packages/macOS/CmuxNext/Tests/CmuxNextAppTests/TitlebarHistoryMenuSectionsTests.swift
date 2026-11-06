@@ -170,6 +170,20 @@ struct TitlebarHistoryMenuSectionsTests {
         }
     }
 
+    /// A long address or path cannot widen the list: the row keeps the title's start and both ends of the detail.
+    @Test func aLongClosedDetailDoesNotWidenTheList() throws {
+        let url = "https://example.com/" + String(repeating: "deep/", count: 40) + "page.html"
+        let row = TitlebarHistoryClosedRow(id: "daemon:closed_1", kind: .browserTab, title: "Docs", detail: url)
+        let menu = TitlebarHistoryMenu.make([], closed: .rows([row]), choose: { _ in }, showAll: nil)
+        let title = try #require(menu.items.last?.title)
+        #expect(title.count == TitlebarHistoryMenu.closedTitleLength)
+        #expect(title.hasPrefix("Docs — https://example.com/"))
+        #expect(title.hasSuffix("page.html"))
+        #expect(menu.items.last?.identifier?.rawValue == "daemon:closed_1")
+        let long = TitlebarHistoryClosedRow(id: "daemon:closed_2", kind: .terminalTab, title: String(repeating: "x", count: 200), detail: "~")
+        #expect(TitlebarHistoryMenu.closedTitle(long).count == TitlebarHistoryMenu.closedTitleLength)
+    }
+
     @Test func theSubmenuStyleHoldsTheClosedRows() throws {
         let menu = TitlebarHistoryMenu.make([], closed: .rows([Self.closedRow("daemon:closed_1", "build")]), style: .submenu,
                                             choose: { _ in }, showAll: nil)

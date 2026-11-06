@@ -77,6 +77,10 @@ public struct TitlebarHistoryMenu {
     /// keep the room they had.
     public static let closedLimit = 5
 
+    /// The longest closed row, in characters. NSMenu is as wide as its longest title, so a long
+    /// address or folder must not widen the list (Leo 2026-11-06: "don't baloon it").
+    public static let closedTitleLength = 60
+
     /// `showAll` is the registry's `history.show` row (it runs the registered action, as the
     /// palette does), retitled Show Full History; nil: no footer. `closed` nil leaves the Recently
     /// Closed section out.
@@ -131,8 +135,7 @@ public struct TitlebarHistoryMenu {
         case .unavailable: return [note(HistoryStrings.menuClosedUnavailable)]
         case .rows(let rows):
             return rows.prefix(closedLimit).map { closedRow in
-                let title = closedRow.detail.map { "\(closedRow.title) — \($0)" } ?? closedRow.title
-                let row = NSMenuItem(title: title, action: #selector(TitlebarHistoryMenuTarget.pickClosed(_:)), keyEquivalent: "")
+                let row = NSMenuItem(title: closedTitle(closedRow), action: #selector(TitlebarHistoryMenuTarget.pickClosed(_:)), keyEquivalent: "")
                 if icons {
                     row.image = NSImage(systemSymbolName: symbol(closedRow.kind), accessibilityDescription: nil)?
                         .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: TypeScale.body, weight: .regular))
@@ -143,6 +146,22 @@ public struct TitlebarHistoryMenu {
                 return row
             }
         }
+    }
+
+    /// "title — detail" in at most ``closedTitleLength`` characters: the title cut at its end, the
+    /// detail (an address or a path, whose ends say most) in its middle, and left out when no room is left.
+    static func closedTitle(_ row: TitlebarHistoryClosedRow) -> String {
+        let title = clip(row.title, to: closedTitleLength, middle: false)
+        let room = closedTitleLength - title.count - 3
+        guard let detail = row.detail, !detail.isEmpty, room >= 8 else { return title }
+        return "\(title) — \(clip(detail, to: room, middle: true))"
+    }
+
+    static func clip(_ text: String, to length: Int, middle: Bool) -> String {
+        guard text.count > length else { return text }
+        guard middle else { return String(text.prefix(length - 1)) + "…" }
+        let head = (length - 1) / 2
+        return String(text.prefix(head)) + "…" + String(text.suffix(length - 1 - head))
     }
 
     /// A disabled line that says why a section has no rows.
