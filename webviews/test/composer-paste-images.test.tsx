@@ -227,20 +227,20 @@ async function paste(clipboard: { files?: File[]; html?: string; plain?: string 
 
 const screenshot = (index: number) => new File([PNG], "image.png", { type: "image/png", lastModified: index });
 
-test("pasting two copied images puts two attachment atoms in the prompt", async () => {
+test("pasting the same copied screenshot twice keeps one attachment atom", async () => {
   const composer = await openComposer();
   await paste({ files: [screenshot(1), screenshot(2)], html: imageHtml(2) });
   const chips = composer.current!.wakeState().attachments ?? [];
-  expect(chips.map((chip) => chip.kind)).toEqual(["image", "image"]);
+  expect(chips.map((chip) => chip.kind)).toEqual(["image"]);
   expect(chips.every((chip) => chip.data === pngBase64)).toBe(true);
-  await until(() => field().querySelectorAll("[data-inline-attachment] img").length === 2, "inline thumbnails");
+  await until(() => field().querySelectorAll("[data-inline-attachment] img").length === 1, "inline thumbnail");
 });
 
 test("an image copied as HTML alone (no file on the clipboard) still comes in as a chip, its text as text", async () => {
   const composer = await openComposer();
   await paste({ html: `<p>look at these</p>${imageHtml(2)}`, plain: "look at these" });
-  expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image", "image"]);
-  await until(() => field().querySelectorAll("[data-inline-attachment] img").length === 2, "inline thumbnails");
+  expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image"]);
+  await until(() => field().querySelectorAll("[data-inline-attachment] img").length === 1, "inline thumbnail");
   expect(field().textContent).toContain("look at these");
 });
 
@@ -253,7 +253,7 @@ test("a pasted image goes to the agent as an image block; the prompt's text has 
   });
   expect(sent).toHaveLength(1);
   const blocks = promptBlocks(sent[0]!.text, sent[0]!.attachments);
-  expect(blocks.filter((block) => block.type === "image")).toHaveLength(2);
+  expect(blocks.filter((block) => block.type === "image")).toHaveLength(1);
   expect(JSON.stringify(blocks.filter((block) => block.type === "text"))).not.toContain("data:");
   expect(sent[0]!.text).not.toContain("data:");
 });

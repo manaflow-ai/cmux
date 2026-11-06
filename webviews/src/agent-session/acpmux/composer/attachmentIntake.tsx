@@ -117,9 +117,10 @@ export function appendAttachments(
   const links = new Map<string, number>();
   const content = new Map<string, number>();
   const contentKey = (attachment: ComposerAttachment): string | undefined => {
-    if (attachment.data !== undefined)
+    if (attachment.kind === "image" && attachment.data !== undefined)
       return `${attachment.kind}:${attachment.mimeType}:${attachment.size}:${attachment.data}`;
-    if (attachment.text !== undefined) return `${attachment.kind}:${attachment.mimeType}:${attachment.size}:${attachment.text}`;
+    if (attachment.kind === "image" && attachment.text !== undefined)
+      return `${attachment.kind}:${attachment.mimeType}:${attachment.size}:${attachment.text}`;
     if (attachment.kind === "link" && attachment.path) return `link:${attachment.path}`;
     return undefined;
   };
@@ -448,8 +449,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       staged.add(attachment.id);
       setAttachments((staged) => {
         const at = staged.findIndex((chip) => (places.current.get(chip.id) ?? -1) > place);
-        if (at < 0 || staged.some((chip) => chip.id === attachment.id))
-          return appendAttachments(staged, [attachment], { dedupeContent: false });
+        if (at < 0 || staged.some((chip) => chip.id === attachment.id)) return appendAttachments(staged, [attachment]);
         return [...staged.slice(0, at), attachment, ...staged.slice(at)];
       });
     };
