@@ -505,7 +505,7 @@ impl Dispatch<sc_frame::ZwlrScreencopyFrameV1, ()> for State {
         let c = &mut state.capture;
         match event {
             sc_frame::Event::Buffer { format, width, height, stride } => {
-                c.buffer = Some((format, width, height, stride))
+                c.buffer = Some((format, width, height, stride));
             }
             sc_frame::Event::BufferDone => c.buffer_done = true,
             sc_frame::Event::Flags { flags } => {

@@ -148,7 +148,7 @@ pub(crate) fn run(mut overlay: impl Overlay, rx: Receiver<CursorEvent>) {
                 if let Some(to) = target_of(&ev) {
                     match at {
                         Some(from) if distance(from, to) > 1.0 => {
-                            glide = Some((from, to, Instant::now()))
+                            glide = Some((from, to, Instant::now()));
                         }
                         _ => {
                             at = Some(to);
