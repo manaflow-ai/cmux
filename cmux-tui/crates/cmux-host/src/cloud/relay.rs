@@ -42,6 +42,11 @@ use super::client::{CloudClient, Http};
 pub const PROTOCOL: &str = "cmux.machine-relay/1";
 const PING_EVERY: Duration = Duration::from_secs(20);
 const DEAD_AFTER: Duration = Duration::from_secs(60);
+/// The keepalive, byte for byte the frame the platform's runtime answers with a pong (MachineRelay.ts,
+/// `setWebSocketAutoResponse`). `json!` sorts its keys (`{"t":"ping","v":1}`), which matched nothing, so no pong
+/// came and the host dropped a live socket [`DEAD_AFTER`] after the last frame down: a chat quiet that long ended
+/// `cloud.relay.host_gone` (cmuxterm-hq cloud chaos, token-rejected, run 42135490481).
+const PING: &str = r#"{"v":1,"t":"ping"}"#;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// Failed dials after a resume that its running chats wait out for the next socket.
 const RESUME_REDIALS: u8 = 3;
@@ -649,7 +654,7 @@ async fn serve(
                     let _ = sink.close().await;
                     return Ok(Ended::Dropped);
                 }
-                if sink.send(Message::text(json!({"v": 1, "t": "ping"}).to_string())).await.is_err() {
+                if sink.send(Message::text(PING)).await.is_err() {
                     return Ok(Ended::Dropped);
                 }
             }

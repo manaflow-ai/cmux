@@ -470,3 +470,9 @@ fn a_failed_session_create_keeps_its_exit_and_its_type() {
     assert_eq!(event["detail"], "daemon_closed");
     assert_eq!(event["retryable"], true);
 }
+
+#[test]
+fn the_ping_is_the_exact_frame_the_platform_answers() {
+    // MachineRelay.ts: setWebSocketAutoResponse matches the text exactly, key order included.
+    assert_eq!(PING, r#"{"v":1,"t":"ping"}"#);
+}
