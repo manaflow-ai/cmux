@@ -109,6 +109,8 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+#[cfg_attr(not(unix), allow(dead_code))]
+mod staged_update;
 mod startup_env;
 #[cfg(all(test, unix))]
 mod test_exec;
@@ -3117,6 +3119,21 @@ fn start_detached_owner_session(
     let progress = local_owner::RestoreProgress::new(&report);
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline, &progress) {
         anyhow::bail!("{}", messages.ensure_failed(&error));
+    }
+    // The owner was started from a staged build this call installed: this
+    // client still runs the old image, so the new file attaches instead.
+    #[cfg(unix)]
+    if let Some(binary) = staged_update::promoted() {
+        match staged_update::run_installed(binary) {
+            Ok(code) => client_log::exit(code),
+            Err(error) => {
+                client_log::warn("staged-update", &format!("run the installed build: {error}"))
+            }
+        }
+    }
+    #[cfg(unix)]
+    if let Some(notice) = staged_update::notice_for_owner(&socket_path) {
+        staged_update::set_startup_notice(notice);
     }
     let remote = RemoteSession::connect_session(&socket_path, spec.socket_is_derived)
         .context("connect the interactive client to its detached session owner")?;
