@@ -342,8 +342,8 @@ fn a_forks_own_records_never_go_into_its_history_segment() {
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 1));
 }
 
-/// A store whose scan of the chat stalls before it reads, as a slow disk's may.
-struct SlowScan(LocalStore);
+/// A store whose first scan of the chat stalls before it reads, as a slow disk's may.
+struct SlowScan(LocalStore, std::sync::atomic::AtomicBool);
 
 impl Store for SlowScan {
     fn list(&self) -> Result<Vec<SessionMeta>> {
@@ -362,7 +362,7 @@ impl Store for SlowScan {
         self.0.events(id, after, limit)
     }
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
-        if id == "chat" {
+        if id == "chat" && !self.1.swap(true, std::sync::atomic::Ordering::SeqCst) {
             std::thread::sleep(std::time::Duration::from_millis(150));
         }
         self.0.scan(id, after, visit)
@@ -382,7 +382,7 @@ impl Store for SlowScan {
 fn a_read_that_a_delete_lands_in_still_reads_the_history() {
     let dir = tempfile::tempdir().unwrap().keep();
     let view = std::sync::Arc::new(forked(
-        Box::new(SlowScan(LocalStore::new(dir, 1 << 20).unwrap())),
+        Box::new(SlowScan(LocalStore::new(dir, 1 << 20).unwrap(), Default::default())),
         30,
         20,
         4,
