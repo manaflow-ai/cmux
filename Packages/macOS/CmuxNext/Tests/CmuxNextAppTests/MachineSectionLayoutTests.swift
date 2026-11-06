@@ -140,4 +140,21 @@ import Testing
         provider.setShown(true)
         #expect(events.count == 1, "nothing new: nothing sent")
     }
+
+    /// A page that subscribes while the section is hidden still gets the newest snapshot on the first show.
+    @Test func aStreamOpenedWhileHiddenSendsTheChangeOnTheFirstShow() async throws {
+        let box = Box()
+        let store = JoinedMachineStore(service: { nil })
+        let provider = Self.provider(box, joined: store)
+        var events: [JSONValue] = []
+        let subscription = try await provider.subscribe(MachineSectionPageProvider.changesStream, filter: .object([:]),
+                                                        context: Self.context) { events.append($0) }
+        defer { subscription.cancel() }
+        store.openMenu = "m_3"
+        for _ in 0..<20 { await Task.yield() }
+        #expect(events.isEmpty, "hidden: no event")
+        provider.setShown(true)
+        #expect(events.count == 1)
+        #expect(events.last?["openMenu"]?.stringValue == "m_3")
+    }
 }
