@@ -635,16 +635,22 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         guard let dataSource, let collectionView else { return }
         let present = ids.filter { shownKeys[$0] != nil && items[$0] != nil }
         guard !present.isEmpty else { return }
-        // A row the person toggled keeps its own top while that top is on screen: anchoring the row
-        // after it (as for a row that resized on its own) pushed the toggled row's top and everything
-        // above it up as it grew. With its top above the screen (Show less at the end of a long body)
-        // the row after it stays put, so the row's end stays where the person tapped.
-        let anchor = jumpingToTop ? nil
-            : kept.flatMap(rowAnchorIfTopShown) ?? (control.atTop ? nil : visibleAnchor(excluding: Set(present)))
+        // The new layouts first: a toggled row's anchor depends on whether it grows.
+        var keys: [String: FeedRowKey] = [:]
         for id in present {
             guard let item = items[id] else { continue }
             let key = key(for: item)
             if layouts.cached(key) == nil { layouts.store(FeedRowLayout.make(key, styles: styles, scale: scale), for: key) }
+            keys[id] = key
+        }
+        // A row the person toggled keeps its top where it is, so what they read does not move: anchoring
+        // the row after it (as for a row that resized on its own) pushed a growing row's top, and
+        // everything above it, up whenever that top was under the bars. A shrinking row whose top is
+        // above the screen (Show less at the end of a long body) keeps the row after it instead, so
+        // its end stays where the person tapped and its start is not left far above the screen.
+        let anchor = jumpingToTop ? nil
+            : kept.flatMap { toggledRowAnchor($0) } ?? (control.atTop ? nil : visibleAnchor(excluding: Set(present)))
+        for (id, key) in keys {
             shownKeys[id] = key
             shownHeights[id] = layouts.cached(key)?.height ?? 1
         }
@@ -684,14 +690,17 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         return nil
     }
 
-    /// `id`'s row where it starts relative to the scroll offset, when its top is on screen.
-    private func rowAnchorIfTopShown(_ id: String) -> Anchor? {
-        guard let collectionView, let indexPath = dataSource?.indexPath(for: id) else { return nil }
-        let minY = collectionView.rectForRow(at: indexPath).minY
+    /// The anchor for a row the person toggled (its state already changed): its own top, unless it
+    /// shrinks with its top above the screen (then nil: the row after it is kept).
+    private func toggledRowAnchor(_ id: String) -> Anchor? {
+        guard let collectionView, let indexPath = dataSource?.indexPath(for: id), let item = items[id] else { return nil }
+        let frame = collectionView.rectForRow(at: indexPath)
         let visibleTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
         let visibleBottom = collectionView.contentOffset.y + collectionView.bounds.height - collectionView.adjustedContentInset.bottom
-        guard minY >= visibleTop - 0.5, minY < visibleBottom else { return nil }
-        return Anchor(id: id, delta: minY - collectionView.contentOffset.y)
+        guard frame.maxY > visibleTop, frame.minY < visibleBottom else { return nil }
+        let newHeight = layouts.cached(key(for: item))?.height ?? frame.height
+        if newHeight < frame.height - 0.5, frame.minY < visibleTop - 0.5 { return nil }
+        return Anchor(id: id, delta: frame.minY - collectionView.contentOffset.y)
     }
 
     private func restore(_ anchor: Anchor) {

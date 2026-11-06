@@ -70,6 +70,9 @@ final class FeedNewPillTapUITests: XCTestCase {
         if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
         let all = app.buttons["All"].firstMatch
         XCTAssertTrue(all.waitForExistence(timeout: 30), "Feed chips\n\(app.debugDescription)")
+        // The Finished filter: no open asks pinned above the events (FeedStore.pinningNeedsYou), so
+        // the rig's live responses arrive on top, above the reader, as the pill counts them.
+        app.buttons["Finished"].firstMatch.tap()
         return (app, all, all.frame)
     }
 
