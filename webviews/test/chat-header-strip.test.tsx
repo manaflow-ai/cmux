@@ -137,13 +137,14 @@ test("the compact chat tools use host SF Symbols, with overflow last and no dupl
     "Browser",
     "Chat actions",
   ]);
-  const lit = "var(--agent-lit-glyph, var(--agent-accent))";
   const [toggle, ...symbolTools] = buttons;
   const pack = toggle!.querySelector<SVGElement>("svg[data-icon]")!;
   expect(pack.getAttribute("data-icon")).toBe("view.list.short");
   expect(pack.getAttribute("width")).toBe("16");
   expect(pack.classList.contains("acpmux-header-glyph")).toBe(true);
-  expect(pack.style.color).toBe(lit);
+  // The pressed button supplies the lit ink; the pack SVG stays on its Line drawing and
+  // inherits that color instead of changing its inline style.
+  expect(pack.style.color).toBe("");
   expect(toggle!.querySelector("[data-symbol]")).toBeNull();
   for (const button of symbolTools) {
     const glyph = button.querySelector<HTMLElement>("[data-symbol]")!;
