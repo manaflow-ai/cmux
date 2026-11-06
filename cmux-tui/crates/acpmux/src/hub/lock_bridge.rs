@@ -73,6 +73,57 @@ pub(crate) fn setting_on(doc: Option<&Value>) -> bool {
     on && keep_awake.as_ref().and_then(Value::as_str) != Some("off")
 }
 
+/// What the worker carries from one reading to the next: when a turn last ran, and when this
+/// locked stretch began.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Tracker {
+    last_running: Instant,
+    locked_since: Option<Instant>,
+}
+
+impl Tracker {
+    pub(crate) fn new(now: Instant) -> Self {
+        Self { last_running: now, locked_since: None }
+    }
+
+    /// One reading at `now`. `None` when no session runs or waits: the worker goes idle.
+    pub(crate) fn step(
+        &mut self,
+        on: bool,
+        lock: Lock,
+        running: usize,
+        waiting: usize,
+        now: Instant,
+    ) -> Option<Inputs> {
+        if running == 0 && waiting == 0 {
+            *self = Self::new(now);
+            return None;
+        }
+        if running > 0 {
+            self.last_running = now;
+        }
+        let locked_for = match (lock, self.locked_since) {
+            (Lock::Locked, Some(since)) => now.saturating_duration_since(since),
+            (Lock::Locked, None) => {
+                self.locked_since = Some(now);
+                Duration::ZERO
+            }
+            _ => {
+                self.locked_since = None;
+                Duration::ZERO
+            }
+        };
+        Some(Inputs {
+            on,
+            lock,
+            running,
+            waiting,
+            since_running: now.saturating_duration_since(self.last_running),
+            locked_for,
+        })
+    }
+}
+
 fn setting_now() -> bool {
     match crate::user_settings::read() {
         crate::user_settings::Settings::Parsed(doc) => setting_on(Some(&doc)),
@@ -116,41 +167,21 @@ impl Hub {
         let hub = std::sync::Arc::downgrade(self);
         BRIDGE.wake.notify_one();
         tokio::spawn(async move {
+            let mut tracker = Tracker::new(Instant::now());
             loop {
                 BRIDGE.wake.notified().await;
                 let mut hold: Option<IdleSleepHold> = None;
-                let mut last_running = Instant::now();
-                let mut locked_since: Option<Instant> = None;
                 loop {
                     let Some(strong) = hub.upgrade() else { return };
                     let (running, waiting) = strong.lock_bridge_counts();
                     drop(strong);
-                    if running == 0 && waiting == 0 {
-                        break; // nothing runs or waits: release, then sleep until a wake
-                    }
-                    if running > 0 {
-                        last_running = Instant::now();
-                    }
                     let lock = crate::mac_lock::lock();
-                    let locked_for = match (lock, locked_since) {
-                        (Lock::Locked, Some(since)) => since.elapsed(),
-                        (Lock::Locked, None) => {
-                            locked_since = Some(Instant::now());
-                            Duration::ZERO
-                        }
-                        _ => {
-                            locked_since = None;
-                            Duration::ZERO
-                        }
+                    let on = setting_now();
+                    let Some(inputs) = tracker.step(on, lock, running, waiting, Instant::now())
+                    else {
+                        break; // nothing runs or waits: release, then sleep until a wake
                     };
-                    let inputs = Inputs {
-                        on: setting_now(),
-                        lock,
-                        running,
-                        waiting,
-                        since_running: last_running.elapsed(),
-                        locked_for,
-                    };
+                    let locked_for = inputs.locked_for;
                     let want = holds(inputs);
                     if want && hold.is_none() {
                         hold = IdleSleepHold::take(REASON);
@@ -162,7 +193,7 @@ impl Hub {
                         tracing::info!(?inputs, "lock bridge: released");
                     }
                     *BRIDGE.state.lock().unwrap_or_else(|e| e.into_inner()) = json!({
-                        "lock": lock.as_str(), "on": inputs.on, "holding": hold.is_some(),
+                        "lock": lock.as_str(), "on": on, "holding": hold.is_some(),
                         "lockedForS": locked_for.as_secs(),
                     });
                     // A status change ends the wait early, so a turn that ends releases at once.
