@@ -3,21 +3,17 @@ import CmuxNextCloud
 import CmuxNextCloudCredentials
 import Foundation
 
-/// `cmux cloud relay-chat` (cmuxterm-hq#7086; Leo: "it should take <30 seconds from starting a thing to having a
-/// response on cloud"): sends a prompt to an agent on a Cloud machine over the machine's relay (``CloudRelayChat``),
-/// with no link from this Mac to the machine, and answers when the turn ends with the machine's acpmux session,
-/// the reply and how long the first text took, or within ``CloudHandlers/answerWithin`` with what came so far
-/// (``CloudRelayChat/answer(_:agent:prompt:cwd:promptID:within:)``). `delivered` false means the prompt certainly
-/// never reached the machine. `cmux cloud start-chat` uses it first. A turn still running when this answers keeps
-/// its stream until it ends; quitting the app closes it, which cancels that turn on the machine.
+/// `cmux cloud relay-chat` (cmuxterm-hq#7086; Leo: "it should take <30 seconds from starting a thing to having a response on
+/// cloud"): sends a prompt to an agent on a Cloud machine over its relay (``CloudRelayChat``), with no link from this Mac, and
+/// answers when the turn ends (its acpmux session, the reply, the first text's time) or within ``CloudHandlers/answerWithin``
+/// with what came so far. `delivered` false: the prompt certainly never reached the machine. `cmux cloud start-chat` uses it
+/// first. A turn still running when this answers keeps its stream until it ends; quitting the app cancels it on the machine.
 ///
-/// Before the send the machine takes the person's harness login, as `cloud start-session`'s start does
-/// (``passHarnessLogin(_:agent:login:still:)``; Leo: "we have the daemon, we have the token, we have the thing that
-/// can just send it over the authentication"). A chat sent without it answered "Claude is not signed in here". A
-/// login the rules refuse, or one the machine still lacks after the step, sends nothing (``relayLoginRefusal(_:_:machine:ownership:)``).
+/// Before the send the machine takes the person's harness login as start-session's start does (``passHarnessLogin(_:agent:login:still:)``;
+/// Leo: "we have the daemon, we have the token, we have the thing that can just send it over the authentication"). A login
+/// the rules refuse, or one the machine still lacks, sends nothing (``relayLoginRefusal(_:_:machine:ownership:)``).
 ///
-/// The person's own run only: an agent starts a Cloud chat with `cloud start-session`, which asks the person
-/// first (``CloudStartSession``).
+/// The person's own run only: an agent starts a Cloud chat with `cloud start-session`, which asks the person first.
 extension CloudStartSession {
     /// The relay chat's two steps on the network: the machine's harness login, then the relay itself. Tests stand in for both.
     struct RelaySteps {
@@ -88,11 +84,7 @@ extension CloudStartSession {
                 let decided: (code: String, message: String)??
                 do { decided = try await Self.first(within: steps.loginWithin, login) } catch let failure as ActionFailure { return refused("cloud.relay.login_account_changed", failure.message) }
                 guard let refusal = decided else { return refused("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(asked)) }
-                if let refusal {
-                    var fields = refused(refusal.code, refusal.message)
-                    if let reason = machine.harnessLogin?.reason { fields["login_reason"] = .string(reason.rawValue) }
-                    return fields
-                }
+                if let refusal { return refused(refusal.code, refusal.message).merging(machine.harnessLogin.map { ["login_reason": .string($0.reason.rawValue)] } ?? [:]) { $1 } }
                 let answer = try await relay.answer(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd,
                                                     promptID: promptID, within: CloudHandlers.answerWithin - (clock.now - begun))
                 return relayFields(answer, machineID: machineID)
