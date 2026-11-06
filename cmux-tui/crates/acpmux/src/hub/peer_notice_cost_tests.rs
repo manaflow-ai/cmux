@@ -7,7 +7,7 @@
 
 use super::*;
 use crate::peer::{Peer, PeerNotice};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -132,10 +132,13 @@ fn lane2_update_resend_bench() {
     const STEADY_ROWS: usize = 3_000;
     const RESEND_ROWS: usize = 1_860;
     const STEADY_NOTICES: usize = 8;
-    let dir = cmux_unix_socket::short_test_dir("acpmux-l2");
+    let dir = std::env::temp_dir().join(format!("acpmux-l2-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o1777)).unwrap();
     let mut cfg = Config::default();
     cfg.store.mode = crate::config::StoreMode::Local;
-    let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, dir.path()).unwrap());
+    let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dir).unwrap());
     let mut peers = Vec::new();
     for n in 0..=STEADY_PEERS {
         let name = format!("peer-{n}");
@@ -240,6 +243,7 @@ fn lane2_update_resend_bench() {
         hub.cache_test_writes.load(Ordering::Relaxed),
         hub.remote_sessions().len()
     );
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]

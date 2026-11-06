@@ -94,7 +94,11 @@ impl Hub {
                         .collect();
                     for (peer, generation) in dirty {
                         if let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) {
-                            std::thread::spawn(move || hub.save_peer_cache_now(&peer, generation, true));
+                            let gate = hub.cache_write_gate.clone();
+                            std::thread::spawn(move || {
+                                let _gate = gate.lock().unwrap_or_else(|e| e.into_inner());
+                                hub.save_peer_cache_now(&peer, generation, true);
+                            });
                         }
                     }
                     continue;

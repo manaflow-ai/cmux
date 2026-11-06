@@ -63,11 +63,13 @@ impl Hub {
     /// Save `peer`'s rows, while `generation` is the instance registered
     /// under that name; unless `now`, at most once per `SAVE_EVERY_MS`.
     pub(super) fn save_peer_cache(&self, peer: &str, generation: u64, now: bool) {
-        if !now
-            && let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade)
-        {
+        if !now && let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) {
             let peer = peer.to_owned();
-            std::thread::spawn(move || hub.save_peer_cache_now(&peer, generation, false));
+            let gate = hub.cache_write_gate.clone();
+            std::thread::spawn(move || {
+                let _gate = gate.lock().unwrap_or_else(|e| e.into_inner());
+                hub.save_peer_cache_now(&peer, generation, false);
+            });
             return;
         }
         self.save_peer_cache_now(peer, generation, now);
@@ -537,8 +539,16 @@ mod tests {
         let (hub, _dir) = test_hub();
         let slow = add_idle_peer(&hub, "slow");
         let fast = add_idle_peer(&hub, "fast");
-        hub.apply_peer_notice("slow", slow.generation, PeerNotice::Sessions(vec![remote("m1", "slow")]));
-        hub.apply_peer_notice("fast", fast.generation, PeerNotice::Sessions(vec![remote("m1", "fast")]));
+        hub.apply_peer_notice(
+            "slow",
+            slow.generation,
+            PeerNotice::Sessions(vec![remote("m1", "slow")]),
+        );
+        hub.apply_peer_notice(
+            "fast",
+            fast.generation,
+            PeerNotice::Sessions(vec![remote("m1", "fast")]),
+        );
         hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
         hub.cache_test_write_delay_ms.store(200, std::sync::atomic::Ordering::SeqCst);
         *hub.cache_test_delay_peer.lock().unwrap() = Some("slow".into());
@@ -552,7 +562,11 @@ mod tests {
             std::thread::yield_now();
         }
         let started = std::time::Instant::now();
-        hub.apply_peer_notice("fast", fast.generation, PeerNotice::Sessions(vec![remote("m1", "fast")]));
+        hub.apply_peer_notice(
+            "fast",
+            fast.generation,
+            PeerNotice::Sessions(vec![remote("m1", "fast")]),
+        );
         assert!(started.elapsed() < std::time::Duration::from_millis(150));
         hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
         *hub.cache_test_delay_peer.lock().unwrap() = None;

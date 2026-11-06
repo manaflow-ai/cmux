@@ -595,6 +595,8 @@ pub struct Hub {
     /// Per-peer cache writers; held through the atomic rename so removal cannot be followed by
     /// an older snapshot landing on disk. Entries are removed with the peer.
     pub(super) peer_cache_writers: StdMutex<HashMap<String, Arc<StdMutex<()>>>>,
+    /// Bounds concurrent cache serialization/fsync work; notice application never waits on it.
+    pub(super) cache_write_gate: Arc<StdMutex<()>>,
     #[cfg(test)]
     pub(super) cache_test_writes: AtomicU64,
     #[cfg(test)]
@@ -940,6 +942,7 @@ impl Hub {
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
             peer_cache_writers: StdMutex::new(HashMap::new()),
+            cache_write_gate: Arc::new(StdMutex::new(())),
             #[cfg(test)]
             cache_test_writes: AtomicU64::new(0),
             #[cfg(test)]
