@@ -5278,14 +5278,22 @@ export class AcpmuxDirectClient {
   /// tried again on `LAG_RETRY_MS`; the chat changing or the pane closing stops it.
   private checkFinishedTurn(sessionId: string, endSeq: number, attempt = 0): void {
     const generation = this.selectionGeneration;
+    // Back from the end to the turn before's `turn_result`: the turn's own `turn_end` and
+    // `turn_error` come just before its result, so only a result ends the turn before. A turn
+    // older than the records held is read from the oldest one held: the part shown is repaired.
     let start: number | undefined;
+    let before = false;
     for (let index = this.events.length - 1; index >= 0; index--) {
       const event = this.events[index]!;
       if (event.seq >= endSeq) continue;
-      if (event.dir === "mux" && ["turn_result", "turn_end", "turn_error"].includes(event.kind)) break;
+      if (event.dir === "mux" && event.kind === "turn_result") {
+        before = true;
+        break;
+      }
       if (event.kind === "turn_started" || event.kind === "user_message") start = event.seq;
     }
-    if (start === undefined) return;
+    if (!before) start = Math.min(start ?? endSeq, this.events[0]?.seq ?? endSeq);
+    if (start === undefined || start >= endSeq) return;
     const afterSeq = start - 1;
     void this.readTurnRecords(sessionId, generation, afterSeq, endSeq).then(
       (stored) => {

@@ -125,7 +125,7 @@ async function pane(events: (after: number, call: number) => Rec[], attached: Re
     undefined,
     open,
   );
-  await until(() => rows.some((row) => row.kind === "user"));
+  await until(() => rows.length > 0);
   const notify = (method: string, params: unknown) =>
     socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
   return {
