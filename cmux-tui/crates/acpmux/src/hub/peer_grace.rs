@@ -14,6 +14,17 @@ const DROP_GRACE: Duration = Duration::from_secs(10);
 type Outages = HashMap<(String, u64), Instant>;
 
 impl Hub {
+    pub(super) async fn wait_peer_notice_loop(&self) {
+        if self.peer_notices_finished.load(Ordering::Acquire) {
+            return;
+        }
+        let notified = self.peer_notices_done.notified();
+        if self.peer_notices_finished.load(Ordering::Acquire) {
+            return;
+        }
+        let _ = tokio::time::timeout(Duration::from_secs(2), notified).await;
+    }
+
     pub(super) fn note_peer_drop(&self, peer: &str, generation: u64, reason: &str) {
         // Purge fencing and transcript persistence belong to the real link
         // boundary, never to its later row deadline (a new handshake may be busy).
@@ -93,13 +104,7 @@ impl Hub {
                         .map(|p| (p.name.clone(), p.generation))
                         .collect();
                     for (peer, generation) in dirty {
-                        if let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) {
-                            let gate = hub.cache_write_gate.clone();
-                            std::thread::spawn(move || {
-                                let _gate = gate.lock().unwrap_or_else(|e| e.into_inner());
-                                hub.save_peer_cache_now(&peer, generation, true);
-                            });
-                        }
+                        self.save_peer_cache(&peer, generation, false);
                     }
                     continue;
                 }
@@ -162,5 +167,7 @@ impl Hub {
         for (peer, generation) in dirty {
             self.save_peer_cache(&peer, generation, true);
         }
+        self.peer_notices_finished.store(true, Ordering::Release);
+        self.peer_notices_done.notify_waiters();
     }
 }

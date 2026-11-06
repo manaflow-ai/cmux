@@ -65,6 +65,9 @@ impl Hub {
     pub(super) fn save_peer_cache(&self, peer: &str, generation: u64, now: bool) {
         if !now {
             let Some(p) = self.peer(peer).filter(|p| p.generation == generation) else { return };
+            if self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).contains_key(peer) {
+                return;
+            }
             // Publish dirty state before deciding whether this notice is throttled. The stop
             // flush can therefore see a notice even when the worker has not started yet.
             p.cache_dirty.store(true, std::sync::atomic::Ordering::SeqCst);

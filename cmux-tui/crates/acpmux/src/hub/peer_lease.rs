@@ -100,6 +100,9 @@ impl Hub {
         peer.stop();
         self.note_peer_removed(&peer);
         self.purge_peer_rows(&lease.name);
+        if !peer.cache_write_pending.load(std::sync::atomic::Ordering::Acquire) {
+            self.peer_cache_writers.lock().unwrap_or_else(|e| e.into_inner()).remove(&lease.name);
+        }
         tracing::info!(peer = %lease.name, "peer lease ended");
     }
 
