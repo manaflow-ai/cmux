@@ -23,7 +23,10 @@ extension CloudStartChat {
     @MainActor static func loginScopes(_ cloud: CloudService) -> [String?] { cloud.auth.teams.map { Optional($0.id) } + [nil] }
     /// A login cancelled with its start (its copy failed before `run` awaited it) is `cancelled`, never "failed: CancellationError" (run 42157718918).
     nonisolated static let loginCancelled = "cancelled"
-    nonisolated static func cancelledLogin(_ error: any Error, cancelled: Bool) -> Bool { cancelled || error is CancellationError }
+    /// What a login that threw records: `cancelled` when its start cancelled it, else the transfer's fixed text, never provider output.
+    nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
+        cancelled || error is CancellationError ? loginCancelled : "failed: " + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
+    }
 
     /// Gives the start's machine the person's Claude or Codex login when this build passes it. Returns
     /// whether a login was installed; never throws. `cmux cloud start-session` passes it the same way, with no Codex prompt.
@@ -54,9 +57,9 @@ extension CloudStartChat {
             // `agent_login`, #33744) signs the machine in with one click and the provider's approve
             // page, and only the person's click starts it (Leo, 2026-11-04: "we literally said we
             // were gonna do is such that you literally dont need to log in").
-            // A Keychain that did not answer is recorded as such, never as "no cached login".
+            // A Keychain that did not answer is recorded as such, never as "no cached login"; a check cancelled with its start throws.
             if provider == .claude, [.install, .confirmThenInstall, .askConsent].contains(verdict.step),
-               let outcome = await CloudCredentialTransfer.cachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams).startOutcome {
+               let outcome = try await CloudCredentialTransfer.CachedLogin.startOutcome({ await CloudCredentialTransfer.cachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams) }) {
                 decision.outcome = outcome
                 return false
             }
@@ -86,10 +89,6 @@ extension CloudStartChat {
             }
             decision.outcome = "installed"
             return true
-        } catch where Self.cancelledLogin(error, cancelled: Task.isCancelled) { decision.outcome = Self.loginCancelled; return false } catch {
-            // The message is the transfer's fixed text, never provider output.
-            decision.outcome = "failed: " + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
-            return false
-        }
+        } catch { decision.outcome = Self.loginOutcome(error, cancelled: Task.isCancelled); return false }
     }
 }

@@ -1,42 +1,75 @@
 @testable import CmuxNextApp
-import CmuxNextCloudCredentials
+@testable import CmuxNextCloudCredentials
 import Foundation
 import Testing
 
 /// A chat start's harness login runs beside its folder copy (`async let`, ``CloudStartChat/run(_:from:report:)``). When
 /// the copy fails the start throws before it awaits the login, which Swift then cancels: the start record says
-/// `cancelled`, never "failed: CancellationError" (capture run 42157718918, 03:49:27).
+/// `cancelled`, never "failed: CancellationError" (capture run 42157718918, 03:49:27), nor "cached login unreadable"
+/// when the cancellation cut its Keychain read short.
 @MainActor
 struct CloudStartChatLoginCancelTests {
-    /// What ``CloudStartChat/passHarnessLogin(harness:machine:codexPrompt:ask:)`` records, with its transfer replaced by `transfer`.
-    private static func record(_ transfer: () async throws -> Void) async -> String {
+    /// What ``CloudStartChat/passHarnessLogin(harness:machine:codexPrompt:ask:)`` records, with its Keychain read replaced by
+    /// `cached` and its transfer by `transfer`: the same cached-login step, then the transfer, then the same record of a throw.
+    private static func record(cached: () async -> CloudCredentialTransfer.CachedLogin = { .cached },
+                               _ transfer: () async throws -> Void) async -> String {
         do {
+            if let outcome = try await CloudCredentialTransfer.CachedLogin.startOutcome(cached) { return outcome }
             try await transfer()
             return "installed"
-        } catch where CloudStartChat.cancelledLogin(error, cancelled: Task.isCancelled) {
-            return CloudStartChat.loginCancelled
         } catch {
-            return "failed: " + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
+            return CloudStartChat.loginOutcome(error, cancelled: Task.isCancelled)
         }
     }
 
     private struct CopyFailed: Error {}
 
-    @MainActor final class Box { var outcome: String? }
+    @MainActor final class Box {
+        var outcome: String?
+        var transfers = 0
+    }
+
+    /// The start's shape: the login beside the copy, the copy failing before the login is awaited.
+    private static func failTheCopy(beside login: @escaping @MainActor () async -> Void) async throws {
+        async let _: Void = login()
+        throw CopyFailed() // leaving the scope cancels the login and waits for it
+    }
 
     @Test func aLoginCancelledBecauseTheCopyFailedIsRecordedAsCancelled() async {
         let box = Box()
-        // The start's shape: the login beside the copy, the copy failing before the login is awaited.
-        func login() async {
-            let outcome = await Self.record { try await Task.sleep(for: .seconds(600)) }
-            box.outcome = outcome
+        await #expect(throws: CopyFailed.self) {
+            try await Self.failTheCopy { box.outcome = await Self.record { try await Task.sleep(for: .seconds(600)) } }
         }
-        func start() async throws {
-            async let _: Void = login()
-            throw CopyFailed() // leaving the scope cancels the login and waits for it
-        }
-        await #expect(throws: CopyFailed.self) { try await start() }
         #expect(box.outcome == CloudStartChat.loginCancelled)
+    }
+
+    /// The cancellation lands while the Keychain is read: the read throws, ``CloudCredentialTransfer/cachedLogin(_:)``
+    /// answers `unreadable`, and the start still records `cancelled` and transfers nothing.
+    @Test func aCancellationDuringTheCachedLoginCheckIsRecordedAsCancelled() async {
+        let box = Box()
+        await #expect(throws: CopyFailed.self) {
+            try await Self.failTheCopy {
+                box.outcome = await Self.record(cached: {
+                    await CloudCredentialTransfer.cachedLogin { try await Task.sleep(for: .seconds(600)); return nil }
+                }) { box.transfers += 1 }
+            }
+        }
+        #expect(box.outcome == CloudStartChat.loginCancelled)
+        #expect(box.transfers == 0, "a cancelled start transfers nothing")
+    }
+
+    /// A Keychain that did not answer on a start nobody cancelled is still `unreadable`, and nothing is transferred.
+    @Test func aRealUnreadableCacheIsStillUnreadable() async {
+        let box = Box()
+        let outcome = await Self.record(cached: { await CloudCredentialTransfer.cachedLogin { throw CloudCredentialTransfer.Failure.storeFailed } }) {
+            box.transfers += 1
+        }
+        #expect(outcome == CloudCredentialTransfer.CachedLogin.unreadable.startOutcome)
+        #expect(outcome != CloudStartChat.loginCancelled)
+        #expect(box.transfers == 0)
+        // No cached login is its own record; a cached one goes on to the transfer.
+        #expect(await Self.record(cached: { .none }) { box.transfers += 1 } == CloudCredentialTransfer.CachedLogin.none.startOutcome)
+        #expect(await Self.record(cached: { .cached }) { box.transfers += 1 } == "installed" && box.transfers == 1)
     }
 
     @Test func aTransferThatFailedOnItsOwnIsRecordedWithItsText() async {
@@ -46,8 +79,8 @@ struct CloudStartChatLoginCancelTests {
     }
 
     @Test func anyErrorTheCancellationCausedIsCancelled() {
-        #expect(CloudStartChat.cancelledLogin(CancellationError(), cancelled: false))
-        #expect(CloudStartChat.cancelledLogin(URLError(.cancelled), cancelled: true))
-        #expect(!CloudStartChat.cancelledLogin(URLError(.timedOut), cancelled: false))
+        #expect(CloudStartChat.loginOutcome(CancellationError(), cancelled: false) == CloudStartChat.loginCancelled)
+        #expect(CloudStartChat.loginOutcome(URLError(.cancelled), cancelled: true) == CloudStartChat.loginCancelled)
+        #expect(CloudStartChat.loginOutcome(URLError(.timedOut), cancelled: false) != CloudStartChat.loginCancelled)
     }
 }
