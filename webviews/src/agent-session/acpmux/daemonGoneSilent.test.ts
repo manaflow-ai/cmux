@@ -10,7 +10,9 @@ import { afterEach, expect, jest, test } from "bun:test";
 /// (a slow daemon's long read); every other method is answered as before. Like the app's bridge
 /// (`AgentPaneTransport+Check.swift`), it answers `_acpmux/status` itself, from the daemon's Unix
 /// socket: with no daemon, a "status unavailable" error frame still comes back. The mock daemon
-/// has no machines, so `_acpmux/peers` gets an empty list from it.
+/// has no machines, so `_acpmux/peers` gets an empty list from it. A `remote` socket stands for a
+/// chat on another machine (`RemoteAcpmuxWire`): it refuses `_acpmux/peers` itself as
+/// `remote.unsupported`, with no daemon involved. `release()` lets the held frames reach the daemon.
 class SilenceableSocket {
   readyState = 0;
   onopen: (() => void) | null = null;
@@ -19,6 +21,7 @@ class SilenceableSocket {
   onmessage: ((message: { data: string }) => void) | null = null;
   silent = false;
   sent: string[] = [];
+  private held: string[] = [];
   constructor(
     private readonly daemon: {
       readyState: number;
@@ -27,6 +30,7 @@ class SilenceableSocket {
       send(raw: string): void;
     },
     private readonly holds: Set<string>,
+    private readonly remote = false,
   ) {
     daemon.onopen = () => {
       this.readyState = 1;
@@ -39,6 +43,9 @@ class SilenceableSocket {
   silence(): void {
     this.silent = true;
   }
+  release(): void {
+    for (const raw of this.held.splice(0)) this.daemon.send(raw);
+  }
   send(raw: string): void {
     this.sent.push(raw);
     const { id, method } = JSON.parse(raw) as { id?: number; method?: string };
@@ -46,8 +53,16 @@ class SilenceableSocket {
       const error = { code: -32000, message: "status unavailable" };
       return this.reply({ jsonrpc: "2.0", id, error });
     }
+    if (method === "_acpmux/peers" && this.remote) {
+      const message = "_acpmux/peers is not available for a chat on another machine";
+      const error = { code: -32601, message, data: { code: "remote.unsupported" } };
+      return this.reply({ jsonrpc: "2.0", id, error });
+    }
     if (this.silent) return;
-    if (method && this.holds.has(method)) return;
+    if (method && this.holds.has(method)) {
+      this.held.push(raw);
+      return;
+    }
     if (method === "_acpmux/peers") return this.reply({ jsonrpc: "2.0", id, result: { peers: [] } });
     this.daemon.send(raw);
   }
@@ -68,11 +83,22 @@ afterEach(() => {
 });
 
 async function connected(holds: string[]) {
+  const connection = await connecting(holds);
+  const client = await connection.client;
+  const request = (
+    client as unknown as {
+      request(method: string, params: Record<string, unknown>, deadline: number): Promise<unknown>;
+    }
+  ).request.bind(client);
+  return { ...connection, client, request };
+}
+
+async function connecting(holds: string[], remote = false) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  const socket = new SilenceableSocket(new MockAcpmuxSocket(() => Promise.resolve()), new Set(holds));
+  const socket = new SilenceableSocket(new MockAcpmuxSocket(() => Promise.resolve()), new Set(holds), remote);
   let lost = 0;
-  const client = await AcpmuxDirectClient.connect(
+  const client = AcpmuxDirectClient.connect(
     mockHost,
     () => undefined,
     () => {
@@ -80,12 +106,7 @@ async function connected(holds: string[]) {
     },
     () => socket as unknown as WebSocket,
   );
-  const request = (
-    client as unknown as {
-      request(method: string, params: Record<string, unknown>, deadline: number): Promise<unknown>;
-    }
-  ).request.bind(client);
-  return { client, socket, request, lost: () => lost, mockHost };
+  return { client, socket, lost: () => lost, mockHost };
 }
 
 /// Lets the microtasks a timer queued (the mock's replies, a close's onclose) run.
@@ -153,6 +174,58 @@ test("a probe the app's bridge answers itself, with no daemon behind it, still e
     }
     // Frames came back, but none from a daemon: the socket is given up all the same.
     expect(socket.sent.some((raw) => raw.includes('"_acpmux/status"'))).toBe(true);
+    expect(lost()).toBe(1);
+    await expect(read).rejects.toMatchObject({ interrupted: true });
+  } finally {
+    client.close();
+  }
+});
+
+test("a chat on another machine whose handshake answers at 25 s is not cut off", async () => {
+  jest.useFakeTimers();
+  // The remote wire refuses the probe itself; that refusal says nothing of the daemon there.
+  const { client, socket, lost } = await connecting(["initialize"], true);
+  let connected: Awaited<typeof client> | undefined;
+  let failed: unknown;
+  client.then(
+    (value) => (connected = value),
+    (error: unknown) => (failed = error),
+  );
+  try {
+    for (let second = 0; second < 25 && failed === undefined; second++) {
+      jest.advanceTimersByTime(1_000);
+      await settle();
+    }
+    expect(socket.sent.some((raw) => raw.includes('"_acpmux/peers"'))).toBe(true);
+    expect(failed).toBeUndefined();
+    expect(lost()).toBe(0);
+    socket.release();
+    for (let second = 0; second < 5 && connected === undefined && failed === undefined; second++) {
+      jest.advanceTimersByTime(1_000);
+      await settle();
+    }
+    expect(failed).toBeUndefined();
+    expect(connected).toBeDefined();
+    expect(socket.readyState).toBe(1);
+  } finally {
+    connected?.close();
+  }
+});
+
+test("the bridge's own answers every 4 s do not put off the probe of a silent daemon", async () => {
+  const { client, socket, request, lost, mockHost } = await connected([]);
+  try {
+    jest.useFakeTimers();
+    socket.silence();
+    const read = request("_acpmux/events", { sessionId: mockHost.sessionId, afterSeq: 0, limit: 1 }, 1_000);
+    read.catch(() => undefined);
+    for (let second = 0; second < 25 && lost() === 0; second++) {
+      // The pane's peers refresh: the bridge answers each status read with an error frame.
+      if (second % 4 === 0) void request("_acpmux/status", {}, 1_000).catch(() => undefined);
+      jest.advanceTimersByTime(1_000);
+      await settle();
+    }
+    expect(socket.sent.some((raw) => raw.includes('"_acpmux/peers"'))).toBe(true);
     expect(lost()).toBe(1);
     await expect(read).rejects.toMatchObject({ interrupted: true });
   } finally {
