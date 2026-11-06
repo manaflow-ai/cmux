@@ -58,7 +58,8 @@ use std::ffi::OsString;
 /// How much a process yields to the person at the screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
-    /// The daemon: the app waits on it, so only its disk I/O yields.
+    /// The daemon: the app waits on it, and its replies wait on the event journal's sync, so
+    /// nothing of it yields (only its background threads, [`background_thread`]).
     Serving,
     /// Agent work: hosts, harnesses and every tool they run.
     Agent,
