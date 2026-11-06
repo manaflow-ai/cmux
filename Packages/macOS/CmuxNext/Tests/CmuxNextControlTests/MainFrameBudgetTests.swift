@@ -271,16 +271,14 @@ import Testing
             clock.advance(ms: ms)
             time += ms / 1000
             scheduler.frameDidFire(timestamp: time, refreshInterval: 1.0 / 60)
-            budget.noteRenderPass(nanos: 2_000_000) // the pass's layout and commit
         }
-        // The switch shows the workspace; the fill's first step queues the next one, as the slot's steps do.
-        budget.presentationPending()
+        // The fill's first step; it queues the next one, as the slot's steps do.
         spare.enqueue {
             steps.append("reserve")
             spare.enqueue { steps.append("build") }
         }
         frame(after: 16.7)
-        #expect(steps.isEmpty, "background work ran in the tick that builds the shown workspace's frame")
+        #expect(steps.isEmpty, "background work ran in the link's first tick")
         frame(after: 16.7)
         #expect(steps == ["reserve"], "an on-time frame runs background work")
         frame(after: 55)
@@ -293,55 +291,27 @@ import Testing
         #expect(shown == 5)
     }
 
-    /// SWITCH STALL 2 (cmux22, macOS 27, 60 Hz): a Cmd-N shows the new workspace in its key's turn; the next
-    /// tick lays it out and the commit after that tick puts it on screen. The New Tab palette list and the
-    /// idle spare (background, 4 to 5 ms) ran in that tick, before the content's commit, when the link was
-    /// already running and on time. Background work waits for the pending content presentation: no idle
-    /// time from the show until a tick after the commit of the frame built after it (Blink keeps idle tasks
-    /// back while a page's first paint is pending). It runs on the first idle frame after that.
-    @Test func backgroundWorkWaitsForThePendingContentPresentation() {
+    /// SWITCH STALL 2 (cmux22, macOS 27, 60 Hz, xctrace of f6bf74d8d73): the display link is stopped
+    /// before a Cmd-N; its first tick 21 to 46 ms after the key renders the new workspace, and the New
+    /// Tab palette list and the idle spare (background, 4 to 5 ms) still ran in that tick, as it had no
+    /// tick before it to be late after. The first tick after the link starts renders what started it: it
+    /// has no idle time. The next on-time tick has.
+    @Test func backgroundWorkWaitsOutTheFirstTickAfterTheLinkStarts() {
         let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         let scheduler = MainWorkScheduler.testing(budget: budget) { _ in FakeFrameLink() }
         let palette = FrameBatchQueue(owner: "NewTab.paletteActions", budgeted: .background, on: scheduler)
         let rows = FrameBatchQueue(owner: "SidebarRows", budgeted: .visible, on: scheduler)
-        var listed = 0, shown = 0, time = 10.0
-        // A sidebar update every frame keeps the link running (each one queues the next).
-        func update() { rows.enqueue { shown += 1; update() } }
-        update()
-        func frame() {
-            clock.advance(ms: 16.7)
-            time += 1.0 / 60
-            scheduler.frameDidFire(timestamp: time, refreshInterval: 1.0 / 60)
-            budget.noteRenderPass(nanos: 2_000_000) // the pass's layout and commit
-        }
-        // The link runs on time (a sidebar update each frame).
-        frame()
-        frame()
-        // The key's turn: the window shows the new workspace, and its spare refill and palette list queue.
-        budget.presentationPending()
+        var listed = 0, shown = 0
         palette.enqueue { listed += 1 }
-        frame()
-        #expect(shown == 3, "visible work waited for the presentation")
-        #expect(listed == 0, "background work ran in the tick that builds the shown content's frame")
-        frame()
-        #expect(listed == 1, "background work did not run in the idle tick after the content's frame was presented")
-    }
-
-    /// The display link also starts for work no presentation waits on (a spare refill, a queued list): its
-    /// first tick has idle time when it comes with no content presentation pending. (#37103 gave no link's
-    /// first tick idle time, which kept background work out of every link start under STRESS and moved it
-    /// into later, busier frames: Cmd-N visible p95 77.0 -> 87.5 ms, cmux22, macOS 27, 60 Hz.)
-    @Test func theLinksFirstTickHasIdleTimeWithNoPresentationPending() {
-        let clock = BudgetClock()
-        let budget = MainFrameBudget(uptimeNanos: clock.read)
-        let scheduler = MainWorkScheduler.testing(budget: budget) { _ in FakeFrameLink() }
-        let spare = FrameBatchQueue(owner: "WorkspaceSpare", budgeted: .background, on: scheduler)
-        var built = 0
-        spare.enqueue { built += 1 }
-        clock.advance(ms: 16.7)
+        rows.enqueue { shown += 1 }
+        clock.advance(ms: 30)
         scheduler.frameDidFire(timestamp: 10, refreshInterval: 1.0 / 60)
-        #expect(built == 1, "background work waited out the link's first tick with nothing to present")
+        #expect(shown == 1, "the first tick did not render the visible work")
+        #expect(listed == 0, "background work ran in the first tick after the link started")
+        clock.advance(ms: 16.7)
+        scheduler.frameDidFire(timestamp: 10 + 1.0 / 60, refreshInterval: 1.0 / 60)
+        #expect(listed == 1, "background work did not run in the on-time tick after it")
     }
 
     /// An on-time frame after a long render pass (layout, display and commit past half a refresh) has no
