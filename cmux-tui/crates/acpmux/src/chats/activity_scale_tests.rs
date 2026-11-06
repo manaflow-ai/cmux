@@ -10,15 +10,13 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::time::{Duration, Instant};
 
-const CLOSED: usize = 9_000;
-const LIVE: usize = 50;
 const WATCHERS: usize = 8;
 const BATCHES: usize = 20;
 
-fn scale_hub() -> Arc<Hub> {
+fn scale_hub(closed_count: usize, live_count: usize) -> Arc<Hub> {
     let store = MemoryStore::default();
-    for n in 0..CLOSED + LIVE {
-        let live = n >= CLOSED;
+    for n in 0..closed_count + live_count {
+        let live = n >= closed_count;
         // Every tenth closed session continues the chat before it; a third were started by a
         // live session's agent.
         let chat = if !live && n % 10 == 9 { n - 1 } else { n };
@@ -30,7 +28,7 @@ fn scale_hub() -> Arc<Hub> {
             "preview": "A short synthetic reply\nover two lines",
             "configOptions": [{"payload": "x".repeat(2_048)}]});
         if !live && n % 3 == 0 {
-            let parent = CLOSED + n % LIVE;
+            let parent = closed_count + n % live_count;
             row.set("tags", json!({"spawnedBy": {"value": format!("s-{parent:05}")}}));
         }
         store.save(&serde_json::from_value(row).unwrap()).unwrap();
@@ -49,9 +47,9 @@ fn process_cpu() -> Duration {
 }
 
 /// What one watcher does with a one-chat batch: the activity, then the chat's value decorated.
-fn one_watcher(hub: &Hub, batch: &Arc<Vec<SeqChange>>, n: usize) -> Value {
+fn one_watcher(hub: &Hub, batch: &Arc<Vec<SeqChange>>, n: usize, total: usize) -> Value {
     let activity = hub.chat_activity_for_batch(batch);
-    let mut chat = json!({"key": format!("claude-code:chat-{:05}", n % (CLOSED + LIVE))});
+    let mut chat = json!({"key": format!("claude-code:chat-{:05}", n % total)});
     activity.decorate(&mut chat);
     chat
 }
@@ -65,14 +63,27 @@ fn percentile(sorted: &[Duration], p: f64) -> f64 {
 #[test]
 #[ignore = "manual chat activity measurement"]
 fn measure_chat_activity_9000_closed_8_watchers() {
-    let hub = scale_hub();
-    assert_eq!(hub.sessions().len(), CLOSED + LIVE);
+    measure_scale("9k", 9_000, 50);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "manual chat activity measurement"]
+fn measure_chat_activity_500_closed_7_live_8_watchers() {
+    measure_scale("500", 493, 7);
+}
+
+#[cfg(target_os = "linux")]
+fn measure_scale(label: &str, closed_count: usize, live_count: usize) {
+    let hub = scale_hub(closed_count, live_count);
+    let total = closed_count + live_count;
+    assert_eq!(hub.sessions().len(), total);
     // Same answers at base and head: a closed chat keeps its preview and parent, a waiting live
     // one needs input.
     let initial = Arc::new(Vec::new());
-    let closed = one_watcher(&hub, &initial, 3);
+    let closed = one_watcher(&hub, &initial, 3, total);
     assert_eq!(closed["preview"], json!("A short synthetic reply over two lines"));
-    assert_eq!(closed["parent"], json!(format!("claude-code:chat-{:05}", CLOSED + 3)));
+    assert_eq!(closed["parent"], json!(format!("claude-code:chat-{:05}", closed_count + 3)));
 
     // One watcher, one batch: time, CPU and allocations on this thread.
     let rounds = 20;
@@ -80,7 +91,7 @@ fn measure_chat_activity_9000_closed_8_watchers() {
     let mut allocations = 0;
     let stable = Arc::new(Vec::new());
     for n in 0..rounds {
-        let (value, made) = thread_allocations(|| one_watcher(&hub, &stable, n * 97));
+        let (value, made) = thread_allocations(|| one_watcher(&hub, &stable, n * 97, total));
         std::hint::black_box(value);
         allocations += made;
     }
@@ -99,7 +110,7 @@ fn measure_chat_activity_9000_closed_8_watchers() {
         let (hub, stop) = (hub.clone(), stop.clone());
         std::thread::spawn(move || {
             let mut waits = Vec::new();
-            let id = format!("s-{CLOSED:05}");
+            let id = format!("s-{closed_count:05}");
             while !stop.load(Ordering::Relaxed) {
                 let start = Instant::now();
                 std::hint::black_box(hub.resolve(&id).unwrap());
@@ -126,7 +137,7 @@ fn measure_chat_activity_9000_closed_8_watchers() {
                 for batch in 0..BATCHES * 2 {
                     barrier.wait();
                     let (_, made) =
-                        thread_allocations(|| one_watcher(&hub, &changes, batch * 31 + w));
+                        thread_allocations(|| one_watcher(&hub, &changes, batch * 31 + w, total));
                     let counter =
                         if batch < BATCHES { &stable_allocations } else { &invalid_allocations };
                     counter.fetch_add(made, Ordering::Relaxed);
@@ -144,7 +155,7 @@ fn measure_chat_activity_9000_closed_8_watchers() {
         if batch >= BATCHES {
             // A mux activity record is the one-chat mutation that invalidates the batch. The
             // benchmark uses the cache's production mutation hook so the watchers see its version.
-            hub.chat_activity_cache.note(&format!("s-{CLOSED:05}"), "status", false);
+            hub.chat_activity_cache.note(&format!("s-{closed_count:05}"), "status", false);
         }
         barrier.wait();
         barrier.wait();
@@ -167,14 +178,14 @@ fn measure_chat_activity_9000_closed_8_watchers() {
     invalid_batches.sort();
     waits.sort();
     eprintln!(
-        "chat activity, {WATCHERS} watchers, stable hit: p50 {:.3} ms, p99 {:.3} ms, {:.3} CPU ms/batch, {} allocations/batch",
+        "chat activity, {label} sessions, {WATCHERS} watchers, stable hit: p50 {:.3} ms, p99 {:.3} ms, {:.3} CPU ms/batch, {} allocations/batch",
         percentile(&stable_batches, 0.5) / 1000.0,
         percentile(&stable_batches, 0.99) / 1000.0,
         (cpu_split.unwrap() - cpu_start).as_secs_f64() * 1000.0 / BATCHES as f64,
         stable_allocations.load(Ordering::Relaxed) / BATCHES / WATCHERS,
     );
     eprintln!(
-        "chat activity, {WATCHERS} watchers, invalidated batch: p50 {:.3} ms, p99 {:.3} ms, {:.3} CPU ms/batch, {} allocations/batch",
+        "chat activity, {label} sessions, {WATCHERS} watchers, invalidated batch: p50 {:.3} ms, p99 {:.3} ms, {:.3} CPU ms/batch, {} allocations/batch",
         percentile(&invalid_batches, 0.5) / 1000.0,
         percentile(&invalid_batches, 0.99) / 1000.0,
         (cpu_end - cpu_split.unwrap()).as_secs_f64() * 1000.0 / BATCHES as f64,

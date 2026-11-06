@@ -2299,6 +2299,13 @@ impl Hub {
         self.write_status(session, status, None);
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_reopen(&self, id: &str) -> bool {
+        let Ok(session) = self.resolve(id) else { return false };
+        let stops = session.stops.load(Ordering::SeqCst);
+        self.reopen(&session, stops)
+    }
+
     /// A stopped session starts again, for a request that came after its last stop: `stops` is
     /// [`Session::stops`] when the request came. Its status leaves Closed for Idle, logged
     /// `reopened`. False when it was not closed, or was stopped again since: it stays closed.
@@ -2351,6 +2358,12 @@ impl Hub {
         };
         self.update_live_session_index(session);
         if was != status {
+            // A closed snapshot partitions sessions by status. Invalidate on both sides of a
+            // closed transition, including reopen before its `reopened` record is appended, so a
+            // build that observed the old partition cannot publish it after the transition.
+            if was == SessionStatus::Closed || status == SessionStatus::Closed {
+                self.chat_activity_cache.invalidate();
+            }
             if let Some(link) = &link {
                 self.subsession_status(&session.id, link, was, status);
             }

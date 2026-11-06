@@ -171,10 +171,18 @@ pub struct ActivityCache {
     batch: Mutex<Option<SharedBatch>>,
     #[cfg(test)]
     builds: AtomicU64,
+    #[cfg(test)]
+    build_pause: Mutex<Option<BuildPause>>,
 }
 
 /// A change batch, the counts its activity was read at, and that activity.
 type SharedBatch = (Arc<Vec<SeqChange>>, (u64, u64, usize), Option<u64>, Arc<ChatActivity>);
+
+#[cfg(test)]
+struct BuildPause {
+    entered: Arc<std::sync::Barrier>,
+    release: Arc<std::sync::Barrier>,
+}
 
 struct Built {
     /// The epoch and session count it was built at, and when its first tag expires.
@@ -202,6 +210,20 @@ impl ActivityCache {
         self.builds.store(0, Ordering::SeqCst);
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_pause_next_build(
+        &self,
+        entered: Arc<std::sync::Barrier>,
+        release: Arc<std::sync::Barrier>,
+    ) {
+        *lock(&self.build_pause) = Some(BuildPause { entered, release });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_cached_closed(&self, id: &str) -> bool {
+        lock(&self.built).as_ref().is_some_and(|built| built.closed_ids.contains(id))
+    }
+
     /// A mux record of `kind` was appended to session `id` (`closed`: the session is closed now).
     pub(crate) fn note(&self, id: &str, kind: &str, closed: bool) {
         self.records.fetch_add(1, Ordering::SeqCst);
@@ -220,18 +242,6 @@ impl ActivityCache {
 }
 
 impl Hub {
-    #[cfg(test)]
-    pub(crate) fn test_append_activity(&self, id: &str, kind: &str, msg: Value) {
-        let session = self.resolve(id).expect("test session");
-        self.append(&session, "mux", kind, msg);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn test_set_status(&self, id: &str, status: SessionStatus) {
-        let session = self.resolve(id).expect("test session");
-        self.set_status(&session, status);
-    }
-
     /// A chat's `attention` and `preview`, and `parent`: the chat of the session that started
     /// this one (`Hub::spawned_by`; its chat key, else its session id), so lists fold it under
     /// that chat instead of listing it on its own (Leo 2026-10-13). Null for a chat nobody started.
@@ -347,6 +357,11 @@ impl Hub {
             closed_ids,
             live,
         });
+        #[cfg(test)]
+        if let Some(pause) = lock(&cache.build_pause).take() {
+            pause.entered.wait();
+            pause.release.wait();
+        }
         // A closed-session activity record or a map change while the index was being built
         // invalidates this result. Return it to this reader, but do not publish it; the mutation's
         // own notification makes the next reader build again.
