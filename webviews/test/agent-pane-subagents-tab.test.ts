@@ -46,7 +46,12 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
           _meta: {
             acpmux: {
               subagents: [
-                { id: "sub-explore", name: "Explore docs", task: "Read the release docs", state: "running" },
+                {
+                  id: "sub-explore",
+                  name: "Explore docs",
+                  task: "Read the release docs",
+                  state: "running",
+                },
                 { id: "sub-links", name: "Check links", task: "Check every link", state: "running" },
                 { id: "sub-lint", name: "Lint notes", task: "Lint the notes", state: "running" },
               ],
@@ -201,6 +206,8 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     await panel(page).waitFor({ timeout: 5_000 });
     // The section's title, with its live count, opens the tab.
     await panel(page).getByRole("heading", { name: "Subagents · 1 running" }).waitFor({ timeout: 5_000 });
+    expect(await panel(page).locator("[data-subagent-heading-marks] .acpmux-agent-identity").count()).toBe(3);
+    expect(await panel(page).locator('[data-subagent-heading-marks] [data-identity-look="tint"]').count()).toBe(3);
     await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
     const tabs = panel(page).locator(".acpmux-summary-tabs");
     const tab = (name: string) => tabs.getByRole("button", { name, exact: true });

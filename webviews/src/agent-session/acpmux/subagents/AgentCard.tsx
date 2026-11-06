@@ -21,7 +21,7 @@ export type AgentCardProps = {
   harness?: string;
   /// Its acpmux session, whose own avatar (Set Avatar…, agentAvatar.ts) replaces the mark.
   sessionId?: string;
-  /// Stable list identity, for the icon's tone when the harness has no mark.
+  /// Stable list identity, for the harness mark's tone.
   identity?: string;
   model?: string;
   /// Undefined while the session list does not have it (a gallery, an archived chat).
@@ -92,6 +92,7 @@ export function AgentCard({
               harness={harness}
               tone={tone}
               size={14}
+              look="tint"
               fallbackNode={<Icon name="agent.session" size={16} />}
             />
           )
@@ -127,6 +128,7 @@ export function AgentCard({
             harness={harness}
             tone={tone}
             size={14}
+            look="tint"
             fallbackNode={<Icon name="agent.session" size={16} />}
           />
         )}

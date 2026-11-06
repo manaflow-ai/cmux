@@ -42,14 +42,16 @@ const icons = (html: string) =>
     (match) => ({ inner: match[1]!, tone: /class="acpmux-toned-icon" data-agent-tone="(\d)"/.exec(match[1]!)?.[1] }),
   );
 
-const mark = (harness: string) => renderToStaticMarkup(<AgentMark agent={harness} size={rowIconSize(12)} />);
+const mark = (harness: string, tint = true) =>
+  renderToStaticMarkup(<AgentMark agent={harness} size={rowIconSize(12)} tint={tint} />);
+const markAgent = (harness: string) => /data-agent="([^"]+)"/.exec(mark(harness))?.[1];
 
 test("a subagent line draws another family's mark; the chat's own keeps its toned icon", () => {
   const html = renderToStaticMarkup(
     <SubagentsSection agents={[agent("reviewer", "codex"), agent("explorer")]} waiting={new Set()} harness="claude" />,
   );
   const [codex, claude] = icons(html);
-  expect(codex?.inner).toBe(mark("codex"));
+  expect(codex?.inner).toContain(`data-agent="${markAgent("codex")}"`);
   expect(claude?.inner).not.toBe(mark("claude"));
   expect(claude?.tone).toBe(String(agentTone("explorer")));
   expect(codex?.tone).toBeUndefined();
@@ -77,13 +79,13 @@ test("a chat the agent started draws its own harness's mark, else its icon in it
     />,
   );
   const [codex, plain] = icons(html);
-  expect(codex?.inner).toBe(mark("codex"));
+  expect(codex?.inner).toContain(`data-agent="${markAgent("codex")}"`);
   expect(plain?.tone).toBe(String(agentTone("plain-child")));
 
   const rows = renderToStaticMarkup(
     <ChildSessionRows sessions={[session("codex-child", "codex"), session("plain-child")]} />,
   );
-  expect(rows).toContain(mark("codex"));
+  expect(rows).toContain(`data-agent="${markAgent("codex")}"`);
   expect(rows).toContain(`data-agent-tone="${agentTone("plain-child")}"`);
 });
 
@@ -115,7 +117,7 @@ test("a subagent row keeps its name and harness mark without a fork icon or usag
     />,
   );
   expect(html).toContain("reviewer");
-  expect(icons(html)[0]?.inner).toBe(mark("codex"));
+  expect(icons(html)[0]?.inner).toContain(`data-agent="${markAgent("codex")}"`);
   expect(html).not.toContain("acpmux-agent-line__kind-icon");
   expect(html).not.toContain("acpmux-agent-line__progress");
   expect(html).not.toContain("107.5K");

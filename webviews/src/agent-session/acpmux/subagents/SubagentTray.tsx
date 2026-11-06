@@ -89,7 +89,7 @@ import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } 
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";
-import { AgentIdentity, foreignHarness, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { AgentIdentity, SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { harnessFamily } from "./agentRuns";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
@@ -538,6 +538,7 @@ export const SubagentTray = memo(function SubagentTray({
                   tone={mark.tone}
                   size={ROW_ICON}
                   fallback={mark.icon}
+                  look="tint"
                 />
               ))}
             </span>
@@ -684,7 +685,7 @@ export const SubagentTray = memo(function SubagentTray({
           progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
           progressAgent={item.agent}
           icon={SUBAGENT_FALLBACK}
-          mark={foreignHarness(item.agent.harness, chatHarness)}
+          mark={item.agent.harness ?? chatHarness}
           tone={agentTone(item.agent.id)}
           status={subagentStatus(item.agent, waiting)}
           working={subagentStatus(item.agent, waiting) === "running"}
@@ -882,7 +883,7 @@ const NO_MARKS: readonly HeadMark[] = [];
 const STACK_MARKS = 4;
 
 /// The marks the header stacks (the `stack` arm): the first lines' own glyphs, what runs first, then
-/// what ended. A subagent draws its subagent mark in its tone, or another family's harness mark; a
+/// what ended. A subagent keeps its own harness mark in its stable tone; a
 /// chat its harness's; a command its command icon. Computed when the lists change, never per tick.
 function stackMarks(
   t: Translate,
@@ -897,7 +898,7 @@ function stackMarks(
       item.kind === "agent"
         ? {
             key: itemKey(item),
-            harness: foreignHarness(item.agent.harness, chatHarness),
+            harness: item.agent.harness ?? chatHarness,
             tone: agentTone(item.agent.id),
             icon: SUBAGENT_FALLBACK,
           }

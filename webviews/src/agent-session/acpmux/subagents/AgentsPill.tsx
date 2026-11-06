@@ -124,6 +124,7 @@ export const AgentsPill = memo(function AgentsPill({
                           harness={agent.harness}
                           tone={tones.get(agent.id) ?? agentTone(agent.id)}
                           size={9}
+                          look="tint"
                           fallbackNode={<span className="acpmux-agents-list__dot" />}
                         />
                         <span className="acpmux-agents-list__text">

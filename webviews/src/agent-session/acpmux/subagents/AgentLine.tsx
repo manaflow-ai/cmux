@@ -29,7 +29,6 @@
 // read. Screen readers still hear "Running". A line with no time, a retry and a waiting line keep
 // their words.
 import type { CSSProperties, ReactNode } from "react";
-import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
 import { Spinner } from "../conversation/icons";
@@ -38,6 +37,7 @@ import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
 import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
+import { AgentIdentity } from "./AgentIdentity";
 import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
 
@@ -92,8 +92,7 @@ export function AgentLine({
   icon?: string;
   /// The harness of an agent of another family (`codex`), whose mark replaces the icon.
   mark?: string;
-  /// Its stable color (agentTones.ts `agentTone`), for the icon when no harness mark replaces it, so
-  /// lines without a mark still tell apart (Leo, 2026-10-29: "you can just randomize the colors").
+  /// Its stable color (agentTones.ts `agentTone`), for its harness mark and fallback alike.
   tone?: number;
   iconSize?: number;
   /// How far it sits under the agent that spawned it.
@@ -148,7 +147,6 @@ export function AgentLine({
   const shimmer = waveProps(wave);
   // Running with its time shown: the time and Stop say it runs (Leo, 2026-11-03).
   const timed = trayColumns && quiet && status === "running" && time !== undefined;
-  const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
   const glyph = <TonedIcon name={icon} size={iconSize} tone={tone} row />;
   const button = (
     <button
@@ -178,13 +176,23 @@ export function AgentLine({
         className={shimmer.className ? `acpmux-lineage__icon ${shimmer.className}` : "acpmux-lineage__icon"}
         style={shimmer.style}
         data-state={status}
+        data-agent-tone={tone}
       >
         {working && !timed ? (
-          <Spinner size={iconSize} loading />
-        ) : brand ? (
-          <AgentMark agent={brand} size={iconSize} fallback={glyph} />
+          <Spinner
+            size={iconSize}
+            loading
+            style={tone === undefined ? undefined : { color: "var(--agent-tone-ink)" }}
+          />
         ) : (
-          glyph
+          <AgentIdentity
+            harness={mark}
+            tone={tone}
+            size={iconSize}
+            fallbackNode={glyph}
+            look={tone === undefined ? undefined : "tint"}
+            style={tone === undefined ? undefined : { color: "var(--agent-tone-ink)" }}
+          />
         )}
       </span>
       <span className="acpmux-summary-text">

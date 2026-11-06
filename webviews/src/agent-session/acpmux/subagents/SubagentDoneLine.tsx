@@ -224,6 +224,7 @@ function DoneLine({
               tone={agentTone(agent.id)}
               size={16}
               fallback={SUBAGENT_FALLBACK}
+              look="tint"
             />
           </span>
           {quiet ? (

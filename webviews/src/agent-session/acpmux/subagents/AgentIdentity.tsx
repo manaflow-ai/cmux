@@ -1,5 +1,6 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { AgentMark } from "../../shared/AgentMark";
+import { harnessIconsSnapshot, subscribeHarnessIcons } from "../../shared/harnessIcons";
 import { Icon } from "../icons/Icon";
 import { harnessFamily } from "./agentRuns";
 
@@ -24,8 +25,11 @@ export function foreignHarness(harness: string | undefined, chatHarness: string 
   return chatHarness && harnessFamily(harness) === harnessFamily(chatHarness) ? undefined : harness;
 }
 
+/// The stable hue on a subagent's harness mark. Alternatives are kept in the gallery.
+export type AgentIdentityLook = "tint" | "badge" | "marker";
+
 /// One identity mark shared by agent and session lists. A missing harness keeps the same icon slot,
-/// but the stable tone makes two unknown harnesses distinguishable.
+/// and subagent surfaces tint every harness in the same stable identity tone.
 export function AgentIdentity({
   harness,
   tone,
@@ -34,6 +38,7 @@ export function AgentIdentity({
   fallbackNode,
   className,
   style,
+  look,
 }: {
   harness?: string;
   tone?: number;
@@ -42,20 +47,40 @@ export function AgentIdentity({
   fallbackNode?: ReactNode;
   className?: string;
   style?: CSSProperties;
+  look?: AgentIdentityLook;
 }) {
   // Keep the full id subscribed: a profile icon may arrive after this row mounts.
   const family = harness?.split(/[-_/]/)[0];
+  const icons = useSyncExternalStore(subscribeHarnessIcons, harnessIconsSnapshot, harnessIconsSnapshot);
+  const own = (harness && icons.get(harness)) || (family && icons.get(family));
+  // A photo's alpha mask can be a solid square, and emoji have their own colours. Preserve the
+  // person's chosen artwork; the same small hue badge carries identity without changing its box.
+  const preserve = own && (own.kind === "image" || own.kind === "emoji" || own.kind === "monogram");
+  const shown = look === "tint" && tone !== undefined && preserve ? "badge" : look;
   const glyph = (
     <span data-agent-tone={tone} style={{ color: "var(--agent-tone-ink, var(--agent-muted))" }}>
       {fallbackNode ?? <Icon name={fallback} size={size} row />}
     </span>
   );
   return (
-    <span className={className} style={style} aria-hidden="true">
+    <span
+      className={[className, shown && "acpmux-agent-identity"].filter(Boolean).join(" ") || undefined}
+      style={style}
+      data-agent-tone={shown ? tone : undefined}
+      data-identity-look={shown}
+      aria-hidden="true"
+    >
       <AgentMark
         agent={harness}
         size={size}
-        fallback={family && family !== harness ? <AgentMark agent={family} size={size} fallback={glyph} /> : glyph}
+        tint={shown === "tint"}
+        fallback={
+          family && family !== harness ? (
+            <AgentMark agent={family} size={size} tint={shown === "tint"} fallback={glyph} />
+          ) : (
+            glyph
+          )
+        }
       />
     </span>
   );
