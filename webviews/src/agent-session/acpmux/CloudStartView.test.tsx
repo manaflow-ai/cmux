@@ -79,10 +79,21 @@ afterEach(async () => {
   delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
 });
 
+test("a start on its way reads as a local first turn: the message and the Thinking line, no Cloud rows", () => {
+  for (const s of [start, { ...start, initialized: true }]) {
+    const html = renderToStaticMarkup(<CloudStartView start={s} />);
+    expect(html).toContain("fix the build");
+    expect(html).toContain("cv-thinking");
+    expect(html).not.toContain("acpmux-cloud-start__status");
+    expect(html).not.toContain("acpmux-cloud-start__card");
+    expect(html).not.toContain('data-step-id="machine"');
+  }
+});
+
 test("every arm shows the message and compact preparing status", () => {
   for (const name of ["chips", "rows", "steps"]) {
     arm(name);
-    const html = renderToStaticMarkup(<CloudStartView start={start} />);
+    const html = renderToStaticMarkup(<CloudStartView start={start} showSteps />);
     expect(html).toContain(`data-look="${name}"`);
     expect(html).toContain("fix the build");
     expect(html).toContain('class="acpmux-cloud-start__status"');
@@ -104,7 +115,7 @@ test("a healthy start opens its details when the disclosure is requested", async
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
-    root.render(<CloudStartView start={start} />);
+    root.render(<CloudStartView start={start} showSteps />);
   });
   const summary = container.querySelector<HTMLButtonElement>(".acpmux-cloud-start__summary");
   expect(summary?.getAttribute("aria-expanded")).toBe("false");
@@ -115,7 +126,7 @@ test("a healthy start opens its details when the disclosure is requested", async
 
 test("the steps arm keeps its legacy step list behind the disclosure", () => {
   arm("steps");
-  const html = renderToStaticMarkup(<CloudStartView start={start} />);
+  const html = renderToStaticMarkup(<CloudStartView start={start} showSteps />);
   expect(html).not.toContain('data-step="done"');
   expect(html).not.toContain('data-step="current"');
   expect(html).not.toContain('data-step="next"');
@@ -246,7 +257,7 @@ test("a missing setup script is plain text without an environment callback", () 
 
 test("initialized sessions collapse to one quiet line", () => {
   const html = renderToStaticMarkup(
-    <CloudStartView start={{ key: "k", task: "hi", state: "starting", initialized: true }} />,
+    <CloudStartView start={{ key: "k", task: "hi", state: "starting", initialized: true }} showSteps />,
   );
   expect(html).toContain("Initialized session");
   expect(html).toContain('class="acpmux-cloud-start__status acpmux-cloud-start__status--ready"');

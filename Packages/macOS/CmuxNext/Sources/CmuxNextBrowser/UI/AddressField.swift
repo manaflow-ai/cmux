@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// The omnibar text field. It uses its own field editor
 /// (`OmnibarFieldEditor`) and is the only `OmnibarFieldSurface`: the effect
@@ -101,6 +102,11 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     /// The I-beam over the text at rest and while editing (`OmnibarPointer`);
     /// while editing the field editor adds its own I-beam over its text.
     override func resetCursorRects() {
+        // In a layout screen the toolbar row's rule gives the I-beam from the screen's one area (`ArrowCursorView`).
+        if isServedByPanePointerArea {
+            installedCursor = OmnibarPointer.cursor(.text)
+            return
+        }
         if isFieldEditorActive {
             super.resetCursorRects()
         } else {

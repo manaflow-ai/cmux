@@ -739,8 +739,7 @@ class RunsOnFallbackTests(unittest.TestCase):
 
     def test_a_picked_owned_mac_is_read_only_on_the_attempt_that_picked_it(self) -> None:
         # The owned-only form of the rule above. Nightlies never use Blacksmith (Lawrence, 2026-10-30, a7b6a61175c),
-        # so sign-nightly-identity-legacy and its verify read the picker's owned Mac, not a Blacksmith label with an
-        # alternate. A re-run of failed jobs keeps the old pick, so the owned read must hold only on the attempt that
+        # so the signing jobs read the picker's owned Mac, not a Blacksmith label with an alternate. A re-run of failed jobs keeps the old pick, so the owned read must hold only on the attempt that
         # ran the picker; a re-run then falls through to the owned slot or pool, never to the Mac that stalled.
         jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
         owned = re.compile(r"needs\.(pick-nightly-sign-runner)\.outputs\.(?:sign_owned|owned)\b")
@@ -755,7 +754,7 @@ class RunsOnFallbackTests(unittest.TestCase):
                     guards = {f"needs.{match.group(1)}.outputs.attempt == github.run_attempt", "github.run_attempt == 1"}
                     if not guards & {term.strip() for term in conjuncts(alternative)}:
                         failures.append(f"nightly.yml {job_id}: {alternative.strip()}")
-        self.assertTrue({"sign-nightly-identity-legacy", "verify-nightly-identity-legacy"} <= seen, seen)
+        self.assertTrue({"build-sign-notarize-nightly", "generate-nightly-deltas"} <= seen, seen)
         self.assertEqual(failures, [], "an owned pick needs its picker's attempt check in the same alternative")
 
     def test_a_reserved_slot_always_has_a_fallback(self) -> None:

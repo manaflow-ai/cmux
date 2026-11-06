@@ -42,6 +42,11 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.closeWorkspacesBelow": [p(.workspaceRow, .close, 502, folder: .close)],
         "palette.closeWorkspacesAbove": [p(.workspaceRow, .close, 503, folder: .close)],
         "workspace.closeAll": [p(.workspaceRow, .close, 505, folder: .close)],
+        // Their archive counterparts, in the same order, as the Close folder's next section (user, 2026-11-05).
+        "workspace.archiveOtherWorkspaces": [p(.workspaceRow, .close, 600, folder: .close)],
+        "workspace.archiveOthersInGroup": [p(.workspaceRow, .close, 601, folder: .close)],
+        "workspace.archiveWorkspacesBelow": [p(.workspaceRow, .close, 602, folder: .close)],
+        "workspace.archiveWorkspacesAbove": [p(.workspaceRow, .close, 603, folder: .close)],
         "palette.toggleWorkspacePin": [p(.workspaceRow, .identity, 110)],
         // In More: the row menu keeps 12 top-level rows (ContextMenuEssentialsTests).
         "workspace.toggleArchive": [p(.workspaceRow, .identity, 113)],

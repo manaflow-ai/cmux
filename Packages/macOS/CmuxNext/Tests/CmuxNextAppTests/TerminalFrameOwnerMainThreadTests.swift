@@ -116,7 +116,7 @@ struct TerminalFrameOwnerMainThreadTests {
             _ = NSApplication.shared
             TunableStore.shared.activate(file: nil)
             TunableStore.shared.register(TerminalDragTunables.all)
-            // The switch starts off, as in the films; ``close()`` resets it.
+            // The switch starts off (the pre-m19 default the films used); ``close()`` resets it.
             TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(false))
             drew = WindowDrawPolicy.drawsWhenOccluded
             WindowDrawPolicy.drawsWhenOccluded = true

@@ -1,0 +1,237 @@
+name: PR body checks
+
+# The four feat-cmux-next pull request description lints, one runner for all of them. They were four
+# workflows (pr-capture-check.yml, pr-design-spec-check.yml, pr-perf-section-check.yml,
+# pr-cloud-backend-check.yml), each starting a Linux runner for a few seconds of Python: about 270,000
+# runs and 69,000 runner-minutes in 14 days, with no failure. Each step here is the step its own
+# workflow had, with the events it ran on and its warn-only setting. The scripts and maps run from the
+# base branch, never the pull request's code. Editing the description re-runs them. They run on drafts
+# and on a base-only update, as they did.
+#
+# Not folded into pr-checks.yml: these react to labels and its jobs do not. GitHub cannot filter `on:`
+# by label name, so a label trigger there would start a newer, skipped run of PR size, UI review,
+# split-plan and link on every bot label toggle, and hide their answers.
+#
+# Only the capture step can turn the job red (2 on bad input), so the job keeps that check's name
+# first: cmuxterm-hq's next_autoland and base_red_watch read a job named pr-capture-check as the PR's
+# own red, never a base red. The other three only warn: their steps continue on error.
+#
+# Capture: a pull request that changes native app UI shows a real capture of it in its description
+# (what `cmux-ci capture` prints, the media-tour label, or a `No capture: <why>` line); a capture or
+# media-tour label also requires body proof that the after image was viewed and judged. It only warns
+# and never fails (Leo, 2026-10-31: "WE DONT NEED F***ING SCREENSHOTS JUST LET ME TRY THE STUFF OUT").
+#
+# Design spec: a pull request that changes a UI surface's files cites the surface's design spec
+# (.github/design-surfaces.json; 2026-10-28: #26071 replaced the model picker's harness tabs and nobody
+# noticed). The map is the base branch's joined with the PR's (data only, from the merge commit), so a
+# PR that moves a surface's files and maps the new paths is judged on both, and one that drops or
+# shrinks the map is still judged by the base's.
+#
+# Perf section: a performance pull request (the perf label, or a perf word in its title or
+# description; docs-only changes are exempt) records a `## Performance` table of before/after deltas,
+# or a `No perf numbers: <why>` line. Advisory since the checks audit (Leo, 2026-11-01: "keep only
+# what catches real breakage"; cmuxterm-hq#5745).
+#
+# Cloud backend: new cloud backend code goes to the private manaflow-ai/cmux-platform; a PR that adds
+# or changes a path in .github/cloud-backend-paths.json gets a warning unless its description has a
+# `cmux-platform:` line (Leo, 2026-10-31: "WHY DO WE HAVE SO MANY PRS IN CMUX INSTEAD OF
+# CMUX-PLATFORM!?").
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
+
+permissions: {}
+
+# Into feat-cmux-next, a label event the checks do not read (anything but the media-tour and perf
+# labels) skips the job and takes a concurrency group of its own, so it never cancels a real check in
+# flight (tests/test_ci_label_events_skip_full_ci.py). Bots set and clear risk, hold and landing labels
+# on hundreds of open pull requests, and each of those events queued a runner for the same answer.
+concurrency:
+  group: pr-body-checks-${{ github.event.pull_request.number }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["media-tour","media-tour-mac","perf","performance"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
+jobs:
+  body:
+    name: pr-capture-check, design spec, perf section, cloud backend
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["media-tour","media-tour-mac","perf","performance"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout the checks from the base branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/pr_capture_check.py
+            scripts/cmux-next/media/path_map.py
+            scripts/ci/pr_design_spec_check.py
+            .github/design-surfaces.json
+            scripts/ci/pr_perf_section_check.py
+            scripts/ci/pr_cloud_backend_check.py
+            .github/cloud-backend-paths.json
+          sparse-checkout-cone-mode: false
+
+      # The paths this pull request changes, from git rather than the files API (a call per 100 files
+      # on each event: every push, label and description edit). The event's merge commit and its first
+      # parent, the base, without blobs: two trees, read as data, never run. Only the merge of this head
+      # counts; a stale or one-parent commit lists nothing. Each list is its own step with its own
+      # `listed` output, so one that fails costs only the checks that read it: the capture and perf
+      # checks then read the files API, and the design spec and cloud backend checks are skipped.
+      #
+      # paths.txt: a rename as both its old and new path, so a code file moved under docs/ is not
+      # docs-only (perf, design spec). status.txt: each path with its status, added, modified or
+      # deleted (cloud backend).
+      - name: List the changed paths
+        id: paths
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          MERGE_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA"
+          [ "$(git rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ]
+          git diff --name-only -z --no-renames "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/paths.txt"
+          git diff --name-status --no-renames "$MERGE_SHA^1" "$MERGE_SHA" > "$RUNNER_TEMP/status.txt"
+          echo "listed=true" >> "$GITHUB_OUTPUT"
+
+      # The merged tree's file list and its surface map (design spec).
+      - name: List the merged tree and its surface map
+        id: tree
+        if: ${{ steps.paths.outputs.listed == 'true' && github.event.action != 'labeled' && github.event.action != 'unlabeled' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          MERGE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git ls-tree -r --name-only "$MERGE_SHA" > "$RUNNER_TEMP/tree.txt"
+          git show "$MERGE_SHA:.github/design-surfaces.json" > "$RUNNER_TEMP/design-surfaces.json" || true
+          echo "listed=true" >> "$GITHUB_OUTPUT"
+
+      # The files API's `.filename` set (capture): a rename under its new name. It leaves out only a
+      # change the base already carries, which merging changes nothing for. Last, since rename
+      # detection may fetch blobs.
+      - name: List the changed paths with renames
+        id: renames
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          MERGE_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA"
+          [ "$(git rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ]
+          git diff --name-only -z -M "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/capture-paths.txt"
+          echo "listed=true" >> "$GITHUB_OUTPUT"
+
+      # Not continue-on-error: bad input here is this job's red, as it was pr-capture-check's. Each
+      # later step still runs (!cancelled()).
+      - name: Check the description for a real capture
+        if: ${{ !cancelled() && !((github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["media-tour","media-tour-mac"]'), github.event.label.name)) }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BODY: ${{ github.event.pull_request.body }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          LISTED: ${{ steps.renames.outputs.listed }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ci/pr_capture_check.py ]; then
+            # The pull request that adds the check: its base has no check to run yet.
+            echo "::notice::The base branch has no scripts/ci/pr_capture_check.py yet; nothing to check."
+            exit 0
+          fi
+          printf '%s' "$BODY" > "$RUNNER_TEMP/capture-body.md"
+          if [ "$LISTED" != true ]; then
+            gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > "$RUNNER_TEMP/capture-paths.txt"
+          fi
+          python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/capture-body.md" --paths-file "$RUNNER_TEMP/capture-paths.txt" \
+            --labels "$LABELS" --head-sha "$HEAD_SHA" --pr "$PR"
+
+      # Before the perf check, whose files-API fallback rewrites paths.txt (only when paths are not listed,
+      # when this step does not run).
+      - name: Check the description cites each changed surface's spec
+        if: ${{ !cancelled() && steps.paths.outputs.listed == 'true' && steps.tree.outputs.listed == 'true' && github.event.action != 'labeled' && github.event.action != 'unlabeled' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ci/pr_design_spec_check.py ] || [ ! -f .github/design-surfaces.json ]; then
+            # The pull request that adds the check: its base has no check or map yet.
+            echo "::notice::The base branch has no design spec check or surface map yet; nothing to check."
+            exit 0
+          fi
+          printf '%s' "$BODY" > "$RUNNER_TEMP/design-body.md"
+          python3 scripts/ci/pr_design_spec_check.py --body-file "$RUNNER_TEMP/design-body.md" \
+            --paths-file "$RUNNER_TEMP/paths.txt" --tree-file "$RUNNER_TEMP/tree.txt" \
+            --map .github/design-surfaces.json --pr-map "$RUNNER_TEMP/design-surfaces.json" \
+            || echo "::warning title=Design spec::the design spec check could not run (exit $?); see this job's log"
+
+      # Advisory: a missing table is an ::error annotation on the run and never a red check, since it
+      # judges the description, not the code.
+      - name: Check the description for a Performance table
+        if: ${{ !cancelled() && !((github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["perf","performance"]'), github.event.label.name)) }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          LISTED: ${{ steps.paths.outputs.listed }}
+          ADDITIONS: ${{ github.event.pull_request.additions }}
+          DELETIONS: ${{ github.event.pull_request.deletions }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ci/pr_perf_section_check.py ]; then
+            # The pull request that adds the check: its base has no check to run yet.
+            echo "::notice::The base branch has no scripts/ci/pr_perf_section_check.py yet; nothing to check."
+            exit 0
+          fi
+          printf '%s' "$BODY" > "$RUNNER_TEMP/perf-body.md"
+          if [ "$LISTED" != true ]; then
+            gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/paths.txt"
+          fi
+          size=()
+          # The base copy runs; one from before the light path has no size flags.
+          if grep -q -- "--additions" scripts/ci/pr_perf_section_check.py; then
+            size=(--additions "$ADDITIONS" --deletions "$DELETIONS")
+          fi
+          python3 scripts/ci/pr_perf_section_check.py --body-file "$RUNNER_TEMP/perf-body.md" \
+            --paths-file "$RUNNER_TEMP/paths.txt" --title "$TITLE" --labels "$LABELS" "${size[@]}"
+
+      - name: Check where the cloud backend change belongs
+        if: ${{ !cancelled() && steps.paths.outputs.listed == 'true' && github.event.action != 'labeled' && github.event.action != 'unlabeled' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ci/pr_cloud_backend_check.py ] || [ ! -f .github/cloud-backend-paths.json ]; then
+            # The pull request that adds the check: its base has no check or map yet.
+            echo "::notice::The base branch has no cloud backend check or path map yet; nothing to check."
+            exit 0
+          fi
+          printf '%s' "$BODY" > "$RUNNER_TEMP/cloud-body.md"
+          python3 scripts/ci/pr_cloud_backend_check.py --body-file "$RUNNER_TEMP/cloud-body.md" \
+            --status-file "$RUNNER_TEMP/status.txt" --map .github/cloud-backend-paths.json \
+            || echo "::warning title=Cloud backend belongs in cmux-platform::the check could not run (exit $?); see this job's log"

@@ -188,7 +188,8 @@ fi
 if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}" '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
-  in_refresh && /timeout-minutes: 90/ { saw_cold_build_timeout=1 }
+  # 90 with one-mini mode off; the mode adds room for the glaeda capacity wait (tests/test_nightly_mini_gate_timeouts.py).
+  in_refresh && (/timeout-minutes: 90$/ || /timeout-minutes: \$\{\{ vars\.CI_NIGHTLY_MINI != .* && [0-9]+ \|\| 90 \}\}$/) { saw_cold_build_timeout=1 }
   in_refresh && /if: github\.event_name == '\''schedule'\'' && github\.event\.schedule == '\''17 \*\/6 \* \* \*'\''/ { saw_schedule_gate=1 }
   # Match the whole expression, not a prefix of it, so a route that adds a
   # fallback off the owned minis fails here.
@@ -1381,12 +1382,6 @@ if [ "${stall_out%% *}" != ok ] || [ $((SECONDS - stall_start)) -ge 20 ]; then
   echo "FAIL: a stalled git fetch must be cut off and fall back to the compare API (got '$stall_out')"
   exit 1
 fi
-# The macOS job checks the app's commit through the script, not the compare API alone.
-if ! grep -Fq 'nightly-next-legacy-requirement.sh --commit "$GITHUB_REPOSITORY" "$sha" $REQUIRED' "$WORKFLOW_FILE" \
-  || grep -Fq 'compare/$required...$sha' "$WORKFLOW_FILE"; then
-  echo "FAIL: the cmux NIGHTLY-identity macOS job must check required commits through nightly-next-legacy-requirement.sh --commit"
-  exit 1
-fi
 # The macOS job's refusal of an app that lacks a required commit is never
 # counted, and a continued submission of that build is retired.
 legacy_resolve "true false false" "a continued submission refused by the requirement must be retired and not counted" \
@@ -1402,146 +1397,6 @@ legacy_expect "new 3865928435701 " "a pending submission of a refused build must
 legacy_expect "none  " "refused builds must be neither continued nor submitted" \
   --pending-meta "$legacy_dir/pending.json" --pending-run 38677509707 --now "$now" --refuse-build 3850073942601 --refuse-build 3865928435701
 legacy_feed "$legacy_dir/next.xml" 3851000000001 3850073942601
-# Wiring: the macOS job takes its build and mode from legacy-identity-target,
-# not from this run's publish-nightly; a pending submission is stored and
-# continued, never counted as a failure.
-# The cmux NIGHTLY-identity chain is three jobs (cx-vws1x): sign, a secret-free
-# verify, and publish.
-legacy_job_text() {  # <job id>
-  awk -v job="  $1:" '$0 == job {on=1; print; next} on && /^  [a-z0-9-]+:$/ {exit} on' "$WORKFLOW_FILE"
-}
-sign_job="$(legacy_job_text sign-nightly-identity-legacy)"
-verify_job="$(legacy_job_text verify-nightly-identity-legacy)"
-publish_job="$(legacy_job_text publish-nightly-identity-legacy)"
-legacy_job="$sign_job$verify_job$publish_job"
-target_job="$(awk '/^  legacy-identity-target:/{on=1} on && /^  [a-z0-9-]+:$/ && !/legacy-identity-target/{exit} on' "$WORKFLOW_FILE")"
-for expected in \
-  "needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, publish-nightly]" \
-  "needs.legacy-identity-target.outputs.build != ''" \
-  "NIGHTLY_BUILD: \${{ needs.legacy-identity-target.outputs.build }}" \
-  "LEGACY_ACTION: \${{ needs.legacy-identity-target.outputs.action }}" \
-  "vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'" \
-  "group: nightly-next-legacy-identity" \
-  "- name: Skip a build the old feed already has" \
-  "CMUX_NOTARY_WAIT_TIMEOUT=20m" \
-  "CMUX_NOTARY_PENDING_ON_TIMEOUT=true" \
-  "CMUX_NOTARY_CONTINUE_STATE=" \
-  "- name: Keep the pending cmux NIGHTLY-identity submission" \
-  "name: cmux-nightly-identity-pending-meta" \
-  "name: cmux-nightly-identity-pending-bundle" \
-  "Build \${process.env.BUILD} failed:" \
-  "if: always() && steps.failed.outputs.failed == 'true' && steps.resolve.outputs.real != 'false'" \
-  ".github/workflows/nightly.yml push nightly-next \$GITHUB_REPOSITORY" \
-  "BUNDLE_RUN: \${{ needs.legacy-identity-target.outputs.bundle_run }}" \
-  "- name: Store the accepted submission's metadata" \
-  '--apple "$apple"' \
-  'CMUX_VERIFY_LICENSES_TOOL=$RUNNER_TEMP/build-src/scripts/verify-app-bundle-licenses.sh' \
-  "REQUIRED: \${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}" \
-  "requirement in use: required: " \
-  'nightly-next-legacy-requirement.sh --commit "$GITHUB_REPOSITORY" "$sha" $REQUIRED' \
-  "scripts/ci/nightly-next-legacy-resolve.py" \
-  "./scripts/ci/nightly-next-legacy-orphan-meta.sh" \
-  'xcrun stapler validate "legacy-app/cmux NIGHTLY.app"'; do
-  if ! grep -Fq -- "$expected" <<<"$legacy_job"; then
-    echo "FAIL: the cmux NIGHTLY-identity jobs (sign, verify, publish) must contain: $expected"
-    exit 1
-  fi
-done
-for expected in \
-  "scripts/ci/nightly-next-legacy-target.py next.xml old.xml" \
-  "--max-pending-hours 6 --max-same-build-hours 48" \
-  "CURRENT_BUILD_SHA: \${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}" \
-  "source_sha=\$source_sha" \
-  'accepted build $pending_build is not on the live cmux NEXT Nightly feed' \
-  '.workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id' \
-  "for candidate in" \
-  "--failure-log failures.txt --max-failures 2" \
-  "the bundle of run \$bundle_run is gone" \
-  "REQUIRED: \${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}" \
-  "scripts/ci/nightly-next-legacy-requirement.sh" \
-  "requirement in use: required: " \
-  'grep -q "^Build $build skipped" failures.txt' \
-  'NOTES_BASE="${NIGHTLY_NEXT_FEED_BASE}/notes"'; do
-  if ! grep -Fq -- "$expected" <<<"$target_job"; then
-    echo "FAIL: legacy-identity-target must contain: $expected"
-    exit 1
-  fi
-done
-# Split contract (cx-vws1x): the signing job holds the secrets and runs no
-# bundle code; the verify job statically verifies the exact DMG with no environment and no
-# secret on a literal ephemeral label; publish takes only the verified digest.
-for expected in \
-  "environment: release-next" \
-  "CMUX_DEFER_LAUNCH_SMOKES: \"true\"" \
-  "name: cmux-nightly-identity-signed" \
-  "dmg_sha256: \${{ steps.handoff.outputs.dmg_sha256 }}" \
-  "signed_ok: \${{ steps.attempt.outputs.signed_ok }}" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"; do
-  grep -Fq -- "$expected" <<<"$sign_job" || { echo "FAIL: sign-nightly-identity-legacy must contain: $expected"; exit 1; }
-done
-for expected in \
-  "NEXT_BUNDLE_ID: \${{ needs.decide.outputs.bundle_id }}" \
-  "NEXT_COMMIT_SHORT: \${{ needs.legacy-identity-target.outputs.source_sha }}" \
-  "PlistBuddy -c \"Add :SUPublicEDKey string \${NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY}\"" \
-  'name: cmux-nightly-remote-daemon' \
-  'python3 scripts/verify_remote_daemon_release.py' \
-  'python3 scripts/ci/nightly-next-guard.py feed-url "$feed_url"'; do
-  grep -Fq -- "$expected" <<<"$publish_job$sign_job" || { echo "FAIL: parallel NEXT identity preparation must contain: $expected"; exit 1; }
-done
-for expected in \
-  "needs: [legacy-identity-target, sign-nightly-identity-legacy, pick-nightly-sign-runner]" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}" \
-  'stapled_flag=(--require-stapled-app)' \
-  './scripts/ci/verify-dmg-artifact.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
-  "tested_sha256: \${{ steps.verify.outputs.tested_sha256 }}"; do
-  grep -Fq -- "$expected" <<<"$verify_job" || { echo "FAIL: verify-nightly-identity-legacy must contain: $expected"; exit 1; }
-done
-if grep -Eq 'environment:|secrets\.' <<<"$verify_job" || grep -Ev '^[[:space:]]*#' <<<"$verify_job" | grep -Eiq 'blacksmith|MACOS_RUNNER'; then
-  echo "FAIL: verify-nightly-identity-legacy must hold no environment or secret and never fall back to Blacksmith"
-  exit 1
-fi
-for expected in \
-  "needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, pick-nightly-sign-runner]" \
-  "TESTED_SHA256: \${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}" \
-  './scripts/ci/nightly-next-legacy-tested-digest.sh' \
-  "LEASE_KEY: nightly-next/locks/legacy-identity-publish.json" \
-  "needs.sign-nightly-identity-legacy.result != 'cancelled'" \
-  "needs.publish-nightly.outputs.refused != 'true'" \
-  "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" \
-  "needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue'" \
-  "scripts/ci/nightly-next-legacy-attempt.py --sign-result"; do
-  grep -Fq -- "$expected" <<<"$publish_job" || { echo "FAIL: publish-nightly-identity-legacy must contain: $expected"; exit 1; }
-done
-# Every publishing step of the publish job needs the tested digest, after the check.
-for step in "Generate the old feed's appcast" "Publish the cmux NIGHTLY DMG, release notes and the old feed"; do
-  step_if="$(awk -v name="      - name: $step" '$0 == name { found=1; next } found && /^        if: / { sub(/^        if: /, ""); print; exit }' <<<"$publish_job")"
-  if [ "$step_if" != "steps.order.outputs.skip == 'false' && env.TESTED_SHA256 != ''" ]; then
-    echo "FAIL: '$step' must run only with a tested digest: $step_if"
-    exit 1
-  fi
-done
-check_line="$(grep -n 'nightly-next-legacy-tested-digest.sh' <<<"$publish_job" | head -1 | cut -d: -f1)"
-publish_line="$(grep -n 'gh release upload' <<<"$publish_job" | head -1 | cut -d: -f1)"
-if [ -z "$check_line" ] || [ -z "$publish_line" ] || [ "$check_line" -ge "$publish_line" ]; then
-  echo "FAIL: publish-nightly-identity-legacy must check the tested digest before it uploads"
-  exit 1
-fi
-if grep -Eq 'smoke-dmg\.sh|smoke-launch|signing-keychain\.sh create' <<<"$publish_job"; then
-  echo "FAIL: publish-nightly-identity-legacy must run no bundle code and import no signing keychain"
-  exit 1
-fi
-bash "$ROOT_DIR/tests/test_nightly_next_legacy_tested_digest.sh"
-
-if grep -Fq "publish-nightly.result == 'success'" <<<"$verify_job$target_job" || grep -Fq "should_publish == 'true'" <<<"$target_job"; then
-  echo "FAIL: the cmux NIGHTLY-identity jobs must not require a publication in the same run (recovered builds publish later)"
-  exit 1
-fi
-# The sign job takes the publish job's own condition (test_nightly_next_identity.py checks they agree), so a
-# recovered build another run published (no source run) still signs; only this run's unpublished build waits.
-if ! grep -Fq "|| needs.legacy-identity-target.outputs.source_run == '')" <<<"$sign_job"; then
-  echo "FAIL: sign-nightly-identity-legacy must still sign a recovered build that another run published"
-  exit 1
-fi
 
 # cx-x7hwx class guard: notarize-nightly-dmg.sh runs the bundle notice check,
 # which reads ghostty-next/build.zig.zon. Every job that calls it must
@@ -1556,9 +1411,5 @@ if [ -n "$notary_guard" ]; then
   echo "FAIL: these jobs call notarize-nightly-dmg.sh without initializing ghostty-next first: $notary_guard"
   exit 1
 fi
-if ! grep -q 'scripts/ci/notarize-nightly-dmg.sh' <<<"$legacy_job" || ! grep -q '(cd "$RUNNER_TEMP/build-src" && bash scripts/ci/init-submodule.sh ghostty-next)' <<<"$legacy_job"; then
-  echo "FAIL: the cmux NIGHTLY-identity job must run the bundle checks from the build's own source with ghostty-next initialized"
-  exit 1
-fi
 
-echo "PASS: nightly workflow builds once, thins per architecture, and keeps the legacy track migrating"
+echo "PASS: nightly workflow builds once and thins per architecture"

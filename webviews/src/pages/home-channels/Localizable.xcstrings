@@ -33569,127 +33569,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The agent this Chief thinks with. acpmux runs it."
+            "value" : "The agent this Chief thinks with."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "الوكيل الذي يفكر به هذا Chief. يشغّله acpmux."
+            "value" : "الوكيل الذي يفكر به هذا Chief."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Agent s kojim ovaj Chief razmišlja. Pokreće ga acpmux."
+            "value" : "Agent s kojim ovaj Chief razmišlja."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Den agent, denne Chief tænker med. acpmux kører den."
+            "value" : "Den agent, denne Chief tænker med."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Der Agent, mit dem dieser Chief denkt. acpmux führt ihn aus."
+            "value" : "Der Agent, mit dem dieser Chief denkt."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "El agente con el que piensa este Chief. acpmux lo ejecuta."
+            "value" : "El agente con el que piensa este Chief."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "L’agent avec lequel ce Chief réfléchit. acpmux l’exécute."
+            "value" : "L’agent avec lequel ce Chief réfléchit."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "L’agente con cui ragiona questo Chief. Lo esegue acpmux."
+            "value" : "L’agente con cui pensa questo Chief."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "この Chief が思考に使うエージェントです。acpmux が実行します。"
+            "value" : "この Chief が考えるのに使うエージェント。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ភ្នាក់ងារដែល Chief នេះប្រើដើម្បីគិត។ acpmux ដំណើរការវា។"
+            "value" : "ភ្នាក់ងារដែល Chief នេះប្រើដើម្បីគិត។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "이 Chief가 생각할 때 사용하는 에이전트입니다. acpmux가 실행합니다."
+            "value" : "이 Chief가 생각할 때 쓰는 에이전트입니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Agenten denne Chief tenker med. acpmux kjører den."
+            "value" : "Agenten denne Chief tenker med."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Agent, którym myśli ten Chief. Uruchamia go acpmux."
+            "value" : "Agent, którym myśli ten Chief."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "O agente com que este Chief pensa. O acpmux o executa."
+            "value" : "O agente com que este Chief pensa."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Агент, с помощью которого думает этот Chief. Его запускает acpmux."
+            "value" : "Агент, которым думает этот Chief."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "เอเจนต์ที่ Chief นี้ใช้คิด acpmux เป็นผู้รัน"
+            "value" : "เอเจนต์ที่ Chief นี้ใช้คิด"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Bu Chief’in düşünürken kullandığı ajan. acpmux onu çalıştırır."
+            "value" : "Bu Chief'in düşünürken kullandığı ajan."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Агент, за допомогою якого думає цей Chief. Його запускає acpmux."
+            "value" : "Агент, яким думає цей Chief."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Tác tử mà Chief này dùng để suy nghĩ. acpmux chạy tác tử đó."
+            "value" : "Tác tử mà Chief này dùng để suy nghĩ."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "此 Chief 用于思考的代理。由 acpmux 运行。"
+            "value" : "此 Chief 用来思考的代理。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "此 Chief 用來思考的代理程式。由 acpmux 執行。"
+            "value" : "此 Chief 用來思考的代理。"
           }
         }
       }
@@ -35278,127 +35278,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux did not answer, so only the Chief's usual backend is offered."
+            "value" : "Other agents aren't available right now, so only the Chief's usual one is offered."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لم يستجب acpmux، لذلك تُعرض الواجهة الخلفية المعتادة لـ Chief فقط."
+            "value" : "الوكلاء الآخرون غير متاحين الآن، لذلك يُعرض الوكيل المعتاد لـ Chief فقط."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux nije odgovorio, pa je ponuđen samo uobičajeni backend za Chief."
+            "value" : "Drugi agenti trenutno nisu dostupni, pa je ponuđen samo uobičajeni agent za Chief."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux svarede ikke, så kun Chiefs sædvanlige backend tilbydes."
+            "value" : "Andre agenter er ikke tilgængelige lige nu, så kun Chiefs sædvanlige tilbydes."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux hat nicht geantwortet, daher wird nur das übliche Backend des Chiefs angeboten."
+            "value" : "Andere Agenten sind gerade nicht verfügbar, daher wird nur der übliche des Chiefs angeboten."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux no respondió, así que solo se ofrece el backend habitual del Chief."
+            "value" : "Ahora no hay otros agentes disponibles, así que solo se ofrece el habitual del Chief."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux n’a pas répondu ; seul le backend habituel du Chief est proposé."
+            "value" : "Les autres agents ne sont pas disponibles pour le moment ; seul l’agent habituel du Chief est proposé."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux non ha risposto, quindi viene offerto solo il backend abituale del Chief."
+            "value" : "Gli altri agenti non sono disponibili ora, quindi viene offerto solo quello abituale del Chief."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux から応答がなかったため、Chief の通常のバックエンドのみを表示しています。"
+            "value" : "現在ほかのエージェントは使えないため、Chief のいつものエージェントだけを表示しています。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux មិនបានឆ្លើយតប ដូច្នេះមានតែកម្មវិធីខាងក្រោយធម្មតារបស់ Chief ប៉ុណ្ណោះ។"
+            "value" : "ភ្នាក់ងារផ្សេងទៀតមិនមានទេឥឡូវនេះ ដូច្នេះមានតែភ្នាក់ងារធម្មតារបស់ Chief ប៉ុណ្ណោះ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux가 응답하지 않아 Chief의 기본 백엔드만 제공됩니다."
+            "value" : "지금은 다른 에이전트를 쓸 수 없어 Chief의 기본 에이전트만 표시됩니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux svarte ikke, så bare Chiefs vanlige backend tilbys."
+            "value" : "Andre agenter er ikke tilgjengelige akkurat nå, så bare Chiefs vanlige tilbys."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux nie odpowiedział, więc dostępny jest tylko zwykły backend Chief."
+            "value" : "Inni agenci są teraz niedostępni, więc oferowany jest tylko zwykły agent Chiefa."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "O acpmux não respondeu, então só o back-end habitual do Chief está disponível."
+            "value" : "Outros agentes não estão disponíveis agora, então só o habitual do Chief é oferecido."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux не ответил, поэтому доступен только обычный бэкенд Chief."
+            "value" : "Другие агенты сейчас недоступны, поэтому предлагается только обычный агент Chief."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux ไม่ตอบกลับ จึงมีเพียงแบ็กเอนด์ปกติของ Chief ให้เลือก"
+            "value" : "ตอนนี้ไม่มีเอเจนต์อื่นให้ใช้ จึงแสดงเฉพาะเอเจนต์ปกติของ Chief"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux yanıt vermedi, bu yüzden yalnızca Chief’in olağan arka ucu sunuluyor."
+            "value" : "Diğer ajanlar şu anda kullanılamıyor, bu yüzden yalnızca Chief'in her zamanki ajanı sunuluyor."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux не відповів, тому доступний лише звичайний бекенд Chief."
+            "value" : "Інші агенти зараз недоступні, тому пропонується лише звичний агент Chief."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux không phản hồi, vì vậy chỉ có backend thường dùng của Chief."
+            "value" : "Hiện không có tác tử khác, nên chỉ có tác tử thường dùng của Chief."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux 未响应，因此仅提供 Chief 的常用后端。"
+            "value" : "其他代理暂时不可用，因此只提供 Chief 常用的那个。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "acpmux 沒有回應，因此只提供 Chief 的慣用後端。"
+            "value" : "其他代理暫時無法使用，因此只提供 Chief 常用的那個。"
           }
         }
       }
@@ -39601,127 +39601,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This cmux daemon does not keep a Chief's history yet."
+            "value" : "This version of cmux doesn't keep a Chief's history yet."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لا يحتفظ خادم cmux الخفي هذا بسجل Chief بعد."
+            "value" : "لا يحتفظ هذا الإصدار من cmux بسجل Chief بعد."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ovaj cmux daemon još ne čuva historiju za Chief."
+            "value" : "Ova verzija cmuxa još ne čuva historiju za Chief."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Denne cmux-daemon gemmer endnu ikke en Chiefs historik."
+            "value" : "Denne version af cmux gemmer endnu ikke en Chiefs historik."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dieser cmux-Daemon speichert den Verlauf eines Chiefs noch nicht."
+            "value" : "Diese cmux-Version speichert den Verlauf eines Chiefs noch nicht."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Este daemon de cmux aún no guarda el historial de un Chief."
+            "value" : "Esta versión de cmux aún no guarda el historial de un Chief."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ce daemon cmux ne conserve pas encore l’historique d’un Chief."
+            "value" : "Cette version de cmux ne conserve pas encore l’historique d’un Chief."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Questo daemon cmux non conserva ancora la cronologia di un Chief."
+            "value" : "Questa versione di cmux non conserva ancora la cronologia di un Chief."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "この cmux デーモンはまだ Chief の履歴を保存しません。"
+            "value" : "このバージョンの cmux は Chief の履歴をまだ保存しません。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "daemon cmux នេះមិនទាន់រក្សាទុកប្រវត្តិរបស់ Chief នៅឡើយទេ។"
+            "value" : "កំណែ cmux នេះមិនទាន់រក្សាប្រវត្តិរបស់ Chief នៅឡើយទេ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "이 cmux 데몬은 아직 Chief의 기록을 보관하지 않습니다."
+            "value" : "이 버전의 cmux는 아직 Chief 기록을 보관하지 않습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Denne cmux-daemonen lagrer ikke historikken til en Chief ennå."
+            "value" : "Denne versjonen av cmux tar ikke vare på en Chiefs historikk ennå."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ten demon cmux nie przechowuje jeszcze historii Chief."
+            "value" : "Ta wersja cmux nie przechowuje jeszcze historii Chiefa."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Este daemon do cmux ainda não guarda o histórico de um Chief."
+            "value" : "Esta versão do cmux ainda não guarda o histórico de um Chief."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Этот демон cmux пока не хранит историю Chief."
+            "value" : "Эта версия cmux пока не хранит историю Chief."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux daemon นี้ยังไม่เก็บประวัติของ Chief"
+            "value" : "cmux เวอร์ชันนี้ยังไม่เก็บประวัติของ Chief"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Bu cmux arka plan programı henüz bir Chief’in geçmişini tutmuyor."
+            "value" : "cmux'un bu sürümü henüz bir Chief'in geçmişini tutmuyor."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Цей демон cmux ще не зберігає історію Chief."
+            "value" : "Ця версія cmux поки не зберігає історію Chief."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Daemon cmux này chưa lưu lịch sử của Chief."
+            "value" : "Phiên bản cmux này chưa lưu lịch sử của Chief."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "此 cmux 守护进程尚不保存 Chief 的历史记录。"
+            "value" : "此版本的 cmux 尚不保存 Chief 的历史记录。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "此 cmux 背景程式尚未保存 Chief 的歷史記錄。"
+            "value" : "此版本的 cmux 尚不保存 Chief 的歷史記錄。"
           }
         }
       }

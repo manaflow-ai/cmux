@@ -26,6 +26,9 @@ where
     );
     #[cfg(target_vendor = "apple")]
     fatal_faults_end_the_owner();
+    // Under `dx serve --hot-patch`, take patches for this process.
+    #[cfg(feature = "hotpatch")]
+    cmux_tui_core::hotpatch::connect();
     // The daemon is ready: apps with an `always` server start off this path.
     #[cfg(unix)]
     cmux_tui_core::server::start_apps_when_ready(mux);
@@ -82,8 +85,10 @@ where
     // `--exit-with-pid`: armed once startup work has begun, so the stop
     // ends every terminal that work made (a starter already gone stops the
     // owner at once).
+    // Under a test, the test process when no `--exit-with-pid` names one
+    // (cx-leo45).
     #[cfg(any(target_vendor = "apple", target_os = "linux"))]
-    local_owner::exit_with(mux, exit_with);
+    local_owner::exit_with(mux, exit_with.or_else(local_owner::test_owner_exit_with));
     #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
     let _ = exit_with;
     let (lock, wake) = &HEADLESS_WAKE;

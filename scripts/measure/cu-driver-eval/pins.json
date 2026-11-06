@@ -1,0 +1,35 @@
+{
+  "about": "Downloads the cu-driver eval verifies by sha256 before use. The cmux-cua arm is not here: it follows CMUX_CUA_RELEASE_TAG in scripts/build-cmux-cua.sh at the step's ref, checked against that release's SHA256SUMS.",
+  "drivers": {
+    "cua-driver-0.38.0": {
+      "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.38.0/cua-driver-rs-0.38.0-darwin-arm64.tar.gz",
+      "sha256": "5f71191c082ca07c9dfc13b7c9a6eec60a82818c245a93534cc0eb7911471d72",
+      "binary": "cua-driver-rs-0.38.0-darwin-arm64/cua-driver",
+      "license": "MIT"
+    }
+  },
+  "electron": {
+    "version": "43.8.1",
+    "url": "https://github.com/electron/electron/releases/download/v43.8.1/electron-v43.8.1-darwin-arm64.zip",
+    "sha256": "01bb5d8756d220002ed5f8dccfb5a01391c4b919667af7156257cf5252e3e8ae",
+    "why": "the version Cua Driver Bench v2's taskpack pins"
+  },
+  "lume": {
+    "version": "0.6.1",
+    "url": "https://github.com/trycua/cua/releases/download/lume-v0.6.1/lume-0.6.1-darwin-arm64.tar.gz",
+    "sha256": "2675b7981b7d3eb525cd27f40a385c986052eb71b3360c0b2579644725f1bad8",
+    "license": "MIT"
+  },
+  "image": {
+    "name": "trycua/macos-tahoe-cua",
+    "tag": "26.5.2",
+    "digest": "sha256:ed1783e80e08e888889b54a8c0387105a37fbcfc995079f76db48e2280081487",
+    "why": "macOS 26.5.2 (25F84) with SIP off: the image and OS Cua Driver Bench v2's registered runs used; SIP off lets the bench grant TCC to each setup"
+  },
+  "claude_code": {
+    "version": "2.1.289",
+    "url": "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/2.1.289/darwin-arm64/claude",
+    "sha256": "03d66745e3bb69ec727d66023696f3820bc0a00a8a5ba725eb6706d0c67cbe69",
+    "why": "the Claude Code Cua Driver Bench v2's registered runs used (its pins.json claude_code_version); the native binary, so the guest needs no Node"
+  }
+}

@@ -436,6 +436,11 @@ extension VNCPeerLink {
     /// Receive codec names, in the factory's order (diagnostics).
     static func receiveCodecNames() -> [String] { factory.rtpReceiverCapabilities(forKind: "video").codecs.map(\.name) }
 
+    /// A screencast source: libwebrtc encodes it as screen content (its
+    /// outbound stats say `contentType` "screenshare"), which is what the
+    /// track content hint "detail" or "text" selects (`VideoRtpSender::SetSend`
+    /// maps both to `is_screencast`; Petal sets `ContentHint::Detailed`). The
+    /// Objective-C SDK has no content hint, so this source is how we set it.
     static func makeScreenSource() -> RTCVideoSource { factory.videoSource(forScreenCast: true) }
 }
 
@@ -505,7 +510,7 @@ extension VNCPeerLink {
                     let encodeMs = (v["totalEncodeTime"] as? NSNumber).flatMap { total in
                         (v["framesEncoded"] as? NSNumber).map { $0.doubleValue > 0 ? total.doubleValue / $0.doubleValue * 1000 : 0 }
                     }.map { String(format: "%.2f", $0) } ?? "?"
-                    out = "codec \(codec) encoder \(f("encoderImplementation")) powerEfficient \(f("powerEfficientEncoder")) \(f("frameWidth"))x\(f("frameHeight")) source fps \(sourceFps) fps \(f("framesPerSecond")) encoded \(f("framesEncoded")) sent \(f("framesSent")) encode \(encodeMs) ms limited-by \(f("qualityLimitationReason")) target \(f("targetBitrate")) bps sent-bytes \(f("bytesSent")) rtt \(rtt) ms"
+                    out = "codec \(codec) encoder \(f("encoderImplementation")) powerEfficient \(f("powerEfficientEncoder")) content \(f("contentType")) \(f("frameWidth"))x\(f("frameHeight")) source fps \(sourceFps) fps \(f("framesPerSecond")) encoded \(f("framesEncoded")) sent \(f("framesSent")) encode \(encodeMs) ms limited-by \(f("qualityLimitationReason")) target \(f("targetBitrate")) bps sent-bytes \(f("bytesSent")) rtt \(rtt) ms"
                 }
                 continuation.resume(returning: out)
             }
