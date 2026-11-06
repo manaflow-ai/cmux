@@ -229,7 +229,7 @@ import Testing
                                   }
                               }, loginKeychain: LoginKeychain())
         }
-        func row(_ id: String) async throws -> [String: JSONValue] {
+        func row(_ id: String) async throws -> [String: CmuxNextSettings.JSONValue] {
             let answer = await RemoteViewTabsControl.answer(["action": "state", "tab": .string(id)], cloudOnly: true)
             let rows = try #require(answer.objectValue?["tabs"]?.arrayValue)
             #expect(rows.count == 1)
@@ -241,7 +241,7 @@ import Testing
         #expect(first["viewer"]?.stringValue == "rd")
         #expect(first["connected"]?.boolValue == false)
         #expect(first["control"]?.stringValue == "agent")
-        #expect(first["session"] == .null)
+        #expect(first["session"] == CmuxNextSettings.JSONValue.null)
 
         let watching = tab("tab_state_live", .connect(record))
         let session = try #require(watching.debugSession)
