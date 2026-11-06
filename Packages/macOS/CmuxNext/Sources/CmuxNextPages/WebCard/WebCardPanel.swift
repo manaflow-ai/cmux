@@ -99,7 +99,9 @@ public final class WebCardPanel: NSPanel {
     /// ``firstSizeWait``), so the card never draws at a wrong height and then jumps.
     public func present(card: String, over window: NSWindow?, takeKeys: Bool) {
         let again = isVisible && self.card == card
-        if let shown = self.card, shown != card, isVisible { finish(shown) }
+        // Another card showing closes first (its session ends): the new one never shows over its
+        // content or at its height while the page measures the new route.
+        if let shown = self.card, shown != card, isVisible { orderOut(nil) }
         self.card = card
         cards[card]?.opened(again: again)
         animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none

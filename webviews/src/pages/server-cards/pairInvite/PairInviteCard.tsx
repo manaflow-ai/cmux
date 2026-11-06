@@ -3,6 +3,7 @@
 // machine used the code, Add Server's facts, four words and name, with Confirm. Every step derives
 // from the host's status (model.ts); the card only draws it.
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { DialogButton } from "../../../ui/DialogButton";
 import { cx } from "../../../ui/cx";
 import type { Strings } from "../../shared/i18n";
@@ -96,7 +97,7 @@ export function PairInviteCard({
         onRunChief={onRunChief}
       />
       <footer className="server-card-footer">
-        {step.kind === "approving" && <span className="server-card-spinner" aria-hidden="true" />}
+        {step.kind === "approving" && <Spinner size={12} loading className="server-card-spinner" />}
         <span className="server-card-footer-gap" />
         {buttons.map((button) => (
           <DialogButton
@@ -218,7 +219,7 @@ function Header({ text }: { text: string }) {
 function Waiting({ text }: { text: string }) {
   return (
     <p className="server-card-waiting">
-      <span className="server-card-spinner" aria-hidden="true" />
+      <Spinner size={12} loading className="server-card-spinner" />
       <span>{text}</span>
     </p>
   );
