@@ -235,6 +235,19 @@ impl Hub {
                 root.display()
             )));
         }
+        // A remote chain's Claude Code stubs empty package.json, lockfiles and .env* into its
+        // folder (scrub mode, `remote_sandbox.rs`): only a checkout or a scratch folder takes it
+        // (`remote_cwd.rs`). Creation only: an existing session's respawn is never re-checked, and
+        // the trigger bridge's fixed-id chats (`server/trigger_chat.rs`) keep their own folder rule.
+        super::remote_cwd::admit_new(
+            super::remote_cwd::NewSession {
+                remote,
+                trigger: fixed_id.is_some(),
+                kind: profile.kind,
+            },
+            &cwd,
+            &std::env::temp_dir(),
+        )?;
         let mut meta = draft_meta(Draft {
             id: String::new(),
             agent,
@@ -597,7 +610,7 @@ impl Hub {
         // the child the previous holder started. The idle pass never ends the harness meanwhile.
         self.touch(session);
         let _using = session.harness_use.read().await;
-        let _spawning = session.spawn_lock.lock().await;
+        let _spawning = self.spawn_lease(session).await;
         // Stopped since the request: it starts nothing and touches no agent. One a later request
         // started after the stop is that request's (it reopened the session).
         if session.stops.load(Ordering::SeqCst) != stops {
@@ -1111,7 +1124,12 @@ impl Hub {
                 .as_ref()
                 .and_then(|m| m.get("currentModeId"))
                 .and_then(Value::as_str)
-                .unwrap_or("default")
+                // A Web start begins in Manual until the remote guard settles it.
+                .unwrap_or(if meta.remote_origin {
+                    "default"
+                } else {
+                    crate::claude_stdio::OWN_MODE
+                })
                 .to_owned();
             // A remote chain never runs in full access (remote_sandbox.rs),
             // even when a transfer moved a full-access chat here.
@@ -1852,7 +1870,7 @@ tokio::task_local! {
 }
 
 /// An agent start that a stop (`acpmux session stop`) came after the request for.
-fn stopped_while_starting() -> RpcError {
+pub(super) fn stopped_while_starting() -> RpcError {
     RpcError::invalid_params("the session was stopped while its agent started")
 }
 

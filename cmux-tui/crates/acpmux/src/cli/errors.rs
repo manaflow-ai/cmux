@@ -233,8 +233,13 @@ pub fn classify(e: &anyhow::Error) -> AppError {
 /// The exit code and detail an error's message gives.
 fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     let lower = msg.to_lowercase();
-    if e.is::<crate::client::TransportClosed>() {
-        return AppError::new(Code::Runtime, "daemon_closed", msg).retryable();
+    if let Some(closed) = e.downcast_ref::<crate::client::TransportClosed>() {
+        // Why it closed, as codes (`client::closed_cause`): a panic stays told apart from a restart.
+        let mut data = serde_json::json!({"cause": closed.cause});
+        if let Some(panic) = &closed.panic {
+            data["panic"] = panic.clone();
+        }
+        return AppError::new(Code::Runtime, "daemon_closed", msg).retryable().with_data(data);
     }
     if lower.contains("no session matches")
         || lower.contains("unknown session")

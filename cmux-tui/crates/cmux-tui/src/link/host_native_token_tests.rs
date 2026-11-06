@@ -82,6 +82,7 @@ async fn native_token_receiver_inbound_refuses_another_key_address_or_host_epoch
             epoch: if case == "epoch" { 5 } else { 4 },
             session_socket: &session,
             sshd: "127.0.0.1:1".parse().unwrap(),
+            desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
         };
         let install = if case == "address" {
             "inst_00000000000000000003"
@@ -129,6 +130,7 @@ async fn native_token_receiver_daemon_stamps_backend_identity_and_signed_time() 
         epoch: 4,
         session_socket: &session,
         sshd: "127.0.0.1:1".parse().unwrap(),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let verifier = receiver();
     let source =
@@ -174,6 +176,7 @@ async fn native_token_receiver_ssh_reaches_only_the_loopback_service() {
         epoch: 4,
         session_socket: &session,
         sshd: sshd.local_addr().unwrap(),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let (mut client, inbound) = tokio::io::duplex(16 * 1024);
     client
@@ -240,6 +243,7 @@ async fn an_issuer_mismatch_tells_the_dialer_and_the_journal_why() {
         epoch: 4,
         session_socket: &session,
         sshd: "127.0.0.1:1".parse().unwrap(),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let source =
         SocketAddr::new(IpAddr::V6(overlay_address(f["claims"]["sub"].as_str().unwrap())), 40000);

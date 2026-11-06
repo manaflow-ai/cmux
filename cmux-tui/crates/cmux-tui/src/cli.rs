@@ -76,6 +76,8 @@ mod host_mount;
 mod internal;
 mod launch_credential;
 mod lifecycle;
+#[cfg(unix)]
+mod live_code;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
@@ -99,6 +101,8 @@ pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
 mod machine_doctor;
 #[cfg(unix)]
 mod machine_join;
+#[cfg(unix)]
+mod machine_link;
 #[cfg(unix)]
 pub(crate) use machine_join::{
     CallError as PlatformCallError, Platform, device_credential as joined_machine_credential,
@@ -536,6 +540,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
+        .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
@@ -545,6 +550,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
+        .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))

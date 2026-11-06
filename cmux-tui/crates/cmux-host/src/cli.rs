@@ -8,6 +8,8 @@
 //! - `logs <role> [--bytes N]`: the end of a process role's log.
 //! - `rekey <instance-id>`: internal; the off-critical-path identity job
 //!   the agent starts after a bind.
+//! - `update status|check|guard`: the Cloud machine's self-update
+//!   (`updater`); the `updater` role runs it by itself.
 //! - `cloud daemon-info | probe-activity`: bake and smoke evidence for the
 //!   Cloud agent role (the daemon block bind sends; the activity stream).
 //!
@@ -25,7 +27,7 @@ use crate::config::{Config, Paths, STATUS_FILE};
 use crate::proc_roles::RolePaths;
 use crate::status;
 
-const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] [--native-receiver] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity|clone-mark [--root DIR] | cloud identity | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
+const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] [--native-receiver] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity|clone-mark [--root DIR] | cloud identity | update status|check|guard --to N | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
 
 fn code(n: u8) -> u8 {
     n
@@ -145,6 +147,7 @@ pub fn run(args: &[String], self_argv: Vec<String>) -> u8 {
         "logs" => logs_verb(rest),
         "rekey" => rekey_verb(rest),
         "cloud" => cloud_verb(rest),
+        "update" => update_verb(rest),
         "team-ssh" => crate::team_ssh::cli::run(rest),
         "team" => crate::team_ssh::team_cli::run(rest),
         "team-enroll" => crate::team_ssh::enroll::run(rest),
@@ -341,6 +344,9 @@ fn run_agent(mut cfg: Config) -> u8 {
     };
     let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone())
         .with_root_bootstrap(bootstrap.clone());
+    // The updater is last: it starts once every other role runs, and it
+    // stops first.
+    let updater = crate::updater::role::UpdaterRole::new(cfg.paths.clone());
     let platform = match crate::linux::LinuxPlatform::new(cfg) {
         Ok(p) => p.with_root_bootstrap(bootstrap),
         Err(e) => {
@@ -348,8 +354,11 @@ fn run_agent(mut cfg: Config) -> u8 {
             return code(1);
         }
     };
-    let roles: Vec<Box<dyn cmux_server_core::role::Role>> =
-        vec![Box::new(crate::proc_roles::ProcessRoles::new(work_user)), Box::new(cloud)];
+    let roles: Vec<Box<dyn cmux_server_core::role::Role>> = vec![
+        Box::new(crate::proc_roles::ProcessRoles::new(work_user)),
+        Box::new(cloud),
+        Box::new(updater),
+    ];
     match Agent::new(platform, roles, install, log).run() {
         Ok(()) => code(0),
         Err(e) => {
@@ -455,6 +464,17 @@ fn clone_mark(paths: &Paths) -> Result<serde_json::Value, String> {
 #[cfg(not(target_os = "linux"))]
 fn cloud_verb(_args: &[String]) -> u8 {
     eprintln!("cmux host cloud: Linux only");
+    code(4)
+}
+
+#[cfg(target_os = "linux")]
+fn update_verb(args: &[String]) -> u8 {
+    crate::updater::role::verb(args)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn update_verb(_args: &[String]) -> u8 {
+    eprintln!("cmux host update: Linux only");
     code(4)
 }
 

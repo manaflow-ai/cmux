@@ -264,7 +264,7 @@ def exec_floor(runs=5, limits=True):
     return times
 
 
-NIGHTLY_FEED = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+NIGHTLY_FEED = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"  # the one feed since #36287
 
 
 def checker_cpu():
@@ -467,7 +467,10 @@ def notarized_probe_body(root, adhoc_app, result):
     work = os.path.join(root, "N")
     os.makedirs(work, exist_ok=True)
     code, feed, err = run(["curl", "-fsSL", "--max-time", "30", NIGHTLY_FEED], timeout=60)
-    urls = re.findall(r'url="(https://files-next\.cmux\.com/nightly-next/next/[^"]+\.dmg)"', feed)
+    if code != 0:
+        result["error"] = f"the feed {NIGHTLY_FEED} is unreadable (curl exit {code}): {err.strip()[:200]}"
+        return
+    urls = re.findall(r'url="(https://files-next\.cmux\.com/nightly-next/[^"/]+\.dmg)"', feed)
     if not urls:
         result["error"] = f"no DMG in the feed ({err.strip()[:200] or code})"
         return

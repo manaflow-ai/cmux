@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import QuartzCore
 // Hit testing, hover, clicks, context menu, and wheel scrolling.
 extension TabStripView {
@@ -62,7 +62,6 @@ extension TabStripView {
         hoveredID = id
         if let id { cells[id]?.isHovered = true }
         onHoverTab?(id)
-        TabSeparatorVisibility.apply(to: self)
     }
 
     /// `moved`: a pointer event (true) or content that moved under a still
@@ -399,9 +398,7 @@ extension TabStripView {
         guard model.tab(id) != nil else { return }
         if source.entersClosingMode {
             closingModeWidth = TabLayoutEngine.closingModeWidth(afterClosing: id, in: result, current: closingModeWidth)
-            if let point, let frame = TabClosingModeHit.laidOut(self).first(where: { $0.id == id })?.frame {
-                closingHit.closePressed(at: convert(point, to: tabsClip), on: frame)
-            }
+            if let point { closingHit.closePressed(at: convert(point, to: tabsClip)) }
         }
         model.send(.close(id, source: source))
     }
@@ -410,4 +407,14 @@ extension TabStripView {
     func arrivingCloseTab(at point: CGPoint) -> TabID? {
         closingModeWidth == nil ? nil : closingHit.tab(at: convert(point, to: tabsClip), in: self)
     }
+}
+
+/// In a pane the layout screen's one tracking area hit-tests the pointer and calls these (``PanePointerFollowing``), as
+/// the strip's own tracking area called the overrides above (`TabStripView.updateTrackingAreas`). The strip sets no
+/// cursor of its own.
+extension TabStripView: PanePointerFollowing {
+    public func panePointerCursor(at point: NSPoint) -> NSCursor? { nil }
+    public func panePointerEntered(with event: NSEvent) { mouseEntered(with: event) }
+    public func panePointerMoved(with event: NSEvent) { mouseMoved(with: event) }
+    public func panePointerExited(with event: NSEvent) { mouseExited(with: event) }
 }

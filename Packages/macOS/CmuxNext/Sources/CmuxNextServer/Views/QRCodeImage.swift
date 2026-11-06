@@ -2,6 +2,7 @@ import AppKit
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import SwiftUI
+import CmuxNextDesign
 
 /// QR codes from CoreImage's `CIQRCodeGenerator`: one pixel per module,
 /// dark modules on white with a quiet zone, scaled up without smoothing.
@@ -45,7 +46,7 @@ struct QRCodeImage: View {
                 .interpolation(.none)
                 .resizable()
                 .aspectRatio(1, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerRadius(insetFromSurface: 8), style: .continuous))
         }
     }
 }
