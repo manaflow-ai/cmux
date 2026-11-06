@@ -49,8 +49,11 @@ public final class ServerModel {
         source.start { [weak self] event in self?.handle(event) }
     }
 
+    /// Stops the source. Its intents in flight never settle once it stops, so they are dropped: a
+    /// later `start()` (the menu bar item shown again) never shows one as pending forever.
     public func stop() {
         source.stop()
+        pending.removeAll()
     }
 
     // MARK: - Derived state

@@ -118,6 +118,19 @@ struct ServerPageProviderTests {
         #expect(status["approver"]?["session"] == 2)
     }
 
+    /// The menu bar item hidden (Stop Serving) mid-switch: the source never settles that intent, so
+    /// shown again the switch must not stay pending forever.
+    @Test func stoppingDropsTheIntentsInFlight() async throws {
+        let (_, provider) = provider(.healthyMac)
+        try await call(provider, ServerPageProvider.sendOp, ["kind": "setEnabled", "on": false], as: person)
+        var status = try await provider.call(ServerPageProvider.statusOp, params: [:], context: page)
+        #expect(status["pending"]?["switching"] == true)
+        provider.model.stop()
+        provider.model.start()
+        status = try await provider.call(ServerPageProvider.statusOp, params: [:], context: page)
+        #expect(status["pending"]?["switching"] == false)
+    }
+
     @Test func pagesHearChanges() async throws {
         let (source, provider) = provider(.healthyMac)
         var events = 0

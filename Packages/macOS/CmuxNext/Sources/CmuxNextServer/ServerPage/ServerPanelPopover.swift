@@ -24,6 +24,8 @@ public final class ServerPanelPopover: NSObject, NSPopoverDelegate {
     private var sizes: [String: NSSize] = [:]
     /// The route the popover shows.
     private(set) var route: String?
+    /// The route `show` asked for, until the page reports its size.
+    private var awaitedRoute: String?
     /// An opening waiting for its route's first size: the button it shows under.
     private var pending: NSView?
     private let firstSize = DemandTimer(owner: "server-panel-first-size")
@@ -52,6 +54,8 @@ public final class ServerPanelPopover: NSObject, NSPopoverDelegate {
 
     /// Shows `route` under `button` (a person's click or the palette).
     public func show(route: String, under button: NSView) {
+        // The page on that route already (opened again) reports nothing new: wait for nothing.
+        awaitedRoute = route == self.route ? nil : route
         self.route = route
         page.open(route: "/" + route)
         if popover.isShown {
@@ -85,6 +89,13 @@ public final class ServerPanelPopover: NSObject, NSPopoverDelegate {
         let size = NSSize(width: ceil((width ?? popover.contentSize.width / zoom) * zoom), height: ceil(height * zoom))
         guard size.height > 0 else { return }
         sizes[card] = size
+        // Until the page reports the route `show` asked for, a size from the route before it is
+        // kept for that route's next opening, never applied. Once it has, the page may move on its
+        // own (the panel's Health row) and its sizes follow (the bridge keeps their order).
+        if let expected = awaitedRoute {
+            guard card == expected else { return }
+            awaitedRoute = nil
+        }
         route = card
         apply(size)
         if let button = pending { present(under: button) }
