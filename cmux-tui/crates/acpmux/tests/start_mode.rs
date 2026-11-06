@@ -272,7 +272,8 @@ async fn the_setting_chooses_ask_or_the_harness_own_mode() {
     let dir = home("standard", json!({"defaultPermissionMode": "standard"}));
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
-    assert_eq!(app.chat(&dir, "claude").await.1, "default");
+    // Claude Code's own start mode is Auto, never Manual (`claude_stdio::OWN_MODE`).
+    assert_eq!(app.chat(&dir, "claude").await.1, "auto");
     assert_eq!(app.chat(&dir, "codex").await.1, "agent");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -1013,9 +1014,9 @@ async fn chief_subagent_chats_start_at_the_person_start_level() {
 
     // Chief's own turn and a person's preset keep the harness's own mode.
     let turn = chief.preset_chat(&dir, "optchat-chief-0a1b2c3d").await;
-    assert_eq!(chief.mode(&turn).await, "default");
+    assert_eq!(chief.mode(&turn).await, "auto");
     let own = chief.preset_chat(&dir, "p").await;
-    assert_eq!(chief.mode(&own).await, "default");
+    assert_eq!(chief.mode(&own).await, "auto");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

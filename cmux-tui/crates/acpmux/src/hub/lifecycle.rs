@@ -1144,11 +1144,7 @@ impl Hub {
             let mode = if super::start_mode::profile_sets_mode(profile) {
                 mode
             } else {
-                super::start_mode::resumable_mode(
-                    mode,
-                    crate::claude_stdio::OWN_MODE,
-                    off.allows_full_access(),
-                )
+                super::start_mode::resumable_mode(mode, "default", off.allows_full_access())
             };
             if mode != saved_mode {
                 tracing::info!(session = %session.id, "resume: full access is off; {saved_mode} runs as {mode}");
