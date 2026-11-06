@@ -623,19 +623,24 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 
     // MARK: Row state
 
-    private func mutateState(_ id: String, animated: Bool = true, _ change: (inout FeedRowState) -> Void) {
+    /// `keepsTop`: the person toggled this row (Show more, Show less, a quote, a code block): its top
+    /// stays where it is on screen and only what is below it moves.
+    private func mutateState(_ id: String, animated: Bool = true, keepsTop: Bool = false, _ change: (inout FeedRowState) -> Void) {
         var state = states[id] ?? FeedRowState()
         change(&state)
         states[id] = state
-        refreshRows([id], animated: animated)
+        refreshRows([id], animated: animated, keepingTopOf: keepsTop ? id : nil)
     }
 
     /// Lays out `ids` again at once (a row's own state changed) and reconfigures them.
-    private func refreshRows(_ ids: [String], animated: Bool) {
+    private func refreshRows(_ ids: [String], animated: Bool, keepingTopOf kept: String? = nil) {
         guard let dataSource, let collectionView else { return }
         let present = ids.filter { shownKeys[$0] != nil && items[$0] != nil }
         guard !present.isEmpty else { return }
-        let anchor = control.atTop || jumpingToTop ? nil : visibleAnchor(excluding: Set(present))
+        // A row the person toggled keeps its own top: anchoring the row after it (as for a row that
+        // resized on its own) pushed the toggled row's top and everything above it up as it grew.
+        let anchor = jumpingToTop ? nil
+            : kept.flatMap(anchor(of:)) ?? (control.atTop ? nil : visibleAnchor(excluding: Set(present)))
         for id in present {
             guard let item = items[id] else { continue }
             let key = key(for: item)
@@ -677,6 +682,12 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             return Anchor(id: id, delta: frame.minY - collectionView.contentOffset.y)
         }
         return nil
+    }
+
+    /// `id`'s row where it starts relative to the scroll offset, when it is shown.
+    private func anchor(of id: String) -> Anchor? {
+        guard let collectionView, let indexPath = dataSource?.indexPath(for: id) else { return nil }
+        return Anchor(id: id, delta: collectionView.rectForRow(at: indexPath).minY - collectionView.contentOffset.y)
     }
 
     private func restore(_ anchor: Anchor) {
@@ -896,11 +907,11 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     }
 
     func rowToggleExpanded(_ id: String) {
-        mutateState(id) { $0.expanded.toggle() }
+        mutateState(id, keepsTop: true) { $0.expanded.toggle() }
     }
 
     func rowToggleQuote(_ id: String) {
-        mutateState(id) { $0.quoteExpanded.toggle() }
+        mutateState(id, keepsTop: true) { $0.quoteExpanded.toggle() }
     }
 
     func rowToggleReply(_ id: String) {
@@ -1030,7 +1041,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     }
 
     func rowCodeExpand(_ id: String) {
-        mutateState(id) { $0.codeExpanded = true }
+        mutateState(id, keepsTop: true) { $0.codeExpanded = true }
     }
 
     func rowWebHeight(_ id: String, _ height: CGFloat) {
