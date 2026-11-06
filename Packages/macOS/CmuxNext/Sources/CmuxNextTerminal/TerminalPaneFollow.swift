@@ -2,6 +2,7 @@ import AppKit
 public import CoreGraphics
 import CmuxNextCompat
 import CmuxNextWakeups
+import GhosttyNextKit
 import Foundation
 
 /// One frame of a shown terminal against its pane (`debug.terminal_display`, the terminal resize bench's rule:
@@ -16,12 +17,15 @@ public nonisolated struct TerminalPaneFollowSizes: Sendable, Equatable {
     public var shown: CGSize
     /// A size was asked of Ghostty and its frame is not shown yet (the frame owner keeps the old one meanwhile).
     public var inFlight: Bool
+    /// T-KEYS 5 probe: the frame owner's and presenter's state, read only for a frame whose shown size is not its pane's.
+    public var probe: [String: String]?
 
-    public init(area: CGSize, asked: CGSize, shown: CGSize, inFlight: Bool = false) {
+    public init(area: CGSize, asked: CGSize, shown: CGSize, inFlight: Bool = false, probe: [String: String]? = nil) {
         self.area = area
         self.asked = asked
         self.shown = shown
         self.inFlight = inFlight
+        self.probe = probe
     }
 }
 
@@ -35,7 +39,7 @@ public nonisolated struct TerminalPaneFollowTally: Sendable, Equatable, Encodabl
         public var frame: Int
         public var sizes: TerminalPaneFollowSizes
 
-        nonisolated enum CodingKeys: String, CodingKey { case frame, area, asked, shown }
+        nonisolated enum CodingKeys: String, CodingKey { case frame, area, asked, shown, probe }
 
         public func encode(to encoder: any Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
@@ -44,6 +48,7 @@ public nonisolated struct TerminalPaneFollowTally: Sendable, Equatable, Encodabl
             try container.encode(pair(sizes.area), forKey: .area)
             try container.encode(pair(sizes.asked), forKey: .asked)
             try container.encode(pair(sizes.shown), forKey: .shown)
+            try container.encodeIfPresent(sizes.probe, forKey: .probe)
         }
     }
 
@@ -91,10 +96,48 @@ extension TerminalSession {
         guard surface.isShown, surface.superview === view else { return nil }
         let ownership = surface.frameOwnership
         let asked = ownership.embedderPresents ? (ownership.wanted?.size ?? surface.frame.size) : surface.frame.size
-        return TerminalPaneFollowSizes(area: view.surfaceSize(forHostSize: view.bounds.size), asked: asked,
-                                       shown: surface.layer?.bounds.size ?? surface.bounds.size,
-                                       inFlight: ownership.inFlight != nil)
+        let area = view.surfaceSize(forHostSize: view.bounds.size)
+        let shown = surface.layer?.bounds.size ?? surface.bounds.size
+        var probe: [String: String]?
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if TerminalPaneFollowTally.differ(shown, area) { probe = paneFollowProbe(surface) }
+        #endif
+        return TerminalPaneFollowSizes(area: area, asked: asked, shown: shown, inFlight: ownership.inFlight != nil, probe: probe)
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// T-KEYS 5 probe: what holds a wrong-size frame. Times are CLOCK_UPTIME_RAW ms (the bench's key times use the same clock).
+    private func paneFollowProbe(_ surface: TerminalSurfaceView) -> [String: String] {
+        func size(_ value: CGSize?) -> String { value.map { "\(Double($0.width))x\(Double($0.height))" } ?? "-" }
+        func ms(_ ns: UInt64) -> String { ns == 0 ? "-" : String(format: "%.3f", Double(ns) / 1e6) }
+        let ownership = surface.frameOwnership
+        var probe = ["sample_ms": ms(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)), "in_flight": size(ownership.inFlight),
+                     "ahead": size(ownership.ahead), "pending_ahead": size(ownership.pendingAhead),
+                     "ahead_ms": ms(ownership.probeAheadNs), "bounds": size(surface.bounds.size)]
+        let host: String
+        switch surface.hostFrame(present: false) {
+        case GHOSTTY_HOST_FRAME_NONE: host = "none"
+        case GHOSTTY_HOST_FRAME_HIDDEN: host = "hidden"
+        case GHOSTTY_HOST_FRAME_READY: host = "ready"
+        case GHOSTTY_HOST_FRAME_PENDING: host = "pending"
+        case GHOSTTY_HOST_FRAME_HELD: host = "held"
+        case GHOSTTY_HOST_FRAME_SHOWN: host = "shown"
+        case GHOSTTY_HOST_FRAME_PRESENTED: host = "presented"
+        default: host = "other"
+        }
+        probe["host"] = host
+        if let window = surface.window {
+            let presenter = TerminalFramePresenter.forWindow(window)
+            probe["presenter"] = presenter.debugState(of: surface)
+            if let request = presenter.probeRequest(of: surface) {
+                probe["request_age"] = "\(request.age)"
+                probe["passes_since_request"] = "\(request.passes)"
+                probe["request_ms"] = ms(request.madeNs)
+            }
+        }
+        return probe
+    }
+    #endif
 }
 
 /// The frame presenters' counts over a run of the pane check, summed over the followed windows

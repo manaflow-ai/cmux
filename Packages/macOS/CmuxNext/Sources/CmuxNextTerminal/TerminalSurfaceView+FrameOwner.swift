@@ -25,6 +25,8 @@ struct TerminalFrameOwnership {
     var ahead: CGSize?
     /// The draw-ahead size the presenter gives Ghostty after this turn's pass (``TerminalFramePresenter/drawAhead(_:)``).
     var pendingAhead: CGSize?
+    /// T-KEYS 5 probe: CLOCK_UPTIME_RAW ns when the last size drawn ahead went to Ghostty (0: none).
+    var probeAheadNs: UInt64 = 0
 }
 
 /// FRAME OWNER REFACTOR S4, cmux-ad m18, m19 (no switch) and m26 (draw ahead): a terminal's bounds change only in the
@@ -125,6 +127,7 @@ extension TerminalSurfaceView {
         let pixels = convertToBacking(size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         frameOwnership.ahead = size
+        frameOwnership.probeAheadNs = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         setSurfacePixels(pixels, on: surface)
         updateReflowPreview()
     }

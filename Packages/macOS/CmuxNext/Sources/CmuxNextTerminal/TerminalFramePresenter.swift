@@ -62,6 +62,9 @@ final class TerminalFramePresenter {
         weak var view: TerminalSurfaceView?
         /// The refresh it was made in: its group.
         var epoch: UInt64
+        /// T-KEYS 5 probe: passes counted when it was made, and CLOCK_UPTIME_RAW ns then.
+        var passes = 0
+        var madeNs: UInt64 = 0
     }
 
     private struct Watch {
@@ -111,7 +114,7 @@ final class TerminalFramePresenter {
     /// `view` asked Ghostty for a frame at a new size: the next commits present it with its bounds, or keep both.
     func request(_ view: TerminalSurfaceView) {
         let id = ObjectIdentifier(view)
-        requests[id] = Request(view: view, epoch: epoch)
+        requests[id] = Request(view: view, epoch: epoch, passes: stats.passes, madeNs: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
         watched[id] = nil
         armPass()
         client.activate()
@@ -158,6 +161,12 @@ final class TerminalFramePresenter {
         if watched[id] != nil { return "watch" }
         if commits[id] != nil { return "commit" }
         return "-"
+    }
+
+    /// T-KEYS 5 probe: `view`'s waiting request: refreshes since it was made, passes since, and when (uptime ns).
+    func probeRequest(of view: TerminalSurfaceView) -> (age: UInt64, passes: Int, madeNs: UInt64)? {
+        guard let request = requests[ObjectIdentifier(view)] else { return nil }
+        return (epoch &- request.epoch, stats.passes - request.passes, request.madeNs)
     }
     #endif
 

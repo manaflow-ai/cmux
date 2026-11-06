@@ -409,13 +409,15 @@ def measure_keys(name):
                 if not traced.get("started"):
                     entry["error"] = f"the grid trace did not start: {json.dumps(traced)[:200]}"
                     break
+                key_ms = [time.clock_gettime(time.CLOCK_UPTIME_RAW) * 1000]  # T-KEYS 5 probe: the app's probe clock
                 reply = rpc("action.run", {"action": action, "focus": True})
+                key_ms.append(time.clock_gettime(time.CLOCK_UPTIME_RAW) * 1000)
                 # bench script: a held key's repeat gap, or the spring lands before the other key
                 time.sleep(opts.key_settle_s if last else opts.key_gap_ms / 1000)
                 traced = (rpc("debug.terminal_final_grid", {"action": "stop"}) or {}).get("terminals") or {}
                 sends = [len(t.get("sends") or []) for t in traced.values()]
                 press = {"action": action, "terminals_sent": sum(1 for n in sends if n), "max_grids_per_terminal": max(sends, default=0),
-                         "pty_ms": pty_latency(traced)}
+                         "pty_ms": pty_latency(traced), "key_uptime_ms": [round(v, 3) for v in key_ms]}
                 if isinstance(reply, dict) and (reply.get("error") or reply.get("refused")):
                     press["refused"] = json.dumps(reply)[:200]
                 presses.append(press)
