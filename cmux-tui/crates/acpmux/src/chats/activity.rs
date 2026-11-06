@@ -20,6 +20,10 @@ use cmux_json::JsonSet as _;
 #[path = "activity_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "activity_scale_tests.rs"]
+mod scale_tests;
+
 /// The longest preview sent, in characters: one sidebar line and some.
 const PREVIEW_CHARS: usize = 160;
 
