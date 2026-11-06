@@ -617,8 +617,9 @@ export function turnViewFrom(
   };
 }
 
-/// A next-step card in a turn view: its index in the drawn rows and the row as its turn shaped it.
-type NextStepAt = { at: number; row: AcpmuxRow };
+/// A next-step card in a turn view: its index in the drawn rows, the row as its turn shaped it, and
+/// whether the person said anything after it before the next card (`settleNextSteps`).
+type NextStepAt = { at: number; row: AcpmuxRow; spoke?: boolean };
 
 /// A card's version spans its shaped version and its settled state (none, answered, superseded,
 /// both), so its memo and height cache redraw when it settles.
@@ -635,10 +636,13 @@ const personPrompt = (row: AcpmuxRow) =>
 /// leaves a card answerable (Leo, 2026-11-05, on Claude desktop's box: "after i sent a prompt
 /// icouldn't select the thing... we can make a better thing in cmux-next for y'all to call"): a
 /// prompt after it that picks one of its answers settles it with that answer, and a later card
-/// (the agent's next wrap-up or tagged ask) supersedes it, showing what the person said after it.
-/// Until then its buttons still send, whatever the person typed between. Returns the first index
-/// whose row it changed, `out.length` for none.
-function settleNextSteps(out: AcpmuxRow[], cards: readonly NextStepAt[], from: number): number {
+/// (the agent's next wrap-up or tagged ask) supersedes it once the person said something between
+/// them, showing what they said. Turns other agents' messages started answer nothing, so a card they
+/// follow, a later card's included, stays a question waiting on the person (Leo, 2026-11-06). Until
+/// then its buttons still send, whatever came between. Each card's `spoke` records whether the
+/// person said anything before the next card. Returns the first index whose row it changed,
+/// `out.length` for none.
+function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): number {
   let changed = out.length;
   const put = (at: number, row: AcpmuxRow) => {
     if (out[at] !== row) changed = Math.min(changed, at);
@@ -648,7 +652,6 @@ function settleNextSteps(out: AcpmuxRow[], cards: readonly NextStepAt[], from: n
     const { at, row } = cards[index]!;
     const { ask } = row.nextStep!;
     const next = index + 1 < cards.length ? cards[index + 1]!.at : out.length;
-    const superseded = index + 1 < cards.length;
     let answer: string | undefined;
     let first: string | undefined;
     if (ask.question)
@@ -658,6 +661,8 @@ function settleNextSteps(out: AcpmuxRow[], cards: readonly NextStepAt[], from: n
         first ??= said;
         answer = pickedAnswer(ask, said);
       }
+    cards[index] = { at, row, spoke: first !== undefined };
+    const superseded = index + 1 < cards.length && (first !== undefined || !ask.question);
     if (answer === undefined && superseded && first !== undefined) answer = chosenAnswer(ask, first);
     if (answer === undefined && !superseded) {
       put(at, row);
@@ -678,6 +683,29 @@ function settleNextSteps(out: AcpmuxRow[], cards: readonly NextStepAt[], from: n
   }
   return changed;
 }
+
+/// The cards still waiting on the person, oldest first: a question no prompt of theirs came after,
+/// with another turn after it, so it is no longer the chat's last word above the composer
+/// (PendingAsks.tsx pins these there). Walks back from the newest card only while the person said
+/// nothing, so it costs the waiting cards, never the chat's length.
+export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonly AcpmuxRow[] {
+  const { nextSteps, rows } = view;
+  const waiting: AcpmuxRow[] = [];
+  for (let index = nextSteps.length - 1; index >= 0; index -= 1) {
+    const { at, spoke } = nextSteps[index]!;
+    if (spoke) break;
+    const card = rows[at];
+    const step = card?.nextStep;
+    if (!card || !step?.ask.question || step.answer !== undefined || step.superseded) continue;
+    waiting.push(card);
+  }
+  if (!waiting.length) return NO_ASKS;
+  // The newest card counts only once a turn came after it: before that it is the chat's last row.
+  const newest = nextSteps.at(-1)!;
+  if (waiting[0] === rows[newest.at] && !rows.slice(newest.at + 1).some((row) => row.kind === "user")) waiting.shift();
+  return waiting.length ? waiting.reverse() : NO_ASKS;
+}
+const NO_ASKS: readonly AcpmuxRow[] = [];
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
 /// chat's snapshot rebuilds only the turns that changed, and an unchanged turn's derived rows stay
@@ -850,10 +878,6 @@ function shapedTurn(
     if (user.queued) Object.assign(line, { queued: user.queued, untimed: true });
     shaped = [...date, ...drawnUser, line];
   } else {
-    // The person's prompt after the turn, which answers a tagged ask its answer ended on: one sent
-    // and still held in the turn, else the prompt that opens the next turn.
-    const next = held[0] ?? rows[end];
-    const reply = next?.kind === "user" && !next.incoming && next.text ? next.text : undefined;
     const shapedBody = shapeTurn(
       user,
       turn,
@@ -868,7 +892,6 @@ function shapedTurn(
       sessionStatus,
       lineBelow,
       agentFamily,
-      reply,
       trayAgents,
       endedBackgroundTurns(source),
     );
@@ -1063,7 +1086,6 @@ function shapeTurn(
   sessionStatus = false,
   lineBelow = false,
   agentFamily?: string,
-  reply?: string,
   trayAgents = 0,
   endedBackground: ReadonlySet<string> = new Set(),
 ): AcpmuxRow[] {
@@ -1096,16 +1118,16 @@ function shapeTurn(
   const final = answerAt(body);
   const answer = final >= 0 ? body[final] : undefined;
   // A tagged ask the answer ends on (nextStepAsk.ts) draws as a card under it, answerable until a
-  // later prompt picks one of its answers or a later card takes over (`settleNextSteps`). Read
-  // once per ended turn, never while the turn runs. A turn that stopped or failed, or that another agent's message
-  // follows, keeps the ask in its prose.
+  // later prompt picks one of its answers or the person moves on past a later card
+  // (`settleNextSteps`), whatever turns come between. Read once per ended turn, never while the turn
+  // runs. A turn that stopped or failed keeps the ask in its prose.
   // The agent's wrap-up call goes before a tagged ask in its prose, and stays as the turn's recap
   // once a prompt follows. A recap alone needs no reply to wait for.
+  // Another agent's message that opens the next turn answers nothing: the question was the person's
+  // to answer, and it stays theirs (Leo, 2026-11-06, on a question the next agent's message took
+  // back: "we want to keep these things rendered, and perhaps persistent at the bottom").
   const tagged = !live && !wrapUp && summary.status === "completed" ? nextStepAsk(answer?.text) : undefined;
-  const ask = live ? undefined : (wrapUp ?? tagged);
-  // Where nothing can answer it (another agent's message follows), a wrap-up keeps its recap alone.
-  const answerable = ask && (reply !== undefined || retryable || !ask.question);
-  const nextStep = answerable ? ask : wrapUp?.recap ? { ...wrapUp, question: "", options: [] } : undefined;
+  const nextStep = live ? undefined : (wrapUp ?? tagged);
   const shaped: AcpmuxRow[] = [];
   // A derived row's version must change whenever what it draws does: the memoized rows and the
   // height cache compare versions only. Answer versions stay far below VERSION_SPAN.

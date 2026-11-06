@@ -70,14 +70,15 @@ describe("a question to the person after another agent's message", () => {
     expect(waitingAsks(turnViewFrom(asked, new Set()))).toEqual([]);
     const waiting = waitingAsks(turnViewFrom(afterInbound, new Set()));
     expect(waiting.map((card) => card.id)).toEqual([cards(turnView(afterInbound, new Set()))[0]!.id]);
-    expect(waitingAsks(turnViewFrom([...afterInbound, prompt("p2", "Something else first")], new Set()))).toEqual(
-      [],
-    );
+    expect(waitingAsks(turnViewFrom([...afterInbound, prompt("p2", "Something else first")], new Set()))).toEqual([]);
   });
 
   test("a reload of the same records draws the same waiting card", () => {
     const first = turnViewFrom(afterInbound, new Set());
-    const reloaded = turnViewFrom(afterInbound.map((r) => ({ ...r })), new Set());
+    const reloaded = turnViewFrom(
+      afterInbound.map((r) => ({ ...r })),
+      new Set(),
+    );
     expect(waitingAsks(reloaded).map((card) => card.nextStep)).toEqual(waitingAsks(first).map((card) => card.nextStep));
   });
 });

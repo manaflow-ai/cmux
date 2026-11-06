@@ -37,6 +37,8 @@ export const NextStepCard = memo(function NextStepCard({
 }) {
   const t = useT();
   const [sending, setSending] = useState<string>();
+  // The last answer that did not go: the card says so and keeps its buttons, never drops it.
+  const [failed, setFailed] = useState(false);
   const primary = useRef<HTMLButtonElement>(null);
   // A recap alone has no answer to send, so it leaves ⌘↩ to the composer.
   const settled = answer !== undefined || superseded;
@@ -67,7 +69,10 @@ export const NextStepCard = memo(function NextStepCard({
   const send = (label: string) => {
     if (!onAnswer || sending !== undefined) return;
     setSending(label);
-    void onAnswer(label).finally(() => setSending(undefined));
+    setFailed(false);
+    void onAnswer(label)
+      .catch(() => setFailed(true))
+      .finally(() => setSending(undefined));
   };
   return (
     <fieldset className="acpmux-next-step" aria-label={ask.question}>
@@ -92,6 +97,7 @@ export const NextStepCard = memo(function NextStepCard({
           ))}
         </div>
       )}
+      {failed && <output className="acpmux-next-step__detail">{t("prompt.notSentAgain")}</output>}
     </fieldset>
   );
 });

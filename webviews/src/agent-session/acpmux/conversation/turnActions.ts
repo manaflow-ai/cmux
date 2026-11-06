@@ -155,14 +155,13 @@ export const resumeThrough =
     );
 
 /// A tagged ask's answer (NextStepCard.tsx) through the composer's send (`chat.send`), as Continue
-/// sends its prompt. Settles once the send does; a send that fails says so on its own row.
+/// sends its prompt: the person's next message, in order behind anything already sent. Settles once
+/// the send does. A send that fails rejects, so the card says it was not sent and keeps its buttons:
+/// an answer is never dropped without a word (Leo, 2026-11-06: "I already replied to that").
 export const answerThrough =
   (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) =>
   (text: string): Promise<void> =>
-    callNative("chat.send", { text }).then(
-      () => undefined,
-      () => undefined,
-    );
+    callNative("chat.send", { text }).then(() => undefined);
 
 /// The prompt Compact sends: the harness's own slash command (Claude Code's and Codex's).
 /// l10n-allow: a command to the agent, not UI
