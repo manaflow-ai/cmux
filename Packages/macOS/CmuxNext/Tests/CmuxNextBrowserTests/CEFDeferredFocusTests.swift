@@ -516,6 +516,43 @@ import Testing
     }
 
     /// A tab whose browser Chromium made (`afterCreated`), its view in no window yet.
+    /// Detached hosting (fork API 30, STATUS 14261 slice 1): a page detached for a resize motion has no window in its
+    /// window server's list, so a focus grant that reaches it then moves no keys and typed keys reach no view after
+    /// the landing. Every grant path (a direct ask, a kept ask granted when the page shows or gets an area) attaches
+    /// the page first and grants after the attach's commit.
+    @Test func aFocusAskForADetachedPageAttachesItBeforeTheGrant() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, host) = try createdTab(runtime, browser: 12)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        let log = CallLog()
+        let fork = CEFLayerHosting.Fork(setLayerHosting: { _, on in on ? 7 : 0 }, setResizeSync: { _, _ in true },
+                                        setDetachedHosting: { _, on in log.items.append(on ? "detach" : "attach"); return true })
+        let hosting = host.hostView.layerHosting
+        hosting.holdsFocus = { false }
+        hosting.pageWindowCreated(browser: 12, fork: fork)
+        let hosted = Date().addingTimeInterval(2)
+        while hosting.page == nil, Date() < hosted { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        try #require(hosting.page != nil)
+        hosting.resizeMotion(active: true)
+        #expect(log.items == ["detach"])
+        FocusSpyShim.granted = []
+        FocusSpyShim.onGrant = { log.items.append("grant") }
+        defer { FocusSpyShim.onGrant = nil }
+
+        // A kept ask granted when the page can take it (the path the review found).
+        tab.pendingFocus = true
+        tab.grantPendingFocusIfShown()
+        #expect(log.items == ["detach", "attach"], "the page attaches before any grant")
+        let deadline = Date().addingTimeInterval(2)
+        while FocusSpyShim.granted.isEmpty, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        #expect(log.items == ["detach", "attach", "grant"])
+        hosting.resizeMotion(active: false)
+        #expect(log.items == ["detach", "attach", "grant"], "the landing has nothing to attach")
+    }
+
     private func createdTab(_ runtime: CEFRuntime, browser: Int32) throws -> (CEFTab, CEFPaneHost) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
@@ -532,6 +569,11 @@ import Testing
 }
 
 /// The app's key window in a test: every change a grant makes is recorded.
+/// Fork and grant calls in the order they came.
+private final class CallLog {
+    var items: [String] = []
+}
+
 @MainActor private final class KeyRecorder {
     var key: NSWindow?
     private(set) var made: [NSWindow] = []

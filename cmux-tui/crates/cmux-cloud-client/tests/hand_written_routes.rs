@@ -59,12 +59,23 @@ fn literals(text: &str) -> Vec<String> {
                     index += 1;
                 }
             }
+            // Rust block comments nest: `/* a /* b */ "/v1/x" */` is one comment.
             '/' if next == Some('*') => {
                 index += 2;
-                while index + 1 < chars.len() && !(chars[index] == '*' && chars[index + 1] == '/') {
-                    index += 1;
+                let mut depth = 1;
+                while index < chars.len() && depth > 0 {
+                    match (chars[index], chars.get(index + 1)) {
+                        ('/', Some('*')) => {
+                            depth += 1;
+                            index += 2;
+                        }
+                        ('*', Some('/')) => {
+                            depth -= 1;
+                            index += 2;
+                        }
+                        _ => index += 1,
+                    }
                 }
-                index += 2;
             }
             // A raw string (`r"..."`, `r#"..."#`): to its closing quote and as many `#`.
             'r' if !index
@@ -209,4 +220,5 @@ fn a_literal_names_a_route_by_its_template() {
         literals("let r = r#\"say \"hi\" /v1/no\"#; f(r\"/v1/raw\"); for_r(\"/v1/c\")"),
         ["/v1/raw", "/v1/c"]
     );
+    assert_eq!(literals("/* a /* b */ \"/v1/inner\" */ f(\"/v1/d\")"), ["/v1/d"]);
 }

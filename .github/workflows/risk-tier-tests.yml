@@ -8,6 +8,7 @@ on:
     branches: [feat-cmux-next]
     paths:
       - scripts/ci/risk_tier.py
+      - scripts/ci/receipt_grammar.py
       - tests/test_risk_tier.py
       - .github/workflows/risk-tier.yml
       - .github/workflows/risk-tier-tests.yml
@@ -34,6 +35,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/risk_tier.py
+            scripts/ci/receipt_grammar.py
             tests/test_risk_tier.py
           sparse-checkout-cone-mode: false
       - run: python3 tests/test_risk_tier.py -v

@@ -5,13 +5,18 @@ name: cmux-next guards
 # tests there: tests/test_nightly_cmux_tui_resolve.py stayed red on the branch
 # unseen. nightly-next ships from feat-cmux-next, so run the release-notary
 # group (nightly, notarization, nightly-next guard and publication tests) for
-# its pull requests and pushes. It takes under a minute; there is no path
-# filter so a base red shows on the push that caused it.
+# its pull requests and pushes. There is no workflow path filter, so a base red
+# shows on the push that caused it.
 #
 # A push runs the group in nightly-guards, judged at its tip, so a base red
 # still fails the push that caused it. A pull request runs it inside the CI
 # guard group's head-and-base comparison instead (ci-guard-group, below), which
-# fails only on a step red on the change and not on its base. Run on its own,
+# fails only on a step red on the change and not on its base, and only when the
+# change reaches what the group reads: release, notary and signing paths, the
+# workflows and CI scripts it pins, and the release notes and updater sources it
+# reads (detect_linux_guard_changes.RELEASE_NOTARY_INPUTS). On every pull request
+# it cost about 200,000 runner-minutes in 14 days, and none of its 18 PR failures
+# was the change's own (cmuxterm-hq plans/ci/baggage-2026-11-05.md). Run on its own,
 # every pull request was red while the branch was: workflow-text pins in this
 # group (nightly.yml, warm-sources.json, the step-coverage map) go red on any
 # push that edits those files without the tests, and 833 of 1656 pull request
@@ -229,7 +234,7 @@ jobs:
   # never ran for feat-cmux-next (tests/pr-lane-exemptions.json). This job runs them too: --feat-routes picks
   # the groups a pull request's paths route to (detect_linux_guard_changes.classify_feat, workflow_guard_groups.py's
   # ownership), and every routed group on a push. The main-only release-ios group never runs here; release-notary runs here
-  # on a pull request (compared with its base) and in nightly-guards on a push (judged at the tip).
+  # on a pull request that reaches its inputs (compared with its base) and in nightly-guards on a push (judged at the tip).
   ci-guard-group:
     name: cmux-next CI guard group
     # 32 vCPU, a guard worker per core: the head and the base each run every routed group, on every pull request
@@ -353,7 +358,8 @@ jobs:
           path: .guard-base
           persist-credentials: false
 
-      # A pull request adds release-notary to the compared groups: nightly-guards runs it on pushes only (header).
+      # A pull request routes release-notary by its paths like the other groups (classify_feat,
+      # RELEASE_NOTARY_INPUTS); a push leaves it out here, since nightly-guards runs it at the tip (header).
       - name: Run the ci guard group and the routed groups
         env:
           CMUX_GUARDS_BASE_SHA: ${{ steps.changes.outputs.base }}
@@ -365,10 +371,10 @@ jobs:
           # The groups are literal flags so scripts/ci/pr_test_lanes.py sees what a pull request runs.
           groups=()
           if [ "$EVENT_NAME" = pull_request ]; then
-            groups=(--group ci --group release-notary)
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --group ci --group release-notary --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
-          else
             scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
+          else
+            groups=(--skip-group release-notary)
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --skip-group release-notary --results "$RUNNER_TEMP/guards-head.json" || true
           fi
           # The base re-runs only the steps red on the head (guards_new_reds.py --red-steps): a step green on the
           # head is never the change's, and the full base pass doubled the job once release-notary joined it.

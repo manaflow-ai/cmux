@@ -90,6 +90,13 @@ export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progres
 export type AcpmuxBackgroundTask = {
   toolCallId: string;
   command: string;
+  /// The helper or subagent that started this shell, when the harness identifies it.
+  ownerId?: string;
+  ownerTitle?: string;
+  /// The call's description, retained for clients that need a compact activity label.
+  description?: string;
+  startedAt?: number;
+  endedAt?: number;
   state: "completed" | "failed" | "stopped";
   reason?: string;
   /// Claude Code's own words on how it ended (its task notification's summary).
@@ -392,6 +399,12 @@ export type AcpmuxRow = {
   items?: AcpmuxActivity[];
   /// A plan row's todo list (cx-ncc.80): the agent's latest `plan` update in its turn.
   plan?: AcpmuxPlanEntry[];
+  /// A plan row that stands for an earlier turn's list under the running turn (turns.ts
+  /// `earlierTurnPlan`): it reads as from before the person's last message, and nothing spins.
+  planEarlier?: boolean;
+  /// A plan row whose list a later turn cleared before writing one of its own (an empty `plan`,
+  /// direct.ts): it stays folded in its own turn but no longer carries over (turns.ts `earlierTurnPlan`).
+  planCleared?: boolean;
   /// A background task row's shell, which ended where the row sits (cx-ncc.84).
   backgroundTask?: AcpmuxBackgroundTask;
   /// A compaction row's compaction, noted where it happened.
@@ -498,6 +511,9 @@ export type AcpmuxRow = {
   /// A turn footer's whole turn for its Copy (conversation/turnCopy.ts): the agent's replies and each
   /// run of tool calls between them, in order; undefined when the agent said nothing.
   turnCopy?: TurnCopyPart[];
+  /// A finished turn footer's timed tool calls and thoughts, in order, for its waterfall
+  /// (conversation/waterfallSpans.ts `turnWork`, TurnWaterfall.tsx); undefined when none was timed.
+  turnWork?: AcpmuxActivity[];
   /// A footer turns.ts `supersededFooters` added where the person came in on a stretch of a turn (a
   /// steer that landed in it, or a new prompt over a turn with no summary): the stretch counts as
   /// ended, and the footer offers its Copy.
@@ -1996,6 +2012,8 @@ function fallbackRowHeight(
   // Ended, it folds to its one 24px progress line unless the reader opened it, which adds the items.
   if (row.kind === "plan" && row.plan) {
     const items = row.plan.length * 24;
+    // An earlier turn's list adds its one "from before your last message" line.
+    if (row.planEarlier) return finish(40 + 24 + items);
     return finish(40 + (row.turnEnded ? 24 + (planOpen(row.id) ? items : 0) : items));
   }
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover

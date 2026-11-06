@@ -242,7 +242,9 @@ resolve): your policy answers those, and `ask` sends them to a person.
 A session on another machine is named `MACHINE/NAME` (`big-red/review-42`), and every command takes that
 form. A bare name (`review-42`) or an id prefix also works when exactly one live session on this
 machine or the machines you added has it; when several do, the command refuses and prints the exact
-`MACHINE/NAME` command for each, so pick one and run it. Say and pass `MACHINE/NAME`: never ask the
+`MACHINE/NAME` command for each, so pick one and run it. A name in another case (`td2-a` for
+`td2-A`), a unique prefix of it or the name without `-`, `_` and spaces works too, and so does a
+machine named that way; several matches are refused with each one, never guessed. Say and pass `MACHINE/NAME`: never ask the
 person for a session id.
 
 ```bash

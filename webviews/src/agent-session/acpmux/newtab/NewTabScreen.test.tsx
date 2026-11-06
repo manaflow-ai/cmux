@@ -1292,3 +1292,86 @@ test.each(["project", "saved"] as const)(
     expect(wakes).toEqual(["cloud-draft"]);
   },
 );
+
+// Lawrence 2026-11-05: a typed URL opens in a chosen browser profile (all listed, searchable) or in a
+// brand-new one, from the keyboard.
+const profileOmnibar = {
+  ...EMPTY_OMNIBAR,
+  profiles: [
+    { id: "default", name: "Default" },
+    { id: "p-work", name: "Work" },
+    { id: "p-austin", name: "Austin Test" },
+  ],
+};
+
+test("Open in Profile…: Down, Return, a search and Return open the URL in that profile", async () => {
+  const opened: [string, string][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        omnibar={profileOmnibar}
+        onOpenInProfile={(url, id) => opened.push([url, id])}
+        onOpenInNewProfile={() => {}}
+      />,
+    );
+  });
+  let field = await typePrompt("example.com");
+  const types = () =>
+    [...container.ownerDocument.querySelectorAll<HTMLElement>(".nt-row")].map((row) => row.dataset.type);
+  expect(types().slice(0, 3)).toEqual(["open", "inProfile", "newProfile"]);
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  // The field searches the profiles: every one is listed, then a new one.
+  expect(promptValue()).toBe("");
+  expect(types()).toEqual(["profile", "profile", "profile", "newProfile"]);
+  field = await typePrompt("aus");
+  expect(types()).toEqual(["profile", "newProfile"]);
+  await press(field, "Enter");
+  expect(opened).toEqual([["https://example.com", "p-austin"]]);
+});
+
+test("Open in Profile…: a search no profile is named makes one with that name; Escape goes back", async () => {
+  const made: [string, string | undefined][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        omnibar={profileOmnibar}
+        onOpenInProfile={() => {}}
+        onOpenInNewProfile={(url, name) => made.push([url, name])}
+      />,
+    );
+  });
+  let field = await typePrompt("example.com");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  field = await typePrompt("Client X");
+  await press(field, "Escape");
+  // Back on the address, as typed.
+  expect(promptValue()).toBe("example.com");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  field = await typePrompt("Client X");
+  await press(field, "Enter");
+  expect(made).toEqual([["https://example.com", "Client X"]]);
+});
+
+test("Open in New Profile from the address's rows makes a profile with the default name", async () => {
+  const made: [string, string | undefined][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        omnibar={profileOmnibar}
+        onOpenInProfile={() => {}}
+        onOpenInNewProfile={(url, name) => made.push([url, name])}
+      />,
+    );
+  });
+  const field = await typePrompt("example.com");
+  await press(field, "ArrowDown");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  expect(made).toEqual([["https://example.com", undefined]]);
+});

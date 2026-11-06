@@ -48,9 +48,6 @@ final class CloudService {
     /// Each machine list that carries the plan (`limits.planId`) reports it: the paid-plan welcome step
     /// (AppServices+PaidPlan.swift) watches for the plan turning paid after an upgrade.
     @ObservationIgnored var planObserved: @MainActor (String?) -> Void = { _ in }
-    /// Open Desktop's `cmux-rd` viewer: each machine's desktop host session token (lowercased id),
-    /// fetched over the signed-in Cloud API when a person opens it, held only in memory.
-    @ObservationIgnored var desktopRdTokens: [String: String] = [:]
     /// The tunnel's SOCKS socket and client token, starting it when needed: how the browser
     /// reaches a machine's localhost over this Mac's own WireGuard tunnel (RemoteLocalhostService).
     /// Nil without the hub.
@@ -145,6 +142,8 @@ final class CloudService {
     @ObservationIgnored let startSessionAsks = CloudStartSessionAsks()
     /// `cmux cloud start-session` runs, joined by a repeat of the same ask (``CloudStartSessionRuns``).
     @ObservationIgnored let startSessionRuns = CloudStartSessionRuns()
+    /// The machines a start is bringing up now, which the automatic machine update leaves alone (``CloudStartGate``).
+    @ObservationIgnored let startGate = CloudStartGate()
     @ObservationIgnored let signedOutCreation = CloudSignedOutCreationContinuation()
     #if DEBUG
     /// `debug.cloud_machine_fixture {backend: true}`: Cloud reads as reachable in a capture build that has no
@@ -317,7 +316,7 @@ final class CloudService {
         // must not restore auth or start the credential relay/Cloud observers.
         guard !configuration.apiBaseURL.isFileURL else { return }
         installIDs.preload()
-        auth.start(); changes.start()
+        auth.start(); changes.start(); changes.startPush(machineAPI.statePush(baseURL: configuration.relayAPIBaseURL()), connection: { [machines] in machines.local.connection }) { [weak self] record in if let self, let session = machines.session(record.id) { apply(record, to: session, read: beginRecordRead(machineID: record.id)) } }
         startCredentialProvider()
         if linkEvents == nil {
             // `cloud.link.changed` arrives on the local daemon as an app server event.
@@ -791,7 +790,7 @@ final class CloudService {
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
             try await CloudMachinePower.run("cloud.machine.pause", machine: machineID, ops: appOps)
         }
-        changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("paused machine \(machineID, privacy: .public)")
+        changes.began(machineID: machineID) { [weak self] in _ = await self?.refresh() }; if !changes.isPushed(machineID) { await refresh() }; logger.info("paused machine \(machineID, privacy: .public)")
     }
 
     func resumeMachine(_ machineID: String, origin: AppsRunRequest.Origin = .user) async throws {
@@ -799,7 +798,7 @@ final class CloudService {
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
             try await CloudMachinePower.run("cloud.machine.start", machine: machineID, origin: origin, ops: appOps)
         }
-        changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("\(origin == .script ? "passively resumed" : "resumed", privacy: .public) machine \(machineID, privacy: .public)")
+        changes.began(machineID: machineID) { [weak self] in _ = await self?.refresh() }; if !changes.isPushed(machineID) { await refresh() }; logger.info("\(origin == .script ? "passively resumed" : "resumed", privacy: .public) machine \(machineID, privacy: .public)")
     }
 
     /// The machine's idle auto-pause (`cloud.machine.idle_policy.set`): minutes
@@ -849,7 +848,6 @@ final class CloudService {
         dropAllMachines()
         await link.endLink(final: false)
         do { try await AcpmuxEnvironment.clearPeerTails(build: LaunchIdentity.current().build, work: work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
-        desktopRdTokens.removeAll()
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
@@ -864,6 +862,9 @@ final class CloudService {
 
     /// Starts this Mac's `cmux link` (``CloudLinkLifecycle/ensureLink()``).
     func ensureLink() async { await link.ensureLink() }
+
+    /// The running link's local socket as its last ensure answered (``CloudDesktopLinkDial``).
+    var linkSocket: String? { link.socket }
 
     /// ``CloudLinkLifecycle/ensureLinkReport()``, for the DEBUG socket method.
     func ensureLinkReport() async -> JSONValue { await link.ensureLinkReport() }

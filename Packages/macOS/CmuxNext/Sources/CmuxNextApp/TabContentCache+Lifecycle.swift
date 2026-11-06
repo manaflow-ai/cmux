@@ -90,10 +90,11 @@ extension TabContentCache {
     /// The tabs of a hibernated workspace (plans/cmux-next/workspace-hibernation-DESIGN.md), after its
     /// panes left: terminal surfaces go now, pages are discarded after their own checks, chat pages
     /// go keeping their session.
-    func hibernateTabs(_ keys: [String]) {
+    /// `byPerson`: the person's Hibernate Workspace (its pages never wake on a hover).
+    func hibernateTabs(_ keys: [String], byPerson: Bool = false) {
         for key in keys {
             evictHiddenTerminal(key)
-            if browsers[key] != nil { hibernation?.hibernateForWorkspace(key) }
+            if browsers[key] != nil { hibernation?.hibernateForWorkspace(key, byPerson: byPerson) }
             hibernation?.agentPages?.releaseForWorkspace(key)
         }
     }

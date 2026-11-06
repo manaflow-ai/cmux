@@ -94,6 +94,7 @@ mod live_models;
 mod locate;
 pub mod media_handles;
 pub mod media_read;
+mod mesh_book;
 mod mesh_rows;
 pub(crate) mod native_history;
 pub(crate) mod subagent_transcript;
@@ -233,6 +234,7 @@ pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
+mod touched;
 pub mod vm_boundary;
 pub use vm_boundary::vm_boundary_peer_approves;
 mod start_gate;
@@ -479,10 +481,6 @@ pub struct PromptOptions {
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,
-    /// A goal's continuation (`goal_tools.rs`): runs only while the chat's goal is still the one
-    /// that asked for it ([`crate::generic_goal::mark`]), checked again once it holds the turn
-    /// lock, else refused.
-    pub goal_mark: Option<String>,
     /// `_meta.acpmux.supersede` (`supersede.rs`): the same sender's prompts still queued under
     /// this key leave the queue, replaced by this one.
     pub supersede: Option<String>,
@@ -585,6 +583,8 @@ pub struct Hub {
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
+    /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
+    pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// Each parent's children by tag, for an approval card's label (`permissions/display.rs`).
     pub(super) child_tags: permissions::ChildTags,
     /// Leased peers by name, with the generation of the peer each lease
@@ -923,6 +923,7 @@ impl Hub {
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
+            mesh_book: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
             peer_config_gen: std::sync::atomic::AtomicU64::new(0),
@@ -1392,6 +1393,7 @@ impl Hub {
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
             cancel_forced_turn: StdMutex::new(None),
+            unwritten_prompt: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
             stopping: StdMutex::new(None),
             stop_restart: StdMutex::new(None),
@@ -1435,6 +1437,8 @@ impl Hub {
             background_turns: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
+            touch_queue: StdMutex::new(Default::default()),
+            overlaps_told: StdMutex::new(Default::default()),
             start_calls: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
         });

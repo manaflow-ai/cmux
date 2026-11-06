@@ -2189,6 +2189,22 @@ class RustfmtLayerTests(unittest.TestCase):
         (self.tree / "cmux-tui/crates/x/src/child.rs").write_text(RUST_UNFORMATTED)
         self.assertEqual(self.judge({"cmux-tui/crates/x/src/lib.rs": "mod child;\n"}), "")
 
+    @NEEDS_RUSTFMT
+    def test_a_crate_outside_the_cmux_tui_workspace_is_not_judged(self):
+        # cmux-rd-host: its own [workspace] (and edition 2021), outside `cargo fmt --all` in cmux-tui.
+        (self.tree / "cmux-tui/crates/own").mkdir(parents=True)
+        (self.tree / "cmux-tui/crates/own/Cargo.toml").write_text(
+            '[package]\nname = "own"\nedition = "2021"\n\n[workspace]\n')
+        self.assertEqual(self.judge({"cmux-tui/crates/own/src/lib.rs": RUST_UNFORMATTED}), "")
+
+    @NEEDS_RUSTFMT
+    def test_a_workspace_crate_is_still_judged(self):
+        (self.tree / "cmux-tui/crates/member").mkdir(parents=True)
+        (self.tree / "cmux-tui/crates/member/Cargo.toml").write_text(
+            '[package]\nname = "member"\nedition.workspace = true\n')
+        out = self.judge({"cmux-tui/crates/member/src/lib.rs": RUST_UNFORMATTED})
+        self.assertIn("cmux-tui/crates/member/src/lib.rs: not rustfmt-clean", out)
+
     def test_no_rustfmt_warns_and_finds_nothing(self):
         saved = os.environ.get("PATH", "")
         os.environ["PATH"] = self.tmp.name  # no rustfmt and no rustup proxy on it
