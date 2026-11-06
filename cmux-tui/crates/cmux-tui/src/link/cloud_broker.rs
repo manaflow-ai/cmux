@@ -214,16 +214,17 @@ impl Driver {
             id = id.checked_add(1).ok_or_else(invalid)?;
             let text = serde_json::to_vec(&Envelope { version: 1, id, request: &call.request })
                 .map_err(|_| invalid())?;
-            // A cancelled in-flight call ends the channel: a late token can
-            // never be mistaken for the next request's answer.
-            let text = tokio::select! {
-                text = tokio::time::timeout(DIAL_TIMEOUT, async {
-                    self.stream.write_all(&text).await?;
-                    self.stream.write_all(b"\n").await?;
-                    super::lines::read_line(&mut self.stream, MAX_REPLY).await
-                }) => text.map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "cloud.broker.timeout"))??,
-                () = call.answer.closed() => return Err(invalid()),
-            };
+            // A caller that gives up (its dial was cancelled with its connection)
+            // leaves the channel up: its reply is still read in order and dropped
+            // with the closed answer, so a late token never answers the next
+            // request, and the next dial is not refused as "unavailable".
+            let text = tokio::time::timeout(DIAL_TIMEOUT, async {
+                self.stream.write_all(&text).await?;
+                self.stream.write_all(b"\n").await?;
+                super::lines::read_line(&mut self.stream, MAX_REPLY).await
+            })
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "cloud.broker.timeout"))??;
             let reply: Reply = serde_json::from_str(&text).map_err(|_| invalid())?;
             if reply.version != 1 || reply.id != id {
                 return Err(invalid());
