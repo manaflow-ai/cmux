@@ -3877,8 +3877,12 @@ export function VirtualTranscript({
   };
   // Jump to latest remains shown once the reader is far behind, avoiding flicker near the threshold.
   const below = layout.totalHeight - height - (renderScroll.top - origin);
+  // A fold the reader opened or closed at the very bottom keeps the view at its end on each of its
+  // frames (`beginBottomStackFold`): a render mid-fold that lays out ahead of that pin (a call that
+  // joins the opening group) is not the reader falling behind, and never brings the arrow up (Leo,
+  // 2026-11-06: "way too discontinuous", the arrow came up while a tool call opened under load).
   if (renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
-  else if (below > JUMP_LATEST_DISTANCE) jumpShown.current = true;
+  else if (below > JUMP_LATEST_DISTANCE && !bottomStackFold.current) jumpShown.current = true;
   const behind = jumpShown.current;
   // CHAT SWITCH PLAY: the last layout effect, so the new chat's rows are placed and scrolled to where
   // they will be drawn when the play picks the visible ones (CHAT SWITCH MOTION above).

@@ -102,6 +102,32 @@ export function settleFoldsIn(root: Element): void {
   for (const [node, settle] of settling) if (root.contains(node)) settle();
 }
 
+/// A gap between two painted frames this long means the page is missing frames: about three at 60 Hz.
+// motion-allow: a frame-drop threshold, not an animation's duration
+export const FOLD_DROP_MS = 50;
+
+/// Lands `node`'s fold at its end on the first frame that comes `FOLD_DROP_MS` or more after the one
+/// before it (Leo, 2026-11-06, on a recording under heavy load: "way too discontinuous", "jittery").
+/// Under load a height fold skips most of its frames and each one that paints jumps the rows around
+/// it; the end state at once reads as one step. Its own frame loop runs only while `node`'s fold is in
+/// `settling`, so it stops when the fold ends, settles or turns back (a new fold starts its own).
+function settleOnDroppedFrames(node: HTMLElement): void {
+  const view = node.ownerDocument.defaultView;
+  if (!view?.requestAnimationFrame) return;
+  const settle = settling.get(node);
+  let last: number | undefined;
+  const step = (now: number) => {
+    if (settling.get(node) !== settle) return;
+    if (last !== undefined && now - last >= FOLD_DROP_MS) {
+      settle?.();
+      return;
+    }
+    last = now;
+    view.requestAnimationFrame(step);
+  };
+  view.requestAnimationFrame(step);
+}
+
 /// The resize each box is playing (`playResize`), so a resize that ends late lets go of only its own.
 const resizing = new WeakMap<HTMLElement, Animation>();
 
@@ -348,6 +374,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
         setClosing(false);
       }
     });
+    settleOnDroppedFrames(node);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of `open` plays the fold
   }, [open]);
   useLayoutEffect(
