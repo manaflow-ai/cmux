@@ -1072,7 +1072,8 @@ fn relay_chat(
 }
 
 /// The relay answer's stage times the CLI answer passes on: link and login, then the relay's own events, then the platform's.
-const RELAY_STAGES: [&str; 5] = ["link_login_ms", "queued_ms", "sent_ms", "started_ms", "platform_stages_ms"];
+const RELAY_STAGES: [&str; 5] =
+    ["link_login_ms", "queued_ms", "sent_ms", "started_ms", "platform_stages_ms"];
 
 /// The machine's typed error the app relayed (`CloudStartSession.relayFields`): acpmux's detail, a closed
 /// daemon's cause, the error's kind, what to do and whether a retry may work; only the fields the app sent.
