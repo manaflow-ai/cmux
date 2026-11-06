@@ -434,6 +434,41 @@ mod tests {
         );
     }
 
+    /// A kill lost the metadata save of a completed turn whose result is in the log: the start
+    /// takes the log's newest result as the last turn, not the older one the save named.
+    #[tokio::test]
+    async fn a_completed_turn_the_log_holds_is_the_last_turn_after_a_kill() {
+        let (hub, session) = idle_chat();
+        hub.append(
+            &session,
+            "mux",
+            "turn_started",
+            json!({"turnId": "newer-turn", "promptId": "newer-prompt"}),
+        );
+        hub.append(
+            &session,
+            "mux",
+            "turn_result",
+            json!({"turnId": "newer-turn", "promptId": "newer-prompt",
+                "status": "completed", "stopReason": "end_turn"}),
+        );
+        session.meta.lock().unwrap().last_turn = Some(json!({
+            "turnId": "older-turn", "promptId": "older-prompt", "status": "failed",
+            "errorText": "stream disconnected",
+        }));
+        hub.restore_auto_resume(&session);
+        let last = session.meta().last_turn.unwrap_or_else(|| panic!("no last turn"));
+        assert_eq!(last["promptId"], "newer-prompt", "{last}");
+        assert_eq!(last["status"], "completed", "{last}");
+        // A saved summary of the same turn is kept as it is.
+        let kept = json!({"turnId": "newer-turn", "promptId": "newer-prompt",
+            "status": "completed", "stopReason": "end_turn", "endedAt": 7});
+        session.auto_resume_restored.store(false, std::sync::atomic::Ordering::SeqCst);
+        session.meta.lock().unwrap().last_turn = Some(kept.clone());
+        hub.restore_auto_resume(&session);
+        assert_eq!(session.meta().last_turn, Some(kept));
+    }
+
     async fn restart(hub: &Hub, session: &Session) -> (Arc<Hub>, Arc<Session>) {
         let cfg = hub.config.read().await.clone();
         let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
