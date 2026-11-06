@@ -8,10 +8,11 @@ import Testing
 /// What a pinned member's row view draws (`sidebar.groupPinMark` = leading, the default): a member listed under
 /// its group's header draws the pin before its name; a group of one member titled as the group draws no header,
 /// so its one row stands for the group (`SidebarRow.standsForGroup`) and reads as the group, not a member pinned
-/// inside it: no in-group pin there (review of #28708).
+/// inside it: no in-group pin there (review of #28708). The pin takes the title's color, not its group's (Aziz
+/// 2026-11-06: "the pin color should just match the text color").
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarGroupPinRowViewTests {
-    private func row(standsForGroup: Bool) -> (WorkspaceRowView, NSWindow) {
+    private func row(standsForGroup: Bool, tint: GroupTint? = nil) -> (WorkspaceRowView, NSWindow) {
         var ws = SidebarWorkspace(id: WorkspaceID("ws"), title: "deploy-checklist", lastActivity: Date())
         ws.isPinnedInGroup = true
         let content = SidebarLayoutOptions().rowContent(ws, machine: nil)
@@ -20,7 +21,7 @@ struct SidebarGroupPinRowViewTests {
                              content: content)
         row.standsForGroup = standsForGroup
         let view = WorkspaceRowView(key: row.key)
-        view.groupPinStyle = { _ in (.leading, nil) }
+        view.groupPinStyle = { _ in (.leading, tint) }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 28), styleMask: .borderless,
                               backing: .buffered, defer: true)
         // `close()` would release a window the test still holds (a segfault on the fleet).
@@ -29,6 +30,7 @@ struct SidebarGroupPinRowViewTests {
         view.frame = NSRect(x: 0, y: 0, width: 320, height: 28)
         view.configure(ws, row: row)
         view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded() // updateLayer: the title's color, then the pin's
         return (view, window)
     }
 
@@ -44,6 +46,14 @@ struct SidebarGroupPinRowViewTests {
         let (view, window) = row(standsForGroup: true)
         #expect(view.debugGroupPin == nil)
         #expect(view.groupPin.isHidden)
+        window.close()
+    }
+
+    @Test func thePinTakesTheTitlesColorNotItsGroups() {
+        let (view, window) = row(standsForGroup: false, tint: .palette(.blue))
+        view.updateLayer()
+        #expect(view.groupPin.contentTintColor == view.title.textColor,
+                "pin \(String(describing: view.groupPin.contentTintColor)), title \(view.title.textColor)")
         window.close()
     }
 }
