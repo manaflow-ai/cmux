@@ -221,6 +221,10 @@ impl Http for PosterHttp {
         self.0.post(url, body, bearer)
     }
 
+    fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        self.0.post_empty(url, bearer)
+    }
+
     fn request_until(
         &self,
         url: &str,
