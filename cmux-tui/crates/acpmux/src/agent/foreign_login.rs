@@ -252,10 +252,11 @@ const RUNNERS: [&str; 7] = ["npx", "bunx", "pnpx", "node", "bun", "uvx", "env"];
 
 /// The executables of leaf agents and their families: `derive_family`'s and
 /// the launchers discovery finds (`config/discover.rs`).
-const EXECUTABLES: [(&str, &str); 19] = [
+const EXECUTABLES: [(&str, &str); 20] = [
     ("codex", "codex"),
     ("codex-acp", "codex"),
     ("claude", "claude"),
+    ("claude-acp", "claude"),
     ("claude-agent-acp", "claude"),
     ("claude-code-acp", "claude"),
     ("gemini", "gemini"),
