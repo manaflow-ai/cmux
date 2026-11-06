@@ -80,10 +80,10 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                         Some(build) => pin::for_build(build, bundled),
                         None => Some(bundled),
                     };
-                    json!({ "pin": to_value(pin)?, "bundled": true })
+                    json!({ "pin": to_value(pin)?, "bundled": true, "target": pin::TARGET })
                 }
                 None => {
-                    json!({ "pin": to_value(request.answer.as_deref().and_then(pin::from_answer))?, "bundled": false })
+                    json!({ "pin": to_value(request.answer.as_deref().and_then(pin::from_answer))?, "bundled": false, "target": pin::TARGET })
                 }
             }
         }

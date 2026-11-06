@@ -16,7 +16,10 @@ public struct CloudLegacyPin: Sendable, Equatable, Codable {
     }
 
     private struct Request: Encodable { var manifest: String?, answer: String?, build: String? }
-    private struct Reply: Decodable { var pin: CloudLegacyPin?, bundled: Bool }
+    private struct Reply: Decodable { var pin: CloudLegacyPin?, bundled: Bool, target: String }
+
+    /// The Rust target of every Cloud machine's binary (Rust's `pin::TARGET`, the release's static x86_64 build).
+    public static let target: String = ask()?.target ?? "x86_64-unknown-linux-musl"
 
     private static func ask(manifest: Data? = nil, answer: Data? = nil, build: String? = nil) -> Reply? {
         let text = { (data: Data?) in data.map { String(decoding: $0, as: UTF8.self) } }
