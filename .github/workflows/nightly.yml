@@ -78,7 +78,7 @@ on:
         default: false
         type: boolean
       notary_test_import_part:
-        description: nightly-next only. cx-f58x notary bisect. One diagnostic notary submission of a build with exactly this one browser-import part compiled out (cookies = CMUX_NO_COOKIE_IMPORT, safe-storage = CMUX_NO_SAFE_STORAGE_READ, history = CMUX_NO_HISTORY_IMPORT, registry = empty browser-sources.json), or full = nothing compiled out (the import exactly as it would ship: is Apple's status 7000 hold still there?). Every other import part stays in. Nothing is published.
+        description: nightly-next only. cx-f58x notary bisect. One diagnostic notary submission of a build with exactly this one browser-import part compiled out (cookies = CMUX_NO_COOKIE_IMPORT, safe-storage = CMUX_NO_SAFE_STORAGE_READ, history = CMUX_NO_HISTORY_IMPORT, registry = empty browser-sources.json), or full = nothing compiled out (the import exactly as it would ship, to see whether Apple's status 7000 hold is still there). Every other import part stays in. Nothing is published.
         required: false
         default: none
         type: choice

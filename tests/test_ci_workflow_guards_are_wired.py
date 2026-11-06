@@ -60,6 +60,10 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It runs tree-preflight's inspect step with fakes and asserts
     # wall-clock bounds of its fallback owner election; run it by hand when that step changes.
     "tests/test_cmux_tui_election_budget.py",
+    # lane = "manual" for the same rule. It writes a fixture .github/workflows/nightly.yml into a throwaway
+    # repository and pushes it through the real pre-push hook (the workflow YAML layer of prepush-gate.py); it
+    # reads no real workflow. Run it by hand when that layer changes. Exit: as above.
+    "tests/test_cmux_next_prepush_workflow_yaml.py",
     # lane = "manual" for the same rule. They check the cmux-next swift test job's shard plan and its
     # main-thread-heavy split; run them by hand after changing scripts/cmux-next/swift-test-shards.py,
     # main-thread-heavy-suites.py or that job.
