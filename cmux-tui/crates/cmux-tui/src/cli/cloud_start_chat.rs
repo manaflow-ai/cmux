@@ -496,6 +496,8 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
 
 /// Runs the steps (module docs) and answers the outcome.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
+    // `--timeout` counts from here: the folder wait, the relay and the turn's wait share it.
+    let began = runner.now();
     // 1. Signed in, and the machine names in use.
     let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
         Ok(listed) => listed,
@@ -525,13 +527,13 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         Machine::New => None,
     };
     if let (Some(machine), Some(cwd)) = (existing, &request.cwd)
-        && let Some(outcome) = folder::wait(runner, &machine, cwd, request.timeout)
+        && let Some(outcome) = folder::wait(runner, &machine, cwd, folder::end(request, began))
     {
         return outcome;
     }
     let mut wanted = request.machine.clone();
     if request.wait {
-        match relay_chat(runner, request, &listed) {
+        match relay_chat(runner, request, &listed, began) {
             Relayed::Answered(outcome) => return outcome,
             Relayed::Fallback(Some(id)) => wanted = Machine::Target(id),
             Relayed::Fallback(None) => {}
@@ -702,8 +704,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     if !request.wait {
         return Outcome::Done(answer);
     }
-    let started_at = runner.now();
-    wait_turn(runner, request, machine_id, session, baseline, answer, started_at)
+    wait_turn(runner, request, machine_id, session, baseline, answer, began)
 }
 
 /// 5. The turn after `baseline` in `session`: its end and its reply.
@@ -812,9 +813,13 @@ enum Relayed {
 /// 256 KiB). A larger one goes the link path, which uploads it.
 const RELAY_PROMPT_BYTES: usize = 96 * 1024;
 
-fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Relayed {
-    // `--timeout` counts from here, a new machine included.
-    let started_at = runner.now();
+/// `started_at`: the command's start, which `--timeout` counts from.
+fn relay_chat(
+    runner: &mut dyn Runner,
+    request: &Request,
+    listed: &Value,
+    started_at: Instant,
+) -> Relayed {
     if request.prompt.len() > RELAY_PROMPT_BYTES {
         return Relayed::Fallback(None);
     }
