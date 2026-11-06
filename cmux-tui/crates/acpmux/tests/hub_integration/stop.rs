@@ -111,7 +111,10 @@ async fn restart_after_stop(script: &str) {
     .expect("the stopped turn never ended");
     assert_eq!(ended["msg"]["status"], "cancelled", "{ended}");
     assert_eq!(ended["msg"]["cancelForced"], true, "{ended}");
-    assert_eq!(ended["msg"]["restarted"], true, "a stopped turn retained its wedged process: {ended}");
+    assert_eq!(
+        ended["msg"]["restarted"], true,
+        "a stopped turn retained its wedged process: {ended}"
+    );
     tokio::time::timeout(
         Duration::from_secs(20),
         c.wait_for(method::MUX_EVENT, |p| p["kind"] == "stop_restarted"),
@@ -169,11 +172,7 @@ async fn a_silent_stop_beside_background_work_keeps_the_process() {
 async fn stop_beside_background(script: &str) {
     let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "stop-beside-background").await;
-    c.send(
-        method::SESSION_PROMPT,
-        prompt(&id, script, Some("p-work")),
-    )
-    .await;
+    c.send(method::SESSION_PROMPT, prompt(&id, script, Some("p-work"))).await;
     let first =
         c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "tool_call").await;
     let title = first["update"]["title"].as_str().unwrap().to_owned();
