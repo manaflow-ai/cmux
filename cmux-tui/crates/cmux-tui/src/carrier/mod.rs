@@ -219,7 +219,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 reply(&line);
             }
         });
-        let client::Dialed { connection, multiplexer, mux } = dialed;
+        let client::Dialed { connection, multiplexer, mux, .. } = dialed;
         let _ = mux.bridge(tokio::io::stdin(), tokio::io::stdout()).await;
         multiplexer.shutdown().await;
         let _ = connection.close().await;
