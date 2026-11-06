@@ -90,6 +90,9 @@ parser.add_argument("--settle-frames", type=int, default=10)
 parser.add_argument("--settle", type=float, default=6, help="stress: seconds the load runs before the first open")
 parser.add_argument("--motion", action="store_true",
                     help="also time the transition itself, open and (for a header toggle) close: composited stalls and main-thread misses")
+parser.add_argument("--tunable", action="append", default=[], metavar="KEY=VALUE",
+                    help="a debug tunable set after every launch (debug.tunables), e.g. motion.pane.variant=crisp")
+parser.add_argument("--strips", help="keep each open's frame strip (strip.png) here, packed as STRIPS.tgz at the end")
 parser.add_argument("--tag", default="rpopen")
 parser.add_argument("--json")
 parser.add_argument("--md")
@@ -377,6 +380,9 @@ def strip(run, chat, click, label, content="rightmost"):
     if opts.motion:
         run.rpc("debug.frames", {"action": "start"})
     reply = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 90) or {}
+    if opts.strips and os.path.exists(os.path.join(folder, "strip.png")):
+        os.makedirs(opts.strips, exist_ok=True)
+        shutil.copy(os.path.join(folder, "strip.png"), os.path.join(opts.strips, f"{label}.png"))
     if opts.motion:
         frames = run.rpc("debug.frames", {"action": "stop"}) or {}
         reply["main_frames"] = {k: frames.get(k) for k in ("missed", "max_ms", "p99_ms", "refresh_ms", "expected_ms") if k in frames}
@@ -384,8 +390,10 @@ def strip(run, chat, click, label, content="rightmost"):
     return reply
 
 
-# The header buttons that toggle (AgentChatSplitToggles.panels): a second click closes the split the first opened.
-TOGGLES = ("browser", "changes", "files")
+# The header buttons whose second click closes the split the first opened (AgentChatSplitToggles.panels), timed for
+# --motion: Browser (a Chromium page). Changes' second click left the chat's pane without its chat on the fleet
+# (2026-11-06), so the rows after it measured nothing.
+TOGGLES = ("browser",)
 # A run of unchanged composited frames this long inside a transition splits it into two motions (about 33 ms at 120 Hz).
 PHASE_GAP_FRAMES = 4
 
@@ -591,6 +599,16 @@ def write_results(results):
 
 # ---------------------------------------------------------------------------------------------
 
+def set_tunables(run):
+    if not opts.tunable:
+        return
+    run.rpc("debug.tunables", {"action": "activate"})  # a bench build's tunable store is off until asked (debug-settings.md)
+    for item in opts.tunable:
+        key, _, value = item.partition("=")
+        row = run.rpc("debug.tunables", {"action": "set", "key": key, "value": value}) or {}
+        say(f"right-pane-open: tunable {key}={value}: {json.dumps(row)[:200]}")
+
+
 def run_surfaces(run, chat, condition, results, rounds):
     for surface in WANTED:
         records = results["raw"].setdefault(surface, {}).setdefault(condition, [])
@@ -608,7 +626,7 @@ def run_surfaces(run, chat, condition, results, rounds):
 
 def main():
     root = tempfile.mkdtemp(prefix="right-pane-open-")
-    results = {"host": socket.gethostname(), "ncpu": NCPU, "app": APP,
+    results = {"tunables": opts.tunable, "host": socket.gethostname(), "ncpu": NCPU, "app": APP,
                "model": subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip(),
                "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "surfaces": {}, "raw": {}, "conditions": {}}
     signal.signal(signal.SIGTERM, bm.interrupted)
@@ -625,6 +643,7 @@ def main():
             wipe_state(APP)
             run = Run(home)
             run.launch()
+            set_tunables(run)
             if not results.get("app_version"):
                 results["app_version"] = (run.app.identify() or {}).get("version")
             time.sleep(5)  # test script: let launch work end before the chat opens
@@ -646,6 +665,7 @@ def main():
                 for restart in range(opts.restarts):
                     run.quit()
                     run.launch()
+                    set_tunables(run)
                     chat = Chat(run)
                     chat.find()
                     info.setdefault("restored_panes", []).append(chat.pane)
@@ -666,6 +686,8 @@ def main():
             say(f"right-pane-open: writing the results failed: {error!r}")
         if run:
             run.end()
+        if opts.strips and os.path.isdir(opts.strips):
+            subprocess.run(["tar", "-czf", opts.strips.rstrip("/") + ".tgz", "-C", opts.strips, "."], check=False)
         shutil.rmtree(root, ignore_errors=True)
 
 
