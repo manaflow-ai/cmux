@@ -130,6 +130,12 @@ The machine's own `Register` on its slot is the readiness event. No one polls fo
 - The Mac opens its `Connect` as soon as the create call returns. The relay slot holds it, hibernated,
   until the VM registers, and then pairs the two at once (`Allocated`/`Incoming`). The time from the VM's
   register to the Mac's first frame is one WebSocket hop.
+- The client has to wait as long as the slot does. Today cmux-remote's relay client gives up on an
+  allocation after 15 s (`cmux-remote/src/provider/relay.rs:989-1013`, set at
+  `cmux-tui/src/remote_runtime.rs:445-450`). The Cloud connection sets that wait to the time left on the
+  connect deadline, and the slot sends a `Parked` control frame when it holds a Connect, so the client
+  can tell a parked request from a dead relay. A client that doesn't know `Parked` ignores it and keeps
+  today's behavior.
 - The same event goes out on the machine state socket the app already has (`CloudMachineStatePush.swift`),
   so UI that shows "starting" flips without its own wait.
 - These go away: `ConnectWait.ts`'s 250 ms and 500 ms polls, the 180 s link wait and its 1-10 s redial,
@@ -138,9 +144,11 @@ The machine's own `Register` on its slot is the readiness event. No one polls fo
 
 ### One deadline
 
-A connect has one deadline, measured from the moment the person sends: 90 s, the longest wait any one
-hop has today, so nothing that works now gets cut off. It covers create, boot, register and the Noise
-handshake together.
+A connect has one deadline, measured from the moment the person sends: 180 s, the same window today's
+successful starts get (`CloudStartSession.swift:424`), so a machine that's slow but works today still
+works. It covers create, boot, register and the Noise handshake together. Each slice reports the
+start matrix's p95 and max connect times. Once the carrier's max is well under the window, the deadline
+comes down to fit what was measured, in its own PR.
 
 - A dropped socket inside that window reconnects with exponential backoff from 50 ms up to 2 s, with full
   jitter. cmux-remote's `ReconnectPolicy` already does this.
@@ -156,8 +164,13 @@ handshake together.
   link.
 - **Files:** folder copy and git seed run over `WorkspaceRpc` or a `Bulk`-lane stream. A big copy can't
   starve chat, because `Interactive` and `Bulk` are separate lanes.
-- **SSH and desktop:** `TcpTunnel` to `127.0.0.1:22` and to the desktop socket, the same targets the
-  native receiver uses today (`link/host_inbound.rs:227`).
+- **SSH:** `TcpTunnel` to `127.0.0.1:22`, the target the native receiver uses today
+  (`link/host_inbound.rs:227`).
+- **Desktop:** `TcpTunnel` resolves only TCP host and port routes (`cmux-remote/src/services.rs:657-670`,
+  `workspace/route.rs:18-24`), and the desktop is a Unix socket, `/run/cmux-rd/desktop.sock`. The route
+  type gains a Unix-socket target that the daemon allows only for paths in a fixed allowlist (just the
+  desktop socket), and only for the machine's owner, the rule the native receiver applies today. The
+  native desktop path isn't deleted until this lands.
 - **Secrets:** a `secrets-v1` request inside the session writes the named values to the 0600 file, and it
   carries harness logins too. Every byte crosses the platform inside the Noise session, so the Worker and
   Freestyle only see ciphertext. Nothing runs through exec, argv, a terminal or the file API. Secrets
@@ -218,7 +231,7 @@ Each slice is about 800 changed lines and reports before-and-after connect times
 `CMUX_NEXT_CLOUD_CARRIER=1` until slice 6 makes it the only path.
 
 1. **This doc.**
-2. **The relay waits for the daemon.** `cloudflare-do`'s slot parks a Connect until Register, with a test
+2. **The relay waits for the daemon.** `cloudflare-do`'s slot parks a Connect until Register and answers `Parked`; the client's allocation wait follows the connect deadline. A test
    showing a client that connects before the daemon gets paired, with no retry.
 3. **Platform:** deploy the relay, mint Register and Connect tickets and carrier grants from the install and person tokens,
    and push readiness on the state socket.
