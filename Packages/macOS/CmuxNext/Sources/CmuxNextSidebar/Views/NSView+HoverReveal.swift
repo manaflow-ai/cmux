@@ -110,7 +110,7 @@ extension SidebarRowView {
     /// every crossing made AppKit rebuild the window's layer tree, walk the window for its default button and repaint
     /// the control (its `viewDidHide`) in the frame's commit: the sweep stalls of steps f105684e and 909bfc85.
     /// A clear control takes no click (`SidebarRowView.hitTest` skips clear buttons), answers accessibility as a hidden
-    /// one (`SidebarRowView.hoverPaintedControls`: no child, no hit, a layout change posted as it clears or shows) and
+    /// one (`SidebarRowView.hoverPaintedControls`: no child, a layout change posted as it clears or shows) and
     /// shows no tooltip (`TooltipPresenter`). A control that never showed stays hidden.
     func setHoverPainted(_ view: NSView, _ shown: Bool, fades requested: Bool, token: MotionFade = .hover) {
         let reached = !view.isHidden && view.alphaValue > 0
