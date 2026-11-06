@@ -4,15 +4,17 @@ public import Foundation
 /// clones into `~/work/NAME` before its bootstrap script runs. Parsed and checked here, on the Mac; the
 /// machine gets `repo.json` (a record, no secret) and the `repo` step with these values in it.
 ///
-/// No token is ever written to the machine. The step uses the first GitHub path the machine
-/// already has: the lane broker's `lane-gh-credential` when it is git's helper (lane VMs), else
-/// `cmux github credential` when the machine's Cloud agent socket is there (it mints a short
-/// repo-scoped token in memory), else no credential at all (public repositories). Every other
-/// helper, a stored gh login's included, is reset for its git commands. A private repository
-/// with none of these ends `needs_github`. A repository on another host (GitLab, Codeberg, a company
-/// server: any `https://HOST/GROUP/.../NAME`) is cloned with no credential at all, so only a public one
-/// clones; the GitHub paths above are never offered to another host, and one that does not clone
-/// ends `failed`, never `needs_github`: connecting GitHub would not help it.
+/// The step writes no token. On GitHub it uses the first path the machine already has: the lane
+/// broker's `lane-gh-credential` when it is git's helper (lane VMs), else `cmux github credential`
+/// when the machine's Cloud agent socket is there (it mints a short repo-scoped token in memory),
+/// else no credential at all (public repositories). Every other helper, a stored gh login's
+/// included, is reset for its git commands. A private repository with none of these ends
+/// `needs_github`. A repository on another host (GitLab, Codeberg, a company server: any
+/// `https://HOST/GROUP/.../NAME`) uses `cmux gitlab credential` when the person's token for that
+/// host was sealed to the machine (`~/.config/cmux/git-hosts/HOST`, written by its daemon), else no
+/// credential; the GitHub paths are never offered to another host, and one that does not clone
+/// ends `failed`, never `needs_github`: connecting GitHub would not help it. A checkout cloned
+/// through a cmux helper keeps that helper in its own config, so the agent's push works there.
 ///
 /// Prior art: #21028's `cmux vm clone` spec parser and its idempotent clone-or-fetch.
 public struct CloudMachineRepo: Equatable, Sendable {
@@ -170,6 +172,7 @@ public struct CloudMachineRepo: Equatable, Sendable {
             set -u
             d=$(cd "$(dirname "$0")" && pwd)
             url=\#(quoted(url)); ref=\#(quoted(ref ?? "")); dir="$HOME/\#(directory)"; github=\#(isGitHub ? "1" : "0")
+            host=\#(quoted(host)); key="credential.https://$host"
             cred=none; helper=""; status=failed; sha=""; why=""; fresh=""
             result() {
               printf '{"status":"%s","url":"%s","ref":"%s","dir":"%s","credential":"%s","sha":"%s"}\n' \
@@ -190,6 +193,8 @@ public struct CloudMachineRepo: Equatable, Sendable {
               creds="lane-gh"
             fi
             if [ "$github" = 1 ] && [ -S /run/cmux-vm-agent/agent.sock ] && cm=$(command -v cmux); then creds="$creds cmux-github"; fi
+            # Off GitHub: the person's token for this host, sealed to the machine (`cmux gitlab credential`).
+            if [ "$github" = 0 ] && [ -f "$HOME/.config/cmux/git-hosts/$host" ] && cm=$(command -v cmux); then creds="cmux-gitlab"; fi
             creds="$creds anonymous"
             # From here git reads no user or system config (a username that is a secret, an askpass, a
             # helper, a trace target): the chosen helper comes on the command line.
@@ -199,6 +204,7 @@ public struct CloudMachineRepo: Equatable, Sendable {
               case "$1" in
                 lane-gh) helper=$lane ;;
                 cmux-github) helper="!'$cm' github credential" ;;
+                cmux-gitlab) helper="!'$cm' gitlab credential" ;;
                 *) helper="" ;;
               esac
             }
@@ -207,9 +213,9 @@ public struct CloudMachineRepo: Equatable, Sendable {
             # The usernames are emptied for the same reason.
             g() {
               if [ -n "$helper" ]; then
-                set -- -c "credential.https://github.com.helper=$helper" -c credential.https://github.com.useHttpPath=true "$@"
+                set -- -c "$key.helper=$helper" -c "$key.useHttpPath=true" "$@"
               fi
-              git -c credential.helper= -c core.askPass= -c credential.username= -c credential.https://github.com.username= "$@"
+              git -c credential.helper= -c core.askPass= -c credential.username= -c "$key.username=" "$@"
             }
             # A clone or fetch with each path until one works; the checkout after it keeps that path.
             # A clone that failed half way (its checkout) is removed before the next path tries.
@@ -219,7 +225,7 @@ public struct CloudMachineRepo: Equatable, Sendable {
                 [ -n "$fresh" ] && rm -rf "$dir"
               done
               cred=none
-              [ "$github" = 1 ] || die "$url cannot be cloned without credentials (private, not found, or offline); cmux offers none off GitHub"
+              [ "$github" = 1 ] || die "$url cannot be cloned without credentials (private, not found, or offline); add a token for $host to this machine"
               status=needs_github; result
               echo "cmux repo: $url needs access this machine does not have (private, not found, or offline)" >&2
               exit \#(Self.needsGitHubExit)
@@ -268,6 +274,16 @@ public struct CloudMachineRepo: Equatable, Sendable {
               net clone --quiet --filter=blob:none "$url" "$dir"
               switch || { rm -rf "$dir"; die "$why"; }
               status=cloned
+            fi
+            # The checkout keeps the cmux path it cloned with, so the agent's own push and pull there
+            # work (the token is minted or read per git process, never written to the checkout), unless
+            # it has a helper of its own for the host. The empty value first drops a global helper for
+            # the host in this checkout only.
+            if { [ "$cred" = cmux-github ] || [ "$cred" = cmux-gitlab ]; } && ! git -C "$dir" config --local --get-all "$key.helper" >/dev/null; then
+              git -C "$dir" config --local --add "$key.helper" "" &&
+                git -C "$dir" config --local --add "$key.helper" "$helper" &&
+                git -C "$dir" config --local "$key.useHttpPath" true ||
+                echo "cmux repo: cannot keep the $host path in $dir, so a push there needs credentials" >&2
             fi
             sha=$(g -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
             result
