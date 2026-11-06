@@ -867,16 +867,47 @@ impl Engine {
         let saved = self.sessions.saved();
         let isolated =
             matches!(&target, CaptureTarget::Window(_)) && self.desktop.window_capture_isolated();
-        let mut redact: Vec<Rect> = Vec::new();
-        for w in windows.iter().chain(after.iter()) {
-            let skip = isolated
-                || !w.on_screen
-                || w.minimized
-                || matches!(&target, CaptureTarget::Window(id) if w.id == *id)
-                || self.blocked(config, &saved, &self.target_of(w, &names)).is_none();
-            // A window that did not move is painted once.
-            if !skip && !redact.contains(&w.frame) {
-                redact.push(w.frame);
+        let mut redact: Vec<frame::Redaction> = Vec::new();
+        if !isolated {
+            let shown = |w: &Window| w.on_screen && !w.minimized;
+            let is_target =
+                |w: &Window| matches!(&target, CaptureTarget::Window(id) if w.id == *id);
+            // A window covers what is behind it only if it was in front before the
+            // capture and is still there, unmoved, after it.
+            let stable =
+                |w: &Window| after.iter().any(|a| a.id == w.id && a.frame == w.frame && shown(a));
+            // `windows` is front to back: the allowed windows before a denied
+            // one cover it. A denied window seen only after the capture is
+            // painted whole.
+            let mut add = |w: &Window, occluders: Vec<Rect>| {
+                if !redact.iter().any(|r| r.rect == w.frame) {
+                    redact.push(frame::Redaction { rect: w.frame, occluders });
+                }
+            };
+            for (i, w) in windows.iter().enumerate() {
+                if !shown(w)
+                    || is_target(w)
+                    || self.blocked(config, &saved, &self.target_of(w, &names)).is_none()
+                {
+                    continue;
+                }
+                let occluders = windows[..i]
+                    .iter()
+                    .filter(|o| shown(o) && stable(o))
+                    .filter(|o| self.blocked(config, &saved, &self.target_of(o, &names)).is_none())
+                    .map(|o| o.frame)
+                    .collect();
+                add(w, occluders);
+            }
+            for w in &after {
+                let known = windows.iter().any(|b| b.id == w.id && b.frame == w.frame);
+                if !known
+                    && shown(w)
+                    && !is_target(w)
+                    && self.blocked(config, &saved, &self.target_of(w, &names)).is_some()
+                {
+                    add(w, vec![]);
+                }
             }
         }
         let previous = lock(&self.seen).get(&(ctx.session.clone(), key.clone())).map(|(_, d)| *d);

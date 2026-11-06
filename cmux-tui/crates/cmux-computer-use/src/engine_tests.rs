@@ -280,3 +280,16 @@ fn an_isolated_window_capture_paints_nothing_out_of_the_target() {
     let display = isolated.call(&ctx(None), "screenshot", &json!({}));
     assert_eq!(display.body["redacted_windows"], 1);
 }
+
+#[test]
+fn a_denied_window_behind_an_allowed_one_is_not_painted_over_it() {
+    // 1Password (denied) in front of Safari: painted out of a display shot.
+    let front = engine(Arc::new(FakeDesktop::standard()), PolicyConfig::default());
+    assert_eq!(front.call(&ctx(None), "screenshot", &json!({})).body["redacted_windows"], 1);
+    // Safari in front, covering 1Password whole: nothing of 1Password shows,
+    // so nothing is painted (before the fix Safari's pixels were blacked out).
+    let mut desktop = FakeDesktop::standard();
+    desktop.windows.reverse();
+    let behind = engine(Arc::new(desktop), PolicyConfig::default());
+    assert_eq!(behind.call(&ctx(None), "screenshot", &json!({})).body["redacted_windows"], 0);
+}

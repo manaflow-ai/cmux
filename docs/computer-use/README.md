@@ -57,8 +57,11 @@ the agent's words.
 
 - `computerUse.deniedApps` (exact id, `prefix*`, `name:App Name`) holds password
   managers and keychains, System Settings, terminals and cmux by default; the
-  person can remove any entry. Denied windows are painted out of display
-  screenshots, so a whole-screen capture never shows them.
+  person can remove any entry. The visible part of every denied window is
+  painted out of display screenshots (an allowed window in front of it keeps
+  its pixels, less a 12-point margin for rounded corners and shadows), so a
+  whole-screen capture never shows a denied window. A translucent allowed
+  window in front of a denied one shows it blurred, as it does on screen.
 - Protected targets are never usable and not on the list: OS sign-in and
   authentication prompts (SecurityAgent, loginwindow, UAC consent, the polkit
   agents) and cmux Remote itself.
