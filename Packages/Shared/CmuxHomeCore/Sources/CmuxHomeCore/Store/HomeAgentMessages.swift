@@ -89,8 +89,9 @@ struct HomeAgentMessages {
             let chief = summary?.participants.first { $0.id == run.author }?.displayName ?? run.author.rawValue
             for message in run.messages {
                 // A turn that answered several asks in their own threads (user 2026-11-05): an agent's pill goes beside
-                // the send that names it, else beside the turn's first send.
-                let named = turnSends.first { Self.mentions(items[$0].plainText, peer: message.peer) }
+                // the send that names it (the main line's first when several do), else beside the turn's first send.
+                let naming = turnSends.filter { Self.mentions(items[$0].plainText, peer: message.peer) }
+                let named = naming.first { items[$0].threadRoot == nil } ?? naming.first
                 let target = named ?? anchor
                 let sent = named ?? said
                 // Beside the Chief's words, the pills take their place: the main line or the thread they went in.
