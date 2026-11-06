@@ -23,7 +23,8 @@ struct WorkspaceClaudeAccountSwitchTests {
         let result = await workspace.switchClaudeAccount(
             panelId: panelId,
             toAccountNamed: "work",
-            trigger: .manual
+            trigger: .manual,
+            stopsRunningResponse: false
         )
 
         #expect(result == .notClaude)

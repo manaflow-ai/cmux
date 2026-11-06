@@ -157,6 +157,7 @@ struct ClaudeAccountSwitchNoticeTests {
             .remoteUnsupported,
             .agentNotOwnedByPane,
             .alreadySwitching,
+            .agentRunning,
             .transcriptUnavailable,
             .respawnFailed,
         ]
@@ -174,6 +175,7 @@ struct ClaudeAccountSwitchNoticeTests {
             .remoteUnsupported,
             .agentNotOwnedByPane,
             .alreadySwitching,
+            .agentRunning,
             .transcriptUnavailable(accountName: "work"),
             .respawnFailed,
         ])
@@ -187,7 +189,7 @@ struct ClaudeAccountSwitchNoticeTests {
     }
 
     /// The resume a switch from `work` to the default account builds, as
-    /// ``Workspace/switchClaudeAccount(panelId:toAccountNamed:trigger:)`` builds it.
+    /// ``Workspace/switchClaudeAccount(panelId:toAccountNamed:trigger:stopsRunningResponse:)`` builds it.
     private func makeManualResume(paneWasReplaced: Bool) throws -> ClaudeAccountSwitchManualResume {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,

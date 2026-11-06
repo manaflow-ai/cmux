@@ -136,6 +136,25 @@ struct ClaudeAccountSwitchSocketOutcomeTests {
         #expect(Set(messages).count == cases.count)
     }
 
+    /// A response that started while the switch prepared refuses the switch right before the
+    /// restart. The socket answers as it does when the preflight sees the response: the same code
+    /// and the same hint to retry with force.
+    @Test
+    func aResponseFoundBeforeTheRestartRefusesLikeThePreflight() {
+        let found = ClaudeAccountSwitchSocketOutcome.finished(.agentRunning)
+            .controlCallResult(surfaceId: surfaceId, requestedAccountName: "work")
+        let preflight = ClaudeAccountSwitchSocketOutcome.agentRunning
+            .controlCallResult(surfaceId: surfaceId, requestedAccountName: "work")
+
+        guard case .err(let code, _, _) = found else {
+            Issue.record("a refused switch did not map to an error")
+            return
+        }
+        #expect(code == "agent_running")
+        #expect(found == preflight)
+        #expect(ClaudeAccountSwitchSocketOutcome.finished(.agentRunning).resumeNotification == nil)
+    }
+
     @Test
     func refusalsExplainThemselvesLikeTheMenu() {
         // The socket and the menu share wording: the error message is the notice's explanation.

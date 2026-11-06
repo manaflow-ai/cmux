@@ -45,10 +45,12 @@ extension Workspace {
         hasRunningAgentLifecycle(key: Self.claudeAgentLifecycleKey, panelId: panelId)
     }
 
-    /// Whether restarting the pane now would stop a Claude response nobody agreed to stop.
+    /// Whether restarting the pane now would stop a Claude response nobody agreed to stop: Claude
+    /// is mid-response and the caller did not pass `stopsRunningResponse`. A switch asks this
+    /// right before the restart, because a response can start while it scans and copies.
     @MainActor
     func claudeAccountSwitchWouldStopUnapprovedResponse(panelId: UUID, stopsRunningResponse: Bool) -> Bool {
-        false
+        !stopsRunningResponse && isClaudeResponseRunning(panelId: panelId)
     }
 
     /// Whether the pane has a Claude agent. Reads cached agent state only and never loads the
@@ -92,11 +94,17 @@ extension Workspace {
     /// ``ClaudeAccountSwitchResult/switchedWithoutResume(_:_:_:)`` with the built command. The
     /// pane stays marked as switching until then. Remote panes are refused. Confirming a running
     /// turn is the caller's job; this never asks.
+    ///
+    /// - Parameter stopsRunningResponse: Whether the caller agreed to stop a response Claude is
+    ///   giving: the socket's `force`, or the menu's confirmation. Without it, a response that
+    ///   started while the switch scanned and copied refuses the switch with
+    ///   ``ClaudeAccountSwitchResult/agentRunning``, checked right before the restart.
     @MainActor
     func switchClaudeAccount(
         panelId: UUID,
         toAccountNamed name: String,
-        trigger: ClaudeAccountSwitchTrigger
+        trigger: ClaudeAccountSwitchTrigger,
+        stopsRunningResponse: Bool
     ) async -> ClaudeAccountSwitchResult {
         guard Self.claudeAccountSwitchInFlightPanelIds.insert(panelId).inserted else {
             return .alreadySwitching
@@ -193,6 +201,11 @@ extension Workspace {
         // index learns the new session only at its SessionStart.
         guard replacedAgents.startedProcesses(since: agentsBeforeCopy).isEmpty else {
             return .refused(.noClaudeSession)
+        }
+        // The caller checked for a response before the scans and the copy; one that started since
+        // would die with the restart. Read after the last await, so it is current.
+        if claudeAccountSwitchWouldStopUnapprovedResponse(panelId: panelId, stopsRunningResponse: stopsRunningResponse) {
+            return .agentRunning
         }
         let accountEnvironment = ClaudeAccountSwitchSurfaceEnvironment(
             plan: plan,

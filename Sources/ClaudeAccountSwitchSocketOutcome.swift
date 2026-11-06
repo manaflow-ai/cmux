@@ -8,6 +8,7 @@ enum ClaudeAccountSwitchSocketOutcome: Equatable, Sendable {
     /// account name the pane's registry does not know).
     case finished(ClaudeAccountSwitchResult)
     /// Claude is mid-response in the pane and the request did not pass `force`; nothing changed.
+    /// A response the switch itself finds right before the restart answers the same way.
     case agentRunning
 
     /// The socket reply for this outcome. This is the one place a switch result becomes a
@@ -25,14 +26,7 @@ enum ClaudeAccountSwitchSocketOutcome: Equatable, Sendable {
         let result: ClaudeAccountSwitchResult
         switch self {
         case .agentRunning:
-            return .err(
-                code: "agent_running",
-                message: String(
-                    localized: "socket.claudeAccountSwitch.agentRunning",
-                    defaultValue: "Claude is responding in this terminal. Retry with force to stop the response and switch."
-                ),
-                data: Self.errorData(surfaceId: surfaceId)
-            )
+            return Self.agentRunningError(surfaceId: surfaceId)
         case .finished(let finished):
             result = finished
         }
@@ -68,6 +62,9 @@ enum ClaudeAccountSwitchSocketOutcome: Equatable, Sendable {
             code = "agent_not_owned_by_pane"
         case .alreadySwitching:
             code = "already_switching"
+        case .agentRunning:
+            // A response that started while the switch prepared: the same answer as the preflight's.
+            return Self.agentRunningError(surfaceId: surfaceId)
         case .transcriptUnavailable:
             code = "transcript_unavailable"
         case .respawnFailed:
@@ -164,6 +161,17 @@ enum ClaudeAccountSwitchSocketOutcome: Equatable, Sendable {
         case .transcriptResyncFailed:
             return "transcript_resync_failed"
         }
+    }
+
+    private static func agentRunningError(surfaceId: UUID) -> ControlCallResult {
+        .err(
+            code: "agent_running",
+            message: String(
+                localized: "socket.claudeAccountSwitch.agentRunning",
+                defaultValue: "Claude is responding in this terminal. Retry with force to stop the response and switch."
+            ),
+            data: errorData(surfaceId: surfaceId)
+        )
     }
 
     private static func errorData(surfaceId: UUID) -> JSONValue {

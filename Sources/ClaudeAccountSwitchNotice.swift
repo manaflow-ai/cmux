@@ -38,6 +38,9 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     case agentNotOwnedByPane
     /// A switch for the pane is already in progress.
     case alreadySwitching
+    /// Claude started responding while the switch prepared, before anyone agreed to stop it; the
+    /// pane was left alone.
+    case agentRunning
     /// The transcript could not be made available to `accountName`; the pane was left alone.
     case transcriptUnavailable(accountName: String)
     /// The terminal could not be restarted; the pane was left alone.
@@ -46,7 +49,7 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     /// The notice for `result`, or `nil` when the conversation resumed on the new account.
     ///
     /// - Parameters:
-    ///   - result: What ``Workspace/switchClaudeAccount(panelId:toAccountNamed:trigger:)`` returned.
+    ///   - result: What ``Workspace/switchClaudeAccount(panelId:toAccountNamed:trigger:stopsRunningResponse:)`` returned.
     ///   - requestedAccountName: The account the user picked, named by results that carry no plan.
     init?(result: ClaudeAccountSwitchResult, requestedAccountName: String) {
         switch result {
@@ -89,6 +92,8 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
             self = .agentNotOwnedByPane
         case .alreadySwitching:
             self = .alreadySwitching
+        case .agentRunning:
+            self = .agentRunning
         case .transcriptUnavailable:
             self = .transcriptUnavailable(accountName: requestedAccountName)
         case .respawnFailed:
@@ -250,6 +255,11 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
             return String(
                 localized: "dialog.claudeAccountSwitch.alreadySwitching.message",
                 defaultValue: "This terminal is already switching Claude accounts."
+            )
+        case .agentRunning:
+            return String(
+                localized: "dialog.claudeAccountSwitch.agentRunning.message",
+                defaultValue: "Claude started responding in this terminal while cmux prepared the switch, so the terminal was left unchanged. Choose the account again to stop the response and switch."
             )
         case .transcriptUnavailable(let accountName):
             return String(

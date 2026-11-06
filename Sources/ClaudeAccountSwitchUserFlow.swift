@@ -4,8 +4,9 @@ import Foundation
 /// The one path the terminal context menu and the command palette take to move a Claude pane to
 /// another account.
 ///
-/// It asks first when Claude is mid-response, because the switch replaces the pane's process.
-/// It then switches through ``Workspace/switchClaudeAccount(panelId:toAccountNamed:trigger:)``
+/// It asks first when Claude is mid-response, because the switch replaces the pane's process. A
+/// response that starts after that, while the switch prepares, refuses the switch instead.
+/// It then switches through ``Workspace/switchClaudeAccount(panelId:toAccountNamed:trigger:stopsRunningResponse:)``
 /// and explains any outcome other than a resumed conversation with a
 /// ``ClaudeAccountSwitchNotice``. When the resume command was never typed but the respawned pane
 /// is still there, the notice offers to type it.
@@ -63,14 +64,16 @@ struct ClaudeAccountSwitchUserFlow {
     /// - Returns: The switch result, or `nil` when the user cancelled and nothing changed.
     @discardableResult
     func run(workspace: Workspace, panelId: UUID, accountName: String) async -> ClaudeAccountSwitchResult? {
-        if workspace.isClaudeResponseRunning(panelId: panelId),
-           !confirmStoppingResponse(accountName) {
+        // Asking is agreeing to stop only the response running now.
+        let stopsRunningResponse = workspace.isClaudeResponseRunning(panelId: panelId)
+        if stopsRunningResponse, !confirmStoppingResponse(accountName) {
             return nil
         }
         let result = await workspace.switchClaudeAccount(
             panelId: panelId,
             toAccountNamed: accountName,
-            trigger: .manual
+            trigger: .manual,
+            stopsRunningResponse: stopsRunningResponse
         )
         report(result, accountName: accountName, workspace: workspace, panelId: panelId)
         return result
