@@ -7,7 +7,10 @@ import { afterEach, expect, jest, test } from "bun:test";
 /// A socket to the mock daemon that can go silent: from `silence()` on, nothing the page sends
 /// reaches the daemon and nothing comes back, while the socket stays open, as when the acpmux
 /// behind the app's bridge is gone. `holds` names methods the daemon receives and never answers
-/// (a slow daemon's long read); every other method is answered as before.
+/// (a slow daemon's long read); every other method is answered as before. Like the app's bridge
+/// (`AgentPaneTransport+Check.swift`), it answers `_acpmux/status` itself, from the daemon's Unix
+/// socket: with no daemon, a "status unavailable" error frame still comes back. The mock daemon
+/// has no machines, so `_acpmux/peers` gets an empty list from it.
 class SilenceableSocket {
   readyState = 0;
   onopen: (() => void) | null = null;
@@ -38,10 +41,20 @@ class SilenceableSocket {
   }
   send(raw: string): void {
     this.sent.push(raw);
+    const { id, method } = JSON.parse(raw) as { id?: number; method?: string };
+    if (method === "_acpmux/status" && this.silent) {
+      const error = { code: -32000, message: "status unavailable" };
+      return this.reply({ jsonrpc: "2.0", id, error });
+    }
     if (this.silent) return;
-    const method = (JSON.parse(raw) as { method?: string }).method;
     if (method && this.holds.has(method)) return;
+    if (method === "_acpmux/peers") return this.reply({ jsonrpc: "2.0", id, result: { peers: [] } });
     this.daemon.send(raw);
+  }
+  private reply(frame: unknown): void {
+    queueMicrotask(() => {
+      if (this.readyState === 1) this.onmessage?.({ data: JSON.stringify(frame) });
+    });
   }
   close(): void {
     if (this.readyState === 3) return;
@@ -120,6 +133,28 @@ test("a slow daemon that still answers keeps its socket and its long read", asyn
     expect(lost()).toBe(0);
     expect(settled).toBe(false);
     expect(socket.readyState).toBe(1);
+  } finally {
+    client.close();
+  }
+});
+
+test("a probe the app's bridge answers itself, with no daemon behind it, still ends the socket within 25 s", async () => {
+  const { client, socket, request, lost, mockHost } = await connected([]);
+  try {
+    jest.useFakeTimers();
+    socket.silence();
+    // The pane's own status read, as its peers refresh sends: the bridge answers it with an error.
+    void request("_acpmux/status", {}, 1_000).catch(() => undefined);
+    const read = request("_acpmux/events", { sessionId: mockHost.sessionId, afterSeq: 0, limit: 1 }, 1_000);
+    read.catch(() => undefined);
+    for (let second = 0; second < 25 && lost() === 0; second++) {
+      jest.advanceTimersByTime(1_000);
+      await settle();
+    }
+    // Frames came back, but none from a daemon: the socket is given up all the same.
+    expect(socket.sent.some((raw) => raw.includes('"_acpmux/status"'))).toBe(true);
+    expect(lost()).toBe(1);
+    await expect(read).rejects.toMatchObject({ interrupted: true });
   } finally {
     client.close();
   }
