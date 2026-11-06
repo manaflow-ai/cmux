@@ -269,3 +269,25 @@ test("two held sends behind the switch each go with the ticket their own Enter b
     { text: "second", promptId: "held-2", ticket: "ticket-2" },
   ]);
 });
+
+test("a held send that joins the switch while the tickets resolve goes with its own ticket too", async () => {
+  const pane = harness();
+  pane.store.setHandlers({ gesture: async () => undefined });
+  pane.store.connect(pane.port(pane.slowStart));
+  const opened = pane.store.switchTo("claude", "/Users/dev");
+  await laterTurn();
+  let resolveFirst!: (ticket: string) => void;
+  const firstTicket = new Promise<string | undefined>((resolve) => (resolveFirst = resolve));
+  const first = pane.store.send("first", [], undefined, "held-1", true, firstTicket);
+  pane.start("s1");
+  // The drain waits for the first prompt's ticket; the second is sent meanwhile.
+  for (let step = 0; step < 10; step += 1) await Promise.resolve();
+  const second = pane.store.send("second", [], undefined, "held-2", true, Promise.resolve("ticket-2"));
+  resolveFirst("ticket-1");
+  await opened;
+  await Promise.all([first, second]);
+  expect(pane.sent).toEqual([
+    { text: "first", promptId: "held-1", ticket: "ticket-1" },
+    { text: "second", promptId: "held-2", ticket: "ticket-2" },
+  ]);
+});
