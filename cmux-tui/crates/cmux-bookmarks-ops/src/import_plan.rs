@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::netscape::{self, Document, folder, link};
-use crate::{BOOKMARKS_BAR, BookmarkImport, BookmarkImportNode};
+use cmux_bookmarks_core::{BOOKMARKS_BAR, BookmarkImport, BookmarkImportNode};
 
 /// A flat imported bookmark, with its folder path from the source's root
 /// (the shape the app's browser import reads from every browser).

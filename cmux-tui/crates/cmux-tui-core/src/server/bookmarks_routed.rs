@@ -33,8 +33,9 @@ use crate::Actor;
 use crate::resource::ResourceError;
 use crate::workspace_registry::WorkspaceMutation;
 use crate::workspace_registry::personal_bookmarks::{BookmarkError, BookmarkOp};
-use cmux_bookmarks_core::import_plan::{self, SourceItem};
-use cmux_bookmarks_core::{Tree, netscape, search};
+use cmux_bookmarks_core::Tree;
+use cmux_bookmarks_ops::import_plan::{self, SourceItem};
+use cmux_bookmarks_ops::{netscape, search};
 
 /// The routed owner's name in spec/page-router.json.
 pub(super) const OWNER: &str = "bookmarks.tree";

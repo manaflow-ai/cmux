@@ -1,9 +1,9 @@
 //! The Netscape file reader and writer, and the import plans (ported from
 //! the app's Swift codec, which they replace).
 
-use cmux_bookmarks_core::import_plan::{self, SourceItem};
-use cmux_bookmarks_core::netscape::{self, decode};
 use cmux_bookmarks_core::{Bookmark, BookmarkImportNode, Tree};
+use cmux_bookmarks_ops::import_plan::{self, SourceItem};
+use cmux_bookmarks_ops::netscape::{self, decode};
 
 fn node(id: u32, parent: &str, kind: &str, title: &str, url: Option<&str>) -> Bookmark {
     Bookmark {
@@ -63,7 +63,7 @@ fn reads_sloppy_files() {
     let html =
         "<dl><dt><h3 add_date=\"1600000000000000\">A</h3><dl><dt><a href=\"https://a.test\">x</a>";
     let document = netscape::read(html);
-    assert_eq!(document.bar, None);
+    assert!(document.bar.is_none());
     assert_eq!(titles(&document.other), ["A"]);
     assert_eq!(document.other[0].created_ms, Some(1_600_000_000_000));
     assert_eq!(titles(document.other[0].children.as_deref().unwrap_or_default()), ["x"]);

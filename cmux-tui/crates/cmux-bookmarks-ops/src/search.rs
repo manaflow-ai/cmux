@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use unicode_normalization::UnicodeNormalization as _;
 
-use crate::{Bookmark, Tree};
+use cmux_bookmarks_core::{Bookmark, Tree};
 
 /// Bonus over an equal history match: a bookmarked page ranks like a
 /// typed one (scores stay below the typed row's 1000).
@@ -224,7 +224,7 @@ pub fn parse_typed(text: &str) -> Option<String> {
         }
         let scheme_ok = !scheme.is_empty()
             && scheme.chars().all(|c| c.is_alphanumeric() || matches!(c, '+' | '-' | '.'));
-        if scheme_ok && crate::validate_url(trimmed).is_ok() {
+        if scheme_ok && cmux_bookmarks_core::validate_url(trimmed).is_ok() {
             return Some(trimmed.to_string());
         }
     }
@@ -232,5 +232,5 @@ pub fn parse_typed(text: &str) -> Option<String> {
         return None;
     }
     let url = format!("https://{trimmed}");
-    crate::validate_url(&url).ok().map(|()| url)
+    cmux_bookmarks_core::validate_url(&url).ok().map(|()| url)
 }

@@ -1047,8 +1047,16 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "unicode-normalization",
  "url",
+]
+
+[[package]]
+name = "cmux-bookmarks-ops"
+version = "0.1.0"
+dependencies = [
+ "cmux-bookmarks-core",
+ "serde",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -1960,6 +1968,7 @@ dependencies = [
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-bookmarks-core",
+ "cmux-bookmarks-ops",
  "cmux-conductor-import",
  "cmux-config",
  "cmux-conversation",

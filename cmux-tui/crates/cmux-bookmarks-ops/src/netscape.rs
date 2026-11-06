@@ -5,11 +5,13 @@
 //! Bar as the folder marked `PERSONAL_TOOLBAR_FOLDER="true"`, then Other
 //! Bookmarks' children at the top level, and [`read`] returns the same tree.
 
-use crate::{BOOKMARKS_BAR, BookmarkImportNode, OTHER_BOOKMARKS, Tree, has_url_scheme};
+use cmux_bookmarks_core::{
+    BOOKMARKS_BAR, BookmarkImportNode, OTHER_BOOKMARKS, Tree, has_url_scheme,
+};
 
 /// A parsed file: the toolbar folder's children (`None` when the file has
 /// none) and every other top-level node, in file order.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default)]
 pub struct Document {
     pub bar: Option<Vec<BookmarkImportNode>>,
     pub other: Vec<BookmarkImportNode>,
@@ -247,7 +249,7 @@ fn append(tree: &Tree, parent: &str, depth: usize, out: &mut String) {
         if node.kind == "folder" {
             out.push_str(&format!("{indent}<DT><H3{added}>{}</H3>\n", escape(&node.title)));
             out.push_str(&format!("{indent}<DL><p>\n"));
-            if depth <= crate::MAX_BOOKMARK_DEPTH {
+            if depth <= cmux_bookmarks_core::MAX_BOOKMARK_DEPTH {
                 append(tree, &node.id, depth + 1, out);
             }
             out.push_str(&format!("{indent}</DL><p>\n"));

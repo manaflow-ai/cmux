@@ -1,10 +1,10 @@
 //! Search, ranking and the URL rules (ported from the app's Swift
 //! `BookmarkRanker`, `BookmarkSearch` and `BookmarkURL`, which they replace).
 
-use cmux_bookmarks_core::search::{
+use cmux_bookmarks_core::{Bookmark, Tree};
+use cmux_bookmarks_ops::search::{
     display_text, favicon_key, fold, parse_typed, rank, score, search, url_key,
 };
-use cmux_bookmarks_core::{Bookmark, Tree};
 
 const NOW: u64 = 1_700_000_000_000;
 

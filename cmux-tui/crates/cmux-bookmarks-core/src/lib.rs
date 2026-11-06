@@ -33,10 +33,7 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-pub mod import_plan;
-pub mod netscape;
 pub mod preview;
-pub mod search;
 mod tree;
 
 pub use tree::{Applied, Tree};
@@ -231,7 +228,7 @@ pub struct BookmarkUpdate {
 }
 
 /// One node of `import-bookmarks`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BookmarkImportNode {
     pub kind: String,

@@ -3,9 +3,3 @@
 
 #[path = "bookmarks/tree.rs"]
 mod bookmark_tree;
-
-#[path = "bookmarks/codec.rs"]
-mod bookmark_codec;
-
-#[path = "bookmarks/search.rs"]
-mod bookmark_search;
