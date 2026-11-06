@@ -78,7 +78,11 @@ const live = (work: AcpmuxActivity[]) => [
   row("now", "activity", { items: [command("git status"), command("bun test", { status: "in_progress" })] }),
 ];
 const shaped = (work: AcpmuxActivity[]) => turnView(live(work), new Set(), { working: true, liveRuns: true });
-const words = (entry: AcpmuxRow) => renderToStaticMarkup(<ToolRows row={entry} />).replace(/<[^>]+>/g, " ");
+// Tags to spaces, then one space per gap: a row's verb sits in its own element (ToolVerb.tsx).
+const words = (entry: AcpmuxRow) =>
+  renderToStaticMarkup(<ToolRows row={entry} />)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ");
 const toggles = (entry: AcpmuxRow) =>
   (renderToStaticMarkup(<ToolRows row={entry} />).match(/aria-expanded/g) ?? []).length;
 
@@ -94,7 +98,7 @@ test("a run between two messages is one line naming its work in the order it cam
   const work = shaped(mixed).find((entry) => entry.id === "work")!;
   expect(work.foldRun).toBe(true);
   expect(toggles(work)).toBe(1);
-  expect(words(work)).toContain("Edited 2 files, read 2 files, ran a command");
+  expect(words(work)).toContain("Edited 2 files, ran a command, and performed 2 other actions");
   // Closed: none of its calls draws under the line.
   expect(words(work)).not.toContain("bun test net");
 });
@@ -103,7 +107,8 @@ test("the app routes a folded mixed run to tool rows and estimates one summary l
   const work = shaped(mixed).find((entry) => entry.id === "work")!;
   expect(work.foldRun).toBe(true);
   expect(isEditRow(work)).toBe(false);
-  expect(layoutConversation([work], 760).heights[0]).toBe(28);
+  // One 22px line (design/chat-transcript.md "One-line row pitch", #29965).
+  expect(layoutConversation([work], 760).heights[0]).toBe(22);
 });
 
 test("the line's glyph is the run's main kind of work", () => {
@@ -139,10 +144,11 @@ test("the run the agent works in keeps its call in flight out, on the live line"
   expect(rows.find((entry) => entry.doing)?.doing).toContain("bun test");
 });
 
-test("a call still running in an earlier run turns the line's glyph", () => {
+// Leo, 2026-10-31: "I FUCKING HATE THESE SPINNERS FOR TOOL CALLS AND SHIT".
+test("a call still running in an earlier run keeps the line's glyph, never a spinner", () => {
   const background = command("bun run dev", { status: "in_progress", background: true });
   const work = shaped([...mixed, background]).find((entry) => entry.id === "work")!;
-  expect(renderToStaticMarkup(<ToolRows row={work} />)).toContain("cv-spinner");
+  expect(renderToStaticMarkup(<ToolRows row={work} />)).not.toContain("cv-spinner");
 });
 
 test("a failed call is counted on the collapsed line", () => {
@@ -198,7 +204,7 @@ test("an edit waiting for its permission keeps its row in an ended turn's folded
   // The opened Worked for's folded run itself, not the edited-files card after it: the edit keeps
   // its own row between the summary lines.
   expect(ended.id).toBe("work3:fold");
-  expect(words(ended)).toContain("Read a file, ran a command");
+  expect(words(ended)).toContain("Read a file and ran a command");
   expect(words(ended)).toContain("Edit src/a.ts");
 });
 

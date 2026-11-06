@@ -10,28 +10,31 @@ import { Window } from "happy-dom";
 import {
   MESSAGE_REVEAL,
   REVEALED_TURN_CLASS,
+  notifyRevealRowsChanged,
   revealMessageWhenShown,
   revealedMessage,
   scrollToRow,
 } from "../src/agent-session/acpmux/links";
 import { findRowIndex } from "../src/agent-session/acpmux/conversation/chatFind";
 import { messageRevealTarget, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { userScrollIntent } from "../src/agent-session/acpmux/conversation/userScroll";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 
 function transcript(rowIds: string[]) {
   const window = new Window();
   const document = window.document;
-  document.body.innerHTML = rowIds.map((id) => `<div data-row-id="${id}">row</div>`).join("");
+  document.body.innerHTML = `<div class="acpmux-scroll">${rowIds.map((id) => `<div data-row-id="${id}">row</div>`).join("")}</div>`;
   const scrolled: string[] = [];
   for (const row of document.querySelectorAll("[data-row-id]")) {
     (row as unknown as { scrollIntoView: () => void }).scrollIntoView = () => {
       scrolled.push((row as unknown as HTMLElement).dataset.rowId ?? "");
     };
   }
-  return { root: document as unknown as ParentNode, scrolled, document };
+  const scroller = document.querySelector(".acpmux-scroll")!;
+  return { root: document as unknown as ParentNode, scrolled, document, window, scroller };
 }
 
-// The wait for a revealed row to be drawn polls on timers; these tests run it on the fake clock.
+// Only the wait deadline uses a timer; mounted rows are reported by the DOM's mutation observer.
 const onFakeClock = (body: () => Promise<void>) => async () => {
   jest.useFakeTimers();
   try {
@@ -64,7 +67,7 @@ describe("revealing one message", () => {
 
     expect(revealed).toBe(true);
     expect(asked).toEqual(["msg_01"]);
-    expect(scrolled).toEqual(["assistant-2"]);
+    expect(scrolled).toEqual([]);
     expect(document.querySelector('[data-row-id="assistant-2"]')?.classList.contains(REVEALED_TURN_CLASS)).toBe(true);
   });
 
@@ -73,19 +76,78 @@ describe("revealing one message", () => {
     onFakeClock(async () => {
       // What virtualization does: the transcript scrolls by the row's place, and the element appears
       // a frame or two later. The reveal has already answered by then.
-      const { root, scrolled, document } = transcript(["user-1"]);
+      const { root, scrolled, document, window, scroller } = transcript(["user-1"]);
 
-      expect(await revealMessageWhenShown("msg_01", () => "assistant-9", root, { waitMs: 300, pollMs: 10 })).toBe(true);
+      expect(
+        await revealMessageWhenShown("msg_01", () => "assistant-9", root, {
+          waitMs: 300,
+          pollMs: 10,
+        }),
+      ).toBe(true);
       expect(scrolled).toEqual([]);
 
-      const body = document.body as unknown as { innerHTML: string };
-      body.innerHTML += '<div data-row-id="assistant-9">row</div>';
+      scroller.insertAdjacentHTML("beforeend", '<div data-row-id="assistant-9">row</div>');
       const row = document.querySelector('[data-row-id="assistant-9"]');
       (row as unknown as { scrollIntoView: () => void }).scrollIntoView = () => scrolled.push("assistant-9");
 
-      jest.advanceTimersByTime(60);
-      expect(scrolled).toEqual(["assistant-9"]);
+      await new Promise<void>((resolve) => window.queueMicrotask(resolve));
+      expect(scrolled).toEqual([]);
       expect(row?.classList.contains(REVEALED_TURN_CLASS)).toBe(true);
+    }),
+  );
+
+  test("marks the mounted copy inside an open fold without another scroll", async () => {
+    const { root, scrolled, document } = transcript(["assistant-2:fold"]);
+
+    expect(await revealMessageWhenShown("msg_01", () => "assistant-2", root)).toBe(true);
+    expect(scrolled).toEqual([]);
+    expect(document.querySelector('[data-row-id="assistant-2:fold"]')?.classList.contains(REVEALED_TURN_CLASS)).toBe(
+      true,
+    );
+  });
+
+  test(
+    "manual input cancels a row's pending highlight",
+    onFakeClock(async () => {
+      const { root, scrolled, document, window, scroller } = transcript(["user-1"]);
+
+      expect(await revealMessageWhenShown("msg_01", () => "assistant-9", root, { waitMs: 300 })).toBe(true);
+      userScrollIntent(scroller as unknown as HTMLElement).mark();
+      scroller.insertAdjacentHTML("beforeend", '<div data-row-id="assistant-9">row</div>');
+      const row = document.querySelector('[data-row-id="assistant-9"]');
+      (row as unknown as { scrollIntoView: () => void }).scrollIntoView = () => scrolled.push("assistant-9");
+
+      await new Promise<void>((resolve) => window.queueMicrotask(resolve));
+      expect(scrolled).toEqual([]);
+      expect(row?.classList.contains(REVEALED_TURN_CLASS)).toBe(false);
+    }),
+  );
+
+  test(
+    "an unmounted row does no repeated scanning and stops waiting at its deadline",
+    onFakeClock(async () => {
+      const { root, document, window, scroller } = transcript(["user-1"]);
+      const scan = jest.spyOn(root, "querySelectorAll");
+      try {
+        expect(
+          await revealMessageWhenShown("msg_01", () => "assistant-9", root, {
+            waitMs: 300,
+            pollMs: 10,
+          }),
+        ).toBe(true);
+        const initialScans = scan.mock.calls.length;
+        jest.advanceTimersByTime(200);
+        expect(scan.mock.calls.length).toBe(initialScans);
+        jest.advanceTimersByTime(100);
+        scroller.insertAdjacentHTML("beforeend", '<div data-row-id="assistant-9">row</div>');
+        await new Promise<void>((resolve) => window.queueMicrotask(resolve));
+        expect(scan.mock.calls.length).toBe(initialScans);
+        expect(document.querySelector('[data-row-id="assistant-9"]')?.classList.contains(REVEALED_TURN_CLASS)).toBe(
+          false,
+        );
+      } finally {
+        scan.mockRestore();
+      }
     }),
   );
 
@@ -169,30 +231,40 @@ describe("where a revealed message's row is", () => {
     const { root, scrolled } = transcript(["assistant-2"]);
     let row: string | undefined;
 
-    const revealed = revealMessageWhenShown("msg_01", () => row, root, { waitMs: 2000, pollMs: 10 });
+    const revealed = revealMessageWhenShown("msg_01", () => row, root, {
+      waitMs: 2000,
+      pollMs: 10,
+    });
     row = "assistant-2";
+    notifyRevealRowsChanged();
 
     expect(await revealed).toBe(true);
-    expect(scrolled).toEqual(["assistant-2"]);
+    expect(scrolled).toEqual([]);
   });
 
   test(
     "a later reveal stops the earlier one's row from pulling the view back",
     onFakeClock(async () => {
-      const { root, scrolled, document } = transcript(["user-1"]);
+      const { root, scrolled, document, window, scroller } = transcript(["user-1"]);
 
-      expect(await revealMessageWhenShown("msg_01", () => "assistant-1", root, { waitMs: 300, pollMs: 10 })).toBe(true);
+      expect(
+        await revealMessageWhenShown("msg_01", () => "assistant-1", root, {
+          waitMs: 300,
+          pollMs: 10,
+        }),
+      ).toBe(true);
       expect(await revealMessageWhenShown("msg_02", () => "user-1", root, { waitMs: 300, pollMs: 10 })).toBe(true);
-      expect(scrolled).toEqual(["user-1"]);
+      expect(scrolled).toEqual([]);
+      expect(document.querySelector('[data-row-id="user-1"]')?.classList.contains(REVEALED_TURN_CLASS)).toBe(true);
 
       // The first link's row is drawn after the reader has already been taken to the second's.
-      const body = document.body as unknown as { innerHTML: string };
-      body.innerHTML += '<div data-row-id="assistant-1">row</div>';
+      scroller.insertAdjacentHTML("beforeend", '<div data-row-id="assistant-1">row</div>');
       const late = document.querySelector('[data-row-id="assistant-1"]');
       (late as unknown as { scrollIntoView: () => void }).scrollIntoView = () => scrolled.push("assistant-1");
 
-      jest.advanceTimersByTime(80);
-      expect(scrolled).toEqual(["user-1"]);
+      await new Promise<void>((resolve) => window.queueMicrotask(resolve));
+      expect(scrolled).toEqual([]);
+      expect(late?.classList.contains(REVEALED_TURN_CLASS)).toBe(false);
     }),
   );
 
@@ -201,7 +273,7 @@ describe("where a revealed message's row is", () => {
     onFakeClock(async () => {
       // Row ids start over with each session (`assistant-<seq>`), so the id of a row still waiting to
       // be drawn can belong to an unrelated row in the chat the pane has moved to.
-      const { root, scrolled, document } = transcript(["user-1"]);
+      const { root, scrolled, document, window, scroller } = transcript(["user-1"]);
       let chat: string | undefined = "session-a";
 
       expect(
@@ -214,12 +286,11 @@ describe("where a revealed message's row is", () => {
       expect(scrolled).toEqual([]);
 
       chat = "session-b";
-      const body = document.body as unknown as { innerHTML: string };
-      body.innerHTML += '<div data-row-id="assistant-9">another chat\'s row</div>';
+      scroller.insertAdjacentHTML("beforeend", '<div data-row-id="assistant-9">another chat\'s row</div>');
       const other = document.querySelector('[data-row-id="assistant-9"]');
       (other as unknown as { scrollIntoView: () => void }).scrollIntoView = () => scrolled.push("assistant-9");
 
-      jest.advanceTimersByTime(80);
+      await new Promise<void>((resolve) => window.queueMicrotask(resolve));
       expect(scrolled).toEqual([]);
       expect(other?.classList.contains(REVEALED_TURN_CLASS)).toBe(false);
     }),

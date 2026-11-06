@@ -25,6 +25,17 @@ use super::mirror::{Origin, SetOp};
 use super::store::{params, risk, text, to_value};
 use super::supervisor::{ApiError, Supervisor};
 
+#[derive(Debug, Serialize)]
+struct SessionInfoPanel {
+    app: String,
+    section: String,
+    title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    symbol: Option<String>,
+    #[serde(rename = "maxRows", skip_serializing_if = "Option::is_none")]
+    max_rows: Option<u64>,
+}
+
 /// The largest asset `asset.get` answers (an icon, never a bundle).
 const MAX_ASSET_BYTES: usize = 512 * 1024;
 /// The most log lines `logs` answers.
@@ -35,6 +46,10 @@ const MAX_LOG_LINES: usize = 500;
 struct AppParams {
     app: String,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyParams {}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -107,6 +122,32 @@ fn image_type(path: &str) -> Option<&'static str> {
 }
 
 impl Supervisor {
+    /// The Session Info sections (`cmux.session.info.section/1`) of installed,
+    /// enabled and visible apps. A v2 app implements an interface once, so
+    /// the section id is the interface name (as the native `AppImplementation.id`).
+    pub(super) fn session_info_panels(&self) -> Value {
+        const INTERFACE: &str = "cmux.session.info.section/1";
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let panels: Vec<SessionInfoPanel> = inner
+            .mirror
+            .apps
+            .iter()
+            .filter(|(_, record)| record.installed && record.enabled && !record.hidden)
+            .filter_map(|(app, _)| {
+                let entry =
+                    inner.catalog.packages.get(app)?.manifest.get("implements")?.get(INTERFACE)?;
+                Some(SessionInfoPanel {
+                    app: app.clone(),
+                    section: INTERFACE.to_string(),
+                    title: entry.get("title").map_or_else(|| app.clone(), text),
+                    symbol: entry.get("symbol").and_then(Value::as_str).map(str::to_string),
+                    max_rows: entry.pointer("/options/maxRows").and_then(Value::as_u64),
+                })
+            })
+            .collect();
+        json!({ "panels": panels })
+    }
+
     /// One panel op, or `None` when `op` is not one.
     pub(super) fn panel_call(
         &self,
@@ -116,6 +157,7 @@ impl Supervisor {
         origin: Origin,
     ) -> Option<Result<Value, ApiError>> {
         Some(match op {
+            "apps.panels.list" => params::<EmptyParams>(args).map(|_| self.session_info_panels()),
             "apps.grants.get" => params(args).and_then(|p| to_value(self.grants_get(p)?)),
             "apps.logs" => params(args).and_then(|p| self.logs_tail(client, p)),
             "apps.asset.get" => params(args).and_then(|p| self.asset_get(p)),

@@ -10,9 +10,12 @@ import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
 // Leo 2026-10-22 on a claude-sr2 chat: "this should just show the effort too right? and then the
 // effort tells you what you're already currrently on?" The chat ran the agent's default effort on
 // a Claude Code profile the model catalog does not map; its model button names the model's own
-// level (Medium) and the Effort submenu checks it.
+// level (Medium) and the inline effort control checks it.
 
-type Props = { effort: string; update?: boolean };
+/// `alias`: the chat asked for Claude Code's `opus` alias, which acpmux names "Opus" until Claude
+/// Code's list answers; its model option reports the release it runs (Leo 2026-11-02, over a chip
+/// reading "Opus Medium": "WHY DOES IT ONLY SHOW OPUS").
+type Props = { effort: string; update?: boolean; alias?: boolean };
 
 // An agent CLI update on offer: the button once drew a dot between the model and its effort
 // ("Opus 5.5 • Medium"; Leo 2026-10-22: "BRO WTF NO WE FUCKING HATE THE DOT").
@@ -43,7 +46,7 @@ const catalog = [
   { id: "claude-sr2", name: "claude-sr2", family: "claude-sr2", models: PROFILE_MODELS },
 ] as AcpmuxSnapshot["catalog"];
 
-function snapshotFor(effort: string): AcpmuxSnapshot {
+function snapshotFor(effort: string, alias = false): AcpmuxSnapshot {
   return {
     type: "snapshot",
     protocolVersion: 1,
@@ -58,7 +61,7 @@ function snapshotFor(effort: string): AcpmuxSnapshot {
       sessionId: "gallery-default-effort",
       harness: "claude-sr2",
       family: "claude-sr2",
-      model: "claude-opus-5-5",
+      model: alias ? "opus" : "claude-opus-5-5",
       turnCount: 1,
       configOptions: [
         {
@@ -87,9 +90,9 @@ function snapshotFor(effort: string): AcpmuxSnapshot {
   } as AcpmuxSnapshot;
 }
 
-function GalleryDefaultEffort({ effort: initialEffort, update }: Props) {
+function GalleryDefaultEffort({ effort: initialEffort, update, alias }: Props) {
   const [effort, setEffort] = useState(initialEffort);
-  const snapshot = useMemo(() => snapshotFor(effort), [effort]);
+  const snapshot = useMemo(() => snapshotFor(effort, alias), [effort, alias]);
   const pickerCatalog = useMemo(
     () =>
       buildPickerCatalog({
@@ -118,16 +121,23 @@ function GalleryDefaultEffort({ effort: initialEffort, update }: Props) {
 
 const MODEL = { role: "button", name: "Model" } as const;
 
+/// The running model's effort is a side dropdown beside its row (#27948): open it, then wait for its
+/// checked level. A menu without one keeps its levels in the menu itself.
+const RUNNING_EFFORT = ".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger";
 const openEffort: Play = async (ctx) => {
   await ctx.click(MODEL);
-  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-quick-menu [role="menuitemradio"]') !== null);
-  // Base UI's submenu trigger opens from the keyboard (a mouse press is ignored while it opens on hover).
-  await ctx.focus({ role: "menuitem", name: /^Effort/ });
-  await ctx.press("Enter");
-  await ctx.waitFor(() =>
-    [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu")].some(
-      (menu) => !menu.querySelector(".acpmux-quick-sub") && menu.querySelector('[aria-checked="true"]') !== null,
-    ),
+  await ctx.waitFor(
+    () =>
+      ctx.document.querySelector(RUNNING_EFFORT) !== null ||
+      ctx.document.querySelector('.acpmux-quick-menu .acpmux-quick-effort-segment[aria-checked="true"]') !== null,
+  );
+  if (ctx.document.querySelector(RUNNING_EFFORT)) {
+    // A submenu trigger opens on hover or from the keyboard: focus it and press ArrowRight.
+    await ctx.focus({ selector: RUNNING_EFFORT });
+    await ctx.press("ArrowRight");
+  }
+  await ctx.waitFor(
+    () => ctx.document.querySelector('.acpmux-quick-menu .acpmux-quick-effort-segment[aria-checked="true"]') !== null,
   );
 };
 
@@ -154,7 +164,7 @@ export default componentEntry<Props>({
       props: { effort: "default" },
     },
     "profile-default-effort-menu": {
-      note: "Its Effort row names Medium, and the submenu checks Medium with the menus' own check.",
+      note: "Its effort dropdown checks Medium with the menus' own check.",
       props: { effort: "default" },
       play: openEffort,
     },
@@ -162,8 +172,12 @@ export default componentEntry<Props>({
       note: "With a Claude Code update on offer the button still reads Opus 5.5 Medium: no dot, bullet or middot between them.",
       props: { effort: "default", update: true },
     },
+    "profile-alias-opus": {
+      note: "A chat on the opus alias names the release it runs: Opus 5.5 Medium, never Opus Medium.",
+      props: { effort: "default", alias: true },
+    },
     "profile-picked-high": {
-      note: "A level the chat picked wins: the button reads High and the submenu checks High.",
+      note: "A level the chat picked wins: the button reads High and the effort dropdown checks High.",
       props: { effort: "high" },
       play: openEffort,
     },

@@ -23,6 +23,9 @@
 use super::*;
 use crate::store::Lineage;
 
+// A successor keeps its predecessor's harness (HQ#5266).
+pub mod successor;
+
 /// `_meta.acpmux` field of `session/new`: the parent asked for. Absent: the proven caller.
 /// Null: none (an ephemeral run, a probe: never a child). A session id: the caller itself or
 /// one of its descendants, else refused.

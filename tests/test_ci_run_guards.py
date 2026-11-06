@@ -58,10 +58,20 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
                 s["name"]
                 for s in job["steps"]
                 if "run" in s
-                and s["name"] not in (run_ci_guards.DEPENDENCY_STEPS | run_ci_guards.EVENT_CONDITION_STEPS)
+                and s["name"] not in (run_ci_guards.DEPENDENCY_STEPS | run_ci_guards.WORKSPACE_STEPS
+                                      | run_ci_guards.EVENT_CONDITION_STEPS)
                 and (not s.get("if") or f"'{unit.group}'" in s["if"])
             ]
             self.assertEqual([s.name for s in unit.steps], expected, unit.label)
+
+    def test_the_workspace_reset_never_runs_inside_a_guard_group(self) -> None:
+        # It deinits every submodule; inside the parallel groups it raced release-notary's ghostty-next
+        # checkout (#29130 review). The Actions job runs it once, before the guard steps.
+        names = [s["name"] for s in self.workflow["jobs"]["workflow-guard-tests"]["steps"]]
+        self.assertIn("Drop stale submodule checkouts (self-hosted reused workspace)", names)
+        for unit in self.units:
+            with self.subTest(unit=unit.label):
+                self.assertFalse(any(s.name in run_ci_guards.WORKSPACE_STEPS for s in unit.steps))
 
     def test_uses_steps_and_dependency_installs_are_left_out(self) -> None:
         names = {step.name for unit in self.units for step in unit.steps}
@@ -448,7 +458,32 @@ class FeatRoutesSelectTheGroups(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertIn(label, listed)
         self.assertNotIn("release-ios", listed)
-        self.assertNotIn("release-notary", listed)
+        # No diff fails open to every routed group, release-notary included.
+        self.assertIn("workflow-guard-tests / release-notary:", listed)
+
+    def test_a_product_change_skips_release_notary(self) -> None:
+        listed = self.listed(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/X.swift"])
+        self.assertIn("workflow-guard-tests / ci:", listed)
+        self.assertNotIn("workflow-guard-tests / release-notary:", listed)
+
+    def test_a_signing_change_runs_release_notary(self) -> None:
+        listed = self.listed(["cmux.nightly.entitlements"])
+        self.assertIn("workflow-guard-tests / release-notary:", listed)
+
+    def test_skip_group_leaves_a_routed_group_out(self) -> None:
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory(prefix="guard-routes-") as temp, contextlib.redirect_stdout(out):
+            code = run_ci_guards.main(["--list", "--feat-routes", str(Path(temp) / "none.txt"),
+                                       "--skip-group", "release-notary"])
+        self.assertEqual(code, 0)
+        listed = "\n".join(line for line in out.getvalue().splitlines() if not line.startswith(" "))
+        self.assertIn("workflow-guard-tests / ci:", listed)
+        self.assertIn("workflow-guard-tests / preflight:", listed)
+        # The routed-groups line still names it; the plan leaves it out.
+        self.assertNotIn("workflow-guard-tests / release-notary:", listed)
 
 
 if __name__ == "__main__":

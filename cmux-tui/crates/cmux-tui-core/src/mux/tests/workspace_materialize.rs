@@ -29,7 +29,7 @@ fn concurrent_workspace_commits_publish_in_exact_revision_order() {
             MuxEvent::TreeDelta(delta) => {
                 published.push(delta.workspace_revision.unwrap());
             }
-            MuxEvent::TreeSelectionChanged => {}
+            MuxEvent::TreeSelectionChanged(_) => {}
             event => panic!("unexpected event: {event:?}"),
         }
     }
@@ -530,8 +530,8 @@ fn create_terminal_in_existing_pane_emits_selection_resync() {
             {
                 saw_added = true;
             }
-            MuxEvent::TreeSelectionChanged if saw_added => break,
-            MuxEvent::TreeSelectionChanged => {
+            MuxEvent::TreeSelectionChanged(_) if saw_added => break,
+            MuxEvent::TreeSelectionChanged(_) => {
                 panic!("selection resync arrived before the tab-added delta")
             }
             _ => {}
@@ -692,8 +692,8 @@ fn browser_tab_in_existing_workspace_pane_emits_selection_resync() {
             {
                 saw_added = true;
             }
-            MuxEvent::TreeSelectionChanged if saw_added => break,
-            MuxEvent::TreeSelectionChanged => {
+            MuxEvent::TreeSelectionChanged(_) if saw_added => break,
+            MuxEvent::TreeSelectionChanged(_) => {
                 panic!("selection resync arrived before the tab-added delta")
             }
             _ => {

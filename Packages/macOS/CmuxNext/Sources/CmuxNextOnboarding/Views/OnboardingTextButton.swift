@@ -33,6 +33,13 @@ final class OnboardingTextButton: NSButton {
         NSEdgeInsets(top: Self.padding.height, left: Self.padding.width, bottom: Self.padding.height, right: Self.padding.width)
     }
 
+    /// The alignment rect is the title's own width, so the text, not the
+    /// cell's margin, starts and ends on the edge Auto Layout places (the
+    /// cell's size less the insets put it 4 pt past that edge).
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: ceil(attributedTitle.size().width), height: super.intrinsicContentSize.height)
+    }
+
     private func applyTitle() {
         performWithTheme {
             let color = hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary

@@ -145,12 +145,29 @@ fn session_children_journey_lists_follows_and_opens_a_vm_chats_child() {
         ids(&app.request(json!({"cmd": "agent-session-children", "surface": surface}))).is_empty()
     );
 
-    // The parent's agent starts a child inside its session.
+    // The parent's agent starts a child inside its session, with the env
+    // acpmux gave that agent: its session id and the caller token that
+    // proves it (an unproven ACPMUX_SESSION_ID makes a root, no child).
+    let mut agent_env = |name: &str| {
+        acpmux.call("session/prompt", prompt(&parent, &format!("env: {name}"), name));
+        let said = format!("{name}=");
+        acpmux
+            .events(&parent)
+            .iter()
+            .filter_map(|event| event["msg"].pointer(AGENT_TEXT)?.as_str()?.strip_prefix(&said))
+            .find(|value| !value.is_empty())
+            .unwrap_or_else(|| panic!("the parent's agent has {name}"))
+            .to_owned()
+    };
+    let token = agent_env("ACPMUX_SESSION_TOKEN");
+    let token_socket = agent_env("ACPMUX_SESSION_TOKEN_SOCKET");
     let started = vm
         .command()
         .args(["acp", "new", "--detach", "--name", "child-one", "--cwd"])
         .arg(&cwd)
         .env("ACPMUX_SESSION_ID", &parent)
+        .env("ACPMUX_SESSION_TOKEN", token)
+        .env("ACPMUX_SESSION_TOKEN_SOCKET", token_socket)
         .output()
         .unwrap();
     assert!(started.status.success(), "acp new: {}", String::from_utf8_lossy(&started.stderr));

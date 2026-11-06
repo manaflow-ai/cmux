@@ -12,11 +12,11 @@ const { VmProviderGateway } = await import("../services/vms/providerGateway");
 import type { VmRepositoryShape } from "../services/vms/repository";
 import type { VmProviderGatewayShape } from "../services/vms/providerGateway";
 
-test("a paid upgrade cancels a stale Go pause instead of stopping the upgraded VM", async () => {
+test.each(["pro", "go"])("%s access clears a legacy Go pause without stopping the VM", async (planId) => {
   const calls: string[] = [];
   const repo = {
     findUserVm: () => Effect.succeed({ id: "row", userId: "u", billingTeamId: "u", ownerTeamId: "u", coderouterPoolId: null, billingPlanId: "go", status: "running",
-      provider: "freestyle", providerVmId: "vm", providerMetadata: { cmuxGoPauseIntent: { requestedAt: "2026-09-01T00:00:00Z" } } }),
+      provider: "freestyle", providerVmId: "vm", providerMetadata: { cmuxResourceReservation: { vcpus: 2, memoryMb: 4096, diskMb: 16384 }, cmuxGoPauseIntent: { requestedAt: "2026-09-01T00:00:00Z" } } }),
     mergeProviderMetadata: ({ patch }: { patch: Record<string, unknown> }) => Effect.sync(() => { writes.push(patch); }),
     markProviderObservedStatus: () => Effect.succeed(true),
     recordUsageEvent: () => Effect.void,
@@ -29,8 +29,8 @@ test("a paid upgrade cancels a stale Go pause instead of stopping the upgraded V
     getStats: () => Effect.succeed({ cpus: 4, memoryTotalMb: 8192, diskTotalMb: 32768 }),
   } as unknown as VmProviderGatewayShape;
   const layer = Layer.merge(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, providers));
-  await Effect.runPromise(resumeVm({ userId: "u", billingTeamId: "u", providerVmId: "vm", callerPlanId: "pro" }).pipe(Effect.provide(layer)));
+  await Effect.runPromise(resumeVm({ userId: "u", billingTeamId: "u", providerVmId: "vm", callerPlanId: planId }).pipe(Effect.provide(layer)));
   expect(calls).toEqual(["budget:null"]);
-  expect(writes).toContainEqual({ billingPlanId: "pro" });
+  if (planId === "pro") expect(writes).toContainEqual({ billingPlanId: "pro" });
   expect(writes).toContainEqual({ cmuxGoPauseIntent: null });
 });

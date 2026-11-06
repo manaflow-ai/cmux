@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// cx-sqj3h (Leo 2026-10-13): during a window live resize the content must follow the edge every
@@ -16,7 +17,7 @@ import Testing
 /// A window enters a live resize through AppKit's `willStartLiveResize` notification, which a
 /// test posts for its own window (AppKit's resize tracking needs a real pointer). Every test is
 /// synchronous, so the process-wide motion state cannot leak into another test.
-@MainActor @Suite(.serialized) struct LiveResizeTrackingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct LiveResizeTrackingTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: CmuxNextLayout.PaneID) -> NSView { NSView() }
     }
@@ -49,6 +50,7 @@ import Testing
         let model = LayoutModel(screens: Self.split(0.5), activeScreenID: "s", focusedPane: "p1")
         let root = LayoutRootView(model: model, contentProvider: provider)
         let window = Self.window(width: 1000, height: 700)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         root.driver.isManual = true
@@ -88,6 +90,7 @@ import Testing
         let tabs = (0..<8).map { CmuxNextTabs.TabItem(id: CmuxNextTabs.TabID("tab\($0)"), title: "Tab \($0)") }
         let strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: CmuxNextTabs.TabID("tab0")))
         let window = Self.window(width: 1600, height: 40)
+        defer { window.closeAfterTest() }
         window.contentView = strip
         strip.frame = NSRect(x: 0, y: 0, width: 1600, height: TabStripView.preferredHeight)
         strip.layoutSubtreeIfNeeded()
@@ -108,6 +111,7 @@ import Testing
         let center = NotificationCenter()
         let windows = LiveResizeWindows(center: center)
         let window = Self.window(width: 800, height: 600)
+        defer { window.closeAfterTest() }
         center.post(name: NSWindow.willStartLiveResizeNotification, object: window)
         #expect(windows.isActive)
         center.post(name: NSWindow.didEndLiveResizeNotification, object: window)

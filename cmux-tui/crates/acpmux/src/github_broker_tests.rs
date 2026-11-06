@@ -78,7 +78,7 @@ fn a_record_holds_no_title_body_or_output() {
     let mut r = req(GithubAction::Issue);
     r.title = Some("secret title".into());
     r.body = Some("secret body".into());
-    let row = audit_payload(&r, "allowed", None).to_string();
+    let row = audit_payload(&r, "allowed", None, Some("app")).to_string();
     assert!(!row.contains("secret"), "{row}");
 }
 
@@ -99,9 +99,9 @@ async fn the_mac_lends_nothing_to_a_peer_it_is_off_for() {
     assert_eq!(e.data.unwrap()["reason"], "github.busy");
     drop(held);
     // Whatever the peer sends is checked again on the Mac.
-    let e = serve_owner("box", json!({"action": "merge", "repo": "o/r"})).await.unwrap_err();
+    let e = serve_owner("box", json!({"action": "merge", "repo": "o/r"}), None).await.unwrap_err();
     assert_eq!(e.code, -32602);
-    let e = serve_owner("box", json!({"action": "read", "repo": "o/r", "token": "x"}))
+    let e = serve_owner("box", json!({"action": "read", "repo": "o/r", "token": "x"}), None)
         .await
         .unwrap_err();
     assert_eq!(e.code, -32602, "an unknown field is refused, not ignored");
@@ -181,4 +181,16 @@ fn output_full_of_tokens_stays_within_its_limit() {
     let out = clean_output("ghp_a ".repeat(OUTPUT_MAX).as_bytes());
     assert!(out.len() <= OUTPUT_MAX + '…'.len_utf8(), "{}", out.len());
     assert!(!out.contains("ghp_"), "no token is left");
+}
+
+/// Review of the App token at d8a663b: a `gh` that failed to start or ran out of time answered
+/// with no data, so its error lost the login it ran with.
+#[test]
+fn every_failed_action_says_which_login_it_ran_with() {
+    let bare = RpcError::internal("gh did not start");
+    assert_eq!(with_source(bare, Some("app")).data, Some(json!({"source": "app"})));
+    let coded = RpcError::new(-32045, "x").with_data(json!({"reason": "github.app_token"}));
+    let data = with_source(coded, Some("keyring")).data.unwrap();
+    assert_eq!(data, json!({"reason": "github.app_token", "source": "keyring"}));
+    assert_eq!(with_source(RpcError::internal("x"), None).data, None);
 }

@@ -5,18 +5,21 @@ import CmuxNextDesign
 import CmuxNextOnboarding
 import CmuxNextSettings
 
-/// `debug.onboarding` (DEBUG builds): drives the tool window (Import from
-/// Browser, Computer Use setup) through its model, the same methods its
+/// `debug.onboarding` (DEBUG builds): drives the tool window (Agents, Import
+/// from Browser, Computer Use setup) through its model, the same methods its
 /// controls call, so an agent can use it without synthetic input. Returns
 /// the state after the action.
 ///
-/// `action`: `open` (`step`: importData, computerUse), `state`, `next`,
+/// `action`: `open` (`step`: agents, importData, computerUse), `state`, `next`,
 /// `skip`, `close`, `skip_all`, `detect`, `toggle_profile` (`id`),
 /// `toggle_kind` (`kind`), `import`, `cancel_import`, `toggle_consent`
 /// (`id`), `skip_passwords`, `consent_back`, `import_from_files` (Import
 /// from Another Browser…, the step's button), `allow` (`pane`:
-/// accessibility or screenRecording), `dismiss_helper`, `grant` (`pane`,
-/// `on`; the mock computer use source only).
+/// accessibility or screenRecording), `allow_next` (Return in the Computer
+/// Use window), `dismiss_helper`, `restart`, `grant` (`pane`, `on`; the mock
+/// computer use source only), `mock` (`off`, `failed`, `mismatch`: the mock
+/// source's other states; none of them resets it to no grants), `sign_in`
+/// (`id`: an agent's Sign In).
 @MainActor
 enum DebugOnboarding {
     static func run(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -52,7 +55,17 @@ enum DebugOnboarding {
         case "ask_access": if let id = params["browser"]?.stringValue { model.importer.askAccess(ImportBrowser(rawValue: id)) }
         case "cancel_access": model.importer.cancelAccess()
         case "allow": if let pane = params["pane"]?.stringValue.flatMap(ComputerUsePermissionPane.init(rawValue:)) { model.computerUse.allow(pane) }
+        case "allow_next": model.computerUse.allowNext()
+        case "sign_in": if let id = params["id"]?.stringValue { model.agents.signIn(id) }
         case "dismiss_helper": model.computerUse.dismissHelper()
+        case "restart": model.computerUse.restart()
+        case "mock":
+            if let mock = model.services.computerUsePermissions as? MockComputerUsePermissionSource {
+                mock.current = ComputerUsePermissions(accessibility: false, screenRecording: false,
+                                                      helperVersionMismatch: params["mismatch"]?.boolValue ?? false,
+                                                      isOff: params["off"]?.boolValue ?? false,
+                                                      helperFailed: params["failed"]?.boolValue ?? false)
+            }
         case "grant":
             if let pane = params["pane"]?.stringValue.flatMap(ComputerUsePermissionPane.init(rawValue:)),
                let mock = model.services.computerUsePermissions as? MockComputerUsePermissionSource {
@@ -100,10 +113,16 @@ enum DebugOnboarding {
             result["targets"] = .object(Dictionary(uniqueKeysWithValues: summary.batches.map { ($0.source.sourceKey, JSONValue.string($0.source.targetProfileID)) }))
             result["failures"] = .object(summary.failures.mapValues(JSONValue.string))
         }
+        // Ids and sign-in states only, never an account.
+        result["agents"] = .object(Dictionary(uniqueKeysWithValues: model.agents.agents.map { ($0.id, JSONValue.string($0.auth.rawValue)) }))
         let computerUse = model.computerUse
         result["computer_use"] = .object(["accessibility": .bool(computerUse.permissions.accessibility),
                                           "screen_recording": .bool(computerUse.permissions.screenRecording),
-                                          "helping": computerUse.helping.map { .string($0.rawValue) } ?? .null])
+                                          "helping": computerUse.helping.map { .string($0.rawValue) } ?? .null,
+                                          "next": computerUse.nextPane.map { .string($0.rawValue) } ?? .null,
+                                          "all_granted": .bool(computerUse.allGranted),
+                                          "unavailable": .bool(computerUse.unavailable),
+                                          "comebacks": .number(Double(computerUse.comebacks))])
         return .object(result)
     }
 

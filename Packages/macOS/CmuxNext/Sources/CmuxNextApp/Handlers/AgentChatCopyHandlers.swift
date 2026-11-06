@@ -13,6 +13,14 @@ enum AgentChatCopyHandlers {
     private static let detailsAction: ActionID = "agentChat.copySessionDetails"
     private static let cwdAction: ActionID = "agentChat.copyWorkingDirectory"
     private static let hostAction: ActionID = "agentChat.copyHost"
+    private static let filePathsAction: ActionID = "agentChat.copySessionFilePaths"
+    /// Each file-contents action and the `_acpmux/session_files` kinds it copies, first match wins.
+    private static let fileActions: [(ActionID, [String])] = [
+        ("agentChat.copyTranscriptFile", ["transcript"]),
+        ("agentChat.copyHarnessConfigFile", ["claude_config", "codex_config"]),
+        ("agentChat.copyHarnessSettingsFile", ["claude_settings"]),
+        ("agentChat.copyAcpmuxSessionFile", ["acpmux_session"]),
+    ]
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind(nameAction, invoke: { invocation in
@@ -40,8 +48,9 @@ enum AgentChatCopyHandlers {
         registry.bind(detailsAction, invoke: { invocation in
             guard let target = focusedChat(context, invocation) else { return }
             let info = infoReader(target)
+            let files = filesReader(target)
             let work: ActionWork = Task {
-                await finish(AgentChatCopyOperations.details(info: info, identifier: target.sessionID,
+                await finish(AgentChatCopyOperations.details(info: info, files: files, identifier: target.sessionID,
                                                      fallbackHarnessSessionID: target.fallbackHarnessSessionID,
                                                      fallbackCWD: target.fallbackCWD, host: target.host,
                                                      isCurrent: { isCurrent(target, context: context) }), missing: AgentChatCopyStrings.noDetails, copy: { copy($0, context: context) })
@@ -59,6 +68,20 @@ enum AgentChatCopyHandlers {
             let work: ActionWork = Task { await finish(AgentChatCopyOperations.host(target.host, isCurrent: { isCurrent(target, context: context) }), missing: AgentChatCopyStrings.noHost, copy: { copy($0, context: context) }) }
             registry.track(work)
         })
+        registry.bindEffect(filePathsAction) { invocation in
+            guard let target = focusedChat(context, invocation) else { return .done }
+            let files = filesReader(target)
+            // action-wait-allow: the copied text exists only after the acpmux daemon names the files
+            return .waiting(.externalProcess) { await finish(AgentChatCopyOperations.filePaths(files: files, isCurrent: { isCurrent(target, context: context) }), missing: AgentChatCopyStrings.noFiles, copy: { copy($0, context: context) }) }
+        }
+        for (action, kinds) in fileActions {
+            registry.bindEffect(action) { invocation in
+                guard let target = focusedChat(context, invocation) else { return .done }
+                let files = filesReader(target)
+                // action-wait-allow: the copied text exists only after the acpmux daemon names the file and the disk read returns
+                return .waiting(.fileSystem) { await finish(AgentChatCopyOperations.fileContents(files: files, kinds: kinds, read: { await AgentPaneModel.sessionCopyFileText(path: $0) }, isCurrent: { isCurrent(target, context: context) }), missing: AgentChatCopyStrings.noFile, failure: AgentChatCopyStrings.fileUnreadable, copy: { copy($0, context: context) }) }
+            }
+        }
     }
 
     private struct Target {
@@ -109,6 +132,14 @@ enum AgentChatCopyHandlers {
         return { await AgentPaneModel.sessionCopyInfo(socketPath: socket, sessionID: session) }
     }
 
+    /// Session files exist only for a chat on this Mac: a remote chat has no local socket, and the
+    /// daemon refuses `_acpmux/session_files` over any other origin.
+    private static func filesReader(_ target: Target) -> () async -> [String: Any]? {
+        guard let socket = target.socket else { return { nil } }
+        let session = target.sessionID
+        return { await AgentPaneModel.sessionCopyFiles(socketPath: socket, sessionID: session) }
+    }
+
     @MainActor
     private static func isCurrent(_ target: Target, context: AppActionContext) -> Bool {
         guard let located = context.services.locateTab(target.tabKey),
@@ -133,5 +164,8 @@ private enum AgentChatCopyStrings {
     static var noDetails: String { String(localized: "agentChat.copySessionDetails.noDetails", defaultValue: "The focused chat has no session details to copy yet.", table: "Handlers", bundle: .module) }
     static var noCWD: String { String(localized: "agentChat.copyWorkingDirectory.noCWD", defaultValue: "The focused chat has no working directory yet.", table: "Handlers", bundle: .module) }
     static var noHost: String { String(localized: "agentChat.copyHost.noHost", defaultValue: "The focused chat has no host name yet.", table: "Handlers", bundle: .module) }
+    static var noFiles: String { String(localized: "agentChat.copySessionFilePaths.noFiles", defaultValue: "The focused chat has no session files on this Mac.", table: "Handlers", bundle: .module) }
+    static var noFile: String { String(localized: "agentChat.copySessionFile.noFile", defaultValue: "The focused chat has no such file on this Mac.", table: "Handlers", bundle: .module) }
+    static var fileUnreadable: String { String(localized: "agentChat.copySessionFile.unreadable", defaultValue: "The file could not be read as text.", table: "Handlers", bundle: .module) }
     static var copyFailed: String { String(localized: "agentChat.copyConversation.failed", defaultValue: "The focused chat could not provide its conversation.", table: "Handlers", bundle: .module) }
 }

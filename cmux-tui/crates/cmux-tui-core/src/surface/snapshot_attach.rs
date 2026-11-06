@@ -7,7 +7,7 @@
 //! reach the viewer as a new READY snapshot taken under the terminal lock, so
 //! the snapshot and the live bytes after it never overlap or leave a gap.
 
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 
 use ghostty_vt::SnapshotPhase;
 use sha2::{Digest, Sha256};
@@ -146,15 +146,30 @@ pub(crate) enum SnapshotAdmission {
 struct GateState {
     last_snapshot_at: Option<Instant>,
     pending: bool,
+    /// A throttled request waits for the end of its interval: the worker
+    /// asks for its snapshot then (``SnapshotRequestGate::fire_deferred``).
+    /// A viewer whose local history did not match after a resize holds the
+    /// READY without its scrollback until this snapshot arrives, so a
+    /// throttled request is never dropped.
+    deferred_at: Option<Instant>,
 }
 
 /// Collapses duplicate snapshot requests and rate-limits them per viewer.
 /// The attach worker records every snapshot it sends ([`Self::sent`]), so a
 /// backlog or grid-change snapshot also counts toward the interval.
+/// Runs when a viewer is shown or hidden (``SnapshotRequestGate::on_visibility_change``).
+type VisibilityWaker = Box<dyn Fn() + Send + Sync>;
+
 #[derive(Clone)]
 pub(crate) struct SnapshotRequestGate {
     handle: SnapshotRequestHandle,
     state: Arc<Mutex<GateState>>,
+    /// The viewer does not show the terminal (`set-attach-visibility`, `attach-visibility-v1`): its worker sends
+    /// output once per wall-clock second instead of per frame.
+    hidden: Arc<AtomicBool>,
+    /// Woken with the worker on every visibility change (the attach's notification thread holds `scroll-changed`
+    /// while hidden).
+    visibility_wakers: Arc<Mutex<Vec<VisibilityWaker>>>,
 }
 
 impl SnapshotRequestGate {
@@ -163,7 +178,29 @@ impl SnapshotRequestGate {
         Self {
             handle,
             state: Arc::new(Mutex::new(GateState { pending: true, ..Default::default() })),
+            hidden: Arc::new(AtomicBool::new(false)),
+            visibility_wakers: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    /// Runs `wake` on every later visibility change of this viewer.
+    pub(crate) fn on_visibility_change(&self, wake: impl Fn() + Send + Sync + 'static) {
+        self.visibility_wakers.lock().unwrap().push(Box::new(wake));
+    }
+
+    /// Whether the viewer said it does not show the terminal.
+    pub(crate) fn is_hidden(&self) -> bool {
+        self.hidden.load(Ordering::Acquire)
+    }
+
+    /// The viewer shows (`visible`) or no longer shows the terminal; its worker rereads it at once. Returns false
+    /// when the viewer is gone.
+    pub(crate) fn set_visible(&self, visible: bool) -> bool {
+        self.hidden.store(!visible, Ordering::Release);
+        for wake in self.visibility_wakers.lock().unwrap().iter() {
+            wake();
+        }
+        self.handle.poke()
     }
 
     pub(crate) fn request(&self, now: Instant) -> SnapshotAdmission {
@@ -175,6 +212,13 @@ impl SnapshotRequestGate {
             let next = last + SNAPSHOT_REQUEST_MIN_INTERVAL;
             if now < next {
                 let wait = next - now;
+                let first = state.deferred_at.is_none();
+                state.deferred_at = Some(next);
+                drop(state);
+                // The worker's wait takes the new deadline.
+                if first {
+                    self.handle.poke();
+                }
                 return SnapshotAdmission::Throttled {
                     retry_after_ms: wait.as_millis().max(1) as u64,
                 };
@@ -184,7 +228,31 @@ impl SnapshotRequestGate {
             return SnapshotAdmission::NotAttached;
         }
         state.pending = true;
+        state.deferred_at = None;
         SnapshotAdmission::Accepted
+    }
+
+    /// When a throttled request asks for its snapshot (the worker wakes
+    /// then), or `None` when no request waits.
+    pub(crate) fn deferred_at(&self) -> Option<Instant> {
+        self.state.lock().unwrap().deferred_at
+    }
+
+    /// Queues the snapshot of a throttled request whose interval ended by
+    /// `now`. Returns true when it queued one.
+    pub(crate) fn fire_deferred(&self, now: Instant) -> bool {
+        let mut state = self.state.lock().unwrap();
+        match state.deferred_at {
+            Some(at) if at <= now => {
+                state.deferred_at = None;
+                if state.pending || !self.handle.request() {
+                    return false;
+                }
+                state.pending = true;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// The worker sent a snapshot at `now`, or tried and deferred it (a
@@ -195,6 +263,8 @@ impl SnapshotRequestGate {
         // its own snapshot, so it stays pending (later requests collapse).
         state.pending = self.handle.snapshot_pending();
         state.last_snapshot_at = Some(now);
+        // This snapshot answers a throttled request too.
+        state.deferred_at = None;
     }
 }
 

@@ -217,8 +217,11 @@ fn sections_of(
         .collect()
 }
 
-pub(crate) fn rank_empty(request: &RankRequest, entries: &[Entry]) -> Vec<RankedSection> {
-    let store = request.frecency.as_ref();
+pub(crate) fn rank_empty(
+    request: &RankRequest,
+    entries: &[Entry],
+    store: Option<&Frecency>,
+) -> Vec<RankedSection> {
     let hidden: HashSet<&str> = store
         .and_then(|store| store.hidden.as_ref())
         .map(|hidden| hidden.iter().map(String::as_str).collect())
@@ -341,13 +344,13 @@ pub(crate) fn rank(
     request: &RankRequest,
     entries: &[Entry],
     prepared: &Prepared,
+    store: Option<&Frecency>,
 ) -> Vec<RankedSection> {
     let raw = request.query.as_deref().unwrap_or("");
     let query = Query::new(raw);
     if query.is_empty() {
-        return rank_empty(request, entries);
+        return rank_empty(request, entries, store);
     }
-    let store = request.frecency.as_ref();
     let now = request.now.unwrap_or(0.0);
     let gated = entries
         .iter()
@@ -373,18 +376,19 @@ pub(crate) fn rank(
             if !shown_while_typing(entry, gated, raw) {
                 continue;
             }
-            let handle = names_handle(&prepared.handles[index], &handle_query);
-            let found = entry_tier(
-                entry,
-                prepared.ids[index].as_deref(),
-                &query,
-                &prepared.fields[index],
-                allows_typo,
-            );
+            let Some(fields) = prepared.fields.get(index) else { continue };
+            let handle = prepared
+                .handles
+                .get(index)
+                .is_some_and(|handles| names_handle(handles, &handle_query));
+            let found =
+                entry_tier(entry, prepared.ids[index].as_deref(), &query, fields, allows_typo);
             let (found, highlights) = match found {
                 Some(found) => {
-                    let highlights =
-                        highlights_for(found.query.get(), &prepared.fields[index][0].text);
+                    let highlights = fields
+                        .first()
+                        .map(|field| highlights_for(found.query.get(), &field.text))
+                        .unwrap_or_default();
                     (found, highlights)
                 }
                 None if handle => (
@@ -410,7 +414,7 @@ pub(crate) fn rank(
             {
                 MAXIMUM_QUALITY
             } else {
-                match_quality(found.query.get(), &prepared.fields[index])
+                match_quality(found.query.get(), fields)
             };
             if found.tier >= match_tier::SUBSTRING {
                 strong += 1;

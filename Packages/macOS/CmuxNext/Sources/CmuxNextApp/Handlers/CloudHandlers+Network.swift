@@ -10,15 +10,15 @@ extension CloudHandlers {
         let cloud = context.services.cloud
         bind("cloudTunnelAttach", registry, reason: reason) { invocation in
             let networkID = try idArgument(invocation, CloudStrings.networkIDRequired)
-            runTracked("attach Cloud tunnel network", context) { try await cloud.api.attachTunnelNetwork(deviceFingerprint: cloud.localDeviceID(), networkID: networkID) }
+            runTracked("attach Cloud tunnel network", context) { try await cloud.api.attachTunnelNetwork(deviceFingerprint: cloud.installIDs.backend.loadNow(), networkID: networkID) }
         }
         bind("cloudTunnelDetach", registry, reason: reason) { invocation in
             let networkID = try idArgument(invocation, CloudStrings.networkIDRequired)
-            runTracked("detach Cloud tunnel network", context) { try await cloud.api.detachTunnelNetwork(deviceFingerprint: cloud.localDeviceID(), networkID: networkID) }
+            runTracked("detach Cloud tunnel network", context) { try await cloud.api.detachTunnelNetwork(deviceFingerprint: cloud.installIDs.backend.loadNow(), networkID: networkID) }
         }
         bind("cloudTunnelRotateKey", registry, reason: reason) { invocation in
             guard let key = invocation["publicKey"]?.stringValue else { throw ActionFailure(message: CloudStrings.tunnelKeyRequired) }
-            runTracked("rotate Cloud tunnel key", context) { _ = try await cloud.api.rotateTunnelKey(deviceFingerprint: cloud.localDeviceID(), publicKey: key) }
+            runTracked("rotate Cloud tunnel key", context) { _ = try await cloud.api.rotateTunnelKey(deviceFingerprint: cloud.installIDs.backend.loadNow(), publicKey: key) }
         }
         bind("cloudNetworkList", registry, reason: reason) { invocation in
             answer("list Cloud networks", invocation, context) {
@@ -58,6 +58,9 @@ extension CloudHandlers {
             runTracked("create Cloud firewall rule", context) { _ = try await cloud.api.createFirewallRule(source: source, destination: destination, description: value["description"] as? String) }
         }
         bind("cloudEnrollMachine", registry, reason: reason) { invocation in try enrollMachine(invocation, context) }
+        bind("cloudSetNetworkAccess", registry, reason: reason) { invocation in
+            try CloudNetworkAccessActions.set(invocation, context)
+        }
     }
 
     /// `cloud enroll-machine` (CloudMachineEnrollment): authorizes this Mac's key on the machine and
@@ -97,7 +100,7 @@ extension CloudHandlers {
             let text = try? await work.run(.userBlocking, mayBlock: .files) { try String(blockingContentsOf: URL(fileURLWithPath: keyPath), encoding: .utf8) }
             guard let key = text.flatMap(CloudMachineEnrollment.ed25519Key) else { throw ActionFailure(message: CloudStrings.enrollKeyUnreadable(keyPath)) }
             let enrollment = CloudMachineEnrollment(name: name, machineID: machineID, address: address, publicKey: key)
-            let ran = try await cloud.api.exec(machineID, command: enrollment.authorizeCommand, timeoutMs: execTimeoutMs)
+            let ran = try await cloud.machineAPI.exec(machineID, command: enrollment.authorizeCommand, timeoutMs: execTimeoutMs)
             let hostKey = ran.stdout.split(whereSeparator: \.isNewline).last.flatMap { CloudMachineEnrollment.ed25519Key(String($0)) }
             guard ran.exitCode == 0, let hostKey else {
                 throw ActionFailure(message: CloudStrings.enrollAuthorizeFailed(String((ran.stderr.isEmpty ? ran.stdout : ran.stderr).suffix(300))))

@@ -110,6 +110,8 @@ pub(crate) enum MeshCommand {
     AddGateway { socket: WgDatagramSocket, reply: oneshot::Sender<Result<GatewayId, WgError>> },
     RemoveGateway { gateway: GatewayId, reply: oneshot::Sender<bool> },
     PeerRoute { public_key: [u8; 32], reply: oneshot::Sender<Option<PeerRoute>> },
+    // `WgMesh::close`: deliver what was written, then stop, by the deadline.
+    Close { deadline: tokio::time::Instant },
     Shutdown,
 }
 
@@ -212,6 +214,17 @@ impl WgMesh {
         let (reply, answer) = oneshot::channel();
         self.send(MeshCommand::PeerRoute { public_key, reply }).await?;
         answer.await.map_err(|_| WgError::Shutdown)
+    }
+
+    /// Stop as a TCP close does: no new connection; every open one sends what its owner had
+    /// written before this call, then its FIN, and the mesh stops once each peer acknowledged
+    /// both (or the connection ended), or at `deadline`, which resets what is left. A peer then
+    /// reads a stream's last bytes before its end, never a reset that loses them.
+    pub async fn close(mut self, deadline: tokio::time::Instant) {
+        let _ = self.commands.send(MeshCommand::Close { deadline }).await;
+        if let Some(driver) = self.driver.take() {
+            let _ = driver.await;
+        }
     }
 
     /// Stop the driver and wait for it to exit. Open connections are reset.

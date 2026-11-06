@@ -8,38 +8,34 @@ import CmuxNextLayout
 /// holds only agent chats, so tools dropped or moved into it are refused.
 enum ChatDockRules {
 
-    private static func isChatDock(_ pane: LayoutPaneID, _ columns: [LayoutColumn]) -> Bool {
-        columns.first { $0.root.contains(pane) }?.dock?.role == .agentChat
-    }
-
-    /// Whether a chat dock with flag `dock` takes only agent chats: every chat dock but Home's pinned
-    /// dock while it takes tabs (`allow_tabs`), which takes any tab dragged in (Leo 2026-10-21: "JUST
-    /// MAKE THE TAB THING SHOW UP ON THE MAIN PANE TOO"). It still never splits (`splitRoom`).
-    nonisolated static func takesOnlyChats(_ dock: DockColumn?) -> Bool {
-        guard let dock, dock.role == .agentChat else { return false }
-        return !(dock.isPinned && dock.allowsTabs)
-    }
-
-    /// Whether `pane` is a shown pane of a chat dock that takes only agent chats (``takesOnlyChats(_:)``).
-    @MainActor private static func takesOnlyChats(_ pane: PaneModel, services: AppServices) -> Bool {
+    /// The dock flag of `pane`'s column and whether its screen is zoomed; nil for a pane no window shows.
+    @MainActor private static func column(of pane: PaneModel, services: AppServices) -> (dock: DockColumn?, zoomed: Bool)? {
         guard let controller = services.paneController(for: pane), let content = controller.workspace,
-              let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return false }
+              let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return nil }
         let layoutPane = controller.layoutPaneID
-        return takesOnlyChats(ChatColumnPlacement.columns(of: screen, containing: layoutPane).first { $0.root.contains(layoutPane) }?.dock)
+        return (ChatColumnPlacement.columns(of: screen, containing: layoutPane).first { $0.root.contains(layoutPane) }?.dock, screen.zoomed)
+    }
+
+    /// Whether `pane` is a shown pane of a chat dock that takes only agent chats (``DockColumn/takesOnlyChats``).
+    @MainActor private static func takesOnlyChats(_ pane: PaneModel, services: AppServices) -> Bool {
+        column(of: pane, services: services)?.dock?.takesOnlyChats ?? false
     }
 
     /// Whether `pane` is a shown pane in the chat dock.
     @MainActor static func isChatDock(_ pane: PaneModel, services: AppServices) -> Bool {
-        guard let controller = services.paneController(for: pane), let content = controller.workspace,
-              let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return false }
-        let layoutPane = controller.layoutPaneID
-        return isChatDock(layoutPane, ChatColumnPlacement.columns(of: screen, containing: layoutPane))
+        column(of: pane, services: services)?.dock?.role == .agentChat
+    }
+
+    /// Whether Split Down of `pane` grows its chat dock (``DockColumn/splitsDown(zoomed:)``, #29848) on a daemon that takes it.
+    @MainActor static func splitsDownInDock(_ pane: PaneModel, services: AppServices) -> Bool {
+        guard let column = column(of: pane, services: services), column.dock?.splitsDown(zoomed: column.zoomed) == true else { return false }
+        return services.daemon(for: pane).supports(DaemonCapability.dockColumnSplitDown.rawValue)
     }
 
     /// Refuses (and reports) a non-chat tab moving into a chat dock that takes only chats. A
     /// reorder inside the dock is not a move into it.
     @MainActor static func refusesMove(_ tab: TabModel, to pane: PaneModel, services: AppServices) -> Bool {
-        guard services.locateTab(tab.id)?.1 !== pane, !ChatColumnPlacement.isChat(tab, services: services),
+        guard services.locateTab(model: tab)?.1 !== pane, !ChatColumnPlacement.isChat(tab, services: services),
               takesOnlyChats(pane, services: services) else { return false }
         services.registry.refuse(RefusalStrings.chatDockTakesOnlyChats)
         return true

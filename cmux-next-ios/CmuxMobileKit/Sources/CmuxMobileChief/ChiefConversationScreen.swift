@@ -36,8 +36,9 @@ public struct ChiefRoute: Hashable, Sendable {
 /// The header's avatar and name push Chief's info (``ChiefSettingsView``)
 /// on the same stack, as Messages pushes contact details from the
 /// conversation header: a back chevron and the system swipe back return to
-/// the conversation. The trailing button is Invite to cmux
-/// (``ChiefInvite``): the share sheet with a note and the public cmux link.
+/// the conversation. The trailing button is Chief's page menu: Invite to
+/// cmux (``ChiefInvite``, the share sheet with a note and the public cmux
+/// link) and the Chief zoom (``ChiefTextZoom``).
 public struct ChiefConversationScreen: View {
     let session: ChiefSession
     let compose: ChiefComposer?
@@ -47,10 +48,29 @@ public struct ChiefConversationScreen: View {
     @State private var link = ChiefScreenLink()
 
     public init(session: ChiefSession = .shared, compose: ChiefComposer? = nil, focusesComposer: Bool = false) {
+        #if DEBUG
+        if DeveloperOptions.mockContentEnabled, CommandLine.arguments.contains("-cmux-mobile-chief-outbox-demo") {
+            self.session = Self.outboxDemo
+        } else {
+            self.session = session
+        }
+        #else
         self.session = session
+        #endif
         self.compose = compose
         self.focusesComposer = focusesComposer
     }
+
+    #if DEBUG
+    /// An isolated, memory-only outbox for capture; never changes a real queue.
+    private static let outboxDemo: ChiefSession = {
+        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil))
+        session.status = "Offline"
+        session.send(ConversationComposeMessage(text: "Check the latest build."), asksForAlerts: false)
+        session.send(ConversationComposeMessage(text: "Let me know when the tests finish."), asksForAlerts: false)
+        return session
+    }()
+    #endif
 
     public var body: some View {
         ChiefConversationController(session: session, compose: compose, focusesComposer: focusesComposer, link: link,
@@ -60,7 +80,6 @@ public struct ChiefConversationScreen: View {
             .id(ObjectIdentifier(session.store))
             .ignoresSafeArea()
             .toolbar(.hidden, for: .navigationBar)
-            .toolbar(.hidden, for: .tabBar)
             .navigationBarBackButtonHidden()
             .navigationDestination(isPresented: $showsInfo) {
                 // Message: back to the conversation with the keyboard up.
@@ -87,9 +106,15 @@ extension ConversationPresentationOptions {
         ConversationPresentationOptions(
             placeholder: String(localized: "Message Chief"),
             serviceTitle: "Chief",
-            serviceSubtitle: String(localized: "Runs your agents on your Macs"),
-            // The header's trailing button is Invite to cmux (the share sheet).
-            trailingSymbol: ChiefInvite.symbol
+            serviceSubtitle: String(localized: "mobile.chief.serviceSubtitle", defaultValue: "Runs your agents", bundle: .module),
+            // The header's trailing button is Chief's page menu (Invite to cmux, the zoom).
+            trailingSymbol: ChiefPageMenu.symbol,
+            header: ConversationHeaderPresentation(
+                scrollEdge: .system,
+                actionAccessibilityLabel: ChiefPageMenu.title,
+                avatarAccessibilityLabel: String(localized: "Chief"),
+                avatarAccessibilityHint: String(localized: "Opens Chief's settings")
+            )
         )
     }
 }
@@ -142,6 +167,12 @@ struct ChiefConversationController: UIViewControllerRepresentable {
         // A conversation of the Mac's Home list has no composer: no Forward
         // button there (it did nothing when tapped).
         conversation.onForward = compose.map { compose in { draft in compose.present(forwarding: draft) } }
+        // Reply with Selection (the Mac's `home.replyToSelection`): the reply to that
+        // message opens with the selected words quoted, then whatever was typed.
+        conversation.onReplyWithSelection = { [weak conversation] reply in
+            guard let conversation else { return }
+            ChiefPageMenu.replyWithSelection(reply, in: conversation)
+        }
     }
 }
 
@@ -183,12 +214,16 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.store.addObserver { [weak self] _ in
             guard let self, self.isViewLoaded else { return }
             self.updateAvailability()
+            // The conversation becomes known on connect (or the store moves to another
+            // Chief): that chat's own colours apply then.
+            if self.chatColorsKey != self.appliedChatColorsKey { self.applyChatColors() }
             guard self.chiefInitials != self.headerAvatar else { return }
             self.headerAvatar = self.chiefInitials
             if self.view.window != nil { self.conversation.setBackUnreadCount(self.backUnreadCount) }
         }
         installSendGate()
         observeAvailability()
+        installPageMenu()
     }
 
     // MARK: Chief unavailable (full verify D2, D3)
@@ -235,13 +270,9 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     private func holdUnsentMessage() {
         guard presentedViewController == nil else { return }
         let text = composerTextView?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        var reason = session.unavailableReason ?? String(localized: "Chief isn't connected yet.")
-        // Reasons come with and without a final period ("Chief isn't connected
-        // to a Mac"); the alert read "…to a Mac Your message…".
-        if let last = reason.last, !".!?".contains(last) { reason += "." }
         let alert = UIAlertController(
-            title: String(localized: "Message Not Sent"),
-            message: String(localized: "\(reason) Your message is still in the box."),
+            title: String(localized: "mobile.chief.notSent", defaultValue: "Not sent", bundle: .module),
+            message: String(localized: "mobile.chief.draftKept", defaultValue: "Your draft is saved here.", bundle: .module),
             preferredStyle: .alert)
         if session.canRetryConnecting {
             alert.addAction(UIAlertAction(title: String(localized: "Try Again"), style: .default) { [weak self] _ in
@@ -314,7 +345,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         }
         let alert = UIAlertController(
             title: String(localized: "Sent to Cloud Chief"),
-            message: String(localized: "Cloud Chief has your message and the recent messages from this chat. Its answer is in the Cloud Chief chat."),
+            message: String(localized: "mobile.chief.continueInCloud", defaultValue: "Continue in the Cloud Chief chat.", bundle: .module),
             preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .cancel))
         present(alert, animated: true)
@@ -471,89 +502,23 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     }
 
     private var headerAvatar: String?
+    /// The chat whose colours the conversation draws (``applyChatColors()``).
+    var appliedChatColorsKey: String?
     private var chiefInitials: String? {
         conversation.store.info?.participants.first { $0.id == session.identity.chiefID }?.initials
     }
 
     // MARK: Chief settings in place of contact details
 
-    /// The header's avatar and name open Messages' contact details in the
-    /// package (Call, FaceTime and Mail; Hide Alerts and Send Read Receipts
-    /// on a table that reloads under the switch). CmuxConversation has no
-    /// hook to replace or trim them (verify/imsg-upstream-requests.md), so
-    /// Chief retargets those two controls to ``ChiefSettingsView``: the Mac
-    /// Chief's settings with this phone's alert and receipt switches. The
-    /// trailing button (the package's call glyph) becomes Invite to cmux.
-    /// Found by the package's own accessibility markers; a later package that
-    /// renames them shows its details again.
+    /// Public package actions preserve the close behavior in reply/edit/select
+    /// modes and work for touch, VoiceOver and keyboard activation alike.
     private(set) var headerTakenOver = false
-    private var trailingWasAction = false
 
     private func takeOverHeader() {
-        // The header: the view that holds the name button, up to the
-        // package's header class. Only its controls are touched.
-        guard let name = conversation.view.subviewsOfType(UIButton.self).first(where: { $0.accessibilityIdentifier == "conversation.header.name" }) else {
-            return
-        }
-        var header: UIView = name
-        while let parent = header.superview, parent !== conversation.view,
-              !String(describing: type(of: header)).contains("HeaderView") {
-            header = parent
-        }
-        for button in header.subviewsOfType(UIButton.self) {
-            switch button.accessibilityIdentifier {
-            case "conversation.header.name":
-                retarget(button)
-            case "conversation.header.trailing":
-                // The package's own action (leaving reply, edit or select
-                // mode, which show an xmark) runs first; the invite opens
-                // only from the plain state.
-                button.addAction(UIAction { [weak self, weak button] _ in
-                    self?.trailingWasAction = !(button?.currentImage.map(Self.isXmark) ?? true)
-                }, for: .touchDown)
-                button.addAction(UIAction { [weak self] _ in
-                    guard let self else { return }
-                    // Read once: an activation with no touch-down (Full Keyboard
-                    // Access) never reuses an earlier tap's state.
-                    let wasPlain = self.trailingWasAction
-                    self.trailingWasAction = false
-                    // The package relabels the button on every mode change.
-                    self.labelTrailing()
-                    guard wasPlain else { return }
-                    self.presentInvite()
-                }, for: .touchUpInside)
-                trailingButton = button
-            default:
-                // The avatar's tap target: the one header button with a hint.
-                if button.accessibilityHint != nil, button.buttonType == .custom {
-                    retarget(button)
-                    button.accessibilityLabel = String(localized: "Chief")
-                    button.accessibilityHint = String(localized: "Opens Chief's settings")
-                }
-            }
-        }
+        conversation.onHeaderInfo = { [weak self] in self?.presentSettings() }
+        // The page menu (``ChiefPageMenu``) replaces this tap; kept for a package without menus.
+        conversation.onHeaderAction = { [weak self] anchor in self?.presentInvite(anchor: anchor) }
         headerTakenOver = true
-    }
-
-    private weak var trailingButton: UIButton?
-
-    private func retarget(_ button: UIButton) {
-        var actions: [UIAction] = []
-        button.enumerateEventHandlers { action, _, event, _ in
-            if event == .touchUpInside, let action { actions.append(action) }
-        }
-        for action in actions { button.removeAction(action, for: .touchUpInside) }
-        button.addAction(UIAction { [weak self] _ in self?.presentSettings() }, for: .touchUpInside)
-    }
-
-    static func isXmark(_ image: UIImage) -> Bool {
-        String(describing: image).contains("xmark")
-    }
-
-    /// The trailing glyph speaks as "Call" in the package; here it is the invite.
-    private func labelTrailing() {
-        guard let trailingButton, let image = trailingButton.currentImage, !Self.isXmark(image) else { return }
-        trailingButton.accessibilityLabel = ChiefInvite.actionTitle
     }
 
     /// Messages written before Chief connected are not in the transcript
@@ -572,7 +537,6 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         })
         present(alert, animated: true)
     }
-
     /// Pushes Chief's info on the navigation stack (``ChiefConversationScreen``).
     var openInfo: (() -> Void)?
 
@@ -584,13 +548,14 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     /// Invite to cmux: the share sheet over the conversation, anchored to the
     /// trailing button (a popover on iPad).
-    public func presentInvite() {
+    public func presentInvite(anchor: UIView? = nil) {
         guard presentedViewController == nil, conversation.presentedViewController == nil else { return }
         view.endEditing(true)
         let sheet = ChiefInvite.shareSheet()
         if let popover = sheet.popoverPresentationController {
-            if let trailingButton {
-                popover.sourceItem = trailingButton
+            if let anchor {
+                popover.sourceView = anchor
+                popover.sourceRect = anchor.bounds
             } else {
                 popover.sourceView = view
                 popover.sourceRect = CGRect(x: view.bounds.maxX - 44, y: view.safeAreaInsets.top, width: 1, height: 1)
@@ -611,6 +576,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     public override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
         conversation.setBackUnreadCount(backUnreadCount)
+        // The person's text size is final once the screen is in the window.
+        applyTextZoom()
     }
 
     /// SwiftUI turns the edge pop off again whenever it updates the hidden
@@ -628,7 +595,6 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         if view.window != nil, !isCovered { enableEdgePop() }
-        labelTrailing()
         layoutQuestionBar()
         anchorLiveBubble()
     }
@@ -706,10 +672,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
             field.delegate?.textViewDidChange?(field)
         }
         session.markSeen()
-        showOutboxIfWaiting()
         if focusesComposerOnAppear {
             focusesComposerOnAppear = false
-            // Not under the waiting-outbox alert.
             if presentedViewController == nil { focusComposer() }
         }
         #if DEBUG
@@ -762,19 +726,23 @@ private extension UIView {
         (gestureRecognizers ?? []) + subviews.flatMap { $0.allGestureRecognizersInSubtree() }
     }
 
+    func subviewsOfType<T: UIView>(_ type: T.Type) -> [T] {
+        subviews.flatMap { view -> [T] in
+            if let match = view as? T { return [match] }
+            return view.subviewsOfType(type)
+        }
+    }
+}
+
+extension UIView {
+    /// The first view under this one that matches (CmuxConversation marks its
+    /// composer and header controls with accessibility identifiers).
     func firstSubview(where match: (UIView) -> Bool) -> UIView? {
         for view in subviews {
             if match(view) { return view }
             if let found = view.firstSubview(where: match) { return found }
         }
         return nil
-    }
-
-    func subviewsOfType<T: UIView>(_ type: T.Type) -> [T] {
-        subviews.flatMap { view -> [T] in
-            if let match = view as? T { return [match] }
-            return view.subviewsOfType(type)
-        }
     }
 }
 
@@ -818,7 +786,7 @@ public final class ChiefDemoHook {
         container?.presentSettings()
     }
 
-    /// Opens the Invite to cmux share sheet, as the header's trailing button does.
+    /// Opens the Invite to cmux share sheet, as the page menu's Invite to cmux does.
     public func openInvite() {
         container?.presentInvite()
     }

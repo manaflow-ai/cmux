@@ -113,6 +113,9 @@ SCAN_RULES = (
         "crates/cmux-tui/src/cli",
         frozenset({".rs"}),
         cli_literals_only=True,
+        # `cmux live` reads web-overlay.sh's state folder, `~/Library/Caches/cmux-next/web-slot`:
+        # a file path on this Mac, not a resource identity.
+        private_identity_exceptions=frozenset({"web-slot"}),
     ),
 )
 
@@ -1194,6 +1197,10 @@ def _validate_catalog_type(
                 # passed through unchanged (its turn summaries grow fields).
                 "operations.chief.engine.get.result",
                 "operations.chief.engine.set.result.arguments[0]",
+                # Import from Conductor's dry run, owned by the
+                # cmux-conductor-import crate (plan::Plan) and passed
+                # through unchanged; the app that confirms it reads it.
+                "types.ConductorImportPlanResult.fields.plan.value",
             }
             is_explicit_extra = (
                 context.startswith("types.")
@@ -2069,7 +2076,11 @@ def _operation_catalog(
                 "argv",
                 "shell",
                 "focus",
+                "placement",
             }
+            or create_fields.get("placement", {}).get("required") is not False
+            or create_fields.get("placement", {}).get("type")
+            != {"kind": "enum", "values": ["top", "after_current", "bottom"]}
             or create_fields.get("focus", {}).get("required") is not False
             or create_fields.get("focus", {}).get("type")
             != {"kind": "primitive", "name": "boolean"}
@@ -2103,7 +2114,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "workspace.create params must be optional name, ephemeral, cwd, argv, shell, focus, correlation_key, and expected_revision plus required initial_content",
+                "workspace.create params must be optional name, ephemeral, cwd, argv, shell, focus, placement, correlation_key, and expected_revision plus required initial_content",
                 "workspace.create",
             )
 

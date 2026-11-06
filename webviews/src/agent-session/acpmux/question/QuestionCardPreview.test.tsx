@@ -64,6 +64,17 @@ const previewBody = (card: HTMLElement) => card.querySelector(".acpmux-question-
 const row = (card: HTMLElement, index: number) =>
   card.querySelector<HTMLElement>(`.acpmux-question-row[data-row="${index}"]`)!;
 
+test("the native key target names the permission id when a card has a synthetic id", async () => {
+  const question = withPreviews();
+  question.id = "synthetic-conversation-question";
+  question.source.permission = "daemon-permission";
+  const container = await render(question);
+  const card = container.querySelector<HTMLElement>(".acpmux-question")!;
+  expect(card.dataset.cmuxQuestionSession).toBe(question.source.session);
+  expect(card.dataset.cmuxQuestionId).toBe("daemon-permission");
+  expect(card.dataset.cmuxQuestionEnterReply).toBeUndefined();
+});
+
 async function pointer(target: Element, type: "mouseover" | "mouseout", related: Element | null) {
   await act(async () => {
     target.dispatchEvent(new dom!.window.MouseEvent(type, { bubbles: true, relatedTarget: related }));

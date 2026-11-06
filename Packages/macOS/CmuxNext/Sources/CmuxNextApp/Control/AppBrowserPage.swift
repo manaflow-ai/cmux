@@ -27,7 +27,7 @@ enum AppBrowserPage {
     }
 
     static func run(_ operation: BrowserPageOperation, tabID: String, services: AppServices) async throws -> CmuxNextSettings.JSONValue {
-        guard let (tab, _) = services.locateTab(tabID) else {
+        guard let (tab, _) = services.locateTabOnAnyMachine(tabID) else {
             throw ControlError(code: "not_found", message: "Surface not found or not a browser")
         }
         // Before the page exists or any script runs: this tab never gets a
@@ -58,6 +58,7 @@ enum AppBrowserPage {
         }
         if let refusal = agentURLRefusal(operation, target: target, page: page) { throw refusal }
         if needsLiveBrowser(operation) { try await ensureBrowser(page) }
+        if operation.actsOnDocument { await services.browserHost?.tabs.keepRendering(tabID: tabID, needsAScreen: operation.needsAScreen) }
         // No extension rule here: every agent may drive every tab, in any
         // profile (#24413). Saved passwords never fill in an agent-driven tab
         // (`markAgentDriven` above), and the per-tab lease coordinates agents.
@@ -131,10 +132,7 @@ enum AppBrowserPage {
     /// page failed with `js_error` "closed". The control deadline bounds the
     /// wait (`browserCreated` resumes false when the call is cancelled).
     static func ensureBrowser(_ page: any BrowserTab) async throws {
-        guard let page = page as? CEFTab, !page.agentRelay.hasBrowser else { return }
-        page.agentRelay.createBrowser()
-        guard await page.agentRelay.browserCreated() else {
-            throw ControlError(code: "unavailable", message: "The browser page could not start; retry")
-        }
+        guard let page = page as? CEFTab, !(await page.agentRelay.started()) else { return }
+        throw ControlError(code: "unavailable", message: "The browser page could not start; retry")
     }
 }

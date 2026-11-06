@@ -98,6 +98,33 @@ daemon's default focus. This replaces today's single `windows` subject that
 `WindowStateStore.update` rewrites whole, which lets two Macs on one daemon overwrite
 each other. Implemented by session feat-cmux-next-99 after its catch-up.
 
+### 2.2 Session owner lifetime
+
+A session owner (`cmux-tui --headless`) runs detached on purpose: it outlives every
+client so a later client reattaches instead of rebuilding the session. Nothing a person
+can reattach to is ever ended to save resources. The only exit for an owner nobody
+started on purpose is the orphan exit (`cmux-tui/crates/cmux-tui/src/headless/dev_orphan_exit.rs`,
+core half `server/orphan_shutdown.rs`), and its rules are:
+
+- Scope: owners whose executable sits in a DEV bundle (`com.cmuxterm.app.debug[.<tag>]`)
+  and whose session a cmux app starts by itself: the app owner (`cmux-app-...`) and its
+  Chief home's owner (`cmux-chief-...`). Release, NIGHTLY and RC owners, and a person's own
+  `cmux` sessions (`main` or a named one), never stop by themselves. An owner left by an
+  older release build is the update handoff's job (version-skew.md).
+- Idle: no client for an hour (`ORPHAN_EXIT_DELAY`). The owner's own journal plugin is not
+  a client: the bundled screen detector connects back at start and stays, so counting it
+  kept every DEV owner alive for days (cmux issue 23086). A connection is the plugin's when
+  its kernel peer is in the plugin's process group, checked before it registers. Every
+  other connection counts, including a CLI call and a Chief brain (its own process
+  group); a brain that is not connected when the owner stops is stopped with it and
+  starts again on the next message to a new owner.
+- Abandoned: after the idle hour, the owner's executable is gone (the tag bundle was
+  deleted), or it has no live terminal. With its executable present and a live terminal
+  it keeps running however long it is idle, rechecking every 10 min.
+- Exit: the same stop as `server stop` without `end_terminals`, under a fence that refuses
+  new clients while the check repeats. No terminal ends and no host is signalled; durable
+  state stays on disk, and the next owner of the session adopts the hosts.
+
 ## 3. Protocol: ops, echo, intents
 
 - Op: `{transaction, idempotency_key, kind, args, expected_revision?}`. The owner runs

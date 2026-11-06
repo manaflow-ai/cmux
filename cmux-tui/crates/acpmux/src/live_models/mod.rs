@@ -90,6 +90,21 @@ pub async fn probe(
     listed.map_err(|_| anyhow!("the model list did not arrive within {} s", timeout.as_secs()))?
 }
 
+/// Codex's plan usage limits at rest (`account/rateLimits/read`) from one
+/// short-lived `codex app-server` started with `argv` and `env`, killed once it
+/// answers or `timeout` passes (`_acpmux/account/usage`).
+pub async fn codex_rate_limits(
+    argv: &[String],
+    env: &BTreeMap<String, String>,
+    cwd: &Path,
+    timeout: Duration,
+) -> Result<Value> {
+    let mut child = Probe::spawn(Cli::Codex, argv, env, cwd)?;
+    let read = tokio::time::timeout(timeout, codex::rate_limits(&mut child)).await;
+    child.kill().await;
+    read.map_err(|_| anyhow!("the usage limits did not arrive within {} s", timeout.as_secs()))?
+}
+
 /// A probe child: line-oriented JSON on stdin and stdout, stderr dropped.
 pub(crate) struct Probe {
     child: Child,
@@ -247,6 +262,8 @@ impl Cache {
         key: &CacheKey,
         models: &[LiveModel],
     ) -> std::io::Result<()> {
+        // A probe that ends after the home was lost never makes it again (`config::mark_home_lost`).
+        crate::config::refuse_lost_home(&self.dir).map_err(std::io::Error::other)?;
         std::fs::create_dir_all(&self.dir)?;
         let path = self.path(harness);
         let tmp = path.with_extension("json.tmp");

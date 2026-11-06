@@ -11,10 +11,11 @@ PROTOCOL.md "Push notifications (API 0.13.0)". The trust analysis for PR B is
 | --- | --- | --- | --- | --- |
 | Question, one choice, at most 4 options | "<Agent> asks", the question, `<workspace> · <Mac>` | the chat's last lines, the question, option rows, the composer | one per option | the chat, scrolled to the question |
 | Question, multi-select, more than 4 options, several questions or free text | same | option rows (checkboxes for multi-select), Submit, the composer | "Answer…" | the chat |
-| Permission | "<Agent> needs permission", the command or tool title | the last lines and the request | Allow once, Deny (as the Feed, `phoneOptions`: acpmux refuses a lasting grant from a phone, `remote.lasting_grant_refused`; a prompt with no single-use Allow keeps its Always allow, and acpmux's refusal says why) | the chat |
+| Permission | "<Agent> wants to act on <Mac>", `<workspace>`, the command or tool title (the Mac's approval prompt for a streaming device) | the Mac's approval prompt: glyph and title, "Asks to run this in <workspace>.", the request in code type, Deny and Allow once (`ApprovalCardView`) | Allow once, Deny (as the Feed, `phoneOptions`: acpmux refuses a lasting grant from a phone, `remote.lasting_grant_refused`; a prompt with no single-use Allow keeps its Always allow, and acpmux's refusal says why) | the chat |
 | Finished turn | "<Agent> finished", the last line | the last 4 messages up to the reply, "+" (Photos, Files), the system reply field | none: the reply field is at the bottom | the chat |
 | Error | "<Agent> stopped with an error" | same | same | the chat |
 | Chief | "Chief", the reply's first lines | Chief's header (its avatar and name, the Mac), the last 4 messages up to the reply as Messages bubbles, "+" (Photos), the system reply field | none: the reply field is at the bottom | that Chief's conversation |
+| Terminal agent (Claude Code or Codex in a terminal tab, its hook) | as the matching kind: finished turn, permission (the approval prompt, "<Agent> wants to act on <Mac>", the tool; no Deny or Allow), a question whose options the Mac could not read ("<Agent> has a question"); an error stays a terminal notification (a failed tool call is not the agent stopping) | the place, no chat history | an approval or a bare question offers "Answer…" (opens the tab). It names no agent chat, so it takes the terminal's category: no Reply, Allow or Deny | the terminal tab |
 | Terminal (OSC 9, 777, 99) | "Terminal · <workspace>", the program's title and body | the program's title and body (the screen stays on the Mac until PR B seals payloads) | none (Reply is PR B, needs device unlock) | the terminal tab |
 
 Thread per session (`thread-id`), the collapse rules from #23803 unchanged.
@@ -162,8 +163,12 @@ cannot create an App Group, and adding the App Groups capability to
 Distribution" profiles (local and CI, the CI one also a release secret). So
 device builds sign without the App Group (`CMUX_MOBILE_APP_GROUP=NO`, the
 default for device SDKs; simulator builds always have it): the extension shows
-the notification and its buttons, and its option rows and composer open the
-app on the chat instead of handing over the answer.
+the notification and its buttons, and hands an option row's, Submit's or an
+answer field's reply over through the push keychain group instead
+(`PushHandover`, keyed by the notification's request id): it opens the app,
+whose open response for that request takes the reply and sends it after Face
+ID. Before 2026-11-04 these rows opened the app with the answer dropped, so a
+tapped choice did nothing. "+" (files) still needs the App Group.
 
 A build without the App Group must never ask for it: TestFlight 1.2.0
 (20261026194905) was killed by the launch watchdog (0x8BADF00D) because a view

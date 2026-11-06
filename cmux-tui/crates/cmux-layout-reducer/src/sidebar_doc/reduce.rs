@@ -376,6 +376,22 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
                     item.extra.insert(AUTO_ARCHIVE_KEY.into(), rule.value());
                 }
             }
+            match &patch.sort {
+                Patch::Keep => {}
+                Patch::Clear => {
+                    item.extra.remove(GROUP_SORT_KEY);
+                }
+                Patch::Set(value) => {
+                    match GroupSort::read(value).ok_or(Refusal::InvalidValue)?.value() {
+                        Some(stored) => {
+                            item.extra.insert(GROUP_SORT_KEY.into(), Value::String(stored.into()));
+                        }
+                        None => {
+                            item.extra.remove(GROUP_SORT_KEY);
+                        }
+                    }
+                }
+            }
             Ok(())
         }),
         Op::GroupUngroup { id } => {
@@ -1035,6 +1051,15 @@ fn update_item(tx: &mut Tx, id: &str, patch: &ItemPatch) -> Result<(), Refusal> 
             }
             Patch::Set(label) => {
                 item.extra.insert("label".into(), label.clone().into());
+            }
+        }
+        match &patch.room {
+            Patch::Keep => {}
+            Patch::Clear => {
+                item.extra.remove("room");
+            }
+            Patch::Set(room) => {
+                item.extra.insert("room".into(), room.clone().into());
             }
         }
         if !patch.title.is_keep() || !patch.icon_url.is_keep() {

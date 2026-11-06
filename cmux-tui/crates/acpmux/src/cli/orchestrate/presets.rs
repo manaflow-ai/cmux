@@ -12,13 +12,13 @@ pub(crate) async fn defaults(
 ) -> Result<()> {
     let mut req = json!({});
     if let Some(f) = &family {
-        req["family"] = json!(f);
+        req.set("family", json!(f));
     }
     if clear {
         if family.is_none() {
             return Err(AppError::usage("--clear needs a family").into());
         }
-        req["clear"] = json!(true);
+        req.set("clear", json!(true));
     }
     if !pairs.is_empty() {
         if family.is_none() {
@@ -66,7 +66,7 @@ pub(crate) async fn defaults(
         if !env.is_empty() {
             set.insert("env".into(), Value::Object(env));
         }
-        req["set"] = Value::Object(set);
+        req.set("set", Value::Object(set));
     }
     let v = client.request(method::MUX_DEFAULTS, req).await?;
     if json_out {
@@ -127,13 +127,13 @@ pub(crate) async fn preset(
 ) -> Result<()> {
     let mut req = json!({});
     if let Some(n) = &name {
-        req["name"] = json!(n);
+        req.set("name", json!(n));
     }
     if clear {
         if name.is_none() {
             return Err(AppError::usage("--clear needs a preset name").into());
         }
-        req["clear"] = json!(true);
+        req.set("clear", json!(true));
     }
     if !pairs.is_empty() {
         if name.is_none() {
@@ -178,7 +178,7 @@ pub(crate) async fn preset(
         if !env.is_empty() {
             set.insert("env".into(), Value::Object(env));
         }
-        req["set"] = Value::Object(set);
+        req.set("set", Value::Object(set));
     }
     let v = client.request(method::MUX_PRESETS, req).await?;
     if json_out {

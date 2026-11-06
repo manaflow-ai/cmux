@@ -31,14 +31,13 @@ nonisolated enum TabSettingsSchema {
                 SettingChoice(NewTabTemplate.minimal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateMinimal", "Minimal")),
                 SettingChoice(NewTabTemplate.cards.rawValue, SettingsText.keyed("settings.choice.newTabTemplateCards", "Cards")),
                 SettingChoice(NewTabTemplate.default.rawValue, SettingsText.keyed("settings.choice.newTabTemplateDefault", "Default")),
-                SettingChoice(NewTabTemplate.composer.rawValue, SettingsText.keyed("settings.choice.newTabTemplateComposer", "Composer")),
                 SettingChoice(NewTabTemplate.threads.rawValue, SettingsText.keyed("settings.choice.newTabTemplateThreads", "Threads")),
                 SettingChoice(NewTabTemplate.console.rawValue, SettingsText.keyed("settings.choice.newTabTemplateConsole", "Console")),
                 SettingChoice(NewTabTemplate.classic.rawValue, SettingsText.keyed("settings.choice.newTabTemplateClassic", "Classic")),
                 SettingChoice(NewTabTemplate.terminal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateTerminal", "Terminal")),
             ]),
             default: .string(NewTabTemplate.fallback.rawValue),
-            keywords: ["new tab", "template", "layout", "page", "minimal", "greeting", "terminal", "classic", "composer", "threads", "console", "cards", "search", "ask"]
+            keywords: ["new tab", "template", "layout", "page", "minimal", "greeting", "terminal", "classic", "threads", "console", "cards", "search", "ask"]
         )
     }
 
@@ -56,17 +55,16 @@ nonisolated enum TabSettingsSchema {
         )
     }
 
-    /// `tabs.terminalFirst`, shown as cmux Classic Mode: every new tab, split, workspace and window a
-    /// person opens is a terminal, as in cmux classic (#23021). The help says how to reach the GUI.
-    static func terminalFirst(group: SettingText) -> SettingDescriptor {
+    /// `tabs.nativeNewTabPage`: the native New Tab page, an alternative to the web one (off by default).
+    static func nativeNewTabPage(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(
-            TerminalFirstSetting.configPath, section: .general, group: group,
-            title: SettingsText.keyed("settings.tabs.terminalFirst", "cmux Classic Mode"),
-            help: SettingsText.keyed("settings.tabs.terminalFirst.help",
-                                     "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab."),
+            NativeNewTabPageSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.nativeNewTabPage", "Native New Tab Page"),
+            help: SettingsText.keyed("settings.tabs.nativeNewTabPage.help",
+                                     "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now."),
             kind: .toggle,
-            default: .bool(TerminalFirstSetting.fallback),
-            keywords: ["terminal", "classic", "classic mode", "cmux classic", "new tab", "split", "workspace", "window", "cmd-t", "cmd-d", "cmd-n", "new tab page", "gui", "default"]
+            default: .bool(NativeNewTabPageSetting.fallback),
+            keywords: ["new tab", "native", "swift", "page", "cmd-t", "fast", "web", "alternative", "command palette", "actions"]
         )
     }
 
@@ -80,6 +78,44 @@ nonisolated enum TabSettingsSchema {
             kind: .toggle,
             default: .bool(CmdWClosesPinnedTabsSetting.fallback),
             keywords: ["pin", "pinned", "close", "cmd-w", "tab", "keep"]
+        )
+    }
+
+    /// `tabs.verticalTabs` and `tabs.verticalTabsExpandOnHover`: tabs as a vertical list in every workspace
+    /// (a workspace's own choice wins, from the tab list's menu), and a collapsed list widening on hover.
+    static func verticalTabs(group: SettingText) -> [SettingDescriptor] {
+        [
+            SettingDescriptor(
+                VerticalTabsSetting.configPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.tabs.verticalTabs", "Use Vertical Tabs for All Workspaces"),
+                help: SettingsText.keyed("settings.tabs.verticalTabs.help",
+                                         "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu."),
+                kind: .toggle,
+                default: .bool(VerticalTabsSetting.fallback),
+                keywords: ["vertical", "tabs", "list", "side", "sidebar", "edge", "chrome", "horizontal", "strip", "workspace"]
+            ),
+            SettingDescriptor(
+                VerticalTabsSetting.expandOnHoverPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.tabs.verticalTabsExpandOnHover", "Expand Collapsed Vertical Tabs on Hover"),
+                help: SettingsText.keyed("settings.tabs.verticalTabsExpandOnHover.help",
+                                         "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it."),
+                kind: .toggle,
+                default: .bool(VerticalTabsSetting.expandOnHoverFallback),
+                keywords: ["vertical", "tabs", "collapse", "collapsed", "expand", "hover", "icons", "auto"]
+            ),
+        ]
+    }
+
+    /// `tabs.hideLoneChatTab`: a chat alone in its pane hides its one tab (off by default; ``LoneChatTabSetting``).
+    static func hideLoneChatTab(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            LoneChatTabSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.hideLoneChatTab", "Hide the Tab of a Chat Alone in Its Pane"),
+            help: SettingsText.keyed("settings.tabs.hideLoneChatTab.help",
+                                     "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back."),
+            kind: .toggle,
+            default: .bool(LoneChatTabSetting.fallback),
+            keywords: ["tab", "tabs", "bar", "strip", "hide", "lone", "single", "one", "chat", "top", "row", "minimal"]
         )
     }
 

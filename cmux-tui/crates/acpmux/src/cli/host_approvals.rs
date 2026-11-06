@@ -21,6 +21,7 @@ use crate::harness_health::channel::quote as shell_quote;
 use crate::hub::approvers::Approver;
 use crate::hub::mac_approvers;
 use anyhow::{Context, Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -43,7 +44,7 @@ pub(crate) async fn run(
             if let Ok(client) = crate::daemon::connect(false).await
                 && let Ok(view) = client.request("_acpmux/mac_approvers", json!({})).await
             {
-                v["thisMac"] = view["thisMac"].clone();
+                v.set("thisMac", view["thisMac"].clone());
             }
             v
         }
@@ -79,7 +80,7 @@ pub(crate) async fn run(
     } else if let Some(macs) = v.get("macs").and_then(Value::as_array) {
         if macs.is_empty() {
             println!(
-                "no Mac may allow this machine's prompts (`acpmux host enroll` from the Mac adds one)"
+                "no Mac may allow this machine's prompts (`acpmux machine enroll` from the Mac adds one)"
             );
         }
         for m in macs {
@@ -270,7 +271,7 @@ pub(crate) async fn approvals_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
     let Some(own) = own else {
         return step(StepState::Skip, "no cmux app on this machine gave an approver key").with_fix(
             format!(
-                "To allow {host}'s prompts from the cmux app here, open cmux, then run `acpmux host enroll {host}` again."
+                "To allow {host}'s prompts from the cmux app here, open cmux, then run `acpmux machine enroll {host}` again."
             ),
         );
     };
@@ -292,9 +293,9 @@ pub(crate) async fn approvals_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
                     format!("the acpmux on {host} is too old for approvals from {mac}"),
                 )
                 .with_fix(format!(
-                    "Run `acpmux host update {name}`, then `acpmux host enroll {host}` again."
+                    "Run `acpmux machine update {name}`, then `acpmux machine enroll {host}` again."
                 ))
-                .with_try(format!("acpmux host update {name}"));
+                .with_try(format!("acpmux machine update {name}"));
             }
             return step(StepState::Warn, format!("could not read {host}'s enrolled Macs: {last}"));
         }
@@ -312,7 +313,7 @@ pub(crate) async fn approvals_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
             StepState::Warn,
             format!("{mac} is not enrolled on {host}: its app cannot allow {host}'s prompts"),
         )
-        .with_fix(format!("Run `acpmux host doctor {name} --fix` to enroll it."));
+        .with_fix(format!("Run `acpmux machine doctor {name} --fix` to enroll it."));
     }
     let add = format!(
         "host approvals add --id {} --key {} --name {}",

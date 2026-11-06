@@ -1,10 +1,11 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextWakeups
 import CmuxNextDesign
 import CmuxNextIcons
 
 /// Borderless icon button with gray hover and press fills (no accent color).
-final class ChromeIconButton: NSButton {
+final class ChromeIconButton: ClickableButton {
     private let density = DensityBinding()
     /// The pack icon the button draws (`BrowserToolbarReport.icons`).
     private(set) var iconName = IconName.placeholder
@@ -16,14 +17,14 @@ final class ChromeIconButton: NSButton {
     /// Toolbar buttons use the omnibar geometry (`OmnibarStyle`); others the
     /// compact overlay size.
     private let isToolbar: Bool
-    /// False where the tooltip would only repeat the icon's name (Back,
-    /// Forward, Reload/Stop, More: Lawrence 2026-10-13). The accessibility
-    /// label stays.
+    /// False where the tooltip would only repeat the icon's name (Back, Forward,
+    /// Reload/Stop, More: Lawrence 2026-10-13). The accessibility label stays.
     var showsToolTip: Bool {
         didSet { if showsToolTip != oldValue { themedToolTip = showsToolTip ? iconLabel : nil } }
     }
     /// A menu for right-click and long-press (Back / Forward entries).
     var menuProvider: (() -> NSMenu?)?
+    var onPointerEnter: (() -> Void)?  // the pointer came onto it (the Extensions button's bubble is made then)
     private let holdTimer = DemandTimer(owner: "ChromeIconButton.hold")
     private var showedHoldMenu = false
 
@@ -52,7 +53,7 @@ final class ChromeIconButton: NSButton {
             applyIcon()
         }
         density.start()
-        hover = PointerHover(self) { [weak self] _ in self?.updateFill(animated: true) }
+        hover = PointerHover(self) { [weak self] in self?.updateFill(animated: true); if $0 { self?.onPointerEnter?() } }
         hover?.isHoverable = { [weak self] in self?.isEnabled ?? false }
     }
 
@@ -68,9 +69,13 @@ final class ChromeIconButton: NSButton {
         applyIcon()
     }
 
+    /// The icon's side instead of the toolbar's or the overlay's (More draws the app's ⋮ at
+    /// `OverflowButton.glyphSize`); read on each density change.
+    var iconSide: (() -> CGFloat)? { didSet { applyIcon() } }
+
     private func applyIcon() {
         let label = iconLabel
-        let side = isToolbar ? OmnibarStyle.toolbarIconSize : CGFloat.iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize)
+        let side = iconSide?() ?? (isToolbar ? OmnibarStyle.toolbarIconSize : CGFloat.iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize))
         let icon = NSImage.icon(iconName, size: side)
         icon.accessibilityDescription = label
         image = icon
@@ -211,9 +216,15 @@ final class ChromeIconButton: NSButton {
     private func showHoldMenu() {
         guard let menu = menuProvider?() else { return }
         showedHoldMenu = true
-        isMenuOpen = true
-        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: self, gap: 2), in: self)
-        isMenuOpen = false
+        // From a run-loop callout, not the timer's main-actor job: a menu tracking inside a main-queue
+        // job holds the main queue until it closes, and the click that closes it waits on everything
+        // queued meanwhile (Leo, 2026-10-29: "clicking out of a fucking context menu is sometimes slow").
+        MainRunLoopBlock.perform { [weak self] in
+            guard let self, window != nil else { return }
+            isMenuOpen = true
+            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: self, gap: 2), in: self)
+            isMenuOpen = false
+        }
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -249,7 +260,7 @@ final class ChromeIconButton: NSButton {
 
 /// Text button for prompts and error pages. `prominent` uses a stronger
 /// gray fill instead of the system accent.
-class ChromeTextButton: NSButton {
+class ChromeTextButton: ClickableButton {
     private let density = DensityBinding()
     private let prominent: Bool
     private var hover: PointerHover?

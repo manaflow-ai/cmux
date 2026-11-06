@@ -154,7 +154,9 @@ struct FileExplorerTests {
         let menu = try #require(section.table.contextMenu?())
         let expected = ["fileExplorerOpenInCmux", "▸ \(FileExplorerStrings.openWithSubmenu)", "fileExplorerReveal",
                         "fileExplorerNewFile", "fileExplorerNewFolder", "fileExplorerRename",
-                        "fileExplorerCopyPath", "fileExplorerCopyRelativePath", "fileExplorerMoveToTrash"]
+                        "fileExplorerCopyPath", "fileExplorerCopyRelativePath", "fileExplorerMoveToTrash",
+                        // Every whole right-click menu ends with Customize Menu… (Settings > Menus).
+                        "inline: Customize Menu…"]
         #expect(shown(menu) == expected, "the row menu is not the registry's")
 
         let copy = try #require(menu.items.first { ActionRegistry.menuRun(of: $0)?.id == "fileExplorerCopyPath" })

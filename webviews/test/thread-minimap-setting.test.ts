@@ -7,7 +7,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import exported from "../../schemas/settings/settings-schema.json";
 import { threadMinimapLayout } from "../src/agent-session/acpmux/threadMinimap/layout.experiment";
-import { MINIMAP_KEY, resolveThreadMinimapArm } from "../src/agent-session/acpmux/chatDisplay";
+import { MINIMAP_KEY, RAIL_SIDE_KEY, resolveThreadMinimapArm } from "../src/agent-session/acpmux/chatDisplay";
 import { armIds } from "../src/experiments/experiment";
 import { rankPalette, type PaletteRankEntry } from "../src/palette/ranker";
 import { installDom } from "../src/pages/settings/testDom";
@@ -70,10 +70,21 @@ const palette = (query: string) =>
     .map((row) => rows[row.index]!.key);
 
 describe("the palette finds it", () => {
-  for (const query of ["TICK RAIL", "tick rail", "wave rail", "prompt rail", "scroll rail", "thread minimap"])
+  for (const query of ["TICK RAIL", "tick rail", "prompt rail", "scroll rail"])
+    test(`"${query}" keeps Chat Minimap beside the rail-side setting`, () => {
+      // Both settings answer a generic rail query; the display choice remains near the top.
+      expect(palette(query).slice(0, 2)).toContain(MINIMAP_KEY);
+      expect(palette(query).slice(0, 2)).toContain(RAIL_SIDE_KEY);
+    });
+
+  for (const query of ["wave rail", "thread minimap"])
     test(`"${query}" ranks the Chat Minimap row first`, () => {
       expect(palette(query)[0]).toBe(MINIMAP_KEY);
     });
+
+  test("a rail-side query ranks Prompt Rail Side first", () => {
+    expect(palette("rail side")[0]).toBe(RAIL_SIDE_KEY);
+  });
 
   test(`"minimap" lists it in the top three`, () => {
     expect(palette("minimap").slice(0, 3)).toContain(MINIMAP_KEY);

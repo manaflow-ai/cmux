@@ -43,9 +43,21 @@ pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<Focu
     match event {
         FocusEvent::Topology { topology } => apply_topology(topology.clone(), next, effects),
         FocusEvent::RestoredPane { pane, workspace } => {
-            if !next.remembered.contains_key(workspace)
-                && Some(workspace) != next.topology.workspace.as_ref()
-            {
+            if Some(workspace) == next.topology.workspace.as_ref() {
+                // The window shows the workspace already (the launch window showed its panes
+                // before it adopted the saved record): the saved pane is the focus, as when the
+                // record comes first, unless the person chose since the window opened (every
+                // user intent bumps the generation). A view that took the keyboard by itself
+                // (Home's message box, AppKit's own pick) is no choice. QA v2.2.2 bug 1.
+                if next.generation == 0
+                    && next.topology.contains_pane(pane)
+                    && (next.pane.as_ref() != Some(pane) || next.target != (Target::Content {}))
+                {
+                    next.pane = Some(pane.clone());
+                    next.target = Target::Content {};
+                    force_responder = true;
+                }
+            } else if !next.remembered.contains_key(workspace) {
                 remember(pane, workspace, next);
             }
         }
@@ -350,7 +362,8 @@ pub fn successor(
     let on_screen: std::collections::HashSet<&String> = after.iter().flatten().collect();
     let shown_history: Vec<String> =
         history.iter().filter(|p| on_screen.contains(p)).cloned().collect();
-    if let Some(pick) = close_focus::pane(Some(pane), &before, &after, &shown_history, policy)
+    let focused = pane.to_owned();
+    if let Some(pick) = close_focus::pane(Some(&focused), &before, &after, &shown_history, policy)
         && new.contains_pane(&pick)
     {
         return Some(pick);
@@ -493,6 +506,27 @@ fn accepted(responder: &Responder, source: Source, state: &FocusState) -> Accept
             // A hidden sidebar cannot hold the keyboard: re-apply the target.
             if state.sidebar_hidden {
                 return Accepted::Reapply;
+            }
+            // The list as a responder the platform picked on its own (no input
+            // event, no intent of ours: AppKit's first key view as a restored
+            // window comes forward before its pane's content is presented)
+            // never takes a pane's keyboard. Only the person (a click, a key)
+            // or an intent (`FocusTarget`) puts it on the sidebar (QUIT P0,
+            // 2026-11-01: the first line typed after a reopen went to the
+            // sidebar list). A sidebar field is only ever focused on purpose
+            // (a rename, a search), so its report still moves focus.
+            if source == Source::Programmatic && matches!(responder, Responder::Sidebar {}) {
+                // The list's echo of a sidebar focus the state already has
+                // (Focus Sidebar states its target, then moves the keyboard)
+                // keeps it as it is: a keyboard focus stays a keyboard focus.
+                if matches!(state.target, Target::Sidebar { .. }) {
+                    return Accepted::Same;
+                }
+                if !state.target.is_sidebar()
+                    && state.pane.as_ref().is_some_and(|pane| state.topology.contains_pane(pane))
+                {
+                    return Accepted::Reapply;
+                }
             }
             let target = if matches!(responder, Responder::Sidebar {}) {
                 Target::Sidebar { keyboard: source == Source::Keyboard }

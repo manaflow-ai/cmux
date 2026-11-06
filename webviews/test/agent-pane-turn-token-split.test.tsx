@@ -25,7 +25,15 @@ const SPLIT_SPAN =
 
 for (const [name, line] of Object.entries(tokenLines))
   test(`${name}: output first, then what the model read, named on hover`, () => {
-    const html = tokenLineMarkup(line, SPLIT);
+    // The live line says one count by default, as Claude Code's does (claude-code-tool-rows.test.tsx);
+    // its `split` arm keeps this look.
+    globalThis.cmuxExperiments = { "live-line-tokens": "split" };
+    let html: string;
+    try {
+      html = tokenLineMarkup(line, SPLIT);
+    } finally {
+      delete globalThis.cmuxExperiments;
+    }
     expect(html).toMatch(SPLIT_SPAN);
     expect(text(html)).toMatch(/· ↓ 12\.4K out ↑ 2\.1M in$/);
     // The time is in its own quieter span.
@@ -50,13 +58,15 @@ const worked: AcpmuxRow = {
 const workedMarkup = (row: AcpmuxRow) =>
   renderToStaticMarkup(<WorkedFor row={row} expanded={false} onToggle={() => {}} />);
 
-test("a finished turn's Worked for says its tokens split, its time in the quieter span", () => {
+test("a finished turn's Worked for says its time alone, in the quieter span, as Codex does", () => {
+  // Lucas, 2026-11-06: "just have 'Worked for 22s'". The tokens stay on the running line.
   const html = workedMarkup({ ...worked, tokens: SPLIT });
-  expect(text(html)).toBe("Worked for 1m 16s · ↓ 12.4K out ↑ 2.1M in");
+  expect(text(html)).toBe("Worked for 1m 16s");
   expect(html).toContain(
     '<span class="cv-worked__label">Worked for <span class="cv-worked__label-time">1m 16s</span></span>',
   );
-  expect(html).toMatch(SPLIT_SPAN);
+  expect(html).not.toMatch(SPLIT_SPAN);
+  expect(html).not.toContain("cv-worked__sep");
   // A turn whose result named no tokens: the time alone.
   expect(text(workedMarkup(worked))).toBe("Worked for 1m 16s");
   // An empty turn_result's all-zero split: no tokens, and no dangling separator.
@@ -79,9 +89,8 @@ test("the time and both token parts take the tertiary text token, in tabular num
   expect(rule).toContain("font-variant-numeric: tabular-nums;");
 });
 
-// Where a finished turn's tokens land (turns.ts): on its Worked for only when that line is the
-// turn's one fold. A turn folded into several stretches, or a steered turn, has no line that spans
-// the whole turn, so none of its lines carries the turn's count.
+// A finished connected turn has one Worked-for line, including its intermediate replies and
+// steers. That line spans the whole turn, so it carries the turn's token count.
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -110,16 +119,13 @@ test("a turn with one Worked for carries the turn's tokens on it", () => {
   ]);
 });
 
-test("a turn folded into several stretches carries its tokens on none of them", () => {
+test("a turn with intermediate replies keeps its tokens on its single fold", () => {
   expect(
     workedTokens([row("u", "user"), ran("ran-1"), takeaway("first"), ran("ran-2"), takeaway("second"), ended()]),
-  ).toEqual([
-    ["worked-u", undefined],
-    ["worked-first", undefined],
-  ]);
+  ).toEqual([["worked-u", SPLIT]]);
 });
 
-test("a steered turn carries its tokens on none of its parts' lines", () => {
+test("a steered turn keeps its tokens on the original prompt's fold", () => {
   expect(
     workedTokens([
       row("u", "user"),
@@ -129,8 +135,5 @@ test("a steered turn carries its tokens on none of its parts' lines", () => {
       takeaway("done"),
       ended(),
     ]),
-  ).toEqual([
-    ["worked-u", undefined],
-    ["worked-s", undefined],
-  ]);
+  ).toEqual([["worked-u", SPLIT]]);
 });

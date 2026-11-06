@@ -28,6 +28,7 @@
 //!   walk reads that answer.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::path::{Path, PathBuf};
 
 /// How much a session's harness runs without asking.
@@ -108,7 +109,7 @@ fn policy_rank(p: PermissionPolicy) -> u8 {
 /// A sub-session refusal: invalid params with `data.reason`.
 pub(super) fn refusal(reason: &str, message: String, data: Value) -> RpcError {
     let mut data = data;
-    data["reason"] = json!(reason);
+    data.set("reason", json!(reason));
     RpcError::invalid_params(message).with_data(data)
 }
 
@@ -378,6 +379,21 @@ impl Hub {
         let started = Box::pin(crate::cwd_pin::CwdPin::scope(checked.pin, pinned)).await;
         // A spawn its harness's own check failed (the folder moved since) says why.
         started.map_err(|e| checked.still_at(&cwd).err().unwrap_or(e))
+    }
+
+    /// Starts `session`'s harness (`child_for`) pinned to `checked`, as
+    /// [`Hub::ensure_checked_child`] spawns a new sub-session's: a sub-session's fork
+    /// (`fork.rs` `fork_with_boundary`).
+    pub(super) async fn start_checked_child(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        checked: &CheckedFolder,
+    ) -> Result<(), RpcError> {
+        let cwd = session.meta().cwd;
+        checked.still_at(&cwd)?;
+        let started =
+            Box::pin(crate::cwd_pin::CwdPin::scope(checked.pin, self.child_for(session))).await;
+        started.map(|_| ()).map_err(|e| checked.still_at(&cwd).err().unwrap_or(e))
     }
 
     /// Everything a new sub-session takes before its first prompt: the

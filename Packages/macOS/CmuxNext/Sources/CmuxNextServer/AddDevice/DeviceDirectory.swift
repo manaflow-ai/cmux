@@ -22,21 +22,28 @@ public final class DeviceDirectory {
     /// Sets a paired client machine's Full-access setting (acpmux `_acpmux/pair_set`, by pairing
     /// id); true when acpmux took it. Nil (tests that never set it): every set fails.
     @ObservationIgnored private let pairSet: ((String, Bool) async -> Bool)?
+    /// A removed acpmux peer's `[user@]host`: the app forgets its SSH machine there too, so one
+    /// Remove takes the computer out of the sidebar as well (HQ #4877 break 8). Nil: nothing more.
+    @ObservationIgnored private let peerRemoved: ((String) async -> Void)?
     @ObservationIgnored private var reading = false
 
     /// - Parameters:
     ///   - run: The app's own `cmux-tui` run (tests pass fixture JSON).
     ///   - removePhone: The Mac's phone pairing's remove.
     ///   - setFullAccess: acpmux's `pair_set` over a connection proven as the person.
+    ///   - peerRemoved: Called with a removed peer's ssh `[user@]host` after its remove succeeded.
     public init(run: @escaping ([String]) async -> Data?, removePhone: @escaping (String) async -> Void,
-                setFullAccess: ((String, Bool) async -> Bool)? = nil) {
+                setFullAccess: ((String, Bool) async -> Bool)? = nil, peerRemoved: ((String) async -> Void)? = nil) {
         self.run = run
         self.removePhone = removePhone
         pairSet = setFullAccess
+        self.peerRemoved = peerRemoved
     }
 
     /// The id prefix of a phone row (its pairing lives in the Mac app, not in the CLI's stores).
     public static let phonePrefix = "phone:"
+    /// The id prefix of an acpmux peer row (`peer:NAME`).
+    public static let peerPrefix = "peer:"
     /// The id prefix of an acpmux pairing row, the only kind with a Full-access setting.
     public static let pairedPrefix = "paired:"
 
@@ -81,10 +88,55 @@ public final class DeviceDirectory {
             lastError = nil
             return nil
         }
+        // A peer's ssh route is read before the remove takes it out of the list.
+        let peer = id.hasPrefix(Self.peerPrefix) && peerRemoved != nil
+            ? await sshPeers().first { Self.peerPrefix + $0.name == id } : nil
         let ok = await run(["device", "remove", id, "--yes", "--json"]) != nil
         lastError = ok ? nil : AddDeviceStrings.removeFailed
+        if ok, let peer { await peerRemoved?(peer.destination) }
         await refresh()
         return lastError
+    }
+
+    /// An acpmux peer this computer dials over ssh: its name and the `[user@]host` its `ssh://` URL
+    /// reaches.
+    public nonisolated struct SSHPeer: Equatable, Sendable {
+        public var name: String
+        public var destination: String
+
+        public init(name: String, destination: String) {
+            self.name = name
+            self.destination = destination
+        }
+    }
+
+    /// The acpmux peers reached over ssh (`acp host ls --json`); empty when the CLI failed.
+    public func sshPeers() async -> [SSHPeer] {
+        guard let data = await run(["acp", "host", "ls", "--json"]) else { return [] }
+        return Self.sshPeers(data)
+    }
+
+    /// The peers of an `acp host ls --json` answer (`{"peers":[{"name","url"},...]}`) whose URL is
+    /// `ssh://`.
+    public nonisolated static func sshPeers(_ data: Data) -> [SSHPeer] {
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return ((object?["peers"] as? [[String: Any]]) ?? []).compactMap { peer in
+            guard let name = peer["name"] as? String, !name.isEmpty, let url = peer["url"] as? String,
+                  let target = HostCandidate.sshTarget(peerURL: url) else { return nil }
+            return SSHPeer(name: name, destination: target.destination)
+        }
+    }
+
+    /// Removes the acpmux peers `matches` picks by their ssh `[user@]host` (`acp host rm`), then
+    /// reads again: a forgotten SSH machine's peer goes with it (HQ #4877 break 8).
+    public func removePeers(where matches: (String) -> Bool) async {
+        var removed = false
+        // The predicate is asked right before each remove, after every await before it.
+        for peer in await sshPeers() where matches(peer.destination) {
+            _ = await run(["acp", "host", "rm", peer.name, "--json"])
+            removed = true
+        }
+        if removed { await refresh() }
     }
 
     /// Lets a paired client machine or phone run chats here in Full access, or stops it (at once:

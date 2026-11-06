@@ -30,6 +30,7 @@ use super::{Conn, str_param};
 use crate::hub::subsessions::{LimitsActor, StartRequest};
 use crate::hub::{Hub, Session};
 use crate::rpc::{RpcError, method};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -143,6 +144,7 @@ async fn handle(
             effort: text("effort"),
             cwd: text("cwd").map(PathBuf::from),
             worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
+            fork: params.get("fork").and_then(Value::as_bool).unwrap_or(false),
             force_admit: super::requests::can_force(conn.origin)
                 && super::requests::force_asked(params),
             local: super::remote_guard::control_of(conn.origin, conn.auth, params)
@@ -150,7 +152,7 @@ async fn handle(
         };
         let mut started = hub.start_subsession(&parent, req).await?;
         if let Some(placed) = placed {
-            started["placed"] = json!(placed);
+            started.set("placed", json!(placed));
         }
         return Ok(started);
     }

@@ -13,34 +13,31 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     public var pullRequest: AgentPanePullRequest?
     /// The "..." menu offers Move to Floating Chat (Start Agent's floating chat is on, cx-b9qi).
     public var floatingChat: Bool
-    /// Debug Settings' Side sessions (/btw) is on (``AgentPaneTunables/sideSessions``): the composer
-    /// offers `/btw`. The init reads the toggle unless given, so a watch that builds the state observes it.
-    public var sideSessions: Bool
-    /// The header offers the Inspector (Debug Settings `agent.inspector`, cx-ncc.101), read like
-    /// `sideSessions`.
-    public var inspector: Bool
+    /// The header offers Session Info (Debug Settings `agent.sessionInfo`, cx-ncc.101). The init
+    /// reads the toggle unless given, so a watch that builds the state observes it. The page reads it as `inspector` (``json``), a wire name kept so a page and an
+    /// app from either side of the rename still agree.
+    public var sessionInfo: Bool
     /// The header's Browser opens the chat's page and Preview is no button of its own (Debug Settings
-    /// `agentChat.browserOpensPreview`, on by default), read like `sideSessions`.
+    /// `agentChat.browserOpensPreview`, on by default), read like `sessionInfo`.
     public var browserOpensPreview: Bool
     /// Rises with every change the App sees: a `pane.tabState` reply that reaches the page after a
     /// newer push (two channels) is older, and the page keeps the newer state.
     public var version = 0
 
     public init(pinned: Bool = false, sideTabs: Bool = false, lit: [String] = [], floatingChat: Bool = false,
-                sideSessions: Bool? = nil, inspector: Bool? = nil, browserOpensPreview: Bool? = nil) {
+                sessionInfo: Bool? = nil, browserOpensPreview: Bool? = nil) {
         self.pinned = pinned
         self.sideTabs = sideTabs
         self.lit = lit
         self.floatingChat = floatingChat
-        self.sideSessions = sideSessions ?? AgentPaneTunables.sideSessions.value
-        self.inspector = inspector ?? AgentPaneTunables.inspector.value
+        self.sessionInfo = sessionInfo ?? AgentPaneTunables.sessionInfo.value
         self.browserOpensPreview = browserOpensPreview ?? AgentPaneTunables.browserOpensPreview.value
     }
 
     /// Whether the header shows the same thing, whatever the versions.
     public func shows(_ other: AgentPaneHeaderState) -> Bool {
         pinned == other.pinned && sideTabs == other.sideTabs && lit == other.lit && floatingChat == other.floatingChat
-            && pullRequest == other.pullRequest && sideSessions == other.sideSessions && inspector == other.inspector
+            && pullRequest == other.pullRequest && sessionInfo == other.sessionInfo
             && browserOpensPreview == other.browserOpensPreview
     }
 
@@ -49,7 +46,7 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     /// `pullRequest` is always there, `null` when there is none, so the page drops a chip it kept.
     var json: JSONValue {
         ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(JSONValue.string)), "floatingChat": .bool(floatingChat),
-         "sideSessions": .bool(sideSessions), "inspector": .bool(inspector), "browserOpensPreview": .bool(browserOpensPreview), "version": JSONValue(version),
+         "inspector": .bool(sessionInfo), "browserOpensPreview": .bool(browserOpensPreview), "version": JSONValue(version),
          "pullRequest": pullRequest?.json ?? .null]
     }
 }

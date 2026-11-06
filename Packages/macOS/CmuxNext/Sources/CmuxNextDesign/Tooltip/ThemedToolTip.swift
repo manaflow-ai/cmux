@@ -19,6 +19,20 @@ extension NSView {
     public func setThemedToolTipRegions(_ regions: [(rect: NSRect, text: String)]) {
         TooltipTracker.setRegions(regions, on: self)
     }
+
+    /// For a view that is hidden most of the time (a row's hover-only buttons): its tooltip's text and shortcut are
+    /// kept and read back at once, but the hover tracking area is added only once the view can show (in a window,
+    /// not hidden); the view calls ``themedToolTipCanShow()`` when it shows. Off: tracking starts with the text.
+    public var defersThemedToolTipTracking: Bool {
+        get { TooltipTracker.defers(self) }
+        set { TooltipTracker.setDefers(newValue, on: self) }
+    }
+
+    /// A view with ``defersThemedToolTipTracking`` calls this when it shows (`viewDidUnhide`, `viewDidMoveToWindow`):
+    /// its tooltip's tracking area is added then.
+    public func themedToolTipCanShow() {
+        TooltipTracker.whole(of: self)?.trackIfShown()
+    }
 }
 
 /// One tooltip of a view, the whole view or a region of it, with the tracking area whose enter and
@@ -51,7 +65,7 @@ final class TooltipTracker: NSResponder {
         tracker.text = text
         tracker.shortcut = shortcut?.isEmpty == false ? shortcut : nil
         view.setAccessibilityHelp(text)
-        tracker.track(text != nil)
+        tracker.track(text != nil && !(set(of: view).defers && !canShow(view)))
         TooltipPresenter.shared.changed(tracker)
     }
 
@@ -64,6 +78,23 @@ final class TooltipTracker: NSResponder {
             tracker.track(true)
             return tracker
         }
+    }
+
+    static func defers(_ view: NSView) -> Bool { trackers.object(forKey: view)?.defers ?? false }
+
+    static func setDefers(_ defers: Bool, on view: NSView) {
+        guard defers != self.defers(view) else { return }
+        set(of: view).defers = defers
+        whole(of: view)?.trackIfShown()
+    }
+
+    /// The view can be hovered: in a window and not hidden.
+    private static func canShow(_ view: NSView) -> Bool { view.window != nil && !view.isHiddenOrHasHiddenAncestor }
+
+    /// Adds the tracking area while there is text and the view can show (or does not defer).
+    func trackIfShown() {
+        guard let view else { return }
+        track(text != nil && !(Self.defers(view) && !Self.canShow(view)))
     }
 
     private static func set(of view: NSView) -> TrackerSet {
@@ -141,4 +172,6 @@ final class TooltipTracker: NSResponder {
 final class TrackerSet {
     var whole: TooltipTracker?
     var regions: [TooltipTracker] = []
+    /// ``NSView/defersThemedToolTipTracking``.
+    var defers = false
 }

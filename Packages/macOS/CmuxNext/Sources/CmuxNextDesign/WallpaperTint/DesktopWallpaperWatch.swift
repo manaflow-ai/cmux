@@ -10,8 +10,9 @@ import Foundation
 /// `NSWorkspace.desktopImageURL(for:)` when one could have: a write to the wallpaper store
 /// (`~/Library/Application Support/com.apple.wallpaper/Store`, which macOS rewrites when a
 /// picture is chosen or shuffles), macOS's own `com.apple.desktop` notice, a Space switch (each
-/// Space has its own picture), a screen change, waking, and another window becoming key or a
-/// window moving to another display (the main screen may now be a different one). A view
+/// Space has its own picture), a screen change, waking, and one of the app's windows becoming
+/// key, showing or moving to another display (``windowDidChange()``: the main screen may now be
+/// a different one). A view
 /// that sees the light or dark appearance flip asks too (``appearanceDidChange()``). The read is a
 /// synchronous WindowServer round trip, so it runs on the watch's own queue, never on the main
 /// thread (a busy WindowServer held a key-window change past the debug hang assertion, #26394);
@@ -147,10 +148,6 @@ public final class DesktopWallpaperWatch {
             MainActorObservation(NSWorkspace.activeSpaceDidChangeNotification, center: workspace) { [weak self] in self?.refresh() },
             MainActorObservation(NSWorkspace.didWakeNotification, center: workspace) { [weak self] in self?.refresh() },
             MainActorObservation(NSApplication.didChangeScreenParametersNotification) { [weak self] in self?.refresh() },
-            // A window shown, unhidden or uncovered (a panel that never becomes key too).
-            MainActorObservation(NSWindow.didChangeOcclusionStateNotification) { [weak self] in self?.refresh() },
-            MainActorObservation(NSWindow.didBecomeKeyNotification) { [weak self] in self?.refresh() },
-            MainActorObservation(NSWindow.didChangeScreenNotification) { [weak self] in self?.refresh() },
         ]
         watchStore()
         refresh()
@@ -169,6 +166,15 @@ public final class DesktopWallpaperWatch {
     /// Reads the desktop again once a view sees the light or dark appearance flip (after
     /// ``start()``): a dynamic picture has a frame for each.
     func appearanceDidChange() {
+        guard !observers.isEmpty else { return }
+        refresh()
+    }
+
+    /// Reads the desktop again once one of the app's windows became key, was shown, unhidden or
+    /// uncovered (its occlusion changed) or moved to another display (after ``start()``). The
+    /// app's window owner calls it from its window delegate, for its own windows only: an
+    /// app-wide window observer woke on every menu, tooltip and panel too (#25308).
+    public func windowDidChange() {
         guard !observers.isEmpty else { return }
         refresh()
     }

@@ -51,6 +51,7 @@ const TEXT = [
   "kind",
   "model",
   "effort",
+  "lastMessage",
   "fallbackModel",
   "retryReason",
   "isolation",

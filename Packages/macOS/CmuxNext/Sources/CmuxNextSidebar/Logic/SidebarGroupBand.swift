@@ -43,17 +43,4 @@ nonisolated struct SidebarGroupBand: Sendable {
               dragged.allSatisfy({ SidebarEdits.workspace($0, in: sections)?.machineID == machine }) else { return nil }
         return Hit(anchor: anchor, fraction: (y - row.y) / row.height)
     }
-
-    /// The first color of the automatic order no group in `sections` uses yet,
-    /// so a new group stands apart; never blue or grey.
-    static func newGroupColor(in sections: [SidebarSection]) -> GroupColor {
-        // The app's own pick follows the no-blue rule (GroupColor.automatic); when every
-        // palette color is taken, the least-used one repeats.
-        let used = sections.flatMap(\.nodes).compactMap { node -> GroupColor? in
-            if case let .group(group) = node { return group.color }
-            return nil
-        }
-        if let free = GroupColor.automatic(used: Set(used.map(\.rawValue))) { return free }
-        return GroupColor.automaticOrder.min { a, b in used.count(where: { $0 == a }) < used.count(where: { $0 == b }) } ?? .red
-    }
 }

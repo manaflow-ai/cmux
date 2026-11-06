@@ -51,16 +51,22 @@ enum NewTabClosed {
         _ = services.closedTabs?.changes.revision
         return services.history.closedEntries().sorted { $0.time > $1.time }.lazy.compactMap { entry -> AgentPaneClosedItem? in
             guard case .closed(let item) = entry.payload else { return nil }
-            let kind: AgentPaneClosedItem.Kind = switch item.kind {
-            case .terminalTab: .terminal
-            case .browserTab: .browser
-            case .screen: .screen
-            case .workspace: .workspace
-            }
+            let kind = Self.kind(for: item)
             let detail = item.url ?? item.cwd.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? entry.detail
             return AgentPaneClosedItem(id: entry.id, kind: kind, title: title(entry.title, item.url, item.cwd), detail: detail, closedAt: entry.time,
                                        icon: nil, isAvailable: entry.isAvailable)
         }.prefix(AgentPaneClosedItem.maximumPushed).map(\.self)
+    }
+
+    static func kind(for item: CmuxNextHistory.ClosedItem) -> AgentPaneClosedItem.Kind {
+        switch item.kind {
+        case .terminalTab: .terminal
+        case .conversationTab: .agent
+        case .browserTab where item.agentSession != nil: .agent
+        case .browserTab: .browser
+        case .screen: .screen
+        case .workspace: .workspace
+        }
     }
 
     /// A title that is only the address or folder (a daemon record keeps no page title) reads

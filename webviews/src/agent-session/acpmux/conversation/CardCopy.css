@@ -1,0 +1,56 @@
+/* An expanded card's corner copy (CardCopy.tsx). It floats at the panel's top-right, pulled into the
+   panel's padding, so the first line wraps around it. Faint at rest; full when its card (the panel
+   it sits in) is hovered or the button has focus; the button's own small box takes the hover and
+   press highlight, never the card or the row. */
+.cv-card-copy {
+  float: right;
+  position: relative;
+  z-index: var(--layer-raised);
+  margin: -3px -6px 2px 6px;
+  color: var(--cv-text-muted);
+  opacity: 0.45;
+  /* On the motion scale as a message's hover row (conversation.css --cv-actions-*): out quick, in micro. */
+  transition: opacity var(--cv-actions-out, 80ms) var(--cv-actions-ease, ease-out);
+}
+.cv-card-copy[data-look="quiet"] {
+  opacity: 0.3;
+}
+.cv-disclosure__panel:hover > .cv-card-copy,
+.cv-card-copy:focus-within,
+.cv-card-copy:has([data-copied]) {
+  opacity: 1;
+  transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out);
+}
+.cv-card-copy__button {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-sizing: border-box;
+  min-width: var(--cv-context-copy);
+  height: var(--cv-context-copy);
+  padding: 0 var(--ds-space-1);
+  border-radius: 6px;
+  cursor: default;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-card-copy__button:hover {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-text) 7%, transparent);
+}
+.cv-card-copy__button:active {
+  background: color-mix(in srgb, var(--cv-text) 11%, transparent);
+}
+.cv-card-copy__button:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
+}
+.cv-card-copy__button[data-copied] {
+  color: var(--cv-text);
+}
+/* The panel holds its floated corner even when the card's text is shorter than the button. */
+.cv-disclosure__panel:has(> .cv-card-copy) {
+  display: flow-root;
+}

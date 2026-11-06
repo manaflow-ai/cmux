@@ -94,4 +94,11 @@ export const L = {
   readingThemeDark: "reading.theme.dark",
   readingReset: "reading.reset",
   readingPoints: "reading.value.points",
+  findPlaceholder: "find.placeholder",
+  findPrevious: "find.previous",
+  findNext: "find.next",
+  findClose: "find.close",
+  findMatchCase: "find.matchCase",
+  findCount: "find.count",
+  findNoMatches: "find.noMatches",
 } as const;

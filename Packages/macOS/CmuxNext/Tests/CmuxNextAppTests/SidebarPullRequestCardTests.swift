@@ -334,9 +334,4 @@ import Testing
         #expect(Self.calls(gh, matching: "graphql") >= 5)
         #expect(Self.calls(gh) - Self.calls(gh, matching: "graphql") <= 2)
     }
-
-    @Test func theCardIsADebugSettingOnByDefault() {
-        #expect(SidebarTunables.pullRequestCard.descriptor.key == "sidebar.pullRequestCard")
-        #expect(SidebarTunables.all.contains { $0.key == "sidebar.pullRequestCard" })
-    }
 }

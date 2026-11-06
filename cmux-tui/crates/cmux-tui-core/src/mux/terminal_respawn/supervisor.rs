@@ -135,6 +135,10 @@ impl Mux {
             |_, (id, pending)| id != terminal_id || *pending != PendingTerminal::Respawning,
         );
         self.record_terminal_end(terminal_id);
+        // The tabs read dead now, and an app session's owner may have nothing
+        // left to keep it (server/owner_keepers.rs): tell them, as the other
+        // ends of a respawn do (`run_terminal_respawn`).
+        self.emit(MuxEvent::TreeChanged);
     }
 
     /// The terminal used every attempt in the window: rewrite its host-loss
@@ -231,37 +235,50 @@ impl Mux {
     /// respawn a daemon restart or logout cut off, a shell a session
     /// shutdown ended). Runs once, after host adoption.
     #[cfg(any(unix, windows))]
-    pub(crate) fn respawn_lost_terminals_at_start(&self) {
+    pub(crate) fn respawn_lost_terminals_at_start(self: &Arc<Self>) {
         let snapshot = self
             .workspace_registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .terminal_snapshot();
-        let terminals = match snapshot {
+        let mut terminals = match snapshot {
             Ok(snapshot) => snapshot.terminals,
             Err(error) => {
                 eprintln!("cmux-tui: could not list terminals to respawn: {error:#}");
                 return;
             }
         };
-        for terminal in terminals {
-            if terminal.lifecycle != TerminalLifecycle::Exited
-                || self.terminal_is_respawning(&terminal.terminal_id)
-            {
-                continue;
-            }
-            let end = TerminalEnd::from_receipt(terminal.exit.as_ref());
-            let respawnable = matches!(end, TerminalEnd::HostLost(_))
-                && end.wire_json()["reason"]
-                    .as_str()
-                    .is_some_and(|reason| RESPAWN_REASONS.contains(&reason));
-            if respawnable {
-                self.schedule_terminal_respawn(
-                    &terminal.terminal_id,
-                    terminal.incarnation.as_deref(),
-                    &end,
-                );
-            }
+        // The workspace the person sees respawns first (the gate keeps the
+        // scheduling order), as its adoptions do (startup_adoption_gate.rs).
+        let visible = self.with_state(|state| {
+            state.workspaces.get(state.active_workspace).map(|workspace| workspace.key.clone())
+        });
+        terminals.sort_by_key(|terminal| Some(&terminal.workspace_key) != visible.as_ref());
+        let lost = terminals
+            .into_iter()
+            .filter(|terminal| {
+                terminal.lifecycle == TerminalLifecycle::Exited
+                    && !self.terminal_is_respawning(&terminal.terminal_id)
+            })
+            .filter_map(|terminal| {
+                let end = TerminalEnd::from_receipt(terminal.exit.as_ref());
+                let respawnable = matches!(end, TerminalEnd::HostLost(_))
+                    && end.wire_json()["reason"]
+                        .as_str()
+                        .is_some_and(|reason| RESPAWN_REASONS.contains(&reason));
+                respawnable.then_some((terminal, end))
+            })
+            .collect::<Vec<_>>();
+        // The Kitty budget is sized for the whole wave before its first
+        // respawn reserves (kitty_reservation.rs); what no respawn takes is
+        // given back when this pass ends.
+        let _kitty_wave = self.expect_kitty_image_wave(lost.len());
+        for (terminal, end) in lost {
+            self.schedule_terminal_respawn(
+                &terminal.terminal_id,
+                terminal.incarnation.as_deref(),
+                &end,
+            );
         }
     }
 }

@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 use super::page_router_table::{self, PageGrant};
 use super::{RequestOrigin, forbidden};
 use crate::resource::{ResourceError, ResourceOperation as Op};
+use cmux_json::JsonSet as _;
 
 /// The classes of operations a page may not call.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -122,7 +123,10 @@ const fn access(operation: Op) -> Access {
         | Op::ProjectUpdate
         | Op::ProjectRemove
         | Op::ProjectSync
-        | Op::ProjectSourceUpdate => Access::Denied(Denied::FileSystem),
+        | Op::ProjectSourceUpdate
+        // Conductor's database and worktrees, read by the app's Import from Conductor.
+        | Op::ConductorImportPlan
+        | Op::ConductorImportRecord => Access::Denied(Denied::FileSystem),
         // A browser profile's visited pages: never a page's to read or delete.
         Op::HistoryEntriesList
         | Op::HistoryEntriesRemove
@@ -353,10 +357,13 @@ const fn access(operation: Op) -> Access {
         | Op::CredentialVerify
         | Op::CredentialMint
         | Op::CredentialRotate
-        // A page never controls the Chief.
+        // A page never controls the Chief (including owner-only Continue and
+        // Retry turn actions).
         | Op::ChiefEngineGet
         | Op::ChiefEngineSet
         | Op::ChiefStop
+        | Op::ChiefContinue
+        | Op::ChiefRetry
         // A page reads and edits the person's Chiefs only where its
         // page-router entry lists the operation (home-channels,
         // chief-profile-ws-v1); create, delete, the grant, instructions and
@@ -425,7 +432,7 @@ pub(super) fn page_refusal(
     if hard {
         // The connection's own origin (a WebSocket page derives agent).
         let mut error = refusal(operation, params)?;
-        error.details["derived"] = json!(origin.wire_name());
+        error.details.set("derived", json!(origin.wire_name()));
         return Some(error);
     }
     let grant = match page_router_table::grant(page, operation.wire_name()) {
@@ -470,7 +477,7 @@ pub(crate) fn page_forbidden(
     };
     let mut details = json!({"derived": origin.wire_name(), "reason": reason});
     if reason != "page_not_allowed" {
-        details["required"] = json!(RequestOrigin::User.wire_name());
+        details.set("required", json!(RequestOrigin::User.wire_name()));
     }
     ResourceError::new(super::ORIGIN_FORBIDDEN, message, details, false)
 }

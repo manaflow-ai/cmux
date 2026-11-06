@@ -17,6 +17,10 @@ public import Foundation
 /// - `cmux.settings.backdrop.image.folder`: Shuffle a Folder…: the person picks a folder in the cmux
 ///   picker and the background shuffles its pictures (`folder:<absolute path>`); `{id}`, nil when
 ///   they left it. They chose it, so the write is theirs.
+/// - `cmux.settings.backdrop.image.screen_saver`: Use My Screen Saver: `{id, pending}`, the moving
+///   wallpaper that is the macOS screen saver (``AppleWallpapers/screenSaver(index:fileManager:)``),
+///   `pending` while macOS has not downloaded it; `id` null when the screen saver is not an aerial.
+///   The page chooses it as it chooses a tile, so nothing is written here.
 ///
 /// Errors carry ``BackdropUserImages/ImportError`` codes, which the page words.
 @MainActor
@@ -30,6 +34,8 @@ public final class BackdropImagesPageProvider: PageProvider {
     private let inUse: @MainActor () -> BackdropSelection?
     private let settings: SettingsController?
     private let pickFolder: (@MainActor () async -> URL?)?
+    /// The screen saver's moving wallpaper (tests); nil reads the Mac's own.
+    private let screenSaver: (@Sendable () async -> BackdropSelection?)?
 
     /// `use` copies a file into the folder and makes it the background, returning its id (the
     /// picker's own path, so a link is checked and written as a picked file is).
@@ -37,13 +43,15 @@ public final class BackdropImagesPageProvider: PageProvider {
     public init(images: BackdropUserImages, use: @escaping @MainActor (URL) async throws -> String,
                 inUse: @escaping @MainActor () -> BackdropSelection? = { nil },
                 settings: SettingsController? = nil, pickFolder: (@MainActor () async -> URL?)? = nil,
-                reveal: @escaping @MainActor ([URL]) -> Void = { NSWorkspace.shared.revealInBackground($0) }) {
+                reveal: @escaping @MainActor ([URL]) -> Void = { NSWorkspace.shared.revealInBackground($0) },
+                screenSaver: (@Sendable () async -> BackdropSelection?)? = nil) {
         self.images = images
         self.use = use
         self.inUse = inUse
         self.settings = settings
         self.pickFolder = pickFolder
         self.reveal = reveal
+        self.screenSaver = screenSaver
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -85,6 +93,12 @@ public final class BackdropImagesPageProvider: PageProvider {
             let id = BackdropSelectionSetting.folderPrefix + folder.standardizedFileURL.path
             try await settings.setSetting(at: BackdropSelectionSetting().configPath, to: .string(id), by: .user)
             return ["id": .string(id)]
+        case Self.prefix + "screen_saver":
+            // The wallpaper store and the aerial folder are read off the main actor.
+            let found = if let screenSaver { await screenSaver() } else { await AppleWallpapers.system.screenSaver() }
+            guard let saver = found else { return ["id": .null, "pending": .bool(false)] }
+            let pending = if case .system(let path) = saver { AppleWallpapers.isPending(path) } else { false }
+            return ["id": .string(saver.id), "pending": .bool(pending)]
         default:
             throw PageError.unknownOp(op)
         }

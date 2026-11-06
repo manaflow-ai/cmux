@@ -35,9 +35,10 @@ enum SidebarSectionHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let layout = context.services.sidebarLayout
         let services = context.services
+        let sidebarDoc = services.sidebarDoc
         ChiefSidebar.shared.bind(into: registry, host: .init(conversation: { TopHomePageView.chief(services.home) }, chiefHost: { services.agentTabs.chiefHost },
             tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
-            openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, services: services) }))
+            openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, focus: true, services: services) }, openRight: { services.agentTabs.openRight?($0, $1, $2) ?? false }, keeps: { [weak services] in await services?.agentTabs.chiefHomes?.keeps(session: $0, host: $1) ?? false }))
         // Agent chats on other machines are not sidebar rows (the top band holds what the person put there,
         // Lawrence 2026-10-26): `RemoteMachinesSidebar` is not bound, so it reads no peers and follows no lanes.
         SettingsAppFeatures.sidebarItems = storeItems(chief: SettingsAppFeatures.sidebarItems, document: { layout.document }, registry: registry)
@@ -45,15 +46,15 @@ enum SidebarSectionHandlers {
         // named as the menu showed them.
         func bind(_ id: ActionID, undoable: Bool = false, unavailable: @escaping @MainActor () -> String? = { nil },
                   _ run: @escaping @MainActor (ActionInvocation, SidebarLayoutDocument) throws -> SidebarLayoutOp?) {
-            // With the sidebar document every band edit is a document op (SidebarDocWiring.sendLayout), never an
+            // With the sidebar document every band edit is a document op (SidebarDocument.sendLayout), never an
             // edit of the older layout owner: that owner would confirm a change the document never sees.
-            registry.bind(id, unavailable: { SidebarDocWiring.isActive ? unavailable() : layout.unavailableReason ?? unavailable() },
+            registry.bind(id, unavailable: { sidebarDoc.isActive ? unavailable() : layout.unavailableReason ?? unavailable() },
                           invoke: { [weak registry] invocation in
                 do {
                     guard let op = try run(invocation, layout.document) else { return }
                     let title = registry?.action(for: id)?.targetTitle?(invocation) ?? registry?.descriptor(for: id)?.title ?? ""
                     // Every user's band edit is one undo step with the document (its inverse comes back from the daemon).
-                    if try SidebarDocWiring.sendLayout([op], over: layout.document, title: title, undoable: invocation.origin == .user) {
+                    if try sidebarDoc.sendLayout([op], over: layout.document, title: title, undoable: invocation.origin == .user) {
                         return
                     }
                     guard undoable, registry != nil else { return try layout.send(op) }
@@ -97,26 +98,30 @@ enum SidebarSectionHandlers {
             guard let builtIn = SidebarBuiltIn(rawValue: name) else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
             // Home and the App Store are apps now (R63/R64).
             let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? LayoutItemRef.builtIn(builtIn)
+            // One Chief: one placed already, drawn before its echo too (a second quick drag in, Get in another window), is
+            // kept. Its item id is the Chief's own (`chiefItemID`): the daemon refuses a second one in any race.
+            if ref == .builtIn(.chief), sidebarDoc.store?.placesItem(with: ref) == true { return nil }
+            let id: LayoutItemID = ref == .builtIn(.chief) ? SidebarLayoutDocument.chiefItemID : .mint()
             if let sectionName = invocation["section"]?.stringValue, !sectionName.isEmpty {
                 let section = try SidebarSectionResolve.section(sectionName, in: doc)
-                return .itemAdd(LayoutItem(id: .mint(), ref: ref), section: section.id, index: Int.max)
+                return .itemAdd(LayoutItem(id: id, ref: ref), section: section.id, index: Int.max)
             }
             // The account shows as its avatar (no label) by default.
             return SidebarLayoutPlanner.add(ref, to: builtIn == .settings || builtIn == .account ? .bottom : .top, in: doc,
-                                            showsLabel: builtIn != .account)
+                                            showsLabel: builtIn != .account, newItem: id)
         }
         // Edit mode (SidebarView+EditItems): the window's sidebar wiggles, or stops.
         registry.bind("sidebar.edit") { services.windows.active?.sidebar.container.toggleEditingItems() }
         bind("sidebar.item.remove", undoable: true) { invocation, doc in
-            .itemRemove(try SidebarSectionResolve.item(invocation.target, in: doc).id)
+            .itemRemove(try SidebarSectionResolve.item(invocation.target, in: doc, document: sidebarDoc.store).id)
         }
         bind("sidebar.item.removeEverywhere", undoable: true) { invocation, doc in
-            .itemRemoveRef(try SidebarSectionResolve.item(invocation.target, in: doc).ref)
+            .itemRemoveRef(try SidebarSectionResolve.item(invocation.target, in: doc, document: sidebarDoc.store).ref)
         }
         // On a tile the menu reads Unpin Workspace; on a top row, Remove from Top.
         ActionTargetTitles.set("sidebar.item.remove", in: registry) { invocation in
             let doc = layout.document
-            guard let item = try? SidebarSectionResolve.item(invocation.target, in: doc), let (s, _) = doc.locate(item.id) else { return nil }
+            guard let item = try? SidebarSectionResolve.item(invocation.target, in: doc, document: sidebarDoc.store), let (s, _) = doc.locate(item.id) else { return nil }
             if doc.sections[s].id == SidebarLayoutDocument.pinnedSectionID, item.ref.kind == LayoutItemRef.workspaceKind {
                 return PinStrings.unpinWorkspace
             }
@@ -125,14 +130,14 @@ enum SidebarSectionHandlers {
         // Hide is app-level state owned by the app platform (D55): the
         // sidebar forwards to its `app.hide` action and changes no layout.
         registry.bind("sidebar.item.hideApp", run: { [weak registry] invocation in
-            guard let app = try SidebarSectionResolve.owningApp(invocation.target, in: layout.document) else {
+            guard let app = try SidebarSectionResolve.owningApp(invocation.target, in: layout.document, document: sidebarDoc.store) else {
                 throw ActionFailure(message: SidebarSectionStrings.notAnApp)
             }
             guard let registry, registry.action(for: "app.hide") != nil else { throw ActionFailure.needsAppCapability("app.hide") }
             _ = registry.perform("app.hide", invocation: ActionInvocation(arguments: ["app": .string(app)], origin: invocation.origin))
         })
-        // The sidebar has no bottom-left area (Lawrence 2026-10-10, cx-n0i9): a section after the
-        // workspaces would not draw, so new and moved sections go above the workspaces.
+        // The bottom slot draws app sections. Generic item sections remain unavailable (cx-n0i9);
+        // new and moved item sections go above the workspaces.
         bind("sidebar.section.add") { invocation, _ in
             let region = invocation["region"]?.stringValue.flatMap(SidebarRegion.init(rawValue:)) ?? .top
             guard region != .bottom else { throw ActionFailure(message: SidebarSectionStrings.noBottomArea) }
@@ -180,7 +185,7 @@ enum SidebarSectionHandlers {
             return .sectionUpdate(section.id, SectionPatch(columns: columns == 0 ? .clear : .set(columns)))
         }
         bind("sidebar.item.toggleLabel") { invocation, doc in
-            let item = try SidebarSectionResolve.item(invocation.target, in: doc)
+            let item = try SidebarSectionResolve.item(invocation.target, in: doc, document: sidebarDoc.store)
             // Labels can be hidden only on a line (inline arrangement).
             guard let (s, _) = doc.locate(item.id), doc.sections[s].arrangement.layout == .inline else {
                 throw ActionFailure(message: SidebarSectionStrings.labelsOnlyOnALine)
@@ -237,10 +242,10 @@ enum SidebarSectionResolve {
 
     /// The app an item or section target belongs to (an app item's app, an
     /// app section's contribution owner), or nil.
-    static func owningApp(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument) throws -> String? {
+    static func owningApp(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument, document: SidebarDocStore?) throws -> String? {
         switch target?.kind {
         case .sidebarSection?: try section(target, in: doc).owningAppID
-        default: try item(target, in: doc).owningAppID
+        default: try item(target, in: doc, document: document).owningAppID
         }
     }
 
@@ -265,14 +270,17 @@ enum SidebarSectionResolve {
         }
     }
 
-    /// By item id, else by built-in name (`home`).
-    static func item(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument) throws -> LayoutItem {
+    /// By item id, else by built-in name (`home`). The bands' layout first, then the sidebar document at any
+    /// depth (`placed`, the app's own `document` while active): a Chief moved into a group or a machine list is no band item.
+    static func item(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument, document: SidebarDocStore?) throws -> LayoutItem {
         guard let target, target.kind == .sidebarItem else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
-        if let item = doc.item(LayoutItemID(target.id)) { return item }
+        let placed = document.flatMap { $0.isActive ? $0 : nil }
+        let id = LayoutItemID(target.id)
+        if let item = doc.item(id) ?? placed?.placedItem(id) { return item }
         if let builtIn = SidebarBuiltIn(rawValue: target.id) {
             // Home and the App Store are app items now (R63/R64); their names still name them.
             let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? .builtIn(builtIn)
-            if let item = doc.firstItem(with: ref) { return item }
+            if let item = doc.firstItem(with: ref) ?? placed?.placedItem(with: ref) { return item }
         }
         throw ActionFailure(message: SidebarSectionStrings.noSuchItem)
     }

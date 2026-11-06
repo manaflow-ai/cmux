@@ -112,7 +112,7 @@ impl LocalLink {
             listener,
             overlay.clone(),
             peers.clone(),
-            Arc::new(CloudResolver::new(RelaySource)),
+            Arc::new(CloudResolver::new(RelaySource::unavailable())),
             Arc::from("{}"),
         ));
         Self { directory, peers, overlay, connected, entered, task }
@@ -273,7 +273,7 @@ async fn outgoing_revocation_refuses_a_stale_snapshot_before_contacting_the_peer
     link.peers.reload(&*link.overlay).await.unwrap();
     let (caller, link_side) = tokio::io::duplex(4096);
     let mut caller = BufReader::new(caller);
-    let resolver = CloudResolver::new(RelaySource);
+    let resolver = CloudResolver::new(RelaySource::unavailable());
     let serve = super::dial::serve_dial_line(
         link_side,
         "{\"op\":\"link.dial\",\"host\":\"inst_b\",\"service\":\"daemon\"}",

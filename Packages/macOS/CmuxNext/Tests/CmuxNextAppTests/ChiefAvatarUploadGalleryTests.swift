@@ -5,6 +5,7 @@ import CmuxNextDesign
 @testable import CmuxNextFloating
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -14,7 +15,7 @@ import Testing
 /// capture leaves out, so the PR's pictures come from here: one sheet written to the package's
 /// `.build/chief-upload-gallery.png` (ignored by git), which a fleet step returns with
 /// `cmux-ci run --artifact Packages/macOS/CmuxNext/.build/chief-upload-gallery.png`.
-@MainActor @Suite(.serialized) struct ChiefAvatarUploadGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ChiefAvatarUploadGalleryTests {
     enum Variant: String, CaseIterable {
         case before, tile, button, drop, worn
     }

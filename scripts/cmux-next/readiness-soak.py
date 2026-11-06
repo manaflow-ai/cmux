@@ -717,7 +717,9 @@ class Soak:
                 json.dump({"app": {"quitBehavior": "end-everything"}}, handle)
             time.sleep(2)  # soak script: the app reloads cmux.json from its file watcher
             pids = [pid for pid, kind in self.kinds().items() if kind == "app"]
-            Client(self.socket, timeout=10).call("action.run", {"action": "quit", "wait": False})
+            # A remembered End Everything no longer deletes workspaces on a
+            # scripted quit (it keeps them); the flag asks for it outright.
+            Client(self.socket, timeout=10).call("action.run", {"action": "quit", "args": {"endEverything": True}, "wait": False})
             wait(lambda: not any(run("kill", "-0", str(pid)).returncode == 0 for pid in pids), 90)
         except (OSError, ValueError, KeyError) as error:
             say(f"quit: {error}")

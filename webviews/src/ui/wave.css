@@ -29,3 +29,4 @@
     animation-delay: calc(var(--wave-index, 0) * var(--cmux-wave-step) - 20 * var(--cmux-wave-period));
   }
 }
+

@@ -4,6 +4,8 @@
 // natively first (the host's confirmation sheet); the page only draws and forwards. The list is read
 // when the card mounts and on Refresh; it does not poll.
 import { useCallback, useEffect, useState } from "react";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import type { CloudEnvironmentRow, CloudEnvironmentsRun, CloudEnvironmentsState } from "../ops";
 import { t } from "../strings";
@@ -60,7 +62,7 @@ export function CloudEnvironmentsCard() {
           </div>
           <AddEnvironment busy={busy} run={run} />
           <div className="host-footer">
-            <button
+            <Button
               type="button"
               className="button"
               data-environments="refresh"
@@ -68,7 +70,7 @@ export function CloudEnvironmentsCard() {
               onClick={() => void run({ action: "refresh" })}
             >
               {t("settingsPage.cloudEnvironments.refresh")}
-            </button>
+            </Button>
           </div>
         </>
       )}
@@ -93,41 +95,43 @@ function EnvironmentRow({
   const status = STATUS[row.status];
   return (
     <div className="row" data-environment={row.id}>
-      <span className="row-label">
-        <span className="row-title">{row.name}</span>
-        <span className="row-help" data-environment-status={row.status}>
-          {" "}
-          {status ? t(status) : row.status}
-          {row.repo ? ` · ${row.repo}` : ""}
+      <div className="row-main">
+        <span className="row-label">
+          <span className="row-title">{row.name}</span>
+          <span className="row-help" data-environment-status={row.status}>
+            {" "}
+            {status ? t(status) : row.status}
+            {row.repo ? ` · ${row.repo}` : ""}
+          </span>
+          {row.error && <span className="row-help"> {row.error}</span>}
+          {row.log_tail && (
+            <details data-environment-log="">
+              <summary>{t("settingsPage.cloudEnvironments.logTail")}</summary>
+              <pre>{row.log_tail}</pre>
+            </details>
+          )}
         </span>
-        {row.error && <span className="row-help"> {row.error}</span>}
-        {row.log_tail && (
-          <details data-environment-log="">
-            <summary>{t("settingsPage.cloudEnvironments.logTail")}</summary>
-            <pre>{row.log_tail}</pre>
-          </details>
-        )}
-      </span>
-      <span className="row-control">
-        <button
-          type="button"
-          className="button"
-          data-environment-action="build"
-          disabled={busy || row.status === "building" || row.status === "ready"}
-          onClick={() => void run({ action: "build", id: row.id })}
-        >
-          {t("settingsPage.cloudEnvironments.build")}
-        </button>
-        <button
-          type="button"
-          className="button"
-          data-environment-action="delete"
-          disabled={busy || row.status === "building"}
-          onClick={() => void run({ action: "delete", id: row.id })}
-        >
-          {t("settingsPage.cloudEnvironments.delete")}
-        </button>
-      </span>
+        <span className="row-control">
+          <Button
+            type="button"
+            className="button"
+            data-environment-action="build"
+            disabled={busy || row.status === "building" || row.status === "ready"}
+            onClick={() => void run({ action: "build", id: row.id })}
+          >
+            {t("settingsPage.cloudEnvironments.build")}
+          </Button>
+          <Button
+            type="button"
+            className="button"
+            data-environment-action="delete"
+            disabled={busy || row.status === "building"}
+            onClick={() => void run({ action: "delete", id: row.id })}
+          >
+            {t("settingsPage.cloudEnvironments.delete")}
+          </Button>
+        </span>
+      </div>
     </div>
   );
 }
@@ -140,9 +144,9 @@ function AddEnvironment({ busy, run }: { busy: boolean; run: (gesture: CloudEnvi
   if (!open) {
     return (
       <div className="host-footer">
-        <button type="button" className="button" data-environments="add" disabled={busy} onClick={() => setOpen(true)}>
+        <Button type="button" className="button" data-environments="add" disabled={busy} onClick={() => setOpen(true)}>
           {t("settingsPage.cloudEnvironments.add")}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -158,7 +162,7 @@ function AddEnvironment({ busy, run }: { busy: boolean; run: (gesture: CloudEnvi
     <div className="host-form" data-environments-form="">
       <label className="host-field">
         <span className="row-help">{t("settingsPage.cloudEnvironments.name")}</span>
-        <input
+        <Input
           className="field"
           data-environment-field="name"
           aria-label={t("settingsPage.cloudEnvironments.name")}
@@ -168,7 +172,7 @@ function AddEnvironment({ busy, run }: { busy: boolean; run: (gesture: CloudEnvi
       </label>
       <label className="host-field">
         <span className="row-help">{t("settingsPage.cloudEnvironments.repo")}</span>
-        <input
+        <Input
           className="field"
           data-environment-field="repo"
           aria-label={t("settingsPage.cloudEnvironments.repo")}
@@ -179,7 +183,7 @@ function AddEnvironment({ busy, run }: { busy: boolean; run: (gesture: CloudEnvi
       </label>
       <label className="host-field">
         <span className="row-help">{t("settingsPage.cloudEnvironments.setup")}</span>
-        <input
+        <Input
           className="field"
           data-environment-field="setup"
           aria-label={t("settingsPage.cloudEnvironments.setup")}
@@ -188,9 +192,9 @@ function AddEnvironment({ busy, run }: { busy: boolean; run: (gesture: CloudEnvi
           onChange={(e) => setSetup(e.target.value)}
         />
       </label>
-      <button type="button" className="button" data-environments="save" disabled={busy} onClick={() => void save()}>
+      <Button type="button" className="button" data-environments="save" disabled={busy} onClick={() => void save()}>
         {t("settingsPage.cloudEnvironments.save")}
-      </button>
+      </Button>
     </div>
   );
 }

@@ -85,6 +85,12 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
         queue.async { [self] in write(data) }
     }
 
+    /// Sends the request `encode` makes, encoded on this connection's serial queue (not the caller's
+    /// thread), in order with every other send; nil sends nothing.
+    public func send(_ encode: @escaping @Sendable () -> Data?) {
+        queue.async { [self] in if let data = encode() { write(data) } }
+    }
+
     public func cancel() {
         queue.async { [self] in
             onClose = nil

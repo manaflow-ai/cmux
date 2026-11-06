@@ -20,7 +20,9 @@ public import CmuxNextDesignTokens
 /// by the app's wiring) returns the port's motion parity corpus (`MotionParityCorpus`), the
 /// document cmux-motion's `motion_trajectories` example prints; scripts/cmux-next/motion-parity.py
 /// compares the two. `trace_start`, `trace_read` and `trace_stop` sample
-/// animated geometry on every display frame instead (DEBUG builds, ``MotionFrameTrace``).
+/// animated geometry on every display frame instead (DEBUG and bench builds, ``MotionFrameTrace``); `record_start`,
+/// `record_read` and `record_stop` record the window as the window server composites it, every frame, as a movie
+/// (``MotionScreenRecord``).
 /// Takes and returns `JSONSerialization` object graphs.
 public struct MotionDebug {
     public init() {}
@@ -32,9 +34,12 @@ public struct MotionDebug {
     public static func handle(_ params: [String: Any], windows: [NSWindow], samplers: [@MainActor (NSView) -> [String: [Any]]?] = [],
                               commitProbe: MotionCommitProbe? = nil) -> [String: Any] {
         let action = params["action"] as? String ?? "read"
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if action.hasPrefix("trace_") {
             return MotionFrameTrace.shared.handle(String(action.dropFirst("trace_".count)), params, windows: windows, samplers: samplers + registeredSamplers)
+        }
+        if action.hasPrefix("record_") {
+            return MotionFrameTrace.shared.recorder.handle(String(action.dropFirst("record_".count)), params, windows: windows)
         }
         #endif
         switch action {

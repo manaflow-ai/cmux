@@ -26,6 +26,7 @@
 
 pub mod archive;
 pub mod disk;
+mod finished_memo;
 mod git;
 pub mod inventory;
 pub mod pass;

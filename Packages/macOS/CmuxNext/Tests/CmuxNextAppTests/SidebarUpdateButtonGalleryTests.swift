@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -8,9 +9,9 @@ import Testing
 /// The sidebar with a found update waiting (the quiet Update Available button), the Priority bell on and the
 /// titlebar revealed, dark and light (Leo 2026-10-28: "the update button, don't put at the top. Put on the bottom").
 /// Artifact `sidebar-update-button-gallery.tar` (`CMUX_TEST_REQUIRE_GUI=1`).
-@MainActor @Suite(.serialized) struct SidebarUpdateButtonGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarUpdateButtonGalleryTests {
     static func render(dark: Bool) throws -> CGImage {
-        let (_, sidebar, window) = SidebarTabGroupControlsTests.sidebar()
+        let (_, sidebar, window) = SidebarRowCloseSpotTests.sidebar()
         defer { window.close() }
         let theme = dark ? "Soft Blue" : "Soft Blue Light"
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)

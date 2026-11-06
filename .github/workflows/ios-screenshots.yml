@@ -75,6 +75,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   resolve-ref:
     uses: ./.github/workflows/resolve-dispatch-ref.yml
@@ -90,7 +94,7 @@ jobs:
     # release at parse time (#12149). A release call and an App Store upload
     # always keep MACOS_RUNNER_IOS. A capture an owned Mac leaves queued or
     # refuses is re-run by ci-owned-pool-rescue.yml on retry_runs_on.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     timeout-minutes: 5
     outputs:
       label: ${{ steps.pool.outputs.label }}
@@ -104,6 +108,7 @@ jobs:
             scripts/ci/ios_runner_pool.py
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
             scripts/ci/simple_pool_picker.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -111,6 +116,7 @@ jobs:
       - name: Pick the macOS pool
         id: pool
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}

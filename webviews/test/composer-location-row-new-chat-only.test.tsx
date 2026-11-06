@@ -219,3 +219,50 @@ test("a started chat has no strip, even when its tab's menu offers Move to Cloud
     expect(placeholder()).toBeNull();
   }
 });
+
+// Leo (2026-10-30): "WHEN I OPEN UP A FUCKING EXISTING TAB I SHOULDN'T FUCKING SEE CHOOSE PROJECT
+// CHOOSE ENVIRONMENT AT THE TOP OF THE FFUCKING COMPOSER". An existing tab's page draws its composer
+// before the host's handshake answers ("Waiting for the agent service") and before its session
+// attaches; that snapshot is empty and looks like a new chat's. The pane knows a chat is new only
+// from the handshake (`newSession`) or from the session itself once it arrives.
+test("which chats the pane knows enough about to draw the strip for", async () => {
+  const { paneKnowsNewChat } = await import("../src/agent-session/acpmux/locationRow");
+  const empty = noChat([]);
+  // Existing chat, restored or opened: no handshake yet, then a handshake that named its session.
+  expect(paneKnowsNewChat({ handshaken: false, newSession: false }, empty)).toBe(false);
+  expect(paneKnowsNewChat({ handshaken: true, newSession: false }, empty)).toBe(false);
+  // Existing chat attached: its own summary decides (showsLocationRow hides it for its turns).
+  expect(paneKnowsNewChat({ handshaken: true, newSession: false }, noChat([], { sessionId: "old-chat" }))).toBe(true);
+  // A new chat: the handshake says so. Before it answers, even a new chat is not known yet.
+  expect(paneKnowsNewChat({ handshaken: true, newSession: true }, empty)).toBe(true);
+  expect(paneKnowsNewChat({ handshaken: false, newSession: true }, empty)).toBe(false);
+});
+
+test("an existing chat never shows the new chat's project and environment strip, not even while it loads", async () => {
+  const drawn: boolean[] = [];
+  const observer = new dom.window.MutationObserver(() => drawn.push(strip() !== null));
+  observer.observe(host, { childList: true, subtree: true });
+  // Opening the tab: the agent service has not answered, the snapshot is empty.
+  await render(noChat([]), { chatKnown: false });
+  drawn.push(strip() !== null);
+  // The handshake named the session; it is still loading.
+  await render(noChat([], { sessionId: "old-chat" }), { chatKnown: true });
+  drawn.push(strip() !== null);
+  // It attached, with its history.
+  const history = chat([user("Why does the build cache miss on CI?", 30), summary(29, { status: "completed" })]);
+  await render(
+    { ...history, sessionId: "old-chat", summary: { ...history.summary!, sessionId: "old-chat", turnCount: 4 } },
+    { chatKnown: true },
+  );
+  drawn.push(strip() !== null);
+  observer.disconnect();
+  expect(drawn.includes(true)).toBe(false);
+  expect(placeholder()).toBeNull();
+});
+
+test("a new empty chat the handshake named shows the strip", async () => {
+  await render(noChat([]), { chatKnown: true });
+  expect(strip()).not.toBeNull();
+  await render(newChat(), { chatKnown: true });
+  expect(strip()).not.toBeNull();
+});

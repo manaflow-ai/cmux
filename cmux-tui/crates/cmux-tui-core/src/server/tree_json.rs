@@ -21,16 +21,73 @@ use crate::TreeDeltaKind;
 use crate::assign_short_ids;
 use crate::model::State;
 use crate::model::Workspace;
+use cmux_tui_util::short_id::short_id_without_set;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::HashMap;
 
+/// The short IDs of the tree: each ID's own value when that does not depend on the other IDs
+/// ([`short_id_without_set`], every ID a session allocates), else the whole session's assignment,
+/// made once and only then. A delta's entity (one screen, pane or tab) then costs what it shows,
+/// never the whole session (#32408).
+pub(super) struct ShortIds<'a> {
+    state: &'a State,
+    assigned: std::cell::OnceCell<HashMap<u64, String>>,
+}
+
+impl<'a> ShortIds<'a> {
+    pub(super) fn of(state: &'a State) -> Self {
+        Self { state, assigned: std::cell::OnceCell::new() }
+    }
+
+    /// The short ID of `id`; empty for an ID the tree does not hold (as before).
+    pub(super) fn get(&self, id: u64) -> String {
+        short_id_without_set(id).unwrap_or_else(|| {
+            self.assigned
+                .get_or_init(|| tree_short_ids(self.state))
+                .get(&id)
+                .cloned()
+                .unwrap_or_default()
+        })
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Panes serialized on this thread (`pane_json`): a unit test reads how much of the tree one
+    /// change builds (#32408).
+    static PANES_BUILT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Panes serialized on this thread so far.
+#[cfg(test)]
+pub(crate) fn panes_built_for_test() -> u64 {
+    PANES_BUILT.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs once on this thread between an entity's build and the whole tree's build in
+    /// `tree_entity_json`'s check, as a terminal's reader could run there on another thread.
+    static ENTITY_CHECK_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `hook` once, the next time `tree_entity_json` on this thread has built an entity and has not
+/// built the whole tree yet.
+#[cfg(test)]
+pub(crate) fn set_entity_check_hook_for_test(hook: impl FnOnce() + 'static) {
+    ENTITY_CHECK_HOOK.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+}
+
 pub(super) fn pane_json(
     state: &State,
     id: PaneId,
-    short_ids: &HashMap<u64, String>,
+    short_ids: &ShortIds<'_>,
     notifications: &TreeDecorations,
 ) -> Value {
+    #[cfg(test)]
+    PANES_BUILT.with(|built| built.set(built.get() + 1));
     let Some(pane) = state.panes.get(&id) else {
         return json!({ "id": id, "dead": true });
     };
@@ -41,7 +98,7 @@ pub(super) fn pane_json(
     json!({
         "id": id,
         "resource_id": state.resource_indexes.pane_ids.get(&id),
-        "short_id": short_ids.get(&id).cloned().unwrap_or_default(),
+        "short_id": short_ids.get(id),
         "name": pane.name,
         "active_tab": pane.active_tab,
         "focused_at": pane.focused_at,
@@ -163,7 +220,7 @@ pub(super) fn pane_json(
                 "terminal_incarnation": terminal_identity
                     .as_ref()
                     .map(|identity| &identity.incarnation),
-                "short_id": short_ids.get(sid).cloned().unwrap_or_default(),
+                "short_id": short_ids.get(*sid),
                 "supports_clear_history_key_fallback": surface
                     .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
                 "notification": notifications.get(sid).copied().map(|n| {
@@ -209,7 +266,7 @@ pub(super) fn pane_json(
 }
 
 pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) -> Value {
-    let short_ids = tree_short_ids(state);
+    let short_ids = ShortIds::of(state);
     json!({
         "workspace_revision": state.workspace_revision,
         "pane_revision": state.pane_revision,
@@ -220,7 +277,7 @@ pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) ->
     })
 }
 
-fn tree_short_ids(state: &State) -> HashMap<u64, String> {
+pub(super) fn tree_short_ids(state: &State) -> HashMap<u64, String> {
     let ids = state
         .workspaces
         .iter()
@@ -240,7 +297,7 @@ fn workspace_json(
     state: &State,
     workspace: &Workspace,
     index: usize,
-    short_ids: &HashMap<u64, String>,
+    short_ids: &ShortIds<'_>,
     notifications: &TreeDecorations,
 ) -> Value {
     let presentation = notifications.presentation.workspace(&workspace.key);
@@ -256,7 +313,7 @@ fn workspace_json(
         "id": workspace.id,
         "resource_id": workspace.public_id,
         "key": workspace.key,
-        "short_id": short_ids.get(&workspace.id).cloned().unwrap_or_default(),
+        "short_id": short_ids.get(workspace.id),
         "name": workspace.name,
         // `workspace-name-source-v1`: the revision is a decimal string, as on tabs.
         "name_source": workspace.name_source,
@@ -283,6 +340,56 @@ fn workspace_json(
         }).collect::<Vec<_>>(),
         "screen_groups": screen_groups.iter().map(screen_group_run_json).collect::<Vec<_>>(),
     })
+}
+
+/// The workspace, index and screen of screen `id` as the tree lists it.
+fn screen_in_tree(state: &State, id: u64) -> Option<(&Workspace, usize, &crate::model::Screen)> {
+    let found =
+        |workspace: &'_ Workspace| workspace.screens.iter().position(|screen| screen.id == id);
+    if let Some(workspace) = state
+        .resource_indexes
+        .screen_workspace
+        .get(&id)
+        .and_then(|workspace| state.workspace_index(*workspace))
+        .and_then(|index| state.workspaces.get(index))
+        && let Some(index) = found(workspace)
+    {
+        return Some((workspace, index, &workspace.screens[index]));
+    }
+    state.workspaces.iter().find_map(|workspace| {
+        found(workspace).map(|index| (workspace, index, &workspace.screens[index]))
+    })
+}
+
+/// Whether a screen's layout places pane `pane` (the tree lists only those panes).
+fn pane_in_tree(state: &State, pane: PaneId) -> Option<()> {
+    let (workspace, screen) = state.screen_of(pane)?;
+    state.workspaces.get(workspace)?.screens.get(screen)?.root.contains(pane).then_some(())
+}
+
+/// Screen `screen` (at `screen_index`) of `workspace` as `workspace_json` lists it.
+fn workspace_screen_json(
+    state: &State,
+    workspace: &Workspace,
+    screen_index: usize,
+    screen: &crate::model::Screen,
+    short_ids: &ShortIds<'_>,
+    notifications: &TreeDecorations,
+) -> Value {
+    let screen_groups =
+        crate::mux::workspace_screen_groups(workspace, &notifications.presentation.screens);
+    let group = screen_groups
+        .iter()
+        .find(|run| run.members.contains(&screen.id))
+        .map(|run| run.group.id.as_str());
+    screen_json(
+        state,
+        screen,
+        screen_index == workspace.active_screen,
+        group,
+        short_ids,
+        notifications,
+    )
 }
 
 fn screen_group_run_json(run: &crate::mux::WorkspaceScreenGroup) -> Value {
@@ -315,60 +422,209 @@ fn workspace_unread_count(
         .count()
 }
 
+/// `selection-changed` (`tree-selection-deltas-v1`): the whole selection of workspace `workspace`
+/// (its active screen, each screen's active pane, each pane's active tab and focus stamp) and the
+/// focused workspace, in O(that workspace). Nil when the workspace is gone.
+pub(crate) fn selection_changed_json(state: &State, workspace: u64) -> Option<Value> {
+    let index = state.workspace_index(workspace)?;
+    let entry = state.workspaces.get(index)?;
+    let screens = entry
+        .screens
+        .iter()
+        .enumerate()
+        .map(|(screen_index, screen)| {
+            let panes = screen
+                .root
+                .pane_ids_vec()
+                .into_iter()
+                .filter_map(|id| state.panes.get(&id).map(|pane| (id, pane)))
+                .map(|(id, pane)| {
+                    json!({"id": id, "active_tab": pane.active_tab, "focused_at": pane.focused_at})
+                })
+                .collect::<Vec<_>>();
+            json!({
+                "id": screen.id,
+                "active": screen_index == entry.active_screen,
+                "active_pane": screen.active_pane,
+                "panes": panes,
+            })
+        })
+        .collect::<Vec<_>>();
+    Some(json!({
+        "event": "selection-changed",
+        "workspace": workspace,
+        "active": index == state.active_workspace,
+        "active_workspace": state.workspaces.get(state.active_workspace).map(|active| active.id),
+        "screens": screens,
+    }))
+}
+
+/// `workspace-presentation-changed` (`tree-selection-deltas-v1`): workspace `workspace`'s entity as
+/// `list-workspaces` has it, after a `workspace.update` of its title, color or icon. Nil when it is gone.
+pub(crate) fn workspace_presentation_changed_json(
+    state: &State,
+    notifications: &TreeDecorations,
+    workspace: u64,
+) -> Option<Value> {
+    let entity =
+        tree_entity_json(state, notifications, TreeDeltaKind::WorkspaceChanged, workspace)?;
+    Some(
+        json!({"event": "workspace-presentation-changed", "workspace": workspace, "entity": entity}),
+    )
+}
+
 pub(crate) fn tree_entity_json(
     state: &State,
     notifications: &TreeDecorations,
     kind: TreeDeltaKind,
     id: u64,
 ) -> Option<Value> {
-    if matches!(
-        kind,
-        TreeDeltaKind::WorkspaceAdded
-            | TreeDeltaKind::WorkspaceClosed
-            | TreeDeltaKind::WorkspaceRenamed
-            | TreeDeltaKind::WorkspaceMoved
-            | TreeDeltaKind::WorkspaceChanged
-    ) {
-        let short_ids = tree_short_ids(state);
-        let index = state.workspace_index(id)?;
-        let workspace = state.workspaces.get(index)?;
-        return Some(workspace_json(state, workspace, index, &short_ids, notifications));
+    let entity = entity_json(state, notifications, kind, id);
+    // Unit tests check every entity against the whole tree's value at that place (not counted as built).
+    #[cfg(test)]
+    check_entity_against_whole_tree(state, notifications, kind, id, &entity);
+    entity
+}
+
+/// How many times the check reads an entity whose live fields keep moving before it gives up on
+/// comparing it.
+#[cfg(test)]
+const ENTITY_CHECK_ATTEMPTS: usize = 16;
+
+/// Unit tests: `entity` (built alone) equals the whole tree's value at its place. Both builders
+/// read a terminal's live fields (title, size, connection state, end) without the state lock, and
+/// its reader sets them on its own thread, so they are equal only when both builds saw the same
+/// inputs: the entity is built again after the whole tree, and the two are compared only when the
+/// inputs held still across the tree's build (the entity built before and after it agree). A title
+/// set between the builds (#35765: a directory publication's tab delta, built on the terminal
+/// publisher while the shell sets its title at a prompt) is read again, not reported as a
+/// difference. Not counted as built.
+#[cfg(test)]
+fn check_entity_against_whole_tree(
+    state: &State,
+    notifications: &TreeDecorations,
+    kind: TreeDeltaKind,
+    id: u64,
+    entity: &Option<Value>,
+) {
+    let built = panes_built_for_test();
+    let mut before = entity.clone();
+    for _ in 0..ENTITY_CHECK_ATTEMPTS {
+        if let Some(hook) = ENTITY_CHECK_HOOK.with(|slot| slot.borrow_mut().take()) {
+            hook();
+        }
+        let from_tree = entity_from_whole_tree(state, notifications, kind, id);
+        let after = entity_json(state, notifications, kind, id);
+        if after == before {
+            PANES_BUILT.with(|cell| cell.set(built));
+            assert_eq!(after, from_tree, "the {kind:?} entity of {id} differs from the tree's");
+            return;
+        }
+        before = after;
     }
-    let tree = workspaces_json(state, notifications);
-    let workspaces = tree.get("workspaces")?.as_array()?;
+    // The live fields moved during every attempt: nothing to compare. Said, so
+    // a check that never compares is seen.
+    PANES_BUILT.with(|cell| cell.set(built));
+    eprintln!(
+        "tree entity check: the {kind:?} entity of {id} kept changing during {ENTITY_CHECK_ATTEMPTS} builds; not compared"
+    );
+}
+
+/// Only the entity itself: the one workspace, screen, pane or tab, never the whole tree (each
+/// create's delta took the whole session's tree under the registry and state locks, #32408). The
+/// value is the one `list-workspaces` holds at that place.
+fn entity_json(
+    state: &State,
+    notifications: &TreeDecorations,
+    kind: TreeDeltaKind,
+    id: u64,
+) -> Option<Value> {
+    let short_ids = ShortIds::of(state);
     match kind {
         TreeDeltaKind::WorkspaceAdded
         | TreeDeltaKind::WorkspaceClosed
         | TreeDeltaKind::WorkspaceRenamed
         | TreeDeltaKind::WorkspaceMoved
-        | TreeDeltaKind::WorkspaceChanged => None,
+        | TreeDeltaKind::WorkspaceChanged => {
+            let index = state.workspace_index(id)?;
+            let workspace = state.workspaces.get(index)?;
+            Some(workspace_json(state, workspace, index, &short_ids, notifications))
+        }
         TreeDeltaKind::ScreenAdded
         | TreeDeltaKind::ScreenClosed
         | TreeDeltaKind::ScreenRenamed
-        | TreeDeltaKind::ScreenChanged => workspaces
-            .iter()
-            .flat_map(|workspace| {
-                workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
-            })
-            .find(|screen| screen.get("id").and_then(Value::as_u64) == Some(id))
-            .cloned(),
-        TreeDeltaKind::PaneAdded | TreeDeltaKind::PaneClosed => workspaces
-            .iter()
-            .flat_map(|workspace| {
-                workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
-            })
-            .flat_map(|screen| screen.get("panes").and_then(Value::as_array).into_iter().flatten())
-            .find(|pane| pane.get("id").and_then(Value::as_u64) == Some(id))
-            .cloned(),
+        | TreeDeltaKind::ScreenChanged => {
+            let (workspace, screen_index, screen) = screen_in_tree(state, id)?;
+            Some(workspace_screen_json(
+                state,
+                workspace,
+                screen_index,
+                screen,
+                &short_ids,
+                notifications,
+            ))
+        }
+        TreeDeltaKind::PaneAdded | TreeDeltaKind::PaneClosed => {
+            pane_in_tree(state, id)?;
+            Some(pane_json(state, id, &short_ids, notifications))
+        }
         TreeDeltaKind::TabAdded
         | TreeDeltaKind::TabClosed
         | TreeDeltaKind::TabRenamed
-        | TreeDeltaKind::TabChanged => workspaces
-            .iter()
-            .flat_map(|workspace| {
-                workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
-            })
+        | TreeDeltaKind::TabChanged => {
+            let pane = state.pane_of(id)?;
+            pane_in_tree(state, pane)?;
+            let mut pane = pane_json(state, pane, &short_ids, notifications);
+            let tabs = pane.get_mut("tabs")?.as_array_mut()?;
+            let index = tabs
+                .iter()
+                .position(|tab| tab.get("surface").and_then(Value::as_u64) == Some(id))?;
+            Some(tabs.swap_remove(index))
+        }
+    }
+}
+
+/// The entity at `kind`/`id` read from the whole tree: what [`entity_json`] must equal.
+#[cfg(test)]
+fn entity_from_whole_tree(
+    state: &State,
+    notifications: &TreeDecorations,
+    kind: TreeDeltaKind,
+    id: u64,
+) -> Option<Value> {
+    let tree = workspaces_json(state, notifications);
+    let workspaces = tree.get("workspaces")?.as_array()?;
+    let screens = || {
+        workspaces.iter().flat_map(|workspace| {
+            workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
+        })
+    };
+    let panes = || {
+        screens()
             .flat_map(|screen| screen.get("panes").and_then(Value::as_array).into_iter().flatten())
+    };
+    match kind {
+        TreeDeltaKind::WorkspaceAdded
+        | TreeDeltaKind::WorkspaceClosed
+        | TreeDeltaKind::WorkspaceRenamed
+        | TreeDeltaKind::WorkspaceMoved
+        | TreeDeltaKind::WorkspaceChanged => workspaces
+            .iter()
+            .find(|workspace| workspace.get("id").and_then(Value::as_u64) == Some(id))
+            .cloned(),
+        TreeDeltaKind::ScreenAdded
+        | TreeDeltaKind::ScreenClosed
+        | TreeDeltaKind::ScreenRenamed
+        | TreeDeltaKind::ScreenChanged => {
+            screens().find(|screen| screen.get("id").and_then(Value::as_u64) == Some(id)).cloned()
+        }
+        TreeDeltaKind::PaneAdded | TreeDeltaKind::PaneClosed => {
+            panes().find(|pane| pane.get("id").and_then(Value::as_u64) == Some(id)).cloned()
+        }
+        TreeDeltaKind::TabAdded
+        | TreeDeltaKind::TabClosed
+        | TreeDeltaKind::TabRenamed
+        | TreeDeltaKind::TabChanged => panes()
             .flat_map(|pane| pane.get("tabs").and_then(Value::as_array).into_iter().flatten())
             .find(|tab| tab.get("surface").and_then(Value::as_u64) == Some(id))
             .cloned(),

@@ -44,7 +44,8 @@ import Testing
     }
 
     @Test func streamHeadersDecodeOrThrowForAnyBytes() throws {
-        var rng = Rng(state: 0x71)
+        let fuzz = FuzzSeed(default: 0x71)
+        var rng = Rng(state: fuzz.seed)
         let codec = try CmxIrohStreamHeaderCodec()
         let headers = [
             try CmxIrohStreamHeader(lane: .control, credential: .pairGrant("e30.e30.AA")),
@@ -57,7 +58,7 @@ import Testing
         for header in headers {
             let encoded = try codec.encode(header)
             #expect(try codec.decodePrefix(encoded).header == header)
-            for _ in 0..<1_500 {
+            for _ in 0..<fuzz.iterations(1_500) {
                 _ = try? codec.decodePrefix(rng.mutate(encoded))
                 _ = try? codec.decodePrefix(rng.bytes(64))
             }
@@ -65,14 +66,15 @@ import Testing
     }
 
     @Test func terminalOutputEnvelopesDecodeOrThrowForAnyBytes() throws {
-        var rng = Rng(state: 0x72)
+        let fuzz = FuzzSeed(default: 0x72)
+        var rng = Rng(state: fuzz.seed)
         let codec = CmxIrohTerminalOutputEnvelopeCodec()
         let envelope = try CmxIrohTerminalOutputEnvelope(
             kind: .chunk, retainedBaseSequence: 45, sequence: 45, currentSequence: 48, payload: Data("def".utf8)
         )
         let encoded = codec.encode(envelope)
         #expect(try codec.decodePrefix(encoded) == envelope)
-        for _ in 0..<2_000 {
+        for _ in 0..<fuzz.iterations(2_000) {
             _ = try? codec.decodePrefix(rng.mutate(encoded))
             _ = try? codec.decodePrefix(rng.bytes(80))
             var decoder = CmxIrohTerminalOutputEnvelopeDecoder()
@@ -81,13 +83,14 @@ import Testing
     }
 
     @Test func lanTXTRecordsAndSocketAddressesDecodeOrThrowForAnyInput() throws {
-        var rng = Rng(state: 0x73)
+        let fuzz = FuzzSeed(default: 0x73)
+        var rng = Rng(state: fuzz.seed)
         let valid = try CmxIrohLANTXTRecord(
             epoch: 6_000_000,
             addresses: [try CmxIrohLANSocketAddress("192.168.1.10:50906")]
         ).encoded()
         let seeds = ["192.168.1.10:50906", "[fd00::1]:4000", "[", "]:", "[]:1", ":", "1.2.3.4", "0.0.0.0:1", "[::]:1"]
-        for _ in 0..<2_000 {
+        for _ in 0..<fuzz.iterations(2_000) {
             _ = try? CmxIrohLANTXTRecord(encoded: rng.mutate(valid))
             _ = try? CmxIrohLANTXTRecord(encoded: rng.bytes(40))
             let seed = Data(seeds[rng.below(seeds.count)].utf8)
@@ -97,8 +100,9 @@ import Testing
     }
 
     @Test func admissionAcknowledgementsDecodeOrThrowForAnyBytes() {
-        var rng = Rng(state: 0x74)
-        for _ in 0..<2_000 {
+        let fuzz = FuzzSeed(default: 0x74)
+        var rng = Rng(state: fuzz.seed)
+        for _ in 0..<fuzz.iterations(2_000) {
             _ = try? CmxIrohAdmissionAckCodec().decodePrefix(rng.bytes(24))
         }
     }

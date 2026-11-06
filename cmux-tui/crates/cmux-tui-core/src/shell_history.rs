@@ -13,7 +13,11 @@
 //!
 //! Recording is opt-in per daemon (`set-terminal-command-history`), off by
 //! default: nothing is stored and no screen text is read until a client
-//! turns it on. A command line can hold secrets, so finished commands are
+//! turns it on. Freeing idle terminals (`workspaces.freeing.enabled`, also
+//! off by default) turns on [`Recording::LastCommand`]: each tracker keeps
+//! only its newest finished command in memory, and a parked tab's kept
+//! record stores that one row (`kept_tabs.last_command_json`) for its
+//! restored marker line. A command line can hold secrets, so finished commands are
 //! deletable rows in the workspace registry (`command_history_store`, with a
 //! retention), never session journal records, readable by trusted local
 //! clients only and capped at [`MAX_COMMAND_BYTES`]. No `C` mark is emitted
@@ -89,10 +93,25 @@ pub(crate) trait CommandScreen {
     fn cwd(&mut self) -> Option<String>;
 }
 
+/// What a terminal's tracker does with OSC 133 marks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Recording {
+    /// Marks are dropped and no screen text is read.
+    Off,
+    /// Only the newest finished command is kept, in memory
+    /// ([`CommandTracker::last`]), for a parked tab's record.
+    LastCommand,
+    /// Every finished command goes to the history store, and the newest is
+    /// kept as with [`Recording::LastCommand`].
+    History,
+}
+
 /// Per-terminal state between marks.
 #[derive(Debug, Default)]
 pub(crate) struct CommandTracker {
     running: Option<RunningCommand>,
+    /// The newest finished command that had a command line.
+    last: Option<FinishedCommand>,
     /// Finish times inside the last second (the rate limit).
     recent: std::collections::VecDeque<u64>,
 }
@@ -127,9 +146,30 @@ impl CommandTracker {
         }
     }
 
-    /// Forgets a running command (recording turned off).
+    /// Forgets a running command and the last one (recording turned off).
     pub(crate) fn reset(&mut self) {
         self.running = None;
+        self.last = None;
+    }
+
+    /// The newest finished command that had a command line.
+    pub(crate) fn last(&self) -> Option<&FinishedCommand> {
+        self.last.as_ref()
+    }
+
+    /// The command a park ends: the one that runs now, as ended at `now_ms`
+    /// with no status, else the newest finished one. A freed shell types it
+    /// again on show (`workspaces.freeing.runningCommands: relaunch`).
+    pub(crate) fn kept(&self, now_ms: u64) -> Option<FinishedCommand> {
+        let running = self.running.as_ref().filter(|running| running.command.is_some());
+        let Some(running) = running else { return self.last.clone() };
+        Some(FinishedCommand {
+            command: running.command.clone(),
+            cwd: running.cwd.clone(),
+            exit_code: None,
+            started_at_ms: running.started_at_ms,
+            duration_ms: now_ms.saturating_sub(running.started_at_ms),
+        })
     }
 
     fn finish(&mut self, exit_code: Option<i32>, now_ms: u64) -> Option<FinishedCommand> {
@@ -141,13 +181,17 @@ impl CommandTracker {
             return None;
         }
         self.recent.push_back(now_ms);
-        Some(FinishedCommand {
+        let finished = FinishedCommand {
             command: running.command,
             cwd: running.cwd,
             exit_code,
             started_at_ms: running.started_at_ms,
             duration_ms: now_ms.saturating_sub(running.started_at_ms),
-        })
+        };
+        if finished.command.is_some() {
+            self.last = Some(finished.clone());
+        }
+        Some(finished)
     }
 }
 
@@ -163,6 +207,12 @@ pub(crate) fn command_cwd(report: &str) -> Option<String> {
 /// A command line as stored: trimmed, without control characters, cut to
 /// [`MAX_COMMAND_BYTES`] at a character boundary; `None` when empty.
 pub(crate) fn clean_command(text: &str) -> Option<String> {
+    // Leading-space history entries are commonly used for commands a person
+    // does not want retained. Drop them before trimming so suggestion ranking
+    // cannot accidentally reintroduce a deliberately hidden command.
+    if text.chars().next().is_some_and(|character| character.is_whitespace()) {
+        return None;
+    }
     let visible: String = text.chars().filter(|character| !character.is_control()).collect();
     let trimmed = visible.trim();
     if trimmed.is_empty() {
@@ -185,5 +235,46 @@ impl CommandScreen for TerminalCommandScreen<'_> {
 
     fn cwd(&mut self) -> Option<String> {
         self.0.pwd().as_deref().and_then(command_cwd)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CommandScreen, CommandTracker, ShellMark, clean_command};
+
+    /// A screen whose submitted input is `input`.
+    struct Typed(&'static str);
+
+    impl CommandScreen for Typed {
+        fn input_text(&mut self) -> Option<String> {
+            Some(self.0.to_owned())
+        }
+
+        fn cwd(&mut self) -> Option<String> {
+            None
+        }
+    }
+
+    #[test]
+    fn the_tracker_keeps_the_last_command_with_a_line_until_reset() {
+        let mut tracker = CommandTracker::default();
+        tracker.apply(ShellMark::CommandStart, 1_000, &mut Typed("npm test"));
+        tracker.apply(ShellMark::CommandEnd { exit_code: Some(1) }, 4_000, &mut Typed(""));
+        let last = tracker.last().expect("a finished command is kept");
+        assert_eq!(last.command.as_deref(), Some("npm test"));
+        assert_eq!((last.exit_code, last.started_at_ms, last.duration_ms), (Some(1), 1_000, 3_000));
+        // A command with no line (a leading space hides it) keeps the older one.
+        tracker.apply(ShellMark::CommandStart, 5_000, &mut Typed(" secret"));
+        tracker.apply(ShellMark::CommandEnd { exit_code: Some(0) }, 6_000, &mut Typed(""));
+        assert_eq!(tracker.last().and_then(|last| last.command.as_deref()), Some("npm test"));
+        tracker.reset();
+        assert!(tracker.last().is_none(), "turning recording off forgets the last command");
+    }
+
+    #[test]
+    fn leading_space_commands_are_not_recorded() {
+        assert_eq!(clean_command(" pnpm test"), None);
+        assert_eq!(clean_command("\tpnpm test"), None);
+        assert_eq!(clean_command("pnpm test"), Some("pnpm test".to_owned()));
     }
 }

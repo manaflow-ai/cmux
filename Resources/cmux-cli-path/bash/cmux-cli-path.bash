@@ -69,6 +69,13 @@ if [[ "$-" == *i* && -n "${CMUX_TUI_AGENT_SHIMS-}" && -z "${_cmux_tui_agent_shim
     PROMPT_COMMAND+="_cmux_tui_agent_shims_first 2>/dev/null"
   fi
 fi
+# A terminal of an incognito workspace (CMUX_TUI_INCOGNITO, set by the daemon)
+# keeps no history: the startup files have run and may have set HISTFILE
+# again, so bash writes its history list to /dev/null. The daemon's own
+# integration (cmux-tui shell_integration/incognito-history.bash) does the same.
+if [[ -n "${CMUX_TUI_INCOGNITO-}" ]]; then
+  HISTFILE=/dev/null
+fi
 if [[ "$-" == *i* && "${__cmux_replay_file%/*}" == */cmux-next-scrollback && -f "$__cmux_replay_file" ]]; then
   /bin/cat -- "$__cmux_replay_file" 2>/dev/null
   /bin/rm -f -- "$__cmux_replay_file" 2>/dev/null

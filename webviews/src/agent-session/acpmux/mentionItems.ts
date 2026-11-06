@@ -19,6 +19,56 @@ export const MENTION_FOLDERS = 3;
 /// How much of a chat's title a word is matched against: a chat named for its first prompt has the
 /// whole prompt as its title, and a word deep in it says little about the chat.
 export const MENTION_TITLE_CHARS = 100;
+const RECENT_MENTION_PATHS_KEY = "cmux.acpmux.recentMentionPaths";
+const RECENT_MENTION_PATHS_LIMIT = 12;
+
+/// A file or folder picked from the @ menu, kept for the next bare `@` in the same project.
+export type RecentMention = { kind: "file" | "folder"; path: string };
+
+/// Recent paths are local UI memory, never sent to the host. They are kept per project folder on
+/// its host (`scope`): a relative path means nothing in another folder or on another machine.
+function recentKey(scope: string): string {
+  return `${RECENT_MENTION_PATHS_KEY}:${scope}`;
+}
+
+/// The project a chat's recent picks belong to: its host and folder. Undefined: none are kept.
+export function recentMentionScope(cwd: string | undefined, host: string | undefined): string | undefined {
+  return cwd ? JSON.stringify([host ?? "local", cwd]) : undefined;
+}
+
+export function loadRecentMentionPaths(scope: string | undefined): RecentMention[] {
+  if (!scope) return [];
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(recentKey(scope)) ?? "[]");
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter(
+        (entry): entry is RecentMention =>
+          typeof entry === "object" &&
+          entry !== null &&
+          (entry.kind === "file" || entry.kind === "folder") &&
+          typeof entry.path === "string" &&
+          entry.path.length > 0,
+      )
+      .slice(0, RECENT_MENTION_PATHS_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+export function rememberMentionPath(scope: string | undefined, item: MentionItem): void {
+  if (!scope || item.kind === "session") return;
+  const picked: RecentMention = { kind: item.kind, path: item.path };
+  const next = [
+    picked,
+    ...loadRecentMentionPaths(scope).filter((entry) => entry.kind !== picked.kind || entry.path !== picked.path),
+  ].slice(0, RECENT_MENTION_PATHS_LIMIT);
+  try {
+    localStorage.setItem(recentKey(scope), JSON.stringify(next));
+  } catch {
+    // Private windows and blocked storage keep the picker functional without recents.
+  }
+}
 
 /// `text` lowercased a character at a time, with the string index in `text` of the character each
 /// of its units comes from. Some characters lowercase to more units than they take (`İ` is one
@@ -186,17 +236,34 @@ export function mentionItems({
   files,
   sessions,
   chatId,
+  recent = [],
 }: {
   query: string;
   files: readonly FileMatch[];
   sessions: readonly AcpmuxSessionEntry[];
   chatId?: string;
+  recent?: readonly RecentMention[];
 }): MentionItem[] {
   const text = query.trim();
   const chats = sessionItems(sessions, chatId, text);
+  const known = new Set(files.map((file) => file.path));
+  const matching = (entry: RecentMention) => !text || fuzzyIndices(text, entry.path) !== undefined;
+  const recentFiles = recent
+    .filter((entry) => entry.kind === "file" && !known.has(entry.path) && matching(entry))
+    .map((entry): FileMatch => ({ path: entry.path, ...(text ? { matches: fuzzyIndices(text, entry.path) } : {}) }));
+  // A bare @ leads with recent picks; once there is a query, the host's own results come first.
+  const allFiles = text ? [...files, ...recentFiles] : [...recentFiles, ...files];
+  const searchedFolders = folderItems(allFiles, text);
+  const shownFolders = new Set(searchedFolders.flatMap((item) => (item.kind === "session" ? [] : [item.path])));
+  const recentFolders = recent
+    .filter((entry) => entry.kind === "folder" && !shownFolders.has(entry.path) && matching(entry))
+    .map((entry): MentionItem => {
+      const indexes = text ? fuzzyIndices(text, entry.path) : undefined;
+      return { kind: "folder", key: `folder:${entry.path}`, path: entry.path, ...matchRuns(entry.path, indexes) };
+    });
   const paths = [
-    ...folderItems(files, text),
-    ...files.map((file): MentionItem => ({
+    ...(text ? [...searchedFolders, ...recentFolders] : [...recentFolders, ...searchedFolders]),
+    ...allFiles.map((file): MentionItem => ({
       kind: "file",
       key: `file:${file.path}`,
       path: file.path,

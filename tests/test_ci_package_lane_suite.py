@@ -41,6 +41,92 @@ def run(repo: Path, env: dict, *args: str) -> subprocess.CompletedProcess:
                           capture_output=True, text=True, timeout=120)
 
 
+def git(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "init.defaultBranch=main",
+                           "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+ACTIVE_RUNS = '{"total_count":1,"workflow_runs":[{"id":14,"status":"queued","conclusion":null,"html_url":"u14"}]}'
+
+
+def check_cmux_next_tree_miss_does_not_wait(failures: list) -> None:
+    """A CmuxNext suite step whose own cmux-tui tree is not published, while the commit's
+    cmux-tui artifacts run is still queued or running, goes on at once: its live-daemon suites
+    skip (the fleet worker's skip guard names them). The lane's CMUX_TUI_TREE_WAIT_SECONDS=0 used
+    to become pin-cmux-tui.sh's 7200 s active-run wait on the fleet: step 036f288649bf held its
+    Mac 3065 s and ran no test until it was cancelled, step 31482fc9e743 waited 7184 s.
+    The real pin-cmux-tui.sh runs against an unreachable CDN and a file:// GitHub API that lists
+    one queued run; sleep and date run on a virtual clock (fake-clock.sh), so the old wait shows
+    as clock time, not as wall time."""
+    scratch = Path(tempfile.mkdtemp(prefix="lane-tui-wait-"))
+    try:
+        repo = scratch / "cmux"
+        (repo / "scripts").mkdir(parents=True)
+        shutil.copytree(ROOT / "scripts/ci", repo / "scripts/ci")
+        (repo / "scripts/ci/ensure-web-bundles.sh").write_text("#!/bin/bash\necho web bundles stubbed\n")
+        (repo / "scripts/cmux-next").mkdir()
+        for name in ("pin-cmux-tui.sh", "cmux-tui-tree-inputs.txt"):
+            shutil.copy2(ROOT / "scripts/cmux-next" / name, repo / "scripts/cmux-next" / name)
+        (repo / "cmux-tui").mkdir()
+        (repo / "cmux-tui/a").write_text("one\n")
+        package = repo / "Packages/macOS/CmuxNext"
+        package.mkdir(parents=True)
+        (package / "Package.swift").write_text("// swift-tools-version: 6.0\n")
+        subprocess.run([str(ROOT / "scripts/cmux-next/tests/lib/tree-inputs-fixture.sh"), str(repo)], check=True)
+        git(repo, "init", "-q")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "one")
+        git(repo, "update-index", "--add", "--cacheinfo", f"160000,{git(repo, 'rev-parse', 'HEAD')},ghostty")
+        git(repo, "commit", "-q", "-m", "gitlink")
+        (repo / "ghostty").mkdir()  # an uninitialized submodule, as on a fleet checkout
+        runs = scratch / "api/repos/o/r/actions/workflows/cmux-tui-artifacts.yml/runs"
+        runs.parent.mkdir(parents=True)
+        runs.write_text(ACTIVE_RUNS + "\n")
+
+        bin_dir = scratch / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "swift").write_text(FAKE_SWIFT)
+        sdk = scratch / "MacOSX.sdk"
+        sdk.mkdir()
+        (bin_dir / "xcrun").write_text(f"#!/bin/bash\necho {sdk}\n")
+        for tool in ("swift", "xcrun"):
+            (bin_dir / tool).chmod(0o755)
+        log = scratch / "swift.log"
+        (scratch / "tmp").mkdir()
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_SWIFT_LOG": str(log),
+               "DEVELOPER_DIR": "/Applications/Xcode_26.6.app/Contents/Developer", "RUNNER_TEMP": str(scratch / "tmp"),
+               "GITHUB_REPOSITORY": "o/r", "GITHUB_API_URL": f"file://{scratch / 'api'}",
+               "CMUX_TUI_PIN_BASE": "https://127.0.0.1:9/cmux-tui",
+               "CMUX_TUI_TREE_FALLBACK_REMOTE": str(scratch / "no-remote"),
+               # A Mac suite on any host (the lane's Linux route reads this where it has one).
+               "CMUX_PACKAGE_LANE_TEST_OS": "Darwin"}
+        # A fleet step: not GitHub Actions, no token, no event, no binary from the worker.
+        for name in ("GITHUB_OUTPUT", "GITHUB_ACTIONS", "GITHUB_EVENT_NAME", "GH_TOKEN", "EVENT_NAME", "FULL_SUITE",
+                     "CMUX_SWIFT_TEST_DEBUG_INFO", "CMUX_SWIFT_SANITIZE", "CMUX_SWIFT_SUITE_CONFIGURATION", "CI_JOB_DIR",
+                     "CMUX_NEXT_TUI_TREE_PATH", "CMUX_TUI_TREE_KEY", "CMUX_TUI_TREE_PUBLISHER_SHA", "CMUX_TUI_TREE_DISPATCH",
+                     "CMUX_TUI_TREE_WAIT_SECONDS", "CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS", "CMUX_TUI_TREE_POLL_SECONDS",
+                     "CMUX_TUI_TREE_RUN_CHECK_SECONDS", "CMUX_NEXT_TUI_BIN", "CMUX_TUI_CLIENT_LOCAL"):
+            env.pop(name, None)
+        clock = scratch / "clock"
+        r = subprocess.run(
+            ["bash", "-c", 'source "$1"; fake_clock_install "$2"; shift 2; exec bash scripts/ci/package-test-lane.sh "$@"',
+             "lane", str(ROOT / "scripts/cmux-next/tests/lib/fake-clock.sh"), str(clock),
+             "suite", "Packages/macOS/CmuxNext", "FooTests"],
+            cwd=repo, env=env, capture_output=True, text=True, timeout=600)
+        out = r.stdout + r.stderr
+        waited = float((clock / "now").read_text()) - 1700000000
+        if r.returncode != 0:
+            failures.append(f"CmuxNext suite with an unpublished tree failed ({r.returncode}): {out[-3000:]}")
+        if waited > 0 or "waiting for the same-tree" in out or "waiting on" in out:
+            failures.append(f"the lane waited {waited:.0f}s for the active artifacts run: {out[-3000:]}")
+        if "fetch failed; the live-daemon suites will skip" not in out:
+            failures.append(f"the lane did not say its live-daemon suites skip: {out[-3000:]}")
+        if "--filter FooTests" not in (log.read_text() if log.exists() else ""):
+            failures.append("the suite did not run after the tree miss")
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
 def main() -> int:
     scratch = Path(tempfile.mkdtemp(prefix="lane-suite-"))
     failures = []
@@ -173,6 +259,7 @@ def main() -> int:
                 failures.append(f"{args} was not refused before swift (exit {r.returncode}): {r.stderr}")
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
+    check_cmux_next_tree_miss_does_not_wait(failures)
     for failure in failures:
         print("FAIL:", failure)
     if failures:

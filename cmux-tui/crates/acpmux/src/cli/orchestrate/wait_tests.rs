@@ -70,3 +70,56 @@ fn a_failed_turn_reads_as_failed_with_its_error_and_its_retry() {
     );
     assert!(failure_lines(&json!({"name": "lane", "status": "ready"}), now).is_empty());
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn matching_wait_includes_name_resolution_in_its_timeout() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let dir = cmux_unix_socket::short_test_dir("wait-budget");
+    let socket = dir.path().join("s");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (read, mut write) = stream.into_split();
+        let mut lines = BufReader::new(read).lines();
+        while let Some(line) = lines.next_line().await.unwrap() {
+            let msg: Value = serde_json::from_str(&line).unwrap();
+            let Some(id) = msg.get("id") else { continue };
+            let result = match msg["method"].as_str().unwrap() {
+                method::INITIALIZE => json!({}),
+                method::MUX_INFO => {
+                    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                    json!({"sessionId": "s"})
+                }
+                method::MUX_ATTACH => json!({"events": []}),
+                other => panic!("unexpected request: {other}"),
+            };
+            let response = json!({"jsonrpc": "2.0", "id": id, "result": result});
+            write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
+        }
+    });
+    let client = Client::connect(&socket).await.unwrap();
+    let started = tokio::time::Instant::now();
+    let error = wait(
+        client,
+        WaitOpts {
+            sessions: vec!["name".into()],
+            until: vec![],
+            all: false,
+            timeout: Some(1),
+            print: false,
+            notify: false,
+            matcher: Some(Matcher::Text("absent".into())),
+        },
+        true,
+    )
+    .await
+    .unwrap_err();
+    server.abort();
+    assert_eq!(crate::cli::errors::classify(&error).code, Code::Timeout);
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(1500),
+        "name resolution reset the matching timeout: {:?}",
+        started.elapsed()
+    );
+}

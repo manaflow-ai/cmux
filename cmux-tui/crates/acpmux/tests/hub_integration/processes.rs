@@ -151,11 +151,11 @@ async fn process_list_shows_how_each_shell_ended() {
         list,
         vec![
             with(json!({"id": format!("{id}/b1"), "toolCallId": "toolu_bg1", "taskId": "b1",
-                        "command": "npm run dev", "state": "killed", "reason": "agent",
-                        "detail": "Stopped by the agent"})),
+                        "command": "npm run dev", "description": "Run npm run dev", "state": "killed",
+                        "reason": "agent", "detail": "Stopped by the agent"})),
             with(json!({"id": format!("{id}/b2"), "toolCallId": "toolu_bg2", "taskId": "b2",
-                        "command": "cargo test", "state": "exited", "reason": null,
-                        "detail": "Tests passed"})),
+                        "command": "cargo test", "description": "Run cargo test", "state": "exited",
+                        "reason": null, "detail": "Tests passed"})),
         ]
     );
     let moved = chat(&mut c, "bg-moved").await;
@@ -443,6 +443,81 @@ async fn background_of_one_tool_call_names_it() {
             json!({"subtype": "background_tasks", "tool_use_id": "toolu_fg"}),
         ]
     );
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    assert_eq!(listed(&mut c, &id).await[0]["origin"], "user_backgrounded");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A shell still in the foreground after the wait (`hub/auto_background.rs`) goes to the
+/// background with no Ctrl-B: acpmux sends `background_tasks` for its call, the turn ends, and
+/// the shell runs on, listed as moved there on its own, not by the person.
+#[tokio::test]
+async fn a_long_foreground_shell_goes_to_the_background_on_its_own() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    hub.set_auto_background_after(Some(Duration::from_millis(300)));
+    let (id, turn) = fg_shell(&mut c).await;
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    let sent: Vec<Value> = control_requests(&hub, &id, "background_tasks")
+        .iter()
+        .map(|r| r["request"].clone())
+        .collect();
+    assert_eq!(sent, vec![json!({"subtype": "background_tasks", "tool_use_id": "toolu_fg"})]);
+    let list = listed(&mut c, &id).await;
+    assert_eq!(
+        (&list[0]["toolCallId"], &list[0]["state"], &list[0]["origin"]),
+        (&json!("toolu_fg"), &json!("running"), &json!("auto_backgrounded")),
+        "{list:?}"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A shell whose call declares a Bash `timeout` longer than the wait stays in the foreground:
+/// the agent chose to block on it (a land-queue wait, a CI watch), and Claude Code ends it at
+/// that timeout anyway. Moved, the turn ended on a running shell and the agent stalled
+/// (a1000, a1001, a994, 2026-11-05).
+#[tokio::test]
+async fn a_shell_with_a_declared_timeout_stays_in_the_foreground() {
+    let env = [("FAKE_CLAUDE_FG_TIMEOUT_MS", "600000"), ("FAKE_CLAUDE_FG_WAIT_S", "2")];
+    let (hub, mut c, root) = claude_hub(&env).await;
+    hub.set_auto_background_after(Some(Duration::from_millis(300)));
+    let (id, turn) = fg_shell(&mut c).await;
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    assert_eq!(control_requests(&hub, &id, "background_tasks"), Vec::<Value>::new());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A declared `timeout` no longer than the wait changes nothing: the shell still moves.
+#[tokio::test]
+async fn a_shell_with_a_short_timeout_still_goes_to_the_background() {
+    let (hub, mut c, root) = claude_hub(&[("FAKE_CLAUDE_FG_TIMEOUT_MS", "200")]).await;
+    hub.set_auto_background_after(Some(Duration::from_millis(300)));
+    let (id, turn) = fg_shell(&mut c).await;
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    let sent = control_requests(&hub, &id, "background_tasks");
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Turned off (`ACPMUX_AUTO_BACKGROUND_SECS=0`, here the setter), the shell stays in the
+/// foreground until the person's Ctrl-B.
+#[tokio::test]
+async fn auto_background_turned_off_leaves_the_shell_in_the_foreground() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    hub.set_auto_background_after(None);
+    let (id, turn) = fg_shell(&mut c).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(control_requests(&hub, &id, "background_tasks"), Vec::<Value>::new());
+    let mut other = connect(&hub).await;
+    let r = other.request(BACKGROUND, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(r, json!({"backgrounded": true}));
     let (answer, _) = c.response(turn).await;
     assert_eq!(answer.unwrap()["stopReason"], "end_turn");
     assert_eq!(listed(&mut c, &id).await[0]["origin"], "user_backgrounded");

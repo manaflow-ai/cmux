@@ -13,22 +13,26 @@ struct ScreenDividers {
     /// catcher panel's event, every presentation pass including strip and
     /// row scrolls, key-window changes). The topmost visible handle under the
     /// pointer is hovered; every other one is not.
-    func refreshHover() {
-        let hovered = hoveredHandle()
+    /// The same handle shows the resize cursor (`ScreenDividerPointer`): a screen that hid, faded out or slid away from
+    /// the pointer gives the cursor back here too. `event` is the pointer event that asked.
+    func refreshHover(event: NSEvent? = nil) {
+        let pointer = screen.window.flatMap { screen.context.hoverPointer($0) }
+        let hovered = hoveredHandle(pointer: pointer)
         for view in screen.dividerViews.values { view.setHovered(view === hovered) }
+        screen.dividerPointer.show(hovered, in: screen, pointer: pointer, event: event)
     }
 
-    private func hoveredHandle() -> DividerHandleView? {
+    private func hoveredHandle(pointer: NSPoint?) -> DividerHandleView? {
         // During a drag only the dragged handle shows (its line is the drag's).
         if let drag = screen.activeDrag { return screen.dividerViews[drag.kind] }
-        guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor,
-              let point = screen.context.hoverPointer(window).map({ screen.convert($0, from: nil) }),
+        guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor, screen.alphaValue > 0.01,
+              let pointer, case let point = screen.convert(pointer, from: nil),
               screen.bounds.intersection(screen.visibleRect).contains(point) else { return nil }
         let hit = screen.subviews.reversed().lazy.compactMap { $0 as? DividerHandleView }.first {
             // Where it shows its cursor: not the part under a dock or past its area's window.
             !$0.isHidden && $0.alphaValue > 0.01 && screen.convert($0.cursorRectInBounds, from: $0).contains(point)
         }
-        guard let hit, screen.context.hoverReachesWindow(window) else { return nil }
+        guard let hit, screen.context.hoverReaches(window, pointer: pointer) else { return nil }
         return hit
     }
 

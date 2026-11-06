@@ -7,6 +7,8 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -17,6 +19,8 @@ const keys = [
   "IS_REACT_ACT_ENVIRONMENT",
   "Node",
   "Element",
+  "MutationObserver",
+  "getSelection",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -27,7 +31,7 @@ let host: HTMLElement;
 let window: JSDOM["window"];
 
 beforeAll(() => {
-  window = new JSDOM("<!doctype html><div id=root></div>").window;
+  window = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true }).window;
   Object.assign(window, {
     ResizeObserver: class {
       observe() {}
@@ -42,11 +46,11 @@ beforeAll(() => {
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
     // The suggestions' Popover (Base UI and Floating UI) reads these.
-    Node: window.Node,
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   host = window.document.getElementById("root")!;
 });
@@ -95,16 +99,16 @@ async function render(calls: unknown[][]) {
 }
 
 async function type(text: string) {
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  const handle = field.acpmuxMarkdownField!;
   await act(async () => {
-    setValue.call(field, text);
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    handle.focus();
+    handle.type(text);
   });
-  return field;
+  return field.querySelector<HTMLElement>("[contenteditable]")!;
 }
 
-async function press(field: HTMLTextAreaElement, key: string, modifiers: Partial<KeyboardEventInit> = {}) {
+async function press(field: HTMLElement, key: string, modifiers: Partial<KeyboardEventInit> = {}) {
   const event = new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers });
   await act(async () => field.dispatchEvent(event));
   return event;
@@ -116,8 +120,14 @@ test("Shift-Return adds a line instead of sending", async () => {
   const calls: unknown[][] = [];
   await render(calls);
   const field = await type("Refactor the retry loop");
-  const event = await press(field, "Enter", { shiftKey: true });
-  expect({ taken: event.defaultPrevented, calls }).toEqual({ taken: false, calls: [] });
+  await press(field, "Enter", { shiftKey: true });
+  // The page leaves Shift-Return to the field (the Markdown field's own keymap adds the line and
+  // takes the key's default): nothing is sent, and the draft now has a second line.
+  const handle = host.querySelector<MarkdownFieldElement>(".nt-field")!.acpmuxMarkdownField!;
+  expect({ calls, text: JSON.stringify(handle.plainText()) }).toEqual({
+    calls: [],
+    text: JSON.stringify("Refactor the retry loop\n"),
+  });
 });
 
 test("Return sends the whole multiline draft, line breaks kept", async () => {

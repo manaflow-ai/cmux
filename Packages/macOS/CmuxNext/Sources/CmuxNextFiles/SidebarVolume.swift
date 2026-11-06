@@ -18,7 +18,10 @@ public struct SidebarVolume: Sendable, Equatable, Identifiable {
         self.isEjectable = isEjectable
     }
 
-    /// The volumes mounted now, as Finder lists them (hidden volumes skipped).
+    /// ``mounted()`` off the caller's actor: `mountedVolumeURLs` can wait seconds on a slow volume.
+    @concurrent public static func read() async -> [SidebarVolume] { mounted() }
+
+    /// The volumes mounted now, as Finder lists them (hidden volumes skipped). Blocks: call ``read()`` from the main actor.
     public static func mounted() -> [SidebarVolume] {
         let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsEjectableKey, .volumeIsRemovableKey,
                                       .volumeIsLocalKey]

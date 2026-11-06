@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::PairingCode;
+use cmux_json::JsonSet as _;
 
 pub const MAX_WAIT_MS: u64 = 10 * 60 * 1000;
 pub const MAX_CLOCK_SKEW_MS: u64 = 5 * 60 * 1000;
@@ -61,7 +62,7 @@ pub fn begin_request(
     let mut public_info = json!({"name":info["name"],"platform":info["platform"],
         "os_version":info["os_version"],"arch":info["arch"],"cmux_version":info["cmux_version"]});
     if let Some(capabilities) = info.get("capabilities") {
-        public_info["capabilities"] = capabilities.clone();
+        public_info.set("capabilities", capabilities.clone());
     }
     Ok(json!({"public_jwk":public_jwk,"wg_public_key":wg_public,"info":public_info,
         "issued_at":issued_at,"signature":signature}))
@@ -101,6 +102,55 @@ pub struct Paired {
     pub team: String,
     pub user: String,
     pub install: String,
+    /// The join token the approval pushed with the result, for the same
+    /// machine credential a pasted join line gives (`acpmux host join`).
+    /// Read from the paired frame only: never written to the identity file or
+    /// any public output.
+    #[serde(default, skip_serializing, deserialize_with = "lenient_machine_join")]
+    pub machine_join: Option<MachineJoin>,
+}
+
+/// A `machine_join` of the wrong shape reads as none: it never fails the pairing.
+fn lenient_machine_join<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<MachineJoin>, D::Error> {
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|v| serde_json::from_value::<MachineJoin>(v).ok()))
+}
+
+/// A single-use `cmj_` join token minted for the approver (the backend's
+/// pair-machine-join.ts). Debug never shows it.
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+pub struct MachineJoin {
+    token: String,
+    pub expires_at: u64,
+}
+
+impl std::fmt::Debug for MachineJoin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MachineJoin").field("expires_at", &self.expires_at).finish_non_exhaustive()
+    }
+}
+
+impl MachineJoin {
+    /// The token, for `acpmux host join`'s stdin only.
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
+    /// The platform's `cmj_` shape (MachineJoin.ts JoinToken).
+    pub fn well_formed(&self) -> bool {
+        self.token.strip_prefix("cmj_").is_some_and(|tail| {
+            // acpmux's own cap is 512 bytes for the whole token (cloud_join.rs MAX_TOKEN_BYTES).
+            (16..=508).contains(&tail.len())
+                && tail.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        })
+    }
+
+    #[doc(hidden)]
+    pub fn for_tests(token: &str, expires_at: u64) -> Self {
+        Self { token: token.into(), expires_at }
+    }
 }
 
 impl Paired {
@@ -226,9 +276,13 @@ pub fn read_frame(text: &str) -> Result<Option<Waited>, String> {
                 }
                 _ => return Err("pairing.invalid_network_enrollment".into()),
             };
-            let paired: Paired =
+            let mut paired: Paired =
                 serde_json::from_value(frame).map_err(|_| "pairing.invalid_result")?;
             paired.validate()?;
+            // A malformed token is dropped, never fatal: the pairing itself stands.
+            if paired.machine_join.as_ref().is_some_and(|join| !join.well_formed()) {
+                paired.machine_join = None;
+            }
             Ok(Some(match network {
                 Some(grant) => Waited::NetworkPaired { paired, grant: Box::new(grant) },
                 None => Waited::Paired(paired),

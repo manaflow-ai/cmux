@@ -14,7 +14,7 @@ extension MainPaneGutterSuites {
     /// of the main pane, the sidebar's too (Lawrence 2026-10-14: a margin all round, as in Helium).
     /// With the gutter at 0 (the Debug Settings flush opt-in, 2026-10-14) the pane meets the window
     /// edges and the sidebar.
-    @MainActor @Suite(.serialized) struct MainPaneOneInsetTests {
+    @MainActor struct MainPaneOneInsetTests {
         /// Runs `body` on the in-memory default chrome style, whose main pane is curved. The style is
         /// process-wide: a settings load in a suite that runs alongside leaves it at the file
         /// default `flat-sidebar-line` (no card, ChromeStyleSetting.fallback), so pin it here.
@@ -61,14 +61,15 @@ extension MainPaneGutterSuites {
         }
 
         /// Dividers are only the default for a cmux.json that says nothing about pane chrome: a pane
-        /// corner radius, border color or border width describes a bordered pane, so it keeps borders
-        /// (dividers would round flush panes and drop the color and width).
+        /// border color or border width describes a bordered pane, so it keeps borders (dividers would
+        /// drop the color and width). The corner radius does not: it is the one radius of panes, the
+        /// main pane and tabs (2026-11-04), so setting it keeps the separation.
         @Test func aPaneLookSettingWithoutASeparationKeepsBorders() {
-            let looks = [PaneChromeOverrides(cornerRadius: 4), PaneChromeOverrides(borderColor: ThemeRGB(hex: 0x336699)),
-                         PaneChromeOverrides(borderWidth: 2)]
+            let looks = [PaneChromeOverrides(borderColor: ThemeRGB(hex: 0x336699)), PaneChromeOverrides(borderWidth: 2)]
             for look in looks {
                 #expect(PaneSeparation.resolve(look, unset: .dividers) == .borders, "\(look)")
             }
+            #expect(PaneSeparation.resolve(PaneChromeOverrides(cornerRadius: 4), unset: .dividers) == .dividers)
             #expect(PaneSeparation.resolve(PaneChromeOverrides(), unset: .dividers) == .dividers)
         }
 

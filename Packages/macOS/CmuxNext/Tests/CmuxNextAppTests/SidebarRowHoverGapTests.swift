@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-13: sidebar workspace rows had a ~1 mm gap between them, and
@@ -11,7 +12,7 @@ import Testing
 /// Since Leo 2026-10-19 the row hovered keeps the gap and the next row takes
 /// the hover at its hover pill (`SidebarLayout.hoverRow`); a click acts on the
 /// hovered row, or splits the gap when no row is hovered.
-@MainActor @Suite(.serialized) struct SidebarRowHoverGapTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarRowHoverGapTests {
     /// Leo's list: four loose workspaces, in a window. None is active, so
     /// every row's fill is its hover fill.
     private static func list() -> (SidebarListView, NSWindow, [SidebarRow]) {
@@ -23,6 +24,7 @@ import Testing
         let list = SidebarListView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = list
         list.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         list.reload(animated: false)
@@ -37,7 +39,7 @@ import Testing
 
     @Test func consecutiveRowHitAreasAreContiguous() throws {
         let (list, window, rows) = Self.list()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         try #require(rows.count == 4)
         let step: CGFloat = 0.25
         for (above, below) in zip(rows, rows.dropFirst()) {
@@ -63,7 +65,7 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (list, window, rows) = Self.list()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         try #require(rows.count == 4)
         let views = try rows.map { try #require(list.rowViews[$0.key]) }
         views.forEach { $0.updateLayer() }

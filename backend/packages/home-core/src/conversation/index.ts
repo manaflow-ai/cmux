@@ -98,6 +98,8 @@ export {
   contentDisposition,
   GENERIC_FILE_TYPE,
   isSha256,
+  MULTIPART_PART_COUNT,
+  multipartPlan,
   TABLE_ATTREF,
   messageDeleteWrites,
   DERIVED_IMAGE_TYPES,

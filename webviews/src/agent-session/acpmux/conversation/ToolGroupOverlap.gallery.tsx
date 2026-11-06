@@ -25,6 +25,8 @@ const rows = [
       }),
       tool("Read the coordination note", "read", "completed", {
         locations: [{ path: "coordination.md" }],
+        output:
+          "coordination-note.txt: The reviewed head is ready; keep the receipt on the exact SHA and preserve transcript order while the tools settle. This long first line deliberately reaches beneath the top-right Wrap lines and Copy controls so the output needs a readable right lane, never a wrapper plate.\n\nSecond line: checks remain green.",
       }),
     ],
     1,
@@ -51,7 +53,10 @@ export default componentEntry<Record<string, never>>({
   area: "Agent pane",
   height: 680,
   pane: true,
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript", "agent-session/acpmux/conversation/ToolRun.tsx"],
+  covers: [
+    "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
+    "agent-session/acpmux/conversation/ToolRun.tsx",
+  ],
   load: async () => ToolGroupOverlapGallery,
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   variants: { mixed: { props: {} } },

@@ -12,7 +12,27 @@ public final class WorkspaceModel: Identifiable {
     public internal(set) var name: String
     public internal(set) var nameSource: WorkspaceNameSource
     public internal(set) var nameRevision: UInt64
-    public internal(set) var screens: [ScreenModel] { didSet { adoptUnread() } }
+    /// The screens in order. While the store holds them (a pending create's overlay takes its stand-in screen out
+    /// and puts it back around each daemon batch), writes are held and the lift publishes only the net change, once.
+    public internal(set) var screens: [ScreenModel] {
+        get {
+            access(keyPath: \.screens)
+            return screenList
+        }
+        set {
+            guard screensBeforeHold == nil else {
+                screenList = newValue
+                return
+            }
+            withMutation(keyPath: \.screens) { screenList = newValue }
+            adoptUnread()
+        }
+    }
+    @ObservationIgnored private var screenList: [ScreenModel] = []
+    @ObservationIgnored private var screensBeforeHold: [ScreenModel]?
+    /// The pane `handle` of one of its screens: what a view mapped from this model mounts, also while no store indexes
+    /// the model (the next Cmd-N's workspace, reserved before its key: `DaemonStore.reserveWorkspace`).
+    public func pane(_ handle: PaneID) -> PaneModel? { screens.lazy.compactMap { $0.pane(handle) }.first }
     /// Screen group runs in screen order (`screen-groups-v1`).
     public internal(set) var screenGroups: [ScreenGroupSnapshot]
     public internal(set) var group: WorkspaceGroupID?
@@ -39,6 +59,11 @@ public final class WorkspaceModel: Identifiable {
     public internal(set) var checklist: [WorkspaceChecklistItem] = []
     /// Screen groups come from the daemon's state resources.
     @ObservationIgnored var screenGroupsFromState = false
+    /// Cmd-N's stand-in pane this workspace took over, and the daemon's surface of its first tab (the New Tab page),
+    /// set when Cmd-N's create left the intent log: a create pressed on that stand-in and sent after the hand-over
+    /// still lands in the pane the person pressed it in (``DaemonStore/daemonTarget(_:)``). Lives as long as the
+    /// workspace, so it needs no cap.
+    @ObservationIgnored var tookOverStandIn: (pane: PaneID, firstTab: SurfaceID?)?
     /// Listed in the sidebar's Pinned section (`workspace-pin-v1`).
     public internal(set) var pinned: Bool
     /// Marked unread by hand (`notification-mark-unread-v1`), apart from
@@ -77,7 +102,15 @@ public final class WorkspaceModel: Identifiable {
     /// records no "named by the user" flag, so that name reads as default.
     public nonisolated static func isDefaultName(_ name: String) -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if name.isEmpty || name == "~" { return true }
+        return name.isEmpty || name == "~" || isNumberedDefaultName(name)
+    }
+
+    /// True for the daemon's numbered default, `workspace-N`. Never renamed (name revision 0), it is
+    /// no one's choice whatever source the daemon recorded: Cmd-N sends the `workspace-N` it already
+    /// shows with its create, and daemons recorded that requested name as the user's (#26680).
+    /// Exact, untrimmed, like the daemon's `is_default_workspace_name`: a `workspace-N` padded with
+    /// spaces is a person's text, and the daemon refuses an automatic rename over it.
+    public nonisolated static func isNumberedDefaultName(_ name: String) -> Bool {
         guard name.hasPrefix("workspace-") else { return false }
         let number = name.dropFirst("workspace-".count)
         return !number.isEmpty && number.allSatisfy(\.isASCII) && number.allSatisfy(\.isNumber)
@@ -144,7 +177,7 @@ public final class WorkspaceModel: Identifiable {
         name = s.name
         nameSource = s.nameSource
         nameRevision = s.nameRevision
-        screens = s.screens.map(ScreenModel.init)
+        screenList = s.screens.map(ScreenModel.init)
         screenGroups = s.screenGroups
         group = s.group
         color = s.color
@@ -196,6 +229,18 @@ public final class WorkspaceModel: Identifiable {
         if self.checklist != checklist { self.checklist = checklist }
         screenGroupsFromState = groups != nil
         if let groups, screenGroups != groups { screenGroups = groups }
+    }
+
+    /// Holds the publication of ``screens`` until ``publishHeldScreens()`` (``DaemonStore/withOverlayLifted(writer:snapshot:_:)``).
+    func holdScreens() {
+        if screensBeforeHold == nil { screensBeforeHold = screenList }
+    }
+
+    /// Publishes the held screens once, when they are not the same screens in the same order as when held.
+    func publishHeldScreens() {
+        guard let before = screensBeforeHold else { return }
+        screensBeforeHold = nil
+        if !before.elementsEqual(screenList, by: ===) { screens = screenList }
     }
 
     func setName(_ value: String) { if name != value { name = value } }

@@ -1,9 +1,10 @@
 import AppKit
 import CmuxHomeCore
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct HomeStarterTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeStarterTests {
     @Test func suggestionsReflectAvailableWorkAndStayBounded() {
         let context = HomeStarterContext(workspaces: ["todo-app", "docs", "docs", "site"], working: ["Add search"],
                                          failures: ["Run tests"], pullRequests: ["sample/todo#42"])
@@ -136,7 +137,7 @@ import Testing
 }
 
 /// An empty initial Chief over the normal in-memory owner; later sends use its real ledger.
-private struct EmptyChiefSource: HomeSource {
+struct EmptyChiefSource: HomeSource {
     let base = MockHomeSource(options: .init(chiefHistory: 1, latency: .zero, replyDelay: .zero))
     func events() async -> AsyncStream<HomeEvent> {
         let snapshot = try? await inbox()

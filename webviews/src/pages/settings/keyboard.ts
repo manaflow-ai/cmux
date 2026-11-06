@@ -47,7 +47,10 @@ export function installKeyboard(root: HTMLElement, actions: KeyboardActions): ()
   const onKeyDown = (event: KeyboardEvent) => {
     const target = event.target instanceof doc.defaultView!.Element ? event.target : doc.body;
     if (event.metaKey || event.altKey || event.ctrlKey) return;
-    const rows = [...root.querySelectorAll<HTMLElement>(".content [data-row-key], .content [data-action-row]")];
+    // Rows a narrower query filtered out stay mounted but inert: they are not stops.
+    const rows = [...root.querySelectorAll<HTMLElement>(".content [data-row-key], .content [data-action-row]")].filter(
+      (row) => !row.matches("[data-filtered]") && !row.closest("[data-filtered]"),
+    );
     const onSearch = target.matches("[data-settings-search]");
     const onRow = target.matches(rowSelector);
     if (event.key === "ArrowDown" && onSearch) rows[0]?.focus();

@@ -26,10 +26,8 @@ extension WindowRegistry {
             // A window the user closed stays closed, with its workspaces (Cmd-Shift-T reopens it).
             if record.isClosed { setRestored(record.id, open: false) }
         }
-        // Front window most recent.
+        // Front window most recent. With every window closed, none opens (#31514: `WindowManager.restore`).
         for window in windows.reversed() { activate(window.id) }
-        // With every window closed (the last one closed, then quit), the front one opens, as before.
-        if !windows.contains(where: \.isOpen), let front = recency.first { setRestored(front, open: true) }
     }
 
     private mutating func appendRestored(_ window: Window) {
@@ -102,6 +100,7 @@ extension WindowDocks {
             dock(saved.workspaceKey.rawValue, at: edge, mode: saved.mode == "floating" ? .overlay : .docked,
                  extentPermille: saved.extentPermille)
             if saved.hidden { _ = toggle(edge) }
+            if saved.hidesTabBar { setHidesTabBar(true, of: saved.workspaceKey.rawValue) }
         }
     }
 
@@ -115,7 +114,8 @@ extension WindowDocks {
         }
         record.docks = all.map {
             WindowDockRecord(edge: $0.edge.rawValue, workspaceKey: WorkspaceKey(rawValue: $0.workspace),
-                             mode: $0.mode == .overlay ? "floating" : "docked", extentPermille: $0.extentPermille, hidden: $0.hidden)
+                             mode: $0.mode == .overlay ? "floating" : "docked", extentPermille: $0.extentPermille, hidden: $0.hidden,
+                             hidesTabBar: $0.hidesTabBar)
         }
         record.dockOrientation = orientation == .columnMajor ? nil : orientation.rawValue
         record.stageKey = stage.map(WorkspaceKey.init(rawValue:))

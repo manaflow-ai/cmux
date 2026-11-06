@@ -8,9 +8,9 @@ final class SiteDataWindow: PageInfoWindow {
     private let list = NSStackView()
     private var scrollFit: ScrollFitElasticity?
 
-    init(site: PageInfoSite, send: @escaping (PageInfoCommand) -> Void) {
+    init(site: PageInfoSite, send: @escaping (PageInfoCommand) -> Void, activeLook: ActiveLookScope?) {
         self.send = send
-        super.init(title: PageInfoStrings.siteDataTitle, size: CGSize(width: 440, height: 420))
+        super.init(title: PageInfoStrings.siteDataTitle, size: CGSize(width: 440, height: 420), activeLook: activeLook)
         setAccessibilityIdentifier("cmux.pageInfo.siteData")
         list.orientation = .vertical
         list.alignment = .leading

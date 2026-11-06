@@ -1,13 +1,19 @@
 import CmuxNextActions
+import CmuxNextCloud
 import Foundation
 
 /// Set Up GitHub on This Machine (`cmux cloud setup-github`): the person's git identity from this
-/// Mac, and a GitHub CLI sign-in on the Cloud machine through GitHub's device flow.
+/// Mac, and GitHub for the Cloud machine's git.
 ///
-/// No token leaves this Mac. The machine runs its own `gh auth login --web`, GitHub gives it a
-/// one-time code, the person approves that code in their own browser, and GitHub hands the machine
-/// a token of its own. The result carries only `ok`, `user_name`, `user_email`, `gh_status` and,
-/// while the sign-in waits, `device_code` and `verification_uri`.
+/// By default through the cmux GitHub App (``CloudGitHubApp``): `cmux github setup` makes the
+/// machine's git ask its Cloud agent for a short-lived token scoped to one repo each time, and no
+/// GitHub token is stored on the machine. Only when the App or the team's connection is not there
+/// (or the machine has no Cloud agent) does the machine sign in itself through GitHub's device flow:
+/// it runs its own `gh auth login --web`, GitHub gives it a one-time code, the person approves that
+/// code in their own browser, and GitHub hands the machine a token of its own, which stays there.
+///
+/// No token leaves this Mac either way. The result carries only `ok`, `method`, `fallback_reason`,
+/// `user_name`, `user_email`, `gh_status` and, while a sign-in waits, `device_code` and `verification_uri`.
 ///
 /// The command runs through the Cloud API's exec (`POST /api/vm/{id}/exec`). The provider runs a
 /// public exec as the machine's work user (uid 1000, `cmux` on current images; root on images older
@@ -25,6 +31,8 @@ nonisolated enum CloudGitHubSetup {
 
     /// Where gh stands on the machine after the run (`gh_status`).
     enum GitHubStatus: String, Equatable, Sendable {
+        /// `cmux github setup` ran: git asks the cmux GitHub App for each repo's token.
+        case app
         /// `gh auth status` already passed: nothing was started.
         case loggedIn = "logged_in"
         /// The device flow is waiting for the person to enter `device_code`.
@@ -45,10 +53,41 @@ nonisolated enum CloudGitHubSetup {
         var identity: IdentityStatus
         var gitHub: GitHubStatus
         var deviceCode: String?
+        /// The run was asked to use the App, and the machine has no Cloud agent or `cmux github`.
+        var appNotOnMachine = false
 
-        /// Nothing failed: the identity was set (or this Mac had none to set), and gh is signed in
-        /// or waits for the person's approval.
-        var ok: Bool { identity != .failed && (gitHub == .loggedIn || gitHub == .pending) }
+        /// Nothing failed: the identity was set (or this Mac had none to set), and git uses the App,
+        /// or gh is signed in or waits for the person's approval.
+        var ok: Bool { identity != .failed && (gitHub == .app || gitHub == .loggedIn || gitHub == .pending) }
+    }
+
+    /// Why the machine signs in to GitHub itself instead of using the App (`fallback_reason`).
+    enum Fallback: String, Equatable, Sendable {
+        /// The team has no usable connection to the App (the token endpoint's `integration.not_found`).
+        case notConnected = "not_connected"
+        /// This deployment has no App.
+        case notConfigured = "not_configured"
+        /// The check did not answer.
+        case unknown
+        /// The machine has no Cloud agent or no `cmux github` (an older image).
+        case notOnMachine = "not_on_machine"
+    }
+
+    /// Why the run will not ask for the App (nil when the check says it is ready).
+    static func reason(_ app: CloudGitHubApp) -> Fallback? {
+        switch app {
+        case .ready: nil
+        case .notConnected: .notConnected
+        case .notConfigured: .notConfigured
+        case .unknown: .unknown
+        }
+    }
+
+    /// Nil when git uses the App; else why not (a ready App the machine said it could not use: `notOnMachine`;
+    /// a run that never said, such as a failed exec: `unknown`).
+    static func fallback(_ app: CloudGitHubApp, _ outcome: Outcome) -> Fallback? {
+        guard outcome.gitHub != .app else { return nil }
+        return reason(app) ?? (outcome.appNotOnMachine ? .notOnMachine : .unknown)
     }
 
     /// Where the person enters the code. A constant, never read from the machine: the app opens
@@ -99,9 +138,10 @@ nonisolated enum CloudGitHubSetup {
     // MARK: The machine's command
 
     /// The one exec script. It prints `cmux-git: set|skipped|failed` and then
-    /// `cmux-gh: logged_in|missing|failed|pending <code>`, and nothing that came from gh except
-    /// the code. A rerun stops the previous sign-in first (``stopPreviousCommand``).
-    static func command(_ identity: GitIdentity) -> String {
+    /// `cmux-gh: app|logged_in|missing|failed|pending <code>`, and nothing that came from gh except
+    /// the code. With `app`, the App's helper first (``appCommand``); the device flow runs only when
+    /// the machine cannot use it. A rerun stops the previous sign-in first (``stopPreviousCommand``).
+    static func command(_ identity: GitIdentity, app: Bool = false) -> String {
         var lines = [
             "umask 077",
             // The work user's home and the image's tool store, whatever the provider's exec set.
@@ -110,11 +150,19 @@ nonisolated enum CloudGitHubSetup {
         ]
         lines.append(identityCommand(identity))
         lines += [
-            "if ! command -v gh >/dev/null 2>&1; then echo 'cmux-gh: missing'; exit 0; fi",
-            "if gh auth status --hostname github.com >/dev/null 2>&1; then echo 'cmux-gh: logged_in'; exit 0; fi",
             #"proc=/proc; d="$HOME/.cache/cmux"; log="$d/gh-login.log""#,
             #"mkdir -p "$d" || { echo 'cmux-gh: failed'; exit 0; }"#,
+            // First, on every path: an earlier sign-in still waiting for its code would otherwise
+            // finish later and put gh back as git's helper over the App's.
             stopPreviousCommand,
+        ]
+        if app { lines.append(appCommand) }
+        // A machine already signed in makes gh git's helper again, on every run that does not use the App:
+        // an earlier run may have put the App's helper in, and it fails once the App is gone.
+        let signedIn = "gh auth setup-git --hostname github.com >/dev/null 2>&1 || { echo 'cmux-gh: failed'; exit 0; }; "
+        lines += [
+            "if ! command -v gh >/dev/null 2>&1; then echo 'cmux-gh: missing'; exit 0; fi",
+            "if gh auth status --hostname github.com >/dev/null 2>&1; then \(signedIn)echo 'cmux-gh: logged_in'; exit 0; fi",
             #"rm -f "$log""#,
             "s=; command -v setsid >/dev/null 2>&1 && s=setsid",
             // Detached from the exec (its own session, when setsid exists) so the sign-in
@@ -123,6 +171,48 @@ nonisolated enum CloudGitHubSetup {
             readCodeCommand,
         ]
         return lines.joined(separator: "\n")
+    }
+
+    /// The App's git helper (`cmux github setup`, which replaces any helper git had for github.com),
+    /// when the machine's Cloud agent socket is there to mint its tokens and `cmux` has the verb;
+    /// prints `cmux-gh: app`. Else `cmux-app: unavailable` (no agent socket or no `cmux`: an older image)
+    /// or `cmux-app: failed` (the helper did not go in), and the device flow follows.
+    static let appCommand = CloudGitHubSetup.appCommand(at: agentSocket)
+
+    /// The Cloud agent's socket on the machine, which `cmux github` asks for each token.
+    static let agentSocket = "/run/cmux-vm-agent/agent.sock"
+
+    /// A token ask for a repo no team has. Only a working path answers it with the API's
+    /// `policy.denied` (the team's connection may not act on that repo): the agent is bound, reaches
+    /// the API, and the team has an active GitHub connection. Anything else (`vm.unbound`, an
+    /// unreachable or broken agent, `integration.unavailable`, no connection, a token for it) means
+    /// the helper would fail every git call, so the device flow runs instead. The ask gets
+    /// ``probeSeconds``: a hung agent (the CLI waits up to 240 s for it) is stopped and counts as
+    /// unusable too, so the device flow still starts inside ``timeoutMs``. Sets `unusable` to 1 for
+    /// any of them.
+    static let unboundProbe = [
+        #"probe_err=$(mktemp 2>/dev/null || echo "/tmp/cmux-gh-probe.$$")"#,
+        #"printf 'protocol=https\nhost=github.com\npath=cmux-setup-probe/none.git\n\n' | cmux github credential get >/dev/null 2>"$probe_err" & probe=$!"#,
+        #"j=0; while kill -0 "$probe" 2>/dev/null && [ $j -lt \#(probeSeconds * 4) ]; do sleep 0.25; j=$((j+1)); done"#,
+        #"if kill -0 "$probe" 2>/dev/null; then kill "$probe" 2>/dev/null; unusable=1"#,
+        #"elif grep -q 'policy\.denied' "$probe_err"; then unusable=; else unusable=1; fi"#,
+        #"rm -f "$probe_err""#,
+    ].joined(separator: "\n")
+
+    /// The probe's bound, well inside the exec's ``timeoutMs`` with the device flow's 15 s after it.
+    static let probeSeconds = 4
+
+    static func appCommand(at socket: String) -> String {
+        [
+            "if [ -S \(shellQuote(socket)) ] && command -v cmux >/dev/null 2>&1; then",
+            unboundProbe,
+            "  if [ -n \"$unusable\" ]; then echo 'cmux-app: unavailable'",
+            "  elif cmux github setup >/dev/null 2>&1; then echo 'cmux-gh: app'; exit 0",
+            "  else echo 'cmux-app: failed'; fi",
+            "else",
+            "  echo 'cmux-app: unavailable'",
+            "fi",
+        ].joined(separator: "\n")
     }
 
     /// Waits up to 15 s for gh's one-time code in `$log` and prints `cmux-gh: pending <code>`, or
@@ -198,11 +288,12 @@ nonisolated enum CloudGitHubSetup {
     /// The outcome the script printed. A code is taken only in GitHub's shape (`XXXX-XXXX`,
     /// letters and digits); anything else is `failed`.
     static func parse(exitCode: Int, stdout: String) -> Outcome {
-        var identity = IdentityStatus.failed, gitHub = GitHubStatus.failed, code: String?
+        var identity = IdentityStatus.failed, gitHub = GitHubStatus.failed, code: String?, notOnMachine = false
         for line in stdout.split(whereSeparator: \.isNewline) {
             let words = line.split(separator: " ").map(String.init)
             guard words.count >= 2 else { continue }
             switch words[0] {
+            case "cmux-app:": notOnMachine = notOnMachine || words[1] == "unavailable"
             case "cmux-git:": identity = IdentityStatus(rawValue: words[1]) ?? .failed
             case "cmux-gh:":
                 gitHub = GitHubStatus(rawValue: words[1]) ?? .failed
@@ -211,8 +302,9 @@ nonisolated enum CloudGitHubSetup {
             default: continue
             }
         }
+        // A run that did not finish says nothing sure about the machine: its fallback reason is unknown.
         guard exitCode == 0 else { return Outcome(identity: identity == .set ? .set : .failed, gitHub: .failed) }
-        return Outcome(identity: identity, gitHub: gitHub, deviceCode: code)
+        return Outcome(identity: identity, gitHub: gitHub, deviceCode: code, appNotOnMachine: notOnMachine)
     }
 
     static func isDeviceCode(_ text: String) -> Bool {
@@ -223,8 +315,10 @@ nonisolated enum CloudGitHubSetup {
     }
 
     /// `action.run`'s `result`: only these keys, and never a token (the machine has the only one).
-    static func fields(_ outcome: Outcome, identity: GitIdentity) -> [String: ActionResultValue] {
-        var fields: [String: ActionResultValue] = ["ok": .bool(outcome.ok), "gh_status": .string(outcome.gitHub.rawValue)]
+    static func fields(_ outcome: Outcome, identity: GitIdentity, fallback: Fallback?) -> [String: ActionResultValue] {
+        var fields: [String: ActionResultValue] = ["ok": .bool(outcome.ok), "gh_status": .string(outcome.gitHub.rawValue),
+                                                   "method": .string(outcome.gitHub == .app ? "app" : "device")]
+        if let fallback { fields["fallback_reason"] = .string(fallback.rawValue) }
         if outcome.identity == .set {
             if let name = identity.name { fields["user_name"] = .string(name) }
             if let email = identity.email { fields["user_email"] = .string(email) }
@@ -236,15 +330,17 @@ nonisolated enum CloudGitHubSetup {
         return fields
     }
 
-    /// The toast a person sees after the run.
-    static func summary(_ outcome: Outcome) -> String {
-        let gitHub: String
+    /// The toast a person sees after the run: when the machine signed in itself, why first.
+    static func summary(_ outcome: Outcome, fallback: Fallback?) -> String {
+        var gitHub: String
         switch outcome.gitHub {
+        case .app: gitHub = CloudStrings.gitHubAppReady
         case .pending: gitHub = CloudStrings.gitHubEnterCode(outcome.deviceCode ?? "")
         case .loggedIn: gitHub = CloudStrings.gitHubAlreadySignedIn
         case .missing: gitHub = CloudStrings.gitHubMissing
         case .failed: gitHub = CloudStrings.gitHubFailed
         }
+        if let fallback { gitHub = CloudStrings.gitHubFallback(fallback) + " " + gitHub }
         return outcome.identity == .failed ? CloudStrings.gitHubIdentityFailed + " " + gitHub : gitHub
     }
 }

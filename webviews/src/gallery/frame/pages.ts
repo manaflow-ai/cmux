@@ -6,12 +6,14 @@ import { HostError, installMockHost, type HostOp } from "../../../test/latency/m
 import type { PageClient } from "../../pages/shared/pageClient";
 import { AppsOps, OPEN_ACTION } from "../../pages/apps/types";
 import { sampleApps, MockAppsProvider } from "../../pages/apps/mockProvider";
+import type { PortForward } from "../../pages/cloud/ops";
 import { CloudOps, ACTION_RUN as CLOUD_ACTION_RUN, PAGE_COMMAND as CLOUD_PAGE_COMMAND } from "../../pages/cloud/ops";
 import { MockCloudProvider } from "../../pages/cloud/mockProvider";
 import { CodeRouterOps } from "../../pages/coderouter/types";
 import { MockCodeRouterProvider } from "../../pages/coderouter/mockProvider";
 import { ACTION_RUN as CHANGELOG_ACTION_RUN, ChangelogOps } from "../../pages/changelog/types";
 import { MockChangelogProvider } from "../../pages/changelog/mockProvider";
+import { PAINT_AFTER_NAME } from "../../pages/shared/paintGate";
 import { diffViewerLabelsFor, diffViewerLanguage, loadDiffViewerLabels } from "../../labels";
 import type {
   AppsPageVariant,
@@ -139,6 +141,17 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
   root.dataset.cmuxPage = "markdown";
   root.dataset.cmuxWebviewKind = "markdown";
   await import("../../pages/markdown/main");
+  // Cmd-F as the app sends it, once the editor has drawn the document.
+  const query = state.find;
+  if (query) {
+    const started = Date.now();
+    const openFind = () => {
+      if (document.querySelector(".md-doc [contenteditable]") || Date.now() - started > 4_000)
+        host.emit("cmux.page.command", { command: "find", text: query });
+      else requestAnimationFrame(openFind);
+    };
+    requestAnimationFrame(openFind);
+  }
 }
 
 function filePatch(file: DiffFixtureFile): string {
@@ -219,12 +232,13 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
           sessionSource: source,
           repoRoot: repo,
           branchBaseRef: source.baseRef,
+          sourceOptions: state.sourceOptions,
           layout: state.layout ?? "split",
           layoutSource: "default",
           appearance: context.appearance,
           labels,
         },
-        ops: ["cmux.diff.comments"],
+        ops: ["cmux.diff.comments", ...(state.fingerprintError ? ["cmux.diff.git.fingerprint"] : [])],
       }),
       "cmux.diff.protocolHandshake": () => ({
         type: "handshake",
@@ -239,11 +253,17 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
           generatedPaths: [],
         },
       }),
+      "cmux.diff.git.fingerprint": () => {
+        if (state.fingerprintError) throw new HostError(state.fingerprintError.code, state.fingerprintError.message);
+        return { fingerprint: hash(patch) };
+      },
       "cmux.diff.sessionClose": () => ({ type: "sessionClosed" }),
       "cmux.diff.branchList": () => ({
         type: "branches",
         value: {
-          groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "main", label: "main", current: true }] }],
+          groups: state.branchGroups ?? [
+            { id: "suggested", label: "Suggested", rows: [{ ref: "main", label: "main", current: true }] },
+          ],
         },
       }),
       "cmux.diff.comments": (params: { method: string; params: Record<string, unknown> }) => {
@@ -319,15 +339,35 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   const provider = new MockCloudProvider({ signedIn: state.signedIn ?? true, unsupported: [] });
   provider.machines = JSON.parse(JSON.stringify(state.machines));
   provider.snapshots = JSON.parse(JSON.stringify(state.snapshots));
+  if (state.ports) provider.edge.forwards = JSON.parse(JSON.stringify(state.ports)) as PortForward[];
   if (state.maxActive !== undefined) provider.account.plan.max_active = state.maxActive;
-  const host = installMockHost(
-    pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
-      mode: state.mode === "normal" ? undefined : state.mode,
-      firstOperation: CloudOps.authStatus,
-      error: state.error,
-    }),
-    [CloudOps.machineWatch, CloudOps.fileTransferChanged, "cmux.page.connection", CLOUD_PAGE_COMMAND],
-  );
+  if (state.snapshotsFail) provider.failNext = CloudOps.snapshotList;
+  const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
+    mode: state.mode === "normal" ? undefined : state.mode,
+    firstOperation: CloudOps.authStatus,
+    error: state.error,
+  });
+  if (state.pendingAction) {
+    const pendingOp =
+      state.pendingAction === "forward"
+        ? CloudOps.portForward
+        : state.pendingAction === "close"
+          ? CloudOps.portClose
+          : CLOUD_ACTION_RUN;
+    const pending = operations[pendingOp];
+    operations[pendingOp] = async (params, context) => {
+      if (state.pendingAction === "browser" && (params as { action?: string }).action !== "browser.tab.open")
+        return pending(params, context);
+      return await new Promise<never>(() => undefined);
+    };
+  }
+  const host = installMockHost(operations, [
+    CloudOps.machineWatch,
+    CloudOps.fileTransferChanged,
+    CloudOps.authWatch,
+    "cmux.page.connection",
+    CLOUD_PAGE_COMMAND,
+  ]);
   host.delayMs = 0;
   document.documentElement.dataset.cmuxPage = "cloud";
   document.documentElement.dataset.cmuxWebviewKind = "cloud";
@@ -337,6 +377,28 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.action === "select-machine") clickLater(".cloud-machine");
   if (state.action === "create") clickLater(".cloud-create-button");
   if (state.action === "get") clickLater(".cloud-store-get");
+  if (state.action === "ports-pending") {
+    clickLater(".cloud-machine");
+    setTimeout(() => {
+      const input = document.querySelector<HTMLInputElement>(".cloud-forward-port");
+      if (input && state.pendingAction === "forward") {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        setter?.call(input, "3000");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        document.querySelector<HTMLElement>(".cloud-forward-add")?.click();
+      } else {
+        document
+          .querySelector<HTMLElement>(
+            state.pendingAction === "browser" ? ".cloud-forward-browser" : ".cloud-forward-close",
+          )
+          ?.click();
+      }
+    }, 320);
+  }
+  if (state.action === "ports-shared") {
+    clickLater(".cloud-machine");
+    setTimeout(() => document.querySelector<HTMLElement>(".cloud-forward-share")?.click(), 320);
+  }
 }
 
 export async function mountCodeRouterPage(state: CodeRouterPageVariant, _context: StageContext): Promise<void> {
@@ -371,7 +433,29 @@ export async function mountChangelogPage(state: ChangelogPageVariant, _context: 
   if (state.route) history.replaceState(null, "", state.route);
   document.documentElement.dataset.cmuxPage = "changelog";
   document.documentElement.dataset.cmuxWebviewKind = "changelog";
-  await import("../../pages/changelog/main");
+  await showAfterPaintHold(() => import("../../pages/changelog/main"));
+}
+
+/**
+ * Mounts a page that holds its first frame (pages/shared/paintGate.ts `holdFirstPaint`) and shows
+ * it once that hold settles, as the app's host does (PagePaintProbe, PanePaintHold): the reader's
+ * first frame is the page with its first screen's data in. Without it the stage painted the
+ * loading placeholders whenever the mock host's replies (a timer each) came after the first
+ * frame, and the days under them moved as the notes arrived: pages.changelog#sheet scored 0 in one
+ * render and 0.248 in the next. Hidden with `display: none` (no boxes, so nothing it lays out
+ * meanwhile counts as a shift; a section sizes nothing, so each day near the viewport, and those
+ * under it, load their notes at once); the page's own 400 ms bound still shows a late page.
+ */
+async function showAfterPaintHold(mount: () => Promise<unknown>): Promise<void> {
+  const root = document.getElementById("root");
+  const display = root?.style.display ?? "";
+  if (root) root.style.display = "none";
+  try {
+    await mount();
+    await (window as unknown as Record<string, unknown>)[PAINT_AFTER_NAME];
+  } finally {
+    if (root) root.style.display = display;
+  }
 }
 
 const never = (): Promise<never> => new Promise(() => undefined);

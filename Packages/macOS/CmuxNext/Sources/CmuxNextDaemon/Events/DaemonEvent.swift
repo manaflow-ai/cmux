@@ -32,6 +32,11 @@ public enum DaemonEvent: Sendable, Hashable {
     /// Full resync barrier: refetch `list-workspaces`. `transaction` echoes
     /// the client transaction id of the command that caused it, when any.
     case treeChanged(transaction: ClientTransactionID?)
+    /// One workspace's whole selection (`tree-selection-deltas-v1`): a selection change that rode with a
+    /// tree delta, applied without a snapshot (#32408).
+    case selectionChanged(SelectionDelta)
+    /// One workspace's entity after its title, color or icon changed (`tree-selection-deltas-v1`, #32408).
+    case workspacePresentationChanged(WorkspacePresentationDelta)
     /// Personal state (`profiles-v1`) changed: the store refetches `list-personal` alone, never the
     /// tree (a sidebar group's fold writes `personal_groups`; plans/cmux-next/state-ownership-DESIGN.md).
     case personalChanged

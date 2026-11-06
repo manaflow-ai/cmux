@@ -128,6 +128,10 @@ pub enum ResourceOperation {
     ChiefEngineSet,
     #[serde(rename = "chief.stop")]
     ChiefStop,
+    #[serde(rename = "chief.continue")]
+    ChiefContinue,
+    #[serde(rename = "chief.retry")]
+    ChiefRetry,
     #[serde(rename = "chief.profile.list")]
     ChiefProfileList,
     #[serde(rename = "chief.profile.get")]
@@ -542,6 +546,10 @@ pub enum ResourceOperation {
     StashDelete,
     #[serde(rename = "stash.import")]
     StashImport,
+    #[serde(rename = "conductor_import.plan")]
+    ConductorImportPlan,
+    #[serde(rename = "conductor_import.record")]
+    ConductorImportRecord,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]

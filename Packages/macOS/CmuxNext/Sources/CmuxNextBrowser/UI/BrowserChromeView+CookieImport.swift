@@ -61,7 +61,15 @@ extension BrowserChromeView {
     }
 
     /// Whether an offer is on screen (tests, diagnostics).
-    public var showsCookieImportOffer: Bool { currentCookieImportCard != nil }
+    public var showsCookieImportOffer: Bool { currentCookieImportCard.map { !$0.isHidden } ?? false }
+
+    /// Takes out, at once, the offer this chrome holds hidden for `state` (the tab moved to another pane).
+    func takeHeldCookieOffer(for state: BrowserChromeTabState) -> BrowserCookieImportCard? {
+        guard let card = currentCookieImportCard, card.heldFor === state else { return nil }
+        card.isDismissing = true
+        pageOverlays.remove(card)
+        return card
+    }
 
     var currentCookieImportCard: BrowserCookieImportCard? {
         pageOverlays.views.lazy.compactMap { $0 as? BrowserCookieImportCard }.first { !$0.isDismissing }
@@ -74,12 +82,5 @@ extension BrowserChromeView {
         Motion.overlays.animate(.fadeOut, in: card, { card.animator().alphaValue = 0 }, completion: { [weak self] in
             self?.pageOverlays.remove(card)
         })
-    }
-
-    /// Reports each page that finished loading once (`onPageFinished`).
-    func reportFinishedLoad(_ state: BrowserTabState) {
-        guard let onPageFinished, case .finished = state.phase, let url = state.url, url != finishedURL else { return }
-        finishedURL = url
-        onPageFinished(url)
     }
 }

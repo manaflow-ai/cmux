@@ -132,6 +132,10 @@ pub(super) struct Request {
     pub idle: bool,
     pub tail: Option<usize>,
     pub count: Option<usize>,
+    /// `send --as NAME`: the agent this send is from (default: `caller.rs`).
+    pub sender_name: Option<String>,
+    /// `send --class C`: what the sending agent asks (`acpmux send --class`).
+    pub class: Option<String>,
 }
 
 /// Parses `cmux chief WORD …`.
@@ -164,6 +168,10 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
             "--chat" | "--cloud" | "--cloud-api" | "--cloud-token-file" | "--cloud-auth" => {
                 request.target.flag(flag, &mut value)?;
             }
+            // `--to NAME` and `--chief NAME`: a chat by its Chief's name or id (`pick_chat`).
+            "--to" | "--chief" => request.target.chat = Some(value()?),
+            "--as" => request.sender_name = Some(value()?),
+            "--class" => request.class = Some(value()?),
             "--chief-home" => request.chief_home = Some(value()?.into()),
             "--last" => request.last = Some(number(flag, &value()?)?.min(500) as usize),
             "--before" => request.before = Some(number(flag, &value()?)?),
@@ -282,6 +290,12 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         println!("{}", text().usage);
         return 0;
     }
+    execute(global, &request)
+}
+
+/// Runs one parsed verb (`cmux chief WORD`, and `cmux chat send|read|wait|list`
+/// for Chief chats, chat_scope.rs); the exit code.
+pub(super) fn execute(global: &GlobalArgs, request: &Request) -> i32 {
     let json = request.json || json_output(global.output);
     let target = match request.target.resolve() {
         Ok(target) => target,
@@ -302,14 +316,14 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         word => match session.select(target.chat.as_deref()) {
             Err(error) => Err(error),
             Ok(()) => match word {
-                "read" => read(&mut session, &request, json),
-                "send" => send(&mut session, &request, json),
-                "react" => react(&mut session, &request, json),
-                "amend" => amend(&mut session, &request, json),
-                "retract" => retract(&mut session, &request, json),
-                "mark-read" => mark_read(&mut session, &request, json),
-                "wait" => wait(&mut session, &request, json),
-                "events" => events(&mut session, &request),
+                "read" => read(&mut session, request, json),
+                "send" => send(&mut session, request, json),
+                "react" => react(&mut session, request, json),
+                "amend" => amend(&mut session, request, json),
+                "retract" => retract(&mut session, request, json),
+                "mark-read" => mark_read(&mut session, request, json),
+                "wait" => wait(&mut session, request, json),
+                "events" => events(&mut session, request),
                 _ => Err((2, text().usage.to_owned())),
             },
         },
@@ -521,6 +535,10 @@ fn send(session: &mut Session, request: &Request, json: bool) -> Outcome {
         // The stream opens first, so no reply can come before it.
         session.reopen(WAIT_TAIL).map_err(|e| session.failed(e))?;
     }
+    // An agent's `cmux chief send` is that agent's message, not the owner's:
+    // under acpmux and in any coding agent's terminal (`caller.rs`).
+    session.sender =
+        super::caller::current(request.sender_name.as_deref(), request.class.as_deref(), None);
     let (seq, id) = session
         .send_parts(parts, reply_to, thread_root.as_deref())
         .map_err(|e| session.failed(e))?;

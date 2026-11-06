@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 import Darwin
 public import Foundation
@@ -133,14 +134,13 @@ public final class AgentPaneShell {
         let (events, continuation) = AsyncStream<Event>.makeStream(bufferingPolicy: .bufferingNewest(Self.maximumEvents))
         let reader = FileHandle(fileDescriptor: pipe[0], closeOnDealloc: true)
         reader.readabilityHandler = { handle in
-            // concurrency-allow: the readability handler runs on a background queue once data is ready.
-            let data = handle.availableData
-            // The stream stays open after EOF: the exit may still be on its way.
-            if data.isEmpty {
+            switch handle.readReady() {
+            case .bytes(let data): continuation.yield(.output(data))
+            case .retry: return
+            case .end:
+                // The stream stays open after EOF: the exit may still be on its way.
                 handle.readabilityHandler = nil
                 continuation.yield(.closed)
-            } else {
-                continuation.yield(.output(data))
             }
         }
         DispatchQueue.global(qos: .utility).async {

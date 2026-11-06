@@ -6,6 +6,12 @@ import Foundation
 extension AgentPaneView {
     /// Toggles Session Info through the same page callback as the header button.
     public func toggleSessionInfo() { send("toggleSessionInfo") }
+    /// Runs a header toggle the page offers now (``AgentPageCommand``, ``AgentPaneModel/pageCommands``).
+    public func run(_ command: AgentPageCommand) {
+        // A queued command belongs to this chat, even if the page selects another before delivery.
+        let value = "header:\(command.rawValue)|\(model.sessionId ?? "")"
+        deliver([.command(value)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\(JSONValue.string(value).compactText));"])
+    }
 
     /// Opens the frontend's Continue In… chooser. The chooser owns target selection and
     /// preparation; native actions do not create a second handoff pipeline.
@@ -26,6 +32,14 @@ extension AgentPaneView {
     /// then opens its model picker, or the composer's file search (a pick mentions the file).
     public func showModelPicker() { showWithKeyboard("openModelPicker") }
     public func showFileSearch() { showWithKeyboard("searchFiles") }
+    /// Ask a Side Question… focuses this chat's composer and prefills `/btw `.
+    /// The session id travels with the event so a palette run cannot land in a replacement chat.
+    public func askSideQuestion() {
+        guard let sessionId = model.sessionId else { return }
+        focusChat()
+        let json = JSONValue.string(sessionId).compactText
+        deliver([.sideQuestion(sessionId)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"sideQuestion\",\(json));"])
+    }
     /// A chat that just opened from a fork (``AgentForkDestination``): the keyboard goes to its
     /// composer, so the next words go to the fork.
     public func focusComposer() { showWithKeyboard("focusComposer") }
@@ -46,7 +60,7 @@ extension AgentPaneView {
                        "permissionRetry", "permissionRevoke", "permissionRefresh"]
         guard allowed.contains(command) else { return }
         // The person's shortcut is the gesture its answer uses; a posted key or script grants nothing.
-        AgentPanePersonInput.record(model.transport.gestures, if: byPerson, answer: true)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources, if: byPerson, answer: true)
         send(command)
     }
 }

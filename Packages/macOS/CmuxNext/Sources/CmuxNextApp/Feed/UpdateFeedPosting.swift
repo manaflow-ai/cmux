@@ -25,18 +25,11 @@ enum UpdateFeedPosting {
                               to: highlights.version, changes: changes, unlisted: highlights.rest == nil ? highlights.moreCount : 0, at: at)
     }
 
-    /// What one look at the highlights does: post this card, stop (this version's card was
-    /// posted already), or wait for the highlights to list changes.
-    enum Step: Equatable {
-        case post(UpdateFeedCard)
-        case done
-        case wait
-    }
-
-    static func step(_ highlights: UpdateHighlights?, posted: String?, at: Date) -> Step {
-        guard let highlights else { return .wait }
-        guard posted != highlights.version else { return .done }
-        return card(for: highlights, at: at).map(Step.post) ?? .wait
+    /// Applies the Feed's publication policy after adapting the updater's highlights.
+    static func step(_ highlights: UpdateHighlights?, posted: String?, enabled: Bool? = true, at: Date) -> UpdateFeedCard.PostingStep {
+        UpdateFeedCard.postingStep(version: highlights?.version, posted: posted, enabled: enabled) {
+            highlights.flatMap { card(for: $0, at: at) }
+        }
     }
 
     /// The highlights the card is built from on this look: the Updated card's while it shows. Its x
@@ -62,12 +55,18 @@ enum UpdateFeedPosting {
         let held = Held()
         // task-owner: AppServices.updateFeedObservation: ends after the one post, or with the services.
         return Task { [weak services] in
-            for await highlights in ObservationStream({ Self.highlights(updater, held: held.highlights) }) {
+            // The setting is read inside the observed closure, so its first load re-runs the step.
+            for await (highlights, enabled) in ObservationStream({
+                (Self.highlights(updater, held: held.highlights), updater.whatsNew.isItemEnabledKnown ? updater.whatsNew.isItemEnabled : nil)
+            }) {
                 guard let services else { return }
                 held.highlights = highlights
-                switch step(highlights, posted: defaults.string(forKey: postedKey), at: Date()) {
+                switch step(highlights, posted: defaults.string(forKey: postedKey), enabled: enabled, at: Date()) {
                 case .wait: continue
                 case .done: return
+                case let .skip(version):
+                    defaults.set(version, forKey: postedKey)
+                    return
                 case let .post(card):
                     services.feed.post(update: card)
                     defaults.set(card.to, forKey: postedKey)
@@ -88,11 +87,7 @@ enum UpdateFeedPosting {
             services.feed.post(update: card)
             posted += 1
         }
-        services.feed.post(update: UpdateFeedCard(
-            subject: .harness(id: "claude", name: "Claude Code"), from: "2.1.303", to: "2.1.305",
-            changes: ["Faster startup when many MCP servers are configured", "Fixed a hang when a hook printed a large output",
-                      "`/model` lists the models your plan includes"],
-            unlisted: 4, notes: URL(string: "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md"), at: Date()))
+        services.feed.post(update: .sampleHarness(at: Date()))
         return posted + 1
     }
 }

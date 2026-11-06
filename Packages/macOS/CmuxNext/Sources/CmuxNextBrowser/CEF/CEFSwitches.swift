@@ -23,7 +23,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
     var extraSwitches: [String] = []
     /// Chromium's AsyncLiveResize (below fork API 27): off only for the Debug Settings "Synced live"
-    /// drag resize (`BrowserDragResize.synced`), which lets Chromium hold a frame for the page again.
+    /// drag resize (a Synced live drag resize, removed 2026-11-06), which lets Chromium hold a frame for the page again.
     var asyncLiveResize = true
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
@@ -49,6 +49,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // separate macOS notification authorization. DesktopNotifier owns the
         // one app-level authorization request when cmux posts a banner.
         result.append("disable-notifications")
+        // That leaves Chromium's macOS notification bridge, made for the profile at startup while
+        // SystemNotifications is on: its UNUserNotificationCenter service asked macOS for
+        // authorization for the app and its Alerts helper on the first launch, with no action of
+        // the person (LAUNCH-NO-TCC-PROMPTS). Off, Chromium makes no bridge.
+        result.append("disable-features=SystemNotifications")
         // Chromium's periodic call-stack profiler runs in the browser process (the
         // app) and suspends its threads at 10 Hz while it collects. Its profiles go
         // to UMA, which cmux does not upload; in some idle sessions it raised the

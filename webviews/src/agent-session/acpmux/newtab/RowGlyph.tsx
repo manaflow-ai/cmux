@@ -15,6 +15,10 @@ const NAMES: Record<GlyphKind, string> = {
   open: "link.open.newtab",
   search: "search",
   ask: "agent.chat",
+  action: "composer.command",
+  inProfile: "browser.toolbar.profile",
+  profile: "browserprofile.badge",
+  newProfile: "action.add",
   // A tab's or closed item's kind.
   terminal: "terminal",
   browser: "browser",

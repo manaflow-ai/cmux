@@ -1,7 +1,9 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Markdown } from "./conversation/Markdown";
 import { toolIcon } from "./conversation/ToolRow";
 import { useT } from "./i18n";
 import type { AcpmuxPermission } from "./model";
+import { ProposedEdits } from "./permissions/ProposedEdits";
 import {
   alwaysAllowScope,
   commandPreview,
@@ -99,7 +101,16 @@ export function PermissionActionButton({
 /// to their labels, grouped at the card's leading edge. What they cover (the folder or app, the Always allow rule) is one muted
 /// line under them, cut with an ellipsis and whole on hover. Deny opens a field for what the agent should do instead, sent with the
 /// deny through `onDenyWithFeedback`. Keys 1, 2 and 3, Return (Allow once) and Esc (Deny, or close
-/// the field) answer while this card is the prompt and nothing else has the keyboard.
+/// the field) answer while this card is the prompt and nothing else has the keyboard. In a chat
+/// running its highest mode (`fullAccessMode`), an ask still here is one the mode does not answer
+/// (acpmux hub/permissions.rs `full_access_allow`: an ask Claude Code marks as needing the person,
+/// one with no one-time allow), and one line under the title says so: Allow once lets it through
+/// this time only (Leo, 2026-11-04: "a temporary one-time sort of ask for, like if for whatever
+/// reason there's the bypass permissions, it doesn't bypass every single thing").
+/// A plan approval (Claude Code's ExitPlanMode, Grok's and Cursor's plan modes) shows its plan as
+/// Markdown, the way the transcript renders a reply, with Approve plan and Keep planning, whose field
+/// says what to change (Leo, 2026-11-05: "i like these plans too... i want us to be able to render it
+/// in ours").
 export function PermissionCard({
   permission,
   onAnswer,
@@ -108,6 +119,9 @@ export function PermissionCard({
   focusComposer,
   shortcuts = true,
   waiting = 0,
+  alwaysAtSource = false,
+  fullAccessMode,
+  onDraft,
 }: {
   permission: AcpmuxPermission;
   /// Sends the answer. A promise that rejects means acpmux refused it (already answered elsewhere,
@@ -123,6 +137,15 @@ export function PermissionCard({
   shortcuts?: boolean;
   /// More asks waiting behind this one, answered after it.
   waiting?: number;
+  /// A peer's chat: the peer takes only a one-time Allow and a Deny from this Mac, never a lasting
+  /// grant (acpmux mac_approvers.rs), so Always allow stays on the card, disabled, saying why,
+  /// instead of failing after the click.
+  alwaysAtSource?: boolean;
+  /// The chat's mode label while it runs its highest mode (Bypass permissions, Full access).
+  fullAccessMode?: string;
+  /// Told when the deny's instructions open (true) and close, sent or not (false; also on unmount),
+  /// so the pane keeps this card up while something is typed on it (permissionKeys.ts `heldOnCard`).
+  onDraft?(open: boolean): void;
 }) {
   const t = useT();
   const command = permissionCommand(permission);
@@ -155,7 +178,13 @@ export function PermissionCard({
     });
   }, [others, t, allowAlwaysLabel]);
   const feedback = Boolean(onDenyWithFeedback && permission.pending && denyOption);
+  const plan = permission.plan;
   const claude = harness === "claude" || harness?.startsWith("claude-");
+  const feedbackPlaceholder = plan
+    ? t("permission.plan.feedbackPlaceholder")
+    : claude
+      ? t("permission.claude.feedbackPlaceholder")
+      : t("permission.feedbackPlaceholder");
   /// The ask whose full command is open: a new ask opens collapsed.
   const [expanded, setExpanded] = useState<string>();
   const showFull = expanded === permission.permissionId;
@@ -183,6 +212,13 @@ export function PermissionCard({
     if (!writing) setDraft({ permissionId: permission.permissionId, text: "" });
   };
   const fieldOpen = writing !== undefined;
+  const draftListener = useRef(onDraft);
+  draftListener.current = onDraft;
+  useEffect(() => {
+    if (!fieldOpen) return;
+    draftListener.current?.(true);
+    return () => draftListener.current?.(false);
+  }, [fieldOpen]);
   // Opened by the person's own click or key, so the field takes the keyboard.
   useEffect(() => {
     if (fieldOpen) field.current?.focus();
@@ -290,7 +326,7 @@ export function PermissionCard({
         deny(true);
         return true;
       }
-      const option = action === "allow_once" ? allowOnce : allowAlways;
+      const option = action === "allow_once" ? allowOnce : alwaysAtSource ? undefined : allowAlways;
       if (!option) return false;
       answerByKey(option);
       return true;
@@ -369,6 +405,19 @@ export function PermissionCard({
         </div>
         {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
         {detail && <p className="acpmux-permission-request-description">{detail}</p>}
+        {fullAccessMode && permission.pending && (
+          <p className="acpmux-permission-one-time">
+            {t(allowOnce ? "permission.fullAccessStillAsks" : "permission.fullAccessStillAsksNoOnce", {
+              mode: fullAccessMode,
+            })}
+          </p>
+        )}
+        {plan && (
+          // Fences as plain code, scrolled inside the card when long.
+          <div className="acpmux-permission-plan selectable" role="document" aria-label={t("permission.plan.label")}>
+            <Markdown plainCode>{plan}</Markdown>
+          </div>
+        )}
         {command && (
           <div className="acpmux-permission-command" data-expanded={showFull || undefined}>
             {showFull ? (
@@ -394,11 +443,12 @@ export function PermissionCard({
           </div>
         )}
       </div>
+      <ProposedEdits permissionId={permission.permissionId} diffs={permission.diffs} />
       {!writing && (
         <div className="acpmux-permission-buttons">
           {allowOnce && (
             <PermissionActionButton
-              label={t("permission.allowOnce")}
+              label={plan ? t("permission.plan.approve") : t("permission.allowOnce")}
               aria-describedby={scopeText ? targetId : undefined}
               shortcut={shortcuts ? allowOnceShortcut : undefined}
               className="acpmux-permission-primary"
@@ -408,15 +458,16 @@ export function PermissionCard({
           {allowAlways && allowAlwaysLabel && (
             <PermissionActionButton
               label={allowAlwaysLabel}
-              shortcut={shortcuts ? allowChatShortcut : undefined}
-              title={alwaysScope}
+              shortcut={shortcuts && !alwaysAtSource ? allowChatShortcut : undefined}
+              title={alwaysAtSource ? t("permission.alwaysAtSource") : alwaysScope}
               aria-describedby={[scopeText && targetId, alwaysScope && ruleId].filter(Boolean).join(" ") || undefined}
+              disabled={alwaysAtSource}
               onClick={() => answer(allowAlways)}
             />
           )}
           {denyOption && (
             <PermissionActionButton
-              label={t("permission.deny")}
+              label={plan ? t("permission.plan.keepPlanning") : t("permission.deny")}
               shortcut={shortcuts ? denyShortcut : undefined}
               aria-describedby={scopeText ? targetId : undefined}
               className="acpmux-permission-deny"
@@ -471,8 +522,8 @@ export function PermissionCard({
           <textarea
             ref={field}
             rows={2}
-            aria-label={claude ? t("permission.claude.feedbackPlaceholder") : t("permission.feedbackPlaceholder")}
-            placeholder={claude ? t("permission.claude.feedbackPlaceholder") : t("permission.feedbackPlaceholder")}
+            aria-label={feedbackPlaceholder}
+            placeholder={feedbackPlaceholder}
             value={writing.text}
             readOnly={writing.sending}
             onChange={(event) => setDraft({ permissionId: permission.permissionId, text: event.target.value })}

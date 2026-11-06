@@ -163,7 +163,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | toggleBrowserFocusMode | Browser Focus Mode | ⌥⌘↩ | PKMC | KSS:220, CWV:1672 |
 | toggleBrowserDesignMode | Browser Design Mode | ⌃⌥⌘D | KM | KSS:221 |
 | toggleReactGrab | React Grab | ⇧⌘G | PKM | KSS:222 |
-| splitBrowserRight / Down | Split Browser Right / Down | ⌥⌘D / ⇧⌥⌘D | PKM | KSS:175-176 |
+| splitBrowserRight / Down | Split Browser Right / Down | ⌥⌘X / ⌥⇧⌘X | PKM | KSS:175-176 |
 | palette.browserOpenDefault / ToggleOmnibar / ClearHistory | Open in Default Browser / Omnibar / Clear History | — | P(M) | CV:8196-8297 |
 | importFromBrowser | Import Browser Data… | — | MC | cmuxApp:1187 |
 | palette.enableBrowser / disableBrowser | Enable / Disable cmux Browser | — | P | CV:7873 |
@@ -171,7 +171,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | (more menu) | Screenshot Page/Section, Browser Theme, New/Rename Profile | — | C | BrowserPanelView:1567 |
 | saveFilePreview / toggleFileEditorWordWrap | Save File / Word Wrap | ⌘S / ⌥Z | K(M) | KSS:201 |
 | (file preview) | Open With ▸, Open Externally, Reveal in Finder | — | C | FilePreviewPanel:131 |
-| openDiffViewer / palette.openDirectoryDiffViewer | Diff Viewer / Directory Diff | ⌃⇧⌘G (was ⌃⇧⌘D; that is New Row now) | PK | KSS:223 |
+| openDiffViewer / palette.openDirectoryDiffViewer | Diff Viewer / Directory Diff | ⌃⇧⌘G (was ⌃⇧⌘D, New Row's key until 2026-11-01) | PK | KSS:223 |
 | diffViewer* (11) | j/k, ⌃D/⌃U, ⌃N/⌃P, G/gg, /, ]f/[f | vim-style | K | KSS:224-233 |
 | palette.vscodeServeWebStop / Restart | VS Code Inline Server | — | P | CV:8356 |
 

@@ -1,3 +1,4 @@
+import { artifactRuntimePlugin } from "./artifactRuntimePlugin.mjs";
 // Bundles the React agent pane (src/agent-session/acpmux) for the app with the React
 // Compiler on, the same compiler the Vite dev server runs (vite.config.ts).
 //
@@ -61,9 +62,11 @@ const result = await build({
   minify: !cssInputsOnly,
   write: !cssInputsOnly,
   legalComments: "none",
-  // An imported PNG becomes a data URL: a page ships as one index.html and its CSP allows
-  // `img-src data:` only (the Settings page's Chief Pet mascots).
-  loader: { ".png": "dataurl" },
+  // An imported PNG or WOFF2 becomes a data URL: a page ships as one index.html and its CSP allows
+  // `img-src data:` and fonts from data: only (the Settings page's Chief Pet mascots, the chat's
+  // interface font choices, chatFonts/faces.ts, and the Updated card doodle's handwriting, both
+  // behind a dynamic import).
+  loader: { ".png": "dataurl", ".woff2": "dataurl" },
   alias: shikiAlias === "-" ? {} : { shiki: path.resolve(shikiAlias) },
   logLevel: "warning",
   ...(split
@@ -75,8 +78,8 @@ const result = await build({
       }
     : { outfile }),
   plugins: cssInputsOnly
-    ? [tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })]
-    : [reactCompiler, tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })],
+    ? [artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })]
+    : [reactCompiler, artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })],
   metafile: Boolean(cssInputsFile),
 });
 if (cssInputsFile) {

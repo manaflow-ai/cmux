@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
+import CmuxNextTestSupport
 import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
@@ -38,7 +39,7 @@ private func settle(_ condition: () -> Bool) async -> Bool {
 
 /// Mac Screen's surfaces are AppKit (plans/cmux-next/no-swiftui-DESIGN.md): no hosting bridge,
 /// and their controls run the models and follow them.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct MacScreenAppKitViewTests {
     private func window(_ content: NSView) -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 640), styleMask: [.titled],
@@ -81,8 +82,8 @@ struct MacScreenAppKitViewTests {
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let tab = pages.makeView(for: "home")
         let window = window(tab)
-        let signIn = MacScreenHomeSnapshot.setupNote(configured: true)
-        let invalid = MacScreenHomeSnapshot.setupNote(configured: false)
+        let signIn = (MacScreenHomeSnapshot.setupDevices(configured: true).note ?? "")
+        let invalid = (MacScreenHomeSnapshot.setupDevices(configured: false).note ?? "")
         #expect(texts(under: tab).contains(signIn))
         #expect(texts(under: tab).contains(L.t("macScreen.home.yourDevices", "Your Devices")))
         // A model change redraws the page without a new view.

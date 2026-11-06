@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
-import { ShellRow } from "./ShellRow";
+import { ShellActionsContext, ShellRow, type ShellActions } from "./ShellRow";
 import type { ShellRun } from "./shellRuns";
 
 const run = (overrides: Partial<ShellRun> = {}): ShellRun => ({
@@ -23,8 +23,15 @@ const shellRow = (shell: ShellRun): AcpmuxRow => ({
   shell,
 });
 
-const markup = (shell: ShellRun, expanded = false) =>
-  renderToStaticMarkup(<ShellRow row={shellRow(shell)} expanded={expanded} onToggleActivity={() => undefined} />);
+const actions: ShellActions = { stop: () => undefined, openInTerminal: () => undefined };
+
+// The owner's pane always provides shell actions (App.tsx); a read-only transcript provides none.
+const markup = (shell: ShellRun, expanded = false, given: ShellActions | null = actions) =>
+  renderToStaticMarkup(
+    <ShellActionsContext.Provider value={given ?? undefined}>
+      <ShellRow row={shellRow(shell)} expanded={expanded} onToggleActivity={() => undefined} />
+    </ShellActionsContext.Provider>,
+  );
 
 test("collapsed long output keeps the tail and offers expansion", () => {
   const output = Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join("\n");
@@ -55,4 +62,13 @@ test.each([
   const html = markup(shell);
   expect(html).toContain(status);
   expect(html).toContain("Open in terminal");
+});
+
+test.each([
+  ["running", run({ status: "running" })],
+  ["succeeded", run()],
+] as const)("read only (no actions), the %s row offers no Stop and no Open in terminal", (_name, shell) => {
+  const html = markup(shell, false, null);
+  expect(html).not.toContain("acpmux-shell-block-stop");
+  expect(html).not.toContain("Open in terminal");
 });

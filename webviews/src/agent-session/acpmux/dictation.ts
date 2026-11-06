@@ -1,6 +1,12 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
-import { applyDictation, type DictationAnchor, type DictationState, type DictationUpdate } from "./dictationText";
+import {
+  applyDictation,
+  type DictationAnchor,
+  type DictationRecording,
+  type DictationState,
+  type DictationUpdate,
+} from "./dictationText";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import { useT } from "./i18n";
 import { NativeError } from "./nativeError";
@@ -65,8 +71,9 @@ export type Dictation = {
   /// The denied or failed state the composer shows until dismissed or the next start.
   notice: DictationUpdate | null;
   toggle(): void;
-  /// Ends the session and keeps its words (the finish key beside the waveform).
-  finish(): void;
+  /// Ends the session and keeps its words; `then` runs once they have landed in the prompt (the
+  /// composer's Send, which ends dictation and sends), never after Esc cancels it.
+  finish(then?: () => void): void;
   cancel(): void;
   openSettings(): void;
   dismiss(): void;
@@ -85,7 +92,9 @@ export type DictationField = Pick<MarkdownFieldHandle, "focus" | "text" | "write
 /// is dictation alone.
 export type DictationAudio = {
   accepts: boolean;
-  attach(audio: { mimeType: string; data: string }): void;
+  chat?(): string | undefined;
+  elsewhere?(): void;
+  attach(audio: DictationRecording): void;
   omitted(reason: NonNullable<DictationUpdate["audioOmitted"]>): void;
 };
 
@@ -104,10 +113,16 @@ export function useDictation(
   const pending = useRef<DictationUpdate[]>([]);
   /// A toggle went to the host and no update came back yet.
   const requested = useRef(false);
+  /// What `finish(then)` waits to run: the send, once the session's last words are in the prompt.
+  const afterFinish = useRef<(() => void) | null>(null);
   const attachAudio = useRef(audio?.attach);
   attachAudio.current = audio?.attach;
   const omitAudio = useRef(audio?.omitted);
   omitAudio.current = audio?.omitted;
+  const shownChat = useRef(audio?.chat);
+  shownChat.current = audio?.chat;
+  const audioElsewhere = useRef(audio?.elsewhere);
+  audioElsewhere.current = audio?.elsewhere;
   const acceptsAudio = audio?.accepts === true;
   /// A session that ends after the chat moved to a harness without audio keeps its words only.
   const acceptsAudioNow = useRef(acceptsAudio);
@@ -138,6 +153,14 @@ export function useDictation(
       }
       if (applied && applied.state === update.state && applied.text === update.text && !update.cancelled) return;
       applied = isActive(update.state) ? update : null;
+      // The final recording and transcript belong to the chat where recording began.
+      // Never splice or auto-send either into a chat the pane navigated to while closing.
+      if (update.session !== undefined && shownChat.current && update.session !== (shownChat.current() ?? "")) {
+        anchor.current = null;
+        owner = null;
+        if (update.state === "idle" && !update.cancelled) audioElsewhere.current?.();
+        return;
+      }
       // The recording joins the composer before the words do, so an auto-send takes both.
       if (update.state === "idle" && !update.cancelled && acceptsAudioNow.current) {
         if (update.audio) attachAudio.current?.(update.audio);
@@ -150,17 +173,31 @@ export function useDictation(
       anchor.current = splice.anchor;
       owner = splice.anchor ? field.element() : null;
       field.writeText(splice.value, splice.selectionStart, splice.selectionEnd);
-      // Submit on the next task, once the composer's state holds the dictated text.
-      if (update.state === "idle" && !update.cancelled && autoSend && splice.placed)
+      // Submit on the next task, once the composer's state holds the dictated text. A Send that
+      // ended the session sends it itself (settle, below).
+      if (update.state === "idle" && !update.cancelled && autoSend && splice.placed && !afterFinish.current)
         setTimeout(() => (field.submit ? field.submit() : field.element()?.closest("form")?.requestSubmit()), 0);
+    };
+    /// Once a session is over, the Send that ended it goes, on the next task (the composer's state
+    /// holds the words by then); a cancelled session sends nothing.
+    const settle = (update: DictationUpdate) => {
+      const then = afterFinish.current;
+      if (!then || isActive(update.state)) return;
+      afterFinish.current = null;
+      // Words that belong to the chat recording began in never send from another one (apply).
+      const elsewhere =
+        update.session !== undefined && shownChat.current && update.session !== (shownChat.current() ?? "");
+      if (!update.cancelled && !elsewhere) setTimeout(then, 0);
     };
     const receive = (update: DictationUpdate) => {
       requested.current = false;
       setState(update.state);
       if (update.state === "failed" || update.state === "denied") setNotice(update);
       else if (update.state === "starting") setNotice(null);
-      if (!composing) apply(update);
-      else {
+      if (!composing) {
+        apply(update);
+        settle(update);
+      } else {
         const queue = pending.current;
         const last = queue.at(-1);
         if (last && isActive(last.state) && last.state === update.state && !update.cancelled)
@@ -182,7 +219,10 @@ export function useDictation(
       composing = false;
       const queue = pending.current;
       pending.current = [];
-      for (const update of queue) apply(update);
+      for (const update of queue) {
+        apply(update);
+        settle(update);
+      }
     };
     document.addEventListener("compositionstart", compositionStart, true);
     document.addEventListener("compositionend", compositionEnd, true);
@@ -242,10 +282,12 @@ export function useDictation(
         });
       });
     },
-    finish() {
-      // The finish key goes away with the session: the keyboard returns to the prompt, where the words are.
+    finish(then) {
+      // The keyboard stays in (or returns to) the prompt, where the words are.
       prompt.current?.focus();
-      void call("dictation.stop").catch(() => {});
+      if (then) afterFinish.current = then;
+      // Already finalizing: the last words are on their way, and `then` waits for them.
+      if (state !== "finalizing") void call("dictation.stop").catch(() => {});
     },
     cancel() {
       void call("dictation.cancel").catch(() => {});

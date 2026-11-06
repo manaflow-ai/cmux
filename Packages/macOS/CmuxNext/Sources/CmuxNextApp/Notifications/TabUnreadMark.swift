@@ -28,8 +28,17 @@ enum TabUnreadMark {
         let daemon = context.services.daemon(for: pane)
         switch step(showsUnread: tab.showsUnread) {
         case .read:
+            // Validate every write up front: a mixed-version daemon must not leave a
+            // notification acknowledged or a manual mark cleared when its conditional
+            // attention-clear capability is unavailable.
+            if tab.attention != nil {
+                guard daemon.supports(DaemonCapability.tabAttentionRequestID.rawValue), daemon.store.servesStateResources else {
+                    throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.tabAttentionRequestID.rawValue))
+                }
+            }
             if tab.hasUnread { try NotificationHandlers.acknowledge([tab.surface], context) }
             if tab.markedUnread { try set(false, tab: tab, daemon: daemon) }
+            if tab.attention != nil { try clearAttention(tab: tab, daemon: daemon) }
         case .markUnread:
             try set(true, tab: tab, daemon: daemon)
         }
@@ -48,6 +57,19 @@ enum TabUnreadMark {
         tab.expectMarkedUnread(marked)
         daemon.send("tab.update", onFailure: { _ in tab.dropExpectedMarkedUnread(marked) }) {
             try await $0.state.updateTabRecord(resource, markedUnread: marked)
+        }
+    }
+
+    /// Mark as Read on a tab an agent marked (tab-attention-v1) drops that mark too: the person
+    /// saw what the agent asked. A daemon without conditional-clear support refuses rather than
+    /// risking an unconditional delayed clear.
+    static func clearAttention(tab: TabModel, daemon: DaemonService) throws {
+        guard daemon.supports(DaemonCapability.tabAttentionRequestID.rawValue), daemon.store.servesStateResources else {
+            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.tabAttentionRequestID.rawValue))
+        }
+        guard let resource = tab.resourceID, let request = tab.expectAttentionClear() else { return }
+        daemon.send("tab.update", onFailure: { _ in tab.dropExpectedAttentionClear(request) }) {
+            try await $0.state.updateTabRecord(resource, attentionRequestID: request.requestID)
         }
     }
 

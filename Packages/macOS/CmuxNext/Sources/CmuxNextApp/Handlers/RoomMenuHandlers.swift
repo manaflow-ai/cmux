@@ -23,7 +23,7 @@ enum RoomMenuHandlers {
             // A person gets the new group's name editor; the group goes if it
             // is still empty when the editor closes (cx-rcby). Automation keeps it.
             if invocation.origin == .user, name.isEmpty { return try context.sidebar().groupFlow.newEmptyGroup(name: name) }
-            try context.sidebar().handle(.createGroup(.make(), name: name, color: .grey, workspaces: []))
+            try context.sidebar().handle(.createGroup(.make(), name: name, color: .none, workspaces: []))
         })
         let targets = PaletteSourcesBridge.targetSource(context.services)
         registry.targetChoices = { [weak services = context.services] action, kind, target in

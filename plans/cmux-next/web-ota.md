@@ -77,15 +77,20 @@ server and overlay (#22664) stay ahead of an update, and an update stays ahead o
 Pages hosted in Chromium keep their bundled files for now.
 
 A new update never changes what an open page loads: a page's lazy chunks must come from the build
-its document came from. `WebUpdates` holds a ready tree as pending and swaps it in at a safe point,
-then reloads every page and agent pane the handlers served (`WebBundleServedViews`). The safe
-point (`WebSwapGate`, `WebUpdates+SafePoint.swift`) never loses or disturbs what someone is doing:
+its document came from. `WebUpdates` serves a ready tree to every page that loads from then on, and
+reloads each open page and agent pane the handlers served (`WebBundleServedViews`) into it at that
+page's own safe point. Until it reloads, an open page keeps reading the tree its first request
+loaded from (the handlers pin each web view to it), so a page never mixes two builds' chunks and
+one busy page never holds the others; a tree stays on disk while any page reads it. The safe point
+(`WebSwapGate`, `WebUpdates+SafePoint.swift`) never loses or disturbs what someone is doing:
 
-- no page shows: at once;
 - the app has a modal window or sheet open, or is tracking a menu: look again in 15 seconds;
-- cmux is in the front: no keyboard, pointer, scroll or click input for 30 seconds (the session's
-  `CGEventSource` idle time; no event monitor); behind other apps: 3 seconds after it left;
-- then every served page answers `window.cmuxWebSwap.hold()` (`webviews/src/pages/shared/webSwap.ts`,
+- behind other apps: 3 seconds after cmux left the front;
+- the page that has the keyboard (the first responder of cmux's key window), while cmux is in the
+  front: no keyboard, pointer, scroll or click input for 30 seconds (the session's `CGEventSource`
+  idle time; no event monitor), or for 3 seconds once the update has waited 10 minutes. Other
+  pages do not wait on input: typing in one pane does not hold another's reload;
+- then the page answers `window.cmuxWebSwap.hold()` (`webviews/src/pages/shared/webSwap.ts`,
   installed with the desktop layer) within a second, null when a reload keeps everything it holds.
   It says why not while a component holds it (a prompt the host has not taken, a screenshot being
   read, dictation, shell mode, a new chat's prompt with no chat to keep it, chips the host does not
@@ -93,19 +98,21 @@ point (`WebSwapGate`, `WebUpdates+SafePoint.swift`) never loses or disturbs what
   yet), while an input method composes, while text is selected, while a field has the keyboard that
   does not take it back (the composer does) or its caret is before the end, while a menu, popover
   or dialog is open, or while a scroller other than the transcript is away from its start. A page
-  that does not answer is busy.
+  that does not answer is busy. A page's own answer is never overridden: no cap reloads a page
+  that says a reload would lose something.
 
-Any wait looks again in 15 seconds (one DemandTimer, `web-updates.safe-point`, which stops once
-nothing is pending); `updates.web.status` `waiting_for` names the last reason. A reload keeps a
+Each page that may reload reloads; any other waits and looks again in 15 seconds (one DemandTimer,
+`web-updates.safe-point`, which stops once every open page reads the pending tree); `updates.web.status` `waiting_for` names the last reason. A reload keeps a
 composer draft (the composer writes every change to the pane origin's `localStorage` at once and to
 acpmux, `composerDraft.ts`), its chips (the host's `chat.draftAttachments`, `keptAttachments.ts`)
 and the transcript's place (`chat.scrollAnchor`), and reads them back on load.
-Web updates start when the app first reads `updates.*`. From then until the check of the kept tree ends, requests wait for it. A page that loaded before that keeps the bundled web until the next safe point. A tree is pruned only once nothing serves it.
+Web updates start when the app first reads `updates.*`. From then until the check of the kept tree ends, requests wait for it. A page that loaded before that keeps the bundled web until its next safe point. A tree is pruned only once no page reads it.
 
 ## Setting and controls
 
 `updates.web` in cmux.json (Settings > Updates, "Web UI Updates"): `every-merge` (default),
-`nightly` or `off`. Off returns to the bundled web at the next safe point, and at launch it serves
+`nightly` or `off`. `every-merge` is published from feat-cmux-next; `nightly` is published from
+the promoted nightly-next branch. Off returns to the bundled web at the next safe point, and at launch it serves
 the bundled web before any page loads. Switching to the other channel returns to the bundled web
 until that channel has an update newer than the last one taken. Only NIGHTLY bundles
 (`com.cmuxterm.app.nightly[.<tag>]`) and the tip app (cmux NEXT DEV with the tip feed stamped in,
@@ -126,9 +133,9 @@ follow-up).
 
 ## Not yet
 
-- **Nightly channel**: `ota/nightly.json` is read but nothing writes it. The nightly train would
-  sign it for the promoted commit's key with the same script. The release-rings lane owns
-  `updates.channel`; the `updates.web` default will follow it (dev to every merge, stable to off).
+- **Nightly publisher**: the cmux-next web publication workflow runs on the promoted `nightly-next`
+  branch and signs `ota/nightly.json` for that source key. The pointer must be read back and verified
+  before the job is green; the release-rings lane owns `updates.channel`.
 - **Signing key custody**: the private key exists only in the `CMUX_WEB_OTA_SIGNING_KEY` secret
   (no backup; losing it costs one nightly without web updates, never trust). Rotate, as above, to a
   key generated where the Sparkle and notary keys are kept, once that place is named.

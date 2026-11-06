@@ -87,11 +87,11 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
     };
     let mut words: Vec<&str> = Vec::new();
     let mut index = 0;
-    while index < rest.len() {
-        let arg = rest[index].as_str();
+    while let Some(arg) = rest.get(index) {
+        let arg = arg.as_str();
         index += 1;
         if arg == "--" {
-            words.extend(rest[index..].iter().map(String::as_str));
+            words.extend(rest.get(index..).unwrap_or_default().iter().map(String::as_str));
             break;
         }
         match arg {
@@ -276,8 +276,9 @@ pub(super) fn is_input_refusal(error: &Value) -> bool {
     )
 }
 
-/// Signed out, or the preview is off: the app's Labs flag, an administrator's policy
-/// (`feature.disabled`) or the server's allowlist; or the app has no Cloud backend
+/// Signed out, or Cloud is off: an administrator's policy (`feature.disabled`), the server's
+/// allowlist, Cloud not callable here (`cloud_disabled`: a managed team missing or a local-only
+/// backend), or an older app's Labs flag (`labs_off`); or the app has no Cloud backend
 /// (`no_backend`). Exit 3: nothing to wait for, act first.
 pub(super) fn is_gate_refusal(error: &Value) -> bool {
     matches!(
@@ -285,6 +286,7 @@ pub(super) fn is_gate_refusal(error: &Value) -> bool {
         Some(
             "not_signed_in"
                 | "labs_off"
+                | "cloud_disabled"
                 | "feature.disabled"
                 | "run_sandbox_unavailable"
                 | "no_backend"
@@ -677,7 +679,7 @@ pub(super) fn is_wait_transient(error: &Value) -> bool {
 }
 
 /// A create error after which the run may exist: no answer, or a server failure. Anything else
-/// (signed out, Labs off, a refused image, agent or task, no app to ask) proves nothing started.
+/// (signed out, an older app's Labs flag, a refused image, agent or task, no app to ask) proves nothing started.
 pub(super) fn create_may_have_committed(error: &Value) -> bool {
     matches!(
         error.get("code").and_then(Value::as_str),

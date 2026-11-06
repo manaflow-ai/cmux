@@ -4,8 +4,8 @@ import Foundation
 /// Group by Status (Debug `sidebar.groupByStatus`, off by default): every computer's rows, Chrome groups dissolved,
 /// under the Priority view's states (`SidebarStatusSection`), each in manual order. A header names its section and
 /// count; a folded section keeps the count (Needs you never folds). Rows move as their state changes, except the
-/// active row (`SidebarGrouping.held`). The list draws every row of a section: the Done fold (`SidebarLayout+DoneFold`,
-/// `sidebar.doneFold`) and Show more (`sidebar.groupRowLimit`) do not apply inside status sections, so a workspace marked
+/// active row (`SidebarGrouping.held`). The list draws every row of a section: the Done fold
+/// (`SidebarLayout+DoneFold`) and Show more (`sidebar.groupRowLimit`) do not apply inside status sections, so a workspace marked
 /// Done shows under its state and a long section lists every row.
 nonisolated extension SidebarLayout {
     /// The rows of `sections`' computers (the pinned area and the document's sections lay out as before), from `y`;
@@ -48,19 +48,9 @@ nonisolated extension SidebarLayout {
                 rows.append(SidebarRow(
                     key: .workspace(member.ws.id), y: y, height: h, section: member.section.id,
                     group: nil, siblingIndex: member.index, parentIndex: nil, isLastInGroup: false,
-                    isCollapsed: false, childCount: 0, groupColor: nil,
-                    tabDisclosure: o.disclosure(member.ws), content: content
+                    isCollapsed: false, childCount: 0, groupColor: nil, content: content
                 ))
                 y += h + m.rowSpacing
-                guard o.listsTabs(member.ws) else { continue }
-                for tab in member.ws.tabs {
-                    rows.append(SidebarRow(
-                        key: .tab(member.ws.id, tab.id), y: y, height: m.tabRowHeight, section: member.section.id,
-                        group: nil, workspace: member.ws.id, siblingIndex: 0, parentIndex: nil,
-                        isLastInGroup: false, isCollapsed: false, childCount: 0, groupColor: nil, tabKind: tab.kind
-                    ))
-                    y += m.tabRowHeight + m.rowSpacing
-                }
             }
             // The next status group follows the last member by the row spacing alone (Leo 2026-10-21: no padding after groups).
         }

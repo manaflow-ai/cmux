@@ -4,7 +4,7 @@ import { settlePolicy } from "./integration-policy-settle.ts"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { aadFor, open, seal } from "../src/integrations/crypto.ts"
-import { github, linear, slack, type Http } from "../src/integrations/providers.ts"
+import { github, installationToken, linear, slack, type Http } from "../src/integrations/providers.ts"
 
 const testEnv = env as unknown as Record<string, any>
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -75,11 +75,47 @@ describe("provider clients (fake HTTP)", () => {
         expect(req.headers.get("authorization")).toMatch(/^Bearer ey/)
         return ok({ token: "ghs_inst", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201)
       },
-      "https://api.github.com/repos/manaflow-ai/cmux/issues/9/comments": () => ok({ id: 1, html_url: "https://github.com/c/1" }, 201)
+      "https://api.github.com/repos/manaflow-ai/cmux/issues/9/comments": () => ok({ id: 1, html_url: "https://github.com/manaflow-ai/cmux/issues/9#issuecomment-1" }, 201)
     })
     const r = await github.call(e, f.http, { kind: "github_installation", installation_id: 42 }, "github.issue.comment", { repo: "manaflow-ai/cmux", issue: 9, body: "hi" })
-    expect(r.value).toEqual({ id: 1, url: "https://github.com/c/1" })
+    expect(r.value).toEqual({ id: 1, url: "https://github.com/manaflow-ai/cmux/issues/9#issuecomment-1" })
     expect(f.calls.at(-1)!.auth).toBe("Bearer ghs_inst")
+  })
+
+  it("GitHub: repository-list tokens never supply a comment token, and comment tokens stay repo-scoped", async () => {
+    const installation = 984321
+    const f = fakeHttp({
+      [`https://api.github.com/app/installations/${installation}/access_tokens`]: async (req) => {
+        const body = await req.text()
+        const scope = body ? JSON.parse(body) : null
+        if (scope) expect(scope.permissions).toEqual({ issues: "write" })
+        return ok({ token: scope ? `comment-${scope.repositories[0]}` : "repository-list", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201)
+      },
+      "https://api.github.com/repos/acme/": (req) => {
+        const repo = new URL(req.url).pathname.split("/")[3]!
+        expect(req.headers.get("authorization")).toBe(`Bearer comment-${repo}`)
+        return ok({ id: 1, html_url: `https://github.com/acme/${repo}/issues/9#issuecomment-1` }, 201)
+      }
+    })
+    expect(await installationToken(e, f.http, installation)).toBe("repository-list")
+    for (const repo of ["web", "other", "web"]) {
+      await github.call(e, f.http, { kind: "github_installation", installation_id: installation }, "github.issue.comment", { repo: `acme/${repo}`, issue: 9, body: "hi" })
+    }
+    expect(await installationToken(e, f.http, installation)).toBe("repository-list")
+    expect(f.calls.filter((c) => c.url.endsWith("/access_tokens")).map((c) => c.body ? JSON.parse(c.body) : null)).toEqual([
+      null,
+      { repositories: ["web"], permissions: { issues: "write" } },
+      { repositories: ["other"], permissions: { issues: "write" } }
+    ])
+  })
+
+  it("GitHub: accepts canonical owner and repo casing in the comment receipt", async () => {
+    const f = fakeHttp({
+      "https://api.github.com/app/installations/42/access_tokens": () => ok({ token: "ghs_inst", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201),
+      "https://api.github.com/repos/acme/web/issues/9/comments": () => ok({ id: 2, html_url: "https://github.com/Acme/Web/issues/9#issuecomment-2" }, 201),
+    })
+    const r = await github.call(e, f.http, { kind: "github_installation", installation_id: 42 }, "github.issue.comment", { repo: "acme/web", issue: 9, body: "hi" })
+    expect(r.value).toEqual({ id: 2, url: "https://github.com/Acme/Web/issues/9#issuecomment-2" })
   })
 
   it("Linear: refresh returns a new credential only when expired; the call uses what it is given", async () => {
@@ -249,6 +285,50 @@ describe("connections end to end (workerd)", () => {
     expect(retry.json).toMatchObject({ ok: false, replayed: true, error: { code: "mutation.indeterminate" } })
   })
 
+  it("GitHub: a 401 evicts the narrowed token so reconnect fetches a fresh token", async () => {
+    const { token, team } = await signedIn("conn-gh-reconnect-401")
+    const installation = 984322
+    let mints = 0
+    const posts: Array<string | null> = []
+    const fake = fakeHttp({
+      "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_synthetic" }),
+      [`https://api.github.com/user/installations/${installation}/repositories`]: () => ok({ repositories: [{ full_name: "acme/web" }] }),
+      "https://api.github.com/user/installations": () => ok({ installations: [{ id: installation, account: { login: "acme", type: "Organization" }, permissions: { issues: "write" } }] }),
+      [`https://api.github.com/app/installations/${installation}/access_tokens`]: async (req) => {
+        expect(await req.json()).toEqual({ repositories: ["web"], permissions: { issues: "write" } })
+        return ok({ token: `ghs_synthetic_${++mints}`, expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201)
+      },
+      "https://api.github.com/repos/acme/web/issues/9/comments": (req) => {
+        const auth = req.headers.get("authorization")
+        posts.push(auth)
+        return auth === "Bearer ghs_synthetic_1" ? ok({ message: "Bad credentials" }, 401) : ok({ id: 2, html_url: "https://github.com/acme/web/issues/9#issuecomment-2" }, 201)
+      }
+    })
+    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
+    await inDO(connections, async (instance) => { instance.http = fake.http })
+    const connect = async () => {
+      const started = await op(token, "integration.connect", { provider: "github" })
+      const state = new URL(started.json.value.authorize_url).searchParams.get("state")!
+      const done = await op(token, "integration.complete", { state, code: "synthetic", installation_id: String(installation) })
+      expect(done.json).toMatchObject({ ok: true, value: { status: "active" } })
+      return started.json.value.connection.id as string
+    }
+    const connection = await connect()
+    const params = { connection, repo: "acme/web", issue: 9, body: "synthetic comment" }
+    expect((await op(token, "github.issue.comment", params, "revoked-token")).json).toMatchObject({ ok: false, error: { code: "integration.unavailable" } })
+    await inDO(connections, async (instance) => { expect(instance.boundEngine.currentState.connections[connection].status).toBe("needs_reauth") })
+    expect(mints).toBe(1)
+    expect(posts).toEqual(["Bearer ghs_synthetic_1"])
+
+    const reconnected = await connect() // same GitHub installation and repo, new OAuth authorization
+    expect((await op(token, "github.issue.comment", { ...params, connection: reconnected }, "fresh-token")).json).toMatchObject({ ok: true, value: { id: 2 } })
+    expect(mints).toBe(2)
+    expect(posts).toEqual(["Bearer ghs_synthetic_1", "Bearer ghs_synthetic_2"])
+    // Replaying the failed effect keeps its recorded refusal; eviction never repeats that POST.
+    expect((await op(token, "github.issue.comment", params, "revoked-token")).json).toMatchObject({ ok: false, replayed: true })
+    expect(posts).toHaveLength(2)
+  })
+
   it("GitHub team policy: ops and webhooks stay inside the linking user's repositories and the allowlist; managed policies lock", async () => {
     const { token, team } = await signedIn("conn-gh-1")
     const connect = await op(token, "integration.connect", { provider: "github", sharing: "team" })
@@ -264,7 +344,7 @@ describe("connections end to end (workerd)", () => {
       "https://api.github.com/app/installations/99/access_tokens": () => ok({ token: "ghs_x", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201),
       "https://api.github.com/repos/": (req) => {
         posts.push(new URL(req.url).pathname)
-        return ok({ id: 1, html_url: "https://github.com/c" }, 201)
+        return ok({ id: 1, html_url: "https://github.com/ACME/WEB/issues/1#issuecomment-1" }, 201)
       }
     })
     const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
@@ -322,9 +402,9 @@ describe("connections end to end (workerd)", () => {
     const state = new URL(connect.json.value.authorize_url).searchParams.get("state")!
     const fake = fakeHttp({
       "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_user" }),
-      "https://api.github.com/user/installations": () => ok({ installations: [{ id: 77, account: { login: "acme", type: "Organization" } }] }),
+      "https://api.github.com/user/installations": () => ok({ installations: [{ id: 77, account: { login: "acme", type: "Organization" }, permissions: { issues: "write" } }] }),
       "https://api.github.com/app/installations/77/access_tokens": () => ok({ token: "ghs_x", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201),
-      "https://api.github.com/repos/": () => ok({ id: 1 }, 201)
+      "https://api.github.com/repos/": () => ok({ id: 1, html_url: "https://github.com/acme/any/issues/1#issuecomment-1" }, 201)
     })
     const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
     await inDO(connections, async (instance) => {

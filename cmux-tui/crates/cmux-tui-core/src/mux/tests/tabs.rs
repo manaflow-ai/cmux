@@ -50,8 +50,8 @@ fn closing_active_pane_focuses_most_recent_remaining_pane() {
             {
                 saw_closed = true;
             }
-            MuxEvent::TreeSelectionChanged if saw_closed => break,
-            MuxEvent::TreeSelectionChanged => {
+            MuxEvent::TreeSelectionChanged(_) if saw_closed => break,
+            MuxEvent::TreeSelectionChanged(_) => {
                 panic!("selection resync arrived before the pane-closed delta")
             }
             _ => {}

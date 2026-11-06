@@ -61,6 +61,10 @@ def hard_ancestors(job: str) -> set[str]:
         for parent in needs(child):
             if f"needs.{parent}.result != 'success'" in condition:
                 continue
+            # Nor a need it reads only for outputs: a `!cancelled()` job that never tests that need's result runs
+            # whatever it was (build-sign-notarize-nightly reads legacy-identity-target's outputs only).
+            if "!cancelled()" in condition and f"needs.{parent}.result" not in condition:
+                continue
             if parent not in seen:
                 seen.add(parent)
                 stack.append(parent)
@@ -83,7 +87,7 @@ class PeersAreDerived(unittest.TestCase):
         # Every job between a peer and build-sign-notarize-nightly runs only when
         # its needs succeeded, or reads a peer-free result: no `result` test on a peer.
         for peer in derived_peers():
-            between = descendants(peer) & ancestors("build-sign-notarize-nightly")
+            between = descendants(peer) & hard_ancestors("build-sign-notarize-nightly")
             for job in between:
                 condition = str(JOBS[job].get("if", ""))
                 for other in derived_peers():
@@ -94,7 +98,7 @@ class PeersAreDerived(unittest.TestCase):
                                         for n in needs(job) if n in between) or "== 'failure'" in condition,
                                     f"{job} may run after a peer failed")
             self.assertTrue(any(peer in needs(j) or ancestors(j) & {peer} for j in
-                                ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback")))
+                                ("prepare-nightly-variant-primary", "prepare-nightly-variant")))
 
 
 class StepsAreWired(unittest.TestCase):
@@ -136,6 +140,22 @@ class StepsAreWired(unittest.TestCase):
         self.assertEqual({k: v for k, v in retry["with"].items() if k != "overwrite"},
                          {k: v for k, v in first["with"].items()})
         self.assertEqual(retry["uses"], first["uses"])
+
+    def test_tail_uploads_send_blocks_in_parallel(self):
+        # The signers wait on this job's end: the app and dSYM uploads send 32 blocks at a
+        # time, not upload-artifact's default 5 (92-211 s and 34-108 s at 5).
+        for name in ("Upload unsigned nightly app", "Upload unsigned nightly app (retry)",
+                     "Keep the nightly-next dSYMs for publication"):
+            with self.subTest(step=name):
+                self.assertEqual(self.steps[self.index(name)]["env"]["ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY"], "32")
+
+    def test_prepared_app_upload_sends_blocks_in_parallel(self):
+        # Signing waits on the preparation's end; both legs share the upload step (65-156 s at 5 on a Mac).
+        for job in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
+            with self.subTest(job=job):
+                step = next(s for s in JOBS[job]["steps"] if s.get("name") == "Upload prepared app for signing")
+                self.assertEqual(step["env"]["ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY"], "32")
+                self.assertEqual(step["with"]["compression-level"], 0)
 
 
 class CheckBehaviour(unittest.TestCase):

@@ -36,6 +36,18 @@ struct CloudLegacyMachineUpdateTests {
         #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
     }
 
+    /// A tree-mode DEV build pins the commit that published its cmux-tui tree, an earlier one than
+    /// its own: the machine then reports that commit, and the update is still a success.
+    @Test func anExecUpdateToTheTreesPublishingCommitIsAnUpdate() async throws {
+        let tree = String(repeating: "e", count: 40)
+        let machine = FakeCloudMachine(build: CloudMachineUpdateTargetTests.older, level: .limited, answers: [Self.unsupported],
+                                       legacy: [CloudMoveCLI.Answer(ok: true, updated: true, build: tree)])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+        #expect(fixture.states == [.updating, .updated(build: tree)])
+    }
+
     /// A CLI answer that names no build: no build to hold the exec update to, so it does not run
     /// (a newer machine must never be moved back); the machine stays "cannot update".
     @Test func anUnsupportedAnswerWithoutItsBuildRunsNoExecUpdate() async throws {
@@ -141,15 +153,15 @@ struct CloudLegacyMachineUpdateTests {
 
     /// The exec path runs only for the build this app pins: another build's manifest is not this
     /// app's to install.
-    @Test func theExecPathRunsOnlyForThePinnedBuild() throws {
+    @Test func theExecPathRunsOnlyForThePinnedBuild() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-build-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         try FileManager.default.createDirectory(at: folder.appendingPathComponent("cmux-tui-ssh"), withIntermediateDirectories: true)
         let manifest = #"{"commit":"\#(Self.pin.commit)","binaries":{"cmux-tui-x86_64-unknown-linux-musl":"\#(Self.pin.sha256)"}}"#
         try Data(manifest.utf8).write(to: folder.appendingPathComponent("cmux-tui-ssh/manifest.json"))
         let cli = folder.appendingPathComponent("cmux")
-        #expect(CloudLegacyMachineUpdate.pin(for: String(Self.pin.commit.prefix(12)), besideCLI: cli) == Self.pin)
-        #expect(CloudLegacyMachineUpdate.pin(for: String(repeating: "c", count: 12), besideCLI: cli) == nil)
+        #expect(await CloudLegacyPin.pin(for: String(Self.pin.commit.prefix(12)), besideCLI: cli, ask: { nil }) == Self.pin)
+        #expect(await CloudLegacyPin.pin(for: String(repeating: "c", count: 12), besideCLI: cli, ask: { nil }) == nil)
     }
 
     /// The start and wait commands run for real under /bin/sh, with stand-ins for sudo, systemd
@@ -226,16 +238,37 @@ struct CloudLegacyMachineUpdateTests {
     @Test func thePinComesFromTheBundledManifestOnly() throws {
         let sha = String(repeating: "C", count: 64)
         let good = Data(#"{"commit":"\#(String(repeating: "d", count: 40))","binaries":{"cmux-tui-x86_64-unknown-linux-musl":"\#(sha)","cmux-tui-aarch64-unknown-linux-musl":"x"}}"#.utf8)
-        #expect(CloudLegacyMachineUpdate.pin(manifest: good) == CloudLegacyMachineUpdate.Pin(commit: String(repeating: "d", count: 40), sha256: sha.lowercased()))
-        #expect(CloudLegacyMachineUpdate.pin(manifest: Data(#"{"commit":"d; rm -rf /","binaries":{"cmux-tui-x86_64-unknown-linux-musl":"\#(sha)"}}"#.utf8)) == nil)
-        #expect(CloudLegacyMachineUpdate.pin(manifest: Data(#"{"commit":"\#(String(repeating: "d", count: 40))","binaries":{}}"#.utf8)) == nil)
+        #expect(CloudLegacyPin.pin(manifest: good) == CloudLegacyMachineUpdate.Pin(commit: String(repeating: "d", count: 40), sha256: sha.lowercased()))
+        #expect(CloudLegacyPin.pin(manifest: Data(#"{"commit":"d; rm -rf /","binaries":{"cmux-tui-x86_64-unknown-linux-musl":"\#(sha)"}}"#.utf8)) == nil)
+        #expect(CloudLegacyPin.pin(manifest: Data(#"{"commit":"\#(String(repeating: "d", count: 40))","binaries":{}}"#.utf8)) == nil)
 
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-pin-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         try FileManager.default.createDirectory(at: folder.appendingPathComponent("cmux-tui-ssh"), withIntermediateDirectories: true)
         try good.write(to: folder.appendingPathComponent("cmux-tui-ssh/manifest.json"))
-        #expect(CloudLegacyMachineUpdate.pin(besideCLI: folder.appendingPathComponent("cmux"))?.sha256 == sha.lowercased())
-        #expect(CloudLegacyMachineUpdate.pin(besideCLI: folder.appendingPathComponent("missing/cmux")) == nil, "a dev build has no pin")
+        #expect(CloudLegacyPin.pin(besideCLI: folder.appendingPathComponent("cmux"))?.sha256 == sha.lowercased())
+        #expect(CloudLegacyPin.pin(besideCLI: folder.appendingPathComponent("missing/cmux")) == nil, "a dev build has no pin")
+    }
+
+    /// A DEV build ships no manifest: `cmux link machine pin` names the pin of its own commit or
+    /// cmux-tui tree, taken even when that is an earlier commit than the app's (the tree's
+    /// publishing commit). Anything but a well-formed ok line for the Cloud target is none.
+    @Test func aDevBuildTakesThePinItsCLINames() async throws {
+        let (commit, sha) = (String(repeating: "e", count: 40), String(repeating: "f", count: 64))
+        let line = { (ok: Bool, commit: String, sha: String, target: String) in
+            Data(#"{"ok":\#(ok),"commit":"\#(commit)","sha256":"\#(sha)","target":"\#(target)"}"#.utf8)
+        }
+        let good = line(true, commit, sha, "x86_64-unknown-linux-musl")
+        #expect(CloudLegacyPin.pin(answer: Data("noise\n".utf8) + good + Data("\n".utf8)) == CloudLegacyPin(commit: commit, sha256: sha))
+        #expect(CloudLegacyPin.pin(answer: line(false, commit, sha, "x86_64-unknown-linux-musl")) == nil)
+        #expect(CloudLegacyPin.pin(answer: line(true, commit, sha, "aarch64-unknown-linux-musl")) == nil)
+        #expect(CloudLegacyPin.pin(answer: line(true, "e; rm -rf /", sha, "x86_64-unknown-linux-musl")) == nil)
+        #expect(CloudLegacyPin.pin(answer: line(true, commit, sha.uppercased(), "x86_64-unknown-linux-musl")) == nil)
+        #expect(CloudLegacyPin.pin(answer: Data(#"{"ok":false,"error_code":"machine_update_unavailable","error":"none"}"#.utf8)) == nil)
+
+        let cli = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-dev-\(UUID().uuidString)/cmux")
+        #expect(await CloudLegacyPin.pin(for: String(repeating: "1", count: 40), besideCLI: cli, ask: { good }) == CloudLegacyPin(commit: commit, sha256: sha))
+        #expect(await CloudLegacyPin.pin(for: String(repeating: "1", count: 40), besideCLI: cli, ask: { nil }) == nil)
     }
 
     /// The app runs the fleet's own guest script, byte for byte (web/tests checks the other side).

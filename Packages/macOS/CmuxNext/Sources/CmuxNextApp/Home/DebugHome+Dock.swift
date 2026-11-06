@@ -49,9 +49,20 @@ extension DebugHome {
     #endif
 
     /// `debug.home.drive {action: list, op: pin | unpin | unread | read, conversation}`: the docked Messages list's menu handlers.
+    /// `op: menu` answers the row's context-menu titles and, given `item`, performs that item through its
+    /// menu (`performActionForItem`, the click path), for a test window that never becomes key.
     static func driveDockList(_ params: [String: JSONValue], services: AppServices) -> CmuxNextSettings.JSONValue {
         let fail = { (why: String) in CmuxNextSettings.JSONValue.object(["ok": .bool(false), "error": .string(why)]) }
         guard let list = HomeDockTab.view(services)?.messages?.list, let id = params["conversation"]?.stringValue else { return fail("no docked Messages list, or no conversation") }
+        if params["op"]?.stringValue == "menu" {
+            let menu = NSMenu()
+            list.menuItems(ConversationID(id)).forEach(menu.addItem)
+            let titles = menu.items.map { CmuxNextSettings.JSONValue.string($0.title) }
+            guard let title = params["item"]?.stringValue else { return .object(["ok": .bool(true), "items": .array(titles)]) }
+            guard let index = menu.items.firstIndex(where: { $0.title == title }) else { return fail("no menu item \(title)") }
+            menu.performActionForItem(at: index)
+            return .object(["ok": .bool(true), "items": .array(titles), "performed": .string(title)])
+        }
         let ops: [String: (ConversationID) -> Void] = ["pin": { list.onSetPinned(true, $0) }, "unpin": { list.onSetPinned(false, $0) },
                                                        "unread": list.onMarkUnread, "read": list.onMarkRead]
         guard let op = params["op"]?.stringValue.flatMap({ ops[$0] }) else { return fail("op must be pin, unpin, unread or read") }

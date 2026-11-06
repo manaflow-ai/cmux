@@ -24,7 +24,7 @@ fn scratch(tag: &str) -> PathBuf {
 
 fn daemon(scratch: &Path, home: &Path, socket: &Path) -> std::process::Command {
     let mut cmd = daemon_env::acpmux(scratch);
-    cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+    cmd.args(["daemon", "run", "--memory", "--log", "warn"])
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", socket)
         .stdin(Stdio::null());
@@ -32,8 +32,12 @@ fn daemon(scratch: &Path, home: &Path, socket: &Path) -> std::process::Command {
 }
 
 fn start(scratch: &Path, home: &Path, socket: &Path) -> Child {
-    let mut child =
-        daemon(scratch, home, socket).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+    let mut child = daemon(scratch, home, socket)
+        .args(["--ready-fd", "1"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
     let stdout = child.stdout.take().unwrap();
     for line in BufReader::new(stdout).lines() {
         if serde_json::from_str::<Value>(&line.unwrap()).is_ok_and(|v| v["ready"] == true) {

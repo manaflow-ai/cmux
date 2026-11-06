@@ -25,6 +25,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { BUBBLE } from "../src/agent-session/acpmux/transcriptSpacing";
 
 await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -173,27 +174,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   /// view must follow what is drawn, not an estimate a later frame takes back (cx-next-ghostty-config).
   const LOADED = 6;
 
-  async function open(
-    chat: Chat,
-    width: number,
-    height = 700,
-    loaded = false,
-    foldThoughts = false,
-    attributes: Record<string, string> = {},
-  ): Promise<Page> {
+  async function open(chat: Chat, width: number, height = 700, loaded = false): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width, height } });
     await installPaintedFrames(page);
-    // The Debug tunables (agentPane.debug.foldLongThoughts and the others), as the app sets them on
-    // <html>: the fold is on unless the app sets it off.
-    const set = { ...(!foldThoughts && { "data-fold-long-thoughts": "off" }), ...attributes };
-    if (Object.keys(set).length)
-      await page.addInitScript((names: Record<string, string>) => {
-        const apply = () => {
-          for (const [name, value] of Object.entries(names)) document.documentElement.setAttribute(name, value);
-        };
-        if (document.documentElement) apply();
-        else document.addEventListener("readystatechange", apply, { once: true });
-      }, set);
     if (loaded)
       await (await page.context().newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: LOADED });
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -254,46 +237,53 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     glides: number;
   };
   /// Reads every painted frame until `stop`.
-  const watch = (page: Page, text?: string) =>
-    page.evaluate((text) => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const sample = () => {
-        const view = scroller.getBoundingClientRect();
-        // The view's foot: the top of the bottom stack lying over the transcript, else its bottom.
-        const stack = document.querySelector(".acpmux-main[data-dock=float] > .acpmux-dock");
-        const foot = stack ? stack.getBoundingClientRect().top : view.bottom;
-        const thread = document.querySelector<HTMLElement>(".acpmux-thread");
-        const lines = [...scroller.querySelectorAll("p")];
-        const holds = (node: Element) => node.textContent?.includes(text!) ?? false;
-        const row = text
-          ? ([...scroller.querySelectorAll("button[aria-expanded]")].find(holds) ??
-            [...scroller.querySelectorAll(".acpmux-row")].find(holds))
-          : undefined;
-        return {
-          fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
-          scrollTop: Math.round(scroller.scrollTop),
-          lastLine: Math.round(foot - (lines.at(-1)?.getBoundingClientRect().bottom ?? foot)),
-          top: row ? Math.round(row.getBoundingClientRect().top) : null,
-          glides: thread?.getAnimations().length ?? 0,
+  /// `selector`: watch the first node it names instead of the one that holds `text` (a thought's
+  /// button reads its words while closed and "Thought" while open).
+  const watch = (page: Page, text?: string, selector?: string) =>
+    page.evaluate(
+      ([text, selector]) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const sample = () => {
+          const view = scroller.getBoundingClientRect();
+          // The view's foot: the top of the bottom stack lying over the transcript, else its bottom.
+          const stack = document.querySelector(".acpmux-main[data-dock=float] > .acpmux-dock");
+          const foot = stack ? stack.getBoundingClientRect().top : view.bottom;
+          const thread = document.querySelector<HTMLElement>(".acpmux-thread");
+          const lines = [...scroller.querySelectorAll("p")];
+          const holds = (node: Element) => node.textContent?.includes(text!) ?? false;
+          const row = selector
+            ? (scroller.querySelector(selector) ?? undefined)
+            : text
+              ? ([...scroller.querySelectorAll("button[aria-expanded]")].find(holds) ??
+                [...scroller.querySelectorAll(".acpmux-row")].find(holds))
+              : undefined;
+          return {
+            fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
+            scrollTop: Math.round(scroller.scrollTop),
+            lastLine: Math.round(foot - (lines.at(-1)?.getBoundingClientRect().bottom ?? foot)),
+            top: row ? Math.round(row.getBoundingClientRect().top) : null,
+            glides: thread?.getAnimations().length ?? 0,
+          };
         };
-      };
-      const frames: unknown[] = [];
-      (window as any).__frames = frames;
-      // A frame paints at the viewport its animation frame saw: the rendering steps apply a
-      // resize before that callback, and no task runs between it and the paint. A resize that
-      // lands after it is read here by a forced layout the page never painted (the rows rewrapped,
-      // not yet placed), so that read is not a frame.
-      let painted = "";
-      window.cmuxAfterPaint(
-        () => {
-          if ((window as any).__frames !== frames) return false;
-          if (`${innerWidth}x${innerHeight}` === painted) frames.push(sample());
-        },
-        () => {
-          painted = `${innerWidth}x${innerHeight}`;
-        },
-      );
-    }, text);
+        const frames: unknown[] = [];
+        (window as any).__frames = frames;
+        // A frame paints at the viewport its animation frame saw: the rendering steps apply a
+        // resize before that callback, and no task runs between it and the paint. A resize that
+        // lands after it is read here by a forced layout the page never painted (the rows rewrapped,
+        // not yet placed), so that read is not a frame.
+        let painted = "";
+        window.cmuxAfterPaint(
+          () => {
+            if ((window as any).__frames !== frames) return false;
+            if (`${innerWidth}x${innerHeight}` === painted) frames.push(sample());
+          },
+          () => {
+            painted = `${innerWidth}x${innerHeight}`;
+          },
+        );
+      },
+      [text, selector] as const,
+    );
   const stop = async (page: Page): Promise<Frame[]> => {
     // The frames run on until the last animation has played out and the view holds still.
     await settle(page);
@@ -370,7 +360,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
 
   test("the transcript and the composer share one column, inset by the page edge, wider in wide panes", async () => {
     const chat = newChat();
-    const columns: Record<number, { main: number; row: number[]; composer: number[] }> = {};
+    const columns: Record<number, { main: number; row: number[]; composer: number[]; edge: number }> = {};
     for (const width of [480, 900, 1400, 1900]) {
       const page = await open(chat, width);
       columns[width] = await page.evaluate(() => {
@@ -379,15 +369,25 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
           const box = document.querySelector(selector)!.getBoundingClientRect();
           return [Math.round(box.left - main.left), Math.round(main.right - box.right)];
         };
+        // The column's minimum edge as the pane draws it (conversation.css --cv-edge, the grid's 16).
+        const probe = document.createElement("div");
+        probe.style.cssText = "position:absolute;visibility:hidden;width:var(--cv-edge)";
+        document.querySelector(".acpmux-main")!.append(probe);
+        const edge = Math.round(probe.getBoundingClientRect().width);
+        probe.remove();
         return {
           main: Math.round(main.width),
           row: edges(".acpmux-row.acpmux-assistant"),
           composer: edges(".acpmux-composer-box"),
+          edge,
         };
       });
       await page.close();
     }
-    const pageEdge = 18;
+    // The minimum edge is the grid's 16 (leo-workspace design/grid.md 5.5: "the minimum edge is 16
+    // (today's 18 moves to it)"; #27580 set --cv-edge to it), read from the pane's own token.
+    const pageEdge = columns[480]!.edge;
+    expect(pageEdge).toBe(16);
     const column = (viewport: number) => {
       const { main, row } = columns[viewport]!;
       return main - row[0]! - row[1]!;
@@ -549,9 +549,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     // Tinted glass (Leo 2026-10-20): the window shows through, but the tint is there.
     expect(bubble.alpha).toBeGreaterThan(0);
     expect(bubble.alpha).toBeLessThan(255);
-    expect(bubble.radius).toBeLessThanOrEqual(12);
-    expect(bubble.left).toBeGreaterThanOrEqual(10);
-    expect(bubble.left).toBeLessThanOrEqual(12);
+    expect(bubble.radius).toBeLessThanOrEqual(BUBBLE.radius);
+    // 16 at the sides, as ChatGPT and Claude (design/transcript-spacing.md "Prompt bubble").
+    expect(bubble.left).toBeGreaterThanOrEqual(BUBBLE.paddingInline - 2);
+    expect(bubble.left).toBeLessThanOrEqual(BUBBLE.paddingInline);
     expect(Math.abs(bubble.top - bubble.left)).toBeLessThanOrEqual(2);
     expect(Math.abs(bubble.bottom - bubble.left)).toBeLessThanOrEqual(2);
     expect(bubble.right).toBe(0);
@@ -594,19 +595,23 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await page.close();
   });
 
-  // A long thought folds once done, behind the Debug toggle agentPane.debug.foldLongThoughts
-  // (conversation/ThoughtRow.tsx): only what is below it moves, so the rows above it stay put.
+  // A long thought folds once done (conversation/ThoughtRow.tsx): only what is below it moves, so the rows above it stay put.
   const THOUGHT = Array.from({ length: 60 }, (_, index) => `Step ${index + 1}: check the retry path.`).join("\n");
-  const thoughtToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "Thought" });
+  // Closed, a thought's button reads its words (Codex parity); open, "Thought".
+  const thoughtToggle = (page: Page) => page.locator("button.cv-thought[aria-expanded]");
 
   test("a long thought streams, then folds when the next step starts without moving the rows above it", async () => {
     const chat = newChat();
     thinks(chat, THOUGHT);
-    const page = await open(chat, 900, 700, false, true);
+    const page = await open(chat, 900);
     // Streaming: the Codex-style turn (Debug toggle agentPane.debug.codexToolRuns, on by default)
-    // draws no row for the thought yet; the turn's live line at its foot says "Thinking"
-    // (Thinking.tsx), with nothing to open.
-    await page.locator(".cv-worked.is-below .cv-thinking", { hasText: "Thinking" }).waitFor();
+    // draws no row for the thought yet; the turn's live line at its foot says one of the default
+    // The default status mode is Thinking only, with nothing to open.
+    await page
+      .locator(".cv-worked.is-below .cv-thinking", {
+        hasText: /^Thinking/,
+      })
+      .waitFor();
     expect(await page.getByText("Step 60: check the retry path.", { exact: false }).count()).toBe(0);
     expect(await thoughtToggle(page).count()).toBe(0);
     await page.locator(".acpmux-scroll").hover();
@@ -632,12 +637,12 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   });
 
   test("opening and closing a folded thought keeps its line under the pointer", async () => {
-    const page = await open(newChat(THOUGHT), 900, 700, false, true);
+    const page = await open(newChat(THOUGHT), 900);
     await toStart(page);
     const toggle = thoughtToggle(page);
     await toggle.waitFor();
     expect(await toggle.getAttribute("aria-expanded")).toBe("false");
-    await watch(page, "Thought");
+    await watch(page, undefined, "button.cv-thought");
     await toggle.click();
     await page.getByText("Step 60: check the retry path.", { exact: false }).waitFor({ state: "attached" });
     await settle(page);
@@ -650,14 +655,13 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await page.close();
   });
 
-  // While it streams, a long thought holds Codex's seven-line viewport with its newest line in view
-  // (Debug toggle agentPane.debug.liveThoughtViewport, on by default). Only a turn drawn without the
-  // Codex-style runs shows a thought while it streams (the test above), so these push
-  // agentPane.debug.codexToolRuns off with the theme, as the app sends it.
-  const liveThought = async (attributes: Record<string, string> = {}) => {
+  // While it streams, a long thought holds Codex's seven-line viewport with its newest line in view.
+  // Only a turn drawn without the Codex-style runs shows a thought while it streams (the test
+  // above), so this pushes agentPane.debug.codexToolRuns off with the theme, as the app sends it.
+  const liveThought = async () => {
     const chat = newChat();
     thinks(chat, THOUGHT);
-    const page = await open(chat, 900, 700, false, true, attributes);
+    const page = await open(chat, 900);
     await page.evaluate(() => window.cmuxAcpmuxBridge!.applyTheme({ isDark: false, codexToolRuns: false }));
     const text = page.locator(".cv-thought__text");
     await text.waitFor({ state: "attached" });
@@ -688,21 +692,6 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       };
     });
     expect(seen).toEqual({ height: 140, lastInView: true, firstOut: true });
-    await page.close();
-  });
-
-  test("with the live viewport off, a long live thought streams in full", async () => {
-    const { page, text } = await liveThought({ "data-live-thought-viewport": "off" });
-    expect(await page.locator(".cv-thought.is-live").count()).toBe(0);
-    expect(await text.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(600);
-    await page.close();
-  });
-
-  test("with the Debug toggle off, a long thought stays in full once done", async () => {
-    const page = await open(newChat(THOUGHT), 900);
-    await toStart(page);
-    await page.getByText("Step 60: check the retry path.", { exact: false }).waitFor({ state: "attached" });
-    expect(await thoughtToggle(page).count()).toBe(0);
     await page.close();
   });
 });

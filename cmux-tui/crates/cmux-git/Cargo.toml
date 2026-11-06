@@ -12,6 +12,11 @@ workspace = true
 
 [dependencies]
 wait-timeout.workspace = true
+sha2.workspace = true
+serde_json.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

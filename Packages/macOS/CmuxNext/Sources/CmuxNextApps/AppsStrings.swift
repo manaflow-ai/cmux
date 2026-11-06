@@ -7,6 +7,10 @@ nonisolated enum AppsStrings {
     }
 
     static var windowTitle: String { t("store.window.title", "App Store") }
+    /// An app mount failed and the supervisor gave no reason.
+    static var mountFailed: String { t("apps.mount.failed", "The app could not start") }
+    /// The second line of an app's toast detail (`cmux.toast`): the app that showed it.
+    static func toastSource(_ app: String) -> String { String(format: t("apps.toast.source", "From %@"), app) }
     static var discover: String { t("store.tab.discover", "Discover") }
     static var installed: String { t("store.tab.installed", "Installed") }
     static var features: String { t("store.tab.features", "Features") }
@@ -44,12 +48,12 @@ nonisolated enum AppsStrings {
     static func unknownApp(_ id: String) -> String { String(format: t("apps.client.unknownApp", "No app %@"), id) }
     static var unavailableHelp: String { t("apps.store.disconnected.help", "Nothing can change until then.") }
 
-    private static var notConnected: String { t("apps.store.disconnected.notConnected", "cmux-tui is not connected") }
+    private static var notConnected: String { t("apps.store.disconnected.notConnected", "This machine isn't connected") }
 
     /// Why the app supervisor cannot be reached (store banner, app sections).
     static func unavailable(_ reason: AppsUnavailableReason) -> String {
         switch reason {
-        case .needsNewerDaemon: t("apps.store.disconnected.needsNewer", "Needs a newer cmux-tui")
+        case .needsNewerDaemon: t("apps.store.disconnected.needsNewer", "Needs a newer cmux")
         case .notConnected: notConnected
         case .notReady(let cause): "\(notConnected): \(cause)"
         case .turnedOff(let reason): reason

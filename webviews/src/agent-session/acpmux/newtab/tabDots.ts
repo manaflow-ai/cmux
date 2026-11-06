@@ -31,11 +31,12 @@ export function shownDot(look: ComposerLook, actions: boolean): NewTabDot {
   return actions ? "claudeActions" : "claude";
 }
 
-/// A dot's name, over it while pointed at and its radio's: "Claude Minimal", "Claude + Quick
-/// Actions", "Codex Minimal" (the product names are never translated; Minimal and Quick Actions are
+/// A dot's name, over it while pointed at and its radio's: "Claude Minimal", "Claude Minimal +
+/// Quick Actions", "Codex Minimal" (the product names are never translated; Minimal and Quick Actions are
 /// the page's own words).
 export function dotName(dot: NewTabDot, nt: NewTabTranslate): string {
-  if (dot === "claudeActions") return `${COMPOSER_LOOK_NAMES.claude} + ${nt("widget.actions")}`;
+  if (dot === "claudeActions")
+    return `${COMPOSER_LOOK_NAMES.claude} ${nt("template.minimal")} + ${nt("widget.actions")}`;
   return `${COMPOSER_LOOK_NAMES[DOT_STATES[dot].look]} ${nt("template.minimal")}`;
 }
 

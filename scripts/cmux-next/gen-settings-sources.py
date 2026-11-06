@@ -176,10 +176,24 @@ SECTIONS = [
         "enums": {"sessions.keepAwake": "SessionKeepAwakeSetting", "phone.keepAwake": "PhoneKeepAwakeSetting"},
     },
     {
+        "source": "schemas/settings/source/agent-retry.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentRetry.generated.swift",
+        "type": "AgentRetrySettingsSchema",
+        "lists": {"agentRetry": ("descriptors", "AgentRetrySettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/subsessions.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Subsessions.generated.swift",
         "type": "SubsessionSettingsSchema",
         "lists": {"subsessions": ("descriptors", "SubsessionSettings")},
+        "enums": {},
+    },
+    {
+        "source": "schemas/settings/source/agent-guidance.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentGuidance.generated.swift",
+        "type": "AgentGuidanceSettingsSchema",
+        "lists": {"agentGuidance": ("descriptors", "AgentGuidanceSettings")},
         "enums": {},
     },
     {
@@ -201,7 +215,7 @@ SECTIONS = [
         "swift": SCHEMA_DIR + "/SettingsSchema+WorkspaceHibernation.generated.swift",
         "type": "WorkspaceHibernationSettingsSchema",
         "lists": {"hibernation": ("descriptors", "WorkspaceHibernationSettings")},
-        "enums": {},
+        "enums": {"workspaces.freeing.runningCommands": "WorkspaceFreeingRunningCommandsSetting"},
     },
     {
         "source": "schemas/settings/source/feed.json",
@@ -214,7 +228,7 @@ SECTIONS = [
 SYMBOL = __import__("re").compile(r"^[a-z0-9]+(\.[a-z0-9]+)*$")
 UNITS = {"points", "milliseconds", "seconds", "minutes", "days", "count", "fraction"}
 ROW_FIELDS = {"key", "name", "note", "title", "help", "summary", "kind", "choices", "range", "default",
-              "default_label", "aliases", "keywords"}
+              "default_label", "aliases", "keywords", "placeholder"}
 IDENT = __import__("re").compile(r"^[a-z][A-Za-z0-9]*$")
 
 
@@ -346,7 +360,7 @@ def load_section(section, seen_keys, section_ids):
             row["_name"] = name
             check_note(src, key, row.get("note"))
             check_text(src, key + ".title", row.get("title"))
-            for field in ("help", "summary", "default_label"):
+            for field in ("help", "summary", "default_label", "placeholder"):
                 check_text(src, key + "." + field, row.get(field), optional=True)
             kind, default = row.get("kind"), row.get("default")
             if kind == "toggle":
@@ -501,6 +515,9 @@ def section_swift(section, data):
             if row.get("default_label"):
                 args.append("defaultLabel: " + keyed(row["default_label"]))
             args.append("keywords: [%s]" % ", ".join(swift_string(k) for k in row.get("keywords", [])))
+            if row.get("placeholder"):
+                # What the row's empty list field shows (SettingDescriptor.placeholder).
+                args.append("placeholder: " + keyed(row["placeholder"]))
             out.append("            SettingDescriptor(")
             out.append("                " + ",\n                ".join(args))
             out.append("            ),")

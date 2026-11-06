@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import Testing
 
 /// The TextBox composer (inventory row 23): a multi-line input under a terminal. Return sends its
@@ -9,7 +10,7 @@ import Testing
 ///
 /// Needs only `TerminalSession` (no App build); the App's side (the actions are bound, the key
 /// context) is `TextBoxActionTests` in CmuxNextAppTests.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct TextBoxComposerTests {
     /// What a submit sent to the terminal, in order.
     @MainActor final class RecordingSink: TextBoxSink {

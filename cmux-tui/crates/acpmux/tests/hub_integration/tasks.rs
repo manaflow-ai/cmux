@@ -452,6 +452,7 @@ async fn move_chat(src: &mut Client, dst: &mut Client, id: &str) {
         src.call("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true})).await;
     let received = dst.call("_acpmux/transfer_receive", json!({"manifest": begin})).await;
     let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    let epoch = begin["epoch"].as_u64().unwrap_or(0);
     for file in begin["files"].as_array().unwrap() {
         let path = file["path"].as_str().unwrap();
         let mut offset = 0u64;
@@ -459,10 +460,10 @@ async fn move_chat(src: &mut Client, dst: &mut Client, id: &str) {
             let part = src
                 .call(
                     "_acpmux/transfer_read",
-                    json!({"transferId": begin["transferId"], "path": path, "offset": offset, "limit": 65536}),
+                    json!({"transferId": begin["transferId"], "path": path, "offset": offset, "limit": 65536, "epoch": epoch}),
                 )
                 .await;
-            let write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"]});
+            let write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"], "epoch": epoch});
             dst.call("_acpmux/transfer_write", write).await;
             offset = part["next"].as_u64().unwrap();
             if part["eof"] == true {
@@ -470,10 +471,10 @@ async fn move_chat(src: &mut Client, dst: &mut Client, id: &str) {
             }
         }
     }
-    let moved = dst.call("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await;
+    let moved =
+        dst.call("_acpmux/transfer_finish", json!({"receiveId": receive_id, "epoch": epoch})).await;
     assert_eq!(moved["sessionId"], id, "{moved}");
-    let commit =
-        json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}});
+    let commit = json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}, "epoch": epoch});
     src.call("_acpmux/transfer_commit", commit).await;
 }
 
@@ -685,4 +686,47 @@ async fn a_lane_whose_moves_cannot_be_read_is_not_orphaned_on_a_guess() {
     let task = listed["tasks"].as_array().unwrap().iter().find(|t| t["taskId"] == id.as_str());
     let task = task.unwrap_or_else(|| panic!("{listed}"));
     assert_eq!(task["status"], "running", "{task}");
+}
+
+/// A lane's result card is that lane's message, of class `result` (`prompt_class.rs`): its queue
+/// row behind a turn of the giver's says both, as a lane's report does (`hub/lane_reports.rs`).
+#[tokio::test]
+async fn a_result_card_is_the_lanes_message_and_a_result() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let giver = person.new_session().await;
+    let lane = person.new_session().await;
+    let worker = hub.resolve(&lane).unwrap().meta().name;
+    let mut from_giver = Client::in_session(&hub, &giver).await;
+    let given =
+        from_giver.call("_acpmux/task_new", json!({"sessionId": lane, "title": "Land #1"})).await;
+    let id = given["task"]["taskId"].as_str().unwrap().to_owned();
+    person.prompts(&lane, &format!("task-{id}"), 1).await;
+
+    // The giver busy with a turn of its own, so the card waits in its queue.
+    let busy = json!({"sessionId": giver, "prompt": [{"type": "text", "text": "until-cancel"}],
+                      "_meta": {"acpmux": {"promptId": "busy-1"}}});
+    person.0.send(Message::request(9_999, "session/prompt", busy).to_line()).await.unwrap();
+    person.prompts(&giver, "busy-1", 1).await;
+    let mut from_lane = Client::in_session(&hub, &lane).await;
+    let done = json!({"briefId": id, "status": "done", "summary": "Merged"});
+    from_lane.call("_acpmux/report", done).await;
+
+    let card = format!("task-result-{id}");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let row = loop {
+        let attached = person.call("_acpmux/attach", json!({"sessionId": giver, "limit": 0})).await;
+        let rows = attached["session"]["queue"].as_array().cloned().unwrap_or_default();
+        let row =
+            rows.into_iter().find(|q| q["promptId"].as_str().is_some_and(|p| p.starts_with(&card)));
+        if let Some(row) = row {
+            break row;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "the card never queued: {attached}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(row["fromAgent"], worker.as_str(), "{row}");
+    assert_eq!(row["class"], "result", "{row}");
+    let cancel = Message::notification("session/cancel", json!({"sessionId": giver}));
+    person.0.send(cancel.to_line()).await.unwrap();
 }

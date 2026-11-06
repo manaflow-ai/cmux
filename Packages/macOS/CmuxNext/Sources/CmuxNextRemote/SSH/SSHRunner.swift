@@ -7,6 +7,11 @@ public struct SSHProcessResult: Sendable {
     public var status: Int32
     public var stdout: String
     public var stderr: String
+
+    /// The last line of `stderr` (what a failed remote command said last), or nil when it is empty.
+    public var lastStderrLine: String? {
+        stderr.split(separator: "\n").last.map(String.init)
+    }
 }
 
 /// Runs one short process to completion: an ssh with a script on stdin (the
@@ -46,6 +51,11 @@ public struct SSHProcessRunner {
             let pipe = Pipe()
             inputPipe = pipe
             process.standardInput = pipe
+        }
+        if let inputPipe {
+            // A remote command can close stdin while the caller is still writing. Handle EPIPE
+            // in the writer instead of allowing SIGPIPE to terminate the app.
+            _ = fcntl(inputPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         }
         let output = Mutex(Output())
         let stdoutEnded = ExitLatch()

@@ -8223,6 +8223,24 @@
     },
     {
       "entry": {
+        "actionID": "palette.newAgentChatOn",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:palette.newAgentChatOn",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": ["agent", "chat", "new", "host", "machine", "peer", "cloud", "remote"],
+        "rankBias": 0,
+        "sectionIndex": 9,
+        "title": "New Agent Chat on…",
+        "typingSectionIndex": 16
+      },
+      "id": "action:palette.newAgentChatOn"
+    },
+    {
+      "entry": {
         "actionID": "agentPane.toggleInspector",
         "demoted": false,
         "entersScope": false,
@@ -11260,7 +11278,7 @@
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": true,
-        "keywords": ["scrollbar", "column", "strip", "minimap"],
+        "keywords": ["scrollbar", "column", "strip", "visible range", "overview"],
         "rankBias": 0,
         "sectionIndex": 12,
         "title": "Toggle Column Scroll Bar",
@@ -13381,7 +13399,17 @@
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": false,
-        "keywords": ["scroll", "scrollbar", "minimap", "layout.stripScrollbar", "General", "Columns", "setting"],
+        "keywords": [
+          "scroll",
+          "scrollbar",
+          "column",
+          "visible range",
+          "overview",
+          "layout.stripScrollbar",
+          "General",
+          "Columns",
+          "setting"
+        ],
         "rankBias": 0,
         "sectionIndex": 15,
         "subtitle": "Columns",

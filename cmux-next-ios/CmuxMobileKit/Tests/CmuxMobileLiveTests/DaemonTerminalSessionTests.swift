@@ -42,6 +42,14 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var afterAttach: String? = "\u{1B}[?1049hTUI"
     /// `send` is recorded but never answered (its reply lost on the way).
     var unansweredSends = false
+    /// `identify` advertises attach-replay-history-rows-v1: an attach with
+    /// `replay_history_rows` gets a replay of the screen and that many of
+    /// the newest of `historyRows` rows, and `history_rows_omitted`.
+    var tailReplay = false
+    /// The Mac terminal's history rows above its screen (tail replays).
+    var historyRows = 0
+    /// The lane refuses `replay_history_rows` (a Mac app older than its daemon).
+    var laneRefusesHistoryRows = false
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
@@ -60,9 +68,12 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         switch cmd {
         case "send" where lock.withLock({ unansweredSends }):
             return []
-        case "identify" where initialSize || sizeLease || sharedSizing:
+        case "identify" where initialSize || sizeLease || sharedSizing || tailReplay:
             return [reply(["capabilities": (initialSize ? ["attach-initial-size"] : []) + (sizeLease ? ["size-lease-v1"] : [])
-                    + (sharedSizing ? ["shared-sizing-v1", "host-size-policy-v1"] : [])])]
+                    + (sharedSizing ? ["shared-sizing-v1", "host-size-policy-v1"] : [])
+                    + (tailReplay ? ["attach-replay-history-rows-v1"] : [])])]
+        case "attach-surface" where object["replay_history_rows"] != nil && lock.withLock({ laneRefusesHistoryRows }):
+            return [Self.line(["id": id, "ok": false, "error": "attach-surface does not take replay_history_rows from a phone"])]
         case "get-host-size-policy":
             return [reply(["policy": lock.withLock { hostPolicy }, "mac_participants": object["surface"] == nil ? [String]() : ["c1"]])]
         case "set-host-size-policy":
@@ -119,9 +130,16 @@ final class FakeTerminalDaemon: @unchecked Sendable {
                  "participants": [["id": "c1", "device_kind": "mac", "viewport": ["cols": 80, "rows": 24], "counts": true],
                                   ["id": "c2", "device_kind": "iphone", "device_id": "ios-1", "viewport": ["cols": 80, "rows": 30], "counts": true]]]
             }
+            var state: [String: Any] = ["event": "vt-state", "surface": live, "cols": 80, "rows": 24,
+                                        "data": Data(replay.utf8).base64EncodedString()]
+            if let allowance = object["replay_history_rows"] as? Int, lock.withLock({ tailReplay }) {
+                let history = lock.withLock { historyRows }
+                let kept = min(history, allowance)
+                state["history_rows_omitted"] = history - kept
+                state["data"] = Data("[\(kept) rows]\(replay)".utf8).base64EncodedString()
+            }
             return [
-                Self.line(["event": "vt-state", "surface": live, "cols": 80, "rows": 24,
-                           "data": Data(replay.utf8).base64EncodedString()]),
+                Self.line(state),
                 reply(shared ? ["lease": "l1", "participant": "c2", "size_state": sizeState(1)] as [String: Any] : ["lease": "l1"]),
             ] + (shared ? [Self.line(["event": "size-state", "surface": live, "self_participant": "c2", "state": sizeState(2)])] : [])
                 + (afterAttach.map { [Self.line(["event": "output", "surface": live, "data": Data($0.utf8).base64EncodedString()])] } ?? []) + [
@@ -140,6 +158,40 @@ final class FakeTerminalDaemon: @unchecked Sendable {
 }
 
 @MainActor @Suite struct DaemonTerminalSessionTests {
+    @Test(arguments: [false, true])
+    func failedAttachKeepsRecoveryVisibleAndRetryCallsTheLoader(wasAttached: Bool) async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        defer { session.stop() }
+        session.reattachBackoff = []
+        var screenState = session.connectionState
+        if !wasAttached { daemon.failNextAttaches = 1 }
+        session.start { screenState = screenState.applying($0) }
+        if wasAttached {
+            try await waitUntil { session.isAttached }
+            await channels.last?.close(code: "eof", reason: "remote closed")
+            try await waitUntil { !session.isAttached }
+            daemon.failNextAttaches = 1
+            session.reconnect()
+        }
+        try await waitUntil { if case .failed = screenState { true } else { false } }
+        #expect(!screenState.isAttached)
+        #expect(!screenState.showsProgress)
+        #expect(screenState.label != nil)
+        #expect(session.connectionState == screenState)
+        let attempts = daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        #expect(screenState.isAttached)
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count == attempts + 1)
+    }
+
     @Test func attachesReplaysAndForwardsInput() async throws {
         let daemon = FakeTerminalDaemon()
         let link = MockMacLink { service, line in daemon.respond(service, line) }

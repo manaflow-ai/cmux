@@ -19,6 +19,8 @@ use serde_json::{Value, json};
 mod browser_import;
 #[path = "setup/cloud_machine.rs"]
 mod cloud_machine;
+#[path = "setup/harness_auth.rs"]
+mod harness_auth;
 #[path = "setup/notifications.rs"]
 mod notifications;
 #[path = "setup/tailnet.rs"]
@@ -604,6 +606,40 @@ fn cmux_setup_list_names_every_task_and_bad_arguments_exit_2() {
     assert_eq!(world.record(), None);
 }
 
+#[test]
+fn cmux_setup_local_runs_first_chat_prerequisites_in_one_call() {
+    let world = World::new("local");
+    let report = world.json(&["setup", "local"]);
+    assert_eq!(report["schema_version"], 1, "{report}");
+    assert_eq!(report["task"], "local", "{report}");
+    let tasks = report["tasks"].as_array().expect("local task reports");
+    assert_eq!(tasks.len(), 3, "{report}");
+    assert_eq!(tasks[0]["task"], "trust", "{report}");
+    assert_eq!(tasks[1]["task"], "harness", "{report}");
+    assert_eq!(tasks[2]["task"], "mcp", "{report}");
+    assert_eq!(tasks[0]["state"], "changed", "{report}");
+    assert_eq!(tasks[1]["state"], "needs_user", "{report}");
+    assert_eq!(report["state"], "needs_user", "{report}");
+    assert!(report["user_action"]["text"].is_string(), "{report}");
+    assert!(
+        report["undo"].as_str().is_some_and(|undo| undo.contains("cmux setup trust")),
+        "{report}"
+    );
+    assert_eq!(world.record(), Some(json!({world.folder(): "trusted"})));
+
+    let before = world.record();
+    let dry = world.json(&["setup", "local", "--dry-run"]);
+    assert_eq!(dry["dry_run"], true, "{dry}");
+    assert_eq!(dry["tasks"].as_array().unwrap().len(), 3, "{dry}");
+    assert_eq!(dry["tasks"][0]["state"], "ok", "{dry}");
+    assert_eq!(world.record(), before, "a dry run must not change trust");
+
+    let output = world.run(&["setup", "local", "--bogus"]);
+    assert_eq!(output.status.code(), Some(2));
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["code"], "usage.invalid");
+}
+
 /// An agent, or the person, reads a Chief prompt for every task from `setup
 /// list`, and docs/chief-setup-prompts.md is exactly what `setup list
 /// --prompts-md` prints: a change to the task list that is not regenerated
@@ -613,7 +649,7 @@ fn cmux_setup_list_gives_a_chief_prompt_per_task_and_the_page_matches() {
     let world = World::new("prompts");
     let list = world.json(&["setup", "list"]);
     let status_prompt = list["status_prompt"].as_str().unwrap_or_default();
-    assert!(status_prompt.contains("`cmux setup status`"), "{list}");
+    assert!(status_prompt.contains("`cmux setup local`"), "{list}");
     for task in list["tasks"].as_array().unwrap() {
         let prompt = task["prompt"].as_str().unwrap_or_default();
         assert!(!prompt.is_empty(), "{task}");

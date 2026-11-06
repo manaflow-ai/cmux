@@ -32,7 +32,7 @@ on a thread (start_ratchet() starts it early so it runs beside prepush-gate's sc
 plans/cmux-next/arch-ratchet.json (arch_counts.py defines them): stateful singletons and file-scope globals,
 global mutable statics, MainActor.assumeIsolated outside seam adapters, app Notification.Name broadcasts,
 observer sites, layer edges. Those concerns have no line rule here, so there is one definition and one escape
-per concern: the dated exception in arch-ratchet.json (CMUX_GUARDRAILS_SKIP_REASON does not skip them, and no
+per concern: the dated exception file in plans/cmux-next/arch-exceptions/ (CMUX_GUARDRAILS_SKIP_REASON does not skip them, and no
 inline marker hides them).
 Warnings (never refuse):
   perf-hot  the push changes a function marked `// perf-hot: <budget> <path-id>` (in the comment block above
@@ -49,8 +49,9 @@ root shrink and no growth), and when a new App file is
 neither a move nor the push's one AppServices+<Domain>Host.swift of one-line forwards (outside the budget), so
 feature logic does not become wiring by moving into a root file. It warns (never refuses, for now) when the App outside the root or CmuxNextApp as a
 whole grows (the same total check-app-size.sh --base computes, a split file's new imports included), with the
-bytes added and the package the code goes to. This is the only App-size
-limit in force on a push: CI's check-app-size.sh step is continue-on-error and its absolute cap
+bytes added and the package the code goes to. The App total is refused by the arch ratchet's
+`app_lines` row instead (arch-ratchet.py; CmuxNextApp physical lines may not rise over a push, since the
+reward-hacking audit of 2026-10-30). CI's check-app-size.sh step is continue-on-error and its absolute cap
 (app-size-baseline.txt) is below the App's size today.
 `app-type`, its own rule (so a fault in its brace scan turns off only it), refuses a new type that is not a move
 in an existing App file or in a new App file that passes as a move (the new-file rule's god-file dodge), at any
@@ -1666,6 +1667,24 @@ def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
     return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
 
 
+# ---- raw-observation (TERMINAL CREATE COST, lead 2026-11-05)
+# A local change costs O(changed items), never O(session) (CLAUDE.md "Go past Chrome", PATTERNS.md P3). A test proves
+# it by counting the observation trackings one change wakes (CmuxNextCompat `ObservationWakes`); it sees only the
+# three tracked wrappers, so an observer written on a raw `withObservationTracking` is invisible to it. New code
+# observes through a wrapper; the wrappers themselves are the only raw callers.
+RAW_OBSERVATION = re.compile(r"\bwithObservationTracking\b")
+OBSERVATION_WRAPPERS = frozenset({
+    SOURCES + "CmuxNextCompat/ObservationStream.swift",
+    SOURCES + "CmuxNextCompat/SingleArmedTracking.swift",
+    SOURCES + "CmuxNextBrowser/UI/ObservationLoop.swift",
+})
+
+
+def outside_observation_wrappers(version: Version, index: int) -> tuple[bool, list[int]]:
+    """Whether VERSION is not one of the tracked observation wrappers (their own raw call is the point)."""
+    return version.path not in OBSERVATION_WRAPPERS, []
+
+
 RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
@@ -1677,8 +1696,9 @@ RULES = (
          unchecked_sendable),
     Rule("main-async", "`DispatchQueue.main.async`",
          "an untyped hop that reorders work and hides isolation (CLAUDE.md forbids it in new code)",
-         "annotate the destination `@MainActor` and `await` it, or hop once with `Task { @MainActor in ... }` "
-         "owned by the caller",
+         "annotate the destination `@MainActor` and `await` it, or go through the scheduler (`FrameBatchQueue.enqueue`, "
+         "`MainDelivery().run`, `AfterFrameCommit().run`; a direct `Task { @MainActor in` is main-hop's debt in a UI "
+         "target)",
          "// main-async-allow: <the API that forces a GCD hop>",
          line_rule(r"\bDispatchQueue\.main\.async\b|\bOperationQueue\.main\.addOperation\b", "main-async-allow:")),
     Rule("combine-state", "`ObservableObject` / `@Published` / Combine state",
@@ -1725,6 +1745,15 @@ RULES = (
          None,
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
+    Rule("raw-observation", "A direct `withObservationTracking` outside the tracked wrappers",
+         "the test that keeps a local change O(changed items) (NewTabWakesDoNotGrowWithSessionTests) counts only the "
+         "trackings the wrappers arm (CmuxNextCompat `ObservationWakes`): an observer on a raw call can read the whole "
+         "session and wake on every create while the count stays the same",
+         "observe through a wrapper: `ObservationStream({ ... })` (or `.current` for the first value in this turn), "
+         "CmuxNextCompat `SingleArmedTracking.track(shape:_:onChange:)` for a computation that also runs for other "
+         "reasons, or CmuxNextBrowser's `ObservationLoop`; read only the changed item's own state in it",
+         "// observation-allow: <why this tracking cannot go through a wrapper>",
+         matcher_rule(Matcher(RAW_OBSERVATION, re.compile(r"//\s*observation-allow:\s*\S"), outside_observation_wrappers))),
     Rule("task-priority", "A detached Task or dispatch queue without a stated priority, or at a reserved level",
          "a task or queue that does not say how much a person waits for it runs at whatever QoS it inherits: work "
          "nobody waits for competes with typing and frames, and the main thread can wait on work that runs below it "
@@ -1856,8 +1885,20 @@ CONTROL_OPENER = re.compile(r"^\s*(\}\s*)?(if|else|guard|for|while|repeat|switch
 # A line that ends a statement (the header of the next block starts after it).
 STATEMENT_END = re.compile(r"[{};]\s*$|^\s*$|^\s*(//|\*|/\*|@\w)")
 HEADER_LINES = 12  # the most lines one block header (a long function signature or condition) is read across
-# HEAD's threading doc and package manifest, and loaded helpers; check() refreshes the doc and manifest per run.
+# The loaded helper module (the same for every commit); shared by every run.
 BLOCKING_CONTEXT: dict[str, object] = {}
+# The judged head's threading doc, package manifest and UI targets, one copy per thread: measure() loads them and
+# its rules read them on the same thread, and check_own measures a merge's ranges at once on several threads, so a
+# shared copy let one range judge thread-doc by another range's doc (#30169: a listed thread refused, 1 run in 6).
+RUN_CONTEXT = threading.local()
+
+
+def run_context() -> dict[str, object]:
+    """This thread's head context (load_blocking_context fills it before the rules run)."""
+    context = getattr(RUN_CONTEXT, "values", None)
+    if context is None:
+        context = RUN_CONTEXT.values = {}
+    return context
 
 
 class Prefiltered:
@@ -1917,13 +1958,14 @@ def main_actor_scope():
 
 def ui_targets() -> set[str]:
     """The targets HEAD's manifest builds with `uiSwiftSettings` (main-actor by default), as check-concurrency.sh
-    reads them."""
-    if "ui_targets" not in BLOCKING_CONTEXT:
-        manifest = BLOCKING_CONTEXT.get("manifest")
-        found = re.findall(r'\.(?:target|executableTarget)\(\s*name:\s*"([^"]+)".*?swiftSettings:\s*(\w+)',
-                           manifest if isinstance(manifest, str) else "", re.S)
-        BLOCKING_CONTEXT["ui_targets"] = {name for name, settings in found if settings == "uiSwiftSettings"}
-    return BLOCKING_CONTEXT["ui_targets"]
+    reads them (swift_scope.package_targets: each target from its own call, so a target with no swiftSettings
+    never takes the next target's); test targets are left out."""
+    context = run_context()
+    if "ui_targets" not in context:
+        manifest = context.get("manifest")
+        targets = swift_scope.package_targets(manifest if isinstance(manifest, str) else "")
+        context["ui_targets"] = {target.name for target in targets if target.main and target.path.startswith("Sources/")}
+    return context["ui_targets"]
 
 
 def block_header(lines: list[str], number: int, code: str) -> str:
@@ -2100,7 +2142,7 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
     def doc() -> dict[str, object]:
         """The doc's labels and allowances, read when a push adds a thread, queue or allowance to judge."""
         if not listed:
-            text = BLOCKING_CONTEXT.get("threading_doc")
+            text = run_context().get("threading_doc")
             if not isinstance(text, str):
                 raise RuntimeError(f"{THREADING_DOC} could not be read at the pushed head")
             listed.update(labels=doc_labels(text), allowances=set(re.findall(r"^\|\s*`(\w+)`\s*\|", text, re.M)))
@@ -2128,13 +2170,74 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
     return changed_debt(changes, judge)
 
 
+# main-hop (cmux-ad m35 item 3): one entry point for main-thread work. A direct hop onto the main actor
+# (`Task { @MainActor in`, `Task(priority:) { @MainActor in`, `MainActor.run {`) in a uiSwiftSettings target runs
+# outside the scheduler's classes and frame budget (plans/cmux-next/main-thread-budget.md): it competes with the
+# person's input unseen. A count ratchet per file, as the other line rules: old hops and moved lines never count.
+# The scheduler's own entry points (FrameBatchQueue.enqueue, MainDelivery().run, AfterFrameCommit().run,
+# MainActorWorkQueue) are not hops. A plain `Task {` that inherits the main actor is not judged (too broad to
+# tell from a line); the counts (--main-thread-counts) report it.
+MAIN_HOP = re.compile(r"\bTask(?:\.detached)?\s*(?:\([^{}]*\))?\s*\{\s*@MainActor\b|\bMainActor\.run\b")
+MAIN_HOP_ALLOW = re.compile(r"//\s*main-hop-allow:\s*\S")
+
+
+def in_ui_target(version: Version, index: int) -> tuple[bool, list[int]]:
+    """Whether VERSION's file is in a uiSwiftSettings target (main actor by default): main-hop's scope."""
+    module = version.path[len(SOURCES):].split("/", 1)[0] if version.path.startswith(SOURCES) else ""
+    return module in ui_targets(), []
+
+
+SCHEDULER_ENTRY = re.compile(r"\.enqueue\s*\{|\.enqueue\(|\bMainDelivery\(\)\.run\b|\bAfterFrameCommit\(\)\.run\b"
+                             r"|\bFrameBatchQueue\(|\bMainActorWorkQueue\b")
+INHERITED_TASK = re.compile(r"(?<![\w.])Task\s*(?:\([^{}]*\))?\s*\{(?!\s*@MainActor\b)")
+
+
+def main_thread_counts(repo: Path, rev: str) -> dict[str, object]:
+    """The main-thread ratchet's counts at REV (`--main-thread-counts`), per scope (the uiSwiftSettings targets,
+    and all of Sources): unescaped direct hops (main-hop's debt), escaped hops, scheduler entry calls, plain
+    `Task {` that inherits the caller's actor (not judged), raw blocking calls (raw-blocking and main-blocking's
+    raw primitives and sleeps, unescaped), and checked-seam calls; each with its file count. The seams' own files
+    are left out of the blocking counts. Comments are dropped; a `/* */` block is read as code."""
+    sha = git(repo, "rev-parse", rev).strip()
+    paths = [p for p in git(repo, "ls-tree", "-r", "--name-only", sha, "--", SOURCES).splitlines() if p.endswith(".swift")]
+    texts = blobs(repo, [(sha, p) for p in paths])
+    RUN_CONTEXT.values = {"manifest": blobs(repo, [(sha, PACKAGE_MANIFEST)]).get((sha, PACKAGE_MANIFEST), "")}
+    ui = ui_targets()
+    keys = ("main_hops", "main_hops_escaped", "scheduler_entries", "inherited_tasks", "raw_blocking", "checked_blocking")
+    scopes = {scope: {k: collections.Counter() for k in keys} for scope in ("ui_targets", "all_sources")}
+    for path in paths:
+        lines = texts.get((sha, path), "").split("\n")
+        module = path[len(SOURCES):].split("/", 1)[0]
+        seam = path.startswith(BLOCKING_SEAMS)
+        for index, line in enumerate(lines):
+            code = code_of(line)
+            found = []
+            if MAIN_HOP.search(code):
+                found.append("main_hops_escaped" if escaped(lines, index, MAIN_HOP_ALLOW) else "main_hops")
+            if SCHEDULER_ENTRY.search(code):
+                found.append("scheduler_entries")
+            if INHERITED_TASK.search(code):
+                found.append("inherited_tasks")
+            if not seam:
+                if (blocking_match(RAW_SCAN, code) or ALWAYS_SCAN.search(code)) and not escaped(lines, index, BLOCKING_ALLOW):
+                    found.append("raw_blocking")
+                if SEAM_BLOCKING.search(code):
+                    found.append("checked_blocking")
+            for scope in (("ui_targets", "all_sources") if module in ui else ("all_sources",)):
+                for key in found:
+                    scopes[scope][key][path] += 1
+    return {"rev": sha, "ui_target_count": len(ui),
+            **{scope: {k: {"lines": sum(c.values()), "files": len(c)} for k, c in counters.items()}
+               for scope, counters in scopes.items()}}
+
+
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str) -> None:
-    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open)."""
-    for key in ("threading_doc", "manifest", "ui_targets"):
-        BLOCKING_CONTEXT.pop(key, None)
+    """Keeps HEAD's threading doc and package manifest for the rules above, in this thread's run context (a
+    missing doc fails thread-doc open)."""
+    context = RUN_CONTEXT.values = {}
     for key, path in (("threading_doc", THREADING_DOC), ("manifest", PACKAGE_MANIFEST)):
         if (head, path) in texts:
-            BLOCKING_CONTEXT[key] = texts[(head, path)]
+            context[key] = texts[(head, path)]
 
 BLOCKING_RULES = (
     Rule("main-blocking", "A blocking call on the main thread (file I/O, a socket read, a wait, a process wait or a "
@@ -2169,6 +2272,17 @@ BLOCKING_RULES = (
          "for a new kind); add a new BlockingAllowance to \"Reviewed blocking allowances\" in the same push",
          "// blocking-allow: <why this thread needs no entry>",
          undocumented_threads),
+    Rule("main-hop", "A direct hop onto the main actor (`Task { @MainActor in`, `MainActor.run {`) in a UI target",
+         "work that jumps onto the main actor directly runs outside the scheduler's priority classes and per-frame "
+         "budget (plans/cmux-next/main-thread-budget.md): it runs ahead of or between the person's input and frames "
+         "and nothing measures it (a root of Cmd-N p95 112-129 ms, cmux-ad m35)",
+         "go through the one entry point: a person's action changes the model in its own turn (an `ActionEffect`); "
+         "work for the next frame goes to a `FrameBatchQueue` (`enqueue`, a frame queue for what an action caused, "
+         "`budgeted: .visible/.automation/.background` on the app's `MainWorkScheduler` for the rest); a callback "
+         "on an unknown thread uses `MainDelivery().run`; work after the frame commit uses `AfterFrameCommit().run`; "
+         "an async caller that needs a value from main calls an `@MainActor` function with `await`",
+         "// main-hop-allow: <why no scheduler path fits and what bounds the hop's work>",
+         matcher_rule(Matcher(MAIN_HOP, MAIN_HOP_ALLOW, in_ui_target))),
 )
 RULES += BLOCKING_RULES
 # ---------------------------------------------------------------- end of main-blocking / thread-doc (PL-blocking)
@@ -2453,7 +2567,60 @@ def check_failure(name: str, error: Exception) -> str:
 
 def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added]]], list[tuple[str, str]]]:
     """(refusals [(rule, hits)], warnings [(kind, text)]) for what HEAD adds over BASE."""
-    return settle(*measure(repo, base, head))
+    return excepted(repo, head, *settle(*measure(repo, base, head)))
+
+
+# Dated, reviewed exceptions for a fact rule's hit on one file (a new App file that is not a move), read from HEAD
+# so CI judges the same file the push carries. An entry {"date", "rule", "path", "why", "author", "owner",
+# "receipt": "Review (<reviewer>): SHIP at <40-hex sha>", "expiry"} turns that rule's hits on PATH into a warning
+# until EXPIRY. Only EXCEPTABLE rules take one; the receipt's reviewer is not the author (arch-ratchet's escape).
+EXCEPTIONS = "plans/cmux-next/guardrail-exceptions.json"
+EXCEPTABLE = {"app-size", "app-type"}
+RECEIPT = re.compile(r"Review \((?P<who>[^()]+)\): SHIP at (?P<sha>[0-9a-f]{40})")
+ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def exception_valid(entry: dict, today: str) -> bool:
+    """Whether ENTRY is a complete, independent, unexpired exception for an EXCEPTABLE rule on TODAY."""
+    if not isinstance(entry, dict) or entry.get("rule") not in EXCEPTABLE:
+        return False
+    if not all(isinstance(entry.get(k), str) and entry[k].strip() for k in ("path", "why", "author", "owner")):
+        return False
+    found = RECEIPT.fullmatch(str(entry.get("receipt") or "").strip())
+    if not found or found.group("who").strip().casefold() == entry["author"].strip().casefold():
+        return False
+    import datetime
+    try:  # real calendar dates: 2026-02-31 or 2026-00-00 allows nothing
+        date, expiry = (datetime.date.fromisoformat(str(entry.get(k) or "")) for k in ("date", "expiry"))
+        now = datetime.date.fromisoformat(today)
+    except ValueError:
+        return False
+    return bool(ISO_DATE.fullmatch(str(entry["date"])) and ISO_DATE.fullmatch(str(entry["expiry"]))) and date <= now <= expiry
+
+
+def excepted(repo: Path, head: str, refusals, warnings, today: str | None = None):
+    """REFUSALS less the hits an EXCEPTIONS entry at HEAD covers (those become warnings), and WARNINGS."""
+    import datetime
+    # Read only when a hit could be excused: a push with no such refusal starts no extra git process (the
+    # guardrails' cost is git process starts, WarningTests.test_a_typical_push_runs_git_a_fixed_number_of_times).
+    if not any(rule.id in EXCEPTABLE for rule, _ in refusals):
+        return refusals, warnings
+    today = today or datetime.date.today().isoformat()
+    text = git(repo, "show", f"{head}:{EXCEPTIONS}", check=False)
+    try:
+        entries = json.loads(text).get("exceptions", []) if text.strip() else []
+    except (ValueError, AttributeError):
+        return refusals, warnings + [("guardrails", f"{EXCEPTIONS} is not valid JSON; no exception applied")]
+    allowed = {(e["rule"], e["path"]) for e in entries if exception_valid(e, today)}
+    if not allowed:
+        return refusals, warnings
+    kept, warnings = [], list(warnings)
+    for rule, hits in refusals:
+        own = [h for h in hits if (rule.id, h.path) not in allowed]
+        warnings += [(rule.id, f"{h.path}:{h.number}: excepted by {EXCEPTIONS}: {h.text}") for h in hits if h not in own]
+        if own:
+            kept.append((rule, own))
+    return kept, warnings
 
 
 def settle(found: list[tuple[Rule, list[Added]]], warnings: list[tuple[str, str]]):
@@ -2581,7 +2748,7 @@ def check_own(repo: Path, base: str, head: str, before=()):
     with every warning hit's amount taken the same way, plus any rule that failed on a BEFORE range.
     """
     if not before:
-        return settle(*measure(repo, base, head))
+        return excepted(repo, head, *settle(*measure(repo, base, head)))
     push_range = load_push_range()
     # The ranges share most of their objects and each measure() waits on git most of the time: run them together
     # (the slowest real merge push paid 2 x 1.3 s one after the other).
@@ -2608,7 +2775,7 @@ def check_own(repo: Path, base: str, head: str, before=()):
             kept = [h for b in buckets if (h := own_net_hit(push_range, by_bucket.get(b), prior, b)) is not None]
         if kept:
             own.append((rule, kept))
-    return settle(own, warnings)
+    return excepted(repo, head, *settle(own, warnings))
 
 
 def own_net_hit(push_range, hit: NetHit | None, prior: list[list[Added]], bucket: str) -> NetHit | None:
@@ -2707,11 +2874,12 @@ class Ratchet:
     FactsCache keeps every analyzed content, so a warm push analyzes only new contents); the ratchet report
     prints how many. A caller that starts it before other work pays what is left of it at finish(), but the
     analysis shares the interpreter with that work, so it is not free beside CPU-bound scanners. It fails
-    open: a missing or broken script, an error or a run past WAIT_LIMIT is a warning and lets the push
-    through.
+    open on a missing or broken script or an error: a warning, and the push goes through. A slow run is not
+    an error: finish() waits for its answer. The 20 s wait that passed the push (2026-10-28, for the git
+    deadlock arch_counts._ObjectReader fixed) let 7c99189e2ce's app_lines +2 through on a busy Mac (TIP RED
+    1014, 2026-10-31); a hang is bounded by prepush-gate's watchdog (CMUX_NEXT_GATE_LIMIT_SECONDS), which
+    refuses the push and prints every thread's stack.
     """
-
-    WAIT_LIMIT = 20.0
 
     def __init__(self, repo: Path, ranges: list, scripts_dir: Path | None = None) -> None:
         self.out: list[str] = []
@@ -2745,11 +2913,8 @@ class Ratchet:
         """(the ratchet's report, whether it refuses the push)."""
         if self.thread is not None:
             started = time.monotonic()
-            self.thread.join(self.WAIT_LIMIT)
+            self.thread.join()
             self.waited = time.monotonic() - started
-            if self.thread.is_alive():
-                return (f"guardrails: WARNING: the arch ratchet ran past {self.WAIT_LIMIT:.0f}s; not applied to this "
-                        "push. Tell the Performance Lead with this line."), False
         lines = list(self.out)
         if self.error:
             lines.append(f"guardrails: WARNING: {self.error}; the arch ratchet was not applied to this push. Tell the "
@@ -2835,12 +3000,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
+    parser.add_argument("--main-thread-counts", metavar="REV", nargs="?", const="HEAD",
+                        help="print main-hop and blocking counts at REV (default HEAD) as JSON and exit")
     args = parser.parse_args(argv)
+    if args.main_thread_counts:
+        repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
+        print(json.dumps(main_thread_counts(repo, args.main_thread_counts), indent=2))
+        return 0
     if args.list:
         for rule in RULES:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")
-        print("arch ratchet rows (arch-ratchet.py --list-rules; escape: a dated exception in "
-              "plans/cmux-next/arch-ratchet.json)")
+        print("arch ratchet rows (arch-ratchet.py --list-rules; escape: a dated exception file "
+              "plans/cmux-next/arch-exceptions/<id>.json)")
         return 0
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
     started = time.monotonic()

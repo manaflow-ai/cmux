@@ -8,18 +8,49 @@
   align-self: flex-start;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-1);
   width: min(100%, 360px);
   box-sizing: border-box;
-  margin: 4px 0;
-  padding: 8px 16px 12px;
+  margin: var(--ds-space-1) 0;
+  padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-3);
   border: 1px solid var(--agent-hairline, color-mix(in oklab, currentColor 12%, transparent));
-  border-radius: 10px;
+  border-radius: var(--grid-cards-radius);
   background: none;
   color: inherit;
   font: inherit;
   text-align: start;
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-workflow-card-wrap {
+  position: relative;
+  width: min(100%, 360px);
+}
+.acpmux-workflow-card-wrap .acpmux-workflow-card {
+  width: 100%;
+}
+.acpmux-workflow-card__side-tab {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: var(--layer-raised);
+  display: grid;
+  place-items: center;
+  width: calc(var(--ds-control-icon) + 2px);
+  height: calc(var(--ds-control-icon) + 2px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: none;
+  color: var(--agent-muted);
+}
+.acpmux-workflow-card__side-tab:hover,
+.acpmux-workflow-card__side-tab:focus-visible {
+  background: var(--acpmux-pill-hover);
+  color: var(--agent-text);
+}
+.acpmux-workflow-card__side-tab:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
 }
 .acpmux-workflow-card:hover:not(:disabled) {
   background: color-mix(in oklab, currentColor 5%, transparent);
@@ -31,9 +62,10 @@
 .acpmux-workflow-card__head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   min-width: 0;
   line-height: 20px;
+  padding-right: var(--ds-control-row);
 }
 .acpmux-workflow-card__head > svg {
   flex: none;
@@ -48,7 +80,7 @@
 }
 .acpmux-workflow-card__meta {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-2);
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -71,7 +103,7 @@
 }
 .acpmux-workflow-card__focus {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 .acpmux-workflow-card__progress {
   display: block;
@@ -91,7 +123,7 @@
 }
 .acpmux-workflow-card__phases {
   display: flex;
-  gap: 4px;
+  gap: var(--ds-space-1);
   min-width: 0;
   overflow: hidden;
 }

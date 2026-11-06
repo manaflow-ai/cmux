@@ -51,6 +51,11 @@ public struct LinkMachine: Sendable {
         case retryDue(generation: Int)
         /// The app came to the foreground (or the network came back).
         case foreground
+        /// The scene actually entered the background; links may go stale
+        /// while iOS suspends the process. Inactive scenes do not count.
+        case background
+        /// The scene became active. Replace any link kept across suspension.
+        case resume
         case probeFailed(generation: Int, reason: String)
         /// A presence frame says the target Mac's signaling socket is up
         /// (again): its host may have restarted under a live link, whose
@@ -77,6 +82,7 @@ public struct LinkMachine: Sendable {
     /// Debug "simulate a network that blocks UDP": WireGuard rides TURN over TLS.
     public private(set) var blockUDP: Bool
     public private(set) var generation = 0
+    public private(set) var isBackgrounded = false
     /// The current link's WebRTC media session (browser video), `off` between links.
     public private(set) var media: VideoMediaState = .off
     /// Retry delays in seconds after the silent retries; the last one repeats.
@@ -92,6 +98,16 @@ public struct LinkMachine: Sendable {
 
     public mutating func handle(_ event: Event) -> [Effect] {
         switch event {
+        case .background:
+            isBackgrounded = true
+            return []
+        case .resume:
+            let wasBackgrounded = isBackgrounded
+            isBackgrounded = false
+            if wasBackgrounded, isActive {
+                return dial(attempt: 1, closing: true)
+            }
+            return handle(.foreground)
         case .target(let next):
             let sameMac = next?.macID == target?.macID
             target = next
@@ -228,15 +244,29 @@ extension LinkMachine.Phase {
         }
     }
 
-    /// One line for the Mac's section header and Settings ("Connected ·
-    /// WireGuard direct · video WebRTC (TURN) · 27 ms"); `media` is the
-    /// WebRTC media session beside a WireGuard link.
-    public func statusLine(macName: String, media: VideoMediaState = .off) -> String? {
+    /// One short line for the Mac's section header and Settings. Transport,
+    /// path, latency, and daemon failures remain available to diagnostics;
+    /// the normal UI says what the person can do next.
+    public func statusLine(macName _: String, media _: VideoMediaState = .off) -> String? {
+        switch self {
+        case .idle: nil
+        case .macOffline: "Offline"
+        case .connecting: "Reconnecting…"
+        case .connected: "Connected"
+        case .waiting(_, _, let reason, _):
+            reason == LinkController.reason(LinkError(code: "offline", message: ""))
+                ? "Offline"
+                : "Reconnecting…"
+        }
+    }
+
+    /// Technical detail for the explicit diagnostics disclosure only.
+    public func diagnosticLine(macName: String, media: VideoMediaState = .off) -> String? {
         switch self {
         case .idle: nil
         case .macOffline: "\(macName) is offline"
         case .connecting(let transport, let attempt):
-            attempt > 1 ? "Reconnecting over \(transport.displayName)…" : "Connecting over \(transport.displayName)…"
+            "\(transport.displayName) connecting · attempt \(attempt)"
         case .connected(let transport, let path, let rtt):
             ["Connected", "\(transport.displayName) \(path.displayName)", media.statusLabel, rtt.map { "\($0) ms" }]
                 .compactMap { $0 }.joined(separator: " · ")

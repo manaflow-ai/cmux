@@ -128,8 +128,12 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
     return measured;
   };
 
-  /// The column `--cv-column: clamp(720px, share, cap)` draws in a pane of `pane` px.
-  const column = (pane: number, share: number, cap: number) => Math.min(cap, Math.max(720, pane * share));
+  /// The column `--cv-column: clamp(720px, share, cap)` draws in a pane of `pane` px: its insets are on
+  /// the 4 grid (`--cv-inset`, design/grid.md 5.5), so it takes the 0-7 px left over.
+  const column = (pane: number, share: number, cap: number) => {
+    const span = Math.min(cap, Math.max(720, pane * share));
+    return pane - 2 * Math.max(16, 4 * Math.floor((pane - span) / 8));
+  };
 
   for (const width of [1440, 1920]) {
     test(`standard keeps the 800px column at ${width}`, async () => {

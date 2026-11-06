@@ -13,10 +13,48 @@ use cmux_link::overlay_addr::overlay_address;
 use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncBufReadExt, BufReader, DuplexStream};
 
+#[cfg(unix)]
+#[tokio::test]
+async fn relay_source_sends_scoped_connect_and_token_requests() {
+    use tokio::net::UnixListener;
+    let dir = cmux_unix_socket::short_test_dir("cloud-relay");
+    let socket = dir.path().join("relay.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let source = RelaySource::socket(socket);
+    let task = tokio::spawn(async move {
+        for expected in [
+            serde_json::json!({"op":"connect_info","host":HOST}),
+            serde_json::json!({"op":"link_token","host":HOST,"services":["daemon"]}),
+        ] {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            assert_eq!(serde_json::from_str::<serde_json::Value>(line.trim()).unwrap(), expected);
+            let value = if expected["op"] == "connect_info" {
+                serde_json::to_value(record("running", &["daemon"])).unwrap()
+            } else {
+                serde_json::to_value(grant("token", HOST, &["daemon"])).unwrap()
+            };
+            let mut stream = reader.into_inner();
+            AsyncWriteExt::write_all(
+                &mut stream,
+                serde_json::json!({"ok":true,"value":value}).to_string().as_bytes(),
+            )
+            .await
+            .unwrap();
+            AsyncWriteExt::write_all(&mut stream, b"\n").await.unwrap();
+        }
+    });
+    assert_eq!(source.fetch(HOST).await.unwrap().host, HOST);
+    assert_eq!(source.mint_token(HOST, &[Service::Daemon]).await.unwrap().token, "token");
+    task.await.unwrap();
+}
+
 use super::super::dial::{Overlay, serve_dial_line};
 use super::*;
 
-const HOST: &str = "host_vm1";
+const HOST: &str = "host_0123456789abcdef0123";
 
 fn record(state: &str, services: &[&str]) -> ConnectInfo {
     serde_json::from_value(serde_json::json!({
@@ -32,7 +70,7 @@ fn record(state: &str, services: &[&str]) -> ConnectInfo {
 
 fn grant(token: &str, host: &str, services: &[&str]) -> LinkTokenGrant {
     serde_json::from_value(serde_json::json!({
-        "token": token, "expires_at": "2026-10-05T00:05:00Z",
+        "token": token, "expires_at": 1_790_000_301_000_u64,
         "host": host, "epoch": 4, "services": services
     }))
     .unwrap()
@@ -233,6 +271,15 @@ async fn a_failed_handshake_refetches_once_then_reports_paused_or_unreachable() 
         ]));
         let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
         assert!(reply.contains(&format!("\"error_code\":\"{code}\"")), "{state}: {reply}");
+        // The reply says what failed, not only the code.
+        let value: serde_json::Value = serde_json::from_str(reply.trim()).unwrap();
+        let detail = value["error_detail"].as_str().unwrap_or_default();
+        assert!(detail.starts_with("connect to "), "{state}: {reply}");
+        assert!(detail.contains("no handshake"), "{state}: {reply}");
+        assert!(
+            detail.ends_with(&format!("(after a fresh connect_info, state {state})")),
+            "{reply}"
+        );
         assert_eq!(*resolver.source.calls.lock().unwrap(), 2, "{state}: one refetch");
         assert_eq!(
             *resolver.source.mints.lock().unwrap(),
@@ -246,14 +293,27 @@ async fn a_failed_handshake_refetches_once_then_reports_paused_or_unreachable() 
 #[tokio::test]
 async fn backend_errors_and_unknown_ids_map_to_dial_errors() {
     let overlay = CloudOverlay::default();
-    for (error, code) in [
-        (ConnectInfoError::NotFound, "unknown_host"),
-        (ConnectInfoError::Forbidden, "not_authorized"),
-        (ConnectInfoError::NotBound, "unreachable"),
+    for (error, code, detail) in [
+        (ConnectInfoError::NotFound, "unknown_host", "connect_info: cloud.machine.not_found"),
+        (ConnectInfoError::Forbidden, "not_authorized", "connect_info: auth.forbidden"),
+        (
+            ConnectInfoError::NotBound,
+            "unreachable",
+            "connect_info: cloud.machine.not_bound: the machine is not bound yet",
+        ),
+        (
+            ConnectInfoError::Unavailable(
+                "the Cloud broker refused: cloud.native.no_ready_attempt".into(),
+            ),
+            "unreachable",
+            "connect_info: the Cloud broker refused: cloud.native.no_ready_attempt",
+        ),
     ] {
         let resolver = CloudResolver::new(FakeSource::with(vec![Err(error)]));
         let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
         assert!(reply.contains(&format!("\"error_code\":\"{code}\"")), "{reply}");
+        let value: serde_json::Value = serde_json::from_str(reply.trim()).unwrap();
+        assert_eq!(value["error_detail"], detail, "{reply}");
     }
     // A token the backend refuses, or one for another host: not authorized.
     for answer in [Err(ConnectInfoError::Forbidden), Ok(grant("t1", "host_other", &["daemon"]))] {
@@ -302,7 +362,7 @@ async fn forwarded_cloud_events_drop_records_and_peers() {
 }
 
 #[tokio::test]
-async fn the_relay_source_is_off_until_the_relay_ships() {
-    let resolver = CloudResolver::new(RelaySource);
+async fn a_missing_relay_is_unavailable() {
+    let resolver = CloudResolver::new(RelaySource::unavailable());
     assert!(matches!(resolver.resolve(HOST, false).await, Err(ConnectInfoError::Unavailable(_))));
 }

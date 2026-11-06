@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 import CmuxNextDesignTokens
 
@@ -8,7 +9,7 @@ import CmuxNextDesignTokens
 /// SLSConnectionSynchronizeSLSCATransaction: 39-88 ms of drag.tab_to_pane's light-session stalls, macOS 26/27).
 /// The answer lives one frame only, never until a notification of this app: another app's window or a non-key
 /// panel brought forward under a still pointer posts nothing here (review 1 of 5a069bc6996).
-@MainActor @Suite(.serialized) struct HoverCardWindowQueryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HoverCardWindowQueryTests {
     private func window(_ frame: CGRect) -> NSWindow {
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

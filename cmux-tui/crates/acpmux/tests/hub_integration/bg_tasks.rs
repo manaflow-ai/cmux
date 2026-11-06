@@ -7,7 +7,10 @@
 use super::session_hibernate::{Rig, alive, rig};
 use super::*;
 
-const RUNNER: &str = env!("CARGO_BIN_EXE_acpmux");
+/// The background-task runner: this hermetic process starts it with its own environment.
+fn runner() -> std::path::PathBuf {
+    crate::daemon_env::bin().into()
+}
 
 async fn start(r: &mut Rig, id: &str, command: &str) -> Value {
     let params = json!({"sessionId": id, "command": command});
@@ -46,7 +49,7 @@ fn state(r: &Rig, id: &str, task: &str) -> String {
 #[tokio::test]
 async fn a_background_task_outlives_hibernation_and_the_woken_agent_reads_it() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "server").await;
     r.c.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap();
     let ticks = "i=0; while :; do i=$((i+1)); echo tick-$i; sleep 0.1; done";
@@ -83,7 +86,7 @@ async fn a_background_task_outlives_hibernation_and_the_woken_agent_reads_it() {
 async fn a_task_that_writes_past_the_cap_keeps_its_newest_output() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
     const CAP: u64 = 1024;
-    r.hub.set_bg_runner(RUNNER.into(), CAP);
+    r.hub.set_bg_runner(runner(), CAP);
     let id = new_session(&mut r.c, "noisy").await;
     let lines = "i=0; while [ $i -lt 2000 ]; do echo line-$i; i=$((i+1)); done";
     let task_id = start(&mut r, &id, lines).await["id"].as_str().unwrap().to_owned();
@@ -120,7 +123,7 @@ async fn a_task_that_writes_past_the_cap_keeps_its_newest_output() {
 async fn a_task_is_its_chats_only_and_a_stopped_chat_starts_none() {
     use base64::Engine;
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "owner").await;
     let task_id =
         start(&mut r, &id, "printf '\\377\\000ok'").await["id"].as_str().unwrap().to_owned();
@@ -173,7 +176,7 @@ fn text(r: &Rig, id: &str, task: &str) -> String {
 #[tokio::test]
 async fn late_output_is_kept_a_stubborn_task_is_killed_and_a_purge_clears_the_folder() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "late").await;
     let late = start(&mut r, &id, "(sleep 0.5; echo late) & echo early").await;
     let late = late["id"].as_str().unwrap().to_owned();
@@ -203,9 +206,11 @@ async fn late_output_is_kept_a_stubborn_task_is_killed_and_a_purge_clears_the_fo
 #[tokio::test]
 async fn a_stop_kills_a_child_that_ignores_sigterm_and_holds_no_pipe() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "quiet").await;
-    let quiet = "(trap '' TERM; echo child-$BASHPID; exec >/dev/null 2>&1; \
+    // The subshell's own pid, also in macOS's /bin/bash 3.2, which has no $BASHPID: the
+    // substitution's process becomes `sh`, whose parent is the subshell.
+    let quiet = "(trap '' TERM; echo child-$(exec sh -c 'echo $PPID'); exec >/dev/null 2>&1; \
         while :; do sleep 0.1; done) & wait";
     let task = start(&mut r, &id, quiet).await["id"].as_str().unwrap().to_owned();
     r.until("the child never said its pid", || text(&r, &id, &task).ends_with('\n')).await;
@@ -223,7 +228,7 @@ async fn a_stop_kills_a_child_that_ignores_sigterm_and_holds_no_pipe() {
 #[tokio::test]
 async fn a_task_sees_the_agents_environment() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "env").await;
     for launched in [false, true] {
         if launched {
@@ -242,7 +247,7 @@ async fn a_task_sees_the_agents_environment() {
 #[tokio::test]
 async fn a_record_from_an_earlier_folder_of_the_id_is_not_the_chats() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "generations").await;
     let task = start(&mut r, &id, "true").await["id"].as_str().unwrap().to_owned();
     r.until("the task never ended", || state(&r, &id, &task) == "exited").await;
@@ -264,7 +269,7 @@ async fn a_record_from_an_earlier_folder_of_the_id_is_not_the_chats() {
 #[tokio::test]
 async fn a_purge_does_not_wait_for_a_stubborn_task_and_clears_its_files_after() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "stubborn-purge").await;
     let task = start(&mut r, &id, "trap '' TERM; echo ready; while :; do sleep 0.1; done").await;
     let (task_id, pid) = (task["id"].as_str().unwrap().to_owned(), task["pid"].as_u64().unwrap());
@@ -290,7 +295,7 @@ async fn a_purge_does_not_wait_for_a_stubborn_task_and_clears_its_files_after() 
 #[tokio::test]
 async fn a_purge_stops_a_task_whose_record_is_unreadable() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "unreadable").await;
     let task = start(&mut r, &id, "sleep 600").await;
     let (task_id, pid) = (task["id"].as_str().unwrap().to_owned(), task["pid"].as_u64().unwrap());
@@ -308,7 +313,7 @@ async fn a_purge_stops_a_task_whose_record_is_unreadable() {
 #[tokio::test]
 async fn a_purge_never_stops_a_runner_of_another_generation() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "other-generation").await;
     let task = start(&mut r, &id, "sleep 600").await;
     let (task_id, pid) = (task["id"].as_str().unwrap().to_owned(), task["pid"].as_u64().unwrap());
@@ -347,4 +352,127 @@ fn unread(path: &std::path::Path) -> Option<usize> {
     // SAFETY: FIONREAD into a c_int this function owns, on a descriptor it holds.
     let r = unsafe { libc::ioctl(f.as_raw_fd(), libc::FIONREAD as _, &mut n) };
     (r == 0).then_some(n as usize)
+}
+
+/// The ends of background tasks that reached chat `id`: the prompts the daemon sent it
+/// (`hub/bg_notify.rs`), by their text.
+fn ends(hub: &Hub, id: &str) -> Vec<String> {
+    let events = hub.events(id, 0, 10_000).unwrap();
+    events
+        .iter()
+        .filter(|e| e.kind == "user_message")
+        .filter_map(|e| e.msg["text"].as_str())
+        .filter(|t| t.contains("Background command"))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A task started with `notify` brings its end to its chat once: its summary line (the
+/// description names it), how it ended and its last lines; one without `notify` brings none.
+/// Every view carries the one-line summary and the status.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_with_notify_tells_its_chat_once_when_it_ends() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "notified").await;
+    let quiet = json!({"sessionId": id, "command": "echo quiet; exit 0", "notify": false});
+    let quiet = r.c.request(method::MUX_BG_START, quiet).await.unwrap();
+    let quiet = quiet["id"].as_str().unwrap().to_owned();
+    let loud = json!({"sessionId": id, "command": "seq 1 30; exit 3",
+        "description": "count to thirty", "notify": true});
+    let task = r.c.request(method::MUX_BG_START, loud).await.unwrap();
+    assert_eq!((task["status"].as_str(), task["notify"].as_bool()), (Some("running"), Some(true)));
+    assert_eq!(task["summary"], "Background command running: count to thirty", "{task}");
+    let loud = task["id"].as_str().unwrap().to_owned();
+    r.until("the quiet task never ended", || state(&r, &id, &quiet) == "exited").await;
+    r.until("the task's end never reached its chat", || ends(&r.hub, &id).len() == 1).await;
+    let dir = acpmux::config::home().join("bg").join(&id);
+    r.until("the sent end was never marked", || {
+        acpmux::bg_run::notified_path(&dir, &loud).exists()
+    })
+    .await;
+    // Time for a second send or one for the quiet task, which must not come.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ends = ends(&r.hub, &id);
+    assert_eq!(ends.len(), 1, "{ends:?}");
+    let end = &ends[0];
+    assert!(end.contains("Background command finished: count to thirty (exit 3)"), "{end}");
+    assert!(end.contains("\n30") && end.contains("\n11\n") && !end.contains("\n10\n"), "{end}");
+    assert!(!acpmux::bg_run::notified_path(&dir, &quiet).exists());
+    let list = r.hub.bg_list(&r.hub.resolve(&id).unwrap());
+    let statuses: Vec<_> = list["tasks"].as_array().unwrap().iter().map(|t| &t["status"]).collect();
+    assert_eq!(statuses, [&json!("ok"), &json!("failed")], "{list}");
+}
+
+/// Waits up to 20 s for `done`.
+async fn until_true(what: &str, done: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while !done() {
+        assert!(std::time::Instant::now() < deadline, "{what}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+/// A task's end is sent once across daemon restarts: one that ended while no daemon ran is sent
+/// by the next one, and one already sent is not sent again.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_end_is_sent_once_across_a_restart() {
+    let dir = std::env::temp_dir().join(format!("acpmux-bg-notify-{}", uuid::Uuid::now_v7()));
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let profile = HarnessProfile {
+        kind: Default::default(),
+        argv: vec!["python3".into(), fake.into()],
+        env: BTreeMap::new(),
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let mut cfg = Config {
+        harnesses: BTreeMap::from([("fake".to_owned(), profile)]),
+        default_harness: Some("fake".into()),
+        ..Default::default()
+    };
+    cfg.store.mode = StoreMode::Local;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
+    hold_person_key(&hub);
+    hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
+    let mut c = connect(&hub).await;
+    let id = new_session(&mut c, "restarted").await;
+    let start = |command: &str| json!({"sessionId": id, "command": command, "notify": true});
+    let first = c.request(method::MUX_BG_START, start("echo first")).await.unwrap();
+    let first = first["id"].as_str().unwrap().to_owned();
+    let bg = acpmux::config::home().join("bg").join(&id);
+    until_true("the first end was never sent", || {
+        acpmux::bg_run::notified_path(&bg, &first).exists() && ends(&hub, &id).len() == 1
+    })
+    .await;
+    // The second ends while no daemon runs.
+    let second = c.request(method::MUX_BG_START, start("sleep 1; echo second")).await.unwrap();
+    let second = second["id"].as_str().unwrap().to_owned();
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    until_true("the second task never ended", || {
+        acpmux::bg_run::read_record(&bg, &second).is_some_and(|r| r.ended_at.is_some())
+    })
+    .await;
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
+    until_true("the end that came while no daemon ran was never sent", || {
+        ends(&hub, &id).len() == 2
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ends = ends(&hub, &id);
+    assert_eq!(ends.len(), 2, "{ends:?}");
+    assert!(ends[0].contains("echo first") && ends[1].contains("echo second"), "{ends:?}");
+    assert!(acpmux::bg_run::notified_path(&bg, &second).exists());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
 }

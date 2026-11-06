@@ -125,6 +125,8 @@ const dismiss: Play = async (ctx) => {
 };
 
 const signedOut: HarnessHealth = { id: "codex", auth: "signedOut", login: "codex login" };
+/// acpmux found the sign-in expired (#26658): the same Log In line as signed out.
+const expired: HarnessHealth = { id: "codex", auth: "expired", login: "codex login" };
 const outdated: HarnessHealth = {
   id: "codex",
   auth: "signedIn",
@@ -170,6 +172,10 @@ export default componentEntry<Props>({
       note: "A signed-out Codex CLI says so inline and offers Log In in the chat's folder.",
       props: { health: signedOut },
       play: runLogin,
+    },
+    "sign-in-expired": {
+      note: "An expired Codex sign-in says so inline and offers Log In, as signed out does.",
+      props: { health: expired },
     },
     outdated: {
       note: "An outdated Codex CLI draws no line here; the model chip offers Update and Skip This Version (stand-in below).",

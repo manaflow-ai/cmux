@@ -1,4 +1,5 @@
-//! `cmux cloud client-session create|exec --target machine:VM_ID`: a Freestyle
+//! `cmux machine access new|exec --target machine:VM_ID` (old spelling:
+//! `cmux cloud client-session create|exec`): a Freestyle
 //! client session (freestyle.sh/docs/vms/client-sessions) on one of your own
 //! Cloud machines.
 //!
@@ -7,7 +8,9 @@
 //! only that machine, only as its work user, for 60 to 900 seconds. `create`
 //! prints how to use it (the SSH line, the token as its password) and shows the
 //! token once, on stdout or in a new 0600 `--token-file`. `exec` mints one and
-//! runs one command with it (`exec-await` with the
+//! runs one command with it (or, on a machine whose provider has no client
+//! sessions, runs it through the cmux API's machine exec route,
+//! `POST /v1/cloud/machines/{machine}/exec`) (`exec-await` with the
 //! `x-freestyle-identity-access-token` header), printing the command's stdout and
 //! stderr and exiting with its code; the token is never printed.
 //!
@@ -20,15 +23,16 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use cmux_cloud_client::machine::{Machine, Scope};
 use serde_json::{Value, json};
 
 use super::{OutputMode, UsageError};
 
-const USAGE: &str = "usage: cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]\n       cmux cloud client-session exec --target machine:VM_ID [--ttl SECONDS] [--timeout-ms MS] -- COMMAND...\n  both take --cloud-api URL (or CMUX_CLOUD_API_URL), --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN) and --team TEAM_ID";
+const USAGE: &str = "usage: cmux machine access new --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]\n       cmux machine access exec --target machine:VM_ID [--ttl SECONDS] [--timeout-ms MS] -- COMMAND...\n  both take --cloud-api URL (or CMUX_CLOUD_API_URL), --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN) and --team TEAM_ID";
 const API_ENV: &str = "CMUX_CLOUD_API_URL";
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
-const IDENTITY_HEADER: &str = "x-freestyle-identity-access-token";
-const TEAM_HEADER: &str = "x-cmux-team";
+pub(super) const IDENTITY_HEADER: &str = "x-freestyle-identity-access-token";
+pub(super) const TEAM_HEADER: &str = "x-cmux-team";
 const MINT_TIMEOUT: Duration = Duration::from_secs(30);
 const EXEC_TIMEOUT_DEFAULT_MS: u64 = 30_000;
 /// The provider's inline exec limit (five minutes).
@@ -50,31 +54,39 @@ pub(super) struct Command {
     pub team: Option<String>,
 }
 
-/// `Some(exit code)` when `args` is `cloud client-session …`.
+/// `Some(exit code)` when `args` is `cloud client-session …`, the old
+/// spelling of `machine access new|exec --target …` (vm.rs routes that here
+/// through [`run_words`]).
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
     let [cloud, noun, rest @ ..] = command_args.as_slice() else { return None };
     if cloud != "cloud" || noun != "client-session" {
         return None;
     }
+    Some(run_words(&global, rest))
+}
+
+/// Runs `create …` or `exec …` (the words after `client-session`, or after
+/// `machine access` with `new` as `create`) and answers the exit code.
+pub(super) fn run_words(global: &super::GlobalArgs, rest: &[String]) -> i32 {
     let fail = |code: &str, message: &str, exit: i32| {
         super::app::failure(code, &format!("cmux: {message}"), global.output, exit)
     };
     let command = match parse(rest) {
         Ok(command) => command,
-        Err(error) => return Some(fail("usage.invalid", &error.0, 2)),
+        Err(error) => return fail("usage.invalid", &error.0, 2),
     };
     let resolved = resolve(&command, |key| std::env::var(key).ok());
     let (api, credential) = match resolved {
         Ok(pair) => pair,
-        Err(message) => return Some(fail("usage.invalid", &message, 2)),
+        Err(message) => return fail("usage.invalid", &message, 2),
     };
     let stdout = &mut std::io::stdout();
     let stderr = &mut std::io::stderr();
-    Some(match run(&command, &api, &credential, global.output, stdout, stderr) {
+    match run(&command, &api, &credential, global.output, stdout, stderr) {
         Ok(code) => code,
         Err(message) => fail("cloud_client_session.failed", &message, 1),
-    })
+    }
 }
 
 pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
@@ -144,7 +156,7 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
     Ok(command)
 }
 
-fn valid_machine(id: &str) -> bool {
+pub(super) fn valid_machine(id: &str) -> bool {
     id.strip_prefix("vm_").is_some_and(|tail| {
         tail.len() == 20 && tail.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
     })
@@ -178,7 +190,7 @@ pub(super) fn resolve(
 
 /// `https://…`, or `http://` only to this machine (a local API in development); no trailing slash.
 /// Errors never echo the URL (it could hold a secret someone pasted into it).
-fn secure_origin(raw: &str) -> Result<String, String> {
+pub(super) fn secure_origin(raw: &str) -> Result<String, String> {
     let url = reqwest::Url::parse(raw).map_err(|_| "the cmux API is not a URL".to_owned())?;
     if url.host_str().is_none()
         || !url.username().is_empty()
@@ -201,13 +213,13 @@ fn secure_origin(raw: &str) -> Result<String, String> {
 /// One minted session (the server's `value`).
 #[derive(Debug, serde::Deserialize)]
 pub(super) struct Session {
-    machine: String,
-    vm_id: String,
-    linux_user: String,
-    token: String,
-    expires_at: u64,
-    api_base_url: String,
-    ssh: Option<SshLine>,
+    pub(super) machine: String,
+    pub(super) vm_id: String,
+    pub(super) linux_user: String,
+    pub(super) token: String,
+    pub(super) expires_at: u64,
+    pub(super) api_base_url: String,
+    pub(super) ssh: Option<SshLine>,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -234,8 +246,37 @@ pub(super) fn run(
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| e.to_string())?;
-    let session = runtime.block_on(mint(&client, command, api, credential))?;
     let io = |e: std::io::Error| e.to_string();
+    // The machine is a handle on this backend and team from here on: no call below names the
+    // backend again (lens review 2026-11-05, finding 2).
+    let scope = Scope::new(api, command.team.as_deref()).map_err(|e| e.to_string())?;
+    let machine = scope.machine(&command.machine).map_err(|e| e.to_string())?;
+    let minted = runtime.block_on(mint_session(&client, &scope, credential, &machine, command.ttl));
+    let session = match (minted, &command.verb) {
+        (Ok(session), _) => session,
+        // A provider with no client sessions (a VM API machine): exec runs through the cmux
+        // API's own machine exec route as the work user, with the same answer this command
+        // prints for a direct exec. `new` has no such route: a session is what it makes.
+        // Only the machine's creator gets here: the platform refuses anyone else with
+        // not_creator (auth.forbidden) before it asks the provider (ClientSession.ts
+        // mintClientSessionOn), so this fallback never widens who may run a command.
+        (Err(refusal), Verb::Exec { command: line, timeout_ms })
+            if refusal.code == "cloud.provider.unsupported" =>
+        {
+            let mut answer = runtime.block_on(exec_route(
+                &client,
+                &scope,
+                credential,
+                &machine,
+                line,
+                *timeout_ms,
+            ))?;
+            answer.stdout = redact(&answer.stdout, "", credential);
+            answer.stderr = redact(&answer.stderr, "", credential);
+            return print_exec(&command.machine, &answer, output, out, err).map_err(io);
+        }
+        (Err(refusal), _) => return Err(refusal.message),
+    };
     match &command.verb {
         Verb::Create { token_file } => {
             if let Some(path) = token_file {
@@ -248,8 +289,12 @@ pub(super) fn run(
                 }
                 write_token_file(path, &session.token)?;
             }
+            if output == OutputMode::Quiet {
+                // Quiet prints nothing on success, the token least of all.
+                return Ok(0);
+            }
             let ssh = session.ssh.as_ref().map(|s| format!("ssh {}@{}", s.user, s.host));
-            if output == OutputMode::Json {
+            if matches!(output, OutputMode::Json | OutputMode::JsonLines) {
                 // With --token-file the token is only in the file.
                 let (token, file) = match token_file {
                     Some(path) => (Value::Null, json!(path.display().to_string())),
@@ -286,15 +331,83 @@ pub(super) fn run(
             if code == session.token || code == credential {
                 return Err("the machine's answer is not readable".into());
             }
-            if output == OutputMode::Json {
-                writeln!(out, "{}", json!({ "machine": session.machine, "exit_code": answer.exit_code, "stdout": answer.stdout, "stderr": answer.stderr })).map_err(io)?;
-            } else {
-                out.write_all(answer.stdout.as_bytes()).map_err(io)?;
-                err.write_all(answer.stderr.as_bytes()).map_err(io)?;
-            }
-            Ok(answer.exit_code)
+            print_exec(&session.machine, &answer, output, out, err).map_err(io)
         }
     }
+}
+
+/// Prints one exec's answer as `output` asks and answers its exit code.
+fn print_exec(
+    machine: &str,
+    answer: &ExecAnswer,
+    output: OutputMode,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> std::io::Result<i32> {
+    match output {
+        OutputMode::Json | OutputMode::JsonLines => {
+            writeln!(
+                out,
+                "{}",
+                json!({ "machine": machine, "exit_code": answer.exit_code, "stdout": answer.stdout, "stderr": answer.stderr })
+            )?;
+        }
+        // Quiet drops the command's output; its stderr and exit code still say what failed.
+        OutputMode::Quiet => err.write_all(answer.stderr.as_bytes())?,
+        OutputMode::Human => {
+            out.write_all(answer.stdout.as_bytes())?;
+            err.write_all(answer.stderr.as_bytes())?;
+        }
+    }
+    Ok(answer.exit_code)
+}
+
+/// `POST {api}/v1/cloud/machines/{machine}/exec` (cmux-platform MachineGuest.ts):
+/// `{command, timeoutMs}` -> `{exitCode, stdout, stderr}`, as the work user. A refusal answers
+/// `{ok: false, error: {code}}`; only a code from [`KNOWN_CODES`] is printed.
+async fn exec_route(
+    client: &reqwest::Client,
+    scope: &Scope,
+    credential: &str,
+    machine: &Machine,
+    command: &str,
+    timeout_ms: u64,
+) -> Result<ExecAnswer, String> {
+    let url = scope.route(machine, "/exec").map_err(|foreign| foreign.to_string())?;
+    let mut request = client
+        .post(url)
+        .bearer_auth(credential)
+        .timeout(Duration::from_millis(timeout_ms).saturating_add(Duration::from_secs(15)))
+        .json(&json!({ "command": command, "timeoutMs": timeout_ms }));
+    if let Some(team) = scope.team() {
+        request = request.header(TEAM_HEADER, team);
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("the cmux API did not answer: {}", e.without_url()))?;
+    let status = response.status();
+    let body: Option<Value> = response.json().await.ok();
+    let unreadable = || "the machine's answer is not readable".to_owned();
+    let body = body.filter(Value::is_object).ok_or_else(unreadable)?;
+    if !status.is_success() || body.get("ok") == Some(&Value::Bool(false)) {
+        let code = body.get("error").and_then(|e| e.get("code")).and_then(Value::as_str);
+        let code = known_code(code);
+        let code = if code.contains(credential) { "" } else { code };
+        return Err(format!("the cmux API refused the command: {status} {code}"));
+    }
+    let body = body.get("value").filter(|v| v.is_object()).unwrap_or(&body);
+    let text = |key: &str| match body.get(key) {
+        None | Some(Value::Null) => Ok(String::new()),
+        Some(Value::String(text)) => Ok(text.clone()),
+        Some(_) => Err(unreadable()),
+    };
+    let exit_code = body
+        .get("exitCode")
+        .and_then(Value::as_i64)
+        .and_then(|c| i32::try_from(c).ok())
+        .ok_or("the machine's answer has no readable exit status")?;
+    Ok(ExecAnswer { exit_code, stdout: text("stdout")?, stderr: text("stderr")? })
 }
 
 /// A checked `exec-await` answer (Freestyle's `ExecResponse`: every field optional and nullable).
@@ -325,29 +438,51 @@ pub(super) fn exec_answer(body: Option<Value>) -> Result<ExecAnswer, String> {
     Ok(ExecAnswer { exit_code, stdout: text("stdout")?, stderr: text("stderr")? })
 }
 
-async fn mint(
+/// Why a mint gave no session: the HTTP status (0: no answer, or an answer that is not a
+/// session) and the refusal code from [`KNOWN_CODES`] (empty for any other), with a message that
+/// carries neither secret.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct MintRefusal {
+    pub(super) status: u16,
+    pub(super) code: &'static str,
+    pub(super) message: String,
+}
+
+/// `POST {api}/v1/cloud/machines/{machine}/client-session` as `credential` on `machine`'s own
+/// backend and team (a handle another scope named is refused before sending), checked by
+/// [`checked_session`]. Shared by `cloud client-session` and `cloud machine-io`.
+pub(super) async fn mint_session(
     client: &reqwest::Client,
-    command: &Command,
-    api: &str,
+    scope: &Scope,
     credential: &str,
-) -> Result<Session, String> {
+    machine: &Machine,
+    ttl: Option<u64>,
+) -> Result<Session, MintRefusal> {
+    let refused =
+        |status: u16, code: &'static str, message: String| MintRefusal { status, code, message };
+    let url = scope
+        .route(machine, "/client-session")
+        .map_err(|foreign| refused(0, "", foreign.to_string()))?;
     let mut request = client
-        .post(format!("{api}/v1/cloud/machines/{}/client-session", command.machine))
+        .post(url)
         .bearer_auth(credential)
         .timeout(MINT_TIMEOUT)
-        .json(&command.ttl.map_or_else(|| json!({}), |ttl| json!({ "ttl_seconds": ttl })));
-    if let Some(team) = &command.team {
+        .json(&ttl.map_or_else(|| json!({}), |ttl| json!({ "ttl_seconds": ttl })));
+    if let Some(team) = scope.team() {
         request = request.header(TEAM_HEADER, team);
     }
     let response = request
         .send()
         .await
-        .map_err(|e| format!("the cmux API did not answer: {}", e.without_url()))?;
+        .map_err(|e| refused(0, "", format!("the cmux API did not answer: {}", e.without_url())))?;
     let status = response.status();
-    let body: Value = response
-        .json()
-        .await
-        .map_err(|_| format!("the cmux API answered {status} with no readable body"))?;
+    let body: Value = response.json().await.map_err(|_| {
+        refused(
+            status.as_u16(),
+            "",
+            format!("the cmux API answered {status} with no readable body"),
+        )
+    })?;
     if !status.is_success() || body.get("ok") != Some(&Value::Bool(true)) {
         // Only a code this command knows, printed from its own table: nothing the answer
         // carries (a credential a proxy or a broken server echoed) reaches the terminal.
@@ -355,12 +490,14 @@ async fn mint(
         let code = known_code(code);
         // A credential that happens to spell a known code is still never printed.
         let code = if code.contains(credential) { "" } else { code };
-        return Err(format!("the cmux API refused the client session: {status} {code}"));
+        let message = format!("the cmux API refused the client session: {status} {code}");
+        return Err(refused(status.as_u16(), code, message));
     }
-    let session: Session =
-        serde_json::from_value(body.get("value").cloned().unwrap_or_default())
-            .map_err(|_| "the cmux API's answer is not a client session".to_owned())?;
-    checked_session(session, &command.machine, credential)
+    let session: Session = serde_json::from_value(body.get("value").cloned().unwrap_or_default())
+        .map_err(|_| {
+        refused(0, "", "the cmux API's answer is not a client session".to_owned())
+    })?;
+    checked_session(session, machine.id(), credential).map_err(|message| refused(0, "", message))
 }
 
 /// The session when it is for `machine`, every field this command prints is plain (no secret can
@@ -463,7 +600,14 @@ async fn exec(
 }
 
 /// The cmux API's client-session refusal codes. `known_code` prints only these, from this table.
-const KNOWN_CODES: [&str; 13] = [
+const KNOWN_CODES: [&str; 19] = [
+    // The machine exec route's refusals (cmux-platform MachineGuest.ts GUEST_REFUSAL).
+    "vm_not_found",
+    "vm_forbidden",
+    "vm_not_running",
+    "vm_unavailable",
+    "vm_busy",
+    "vm_output_too_large",
     "auth.unauthenticated",
     "auth.forbidden",
     "owner.unreachable",

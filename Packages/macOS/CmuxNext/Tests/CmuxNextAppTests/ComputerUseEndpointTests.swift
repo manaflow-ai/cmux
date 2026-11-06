@@ -33,13 +33,18 @@ private final class RecordingHelperLauncher: ComputerUseHelperLaunching {
 /// or stale endpoint until a new chat.
 @MainActor
 struct ComputerUseEndpointTests {
-    private static func daemon(_ launcher: RecordingHelperLauncher) -> ComputerUseHelperDaemon {
+    /// `upstreamInBuild`: whether the helper v2 is in this build. The SwiftPM test bundle embeds
+    /// none, so without a fixture driver "upstream" falls back to the legacy helper.
+    private static func daemon(_ launcher: RecordingHelperLauncher, upstreamInBuild: Bool = false) -> ComputerUseHelperDaemon {
         let root = FileManager.default.temporaryDirectory.appending(path: "cua-endpoint-\(UUID().uuidString.prefix(8))")
+        let embedded: URL? = upstreamInBuild ? URL(fileURLWithPath: "/test/cmux Computer Use (dev).app") : nil
+        let upstream = ComputerUseHelperV2(directory: root.appending(path: "v2").path, helperApp: { embedded },
+                                           staging: .passing(root: root))
         return ComputerUseHelperDaemon(identity: CuaHelperIdentity(isSigned: { _ in true }),
                                        candidates: { [root.appending(path: "missing/cmux Computer Use.app")] },
                                        launcher: launcher, staging: .passing(root: root),
                                        socketPath: root.appending(path: "s/cua.sock").path,
-                                       stateDirectory: root.appending(path: "state"))
+                                       stateDirectory: root.appending(path: "state"), upstream: upstream)
     }
 
     private static func settings(enabled: Bool, driver: ComputerUseDriver = .legacy) -> ComputerUseSettings {
@@ -89,12 +94,27 @@ struct ComputerUseEndpointTests {
 
     @Test func policyAndTheHelperV2PublishNoEndpoint() async {
         let launcher = RecordingHelperLauncher()
-        let daemon = Self.daemon(launcher)
+        let daemon = Self.daemon(launcher, upstreamInBuild: true)
         await daemon.apply(Self.settings(enabled: true), disabledByPolicy: true)
         #expect(daemon.childEnvironment.isEmpty)
         #expect(launcher.started.isEmpty)
         await daemon.apply(Self.settings(enabled: false, driver: .upstream), disabledByPolicy: false)
         #expect(daemon.childEnvironment.isEmpty)
+    }
+
+    /// Driver "upstream" in a build without the helper v2 runs the legacy helper, so its endpoint
+    /// stays published, off too: a chat started before Computer Use is turned on reaches it later.
+    @Test func anUpstreamFallbackPublishesTheLegacyEndpoint() async throws {
+        let launcher = RecordingHelperLauncher()
+        let daemon = Self.daemon(launcher)
+        await daemon.apply(Self.settings(enabled: false, driver: .upstream), disabledByPolicy: false)
+        #expect(daemon.childEnvironment["CMUX_NEXT_CUA_SOCKET"] == daemon.socketPath)
+        let token = try #require(daemon.childEnvironment["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"])
+        #expect(launcher.started.isEmpty, "off starts no helper")
+        await daemon.apply(Self.settings(enabled: true, driver: .upstream), disabledByPolicy: false)
+        #expect(launcher.started.first?["CMUX_CUA_SOCKET_AUTH_TOKEN"] == token)
+        await daemon.apply(Self.settings(enabled: true, driver: .upstream), disabledByPolicy: true)
+        #expect(daemon.childEnvironment.isEmpty, "policy still withdraws it")
     }
 
     @Test func quittingWithdrawsTheEndpoint() async {

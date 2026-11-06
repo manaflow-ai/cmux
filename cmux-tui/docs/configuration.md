@@ -156,6 +156,14 @@ or `CMUX_MUX_CONFIG` in a separate shell does not change the running process env
 `sidebar plugin use` does not send this reload; run `cmux daemon reload-config`
 separately for a running local session whose socket is reachable.
 
+When a daemon starts, cmux checks installed sidebar and agent plugins for a
+newer `HEAD` at most once per day. The check runs in the background and only
+updates clean installs whose origin is HTTPS or SSH. Local paths, `file://`
+origins, symlinked development checkouts, and installs with uncommitted files
+are left alone. A successful update is picked up the next time the plugin
+process starts; use `cmux daemon reload-config` to restart a plugin that is
+already running.
+
 Return to the built-in sidebar with:
 
 ```bash
@@ -211,7 +219,8 @@ not report the bundled detector; the daemon's agent roster shows its rows.
 
 The reference screen detector keeps 21 herdr-derived manifests in its own
 package. `cmux-agent-screen-detection update` checks an HTTPS catalog only when
-the user invokes it. Startup never performs network access. See
+the user invokes it. The daemon's once-daily check applies only to
+user-installed plugins and never updates the bundled detector. See
 [`spec/plugins.md`](../spec/plugins.md) for the journal envelope, lifecycle,
 source precedence, process fallback, and attribution rules.
 

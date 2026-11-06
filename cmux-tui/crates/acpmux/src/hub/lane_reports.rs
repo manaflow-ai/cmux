@@ -2,9 +2,8 @@
 //! Claude subagent's parent hears when it stops: at the end of each of the lane's turns its
 //! parent gets one short report, without the lane having to remember `acpmux send`.
 //!
-//! Who a lane reports to is the link the daemon keeps, set from the session its connection
-//! proved it runs in (its caller token). The lane's tag `lane.reportsTo` (the parent's exact
-//! session id) shows it; changing or removing that tag changes nothing.
+//! Who a lane reports to is the link the daemon keeps, from the session its connection proved
+//! it runs in (its caller token); its tag `lane.reportsTo` shows it. `lane_detach.rs` ends it.
 //!
 //! - `session/new` from inside a session: that session is the new one's parent. A run tied to
 //!   its connection (`--ephemeral`) is no lane and gets none.
@@ -21,12 +20,15 @@
 //! report replaces one still queued (keeping the pull requests only that one named).
 //!
 //! ```text
-//! [NAME] lane report: turn N ended, STATE.
-//! Session: HOST/ID
-//! Last message: the first 400 characters of its last reply
+//! [NAME] BLOCK at SHA12 · 1 P1, 2 P2 · turn N, STATE
+//! Whole reply lines, retaining every P1/P2 finding's first sentence
 //! Pull requests: URLs its gh pr create calls printed or the reply names, not reported before
-//! Commits named: full SHAs in the reply
 //! ```
+//!
+//! Session and commits live in provenance `details`, collapsed by the pane. Review receipts
+//! anywhere in the reply supply the verdict; other replies use their first sentence. The report
+//! is automatic, sent at the end of each turn of a session its parent started; answer only if
+//! it needs you. Its machine-readable kind, from, to, turn and state remain unchanged.
 //!
 //! STATE is `idle`, `working on its next prompt`, `waiting on a permission` / `waiting on a
 //! question: ...`, or `blocked: ...` (a failed turn and the queue it paused, a stopped agent).
@@ -61,8 +63,6 @@ use std::sync::LazyLock;
 pub const TAG: &str = "lane.reportsTo";
 /// The provenance kind.
 pub(crate) const KIND: &str = "lane_report";
-/// The reply's first characters a report carries.
-const REPLY_CHARS: usize = 400;
 /// Transcript records read per page, newest first, back to the start of the last turn.
 const TAIL_RECORDS: usize = 400;
 /// Pages read back at most for the last turn (a turn that streamed more records than this
@@ -75,8 +75,6 @@ const MAX_DEPTH: usize = 16;
 pub const MAX_REPORTS: usize = 20;
 /// The window of [`MAX_REPORTS`].
 pub const WINDOW_MS: u64 = 10 * 60 * 1000;
-/// The words after `[NAME] ` that start a report (`prompt_line.rs` reads the name).
-const HEAD: &str = "lane report: turn ";
 /// A report's prompt id starts with this.
 const PROMPT_PREFIX: &str = "lane-report-";
 
@@ -93,8 +91,9 @@ fn matches(re: &Option<Regex>, text: &str) -> Vec<String> {
 
 /// One lane's link to its parent.
 #[derive(Debug, Clone, Default)]
-struct Link {
+pub(super) struct Link {
     parent: String,
+    pub(super) asked: bool,
     /// The last report's content, to leave out the same report again.
     last: Option<String>,
     /// Pull requests a report already named.
@@ -226,26 +225,23 @@ impl Report {
 
     fn text(&self) -> String {
         let mut t = format!(
-            "[{}] {HEAD}{} ended, {}.\nSession: {}\nLast message: {}",
-            self.name, self.turn, self.state, self.session, self.reply
+            "[{}] {} · turn {}, {}\n{}",
+            self.name,
+            super::lane_report_text::headline(&self.reply),
+            self.turn,
+            self.state,
+            super::lane_report_text::excerpt(&self.reply),
         );
         if !self.prs.is_empty() {
             t.push_str(&format!("\nPull requests: {}", self.prs.join(" ")));
         }
-        if !self.shas.is_empty() {
-            t.push_str(&format!("\nCommits named: {}", self.shas.join(" ")));
-        }
-        t.push_str(
-            "\n(acpmux sends this at the end of each turn of a session you started or gave a \
-             task. Answer only if it needs you.)",
-        );
         t
     }
 }
 
 /// Whether a turn's provenance is lane reports only: a report, or a turn of agent messages that
 /// took in nothing else.
-fn reports_only(provenance: Option<&Value>) -> bool {
+pub(super) fn reports_only(provenance: Option<&Value>) -> bool {
     let Some(p) = provenance else { return false };
     match p.get("kind").and_then(Value::as_str) {
         Some(KIND) => true,
@@ -329,7 +325,12 @@ fn new_items(found: impl IntoIterator<Item = String>, seen: &[String]) -> Vec<St
 }
 
 impl Hub {
-    fn lane_links<R>(&self, f: impl FnOnce(&mut BTreeMap<String, Link>) -> R) -> R {
+    /// The authenticated starter a lane reports to, independent of mutable display tags.
+    pub(crate) fn lane_report_parent(&self, lane: &str) -> Option<String> {
+        self.lane_links(|links| links.get(lane).map(|link| link.parent.clone()))
+    }
+
+    pub(super) fn lane_links<R>(&self, f: impl FnOnce(&mut BTreeMap<String, Link>) -> R) -> R {
         f(&mut self.lane_reports.links.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
@@ -384,7 +385,7 @@ impl Hub {
 
     /// From now on `parent` hears the end of each of `child`'s turns (both exact ids): tags the
     /// child and keeps the link. Turns done now are not reported.
-    pub(crate) fn lane_link(&self, parent: &str, child: &str) {
+    pub(crate) fn lane_link(&self, parent: &str, child: &str, asked: bool) {
         // A session never becomes the child of itself or of its own descendant.
         if parent == child || self.lane_below(parent, child) {
             return;
@@ -400,7 +401,7 @@ impl Hub {
             if !self.lane_open(parent) || !self.lane_open(child) {
                 return false;
             }
-            let link = Link { parent: parent.to_owned(), ..Link::default() };
+            let link = Link { parent: parent.to_owned(), asked, ..Link::default() };
             links.insert(child.to_owned(), link);
             true
         });
@@ -414,10 +415,22 @@ impl Hub {
     /// `session`'s turn started (its turn count counts it), with `provenance` for the whole turn
     /// (`digest.rs`).
     pub(super) fn lane_turn_started(&self, session: &Session, provenance: Option<&Value>) {
-        if reports_only(provenance) {
+        self.lane_turn_on(session, reports_only(provenance));
+    }
+
+    /// `session`'s turn started (its turn count counts it); `reports`: on lane reports only (a
+    /// carried turn's steers, `carried_turn.rs`).
+    pub(super) fn lane_turn_on(&self, session: &Session, reports: bool) {
+        if reports {
             let turn = session.meta().turn_count;
             self.lane_turns().report_only.insert((session.id.clone(), turn));
         }
+    }
+
+    /// Whether turn `turn` of session `id` is counted as one on lane reports only.
+    #[cfg(test)]
+    pub(super) fn lane_turn_reports_only(&self, id: &str, turn: u64) -> bool {
+        self.lane_turns().report_only.contains(&(id.to_owned(), turn))
     }
 
     /// A prompt that is not a lane report is about to be steered into `session`: counted before
@@ -447,6 +460,7 @@ impl Hub {
         if !self.lane_links(|links| links.contains_key(&session.id)) {
             return;
         }
+        self.lane_report_ended(&session.id, turn);
         // A turn on reports only makes none, and leaves one still queued to go now.
         if !on_reports {
             let report = self.lane_capture(session, turn, started);
@@ -523,6 +537,7 @@ impl Hub {
             tracing::warn!(lane, %parent, "lane report not delivered: {}", e.message);
             return;
         }
+        self.lane_report_reconcile_read(&parent, lane, report.turn);
         // Counted from when the parent took it, not when it was taken: its admission may wait.
         let took = now_ms();
         self.lane_links(|links| {
@@ -559,11 +574,7 @@ impl Hub {
             session: session.id.clone(),
             turn,
             state,
-            reply: if reply.is_empty() {
-                "(no reply)".into()
-            } else {
-                short_text(&reply, REPLY_CHARS)
-            },
+            reply: if reply.is_empty() { "(no reply)".into() } else { reply },
             prs,
             shas,
         }
@@ -596,6 +607,7 @@ impl Hub {
     pub(super) fn lane_retire(&self, id: &str) {
         self.lane_links(|links| links.retain(|lane, l| lane != id && l.parent != id));
         self.lane_turns().forget(id);
+        self.lane_report_forget(id);
     }
 
     /// Hands the report to the parent: accepted (queued, started, steered or held for the
@@ -619,13 +631,22 @@ impl Hub {
         let provenance = json!({
             "kind": KIND, "from": lane, "fromName": report.name, "to": parent,
             "turn": report.turn, "state": report.state,
+            "details": {"session": report.session, "commits": report.shas},
         });
+        // The lane's id and harness, for the parent's queue list (`prompt_provenance.rs`).
+        let lane_session =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(lane).cloned();
+        let sender = lane_session
+            .map(|l| crate::prompt_provenance::BoundSender::of_session(&l.id, &l.meta()));
+        let provenance = crate::prompt_provenance::stamp_sender(provenance, sender.as_ref());
         let (tx, rx) = oneshot::channel();
         let opts = PromptOptions {
             prompt_id: Some(prompt_id),
             resend: true,
-            provenance: Some(provenance),
+            provenance: Some(provenance.clone()),
             agent: Some(report.name.clone()),
+            // A lane's report says what its turn did (`prompt_class.rs`).
+            class: Some(crate::prompt_class::PromptClass::Result),
             on_accepted: Some(Box::new(move |v| {
                 let _ = tx.send(v);
             })),
@@ -636,6 +657,18 @@ impl Hub {
         // queue (`queue.rs`, by the report's provenance kind). A lane closing after this check still sends this one report,
         // of a turn that ended before its close.
         if !self.lane_links(|links| links.get(lane).is_some_and(|l| l.parent == parent)) {
+            return Ok(());
+        }
+        if self.lane_report_was_read(lane, report.turn) {
+            if !super::queue::closing(&p) {
+                self.lane_report_delivered_read(
+                    &p,
+                    lane,
+                    &report.prompt_id,
+                    &report.text(),
+                    &provenance,
+                );
+            }
             return Ok(());
         }
         // The answer comes when the parent's turn ends; the report is in once it is accepted.
@@ -970,7 +1003,7 @@ mod tests {
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
         let parent = hub.new_session(start()).await.unwrap();
         let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_link(&parent.id, &lane.id, false);
         // A worker's report starts the lane's turn 1, whose agent then fails to start: the lane
         // is stuck, and its parent must hear it.
         lane.meta.lock().unwrap().turn_count = 1;
@@ -1127,7 +1160,7 @@ mod tests {
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
         let parent = hub.new_session(start()).await.unwrap();
         let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_link(&parent.id, &lane.id, false);
         // The cap is full, its oldest report leaving the window in 300 ms; the lane never ends
         // another turn.
         let oldest = now_ms() - WINDOW_MS + 300;
@@ -1156,7 +1189,7 @@ mod tests {
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
         let parent = hub.new_session(start()).await.unwrap();
         let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_link(&parent.id, &lane.id, false);
         hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued_report(&lane.id)));
         // Taken a minute before the parent accepts it (its admission waited).
         let taken = now_ms() - 60_000;
@@ -1177,7 +1210,7 @@ mod tests {
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
         let parent = hub.new_session(start()).await.unwrap();
         let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_link(&parent.id, &lane.id, false);
         hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued_report(&lane.id)));
         let now = now_ms();
         let due = hub.lane_take_due(&lane.id, now).unwrap();
@@ -1194,13 +1227,34 @@ mod tests {
         }
     }
 
+    /// A report that comes once a shutdown began (a lane turn Quit Everything cut ends, and its
+    /// report reaches an idle parent the shutdown has not ended yet) starts no turn: no agent may
+    /// start from then on, and the parent's log takes no prompt it never ran.
+    #[tokio::test]
+    async fn an_idle_parent_takes_no_report_once_the_shutdown_began() {
+        let hub = test_hub();
+        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(start()).await.unwrap();
+        let lane = hub.new_session(start()).await.unwrap();
+        hub.lane_link(&parent.id, &lane.id, false);
+        hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued_report(&lane.id)));
+        let due = hub.lane_take_due(&lane.id, now_ms()).unwrap();
+        hub.begin_shutdown();
+        hub.lane_hand_over(&lane.id, due).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert_eq!(parent.meta().turn_count, 0, "a report went in once the shutdown began");
+        for s in [&lane, &parent] {
+            hub.kill(s, true).await.unwrap();
+        }
+    }
+
     #[tokio::test]
     async fn a_report_queued_behind_a_busy_parent_that_then_closes_never_runs() {
         let hub = test_hub();
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
         let parent = hub.new_session(start()).await.unwrap();
         let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_link(&parent.id, &lane.id, false);
         let (h, p) = (hub.clone(), parent.clone());
         let blocks = vec![json!({"type": "text", "text": "until-cancel"})];
         let busy = tokio::spawn(async move {
@@ -1225,6 +1279,9 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         assert_eq!(parent.queued(), 1, "the report never queued behind the parent's turn");
+        // A lane's report is a result (`prompt_class.rs`): it never wakes a coordinator by itself.
+        let class = parent.queue().first().and_then(|q| q.run.class);
+        assert_eq!(class, Some(crate::prompt_class::PromptClass::Result));
         let turns = parent.meta().turn_count;
         hub.kill(&parent, false).await.unwrap();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), busy).await;
@@ -1244,7 +1301,7 @@ mod tests {
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
         let parent = hub.new_session(start()).await.unwrap();
         let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_link(&parent.id, &lane.id, false);
         let (h, l) = (hub.clone(), lane.clone());
         let blocks = vec![json!({"type": "text", "text": "until-cancel"})];
         let run = tokio::spawn(async move {
@@ -1279,7 +1336,7 @@ mod tests {
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
         let parent = hub.new_session(start()).await.unwrap();
         let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_link(&parent.id, &lane.id, false);
         let queued = Report {
             content: "idle\nlast words".into(),
             prompt_id: format!("{PROMPT_PREFIX}test"),
@@ -1318,27 +1375,27 @@ mod tests {
         let child = hub.new_session(start()).await.unwrap();
         // The parent closes after `session/new` read it and before the link goes in.
         hub.kill(&parent, false).await.unwrap();
-        hub.lane_link(&parent.id, &child.id);
+        hub.lane_link(&parent.id, &child.id, false);
         assert!(!hub.lane_links(|l| l.contains_key(&child.id)));
         // A child that closed after `lane_link` read it and before the link went in is not
         // linked again: its close retired its links already.
         let closing = hub.new_session(start()).await.unwrap();
         let open_parent = hub.new_session(start()).await.unwrap();
         hub.kill(&closing, false).await.unwrap();
-        hub.lane_link(&open_parent.id, &closing.id);
+        hub.lane_link(&open_parent.id, &closing.id, false);
         assert!(!hub.lane_links(|l| l.contains_key(&closing.id)));
         hub.kill(&closing, true).await.unwrap();
         hub.kill(&open_parent, true).await.unwrap();
         // An open parent is linked.
         let open = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&open.id, &child.id);
+        hub.lane_link(&open.id, &child.id, false);
         assert!(hub.lane_links(|l| l.get(&child.id).is_some_and(|l| l.parent == open.id)));
         // Its parent closing retires it; a child is never linked under its own descendant.
         hub.kill(&open, false).await.unwrap();
         assert!(!hub.lane_links(|l| l.contains_key(&child.id)));
         let grandchild = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&child.id, &grandchild.id);
-        hub.lane_link(&grandchild.id, &child.id);
+        hub.lane_link(&child.id, &grandchild.id, false);
+        hub.lane_link(&grandchild.id, &child.id, false);
         assert!(!hub.lane_links(|l| l.contains_key(&child.id)));
         hub.kill(&grandchild, true).await.unwrap();
         for s in [&child, &open] {

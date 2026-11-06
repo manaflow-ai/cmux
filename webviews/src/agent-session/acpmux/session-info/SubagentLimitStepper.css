@@ -1,0 +1,49 @@
+/* The Subagents card's running limit (SubagentLimitStepper.tsx): one quiet line of secondary text
+   with − and + at its end, Session Info's icon buttons. No transition of its own. */
+.acpmux-subagent-limit {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: 24px;
+  padding: 0 4px 0 8px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-subagent-limit__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-subagent-limit__controls {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+.acpmux-subagent-limit__reset {
+  height: 20px;
+  margin: 0 2px 0 0;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+}
+.acpmux-subagent-limit__reset:hover {
+  color: var(--agent-text);
+}
+.acpmux-subagent-limit__reset:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-subagent-limit__refused {
+  flex: none;
+  color: var(--agent-danger);
+}
+.acpmux-subagent-limit__refused:empty {
+  display: none;
+}

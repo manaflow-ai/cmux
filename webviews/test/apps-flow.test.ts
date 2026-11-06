@@ -3,7 +3,9 @@
 // a shared browser or Vite server behind for another browser lane.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
+import { mkdir } from "node:fs/promises";
 import { chromium, webkit, type Browser } from "playwright";
+import strings from "../src/pages/apps/generated/strings.json";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -47,11 +49,15 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
     await vite?.close();
   });
 
-  async function open(engine: "chromium" | "webkit", variant: string): Promise<import("playwright").Page> {
+  async function open(
+    engine: "chromium" | "webkit",
+    variant: string,
+    locale = "en",
+  ): Promise<import("playwright").Page> {
     const { port } = vite!.httpServer!.address() as { port: number };
     const url =
       `http://127.0.0.1:${port}/gallery/frame.html?entry=pages.apps&entryPath=src/pages/apps/apps.gallery.ts` +
-      `&variant=${variant}&reducedMotion=1`;
+      `&variant=${variant}&locale=${locale}&reducedMotion=1`;
     let lastError: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const page = await browsers[engine]!.newPage({ viewport: { width: 1100, height: 760 } });
@@ -71,6 +77,42 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
   }
 
   for (const engine of ["webkit", "chromium"] as const) {
+    for (const locale of ["en", "de", "ja"] as const) {
+      test(`${engine}: App Store action widths stay fixed in ${locale}`, async () => {
+        const page = await open(engine, "list", locale);
+        const labels = strings[locale] as Record<string, string>;
+        try {
+          for (const [name, beforeKey, afterKey] of [
+            ["Caffeinate", "store.action.install", "store.action.remove"],
+            ["GitHub PRs", "store.action.hide", "store.action.show"],
+          ] as const) {
+            const card = page.locator(".apps-card").filter({ has: page.getByRole("button", { name, exact: true }) });
+            const before = card.getByRole("button", { name: labels[beforeKey], exact: true });
+            await before.waitFor();
+            const initial = await before.boundingBox();
+            expect(initial).not.toBeNull();
+            const out = process.env.CMUX_APPS_WIDTH_CAPTURE_DIR;
+            if (out) {
+              await mkdir(out, { recursive: true });
+              await card.screenshot({ path: path.join(out, `${engine}-${locale}-${beforeKey}.png`) });
+            }
+            await before.click();
+            const after = card.getByRole("button", { name: labels[afterKey], exact: true });
+            await after.waitFor();
+            const changed = await after.boundingBox();
+            expect(changed).not.toBeNull();
+            if (out) await card.screenshot({ path: path.join(out, `${engine}-${locale}-${afterKey}.png`) });
+            expect(Math.abs(changed!.width - initial!.width)).toBeLessThan(0.1);
+            expect(changed!.height).toBe(initial!.height);
+            await after.click();
+            await before.waitFor();
+            expect((await before.boundingBox())!.width).toBe(initial!.width);
+          }
+        } finally {
+          await page.close();
+        }
+      });
+    }
     describe(`${engine}: Apps discover and lifecycle`, () => {
       test("search, category, detail, keyboard reset, and install use the page host", async () => {
         const page = await open(engine, "list");
@@ -102,13 +144,7 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
 
           const caffeinate = cards.filter({ hasText: "Caffeinate" });
           await caffeinate.getByRole("button", { name: "Install" }).click();
-          await page.waitForFunction(() =>
-            [...document.querySelectorAll<HTMLElement>(".apps-card")].some(
-              (card) =>
-                card.textContent?.includes("Caffeinate") &&
-                [...card.querySelectorAll("button")].some((button) => button.textContent?.includes("Remove")),
-            ),
-          );
+          await caffeinate.getByRole("button", { name: "Remove", exact: true }).waitFor();
           expect(await caffeinate.innerText()).toContain("Installed");
           expect(await caffeinate.getByRole("button", { name: "Remove" }).isVisible()).toBe(true);
         } finally {

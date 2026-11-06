@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextLayout
 import os
 
@@ -21,18 +22,21 @@ extension AppActionContext {
     func observeRefusals() {
         let registry = registry
         let services = services
+        // A refusal that says to sign in to cmux offers Sign In on its toast (msg 3790).
+        let signIn = CmuxSignInOffer(registry: registry, isSignedIn: { services.cloud.isSignedIn })
+        services.refusalHUD.signInOffer = { signIn.offer(for: $0) }
         registry.refusalObserver = { reason, quiet in
             Self.logger.notice("action refused: \(reason, privacy: .public)")
             guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }
             // Keyed by the key event that ran the refused action, so the burst bench matches it to its press.
             services.burstTrace.mark(.refusal, input: registry.dispatchingInputEvent()?.timestamp)
-            services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
+            services.refusalHUD.show(reason, in: services.windows.active?.window ?? services.keyWindowSource())
         }
         // An action's local change was rolled back because the daemon refused it: say so where
         // refusals show, so the change does not just vanish.
         registry.remoteFailureObserver = { action, notice in
             Self.logger.notice("action \(action.rawValue, privacy: .public) rolled back: \(notice, privacy: .public)")
-            services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)
+            services.refusalHUD.show(notice, in: services.windows.active?.window ?? services.keyWindowSource())
         }
     }
 
@@ -83,13 +87,8 @@ extension AppActionContext {
     /// Runs an action's asynchronous work and reports its failure: a capturing caller (the CLI,
     /// MCP) awaits it and answers it; a palette, menu or keyboard run shows it when it comes.
     func report(_ work: @escaping @MainActor () async -> ActionWorkFailure?) {
-        let task = Task { @MainActor in await work() }
-        if registry.isCapturingWork {
-            registry.track(task)
-        } else {
-            // task-owner: a run nobody awaits; the refusal shows when the work ends.
-            Task { @MainActor [weak registry] in if let failure = await task.value { registry?.refuse(failure.message) } }
-        }
+        // task-owner: the action's work, awaited by a capturing caller; else its refusal shows when it ends (trackOrRefuse).
+        registry.trackOrRefuse(Task { @MainActor in await work() })
     }
 
     /// Statement form: `guard ... else { return ctx.refuse("why") }`.
@@ -124,7 +123,7 @@ extension AppActionContext {
         explicitTarget(invocation, kinds: [.tab, .pane]) != nil
     }
 
-    private func explicitTarget(_ invocation: ActionInvocation, kinds: Set<ActionTargetKind>) -> ActionTargetRef? {
+    func explicitTarget(_ invocation: ActionInvocation, kinds: Set<ActionTargetKind>) -> ActionTargetRef? {
         for candidate in [invocation.target, invocation["tab"]?.targetValue, invocation["pane"]?.targetValue] {
             if let candidate, kinds.contains(candidate.kind) { return candidate }
         }
@@ -139,12 +138,13 @@ extension AppActionContext {
         guard let target = explicitTarget(invocation, kinds: [.tab, .pane]) else {
             return services.windows.active?.focusedPane ?? refuse(MiscHandlerStrings.noPane)
         }
+        if target.kind == .pane {
+            guard let model = targetPane(target.id, invocation) else { return notFound(RefusalStrings.noPaneID(target.id)) }
+            return services.paneController(for: model) ?? refuse(RefusalStrings.notShownInAnyWindow(String(describing: target)))
+        }
         for window in services.windows.controllers {
-            for pane in window.content?.panes.values.map({ $0 }) ?? [] {
-                let hit = target.kind == .pane
-                    ? pane.paneKey == target.id
-                    : pane.stripModel.tab(StripTabID(target.id)) != nil
-                if hit { return pane }
+            for pane in window.content?.panes.values.map({ $0 }) ?? [] where invocation.targetMachineID.map({ pane.daemon.machineID == $0 }) ?? true {
+                if pane.stripModel.tab(StripTabID(target.id)) != nil { return pane }
             }
         }
         return refuse(RefusalStrings.notShownInAnyWindow(String(describing: target)))
@@ -168,25 +168,35 @@ extension AppActionContext {
     /// The daemon tabs Move Tab to New Workspace or Window takes for `tab`: on one of several
     /// selected tabs, every selected tab that may move, in strip order (`tab` among them); else `tab`.
     func movingTabs(_ invocation: ActionInvocation, _ tab: TabModel) -> [TabModel] {
-        guard let pane = services.locateTab(tab.id).flatMap({ services.paneController(for: $0.1) }) else { return [tab] }
-        return actingTabs(invocation, pane, StripTabID(tab.id)).compactMap { pane.tab($0) }.filter { $0.id == tab.id || TabPromotion.refusal(tab: $0.id, services: services) == nil }
+        guard let pane = services.locateTab(model: tab).flatMap({ services.paneController(for: $0.1) }) else { return [tab] }
+        return actingTabs(invocation, pane, StripTabID(tab.id)).compactMap { pane.tab($0) }.filter { $0.id == tab.id || TabPromotion.refusal(tab: $0, services: services) == nil }
+    }
+
+    /// The tab `id` names, on the invocation's machine when it names one (forks keep tab ids, cmuxterm-hq#5338); callers refuse.
+    func targetTab(_ id: String, _ invocation: ActionInvocation) -> (TabModel, PaneModel)? {
+        if let machine = invocation.targetMachineID { return services.locateTab(id, onMachine: machine) }
+        return services.locateTab(id)
     }
 
     /// The targeted daemon tab, found in any workspace (shown or not).
     func daemonTab(_ invocation: ActionInvocation) -> (tab: TabModel, pane: PaneModel)? {
         if let target = explicitTarget(invocation, kinds: [.tab]) {
-            return services.locateTab(target.id) ?? notFound(RefusalStrings.noTab(target.id))
+            return targetTab(target.id, invocation) ?? notFound(RefusalStrings.noTab(target.id))
         }
         guard let (pane, id) = tab(invocation) else { return nil }
         guard let tab = pane.tab(id) else { return refuseQuietly(RefusalStrings.noTab(id.rawValue)) }
         return (tab, pane.pane)
     }
 
+    /// The pane `id` names, as `targetTab` finds a tab; callers refuse.
+    func targetPane(_ id: String, _ invocation: ActionInvocation) -> PaneModel? {
+        if let machine = invocation.targetMachineID { return services.locatePane(id, onMachine: machine) }
+        return services.locatePane(id)
+    }
     /// The targeted daemon pane, found in any workspace.
     func daemonPane(_ invocation: ActionInvocation) -> PaneModel? {
         if let target = explicitTarget(invocation, kinds: [.pane]) {
-            let panes = services.activeDaemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
-            return panes.first { $0.id == target.id } ?? notFound(RefusalStrings.noPaneID(target.id))
+            return targetPane(target.id, invocation) ?? notFound(RefusalStrings.noPaneID(target.id))
         }
         if explicitTarget(invocation, kinds: [.tab]) != nil { return daemonTab(invocation)?.pane }
         return paneController(invocation)?.pane

@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 
 use super::open::OpenRequest;
 use super::{GlobalArgs, failure, wait};
+use cmux_json::JsonSet as _;
 
 pub(super) fn run(global: &GlobalArgs, stream: &mut UnixStream, request: OpenRequest) -> i32 {
     let timeout = Some(request.timeout());
@@ -45,7 +46,7 @@ pub(super) fn run(global: &GlobalArgs, stream: &mut UnixStream, request: OpenReq
             global.output,
         ),
         Ok(Some(target)) => {
-            params["target"] = json!(target);
+            params.set("target", json!(target));
             match send(global, stream, &params, timeout) {
                 Ok(result) => super::super::wire::print_local_success(&result, global.output),
                 Err(code) => code,
