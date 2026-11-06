@@ -161,8 +161,9 @@ import Testing
         let provider = fake.provider()
         await provider.mintInvite()
         let script = PageCallContext(page: "cmux.server-cards")
-        for (op, params) in [(PairInviteCardProvider.copyOp, ["target": "code"] as JSONValue),
-                             (PairInviteCardProvider.newCodeOp, [:]), (PairInviteCardProvider.setRunChiefOp, ["on": true])] {
+        let calls: [(String, JSONValue)] = [(PairInviteCardProvider.copyOp, ["target": "code"]), (PairInviteCardProvider.newCodeOp, [:]),
+                                            (PairInviteCardProvider.setRunChiefOp, ["on": true])]
+        for (op, params) in calls {
             await #expect(throws: PageError.self) { _ = try await provider.call(op, params: params, context: script) }
         }
         #expect(fake.copied.isEmpty)
