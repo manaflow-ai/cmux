@@ -72,7 +72,7 @@ final class OnboardingService {
     /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
                                                               openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
-    /// The top page a Sign In left (Bring your history at first run); it shows again once the tool window closes.
+    /// The top page a Sign In left (Bring your history); it shows again once the tool window closes.
     private var pageLeftForSignIn: TopPageRoute?
 
     init(services: AppServices) {
@@ -163,11 +163,11 @@ final class OnboardingService {
         }
     }
 
-    /// First-run routing only, once per app channel (an upgrade is no first run). Never under showcase: its
-    /// scene captures are fresh homes, and the page over Home parks the workspace their seed fills.
+    /// First-run routing only, once per app channel (an upgrade is no first run). Never when ``AppEnvironment/skipsOnboarding``
+    /// (showcase, capture builds): their captures are fresh homes, and the page over Home parks the workspace their seed fills.
     func showHistoryAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) {
-        let key = "home.firstRun.historyImportShown"
-        guard !services.environment.showcase, !defaults.bool(forKey: key) else { return }
+        let key = OnboardingWindowPresenter.historyShownKey
+        guard !services.environment.skipsOnboarding, !defaults.bool(forKey: key) else { return }
         if isFirstRun {
             // On top: launch can replace its first Home pane. Consume only once shown. The
             // mark tells the fresh-home launch smoke this page covers Home on purpose.
@@ -183,10 +183,10 @@ final class OnboardingService {
         return await services.openLocalProviderLogin(line)
     }
 
-    /// The first-run Agents step over Bring your history (``OnboardingWindowPresenter/showAgentsAtFirstRun``); never under showcase.
-    func showAgentsAtFirstRun(isFirstRun: Bool) async {
-        guard !services.environment.showcase else { return }
-        await presenter.showAgentsAtFirstRun(isFirstRun: isFirstRun, source: signInHarnesses)
+    /// Agents, then Bring your history (``OnboardingWindowPresenter/showFirstRunSteps``); never when ``AppEnvironment/skipsOnboarding``.
+    func showFirstRunSteps(isFirstRun: Bool) async {
+        guard !services.environment.skipsOnboarding else { return }
+        await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
     }
 
     func historyImportFinished() {

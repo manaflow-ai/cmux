@@ -8,7 +8,8 @@
 ///   "hibernationExclusions": ["mail.google.com", "*.example.com"],
 ///   "hibernatePinnedTabs": false,
 ///   "freezeHiddenTabs": 30,          // "off" | seconds (number)
-///   "keepNeighborTabsAwake": 1       // 0...3 tabs on each side of the shown tab
+///   "keepNeighborTabsAwake": 1,      // 0...3 tabs on each side of the shown tab
+///   "wakeTabsOnHover": false         // a rest on a tab or a workspace row wakes its pages
 /// }
 /// ```
 ///
@@ -27,6 +28,8 @@
 /// `keepNeighborTabsAwake` keeps that many tabs on each side of each pane's
 /// shown tab (wrapping, as Ctrl-Tab does) unfrozen and loaded, so a switch to
 /// a nearby tab is instant; memory pressure and Low Power Mode reduce it to 0.
+/// `wakeTabsOnHover` (off by default) wakes the pages a click would show once the pointer rests
+/// on a tab or a workspace row (plans/cmux-next/hover-preload-DESIGN.md).
 public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     public enum Mode: Sendable, Hashable {
         case off
@@ -62,12 +65,18 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     public var discardsAutomatically: Bool
     /// The values `browser.keepNeighborTabsAwake` accepts.
     public static let neighborRadiusRange = 0...3
+    /// A rest on a tab or a workspace row wakes the pages its click would show (hover preload).
+    public var wakesOnHover: Bool
+    /// Off: at 120 Hz it made the cold click slower and gave the sweep no fewer missed refreshes
+    /// (run 08e33948, cmux-ad m44); a person who wants it turns it on.
+    public static let defaultWakesOnHover = false
 
     public init(mode: Mode, exclusions: [String] = [], includesPinnedTabs: Bool = false,
                 freezeSeconds: Double? = BrowserHibernationSetting.defaultFreezeSeconds,
                 neighborRadius: Int = BrowserHibernationSetting.defaultNeighborRadius,
-                discardsAutomatically: Bool = true) {
+                discardsAutomatically: Bool = true, wakesOnHover: Bool = BrowserHibernationSetting.defaultWakesOnHover) {
         self.mode = mode
+        self.wakesOnHover = wakesOnHover
         self.discardsAutomatically = discardsAutomatically
         self.exclusions = exclusions
         self.includesPinnedTabs = includesPinnedTabs
@@ -79,6 +88,7 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     /// No `browser.hibernation` in cmux.json: hidden pages freeze and are never discarded on their own.
     public static let fallback = BrowserHibernationSetting(mode: .moderate, discardsAutomatically: false)
     public static let neighborRadiusPath = ["browser", "keepNeighborTabsAwake"]
+    public static let wakesOnHoverPath = ["browser", "wakeTabsOnHover"]
     public static let exclusionsPath = ["browser", "hibernationExclusions"]
 
     public var isEnabled: Bool { mode != .off }
@@ -171,6 +181,13 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
             } else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "browser.keepNeighborTabsAwake",
                                                       message: "expected a whole number from 0 to 3"))
+            }
+        }
+        if let value = browser["wakeTabsOnHover"] {
+            if let flag = value.boolValue {
+                setting.wakesOnHover = flag
+            } else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "browser.wakeTabsOnHover", message: "expected true or false"))
             }
         }
         return (setting, diagnostics)

@@ -43,7 +43,8 @@ impl HostedReader {
                 crate::prompt_mode_reset::write_output(&mut term, &output, &mut self.shell_marks);
             terminal_notifications = pty.observe_terminal_output(&output);
             finished_commands = pty.observe_shell_marks(&mut term, || {
-                mux.upgrade().is_some_and(|mux| mux.terminal_command_history_enabled())
+                mux.upgrade()
+                    .map_or(crate::shell_history::Recording::Off, |mux| mux.shell_recording())
             });
             let output = match normalized {
                 Cow::Borrowed(_) => output,

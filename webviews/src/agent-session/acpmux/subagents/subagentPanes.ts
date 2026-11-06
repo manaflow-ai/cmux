@@ -95,6 +95,20 @@ export async function openSubagentPane(
   }
 }
 
+/// From a subagent's own pane, back to the chat (Lucas, 2026-11-06: "if it were opened as a split/through
+/// the main chat, then clicking on it, should take them back to the chat they were in (close the
+/// subagent tab, and bring them back to the open chat instead)"): the app focuses the chat tab that
+/// opened this pane and closes this one (`chat.subagentBack`). False when it did neither (a pane no
+/// chat opened, that chat's tab gone, an older app): the pane then shows the chat in place.
+export async function backToOpeningChat(call: Call): Promise<boolean> {
+  try {
+    const reply = await call("chat.subagentBack", {});
+    return (reply as { back?: unknown } | null)?.back === true;
+  } catch {
+    return false;
+  }
+}
+
 /// Shows subagent `id` from the chat's pane in a pane of its own right of the chat: always when the
 /// person asked (`focus`), and by itself (unfocused) only while `panes` (the switch) is on. A
 /// subagent's pane (`inSubagentPane`) shows it in place, never in more panes. A host that opens no

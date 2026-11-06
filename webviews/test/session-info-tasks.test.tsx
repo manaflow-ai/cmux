@@ -195,7 +195,7 @@ test("no section before the first background process; then running ones with ela
   expect(stop.disabled).toBe(true);
 });
 
-test("a dev server heads Background tasks with its port, which opens beside the chat, and Stop", async () => {
+test("a dev server heads Background tasks: the globe, its address, its command; the row opens it, and Stop", async () => {
   setSystemTime(new Date(100_000));
   const container = installDom();
   const opened: string[] = [];
@@ -209,12 +209,14 @@ test("a dev server heads Background tasks with its port, which opens beside the 
   // One section for every background command, a dev server's included (no Servers card of its own).
   const servers = section(container, "tasks")!;
   expect(servers.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("1 running");
-  expect(servers.querySelectorAll(".acpmux-session-info-server")).toHaveLength(1);
-  expect(servers.querySelectorAll(".acpmux-session-info-task")).toHaveLength(0);
-  const port = servers.querySelector<HTMLButtonElement>("button.acpmux-session-info-port")!;
-  expect(port.textContent).toBe(":5173");
-  expect(port.getAttribute("aria-label")).toBe("Open http://localhost:5173");
-  await click(port);
+  expect(servers.querySelectorAll('.acpmux-session-info-task[data-kind="server"]')).toHaveLength(1);
+  expect(servers.querySelectorAll('.acpmux-session-info-task:not([data-kind="server"])')).toHaveLength(0);
+  const row = servers.querySelector<HTMLButtonElement>('[data-kind="server"] button.acpmux-session-info-task__open')!;
+  expect(row.querySelector(".acpmux-session-info-task__address")?.textContent).toBe("localhost:5173");
+  expect(row.querySelector(".acpmux-session-info-task__command")?.textContent).toBe("bun run dev --port 5173");
+  expect(row.querySelector(".acpmux-session-info-task__time")?.textContent).toBe("1m");
+  expect(row.getAttribute("aria-label")).toBe("Open http://localhost:5173");
+  await click(row);
   expect(opened).toEqual(["http://localhost:5173"]);
   await click(servers.querySelector<HTMLButtonElement>("button.acpmux-session-info-stop")!);
   expect(stopped).toEqual(["s1/a"]);
@@ -505,6 +507,6 @@ test("a transcript task a running server stands for is listed once, as the serve
     transcriptTasks: [task("call-a", "bun run dev --port 5173", "running", 1_000)],
   });
   const tasks = section(container, "tasks")!;
-  expect(tasks.querySelectorAll(".acpmux-session-info-server")).toHaveLength(1);
-  expect(tasks.querySelectorAll(".acpmux-session-info-task")).toHaveLength(0);
+  expect(tasks.querySelectorAll('.acpmux-session-info-task[data-kind="server"]')).toHaveLength(1);
+  expect(tasks.querySelectorAll('.acpmux-session-info-task:not([data-kind="server"])')).toHaveLength(0);
 });

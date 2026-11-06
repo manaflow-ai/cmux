@@ -77,6 +77,9 @@ pub(super) const APP_SCOPES: &[&str] = &[
 /// network action the app bounds itself (`ActionDescriptor.resultDeadline`,
 /// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
 pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
+/// The app method `cmux app remote-views` reads; the app registers it in every
+/// build (RemoteViewTabsControl.releaseMethods, whose test reads this line).
+pub(super) const REMOTE_VIEWS_METHOD: &str = "remote_view.state";
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// `errors.list` reads the app's logs first (the app bounds it at 12 s).
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
@@ -279,6 +282,17 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("app", Some("renderers")) => renderers::parse(rest)?,
+        // The Cloud desktop tabs (`remote_view.state`, every build): per tab its
+        // viewer, whether it is connected and who has control; never a credential
+        // or a pixel of the screen.
+        ("app", Some("remote-views")) => {
+            let options = Options::parse(rest.get(1..).unwrap_or_default(), &["tab"], &[])?;
+            let mut params = Map::new();
+            if let Some(tab) = options.value("tab") {
+                params.insert("tab".into(), json!(tab));
+            }
+            call(REMOTE_VIEWS_METHOD, Value::Object(params))
+        }
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
@@ -596,8 +610,20 @@ pub(super) fn run_action(
                 arguments.insert(key.into(), json!(value));
             }
             // `--focus=false` for an action with a `focus` argument: the argument, and the run's own focus.
+            // Any other value is a usage error, never a silent `true`.
             "focus" if super::action_hint::action_takes_argument(action, "focus") => {
-                let on = value.as_str().is_none_or(|text| !text.eq_ignore_ascii_case("false"));
+                let on = match value.as_str() {
+                    None | Some("true") => true,
+                    Some("false") => false,
+                    Some(text) => {
+                        return Err(UsageError::new(
+                            messages
+                                .flag_bool
+                                .replace("{flag}", "--focus")
+                                .replace("{value}", text),
+                        ));
+                    }
+                };
                 params.insert("focus".into(), json!(on));
                 arguments.insert("focus".into(), json!(on));
             }
@@ -905,6 +931,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             }
             .unwrap_or(result);
             warn_unstable_handles(method, &value, global.output);
+            open_created(global, stream, &params, &value);
             if global.output == OutputMode::Human
                 && let Some(line) = super::share_cli::human_line(&params, &value)
                     .or_else(|| super::vm::created_line(&params, &value, global))
@@ -938,6 +965,47 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             Ran::Done(code)
         }
     }
+}
+
+/// After a person's `cloud new-machine` (`cmux machine new`) made a machine, the app opens it
+/// (`cloud open-machine`): a workspace on the machine is shown, so the window's new-terminal
+/// button opens there (Leo, 2026-11-06: "the terminal I open on the top right button works thru
+/// that machine"). A JSON or quiet run (a script, an agent) leaves the window as it was, and so
+/// does a machine still starting. A failed open is a note: the machine is made either way.
+fn open_created(global: &GlobalArgs, stream: &mut UnixStream, params: &Value, value: &Value) {
+    let Some(target) = created_target(global.output, params, value) else { return };
+    let Ok(AppCommand::Call { method, mut params, timeout, .. }) = open_created_command(target)
+    else {
+        return;
+    };
+    let opened = insert_run_key(&mut params, None)
+        .map_err(|error| json!({ "message": error }))
+        .and_then(|_| wait::request(global, stream, method, &params, timeout));
+    if let Ok(Err(error)) | Err(error) = opened {
+        let reason = error.get("message").and_then(Value::as_str).unwrap_or("no answer");
+        eprintln!("cmux: the machine is made, but its workspace did not open: {reason}");
+    }
+}
+
+/// [`open_created`]'s `cloud open-machine` run. `--focus`: a CLI run changes the window only
+/// when it asks to (the app's `allowsViewChange`).
+fn open_created_command(target: String) -> Result<AppCommand, UsageError> {
+    let args = ["--target".to_owned(), target, "--focus".to_owned()];
+    run_action("cloud open-machine", &args, ActionName::Cli)
+}
+
+/// The machine a person's `cloud new-machine` made, for [`open_created`]; `None` otherwise.
+fn created_target(output: OutputMode, params: &Value, value: &Value) -> Option<String> {
+    if output != OutputMode::Human || params.get("action")?.as_str()? != "cloud new-machine" {
+        return None;
+    }
+    let result = value.get("result")?;
+    if result.get("pending").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    result.get("target").and_then(Value::as_str).map(str::to_owned).or_else(|| {
+        result.get("machine_id").and_then(Value::as_str).map(|id| format!("machine:{id}"))
+    })
 }
 
 /// Progress notes go to stderr for a person, never in JSON or quiet output.

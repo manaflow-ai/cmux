@@ -38,6 +38,11 @@ public final class SettingsHarnesses {
     var accountUsage: [String: JSONValue] = [:]
     /// Accounts whose usage read is running: a refresh meanwhile starts no second Codex for one.
     @ObservationIgnored var usageReading: Set<String> = []
+    /// Accounts whose sign-in or sign-out was typed into a terminal tab: Settings coming forward reads
+    /// them back (`focus`), as Accounts does for its logins.
+    @ObservationIgnored var pendingLogins: Set<String> = []
+    /// Reads of the accounts that answered (`readAccounts`): `refocused` keeps its marks until one does.
+    @ObservationIgnored var accountsRead = 0
     /// Claude logins' plans by account id, from `claude auth status` (SettingsHarnesses+ClaudePlan.swift).
     var claudePlans: [String: String] = [:]
     @ObservationIgnored let environment: @MainActor () -> AcpmuxEnvironment?
@@ -59,8 +64,12 @@ public final class SettingsHarnesses {
     @ObservationIgnored private let unsupported: (@MainActor () -> String)?
 
     public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
-         fetch: @escaping @Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow] = AcpmuxEnvironment.settingsHarnessRows,
-         fetchHealth: @escaping @Sendable (AcpmuxEnvironment, Bool) async throws -> Data = AcpmuxEnvironment.harnessHealth,
+         // nil, resolved below: an async function as a default argument is compiled again into every
+         // calling module under one symbol name with a different async context size (cx-bsue); the
+         // linker paired them and readHealth's free aborted the process ("freed pointer was not the
+         // last allocation", macOS 27 minis).
+         fetch: (@Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow])? = nil,
+         fetchHealth: (@Sendable (AcpmuxEnvironment, Bool) async throws -> Data)? = nil,
          openTerminal: @escaping @MainActor (String) async -> Bool,
          runUpdate: (@MainActor (JSONValue, PageCallContext) async throws -> JSONValue)? = nil,
          updateState: @escaping @MainActor () -> JSONValue = { .array([]) },
@@ -70,8 +79,8 @@ public final class SettingsHarnesses {
          userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
          unsupported: (@MainActor () -> String)? = nil) {
         self.environment = environment
-        self.fetch = fetch
-        self.fetchHealth = fetchHealth
+        self.fetch = fetch ?? { try await AcpmuxEnvironment.settingsHarnessRows($0) }
+        self.fetchHealth = fetchHealth ?? { try await AcpmuxEnvironment.harnessHealth($0, refresh: $1) }
         self.openTerminal = openTerminal
         self.runUpdate = runUpdate
         self.updateState = updateState
@@ -198,6 +207,8 @@ public final class SettingsHarnesses {
         switch action {
         case "refresh":
             await refresh(recheck: params["recheck"]?.boolValue ?? false)
+        case "focus":
+            await refocused()
         case "update", "updateAll", "resumeUpdate", "dismissUpdate":
             guard action != "update" || rows.contains(where: { $0.id == params["id"]?.stringValue }) else { throw PageError.invalidParams("id must be a listed harness") }
             guard let runUpdate, let context else { throw PageError.unavailable(unsupported?() ?? "") }

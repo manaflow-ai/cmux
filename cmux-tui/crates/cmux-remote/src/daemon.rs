@@ -335,7 +335,7 @@ impl ServerConnection {
         *self.generation.borrow()
     }
 
-    pub(crate) fn service_authority(&self) -> &ServiceAuthority {
+    pub fn service_authority(&self) -> &ServiceAuthority {
         &self.service_authority
     }
 
@@ -834,7 +834,7 @@ impl RemoteDaemon {
                 drop(approval);
                 accepted
             }
-            AuthKind::Carrier | AuthKind::Enrolled => tokio::time::timeout(
+            AuthKind::Carrier | AuthKind::Enrolled | AuthKind::Grant => tokio::time::timeout(
                 AUTHORIZATION_TIMEOUT,
                 authorize_secure_link(verified, &*self.auth),
             )

@@ -1,11 +1,10 @@
-// Where a Claude Code chat's model or route changed (sessionStart.ts `insertRunChange`), in the
-// quiet one-line style of the transcript's other notes (a background task's end, a compaction):
-// "Claude Code · Sonnet 5.5 · sr2". A turn on the same model and route as the one before draws
-// nothing: the chat's facts live in Session Info's Environment and /status (Leo, 2026-11-05: "why
-// does it even show that ... like we know what it is ... giving tmi"). The whole of it (Claude
-// Code's version, the model id, the route, the folder) shows on hover and opens under the line on
-// a click. How the chat compacts is not an event, so it takes no row (Leo 2026-10-21: no "cmux
-// manages compaction" explainer in the transcript).
+// A Claude Code chat's model and route, in the quiet one-line style of the transcript's other notes
+// (a background task's end, a compaction): "Claude Code · Sonnet 5.5 · sr2". The transcript draws
+// it nowhere (Lucas, 2026-11-06: it landed inside the first turn's work and read as noise;
+// rows/SessionStartRow.tsx), so it lives in the gallery and its unit test; /status says the same
+// facts (Leo, 2026-11-05: "why does it even show that ... like we know what it is ... giving tmi").
+// The whole of it (Claude Code's version, the model id, the route, the folder) shows on hover and
+// opens under the line on a click.
 import { useId } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxSessionStart } from "../model";

@@ -8,8 +8,10 @@ import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextAppCore
 import CmuxNextSettings
 import Observation
 
@@ -34,9 +36,21 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parked: [String: WorkspaceContentController] = [:]
     /// Orders `parked` by when each was parked (`mountedContents`).
     var parkSerial: UInt64 = 0
+    /// The next Cmd-N's view, built before the key in idle steps on the daemon's reserved workspace (its own slot).
+    private(set) lazy var reservedContent = WorkspaceSpareSlot<WorkspaceContentController>(owner: "WorkspaceSpare", on: services.mainWork, wanted: { [weak self] in
+        self.map { $0.services.windows.active === $0 && $0.content != nil && $0.services.daemon.reservesWorkspace } ?? false
+    }, reserve: { [weak self] in
+        self.flatMap { $0.services.agentTabs.reserveWorkspace(on: $0.services.daemon, cwd: WorkspaceSpawn().startFolder(roomFolder: $0.services.machines.local.store.profile($0.state.profileID)?.defaults?.cwd, local: true, daemonDefault: $0.services.daemon.defaultCwd)) }
+    }, build: { [weak self] model in
+        self.map { window in BenchSpans.measure("cmdN.reserved.build.init") { WorkspaceContentController(workspace: model, daemon: window.services.daemon, services: window.services, state: window.state, parked: true) } }
+    }, mount: { [weak self] content in BenchSpans.measure("cmdN.reserved.build.mount") { self?.root.contentHost.addHiddenSubview(content.contentView) } },
+       teardown: { $0.teardown() }, workspace: { $0.workspace }, isReserved: { [weak self] in self?.services.daemon.store.reserves($0) ?? false })
     /// Workspaces Toggle Left/Right/Top/Bottom Dock created for an empty edge, docked there once the daemon reports
     /// them (`arrangeOnScreen`). In memory only.
     var pendingDocks: [String: DockEdge] = [:]
+    /// A link clicked in the Chief while Home fills the window: the next workspace shown goes beside Home docked
+    /// (``ChiefDockLeave``, `WindowDockFrame+Operations`). In memory only.
+    var chiefDockOnLeave: ChiefDockLeave?
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
@@ -163,6 +177,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         state.roomBrowserProfileOf = nil
         content?.teardown()
         content = nil
+        reservedContent.drop()
         parked.values.forEach { $0.teardown() }
         parked.removeAll()
         topPages.teardown()
@@ -273,20 +288,20 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func isWaiting(for machineID: String) -> Bool {
-        guard services.cloud.isSignedIn || services.cloud.auth.isRestoring else { return false }
-        guard services.cloud.hasLoadedMachines else { return true }
-        guard let session = services.machines.session(machineID) else { return false }
-        return session.machine.status.isLive && !session.daemon.store.isLoaded
+        let cloud = services.cloud, session = services.machines.session(machineID)
+        return CloudWorkspaceWait(signedIn: cloud.isSignedIn || cloud.auth.isRestoring, machinesLoaded: cloud.hasLoadedMachines, machineLive: session?.machine.status.isLive, mirrored: session?.daemon.store.isLoaded == true).waits
     }
 
     private func show(_ workspace: WorkspaceModel, on daemon: DaemonService) {
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
+        dockChiefOnLeave(for: workspace.id) // a link from the Chief: Home docks before it leaves the stage
         guard content?.workspace !== workspace else { return arrangeOnScreen() }
         // Parking the current one never trims the one to show; a current one of the same id (a rebuilt model) is torn down below.
         if let current = content { park(current, leaving: workspace.id) }
         DebugWorkspaceSwitch.mark(self, "park")
-        let controller: WorkspaceContentController, kept = parked.removeValue(forKey: workspace.id)
+        let reserved = parked[workspace.id] == nil ? reservedContent.take { $0.workspace === workspace } : nil // Cmd-N's, built before the key
+        let controller: WorkspaceContentController, kept = parked.removeValue(forKey: workspace.id) ?? reserved
         if let kept, kept.workspace === workspace, kept.daemon === daemon {
             controller = kept
             controller.unpark()
@@ -299,9 +314,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         controller.layoutView.onFramePlaced = { [weak self] in self?.shortcutHints?.scrollDidChange() }
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
         // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
-        DebugWorkspaceSwitch.kind(self, controller === kept ? "warm" : "cold")
+        DebugWorkspaceSwitch.kind(self, controller === reserved ? "reserved" : controller === kept ? "warm" : "cold")
         DebugWorkspaceSwitch.mark(self, "content")
-        sidebar.sameTurn.syncNow(rows: controller !== kept && !sidebar.model.lists(SidebarWorkspaceID(workspace.id)))
+        sidebar.sameTurn.syncNow(rows: (controller !== kept || controller === reserved) && !sidebar.model.lists(SidebarWorkspaceID(workspace.id)))
         DebugWorkspaceSwitch.mark(self, "sidebar")
         root.show(controller.contentView)
         DebugWorkspaceSwitch.mark(self, "root")
@@ -331,8 +346,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         services.cloudContextDidChange()
         services.canvasContextDidChange()
         services.windows.contentDidAppear(self)
-        DebugWorkspaceSwitch.shown(self, in: window)
+        DebugWorkspaceSwitch.shown(self, in: window, pages: controller.panes.values.compactMap { $0.stripModel.selectedID.flatMap { services.cache.browsers[$0.rawValue]?.tab } }.firstFrameColumns)
         revalidatePagePresentation()
+        reservedContent.fill()
     }
 
     var focusedPane: PaneController? { content?.focusedPane }
@@ -351,6 +367,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
+        reservedContent.fill { [weak self] in self?.services.windows.controllers.map(\.reservedContent) ?? [] } // follows the key main window
         let snapshots = services.sidebarSnapshots, id = state.id
         Task { await snapshots.touch(window: id) }
         focus.send(.windowKey(true))
@@ -444,24 +461,17 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
     CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing, WindowControlsAvoidanceHosting {
-    /// The traffic lights' last windowed place: their left edge, their top's
-    /// distance from the window's top, and their size (the window may come
-    /// back from full screen at another height).
-    private var windowedLights: (x: CGFloat, fromTop: CGFloat, size: CGSize)?
+    /// The traffic lights' last windowed place (``WindowedTrafficLights``).
+    private var windowedLights = WindowedTrafficLights()
     /// Between `willExitFullScreen` and its end (WindowController+FullScreen).
     var isLeavingFullScreen = false
 
     /// Where the lights come back to while the window leaves full screen.
-    var restingTrafficLights: CGRect? {
-        guard isLeavingFullScreen, let windowedLights else { return nil }
-        return CGRect(x: windowedLights.x, y: frame.height - windowedLights.fromTop - windowedLights.size.height,
-                      width: windowedLights.size.width, height: windowedLights.size.height)
-    }
+    var restingTrafficLights: CGRect? { isLeavingFullScreen ? windowedLights.resting(windowHeight: frame.height) : nil }
 
     /// The root's layout reports the lights it found (window coordinates).
     func noteTrafficLights(_ lights: CGRect) {
-        guard !styleMask.contains(.fullScreen), !isLeavingFullScreen else { return }
-        windowedLights = (lights.minX, frame.height - lights.maxY, lights.size)
+        windowedLights.note(lights, windowHeight: frame.height, windowed: !styleMask.contains(.fullScreen) && !isLeavingFullScreen)
     }
 
     /// A pane policy that may hold cursor-rect invalidations (ShellWindow+Events.swift).

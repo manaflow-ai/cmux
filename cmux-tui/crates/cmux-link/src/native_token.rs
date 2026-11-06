@@ -10,11 +10,10 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use ring::signature;
 use serde::{Deserialize, Serialize};
 
 use crate::dial::Service;
+use crate::jws::{valid_jti, valid_keys};
 use crate::keyset::Keyset;
 use crate::stamp::LinkPeer;
 use crate::stream_lease::StreamLease;
@@ -139,14 +138,6 @@ pub struct NativeTokenVerifier {
     replay_capacity: usize,
     receiver_generation: Option<String>,
     behind: OnceLock<Box<dyn Fn() + Send + Sync>>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Header {
-    alg: String,
-    kid: String,
-    typ: String,
 }
 
 #[derive(Deserialize)]
@@ -398,43 +389,15 @@ impl TokenVerifier for NativeTokenVerifier {
             return Err(no(Invalid, "policy_host"));
         }
 
-        let mut parts = token.split('.');
-        let shape = || no(Invalid, "token_shape");
-        let h = parts.next().ok_or_else(shape)?;
-        let p = parts.next().ok_or_else(shape)?;
-        let s = parts.next().ok_or_else(shape)?;
-        if parts.next().is_some() {
-            return Err(shape());
-        }
-        let header: Header =
-            serde_json::from_slice(&decode(h).map_err(|k| no(k, "header_encoding"))?)
-                .map_err(|_| no(Invalid, "header_malformed"))?;
         let typ = if self.receiver_generation.is_some() {
             "cmux-native-link-v2+jwt"
         } else {
             "cmux-link+jwt"
         };
-        if header.alg != "EdDSA" {
-            return Err(no(Invalid, "header_alg"));
-        }
-        if header.typ != typ {
-            return Err(no(Invalid, "header_typ"));
-        }
-        if !kid(&header.kid) {
-            return Err(no(Invalid, "kid"));
-        }
-        let key =
-            state.keys.keys.get(&header.kid).ok_or(no(TokenRefused::UnknownKey, "unknown_kid"))?;
-        let sig = decode(s).map_err(|k| no(k, "signature"))?;
-        if sig.len() != 64 {
-            return Err(no(Invalid, "signature"));
-        }
-        let signed = token.get(..h.len() + 1 + p.len()).ok_or_else(shape)?;
-        signature::UnparsedPublicKey::new(&signature::ED25519, key)
-            .verify(signed.as_bytes(), &sig)
-            .map_err(|_| no(Invalid, "signature"))?;
-        let c: Claims = serde_json::from_slice(&decode(p).map_err(|k| no(k, "claims_encoding"))?)
-            .map_err(|_| no(Invalid, "claims_malformed"))?;
+        let crate::jws::SignedToken { kid, key, claims } =
+            crate::jws::verify_signed(token, typ, &state.keys)?;
+        let c: Claims =
+            serde_json::from_slice(&claims).map_err(|_| no(Invalid, "claims_malformed"))?;
         let receiving = match (&self.receiver_generation, &c.receiver) {
             (None, None) => true,
             (Some(expected), Some(receiver)) => {
@@ -465,13 +428,7 @@ impl TokenVerifier for NativeTokenVerifier {
             (c.iat == 0 || c.iat > MAX_SAFE_INTEGER || c.exp > MAX_SAFE_INTEGER, "claims_range"),
             (c.iat > now.unix_ms / 1000, "iat_in_future"),
             (c.exp <= c.iat || c.exp - c.iat > 300, "lifetime"),
-            (
-                URL_SAFE_NO_PAD
-                    .decode(&c.jti)
-                    .ok()
-                    .is_none_or(|b| b.len() != 16 || URL_SAFE_NO_PAD.encode(b) != c.jti),
-                "jti",
-            ),
+            (!valid_jti(&c.jti), "jti"),
         ];
         if let Some(reason) = checks.iter().find_map(|(failed, reason)| failed.then_some(*reason)) {
             return Err(no(Invalid, reason));
@@ -520,11 +477,7 @@ impl TokenVerifier for NativeTokenVerifier {
             team: policy.team.clone(),
             authority_version: policy.authority_version.clone(),
             peer: peer.clone(),
-            proof: StreamProof::Token {
-                service: expected.service,
-                kid: header.kid,
-                signing_key: *key,
-            },
+            proof: StreamProof::Token { service: expected.service, kid, signing_key: key },
             lease: control,
         };
         let verified = VerifiedToken {
@@ -558,14 +511,6 @@ impl Drop for NativeTokenVerifier {
     }
 }
 
-fn decode(value: &str) -> Result<Vec<u8>, TokenRefused> {
-    let bytes = URL_SAFE_NO_PAD.decode(value).map_err(|_| TokenRefused::Invalid)?;
-    if value.is_empty() || URL_SAFE_NO_PAD.encode(&bytes) != value {
-        return Err(TokenRefused::Invalid);
-    }
-    Ok(bytes)
-}
-
 fn id(value: &str, prefix: &str) -> bool {
     value.strip_prefix(prefix).is_some_and(|s| {
         s.len() == 20 && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
@@ -576,17 +521,4 @@ fn native_id(value: &str, prefix: &str) -> bool {
     value.strip_prefix(prefix).is_some_and(|s| {
         s.len() == 26 && s.bytes().all(|b| b"0123456789abcdefghjkmnpqrstvwxyz".contains(&b))
     })
-}
-
-fn kid(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 64
-        && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
-}
-
-fn valid_keys(keys: &Keyset) -> bool {
-    (1..=2).contains(&keys.keys.len())
-        && keys.keys.keys().all(|s| kid(s))
-        && keys.version.len() == 16
-        && keys.version.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }

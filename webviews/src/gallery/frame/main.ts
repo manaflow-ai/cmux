@@ -334,6 +334,9 @@ function markReadyWhenStill(): void {
 }
 
 async function mount(): Promise<void> {
+  // A font study pairing (`fontStudy`) applies to every page host, the chat and Settings alike; its
+  // faces load before the page mounts, so the first frame draws in them.
+  if (env.fontStudy) await import("../fontStudy/apply").then((study) => study.applyFontStudy(env.fontStudy));
   switch (entry.host) {
     case "agent-pane":
       return (await import("./agentPane")).mountAgentPane(entry.variants[variantName]!, context);

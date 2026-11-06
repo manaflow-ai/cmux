@@ -1,16 +1,15 @@
 // Session Info's Environment (Claude Code desktop's): where a running chat runs, the one place
 // that says so. The machine by its own name, with its kind in words at the row's end (Local, SSH or
 // Cloud), never "This computer", with Save; then the chat's project (chatFolders.ts), named by its
-// repository, whose full path only a hover shows; the GitHub repository; the branch. Then Remote
-// Control, when the App offers it. Last, what the chat was granted (the folder's trust, a chat-wide
-// allowance), each with Revoke on its own row's hover or focus. The chat menu's Revoke Granted
-// Access (header/grantsMenu.ts) lists the same grants in every chat; the composer's mode menu lists
-// the modes alone (Leo, 2026-10-29). A chat in a temporary or internal folder (a harness's scratchpad)
-// has no project row and no Save: only its machine. Every row does something: the project opens in
-// the Files tree beside the chat, the repository and the branch are links to GitHub, which the pane
-// opens in the browser as it opens a reply's link. A Claude Code chat's agent row says what it runs
-// on ("Claude Code · Opus 5.5", its version at the end; the model id, route and folder on hover):
-// the transcript draws that line only where it changes (conversation/SessionStartNote.tsx).
+// repository, whose full path only a hover shows, under a folder icon whether or not it is a
+// repository (the repository is the folder, so it has no row of its own); the branch; the chat's
+// changes, which open the folder's diff beside the chat. Then Remote Control, when the App offers it.
+// No grant rows: the chat menu's Revoke Granted Access (header/grantsMenu.ts) lists what the chat was
+// granted (Lucas, 2026-11-05: ChatGPT's panel has none). A chat in a temporary or internal folder (a
+// harness's scratchpad) has no project row and no Save: only its machine. Every row does something:
+// the project opens in the Files tree beside the chat, the branch is a link to GitHub when the folder's
+// repository is there, which the pane opens in the browser as it opens a reply's link, and Changes
+// opens the diff.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -20,7 +19,7 @@ import type { SavedEnvironmentDraft } from "../environments";
 import type { AcpmuxSnapshot } from "../model";
 import { homePath } from "../sessionList";
 import { chatProject } from "./chatFolders";
-import { sessionStartLabels } from "../conversation/sessionStart";
+import { Counts } from "../changes/Counts";
 import { openCloudEnvironment } from "../cloudEnvironment";
 import { Switch } from "../../../ui/Switch";
 import "../../../ui/controls.css";
@@ -119,15 +118,15 @@ function Row({
   if (href)
     return (
       <li>
-        <a className="acpmux-session-info-row acpmux-session-info-row--button" href={href}>
+        {/* tooltip-allow: a long branch name ends in an ellipsis; the whole name appears nowhere else. */}
+        <a className="acpmux-session-info-row acpmux-session-info-row--button" href={href} title={title}>
           {content}
         </a>
       </li>
     );
   if (!onClick)
     return (
-      // tooltip-allow: a folder row shows the folder's name; its full path appears nowhere else. The
-      // agent row's whole facts (model id, route, folder) are its hover too.
+      // tooltip-allow: a folder row shows the folder's name; its full path appears nowhere else.
       <li className="acpmux-session-info-row" title={title}>
         {content}
       </li>
@@ -154,9 +153,10 @@ export function EnvironmentSection({
   repository,
   cloudRepositoryAvailable = false,
   remoteControl,
-  grants = [],
   onSave,
   onOpenFolder,
+  edits,
+  onOpenChanges,
   projectLook = "name",
   remoteControlIcon = REMOTE_CONTROL_ICON,
 }: {
@@ -169,12 +169,14 @@ export function EnvironmentSection({
   cloudRepositoryAvailable?: boolean;
   /// Remote Control's state and switch, when the App offers it for this chat.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
-  /// What the chat was granted, each with Revoke.
-  grants?: readonly AccessGrant[];
   /// Saves this machine and folder as a reusable environment, when the App offers it.
   onSave?: () => Promise<unknown> | void;
   /// Opens a folder in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
+  /// The chat's last edits (SessionInfo `edits`): a Changes row under the branch, which opens the
+  /// chat folder's diff beside the chat (`onOpenChanges`, the header's Changes). Never a fold.
+  edits?: { additions: number; deletions: number };
+  onOpenChanges?: () => void;
   projectLook?: ProjectRowLook;
   remoteControlIcon?: string;
 }) {
@@ -192,7 +194,6 @@ export function EnvironmentSection({
   const canUseCloudRepositories = Boolean(cloudSession && cloudRepositoryAvailable);
   const branch = summary?.branch;
   const project = chatProject(summary, repository);
-  const start = summary?.sessionStart && sessionStartLabels(summary.sessionStart, t);
   const repositoryUrl = repository ? `https://github.com/${repository}` : undefined;
   const branchUrl =
     repositoryUrl && branch
@@ -267,22 +268,6 @@ export function EnvironmentSection({
           </button>
         )}
       </li>
-      {start && (
-        <Row icon="terminal" title={start.facts}>
-          <span className="acpmux-session-info-row__name">{start.short}</span>
-          <span className="acpmux-session-info-row__detail acpmux-session-info-row__end">
-            {summary?.sessionStart?.version}
-          </span>
-        </Row>
-      )}
-      {machine.kind === "cloud" && (
-        // What a Cloud machine is and how long its files last, said plainly beside the chat
-        // (Leo, 2026-11-02, on Claude Code's cloud session that says so: "i want us to be able to
-        // do this too"). The agent says the same when asked (acpmux cloud_repo_mcp.rs INSTRUCTIONS).
-        <li className="acpmux-session-info-note" data-note="cloud-lifetime">
-          {t("cloudRepository.lifetime")}
-        </li>
-      )}
       {canUseCloudRepositories && cloudSession && (
         <>
           <li className="acpmux-session-info-row acpmux-cloud-environment-row">
@@ -347,11 +332,7 @@ export function EnvironmentSection({
         </li>
       )}
       {project && (
-        <Row
-          icon={project.worktree ? "git.worktree" : "folder"}
-          title={project.path}
-          onClick={onOpenFolder && (() => onOpenFolder(project.path))}
-        >
+        <Row icon="folder" title={project.path} onClick={onOpenFolder && (() => onOpenFolder(project.path))}>
           <span className="acpmux-session-info-row__name">{project.name}</span>
           {projectLook === "parent" && parent && <span className="acpmux-session-info-row__detail">{parent}</span>}
           {projectLook === "branch" && branch && (
@@ -359,14 +340,17 @@ export function EnvironmentSection({
           )}
         </Row>
       )}
-      {repository && (
-        <Row icon="brand.github" href={repositoryUrl}>
-          <span className="acpmux-session-info-row__name">{repository}</span>
+      {branch && !(projectLook === "branch" && project) && (
+        <Row icon="git.branch" href={branchUrl} title={branch}>
+          <span className="acpmux-session-info-row__name">{branch}</span>
         </Row>
       )}
-      {branch && !(projectLook === "branch" && project) && (
-        <Row icon="git.branch" href={branchUrl}>
-          <span className="acpmux-session-info-row__name">{branch}</span>
+      {branch && edits && edits.additions + edits.deletions > 0 && (
+        <Row icon="diff.file" onClick={onOpenChanges} title={t("header.changes")}>
+          <span className="acpmux-session-info-row__name">{t("header.changes")}</span>
+          <span className="acpmux-session-info-row__end">
+            <Counts additions={edits.additions} deletions={edits.deletions} />
+          </span>
         </Row>
       )}
       {remoteControl && (
@@ -384,20 +368,6 @@ export function EnvironmentSection({
           </label>
         </li>
       )}
-      {grants.map((grant) => (
-        <li className="acpmux-session-info-row acpmux-session-info-row--grant" key={grant.id} data-grant={grant.id}>
-          <Icon name="security.lock" size={ROW_ICON} row />
-          <span className="acpmux-session-info-row__name">{grant.label}</span>
-          <button
-            type="button"
-            className="acpmux-session-info-link acpmux-session-info-row__end"
-            aria-label={`${t("permission.revoke")}: ${grant.label}`}
-            onClick={grant.onRemove}
-          >
-            {t("permission.revoke")}
-          </button>
-        </li>
-      ))}
     </ul>
   );
 }
