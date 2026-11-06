@@ -48,6 +48,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_deltas_keyless_prebuild.py"
 lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that build-nightly-deltas builds the deltas without the Sparkle key and the keyed job only signs them; run python3 tests/test_nightly_deltas_keyless_prebuild.py yourself after changing either job or the delta scripts (about 1 s, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_deltas_sparse_checkout.py"
@@ -157,6 +158,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_next_tail_off_push_group.py"
 lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that nightly-next's post-publication jobs run in a dispatched run that reads its record only from the checked source run's artifact; run python3 tests/test_nightly_next_tail_off_push_group.py yourself after changing published-build, dispatch-published-in or nightly_published_build.py (about 1 s, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_next_promotion_queue.py"
