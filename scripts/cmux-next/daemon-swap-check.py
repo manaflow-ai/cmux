@@ -186,6 +186,11 @@ def claim(owned: Owned, pid: int | None, written: float, root: Path) -> None:
     starts, so most fall inside it). Anything else is reported, never signalled."""
     if not pid or pid in owned:
         return
+    # Never later than now: a record time read from a file's mtime can land a
+    # little ahead of this clock. Then any process that takes this pid from
+    # here on started after WRITTEN, so it can never pass as clearly older
+    # (even with the same rounded start as the one checked) and must name ROOT.
+    written = min(written, clock_now())
     start = process_start(pid)
     if start is None:
         UNCLAIMED[pid] = "gone or unreadable"
@@ -405,37 +410,40 @@ class Daemon:
         answers (the new one never came up), a daemon of FALLBACK, the old
         build, adopts the hosts and ends them: the one way that needs no
         signal by pid, which macOS cleanup never sends."""
-        for binary in (None, fallback):
-            if binary is not None:
-                if self.proc is not None and self.proc.poll() is None:
-                    stop(self.proc)
+        try:
+            for binary in (None, fallback):
+                if binary is not None:
+                    if self.proc is not None and self.proc.poll() is None:
+                        stop(self.proc)
+                    try:
+                        self.socket.unlink()
+                    except FileNotFoundError:
+                        pass
+                    self.start(binary)
+                    try:
+                        self.wait_ready(now() + 30)
+                        # Its end_terminals ends only the terminals it has adopted.
+                        wait_until("terminals adopted for cleanup", now() + 15, lambda: all(
+                            data(self.socket, {"cmd": "resolve-terminal", "terminal_id": terminal})
+                            .get("lifecycle") == "running" for terminal in host_pids(self.state)))
+                    except TimeoutError:
+                        pass
+                    if self.proc.poll() is not None:
+                        break
                 try:
-                    self.socket.unlink()
-                except FileNotFoundError:
-                    pass
-                self.start(binary)
-                try:
-                    self.wait_ready(now() + 30)
-                    # Its end_terminals ends only the terminals it has adopted.
-                    wait_until("terminals adopted for cleanup", now() + 15, lambda: all(
-                        data(self.socket, {"cmd": "resolve-terminal", "terminal_id": terminal})
-                        .get("lifecycle") == "running" for terminal in host_pids(self.state)))
-                except TimeoutError:
-                    pass
-                if self.proc.poll() is not None:
+                    ident = data(self.socket, {"cmd": "identify"})
+                    data(self.socket, {"cmd": "shutdown-daemon", "pid": ident.get("pid"),
+                                       "generation": ident.get("generation"), "end_terminals": True})
+                    if self.proc.poll() is None:
+                        self.proc.wait(timeout=20)
                     break
-            try:
-                ident = data(self.socket, {"cmd": "identify"})
-                data(self.socket, {"cmd": "shutdown-daemon", "pid": ident.get("pid"),
-                                   "generation": ident.get("generation"), "end_terminals": True})
-                if self.proc.poll() is None:
-                    self.proc.wait(timeout=20)
-                break
-            except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
-                if self.proc.poll() is None:
-                    stop(self.proc)
-        # Only the hosts this check started (claimed from their records above).
-        kill_owned(hosts)
+                except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+                    if self.proc.poll() is None:
+                        stop(self.proc)
+        finally:
+            # Only the hosts this check started (claimed from their records
+            # above), even when starting or stopping a daemon raised.
+            kill_owned(hosts)
 
 
 def host_pids(state: Path) -> dict[str, int]:
@@ -697,23 +705,28 @@ def agent_phase(old: Path, new: Path, work: Path) -> dict:
                 except (RuntimeError, subprocess.TimeoutExpired):
                     pass
             return False
-        if not shut_down():
-            # None answers (the new daemon never came up): the old build's
-            # daemon adopts the agent hosts and ends them, with no signal by pid.
+        try:
+            if not shut_down():
+                # None answers (the new daemon never came up): the old build's
+                # daemon adopts the agent hosts and ends them, with no signal by pid.
+                if mux.proc and mux.proc.poll() is None:
+                    stop(mux.proc)
+                mux.start(old)
+                try:
+                    wait_until("acpmux daemon for cleanup", now() + 30, lambda: mux.status(old))
+                    shut_down()
+                except TimeoutError:
+                    pass
             if mux.proc and mux.proc.poll() is None:
                 stop(mux.proc)
-            mux.start(old)
+        finally:
+            # Only agent hosts and harnesses of this isolated home (its records,
+            # read again here, so a failure before the swap leaves none), even
+            # when starting or stopping a daemon raised.
             try:
-                wait_until("acpmux daemon for cleanup", now() + 30, lambda: mux.status(old))
-                shut_down()
-            except TimeoutError:
-                pass
-        if mux.proc and mux.proc.poll() is None:
-            stop(mux.proc)
-        # Only agent hosts and harnesses of this isolated home (its records,
-        # read again here, so a failure before the swap leaves none).
-        mux.claim_hosts(owned)
-        kill_owned(owned)
+                mux.claim_hosts(owned)
+            finally:
+                kill_owned(owned)
     same_conversation = "turn=2" in second
     return {
         "phase": "agents",
