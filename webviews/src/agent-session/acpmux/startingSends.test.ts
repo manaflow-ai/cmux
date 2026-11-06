@@ -125,7 +125,7 @@ test("an edit saved while its prompt goes comes back once it went, and never whe
 test("a queued send goes with the gesture its Enter bound, and one without goes without", async () => {
   const h = harness();
   const carried: (string | undefined)[] = [];
-  const go = (text: string, attachments: [], gesture?: { promptId: string }) => {
+  const go = (text: string, _attachments: unknown, gesture?: { promptId: string }) => {
     carried.push(gesture?.promptId);
     return h.go(text);
   };

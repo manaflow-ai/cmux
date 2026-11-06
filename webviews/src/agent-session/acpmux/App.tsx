@@ -886,9 +886,16 @@ const removeQueued = (promptId: string) =>
 /// Sends a prompt that waited for a new chat; settles once acpmux took it (its turn's later failure
 /// is the transcript's), and rejects when it was refused before. One acpmux refused for the folder's
 /// trust that joined the pane's hold (`holdRefused`) counts as taken: it waits in the queue now.
-const sendWhenTaken = (steer: boolean) => (text: string, attachments: ComposerAttachment[]) =>
+/// `gesture`: the Enter or click the composer bound to a send it held for its files.
+const sendWhenTaken = (steer: boolean) => (text: string, attachments: ComposerAttachment[], gesture?: SendGesture) =>
   new Promise<void>((resolve, reject) => {
-    callNative("chat.send", { text, attachments, accepted: () => resolve(), steer }).then(
+    callNative("chat.send", {
+      text,
+      attachments,
+      accepted: () => resolve(),
+      steer,
+      ...(gesture ? { gesture } : {}),
+    }).then(
       () => resolve(),
       (error: unknown) => (heldRefusal(error) ? resolve() : reject(error)),
     );
@@ -9724,7 +9731,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               ) {
                 // Prompts sent while the chat started still wait to go: this one goes after them.
                 if (startingSends.busy) {
-                  startingSends.add(text, attachments, sendWhenTaken(steer === true));
+                  startingSends.add(text, attachments, sendWhenTaken(steer === true), gesture);
                   return true;
                 }
                 const holder = composerHandle.current;
@@ -9759,7 +9766,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // Quick Composer and a View Only chat still keep the prompt until acpmux takes it.
               const queues = surfaceRef.current !== "quick" && !snapshot.summary?.watching;
               if (queues && startingSends.busy) {
-                startingSends.add(text, attachments, sendWhenTaken(steer === true));
+                startingSends.add(text, attachments, sendWhenTaken(steer === true), gesture);
                 return true;
               }
               let accept: (taken: true) => void = () => undefined;
