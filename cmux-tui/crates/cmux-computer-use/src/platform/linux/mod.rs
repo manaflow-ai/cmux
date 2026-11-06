@@ -499,8 +499,13 @@ pub(crate) fn launch_identities(
         }
         ids.push(base);
     }
+    // The first id is the one approvals are saved under: the desktop id when
+    // the agent named one, else the program; the rest only widen the check.
+    let primary = index.by_id(app_id).map(|e| e.id.clone()).unwrap_or_else(|| app_id.to_string());
+    ids.retain(|id| *id != primary);
     ids.sort();
     ids.dedup();
+    ids.insert(0, primary);
     Ok(ids)
 }
 

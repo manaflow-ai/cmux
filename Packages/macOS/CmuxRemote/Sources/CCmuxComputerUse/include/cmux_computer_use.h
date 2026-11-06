@@ -115,7 +115,10 @@ typedef struct CmuxCuServer CmuxCuServer;
 CmuxCuServer *cmux_cu_serve(CmuxCuEngine *engine, const uint8_t *socket_path, size_t socket_path_len,
                             const uint8_t *secret_hex, size_t secret_hex_len, CmuxCuBuffer *error);
 // Stops accepting, closes live connections, removes the socket file and
-// frees server. Calls already running finish first.
+// frees server. It BLOCKS until every running call has finished, so after it
+// returns no host callback runs. Answer any open `ask` first (a call waiting
+// on the person would hold it), and call it from one thread of the host's
+// own (never from inside a callback, never from the thread `ask` waits on).
 void cmux_cu_serve_stop(CmuxCuServer *server);
 
 // The MCP tools/list result and the server instructions.

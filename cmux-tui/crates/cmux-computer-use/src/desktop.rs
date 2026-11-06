@@ -333,7 +333,8 @@ pub trait Desktop: Send + Sync {
     /// Every app identity `launch_app(app_id)` could start, as policy matches
     /// them (the resolved bundle id, `.exe` name or desktop-file id), so a
     /// launch is checked against what would really run, never only against
-    /// the agent's words. Refuses an id the platform would not launch.
+    /// the agent's words. The first is the app's own id (approvals are saved
+    /// under it). Refuses an id the platform would not launch.
     fn launch_identities(&self, app_id: &str) -> DResult<Vec<String>> {
         Ok(vec![app_id.to_string()])
     }

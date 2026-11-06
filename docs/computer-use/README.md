@@ -65,17 +65,32 @@ the agent's words.
 - `computerUse.allowOwnMachines` (default on): the person's other machines, on the
   same account, use this one without prompts when it is in Full access. Another
   account's machine is always refused.
-- Cloud VMs are unrestricted: cmux images write `PolicyConfig::cloud_vm()` to the
-  root/SYSTEM-owned `/etc/cmux/computer-use.json` or
-  `%ProgramData%\cmux\computer-use.json`, which wins over the user's cmux.json.
+- Cloud VMs are unrestricted: on a Linux machine with the root-owned Cloud image
+  stamp `/etc/cmux/image-stamp`, every key the person's settings leave out takes
+  `PolicyConfig::cloud_vm()` (Full access, no deny list, foreground input). A
+  machine owner can also pin a policy in the root/SYSTEM-owned
+  `/etc/cmux/computer-use.json` or `%ProgramData%\cmux\computer-use.json`, which
+  wins over cmux.json.
 - `computerUse.pauseOnTakeover` (default on): an acting call waits while the
   person uses the mouse or keyboard, and fails with `person_in_control` if they
   keep on.
 - `computerUse.allowForeground` (default off; on for cloud VMs): whether
   `delivery: "foreground"` may raise a window and use system-wide input.
 
-Grants and saved approvals live in the worker's state dir, so a worker restart
-keeps them.
+Grants, saved approvals and every acting call (recorded before it acts and again
+with its result) live in the worker's state dir, so a worker restart keeps them
+and a retried call never acts twice.
+
+## Trust
+
+The policy keeps agents from using apps the person did not mean them to use
+through the Computer Use tools. It is not a sandbox against code that already
+runs as the person: an agent with a shell can edit the person's cmux.json or the
+worker's saved approvals, the same way it could edit any of the person's files.
+Changes that widen access through Computer Use itself (Always allow, forgetting a
+Never, a looser mode) need the cmux app or the person's own settings; that is
+hardening, not a boundary. To hold an agent to less, run it as another user, in
+a VM, or on a machine whose owner file pins the policy.
 
 ## Platforms and display servers
 

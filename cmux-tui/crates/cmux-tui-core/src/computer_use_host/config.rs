@@ -3,10 +3,14 @@
 //! 1. The machine owner's file, `/etc/cmux/computer-use.json` or
 //!    `%ProgramData%\cmux\computer-use.json` (a `PolicyConfig`). It wins
 //!    whole, and is read only when root (or SYSTEM / Administrators) owns it
-//!    and no other user can write it: a file the person or an agent could
-//!    write would let an agent raise its own access.
+//!    and no other user can write it, so the machine's owner (a Cloud image,
+//!    an admin) can set a policy the person's account cannot change.
 //! 2. The person's settings (`computerUse.*` in cmux.json), read through the
-//!    daemon's settings owner.
+//!    daemon's settings owner. That file, like the worker's saved approvals,
+//!    is the person's own: an agent running as the person with a shell can
+//!    edit it. The policy guards against agents acting by mistake through the
+//!    Computer Use tools, not against code that already runs as the person
+//!    (the same-user limit, docs/computer-use/README.md "Trust").
 //! 3. For every key neither sets: [`PolicyConfig::cloud_vm`] on a cmux Cloud
 //!    VM (unrestricted: nobody else uses its desktop), else
 //!    [`PolicyConfig::default`]. A Cloud VM is a Linux machine with the

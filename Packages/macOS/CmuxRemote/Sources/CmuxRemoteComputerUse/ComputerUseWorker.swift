@@ -42,6 +42,10 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
     private var engine: ComputerUseEngine?
     private var server: ServerHandle?
     private var flags = PolicyFlags()
+    /// Set before the server stops: questions asked from now on answer
+    /// `unavailable` at once, so stopping (which waits for running calls)
+    /// never waits on an open approval panel.
+    private var stopping = false
     /// Set on the main actor.
     nonisolated(unsafe) private var overlay: AgentCursorOverlay?
     nonisolated(unsafe) private var approvals: ApprovalPanel?
@@ -68,15 +72,19 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
             }
             handle(control, id: line["id"] as? Int)
         }
-        // The host closed stdin: stop.
+        // The host closed stdin: stop. Open questions are answered first, so
+        // the calls waiting on them finish; then the server stops, which waits
+        // for running calls (cmux_cu_serve_stop is called only from this thread).
         logger.notice("Computer Use worker: the host closed the control channel; stopping")
-        let (engine, server) = lock.withLock { (self.engine, self.server) }
+        let (engine, server) = lock.withLock { () -> (ComputerUseEngine?, ServerHandle?) in
+            stopping = true
+            return (self.engine, self.server)
+        }
+        // concurrency-allow: this is the control thread (never main); the main actor only answers the open panels.
+        DispatchQueue.main.sync { MainActor.assumeIsolated { self.approvals?.cancelAll() } }
         if let engine, let server { engine.stopServing(server) }
         DispatchQueue.main.async {
-            MainActor.assumeIsolated {
-                self.approvals?.cancelAll()
-                self.overlay?.hideAll()
-            }
+            MainActor.assumeIsolated { self.overlay?.hideAll() }
             exit(0)
         }
     }
@@ -195,12 +203,13 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
 
     /// Blocks the engine's thread until the person answers (or the panel's timeout).
     fileprivate func ask(_ json: Data) -> Int32 {
-        guard let question = ApprovalQuestion(json: json) else { return ApprovalAnswer.unavailable.rawValue }
+        guard let question = ApprovalQuestion(json: json),
+              !lock.withLock({ stopping }) else { return ApprovalAnswer.unavailable.rawValue }
         let box = OSAllocatedUnfairLock(initialState: ApprovalAnswer.unavailable)
         let answered = DispatchSemaphore(value: 0)
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                guard let approvals = self.approvals else {
+                guard let approvals = self.approvals, !self.lock.withLock({ self.stopping }) else {
                     answered.signal()
                     return
                 }
