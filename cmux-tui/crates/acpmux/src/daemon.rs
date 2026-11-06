@@ -49,7 +49,13 @@ mod handover;
 mod home_watch;
 mod notify;
 pub(crate) mod owner_exit;
+/// A process's start time, which with its pid names it (the test owner, `owner_exit.rs`).
+pub use owner_exit::process_start;
 mod persist_retry;
+// The provisioning exec's person key for the running daemon (Cloud machines).
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) mod provision;
 #[cfg(unix)]
 mod socket_rebind;
 mod stop_causes;
@@ -166,6 +172,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     windows::keep_from_children(opts.ready_fd);
     // Before anything is spawned: the key never reaches a child.
     let person_key = opts.person_key_fd.and_then(read_person_key);
+    // A Cloud machine's daemon, which the provisioning exec may give the key later: not dumpable for
+    // its whole run, from before anything is spawned (`daemon/provision.rs`).
+    #[cfg(unix)]
+    provision::at_start();
     // A capture fixture that cannot be read stops the start: a capture must
     // never show this host's harnesses in its place (`harness_fixture.rs`).
     crate::harness_fixture::check().map_err(|why| anyhow!(why))?;
@@ -207,30 +217,47 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let _ = std::env::set_current_dir(home());
     exe_path::check_run(opts.ready_fd)?;
     let lock = home().join("daemon.lock");
+    // Debug builds only: a daemon a test started stops with that test's process, mid-turn too
+    // (`daemon/owner_exit.rs`); never in a release build. Armed before the lock wait, which has no
+    // limit while the holder lives, so a test that dies during it ends this daemon too.
+    let mut test_owner = std::pin::pin!(owner_exit::test_owner_exit());
     #[cfg(unix)]
     handover::reclaim_from_dev(&lock, &socket_path(), &home()).await;
-    let _lock_file = match acquire_daemon_lock(&lock, opts.take_over).await {
-        Ok(lock) => lock,
-        Err(e) => {
-            // The command that started this daemon waits for the holder (`connect`).
-            if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
-                // The app launches `daemon run` directly, without `start_and_connect`.
-                // Its losing launch must report the winner's endpoint once it answers.
-                tracing::info!("another daemon holds the lock; waiting for its socket or exit");
-                match handover::wait(&home(), &socket_path()).await {
-                    Some(handover::Started::Acquired(lock)) => lock,
-                    Some(handover::Started::Ready(ready)) => {
-                        write_ready(fd, &ready);
-                        return Ok(());
+    // None: another daemon answers for this home and its ready line went out; nothing to do.
+    let lock_wait = async {
+        match acquire_daemon_lock(&lock, opts.take_over).await {
+            Ok(lock) => Ok(Some(lock)),
+            Err(e) => {
+                // The command that started this daemon waits for the holder (`connect`).
+                if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
+                    // The app launches `daemon run` directly, without `start_and_connect`.
+                    // Its losing launch must report the winner's endpoint once it answers.
+                    tracing::info!("another daemon holds the lock; waiting for its socket or exit");
+                    match handover::wait(&home(), &socket_path()).await {
+                        Some(handover::Started::Acquired(lock)) => Ok(Some(lock)),
+                        Some(handover::Started::Ready(ready)) => {
+                            write_ready(fd, &ready);
+                            Ok(None)
+                        }
+                        None => {
+                            write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
+                            Err(e)
+                        }
                     }
-                    None => {
-                        write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
-                        return Err(e);
-                    }
+                } else {
+                    Err(e)
                 }
-            } else {
-                return Err(e);
             }
+        }
+    };
+    let _lock_file = tokio::select! {
+        lock = lock_wait => match lock? {
+            Some(lock) => lock,
+            None => return Ok(()),
+        },
+        pid = &mut test_owner => {
+            tracing::warn!("stopping before it held its lock: its test process {pid} exited");
+            return Ok(());
         }
     };
     // The home and lock this daemon holds, read as soon as it holds them: one replaced during
@@ -406,9 +433,37 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
+    // A machine credential copied here from another box (`cli/cloud_join/host_fingerprint.rs`)
+    // is marked cloned and this box gets its own node key, before the WireGuard transport and
+    // the mesh relay read either.
+    // Off the async workers: it may wait a bounded while for the join lock.
+    let settled = tokio::task::spawn_blocking(crate::cli::cloud_join::settle_clone_at_start)
+        .await
+        .unwrap_or_else(|e| Err(anyhow!("clone check task: {e}")));
+    let clone_unsettled = match settled {
+        Ok(crate::cli::cloud_join::CloneCheck::Cloned) => {
+            tracing::warn!(
+                "machine credential was copied from another machine: not used here; this machine has a new node key. Paste a new join line to join it."
+            );
+            false
+        }
+        Ok(_) => false,
+        Err(e) => {
+            // The copied node key could not be replaced: keep this box off WireGuard for this
+            // run rather than answer with the original's identity.
+            let copied = crate::cli::cloud_join::copied_from_another_box();
+            tracing::warn!(copied, "machine clone check failed: {e:#}");
+            copied
+        }
+    };
+    if clone_unsettled {
+        tracing::warn!(
+            "WireGuard transport off for this run: this home was copied from another machine"
+        );
+    }
     // Start one mesh before Hub starts its saved peers. It forwards only to
     // the WebSocket listener bound above, whose existing tokens remain mandatory.
-    let wireguard = if config.transport.wireguard {
+    let wireguard = if config.transport.wireguard && !clone_unsettled {
         let websocket =
             ws_listener.as_ref().context("WireGuard needs a WebSocket listener")?.0.local_addr()?;
         crate::wireguard::Transport::start(&config, &home(), websocket).await?
@@ -794,6 +849,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                     home_watch::Lost::Stop(why) => tracing::warn!("stopping: {why}"),
                 },
                 why = &mut unused => tracing::info!("stopping: {why}"),
+                // Nothing can use its agents now: they end with it, hosts and harnesses too.
+                pid = &mut test_owner => {
+                    tracing::warn!("stopping: its test process {pid} exited");
+                    let _ = hub.end_agents_at_shutdown(Default::default());
+                },
             }
             break;
         }
@@ -813,6 +873,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 },
                 Ok(lost) = &mut home_gone => tracing::warn!("stopping: {lost:?}"),
                 why = &mut unused => tracing::info!("stopping: {why}"),
+                pid = &mut test_owner => {
+                    tracing::warn!("stopping: its test process {pid} exited");
+                    let _ = hub.end_agents_at_shutdown(Default::default());
+                },
             }
         }
     };
@@ -1020,8 +1084,6 @@ fn is_socket(f: &std::fs::File) -> bool {
 /// --keep-agents`). Returns the daemon's readiness line.
 #[cfg(unix)]
 pub async fn start_keyed(fd: i32) -> Result<String> {
-    use std::io::Read;
-    use std::os::fd::FromRawFd;
     not_dumpable().context("make the launcher not dumpable before it reads the person key")?;
     exe_path::check_start()?;
     let path = socket_path();
@@ -1031,11 +1093,41 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
             path.display()
         ));
     }
+    let key = read_key_line(fd)?;
+    // Another daemon is stopping or starting: start again until this key's daemon has the lock,
+    // never leaving the caller to start an unkeyed one.
+    loop {
+        let ready = start_daemon_with(Some(key.clone())).await?;
+        if !lock_held(&ready) {
+            // A keyed daemon that exited before it was ready fails this start: the caller must
+            // not go on to start an unkeyed daemon in its place.
+            anyhow::ensure!(
+                !ready.trim().is_empty(),
+                "the keyed daemon exited before it was ready; see {}",
+                home().join("daemon.log").display()
+            );
+            return Ok(ready);
+        }
+        tokio::time::sleep(HANDOVER_RETRY).await;
+        if Client::connect(&path).await.is_ok() {
+            return Err(anyhow!(
+                "a daemon started at {} meanwhile: it holds another person key or none; stop it with `acpmux daemon shutdown --keep-agents`, then start it again with the key",
+                path.display()
+            ));
+        }
+    }
+}
+
+/// One person key line (64 lowercase hex characters and a newline) from `fd`, which stays open
+/// (stdin), read straight into one fixed buffer that is zeroed on drop: no reader buffer keeps
+/// another copy. The caller made itself not dumpable first.
+#[cfg(unix)]
+pub(crate) fn read_key_line(fd: i32) -> Result<zeroize::Zeroizing<String>> {
+    use std::io::Read;
+    use std::os::fd::FromRawFd;
     // SAFETY: the caller passed this descriptor for this process to read;
     // ManuallyDrop: stdin stays open for the process.
     let input = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(fd) });
-    // Straight into one fixed buffer that is zeroed on drop: no reader
-    // buffer keeps another copy. One line: 64 hex characters and a newline.
     let mut line = zeroize::Zeroizing::new([0u8; 129]);
     let mut filled = 0;
     while filled < line.len() && !line.get(..filled).unwrap_or_default().contains(&b'\n') {
@@ -1060,28 +1152,7 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
             "--person-key-fd {fd}: not a person key (64 lowercase hex characters)"
         ));
     }
-    // Another daemon is stopping or starting: start again until this key's daemon has the lock,
-    // never leaving the caller to start an unkeyed one.
-    loop {
-        let ready = start_daemon_with(Some(key.clone())).await?;
-        if !lock_held(&ready) {
-            // A keyed daemon that exited before it was ready fails this start: the caller must
-            // not go on to start an unkeyed daemon in its place.
-            anyhow::ensure!(
-                !ready.trim().is_empty(),
-                "the keyed daemon exited before it was ready; see {}",
-                home().join("daemon.log").display()
-            );
-            return Ok(ready);
-        }
-        tokio::time::sleep(HANDOVER_RETRY).await;
-        if Client::connect(&path).await.is_ok() {
-            return Err(anyhow!(
-                "a daemon started at {} meanwhile: it holds another person key or none; stop it with `acpmux daemon shutdown --keep-agents`, then start it again with the key",
-                path.display()
-            ));
-        }
-    }
+    Ok(key)
 }
 
 /// Makes this process not dumpable before it holds a person key (cx-0q7o):

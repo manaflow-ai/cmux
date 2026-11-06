@@ -198,9 +198,7 @@ extension CloudHandlers {
             }
         }
         // Grants live on the classic Cloud API (`/api/vm`): a machine on the app server link has none yet.
-        ActionTargetVisibility.hide("cloudShareMachine", in: registry) { invocation in
-            (try? machine(invocation, context))?.link == nil
-        }
+        ActionTargetVisibility.hide("cloudShareMachine", in: registry) { _ in true }
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
@@ -296,7 +294,7 @@ extension CloudHandlers {
         }
         bind("palette.cloud.ports", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            if session.appLink != nil, cloud.previewAPI != nil {
+            if cloud.previewAPI != nil {
                 return livePreviewPorts(session, invocation, context)
             }
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
@@ -676,6 +674,7 @@ extension CloudHandlers {
         if let used = stats.diskUsedMb { fields["disk_used_mb"] = .double(used) }
         if let total = stats.diskTotalMb { fields["disk_total_mb"] = .double(total) }
         if let address = session.machine.address?.ipv4 { fields["address"] = .string(address) }
+        fields["desktop"] = .bool(session.machine.capabilities.desktop)
         fields.merge(costFields(session.machine, now: now)) { _, new in new }
         if let idlePause = session.machine.idlePause {
             fields["idle_pause"] = .object(idlePauseFields(idlePause))

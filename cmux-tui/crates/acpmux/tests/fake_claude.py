@@ -153,13 +153,13 @@ def is_cmux_guidance(block):
     if not isinstance(block, dict):
         return False
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project"}:
+    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
         return True
     # Only the guidance blocks (`context_inventory::override_block`): the forum's rules, a side
     # question's chat and attachments are cmux-*-context blocks Claude must read.
     text = block.get("text", "")
     return isinstance(text, str) and text.lstrip().startswith(
-        ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>"))
+        ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>"))
 
 
 def command_text(content):

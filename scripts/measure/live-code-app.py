@@ -118,6 +118,7 @@ def main():
     try:
         app.launch()
         result["pid"] = app.process.pid
+        result["ready_s"] = app.ready_seconds
         time.sleep(3)
         result["generations"].append(snap(0))
         red, blue = "layer?.backgroundColor = NSColor.systemRed.cgColor", "layer?.backgroundColor = NSColor.systemBlue.cgColor"
@@ -147,13 +148,24 @@ def main():
         result.get("same_pid")
         and gens.get(3, {}).get("red_px", 0) > base.get("red_px", 0) + 1000
         and rollback.get("blue_px", 0) > base.get("blue_px", 0) + 1000
-        and rollback.get("red_px", 0) < gens.get(3, {}).get("red_px", 0)
+        # Red back to where it was before any patch (within 1000 px), not merely less of it.
+        and rollback.get("red_px", 0) <= base.get("red_px", 0) + 1000
         and rollback.get("rollback_to_redraw_s", 99) < 2)
     with open(os.path.join(opts.out, "result.json"), "w") as f:
         json.dump(result, f, indent=2)
     print(json.dumps(result))
     if os.path.exists(os.path.join(opts.out, "live-code.log")):
         print(open(os.path.join(opts.out, "live-code.log")).read())
+    else:
+        # The engine writes "watching" first, so no log means it never started: say whether the app
+        # has the engine compiled in (its log lines are string literals) and what the app printed.
+        binary = app.binary  # "cmux DEV" in a tagged bundle
+        compiled = b"live code: cannot watch" in open(binary, "rb").read()
+        print(f"live-code-app: no live-code.log in {live}: the engine never started; "
+              f"its code is {'in' if compiled else 'NOT in'} {binary}")
+        if os.path.exists(app.log_path):
+            lines = [line for line in open(app.log_path, errors="replace") if "live" in line.lower()]
+            print("live-code-app: the app's log lines naming live code:\n" + "".join(lines[-20:]))
     sys.exit(0 if result["shown"] and result["rolled_back"] else 1)
 
 

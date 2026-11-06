@@ -4,7 +4,9 @@
       "acp": true,
       "kind": "request",
       "name": "initialize",
-      "params": true,
+      "params": {
+        "$ref": "#/types/InitializeParams"
+      },
       "result": true
     },
     {
@@ -18,7 +20,9 @@
       "acp": true,
       "kind": "request",
       "name": "session/new",
-      "params": true,
+      "params": {
+        "$ref": "#/types/SessionNewParams"
+      },
       "result": true
     },
     {
@@ -67,34 +71,44 @@
       "acp": true,
       "kind": "request",
       "name": "session/prompt",
-      "params": true,
+      "params": {
+        "$ref": "#/types/SessionPromptParams"
+      },
       "result": true
     },
     {
       "acp": true,
       "kind": "client_notification",
       "name": "session/cancel",
-      "params": true
+      "params": {
+        "$ref": "#/types/SessionCancelParams"
+      }
     },
     {
       "acp": true,
       "kind": "request",
       "name": "session/set_mode",
-      "params": true,
+      "params": {
+        "$ref": "#/types/SessionSetModeParams"
+      },
       "result": true
     },
     {
       "acp": true,
       "kind": "request",
       "name": "session/set_model",
-      "params": true,
+      "params": {
+        "$ref": "#/types/SessionSetModelParams"
+      },
       "result": true
     },
     {
       "acp": true,
       "kind": "request",
       "name": "session/set_config_option",
-      "params": true,
+      "params": {
+        "$ref": "#/types/SessionSetConfigOptionParams"
+      },
       "result": true
     },
     {
@@ -127,13 +141,17 @@
     {
       "kind": "request",
       "name": "acp.trust.get",
-      "params": true,
+      "params": {
+        "$ref": "#/types/TrustGetParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "acp.trust.set",
-      "params": true,
+      "params": {
+        "$ref": "#/types/TrustSetParams"
+      },
       "result": true
     },
     {
@@ -180,7 +198,9 @@
     {
       "kind": "request",
       "name": "_acpmux/status",
-      "params": true,
+      "params": {
+        "$ref": "#/types/StatusParams"
+      },
       "result": true
     },
     {
@@ -310,7 +330,9 @@
     {
       "kind": "request",
       "name": "_acpmux/offer_respond",
-      "params": true,
+      "params": {
+        "$ref": "#/types/OfferRespondParams"
+      },
       "result": true
     },
     {
@@ -328,7 +350,9 @@
     {
       "kind": "request",
       "name": "_acpmux/subsession/limits",
-      "params": true,
+      "params": {
+        "$ref": "#/types/SubsessionLimitsParams"
+      },
       "result": true
     },
     {
@@ -376,13 +400,17 @@
     {
       "kind": "request",
       "name": "_acpmux/forum/rules",
-      "params": true,
+      "params": {
+        "$ref": "#/types/ForumRulesParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/set_tools",
-      "params": true,
+      "params": {
+        "$ref": "#/types/SetToolsParams"
+      },
       "result": true
     },
     {
@@ -394,25 +422,33 @@
     {
       "kind": "request",
       "name": "_acpmux/mcp/reconnect",
-      "params": true,
+      "params": {
+        "$ref": "#/types/McpReconnectParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/subagent_stop",
-      "params": true,
+      "params": {
+        "$ref": "#/types/SubagentStopParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/subagent_transcript",
-      "params": true,
+      "params": {
+        "$ref": "#/types/SubagentTranscriptParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/native_history",
-      "params": true,
+      "params": {
+        "$ref": "#/types/NativeHistoryParams"
+      },
       "result": true
     },
     {
@@ -424,7 +460,9 @@
     {
       "kind": "request",
       "name": "_acpmux/app_reply",
-      "params": true,
+      "params": {
+        "$ref": "#/types/AppReplyParams"
+      },
       "result": true
     },
     {
@@ -454,13 +492,17 @@
     {
       "kind": "request",
       "name": "_acpmux/bookmark_get",
-      "params": true,
+      "params": {
+        "$ref": "#/types/BookmarkGetParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/bookmark_set",
-      "params": true,
+      "params": {
+        "$ref": "#/types/BookmarkSetParams"
+      },
       "result": true
     },
     {
@@ -508,13 +550,17 @@
     {
       "kind": "request",
       "name": "_acpmux/agent_pair_resume",
-      "params": true,
+      "params": {
+        "$ref": "#/types/AgentPairResumeParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/agent_hold",
-      "params": true,
+      "params": {
+        "$ref": "#/types/AgentHoldParams"
+      },
       "result": true
     },
     {
@@ -540,19 +586,25 @@
     {
       "kind": "request",
       "name": "_acpmux/process/list",
-      "params": true,
+      "params": {
+        "$ref": "#/types/ProcessListParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/process/tail",
-      "params": true,
+      "params": {
+        "$ref": "#/types/ProcessTailParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/process/kill",
-      "params": true,
+      "params": {
+        "$ref": "#/types/ProcessKillParams"
+      },
       "result": true
     },
     {
@@ -576,6 +628,24 @@
     {
       "kind": "request",
       "name": "_acpmux/bg/stop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/goal/set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/goal/update",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/goal/get",
       "params": true,
       "result": true
     },
@@ -621,7 +691,9 @@
     {
       "kind": "request",
       "name": "_acpmux/kill",
-      "params": true,
+      "params": {
+        "$ref": "#/types/KillParams"
+      },
       "result": true
     },
     {
@@ -633,25 +705,33 @@
     {
       "kind": "request",
       "name": "_acpmux/watch_take_over",
-      "params": true,
+      "params": {
+        "$ref": "#/types/WatchTakeOverParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/archive",
-      "params": true,
+      "params": {
+        "$ref": "#/types/ArchiveParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/side",
-      "params": true,
+      "params": {
+        "$ref": "#/types/SideParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/btw",
-      "params": true,
+      "params": {
+        "$ref": "#/types/BtwParams"
+      },
       "result": true
     },
     {
@@ -691,7 +771,9 @@
     {
       "kind": "request",
       "name": "_acpmux/attachment",
-      "params": true,
+      "params": {
+        "$ref": "#/types/AttachmentParams"
+      },
       "result": true
     },
     {
@@ -809,43 +891,57 @@
     {
       "kind": "request",
       "name": "_acpmux/warm",
-      "params": true,
+      "params": {
+        "$ref": "#/types/WarmParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/prewarm",
-      "params": true,
+      "params": {
+        "$ref": "#/types/PrewarmParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/start_mode",
-      "params": true,
+      "params": {
+        "$ref": "#/types/StartModeParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/queue_remove",
-      "params": true,
+      "params": {
+        "$ref": "#/types/QueueRemoveParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/queue_edit",
-      "params": true,
+      "params": {
+        "$ref": "#/types/QueueEditParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/queue_approve",
-      "params": true,
+      "params": {
+        "$ref": "#/types/QueueApproveParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/queue_decline",
-      "params": true,
+      "params": {
+        "$ref": "#/types/QueueDeclineParams"
+      },
       "result": true
     },
     {
@@ -857,19 +953,25 @@
     {
       "kind": "request",
       "name": "_acpmux/queue_get",
-      "params": true,
+      "params": {
+        "$ref": "#/types/QueueGetParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/draft_get",
-      "params": true,
+      "params": {
+        "$ref": "#/types/DraftGetParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/draft_set",
-      "params": true,
+      "params": {
+        "$ref": "#/types/DraftSetParams"
+      },
       "result": true
     },
     {
@@ -977,6 +1079,14 @@
     {
       "kind": "request",
       "name": "_acpmux/resolve",
+      "params": {
+        "$ref": "#/types/ResolveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/who_else",
       "params": true,
       "result": true
     },
@@ -1065,7 +1175,9 @@
     {
       "kind": "request",
       "name": "_acpmux/inbox_thread",
-      "params": true,
+      "params": {
+        "$ref": "#/types/InboxThreadParams"
+      },
       "result": true
     },
     {
@@ -1143,7 +1255,9 @@
     {
       "kind": "request",
       "name": "_acpmux/secret_submit",
-      "params": true,
+      "params": {
+        "$ref": "#/types/SecretSubmitParams"
+      },
       "result": true
     },
     {
@@ -1308,43 +1422,57 @@
     {
       "kind": "request",
       "name": "_acpmux/handoff_prepare",
-      "params": true,
+      "params": {
+        "$ref": "#/types/HandoffPrepareParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/handoff_get",
-      "params": true,
+      "params": {
+        "$ref": "#/types/HandoffGetParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/handoff_draft",
-      "params": true,
+      "params": {
+        "$ref": "#/types/HandoffDraftParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/handoff_start",
-      "params": true,
+      "params": {
+        "$ref": "#/types/HandoffStartParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/handoff_discard",
-      "params": true,
+      "params": {
+        "$ref": "#/types/HandoffDiscardParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/harnesses",
-      "params": true,
+      "params": {
+        "$ref": "#/types/HarnessesParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/harness_enable",
-      "params": true,
+      "params": {
+        "$ref": "#/types/HarnessEnableParams"
+      },
       "result": true
     },
     {
@@ -1386,31 +1514,41 @@
     {
       "kind": "request",
       "name": "_acpmux/harness/health",
-      "params": true,
+      "params": {
+        "$ref": "#/types/HarnessHealthParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/agent_login/start",
-      "params": true,
+      "params": {
+        "$ref": "#/types/AgentLoginStartParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/agent_login/finish",
-      "params": true,
+      "params": {
+        "$ref": "#/types/AgentLoginFinishParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/agent_login/cancel",
-      "params": true,
+      "params": {
+        "$ref": "#/types/AgentLoginCancelParams"
+      },
       "result": true
     },
     {
       "kind": "request",
       "name": "_acpmux/agent_login/api_key",
-      "params": true,
+      "params": {
+        "$ref": "#/types/AgentLoginApiKeyParams"
+      },
       "result": true
     },
     {
@@ -1478,7 +1616,9 @@
     {
       "kind": "request",
       "name": "_acpmux/models",
-      "params": true,
+      "params": {
+        "$ref": "#/types/ModelsParams"
+      },
       "result": true
     },
     {
@@ -1490,7 +1630,9 @@
     {
       "kind": "request",
       "name": "_acpmux/route/list",
-      "params": true,
+      "params": {
+        "$ref": "#/types/RouteListParams"
+      },
       "result": true
     },
     {
@@ -1538,7 +1680,9 @@
     {
       "kind": "request",
       "name": "_acpmux/chat/route.set",
-      "params": true,
+      "params": {
+        "$ref": "#/types/ChatRouteSetParams"
+      },
       "result": true
     },
     {
@@ -1550,6 +1694,12 @@
     {
       "kind": "request",
       "name": "_acpmux/account/set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/usage",
       "params": true,
       "result": true
     },
@@ -1594,7 +1744,9 @@
     {
       "kind": "request",
       "name": "_acpmux/peers",
-      "params": true,
+      "params": {
+        "$ref": "#/types/PeersParams"
+      },
       "result": true
     },
     {
@@ -1642,7 +1794,9 @@
     {
       "kind": "request",
       "name": "_acpmux/peer_reconnect",
-      "params": true,
+      "params": {
+        "$ref": "#/types/PeerReconnectParams"
+      },
       "result": true
     },
     {
@@ -1654,7 +1808,9 @@
     {
       "kind": "request",
       "name": "_acpmux/peer_snapshot",
-      "params": true,
+      "params": {
+        "$ref": "#/types/PeerSnapshotParams"
+      },
       "result": true
     },
     {
@@ -1820,6 +1976,148 @@
     }
   ],
   "types": {
+    "AcpmuxRequestMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "adopt": true,
+        "agentSessionId": true,
+        "answeredBy": true,
+        "approverDecision": true,
+        "approverDecisions": true,
+        "argv": true,
+        "author": true,
+        "beforePromptId": true,
+        "callerSession": true,
+        "cliHost": true,
+        "context": true,
+        "cwd": true,
+        "decisionNonce": true,
+        "dispatchSource": true,
+        "env": true,
+        "ephemeral": true,
+        "forceAdmit": true,
+        "forwardProjection": true,
+        "fromAgent": true,
+        "fromHarness": true,
+        "fromSessionId": true,
+        "githubBroker": true,
+        "harness": true,
+        "harnessFrom": true,
+        "host": true,
+        "inlineParts": true,
+        "interrupt": true,
+        "localAppToken": true,
+        "mcpServers": true,
+        "messageId": true,
+        "messageSender": true,
+        "mode": true,
+        "model": true,
+        "name": true,
+        "notice": true,
+        "observer": true,
+        "parent": true,
+        "peer": true,
+        "peerHops": true,
+        "personDecision": true,
+        "personKey": true,
+        "personStop": true,
+        "policy": true,
+        "pr": true,
+        "preset": true,
+        "promptFileText": true,
+        "promptId": true,
+        "promptSuggestion": true,
+        "provenance": true,
+        "reportTo": true,
+        "requestId": true,
+        "requireFullAccess": true,
+        "resend": true,
+        "route": true,
+        "spawnToolCallId": true,
+        "startLater": true,
+        "steer": true,
+        "steerNow": true,
+        "steerOnly": true,
+        "supersede": true,
+        "surface": true,
+        "teamMessage": true,
+        "throughSeq": true,
+        "via": true,
+        "vmBoundary": true,
+        "waitStart": true,
+        "workflowAllowedTools": true,
+        "workspaceId": true
+      },
+      "type": "object"
+    },
+    "AgentHoldParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "held": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "AgentLoginApiKeyParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "agent": true,
+        "key": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "AgentLoginCancelParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "loginId": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "AgentLoginFinishParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "code": true,
+        "loginId": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "AgentLoginStartParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "agent": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "AgentPairResumeParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "peerSessionId": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
     "AllowanceExpiry": {
       "enum": [
         "session_stop_or_daemon_restart"
@@ -1899,6 +2197,21 @@
       ],
       "type": "object"
     },
+    "AppReplyParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "replyId": true,
+        "replyTo": true,
+        "sessionId": true,
+        "text": true,
+        "threadId": true,
+        "to": true
+      },
+      "type": "object"
+    },
     "ApproverDecision": {
       "additionalProperties": false,
       "description": "`{approver, expiresAt, signature}`: ECDSA P-256 / SHA-256, raw `r || s` as\nlowercase hex, over the approver's message for this exact answer.",
@@ -1921,6 +2234,17 @@
         "expiresAt",
         "signature"
       ],
+      "type": "object"
+    },
+    "ArchiveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "archived": true,
+        "sessionId": true
+      },
       "type": "object"
     },
     "AttachParams": {
@@ -2054,6 +2378,17 @@
       ],
       "type": "object"
     },
+    "AttachmentParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "id": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
     "Author": {
       "additionalProperties": false,
       "description": "The person a request comes from (`hub/author.rs`): stamped by the daemon that admitted\nthem, and accepted only from the unix socket or a peer forwarding for its own.",
@@ -2154,6 +2489,41 @@
         }
       ]
     },
+    "BookmarkGetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "BookmarkSetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "bookmarked": true,
+        "seq": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "BtwParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "inline": true,
+        "model": true,
+        "question": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
     "ChangedSession": {
       "anyOf": [
         {
@@ -2177,6 +2547,18 @@
         "active",
         "expires"
       ],
+      "type": "object"
+    },
+    "ChatRouteSetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "routeId": true,
+        "sessionId": true,
+        "when": true
+      },
       "type": "object"
     },
     "CoverageLabel": {
@@ -2219,6 +2601,27 @@
     },
     "Done": {
       "description": "An acknowledgement with nothing in it.",
+      "type": "object"
+    },
+    "DraftGetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "DraftSetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true,
+        "text": true
+      },
       "type": "object"
     },
     "Enforcement": {
@@ -2448,6 +2851,7 @@
       "type": "object"
     },
     "ForkParams": {
+      "additionalProperties": false,
       "description": "`acp.session.fork`: a completed-turn, live, or before-prompt fork.\nBefore-prompt requests require requestId and omit both throughSeq and live.",
       "properties": {
         "_meta": true,
@@ -2488,6 +2892,102 @@
       ],
       "type": "object"
     },
+    "ForumRulesParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        }
+      },
+      "type": "object"
+    },
+    "HandoffDiscardParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "handoffId": true
+      },
+      "type": "object"
+    },
+    "HandoffDraftParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "capsule": true,
+        "checkpoint": true,
+        "draftKey": true,
+        "handoffId": true,
+        "revision": true
+      },
+      "type": "object"
+    },
+    "HandoffGetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "handoffId": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "HandoffPrepareParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "handoffKey": true,
+        "harness": true,
+        "memoryRefs": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "HandoffStartParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "capsule": true,
+        "checkpoint": true,
+        "handoffId": true,
+        "promptId": true,
+        "revision": true
+      },
+      "type": "object"
+    },
+    "HarnessEnableParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "folder": true,
+        "id": true
+      },
+      "type": "object"
+    },
+    "HarnessHealthParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "autoUpdate": true,
+        "checkLatest": true,
+        "refresh": true,
+        "rescan": true,
+        "view": true
+      },
+      "type": "object"
+    },
     "HarnessUpdatePlanParams": {
       "additionalProperties": false,
       "properties": {
@@ -2500,6 +3000,28 @@
       ],
       "type": "object"
     },
+    "HarnessesParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "cwd": true
+      },
+      "type": "object"
+    },
+    "InboxThreadParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "markRead": true,
+        "sessionId": true,
+        "threadId": true
+      },
+      "type": "object"
+    },
     "Indicator": {
       "enum": [
         "input",
@@ -2509,6 +3031,18 @@
         "done"
       ],
       "type": "string"
+    },
+    "InitializeParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "clientCapabilities": true,
+        "clientInfo": true,
+        "protocolVersion": true
+      },
+      "type": "object"
     },
     "InventoryRefreshParams": {
       "additionalProperties": false,
@@ -2532,6 +3066,17 @@
         "unverified"
       ],
       "type": "string"
+    },
+    "KillParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "purge": true,
+        "sessionId": true
+      },
+      "type": "object"
     },
     "Lane": {
       "description": "The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`).",
@@ -2961,6 +3506,17 @@
       ],
       "type": "object"
     },
+    "McpReconnectParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "server": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
     "McpServerStatus": {
       "description": "`failed` also for one that waits on a sign-in (Claude Code `needs-auth`).",
       "enum": [
@@ -3061,6 +3617,42 @@
       ],
       "type": "object"
     },
+    "ModelsParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "probe": true,
+        "refresh": true
+      },
+      "type": "object"
+    },
+    "NativeHistoryParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "before": true,
+        "mark": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "OfferRespondParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "childSessionId": true,
+        "offerId": true,
+        "outcome": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
     "Participant": {
       "description": "One person in a chat. The hub never marks the caller's own entry: a connection may carry\nseveral people, so the client compares ids (a caller with no author is `owner`).",
       "properties": {
@@ -3122,6 +3714,31 @@
         }
       ]
     },
+    "PeerReconnectParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "force": true,
+        "name": true,
+        "wait": true
+      },
+      "type": "object"
+    },
+    "PeerSnapshotParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "host": true,
+        "limit": true,
+        "maxBytes": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
     "PeerStateChanged": {
       "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nstate changes, never twice for the same state: a peer that is added sends its first state,\nand one that is removed a last `offline` with `error: \"removed\"`. Listed as the\n`peerStateEvents` feature.",
       "properties": {
@@ -3162,6 +3779,15 @@
         "peer",
         "state"
       ],
+      "type": "object"
+    },
+    "PeersParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        }
+      },
       "type": "object"
     },
     "PermissionBatching": {
@@ -3389,7 +4015,7 @@
         "_meta": {
           "anyOf": [
             {
-              "$ref": "#/types/RequestMeta"
+              "$ref": "#/types/RequestMeta2"
             },
             {
               "type": "null"
@@ -3524,7 +4150,7 @@
         "_meta": {
           "anyOf": [
             {
-              "$ref": "#/types/RequestMeta"
+              "$ref": "#/types/RequestMeta2"
             },
             {
               "type": "null"
@@ -3580,6 +4206,18 @@
       ],
       "type": "object"
     },
+    "PrewarmParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "cwd": true,
+        "harness": true,
+        "release": true
+      },
+      "type": "object"
+    },
     "ProcessBackgroundParams": {
       "additionalProperties": false,
       "description": "`_acpmux/process/background` (Ctrl-B): the chat whose running work goes\nto the background, and the one tool call to move (none: every\nforeground task, as Claude Code's own Ctrl-B does).",
@@ -3611,6 +4249,43 @@
       "required": [
         "backgrounded"
       ],
+      "type": "object"
+    },
+    "ProcessKillParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "processId": true,
+        "sessionId": true,
+        "signal": true
+      },
+      "type": "object"
+    },
+    "ProcessListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "cursor": true,
+        "limit": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "ProcessTailParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "fromByte": true,
+        "maxBytes": true,
+        "processId": true,
+        "sessionId": true
+      },
       "type": "object"
     },
     "PromptClass": {
@@ -3653,6 +4328,67 @@
       "required": [
         "sessionId"
       ],
+      "type": "object"
+    },
+    "QueueApproveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "promptId": true,
+        "revision": true,
+        "sessionId": true,
+        "turnId": true
+      },
+      "type": "object"
+    },
+    "QueueDeclineParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "promptId": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "QueueEditParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "images": true,
+        "index": true,
+        "op": true,
+        "promptId": true,
+        "sessionId": true,
+        "text": true
+      },
+      "type": "object"
+    },
+    "QueueGetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "promptId": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "QueueRemoveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "promptId": true,
+        "sessionId": true
+      },
       "type": "object"
     },
     "QueuedAuthor": {
@@ -3856,6 +4592,14 @@
       "type": "object"
     },
     "RequestMeta": {
+      "properties": {
+        "acpmux": {
+          "$ref": "#/types/AcpmuxRequestMeta"
+        }
+      },
+      "type": "object"
+    },
+    "RequestMeta2": {
       "additionalProperties": false,
       "properties": {
         "acpmux": {
@@ -3875,6 +4619,18 @@
             "null"
           ]
         }
+      },
+      "type": "object"
+    },
+    "ResolveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "exactSessionId": true,
+        "query": true,
+        "sessionId": true
       },
       "type": "object"
     },
@@ -3976,6 +4732,28 @@
       ],
       "type": "object"
     },
+    "RouteListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "SecretSubmitParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "secretId": true,
+        "sessionId": true,
+        "value": true
+      },
+      "type": "object"
+    },
     "SessionAuthLogin": {
       "description": "`terminal`: run `command` in a terminal on `host` (null: this machine). `route`: edit or\nsign in again to the route `routeId`.",
       "properties": {
@@ -4014,6 +4792,7 @@
       "type": "string"
     },
     "SessionAuthParams": {
+      "additionalProperties": false,
       "description": "A chat by `sessionId`, or by `target` before it has a session (a new tab before its first\nsend). Exactly one of the two. `refresh`: probe the route and run the harness's own sign-in\ncheck that reads no keychain, when no newer evidence answers.",
       "properties": {
         "refresh": {
@@ -4156,6 +4935,16 @@
       "required": [
         "harness"
       ],
+      "type": "object"
+    },
+    "SessionCancelParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
       "type": "object"
     },
     "SessionChanged": {
@@ -4745,6 +5534,30 @@
       ],
       "type": "object"
     },
+    "SessionNewParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "additionalDirectories": true,
+        "cwd": true,
+        "mcpServers": true
+      },
+      "type": "object"
+    },
+    "SessionPromptParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "prompt": true,
+        "sessionId": true,
+        "steer": true
+      },
+      "type": "object"
+    },
     "SessionRef": {
       "additionalProperties": false,
       "properties": {
@@ -4755,6 +5568,40 @@
       "required": [
         "sessionId"
       ],
+      "type": "object"
+    },
+    "SessionSetConfigOptionParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "configId": true,
+        "sessionId": true,
+        "value": true
+      },
+      "type": "object"
+    },
+    "SessionSetModeParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "modeId": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "SessionSetModelParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "modelId": true,
+        "sessionId": true
+      },
       "type": "object"
     },
     "SessionSummary": {
@@ -5380,6 +6227,50 @@
       ],
       "type": "object"
     },
+    "SetToolsParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "enabled": true,
+        "id": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "SideParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "StartModeParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "cwd": true,
+        "harness": true,
+        "preset": true
+      },
+      "type": "object"
+    },
+    "StatusParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        }
+      },
+      "type": "object"
+    },
     "StuckReason": {
       "enum": [
         "harness_unavailable",
@@ -5388,6 +6279,44 @@
         "spawn_failed"
       ],
       "type": "string"
+    },
+    "SubagentStopParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true,
+        "subagentSessionId": true
+      },
+      "type": "object"
+    },
+    "SubagentTranscriptParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "after": true,
+        "agentId": true,
+        "before": true,
+        "limit": true,
+        "runId": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "SubsessionLimitsParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "maxRunning": true,
+        "sessionId": true,
+        "workspaceId": true
+      },
+      "type": "object"
     },
     "ToolSummary": {
       "description": "One row of a chat's tool list (`store::ToolRow`).",
@@ -5423,6 +6352,31 @@
         "name",
         "source"
       ],
+      "type": "object"
+    },
+    "TrustGetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "cwd": true,
+        "peer": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "TrustSetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "cwd": true,
+        "level": true,
+        "peer": true,
+        "sessionId": true
+      },
       "type": "object"
     },
     "TurnSummary": {
@@ -5687,6 +6641,17 @@
       ],
       "type": "object"
     },
+    "WarmParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "limit": true,
+        "sessionIds": true
+      },
+      "type": "object"
+    },
     "WatchParams": {
       "additionalProperties": false,
       "properties": {
@@ -5728,6 +6693,17 @@
             "null"
           ]
         }
+      },
+      "type": "object"
+    },
+    "WatchTakeOverParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "ifLive": true,
+        "sessionId": true
       },
       "type": "object"
     }

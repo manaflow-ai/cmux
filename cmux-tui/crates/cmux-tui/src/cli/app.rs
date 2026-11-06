@@ -35,6 +35,7 @@ mod classic;
 mod events;
 mod group_create;
 mod keybinding;
+mod live;
 mod nightly;
 mod open;
 mod open_link;
@@ -177,6 +178,8 @@ pub(super) enum AppCommand {
     Version,
     /// `cmux nightly list|install`: another recent nightly build (app/nightly.rs).
     Nightly(nightly::Command),
+    /// `cmux live start|stop|status`: edit cmux's web UI while it runs (app/live.rs).
+    Live(live::Command),
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -215,6 +218,10 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     if scope == "nightly" {
         return nightly::parse(args.get(1..).unwrap_or_default())
             .map(|command| Some(AppCommand::Nightly(command)));
+    }
+    if scope == "live" {
+        return live::parse(args.get(1..).unwrap_or_default())
+            .map(|command| Some(AppCommand::Live(command)));
     }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
@@ -458,7 +465,7 @@ pub(super) fn action_origin() -> &'static str {
 
 /// An action argument's name from its flag: the catalog names arguments in
 /// camelCase (`--keep-sessions` is `keepSessions`).
-fn argument_name(flag: &str) -> String {
+pub(super) fn argument_name(flag: &str) -> String {
     let mut name = String::with_capacity(flag.len());
     let mut upper = false;
     for character in flag.chars() {
@@ -544,7 +551,18 @@ pub(super) fn run_action(
                 continue;
             }
             "focus" => {
-                params.insert("focus".into(), json!(true));
+                // An action with its own `focus` argument (`open-remote`) takes the flag as that argument too,
+                // with an optional `true`/`false` after it; the run's own focus follows it.
+                let mut value = true;
+                if super::action_hint::action_takes_argument(action, "focus") {
+                    if let Some(word @ ("true" | "false")) = args.get(index + 1).map(String::as_str)
+                    {
+                        value = word == "true";
+                        index += 1;
+                    }
+                    arguments.insert("focus".into(), json!(value));
+                }
+                params.insert("focus".into(), json!(value));
                 index += 1;
                 continue;
             }
@@ -576,6 +594,12 @@ pub(super) fn run_action(
                     .split_once('=')
                     .ok_or_else(|| UsageError::new(messages.arg_shape.replace("{value}", text)))?;
                 arguments.insert(key.into(), json!(value));
+            }
+            // `--focus=false` for an action with a `focus` argument: the argument, and the run's own focus.
+            "focus" if super::action_hint::action_takes_argument(action, "focus") => {
+                let on = value.as_str().is_none_or(|text| !text.eq_ignore_ascii_case("false"));
+                params.insert("focus".into(), json!(on));
+                arguments.insert("focus".into(), json!(on));
             }
             _ => {
                 let key = argument_name(&name);
@@ -696,6 +720,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     if let AppCommand::Nightly(command) = &command {
         return Ran::Done(nightly::run(global, command));
     }
+    if let AppCommand::Live(command) = &command {
+        return Ran::Done(live::run(command));
+    }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
@@ -792,6 +819,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
+        AppCommand::Live(command) => return Ran::Done(live::run(&command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {

@@ -119,9 +119,11 @@ public struct Palette {
     /// The sidebar's unread or new status dot: `systemBlue`'s hue, so the color means one thing in
     /// every row (Lawrence msg 11983), at 3:1 on the theme's rows (user 2026-11-03).
     public static var statusUnread: NSColor { dot(.unread, dynamic: .systemBlue) }
-    /// The sidebar's needs-attention status dot (a permission prompt, a question, waiting on the
-    /// user): `systemOrange`'s hue (Lawrence msg 11983), at 3:1 on the theme's rows.
-    public static var statusAttention: NSColor { dot(.attention, dynamic: .systemOrange) }
+    /// The needs-input dot (a permission prompt, a question, waiting on the user) everywhere it
+    /// shows: sidebar rows, group headers and items, and the tab strip. The theme's own yellow
+    /// (``attention``, the bright dot the tab draws; Leo 2026-11-05, "it's like a yellow bright
+    /// dot, which I kind of like a little bit more than the sidebar"), at 3:1 on the theme's rows.
+    public static var statusAttention: NSColor { dot(.attention, dynamic: PaletteDynamic.attention) }
     /// The sidebar's error status mark (failed, stopped with an error): `systemRed`'s hue (Lawrence
     /// msg 11983), at 3:1 on the theme's rows.
     public static var statusError: NSColor { dot(.error, dynamic: .systemRed) }

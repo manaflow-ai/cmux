@@ -14,6 +14,7 @@
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
+pub mod acp_todo_plan;
 pub mod acpmux_mcp;
 pub mod adopt;
 pub mod adopt_live;
@@ -21,6 +22,7 @@ pub mod adopt_replay;
 pub mod adopt_tools;
 pub mod agent;
 pub mod agent_displays;
+pub mod agent_guidance;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_login;
@@ -59,9 +61,11 @@ pub mod daemon;
 mod default_harness;
 pub mod deliver;
 pub mod deps;
+pub mod folder_instructions;
 pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
+pub mod generic_goal;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
@@ -95,6 +99,7 @@ pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_http;
 pub mod model_copies;
+pub mod name_match;
 pub mod native;
 pub mod no_panic;
 pub mod offer_mcp;
@@ -103,6 +108,7 @@ pub(crate) mod opencode_ask;
 #[cfg(windows)]
 mod owner_only;
 pub mod pairing;
+pub mod parent_watch;
 pub mod path_canon;
 pub mod peer;
 pub mod peer_link;
@@ -162,6 +168,7 @@ pub mod tailnet;
 mod test_exec;
 #[cfg(test)]
 mod test_stack;
+pub mod touched_files;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;

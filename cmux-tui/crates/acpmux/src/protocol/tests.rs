@@ -138,3 +138,20 @@ fn protocol_author_approval_round_trips() {
     assert_eq!(ir["types"]["AuthorApproval"]["enum"], json!(["owner"]));
     assert!(!schema["required"].as_array().unwrap().contains(&json!("approval")));
 }
+
+/// A keyed method's params are closed, and every request's `_meta.acpmux` names
+/// [`super::params::AcpmuxRequestMeta`], so the IR's `types` carries it.
+#[test]
+fn protocol_keyed_params_are_closed_and_name_the_request_meta() {
+    let ir: serde_json::Value = serde_json::from_str(&ir_text()).expect("IR is JSON");
+    let agent_hold = &ir["types"]["AgentHoldParams"];
+    assert_eq!(agent_hold["additionalProperties"], false, "{agent_hold}");
+    assert_eq!(agent_hold["properties"]["_meta"]["$ref"], "#/types/RequestMeta");
+    let meta = &ir["types"]["AcpmuxRequestMeta"];
+    assert_eq!(meta["additionalProperties"], false, "{meta}");
+    let keys: BTreeSet<&str> =
+        meta["properties"].as_object().expect("properties").keys().map(String::as_str).collect();
+    let listed: BTreeSet<&str> = super::params::ACPMUX_REQUEST_META.iter().copied().collect();
+    assert_eq!(keys, listed);
+    assert!(keys.contains("localAppToken") && keys.contains("personKey"), "{keys:?}");
+}

@@ -338,7 +338,8 @@ extension SidebarGridAlignmentTests {
             let group = try #require(Self.view(groupCase, width: 312, height: height) as? GroupHeaderRowView)
             group.onAdd = {}
             group.layout()
-            #expect(group.titleFont.pointSize == (comfortable ? 12 : 11))
+            // The rows' own title size, semibold (Leo 2026-11-05, on the 11 pt header name: "it just looks sad").
+            #expect(group.titleFont.pointSize == SidebarStyle.titleFont.pointSize)
             #expect(group.moreButton.frame.size == CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
             #expect(group.addButton.frame.size == CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
             let chevron = try #require(group.subviews.first { $0 is DisclosureChevronView })
