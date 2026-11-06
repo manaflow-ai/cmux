@@ -368,13 +368,14 @@ struct CloudRelayChatLoginTests {
         #expect(run.fields["delivered"] == .bool(true) && f.machine.harnessLogin?.callerOwns == true)
     }
 
-    /// A cold machine whose link never comes up: no login step, nothing sent, a typed terminal code with its recovery.
+    /// A cold machine whose link never comes up: no login step, nothing sent, and an undelivered code that is not a `login_`
+    /// one, so `cloud start-chat` runs start-session on the machine (it resumes, waits and connects); its command says the same.
     @Test func aColdMachineThatDoesNotConnectSendsNothing() async throws {
         let f = Self.cold { Steps.shared.append("connect"); throw CloudLinkError.disconnected(reason: "link down") }
         defer { f.machine.disconnect() }
         let run = try await Self.coldRun(f)
         #expect(run.steps == ["connect"])
-        #expect(run.fields["delivered"] == .bool(false) && run.fields["error_code"] == .string("cloud.relay.login_not_connected"))
+        #expect(run.fields["delivered"] == .bool(false) && run.fields["error_code"] == .string("cloud.relay.not_connected"))
         guard case .string(let command) = run.fields["command"] else { Issue.record("no recovery command"); return }
         #expect(command.hasPrefix("cmux cloud start-session --target machine:"))
     }
@@ -395,13 +396,13 @@ struct CloudRelayChatLoginTests {
     }
 
     /// A cold machine whose record status is not known yet (`.unknown`, before any list read): the script connect does not
-    /// connect a machine that isn't live, so no connect, no login and no send; a typed terminal code with its recovery command.
+    /// connect a machine that isn't live, so no connect, no login and no send; `not_connected` (start-chat's start-session way).
     @Test func aColdMachineOfUnknownStatusSendsNothing() async throws {
         let f = Self.cold(.unknown) { Steps.shared.append("connect") }
         defer { f.machine.disconnect() }
         let run = try await Self.coldRun(f)
         #expect(run.steps == [], "\(run.steps)")
-        #expect(run.fields["delivered"] == .bool(false) && run.fields["error_code"] == .string("cloud.relay.login_not_connected"))
+        #expect(run.fields["delivered"] == .bool(false) && run.fields["error_code"] == .string("cloud.relay.not_connected"))
         guard case .string(let command) = run.fields["command"] else { Issue.record("no recovery command"); return }
         #expect(command.hasPrefix("cmux cloud start-session --target machine:" + f.machine.machineID), "\(command)")
     }

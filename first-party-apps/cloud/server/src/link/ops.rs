@@ -162,7 +162,11 @@ fn owner_answer<C: ControlPlane>(
             let owns = match info.vm_kind.as_deref() {
                 Some("owner") => true,
                 Some("team") => false,
-                _ => return Ok(None),
+                _ => {
+                    // Nor its record: the next connect reads the owner answer again.
+                    server.attach_mut().infos.forget(machine);
+                    return Ok(None);
+                }
             };
             server
                 .attach_mut()

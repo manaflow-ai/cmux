@@ -47,6 +47,23 @@ fn a_worker_without_vm_kind_answers_unknown() {
 }
 
 #[test]
+fn an_unknown_owner_answer_is_read_again_on_the_next_connect() {
+    let spawner = FakeSpawner::default();
+    let mut s = Server::with_attach(
+        FakeControlPlane::with(&["vm-get"]),
+        attach(&spawner, &FakeTransport::default()),
+    );
+    let first = connect(&mut s, "c-1");
+    assert_eq!(first["vm_kind"], "unknown");
+    let reads = s.control_plane().wire.count("cloud.machine.connect_info");
+    s.control_plane_mut().set_vm_kind(Some("owner"));
+    let next = connect(&mut s, "c-2");
+    assert_eq!(next["generation"], first["generation"], "the same link: {next}");
+    assert_eq!(next["vm_kind"], "owner", "{next}");
+    assert!(s.control_plane().wire.count("cloud.machine.connect_info") > reads, "read again");
+}
+
+#[test]
 fn a_vm_kind_that_is_neither_owner_nor_team_answers_unknown() {
     for kind in ["Owner", "", "admin"] {
         let spawner = FakeSpawner::default();

@@ -57,8 +57,10 @@ extension CloudStartSession {
                 // This entry (the `cloudRelayChat` action) never resumes: a paused or resuming machine outlasts its 15 s. It sends nothing and
                 // runs no login (`machine_not_ready`); `cloud start-chat` then runs start-session on it, which resumes or waits, connects, logs in.
                 if machine.machine.status == .paused || machine.machine.shownStatus.isChanging { return ("cloud.relay.machine_not_ready", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent)) }
-                // The link first, as start-session's connect: a link that never came up sends nothing and runs no login.
-                guard await steps.link(machine) else { return ("cloud.relay.login_not_connected", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent)) }
+                // The link first, as start-session's connect, for the account that asked (as before each of its steps). No link: nothing
+                // sent, no login, and a code `cloud start-chat` answers with start-session, which resumes, waits and connects.
+                try Self.checked(account, now: cloud.account, started.asked(machine: machine.machine.title))
+                guard await steps.link(machine) else { return ("cloud.relay.not_connected", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent)) }
                 try await steps.login(machine, started) { try Self.checked(account, now: cloud.account, started.asked(machine: machine.machine.title)) }
                 let link = machine.appLink, ownership = await link?.callerOwnership ?? .unknown, state = await link?.stateWord ?? "none", decision = machine.harnessLogin
                 let refusal = relayLoginRefusal(decision, started, machine: machine.machine.title, ownership: ownership)
@@ -71,6 +73,7 @@ extension CloudStartSession {
                 return CloudHandlers.runTracked("cloud relay chat", context) {
                     guard let relay = steps.relay() else { throw ActionFailure(message: CloudStartSessionStrings.relayUnavailable) }
                     if let refusal = try await login() { throw ActionFailure(message: refusal.message) }
+                    try Self.checked(account, now: cloud.account, started.asked(machine: machine.machine.title)) // the sender's account, right before the send
                     let answer = try await relay.chat(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd, promptID: promptID)
                     let text = answer.errorMessage.map { answer.reply.isEmpty ? $0 : answer.reply + "\n\n" + $0 } ?? answer.reply
                     CloudPresenter.show(CloudStartSessionStrings.relayReplyTitle, text, copyable: true, in: CloudHandlers.window(context))
@@ -85,7 +88,8 @@ extension CloudStartSession {
                 // Each login refusal carries the start-session that recovers: the caller's `--login`, else (a bare rerun refuses again) `--login none`, whose chat signs in.
                 let refused = { (code: String, message: String) in notSent(code, message).merging(["command": .string(asked.command)]) { $1 } }
                 let decided: (code: String, message: String)??
-                do { decided = try await Self.first(within: steps.loginWithin, login) } catch let failure as ActionFailure { return refused("cloud.relay.login_account_changed", failure.message) }
+                // The account is checked before the link, after the login, and right before the send (the relay's credentials are the current account's).
+                do { decided = try await Self.first(within: steps.loginWithin, login); try Self.checked(account, now: cloud.account, asked) } catch let failure as ActionFailure { return refused("cloud.relay.login_account_changed", failure.message) }
                 guard let refusal = decided else { return refused("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(asked)) }
                 if let refusal { let reason = machine.harnessLogin?.reason; return refused(refusal.code, refusal.message).merging(["command": .string(asked.command + (reason == .needsLoginChoice ? " --login none" : ""))].merging(reason.map { ["login_reason": .string($0.rawValue)] } ?? [:]) { $1 }) { $1 } }
                 let answer = try await relay.answer(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd,
