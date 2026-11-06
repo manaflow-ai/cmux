@@ -1,9 +1,11 @@
 import AppKit
+import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextApp
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextRemote
 import Foundation
 import Testing
 
