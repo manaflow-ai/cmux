@@ -159,7 +159,7 @@ public final class AgentTurnStateFeed {
         /// The watch result: every session's state, last message and the muted sessions.
         case page(AgentTurnStates, lastMessages: [String: String], muted: Set<String>, titles: [String: String],
                   generatedTitles: [String: String], details: [String: AgentChatDetail], lanes: [String: AgentActivityLane],
-                  startedBy: [String: String], sessionNames: [String: String] = [:])
+                  startedBy: [String: String], sessionNames: [String: String] = [:], peers: [String: AgentPeerRow] = [:])
         /// One `_acpmux/session_changed`: the session's new state (nil: none, or purged), last
         /// message and mute, the session that started it (nil for a root, or purged), whether this
         /// acpmux deleted it (``deletesSession(_:)``), and for a session of an acpmux peer, that
@@ -182,7 +182,8 @@ public final class AgentTurnStateFeed {
                 self = .page(states, lastMessages: AgentTurnStates.lastMessages(result), muted: AgentTurnStates.muted(result: result),
                              titles: AgentTurnStates.titles(result), generatedTitles: AgentTurnStates.titles(result, includingPrompt: false),
                              details: AgentChatDetail.details(result), lanes: Self.lanes(result),
-                             startedBy: AgentTurnStateStore.startedBy(result), sessionNames: AgentTurnStates.sessionNames(result))
+                             startedBy: AgentTurnStateStore.startedBy(result), sessionNames: AgentTurnStates.sessionNames(result),
+                             peers: AgentPeerRow.rows(result))
             } else if (message["id"] as? NSNumber)?.intValue == 3, let result = message["result"] as? [String: Any] {
                 let next = (result["nextCursor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 self = .usage(AgentChatDetail.details(result).filter(\.value.hasUsage), next: next)
@@ -219,11 +220,12 @@ public final class AgentTurnStateFeed {
 
     func handle(_ message: Message) {
         switch message {
-        case .page(let states, let lastMessages, let muted, let titles, let generatedTitles, let details, let lanes, let startedBy, let sessionNames):
+        case .page(let states, let lastMessages, let muted, let titles, let generatedTitles, let details, let lanes, let startedBy, let sessionNames,
+                   let peers):
             backoff.reset()
             if !isMirror, !turns.watching { turns.watching = true }
             turns.replace(states: states, lastMessages: lastMessages, muted: muted, titles: titles,
-                          generatedTitles: generatedTitles, sessionNames: sessionNames, details: details, source: source)
+                          generatedTitles: generatedTitles, sessionNames: sessionNames, details: details, source: source, peers: peers)
             turns.replaceStartedBy(startedBy, source: source)
             if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
             if !self.lanes.live { self.lanes.live = true }
@@ -237,7 +239,8 @@ public final class AgentTurnStateFeed {
             // Most session records leave the indicator as it was: the store writes (and so
             // redraws the tabs and rows that read this session) only what differs.
             turns.apply(session: session, sessionName: sessionName, state: state, lastMessage: lastMessage, muted: muted, title: title,
-                        generatedTitle: generatedTitle, detail: detail, source: source)
+                        generatedTitle: generatedTitle, detail: detail, source: source,
+                        peer: peer.map { AgentPeerRow(name: $0.name, stale: $0.stale) })
             turns.setStartedBy(startedBy, session: session, source: source)
             if lanes.lanes[session] != lane { lanes.set(session, lane) }
             if deleted, !isMirror { Self.purged?(session) }

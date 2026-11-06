@@ -27,7 +27,7 @@ enum DebugDialog {
     /// an ssh:// link from another app (it connects to a host a web page chose), and a cmux://session
     /// link's new tab (any page or app can open the link), and a guest link an agent or script asked for
     /// (it exposes the chat's transcript, #30263).
-    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentShareConsentSheet.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.firstLoginIdentifier, CloudLoginCopyConsent.identifier, CloudPresenter.codexDeviceCodeIdentifier,
+    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentShareConsentSheet.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.firstLoginIdentifier, CloudLoginCopyConsent.identifier, CloudCodexSignInConsent.identifier, CloudPresenter.codexDeviceCodeIdentifier,
                                         CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, IPhoneHostService.phoneAccessDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
                                         SessionLinkGate.dialogIdentifier]
 

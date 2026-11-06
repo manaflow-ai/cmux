@@ -27,8 +27,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) lazy var contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
     private(set) var emptyView: EmptyWorkspaceView?
-    /// The next stand-in pane's views (New Column, New Row, Cmd-D), made ahead out of every window while this workspace shows and its layout is still.
-    private(set) lazy var paneSpare = IdleSpare(owner: "PaneSpare", on: services.mainWork) { [weak self] in self.map { PaneController.Spare(services: $0.services) } }
+    /// The next stand-in pane's views (New Column, New Row, Cmd-D), made while this workspace shows and its layout is still, parked hidden in its layout.
+    private(set) lazy var paneSpare = IdleSpare(owner: "PaneSpare", on: services.mainWork) { [weak self] in self.map { $0.layoutView.parkingSpare(PaneController.Spare(services: $0.services), view: \.view) } }
     private var paneSpareMotion: LayoutOverlaySyncObservation?
     private(set) lazy var screenBar = ScreenBarController(content: self)
     /// The workspace theme: only this content area, under the window's
@@ -90,8 +90,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         isOffScreen = true
         attentionObservation?.cancel()
         setDrawsNothing(true)
-        paneSpare.isWanted = false
-        paneSpare.drop()
+        paneSpare.isWanted = false // a spare made stays hidden in this hidden workspace: a switch moves no view out of the window
     }
 
     /// Shows this parked content again, in this frame: the tree changes it skipped while off screen
@@ -395,7 +394,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     // MARK: LayoutPaneContentProvider
 
     func makeContentView(for pane: LayoutPaneID) -> NSView {
-        guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
+        guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) ?? workspace.pane(handle) else { return NSView() } // its own model: a reserved one is in no index
         let spare = ProvisionalPane.isStandIn(handle) ? paneSpare.take() : nil // a stand-in pane (a key's create) adopts the views made ahead
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state, workspace: self, spare: spare)
         AfterFrameCommit().run { [weak self] in self?.refillPaneSpare() } // after the key's frame; a motion that started refills when it lands

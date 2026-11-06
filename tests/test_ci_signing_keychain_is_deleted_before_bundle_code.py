@@ -180,15 +180,16 @@ RUNNER_VARIABLE = re.compile(
 ANY_VARS = re.compile(r"\bvars\b", re.IGNORECASE)
 RUNS_ON_END = re.compile(r"\s*\}\}\s*$")
 # Rule 7a: owned pool variables a claim-gated signing job may route through.  Each holds a glaeda fleet label:
-# runner_label_policy's NO_HOSTED_MAC_VARIABLES keeps a GitHub-hosted Mac out of all three, and
+# runner_label_policy's NO_HOSTED_MAC_VARIABLES keeps a GitHub-hosted Mac out of every one, and
 # cloud_overflow_switch.py writes none of them (they are in neither SWITCHED_VARIABLES nor
 # OVERRIDABLE_VARIABLES).  So the job lands either on an ephemeral runner or on an owned Mac, where the claim
-# gate refuses it without glaeda's exclusive claim.  CI_NIGHTLY_SIGN_RUNNER is the narrowest of the three: glaeda gives
-# `glaeda-trusted-next-signing` only to the trusted main runners of a mini with runner.trustedNextSigning, and
-# its hook admits exactly nightly.yml's exclusive class there on the nightly-next push (glaeda
-# scripts/glaeda-cmux-runner-hook TRUSTED_NEXT_SIGNING); tests/test_nightly_signing_on_cmux15.py pins the route.
+# gate refuses it without glaeda's exclusive claim.  CI_NIGHTLY_SIGN_RUNNER and CI_NIGHTLY_SIGNING_POOL are the
+# narrowest: runner_label_policy holds both to `glaeda-trusted-next-signing`, which glaeda gives only to the
+# trusted main runners of a mini with runner.trustedNextSigning, and its hook admits exactly nightly.yml's
+# exclusive class there on the nightly-next push (glaeda scripts/glaeda-cmux-runner-hook TRUSTED_NEXT_SIGNING);
+# tests/test_nightly_signing_on_cmux15.py pins the route.
 OWNED_ROUTE_VARIABLES = frozenset({
-    "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER", "CI_NIGHTLY_SIGN_RUNNER",
+    "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER", "CI_NIGHTLY_SIGN_RUNNER", "CI_NIGHTLY_SIGNING_POOL",
 })
 # Rule 7a's second half: the claim script, which refuses an owned Mac without the claim and clears a keychain a
 # killed job left, runs before the first step that names a secret.
@@ -254,14 +255,21 @@ LITERAL_SELECTOR = re.compile(
 # Two narrowings keep the drop from hiding a route, both of them necessary:
 #   * only a variable named in MODE_VARIABLES is dropped, so an unknown `vars.BAD != '' && ...` still fails as
 #     an unchecked route, exactly as it did before this was added;
-#   * only a clause that selects another `vars.` reference is dropped, so what the mode selects still faces
-#     every check below. A clause selecting a literal (`vars.CI_NIGHTLY_MINI != '' && 'macos-26'`) is left in
-#     place, and the mode variable then fails the guard, because nothing here validates literal labels: the
-#     fork route puts a hosted `macos-26` literal in every nightly runs-on, so they cannot simply be checked.
+#   * only a clause that selects another `vars.` reference, or the signer's own label MODE_SIGNER_LABEL, is
+#     dropped, so what the mode selects still faces every check below. A clause selecting any other literal
+#     (`vars.CI_NIGHTLY_MINI != '' && 'macos-26'`) is left in place, and the mode variable then fails the guard,
+#     because nothing here validates literal labels: the fork route puts a hosted `macos-26` literal in every
+#     nightly runs-on, so they cannot simply be checked.
 # Only that one occurrence is dropped: a mode variable also read as a label elsewhere still faces every check.
 MODE_VARIABLES = frozenset({"CI_NIGHTLY_MINI"})
+# The one literal a mode clause may select: the label runner_label_policy holds CI_NIGHTLY_SIGN_RUNNER and
+# CI_NIGHTLY_SIGNING_POOL to, which glaeda gives only to the trusted signing runners and whose hook admits only
+# nightly.yml's exclusive class (rule 7a). Since aa9f145374c the signing jobs name it directly:
+# `vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing'`.
+MODE_SIGNER_LABEL = "glaeda-trusted-next-signing"
 PRESENCE_CONDITION = re.compile(
-    r"vars\.(" + "|".join(sorted(MODE_VARIABLES)) + r")\s*!=\s*''\s*&&\s*(?=vars\.)", re.IGNORECASE)
+    r"vars\.(" + "|".join(sorted(MODE_VARIABLES)) + r")\s*!=\s*''\s*&&\s*(?=vars\.|'"
+    + re.escape(MODE_SIGNER_LABEL) + r"'\s*(?:\|\||\}\}))", re.IGNORECASE)
 
 
 def strip_literal_selectors(runs_on: str) -> str:

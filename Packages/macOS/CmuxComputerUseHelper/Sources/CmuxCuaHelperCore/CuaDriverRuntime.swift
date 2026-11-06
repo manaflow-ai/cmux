@@ -47,12 +47,15 @@ public final class CuaDriverRuntime: ToolInvoking, @unchecked Sendable {
     private let hostBundleID: String?
     /// Machine-join consent, checked last before every call executes.
     private let gate: ConsentGate
+    /// Holds acting calls that would collide with the person (`TakeoverGate`).
+    private let takeover: TakeoverGate?
 
     public init(libraryPath: String, allowedTargetBundleIDs: String = "", hostBundleID: String? = nil,
-                gate: ConsentGate) throws {
+                gate: ConsentGate, takeover: TakeoverGate? = nil) throws {
         self.allowedTargetBundleIDs = allowedTargetBundleIDs
         self.hostBundleID = hostBundleID
         self.gate = gate
+        self.takeover = takeover
         guard let library = dlopen(libraryPath, RTLD_NOW | RTLD_LOCAL) else {
             throw LoadError.open(String(cString: dlerror()))
         }
@@ -98,9 +101,15 @@ public final class CuaDriverRuntime: ToolInvoking, @unchecked Sendable {
             policy: CuaTargetPolicy(allowedBundleIDs: allowedTargetBundleIDs, hostBundleID: hostBundleID),
             resolver: targetResolver
         ).check(name: name, arguments: arguments)
-        // Consent is the last await before the driver runs: a revoke during
-        // the target check or an earlier preflight still refuses this call.
         let requirement = await gate.requirement(for: name) { try await self.listTools() }
+        // An acting call that would collide with the person (their app, or the
+        // shared cursor) waits here while they are driving, before consent.
+        // A background call to another app runs alongside them.
+        try await takeover?.admit(name, requirement: requirement,
+                                  footprint: ActingFootprint(tool: name, arguments: arguments, owner: TakeoverFocusProbe.owner(ofWindow:)))
+        // Consent is the last await before the driver runs: a revoke during
+        // the target check, the takeover wait or an earlier preflight still
+        // refuses this call.
         try await gate.admit(name, requirement: requirement)
         let free = self.free
         let release = self.release

@@ -95,6 +95,126 @@
             "window",
             "memory"
           ]
+        },
+        {
+          "key": "workspaces.freeing.enabled",
+          "name": "freeingEnabled",
+          "note": "Off by default at first (plans/cmux-next/sidebar-recents-and-freeing-DESIGN.md): it ends shell processes, user-visible high-tier behavior. On: a hibernated workspace idle freeingIdleMinutes parks each terminal that sits at an empty prompt (park-tabs); showing it starts a new shell in the same folder under the saved screen.",
+          "title": {
+            "key": "settings.workspaceHibernation.freeingEnabled",
+            "text": "Free Idle Terminals"
+          },
+          "help": {
+            "key": "settings.workspaceHibernation.freeingEnabled.help",
+            "text": "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "free",
+            "freeing",
+            "park",
+            "shell",
+            "terminal",
+            "processes",
+            "idle",
+            "resources",
+            "restore",
+            "scrollback"
+          ]
+        },
+        {
+          "key": "workspaces.freeing.idleMinutes",
+          "name": "freeingIdleMinutes",
+          "note": "Minutes since the workspace was last shown, printed output, or its agent spoke. 1440: a day away.",
+          "title": {
+            "key": "settings.workspaceHibernation.freeingIdleMinutes",
+            "text": "Free Terminals After"
+          },
+          "help": {
+            "key": "settings.workspaceHibernation.freeingIdleMinutes.help",
+            "text": "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day)."
+          },
+          "kind": "number",
+          "range": {
+            "min": 60,
+            "max": 43200,
+            "step": 60,
+            "unit": "minutes"
+          },
+          "default": 1440,
+          "keywords": [
+            "free",
+            "idle",
+            "hours",
+            "timeout",
+            "shell",
+            "terminal"
+          ]
+        },
+        {
+          "key": "workspaces.freeing.agents",
+          "name": "freeingAgents",
+          "note": "On by default (plans/cmux-next/sidebar-recents-and-freeing-DESIGN.md): a Claude Code or Codex TUI whose agent is idle (no turn, nothing waiting on the person) and whose session id is recorded frees like an idle shell; showing the tab resumes it (claude --resume / codex resume, the respawn prefill rules).",
+          "title": {
+            "key": "settings.workspaceHibernation.freeingAgents",
+            "text": "Free Idle Agents"
+          },
+          "help": {
+            "key": "settings.workspaceHibernation.freeingAgents.help",
+            "text": "Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "free",
+            "agent",
+            "claude",
+            "codex",
+            "resume",
+            "idle"
+          ]
+        },
+        {
+          "key": "workspaces.freeing.runningCommands",
+          "name": "freeingRunningCommands",
+          "note": "never by default: ending a program the person started is not ours to do silently. relaunch: a running command (a dev server, tail -f) ends with its shell; showing the tab types the same command on the new prompt without Return.",
+          "title": {
+            "key": "settings.workspaceHibernation.freeingRunningCommands",
+            "text": "Running Commands"
+          },
+          "help": {
+            "key": "settings.workspaceHibernation.freeingRunningCommands.help",
+            "text": "What happens to a command that still runs in a workspace that frees its terminals."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.freeingRunningNever",
+                "text": "Keep Running"
+              },
+              "note": "The terminal and its workspace's shells keep running."
+            },
+            {
+              "value": "relaunch",
+              "title": {
+                "key": "settings.choice.freeingRunningRelaunch",
+                "text": "End and Offer Again"
+              },
+              "note": "The command ends; opening the tab types it again without running it."
+            }
+          ],
+          "default": "never",
+          "keywords": [
+            "free",
+            "running",
+            "command",
+            "dev server",
+            "relaunch",
+            "idle"
+          ]
         }
       ]
     }

@@ -76,6 +76,8 @@ fn text(args: &[String]) -> Option<String> {
             return Some(format!("{APP_HELP}\n\n{}", APP_FOOTER.replace("{scope}", "app")));
         }
         ["settings" | "config", ..] => return Some(format!("{}\n", messages.settings_usage)),
+        ["live", ..] => return Some(format!("{}\n", messages.live.usage)),
+        ["nightly", ..] => return Some(format!("{}\n", messages.nightly.usage)),
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,
         _ => return None,
     };
@@ -117,6 +119,7 @@ const APP_HELP: &str = "\
 usage: cmux app ping | identify | capabilities
        cmux identify | ping | capabilities      (the classic spelling, same answer)
        cmux app renderers [--interval-ms <n>]   (Chromium renderer pids, their pages and tabs)
+       cmux app remote-views [--tab <tab>]      (Cloud desktop tabs: viewer, connected, who has control)
        cmux app call <method> [<json-object>]   (debug builds only)
        cmux app <verb...> [--<argument> <value>]...";
 

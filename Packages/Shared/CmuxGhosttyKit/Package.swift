@@ -104,7 +104,7 @@ import PackageDescription
 // size's frame itself with ghostty_surface_host_frame in the transaction that
 // gives the view its bounds, and reports its commit with
 // ghostty_surface_host_frame_committed (#70; cmux FRAME OWNER REFACTOR S4,
-// behind motion.frameOwner.terminals).
+// the frame owner).
 //
 // Since 635c6c12a..7d43bb68b (release/cmux-9ce9b7d0-e2, fork PR #71): an
 // off-main present never commits while it holds [CATransaction lock]. #70's
@@ -117,6 +117,27 @@ import PackageDescription
 // with the embedder presenting host sizes, a frame kept for its present that
 // the layer cannot show in its bounds wakes no main-queue block (#75; cmux
 // FRAME OWNER S4's held-key cost: one main wake per moving terminal and frame).
+//
+// Since 6cc749a8a..12ec155e1 (fork PRs #77 and #79): an off-main present begins
+// a Core Animation transaction only for a frame it shows (#79; cmux FRAME
+// OWNER S4 profile 4b41c42c: each frame that went through main committed an
+// empty transaction on the GPU completion thread), and one shared drop rule
+// with its test (#77).
+//
+// Since 12ec155e1..383b27d73 (ghostty-next main after PR #74, which merged
+// both the release line up to 12ec155e1 and its sync-line ports #76, #78,
+// #80; same source tree as 706c6963a): the fork takes upstream Ghostty main c7f68a7f4 (2026-11-03,
+// after v1.4.0) and needs Zig 0.17.0. Upstream's main-thread CVDisplayLink
+// start and stop (ffaaf5d7a) ends the freeze where ghostty_surface_free joined
+// a renderer stuck in CVDisplayLinkStop (cmux #35300). Upstream also declares
+// pointer nullability in ghostty.h (0e067ded7, assume_nonnull); the fork's
+// declarations are annotated to match, and the Swift callers follow it.
+//
+// Since 383b27d73..850bb9849 (fork PR #84, the port of #83 to main): a reflow
+// preview frame whose only change is the grid (each frame of a key resize or a
+// divider drag) re-wraps a kept copy of the terminal with no terminal lock
+// held; the live terminal is copied under the lock only when it changed. No C
+// API change (cmux-ad m18, T-REWRAP).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -141,8 +162,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-6cc749a8a53b1d62465e0faf848e430a82f690aa-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "018d2bdb8b7f26c9e97ff6732b4e80e52f24ca3086e456efe0fb6d8aa38f4a40"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-850bb98497044f6632310c303a68974b6289af4b-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "f8b0c65707292cce8fa34fa195b529206a45b6f2b53b187c5b401339e233006f"
         ),
     ]
 )
