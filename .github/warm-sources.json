@@ -45,6 +45,7 @@
     "cloud-vm-image-contract.yml:contract": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "cloudflare-relay.yml:cloudflare-relay": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-cloud-cli.yml:test": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo from an empty target directory; no warm source wired yet"},
+    "cmux-next-cua-driver-sdk-publish.yml:build": {"class": "mac-build", "warm": [], "exempt": "cold: cargo build of the upstream SDK in a job-local toolchain and target, once per dispatch of a new release"},
     "cmux-next-cua-helper-dev-sign.yml:build": {"class": "mac-build", "warm": [], "exempt": "cold: swift build of the helper package into a fresh .build, once per dispatch; no warm source wired yet"},
     "cmux-next-cua-helper-dev-sign.yml:sign": {"class": "mac-sign", "warm": [], "exempt": "signing only: signs and publishes the helper an earlier job built, compiles nothing"},
     "cmux-next-dev-daily.yml:rcodesign": {"class": "dev-release-compile", "warm": ["actions-cache"]},
