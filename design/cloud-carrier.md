@@ -108,8 +108,8 @@ With the carrier:
   start fails and names the step it didn't get past.
 - **Each row proves its route.** Each start-matrix row records the route it used, and a row whose route
   isn't `carrier` fails.
-- **Then only the carrier.** When the flag turns on in slice 6, the matrix runs only the carrier, and
-  slice 7 deletes the other paths.
+- **Then only the carrier.** When the flag turns on in slice 7, the matrix runs only the carrier, and
+  the same series deletes the other paths.
 
 ## Today
 
@@ -321,7 +321,7 @@ The rough size is 25k lines across both repos, counted with `wc -l`.
 
 Each slice is about 800 changed lines and reports before-and-after connect times from the start matrix
 (`goals/cloud-start-matrix.md`, owner `cloud-start-matrix`). The carrier runs behind
-`CMUX_NEXT_CLOUD_CARRIER=1` until slice 6 makes it the only path.
+`CMUX_NEXT_CLOUD_CARRIER=1` until slice 7 makes it the only path.
 
 1. **This doc.**
 2. **The relay waits for the daemon.** `cloudflare-do`'s slot parks a Connect until Register and answers `Parked`; the client's allocation wait follows the connect deadline. A test
@@ -331,8 +331,16 @@ Each slice is about 800 changed lines and reports before-and-after connect times
 4. **Guest:** the session host registers its relay route at boot, the bind carries the daemon key, and the daemon accepts carrier grants.
 5. **Mac:** the app's Cloud connection runs as a cmux-remote client with one deadline. Chat goes over
    `MuxControl`. This is the first start-matrix carrier row.
-6. **Files and secrets:** folder copy, seed, login copy and `secrets-v1` move onto the session. The flag
-   flips to on.
-7. **Deletion:** the list above, in two or three PRs, one per repo, with the Swift deletions split out.
+6. **Files and secrets:** folder copy, seed, login copy and `secrets-v1` move onto the session.
+7. **Flip and cut, one series.** The flag turns on, and the same series deletes, with no gap between them:
+   - the plaintext relay chat (`MachineRelay`, `/chat`, `CloudRelayChat.swift`,
+     `CloudStartSession+RelayChat.swift`, `cmux-host/src/cloud/relay.rs`);
+   - the login copy over Freestyle exec (`CloudCredentialTransfer.swift`'s exec path, and `machine-io`'s
+     use for it);
+   - the link fallback (`CloudNativeFirstLauncher` and the plain `cmux link` route).
+
+   Each PR in the series lands only after the one before it, and the flip PR stays held until the cuts are
+   reviewed. Then the rest of the list above follows in two or three PRs, one per repo, with the Swift
+   deletions split out.
 
 The work is done when the carrier is the only path in NEXT and the start matrix is green on it.
