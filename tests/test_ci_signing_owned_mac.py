@@ -169,7 +169,7 @@ DYNAMIC_INDEX = re.compile(r"\b(?:secrets|needs|outputs)\s*\[")
 # if), or only after such a step failed (steps.<that step>.outcome == 'failure').
 REF_CONDITION = re.compile(r"\bgithub\.ref(?:_name)?\b")
 AFTER_STEP = re.compile(r"^\s*steps\.([\w-]+)\.outcome\s*==\s*'failure'\s*$")
-RUNS_AFTER_FAILURE = re.compile(r"\b(?:always|failure|cancelled)\s*\(")
+RUNS_AFTER_FAILURE = keychain_guard.runs_after_failure
 # A Sparkle EdDSA private key (SPARKLE_PRIVATE_KEY, NIGHTLY_SPARKLE_PRIVATE_KEY, SPARKLE_NEXT_PRIVATE_KEY, ...).
 SPARKLE_KEY = re.compile(r"secrets\.\w*SPARKLE\w*PRIVATE_KEY", re.IGNORECASE)
 # A fork's own runner (`github.repository_owner != 'manaflow-ai' && 'macos-26' ||`): never this repository's.
@@ -421,7 +421,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                 if str(steps[claim].get("continue-on-error", "false")) != "false":
                     failures.append(f"{label}: the claim step must fail the job (no continue-on-error)")
                 for index, step in enumerate(steps, 0):
-                    if "secrets." in json.dumps(step) and RUNS_AFTER_FAILURE.search(str(step.get("if", ""))):
+                    if "secrets." in json.dumps(step) and RUNS_AFTER_FAILURE(step.get("if")):
                         failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
                                         f"(if: {step.get('if')})")
             if "secrets." in json.dumps(job.get("env") or {}):
@@ -1370,7 +1370,12 @@ class OwnedRouteVariableTests(unittest.TestCase):
         gate = {"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
                 "run": claim_gate_for("nightly.yml")}
         for condition in ("always()", "failure()", "cancelled()", "${{ always() }}",
-                          "success() || always()"):
+                          "success() || always()", "!success()", "${{ !success() }}",
+                          "success() || github.event_name == 'push'",
+                          "${{ success() || github.event_name == 'push' }}",
+                          "success() && github.ref == 'refs/heads/main' || true",
+                          "github.ref == 'refs/heads/main' && success()", "SUCCESS() || true",
+                          "success() && !cancelled()"):
             with self.subTest(condition=condition):
                 job = {"runs-on": self.RUNS_ON,
                        "steps": [gate, {"run": f"bash {CLAIM}"},
@@ -1389,6 +1394,15 @@ class OwnedRouteVariableTests(unittest.TestCase):
                          {**self.SPARKLE, "if": "steps.decide.outputs.action == 'promote'"}]}
         self.assertEqual(self.failures("nightly.yml generate-nightly-deltas", job), [])
 
+    def test_an_explicit_leading_success_keeps_the_implicit_guard(self) -> None:
+        """`success() && x` is what GitHub prefixes on its own, so it is no more than an ordinary `if`."""
+        for condition in ("", None, "success()", "${{ success() }}", "  success()  ",
+                          "success() && github.ref == 'refs/heads/nightly-next'",
+                          "${{ success() && steps.decide.outputs.action == 'promote' }}",
+                          "steps.decide.outputs.action == 'promote' || github.ref == 'refs/heads/main'"):
+            with self.subTest(condition=condition):
+                self.assertFalse(keychain_guard.runs_after_failure(condition))
+
     def test_no_exclusive_class_job_lets_a_secret_survive_a_failed_claim(self) -> None:
         """In the tree: no job of the class has a secret-bearing step that overrides failure."""
         documents = workflows()
@@ -1400,7 +1414,7 @@ class OwnedRouteVariableTests(unittest.TestCase):
                 if not keychain_guard.SIGNING_SECRET_REFERENCE.search(json.dumps(step)):
                     continue
                 with self.subTest(job=f"{workflow} {job_id}", step=index):
-                    self.assertNotRegex(str(step.get("if", "")), keychain_guard.RUNS_AFTER_FAILURE)
+                    self.assertFalse(keychain_guard.runs_after_failure(step.get("if")), step.get("if"))
 
     def test_a_gated_job_may_not_hold_the_secret_in_its_job_env(self) -> None:
         job = {"runs-on": self.RUNS_ON, "env": {"KEY": "${{ secrets.NIGHTLY_SPARKLE_KEY }}"},

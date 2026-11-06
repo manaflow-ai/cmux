@@ -198,6 +198,26 @@ CLAIM_SCRIPT = "scripts/ci/signing-runner-claim.sh"
 # enough: `if: always()` (or failure()/cancelled()) on a secret-bearing step would hand it the credential on
 # an owned Mac whose claim the gate had just refused. The same matcher test_ci_signing_owned_mac.py uses.
 RUNS_AFTER_FAILURE = re.compile(r"\b(?:always|failure|cancelled)\s*\(")
+# GitHub prefixes `success() &&` only to a condition that names no status function, so naming `success()` is not
+# enough either: `!success()`, `success() || x` and `success() && a || b` (`||` binds looser than `&&`) all run
+# after a failed step (router-review F1 at 25cfca8de04). Only an explicit leading `success() &&` over an operand
+# with no status function and no `||` keeps the implicit guard.
+STATUS_FUNCTION = re.compile(r"\b(?:success|always|failure|cancelled)\s*\(", re.IGNORECASE)
+GUARDED_BY_SUCCESS = re.compile(r"^success\(\s*\)(?:\s*&&\s*(?P<rest>.+))?$", re.IGNORECASE | re.DOTALL)
+
+
+def runs_after_failure(condition: object) -> bool:
+    """Whether a step with this `if:` can run after an earlier step of its job failed."""
+    text = str(condition or "").strip()
+    expression = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.DOTALL)
+    text = (expression.group(1) if expression else text).strip()
+    if not STATUS_FUNCTION.search(text):
+        return False
+    guarded = GUARDED_BY_SUCCESS.match(text)
+    if not guarded:
+        return True
+    rest = guarded.group("rest") or ""
+    return bool(STATUS_FUNCTION.search(rest)) or "||" in rest
 # The script has to be *run*, unconditionally, from a trusted path, and its failure has to fail the job.  No
 # pattern over shell text can say that: `if false; then bash <path>; fi` and `bash <path> || true` both hold a
 # plausible-looking invocation while skipping the stale-keychain cleanup or swallowing a refused claim, and an
@@ -326,7 +346,7 @@ def owned_route_failures(name: str, job: dict) -> list[str]:
         # anyway on an owned Mac whose claim the gate refused, so the credential is in reach regardless.
         for index, step in enumerate(steps):
             if (SIGNING_SECRET_REFERENCE.search(json.dumps(step))
-                    and RUNS_AFTER_FAILURE.search(str(step.get("if", "")))):
+                    and runs_after_failure(step.get("if"))):
                 label = step.get("name") or step.get("id") or "<step>"
                 failures.append(f"{name}: step {index} {label!r} names a signing secret and runs after a "
                                 f"failed claim (if: {step.get('if')})")
