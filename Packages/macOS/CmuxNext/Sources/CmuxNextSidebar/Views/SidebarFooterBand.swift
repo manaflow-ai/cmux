@@ -284,6 +284,9 @@ final class SidebarFooterBand {
             let control = anchor as? SidebarItemRowView
             control?.showsMenu = true
             defer { control?.showsMenu = false }
+            let bottomControl = anchor as? SidebarBottomControl
+            bottomControl?.showsMenu = true
+            defer { bottomControl?.showsMenu = false }
             menu.popUp(positioning: nil, at: origin, in: anchor)
         }
     }
