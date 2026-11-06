@@ -155,7 +155,7 @@ impl Changes {
             // Completion needs a read issued after acknowledgement, but older app servers need
             // not supply a revision. Only an opposite terminal state (supersession) requires
             // explicit server freshness as well as an ordered read.
-            if !read.is_none_or(|read| read > returned) {
+            if read.is_some_and(|read| read <= returned) {
                 return true;
             }
             let newer = newer_revision(
