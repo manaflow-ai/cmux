@@ -122,6 +122,25 @@ if (effortIndex < 0 || fastIndex < 0 || effortIndex > fastIndex) {
   throw new Error(`effort picker should appear immediately after the model picker and before fast mode, got ${orderedStatusMarkup}`);
 }
 
+const unsupportedFastMarkup = renderToStaticMarkup(React.createElement(StatusRow, {
+  provider: provider.id,
+  providers: [provider],
+  allProviderOptions: { [provider.id]: modelSpecificOptions },
+  loadingProviderIds: new Set<string>(),
+  onProviderModelChange: () => {},
+  cwd: "/tmp",
+  options: [
+    ...modelSpecificOptions,
+    { id: "fastMode", label: "Fast", kind: "toggle", value: false, disabled: true, description: "This model does not support fast mode." },
+  ],
+  onChange: () => {},
+  openOptionId: null,
+  setOpenOptionId: () => {},
+}));
+if (!unsupportedFastMarkup.includes('aria-label="Fast"') || !unsupportedFastMarkup.includes('disabled=""') || unsupportedFastMarkup.includes("fast-toggle active")) {
+  throw new Error(`an unsupported model should keep Fast visible and disabled, got ${unsupportedFastMarkup}`);
+}
+
 const loadingStatusMarkup = renderToStaticMarkup(React.createElement(StatusRow, {
   provider: provider.id,
   providers: [provider],
