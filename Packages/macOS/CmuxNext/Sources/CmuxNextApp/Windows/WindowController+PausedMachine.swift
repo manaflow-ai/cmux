@@ -1,8 +1,7 @@
 import CmuxNextCloudUI
 
 extension WindowController {
-    /// A window on a workspace of paused Cloud machine `machineID` (a relaunch connects only live ones) resumes it once,
-    /// as any attach does, and shows its progress, Resume or Retry until the workspace is mirrored (#33483).
+    /// A window on paused machine `machineID`'s workspace resumes it once and shows its progress until it is mirrored (#33483).
     func showPausedMachine(_ machineID: String) -> Bool {
         guard let session = services.machines.session(machineID), !session.isPermanentlyDisconnected else { return false }
         let shown = ((root.content as? CloudProgressHost)?.source as? CloudMachineCreation)?.session === session
@@ -14,6 +13,7 @@ extension WindowController {
             retry: { [weak session] in session?.attach(origin: .user) }, dismiss: { [weak self] in self?.state.workspaceID = nil }))
         creation.progressHost = view
         root.show(view)
+        window?.makeFirstResponder(view) // Return and keys reach the page (Resume, Retry), as for a new workspace
         themeScope.show(nil)
         root.titlebar.title = session.machine.title
         session.attach(origin: .user)
