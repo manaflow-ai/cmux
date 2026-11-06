@@ -4555,7 +4555,7 @@ jobs:
 
       - name: Restore the CmuxNext build the base seeded
         id: seed-restore
-        if: ${{ steps.seed-key.outputs.swift-prefix != '' && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ steps.seed-key.outputs.swift-prefix != '' }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
@@ -4567,7 +4567,7 @@ jobs:
           restore-keys: ${{ steps.seed-key.outputs.swift-prefix }}
 
       - name: Replay the seed's input times
-        if: ${{ steps.seed-restore.outputs.cache-matched-key != '' && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ steps.seed-restore.outputs.cache-matched-key != '' }}
         continue-on-error: true
         run: |
           python3 scripts/ci/owned_spm_scratch.py drop-bundles Packages/macOS/CmuxNext/.build
