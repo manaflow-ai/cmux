@@ -97,6 +97,33 @@ await requireBrowserLane("session-info-expand-cost.test.ts", async () => {
     }
   });
 
+  test("usage: Tab and Shift-Tab reach every row, not only the drawn window", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: HEIGHT } });
+    try {
+      await page.goto(`http://127.0.0.1:${port}${PAGE}?list=usage&n=5000`);
+      await page.waitForFunction(() => typeof window.__expand === "function");
+      await page.evaluate(() => window.__expand());
+      /// The focused row's place in the list, or -1 when focus is outside it.
+      const focusedRow = () =>
+        page.evaluate(() => {
+          const row = document.activeElement?.closest("ul[data-sort] > li");
+          return row ? [...row.parentElement!.children].indexOf(row) : -1;
+        });
+      await page.locator("ul[data-sort] > li button").first().focus();
+      for (let press = 0; press < 60; press += 1) await page.keyboard.press("Tab");
+      expect(await focusedRow()).toBe(60);
+      // From the fold under the list, Shift-Tab lands on the list's true last row.
+      await page.locator(".acpmux-session-info-usage-fold").focus();
+      await page.keyboard.press("Shift+Tab");
+      await page.waitForFunction(
+        () => document.activeElement?.querySelector(".acpmux-session-info-row__name")?.textContent === "Chat 0",
+      );
+    } finally {
+      await page.close();
+    }
+  });
+
   for (const list of ["tasks", "subagents", "outputs", "sources", "changes", "usage", "alsoHere"]) {
     test(`${list}: opening the list draws only the rows that can show, at any length`, async () => {
       const { port } = vite!.httpServer!.address() as { port: number };
