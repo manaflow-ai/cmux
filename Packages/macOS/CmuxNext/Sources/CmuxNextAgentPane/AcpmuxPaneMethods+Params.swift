@@ -113,6 +113,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
         "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
+        "_acpmux/context": (["sessionId"], []),
+        // `text: null` removes the saved text; `partId`: a verified local preset prompt's id.
+        "_acpmux/context_override": (["sessionId", "scope", "text", "partId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
         "_acpmux/subagent_transcript": (["sessionId", "runId", "agentId", "before", "after", "limit"], []),
         // `before`: a `native_history` cursor, a byte offset into the chat's own transcript.

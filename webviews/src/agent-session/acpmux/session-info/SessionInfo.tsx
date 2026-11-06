@@ -496,6 +496,7 @@ export function useSessionInfo({
   onReconnectMcp,
   remoteControl,
   onCompact,
+  onViewPrompt,
   onOpenChat,
   onShowUsage,
   onRender,
@@ -573,6 +574,9 @@ export function useSessionInfo({
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Sends the chat's agent its `/compact` (Context's and Usage's Compact); unset where it cannot reach.
   onCompact?: () => void;
+  /// Context's View Prompt: opens the Context screen (context/ContextScreen.tsx); unset for a chat
+  /// whose prompt text acpmux does not hand this pane.
+  onViewPrompt?: () => void;
   /// Opens any chat acpmux lists, this Mac's or a peer's (Usage's rows).
   onOpenChat?: (sessionId: string) => void;
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
@@ -633,6 +637,7 @@ export function useSessionInfo({
   const stableOnSaveEnvironment = useStableCallback(onSaveEnvironment);
   const stableOnReconnectMcp = useStableCallback(onReconnectMcp);
   const stableOnCompact = useStableCallback(onCompact);
+  const stableOnViewPrompt = useStableCallback(onViewPrompt);
   const stableOnOpenChat = useStableCallback(onOpenChat);
   const stableOnShowUsage = useStableCallback(onShowUsage);
   const stableOnShowCall = useStableCallback(onShowCall);
@@ -752,6 +757,7 @@ export function useSessionInfo({
         onReconnectMcp={stableOnReconnectMcp}
         remoteControl={remoteControl}
         onCompact={stableOnCompact}
+        onViewPrompt={stableOnViewPrompt}
         onOpenChat={stableOnOpenChat}
         onShowUsage={stableOnShowUsage}
         onRender={onRender}
@@ -826,6 +832,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onReconnectMcp,
   remoteControl,
   onCompact,
+  onViewPrompt,
   onOpenChat,
   onShowUsage,
   onRender,
@@ -882,6 +889,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onReconnectMcp?: (server: string) => Promise<unknown>;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
+  onViewPrompt?: () => void;
   onOpenChat?: (sessionId: string) => void;
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
   /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
@@ -1240,6 +1248,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           onReconnectMcp={onReconnectMcp}
           remoteControl={scope ? undefined : remoteControl}
           onCompact={scope ? undefined : onCompact}
+          onViewPrompt={scope ? undefined : onViewPrompt}
           onOpenFolder={openFolder}
           onShowCall={onShowCall}
           revealed={revealed}
@@ -1329,6 +1338,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         remoteControl={scope ? undefined : remoteControl}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}
+        onViewPrompt={scope ? undefined : onViewPrompt}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
       />
@@ -1584,6 +1594,7 @@ export function SessionInfo({
   onSaveEnvironment,
   onReconnectMcp,
   onCompact,
+  onViewPrompt,
   onOpenFolder,
   onShowCall,
   allSessions,
@@ -1669,6 +1680,8 @@ export function SessionInfo({
   /// Sends the chat's agent its `/compact`: Context's Compact session (ContextSection), live while a
   /// turn runs (the /compact queues behind it), and Usage's next step for its context (UsageSection.tsx).
   onCompact?: () => void;
+  /// Context's View Prompt (useSessionInfo's).
+  onViewPrompt?: () => void;
   /// Every chat acpmux lists, this Mac's and its peers', for Usage (UsageSection.tsx); unset in a
   /// subagent's own panel.
   allSessions?: readonly AcpmuxSessionEntry[];
@@ -1871,7 +1884,13 @@ export function SessionInfo({
         </>
       }
     >
-      <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} onCompact={onCompact} />
+      <ContextSection
+        usage={usage}
+        percent={percent}
+        breakdown={summary?.contextBreakdown}
+        onCompact={onCompact}
+        onViewPrompt={onViewPrompt}
+      />
     </SessionInfoSection>
   ) : (
     progress.length > 0 && (

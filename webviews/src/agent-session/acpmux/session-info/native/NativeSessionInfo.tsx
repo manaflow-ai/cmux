@@ -82,6 +82,8 @@ export type NativeSessionInfoProps = {
   cloudRepositoryAvailable?: boolean;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
+  /// Context's View Prompt (ContextSection.tsx).
+  onViewPrompt?: () => void;
   allSessions?: readonly AcpmuxSessionEntry[];
   onOpenChat?: (id: string) => void;
   onShowUsage?: () => void;
@@ -368,6 +370,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           language,
           open: state.sections.context,
           onCompact: props.onCompact,
+          onViewPrompt: props.onViewPrompt,
           openLists,
           onToggleList: (id) =>
             setOpenLists((was) => {

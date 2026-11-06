@@ -9915,6 +9915,22 @@ export class AcpmuxDirectClient {
     if (typeof result?.sessionId !== "string" || !result.sessionId) throw new Error("");
     return result.sessionId;
   }
+  /// The chat's effective prompt context for the Context screen (`_acpmux/context`, acpmux
+  /// context_inventory.rs): what cmux adds in full, the harness's own parts as counts.
+  async contextInventory(sessionId = this.actingSessionId): Promise<unknown> {
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    return this.request("_acpmux/context", { sessionId });
+  }
+  /// Saves (or with `text: null` removes) the guidance new chats get, for every chat (`user`) or
+  /// this folder's (`project`), and answers with the inventory after it (`_acpmux/context_override`).
+  /// Sent on the Save click with no await before it: the relay takes it only on a gesture.
+  async setContextOverride(
+    change: { scope: "user" | "project"; text: string | null; partId?: string },
+    sessionId = this.actingSessionId,
+  ): Promise<unknown> {
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    return this.request("_acpmux/context_override", { sessionId, ...change });
+  }
   async setModel(modelId: string): Promise<void> {
     if (this.actingSessionId) await this.request("session/set_model", { sessionId: this.actingSessionId, modelId });
   }

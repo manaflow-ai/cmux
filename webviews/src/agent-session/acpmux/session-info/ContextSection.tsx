@@ -188,6 +188,7 @@ export function ContextSection({
   percent,
   breakdown: reported,
   onCompact,
+  onViewPrompt,
 }: {
   usage: { used: number; size: number };
   percent: number;
@@ -196,6 +197,9 @@ export function ContextSection({
   /// Sends the chat's agent its `/compact` (App.tsx `compactChat`); unset where the agent lists no
   /// compact command or the chat cannot be sent to, so no Compact shows.
   onCompact?: () => void;
+  /// Opens the Context screen: every part of the prompt, and the guidance new chats get, editable
+  /// (App.tsx `openContext`); unset for a chat whose prompt text acpmux does not hand this pane.
+  onViewPrompt?: () => void;
 }) {
   const t = useT();
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
@@ -241,16 +245,23 @@ export function ContextSection({
           </ul>
         </>
       )}
-      {onCompact && (
+      {(onCompact || onViewPrompt) && (
         <div className="acpmux-session-info-context__actions">
-          {free && (
+          {onCompact && free && (
             <span className="acpmux-session-info-context__until">
               {t("sessionInfo.context.untilAutoCompact", { tokens: tokens.format(free.tokens) })}
             </span>
           )}
-          <Button size="sm" variant="subtle" className="acpmux-session-info-context__compact" onClick={onCompact}>
-            {t("sessionInfo.context.compactSession")}
-          </Button>
+          {onViewPrompt && (
+            <Button size="sm" variant="subtle" data-context-view-prompt onClick={onViewPrompt}>
+              {t("contextScreen.viewPrompt")}
+            </Button>
+          )}
+          {onCompact && (
+            <Button size="sm" variant="subtle" className="acpmux-session-info-context__compact" onClick={onCompact}>
+              {t("sessionInfo.context.compactSession")}
+            </Button>
+          )}
         </div>
       )}
     </div>
