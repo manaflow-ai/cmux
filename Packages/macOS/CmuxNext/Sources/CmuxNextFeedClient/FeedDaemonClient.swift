@@ -15,6 +15,7 @@ package final class FeedDaemonClient {
     /// What changed: the ids the commit touched, or nil when anything may have (a new connection).
     package struct Change: Sendable, Equatable {
         package var changed: [String]?
+        package init(changed: [String]?) { self.changed = changed }
         package func touches(_ id: String) -> Bool { changed?.contains(id) ?? true }
     }
 
