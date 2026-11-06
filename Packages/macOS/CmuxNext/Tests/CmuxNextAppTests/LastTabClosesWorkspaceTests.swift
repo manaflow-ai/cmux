@@ -15,6 +15,14 @@ import Testing
 /// closing workspace changes (no strip or pane motion, no repair).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(4)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct LastTabClosesWorkspaceTests {
+    @Test func theKindIsChosenOnceFromThePanesTheCloseLeaves() {
+        #expect(TabCloseKind(panes: [(true, false), (false, false)], home: false) == .tabs)
+        #expect(TabCloseKind(panes: [(true, true), (false, false)], home: false) == .panes)
+        #expect(TabCloseKind(panes: [(true, true)], home: false) == .workspace)
+        #expect(TabCloseKind(panes: [(true, true), (true, true), (false, true)], home: false) == .workspace)
+        #expect(TabCloseKind(panes: [(true, true)], home: true) == .panes, "a Home workspace closed with its tabs")
+    }
+
     /// The CLI's and the socket's close of the last tab (`action.run closeTab tab:<id>`): in the close's own turn the row
     /// is leaving, the window shows another workspace, and the closing tab is still in its strip (nothing in the
     /// closing workspace changed); the workspace then leaves the daemon without the repair closing it.
