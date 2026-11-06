@@ -699,7 +699,8 @@ impl Hub {
                         listed_rows
                             .push((id, RemoteSession { peer: peer.clone(), summary, receipt }));
                     }
-                    let gone = old.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
+                    let gone_ids = old.keys().cloned().collect::<Vec<_>>();
+                    let gone = old.into_values().collect::<Vec<_>>();
                     let listed = listed_rows
                         .iter()
                         .map(|(_, r)| {
@@ -715,8 +716,8 @@ impl Hub {
                         if !self.is_current(&peer, generation) {
                             return;
                         }
-                        for id in gone.iter() {
-                            map.remove(id);
+                        for id in gone_ids {
+                            map.remove(&id);
                         }
                         for (id, row) in updates {
                             map.insert(id, row);

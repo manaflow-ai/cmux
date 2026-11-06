@@ -79,7 +79,8 @@ impl Hub {
     /// Save `peer`'s rows, while `generation` is the instance registered
     /// under that name; unless `now`, at most once per `SAVE_EVERY_MS`.
     pub(super) fn save_peer_cache(&self, peer: &str, generation: u64, now: bool) {
-        let _writer = self.peer_cache_writer(peer).lock().unwrap_or_else(|e| e.into_inner());
+        let writer = self.peer_cache_writer(peer);
+        let _writer = writer.lock().unwrap_or_else(|e| e.into_inner());
         // A leased peer leaves nothing on disk (`peer_lease.rs`). This check is intentionally
         // short: the lease mutex must never be held through cloning or the disk write.
         if self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).contains_key(peer) {
