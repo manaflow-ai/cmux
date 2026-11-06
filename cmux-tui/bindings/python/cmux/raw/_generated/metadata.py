@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7'
+IR_SHA256 = 'e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86'
 
 
 @dataclass(frozen=True)
@@ -102,6 +102,7 @@ COMMANDS = {
             'expected_generation': CommandFieldMetadata(None, 'attach-identity-v1'),
             'expected_terminal_id': CommandFieldMetadata(None, 'attach-identity-v1'),
             'mode': CommandFieldMetadata(7, None),
+            'replay_history_rows': CommandFieldMetadata(None, 'attach-replay-history-rows-v1'),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'snapshot_images': CommandFieldMetadata(None, 'terminal-snapshot-images-v1'),
@@ -3603,6 +3604,18 @@ COMMANDS = {
             'marker_epoch': CommandFieldMetadata(None, None),
             'max_bytes': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-last-command': CommandMetadata(
+        'terminal-last-command',
+        'control',
+        12,
+        'terminal-last-command-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
     'terminal-ports': CommandMetadata(

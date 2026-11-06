@@ -273,6 +273,31 @@ fn check_append_says_what_append_would_do() {
     assert_eq!(journal.check_append(1), Err(AppendError::Closed));
 }
 
+/// A control record (`append_control`) is taken while the queue is full, and becomes durable as
+/// any record; a sealed journal refuses it too.
+#[test]
+fn a_control_record_is_taken_while_the_queue_is_full() {
+    let storage = SimStorage::new(37);
+    let config = Config { max_pending_bytes: 4096, ..quick() };
+    let (journal, _, _) = open_at(&storage, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    storage.set_sync_delay(Duration::from_millis(500));
+    let big = vec![b'a'; 1000];
+    let full = (0..50).any(|_| journal.append(1, Class::Ack, &big) == Err(AppendError::Backlog));
+    assert!(full, "the pending cap never refused an append");
+    let control = journal
+        .append_control(2, Class::Ack, b"frozen")
+        .unwrap_or_else(|e| panic!("a full queue refused a control record: {e}"));
+    assert_eq!(journal.append(1, Class::Ack, &big), Err(AppendError::Backlog));
+    storage.set_sync_delay(Duration::ZERO);
+    journal.wait_durable(control, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    assert!(journal.seal(WAIT).is_ok());
+    assert_eq!(journal.append_control(2, Class::Ack, b"frozen"), Err(AppendError::Closed));
+    assert_eq!(
+        journal.append_control(2, Class::Ack, &vec![0u8; crate::MAX_PAYLOAD_LEN + 1]),
+        Err(AppendError::TooLarge)
+    );
+}
+
 #[test]
 fn a_sealed_journal_refuses_appends() {
     let storage = SimStorage::new(10);
@@ -281,6 +306,34 @@ fn a_sealed_journal_refuses_appends() {
     assert_eq!(journal.seal(WAIT), Ok(1));
     assert_eq!(journal.append(1, Class::Ack, b"b"), Err(AppendError::Closed));
     assert_eq!(journal.full_durable_lsn(), 1);
+}
+
+/// A seal hands the journal over (a daemon's restart, whose next process opens it while the old
+/// one still exits): the next open takes it at once though the sealed handle lives on, and the
+/// sealed handle changes no file of the folder after that.
+#[test]
+fn a_sealed_journal_is_handed_to_the_next_open_at_once() {
+    let storage = SimStorage::new(35);
+    let config = Config { segment_bytes: 600, ..quick() };
+    let (first, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    // One batch per record, so the segments rotate: a retirement would delete some.
+    for lsn in 1..=40 {
+        let got = first.append(3, Class::Ack, &payload(lsn)).unwrap_or_else(|e| panic!("{e}"));
+        first.wait_durable(got, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    }
+    assert!(first.stats().segments_created >= 3, "{:?}", first.stats());
+    assert_eq!(first.seal(WAIT), Ok(40));
+    let (second, _, seen) = open_at(&storage, config, 0)
+        .unwrap_or_else(|e| panic!("the sealed journal kept its folder: {e}"));
+    assert_eq!(lsns(&seen), (1..=40).collect::<Vec<_>>());
+    let names = storage.names_in(&dir());
+    assert!(names.iter().filter(|name| name.ends_with(".seg")).count() >= 3, "{names:?}");
+    assert!(first.retire_through(40).is_err(), "a retirement after the handoff");
+    assert!(first.clear_damage().is_err(), "a damage clear after the handoff");
+    assert_eq!(storage.names_in(&dir()), names, "the sealed handle changed the folder");
+    assert_eq!(second.append(3, Class::Ack, &payload(41)), Ok(41));
+    drop(first);
+    second.wait_durable(41, WAIT).unwrap_or_else(|e| panic!("{e}"));
 }
 
 #[test]

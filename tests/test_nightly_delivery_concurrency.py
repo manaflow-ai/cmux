@@ -47,8 +47,6 @@ SHARED_NIGHTLY_GROUPS = {
     "await-release-surface-ack": "nightly-next-promote-ack",
     "publish-nightly": "release-publish-",
     "republish-nightly-deltas": "release-",
-    # The release's mutable names only; the uploads (publish-nightly-next-github) have no group.
-    "publish-nightly-next-github-names": "nightly-next-github-names",
 }
 
 
@@ -134,8 +132,9 @@ def test_a_publish_never_shares_a_group_with_a_non_publish_job() -> None:
     # The nightly-next delta republish leaves the publish group (its feed write is a compare-and-swap);
     # the classic and RC tracks keep the publish lock, since they replace feeds without one.
     deltas = group_of(jobs["republish-nightly-deltas"])
-    assert deltas == ("release-${{ needs.decide.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-"
-                      "${{ needs.decide.outputs.release_tag }}"), deltas
+    # It reads the track from published-build: it also runs in the dispatched post-publish run, where decide skips.
+    assert deltas == ("release-${{ needs.published-build.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-"
+                      "${{ needs.published-build.outputs.release_tag }}"), deltas
     for name, job in jobs.items():
         if name in PUBLISH_JOBS or name in KEEPS_PUBLISH_LOCK or name == "republish-nightly-deltas" or not group_of(job):
             continue
@@ -149,7 +148,6 @@ def test_a_publish_never_shares_a_group_with_a_non_publish_job() -> None:
 NEXT_FEED_WRITERS = {
     "publish-nightly": ("nightly-next/locks/publish-nightly-next.json", "Recheck the recovered build against both feeds"),
     "publish-release-notes": ("nightly-next/locks/publish-nightly-next.json", "Recheck the NEXT publication head"),
-    "publish-nightly-identity-legacy": ("nightly-next/locks/legacy-identity-publish.json", "Skip a build the old feed already has"),
 }
 # Steps that read a feed to decide, or write the release, R2 or a feed: each runs inside the lease.
 FEED_STEP_WORDS = ("feed", "Publish", "Upload", "Recheck", "Prune", "Move channel", "Record")
@@ -169,7 +167,7 @@ def test_next_feed_writers_share_no_group_on_nightly_next() -> None:
         concurrency = jobs[name].get("concurrency")
         if concurrency is None:
             # Only nightly-next jobs may drop the group: classic and RC keep theirs.
-            assert "needs.decide.outputs.track == 'nightly-next'" in str(jobs[name]["if"]), name
+            assert re.search(r"needs\.(?:decide|published-build)\.outputs\.track == 'nightly-next'", str(jobs[name]["if"])), name
             continue
         assert concurrency.get("cancel-in-progress") is False, name
         group = concurrency["group"]

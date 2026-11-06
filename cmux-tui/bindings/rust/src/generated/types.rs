@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7.
+// cmux-tui mux protocol 12, IR e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -2780,6 +2780,22 @@ pub struct TerminalKeyInput {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub unshifted_codepoint: Optional<String>,
     pub utf8: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalLastCommand {
+    pub command: String,
+    pub ended_at_ms: String,
+    pub exit_code: Nullable<i32>,
+    pub started_at_ms: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalLastCommandResult {
+    pub last_command: Nullable<TerminalLastCommand>,
+    pub terminal_id: String,
 }
 
 #[rustfmt::skip]

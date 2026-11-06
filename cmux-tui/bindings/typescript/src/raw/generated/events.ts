@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7. */
+/* cmux-tui mux protocol 12, IR e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86. */
 
 
 import type * as T from "./types.js";
@@ -654,6 +654,7 @@ export type VtStateEvent = { event: "vt-state" } & {
   "colors"?: T.TerminalColors;
   "cols": number;
   "data": T.Base64;
+  "history_rows_omitted"?: bigint;
   "kitty_graphics_state"?: T.KittyGraphicsState;
   "kitty_image_aliases"?: Array<T.KittyImageAlias>;
   "rows": number;

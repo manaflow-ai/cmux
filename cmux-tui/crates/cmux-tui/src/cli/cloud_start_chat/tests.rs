@@ -899,3 +899,89 @@ fn a_timeout_shorter_than_the_relay_window_goes_the_link_way() {
     assert_eq!(fake.ran[1][1], "start-session", "{:?}", fake.ran);
     assert!(fake.ran.iter().all(|step| step.get(1).map(String::as_str) != Some("relay-chat")));
 }
+
+/// The words `cmux cloud start-chat --prompt "What is 2+2?" --cwd /home/cmux/w --wait` hands the app's
+/// `cloud relay-chat` on a new machine, as the CLI's own code builds them (the action argument contract's
+/// cmux-tui/spec/fixtures/cli-action-requests.json carries their `action.run` request, which the app's
+/// ArgumentActionContractTests validate against its catalog).
+pub(in crate::cli) fn contract_relay_words() -> Vec<String> {
+    let mut fake = Fake::new(vec![signed_in(), made(), relayed(json!({"session_id": "relay-1"}))]);
+    let asked = request(&["--prompt", "What is 2+2?", "--cwd", "/home/cmux/w", "--wait"]);
+    let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    let words = fake.ran[2].clone();
+    assert_eq!(&words[..2], &strings(&["cloud", "relay-chat"]), "{:?}", fake.ran);
+    words
+}
+
+#[test]
+fn a_relay_login_refusal_is_the_answer_and_nothing_else_runs_or_sends() {
+    // A fresh machine with nothing inherited, and each login refusal the app types: no start-session, no exec, no send.
+    for (code, exit) in [
+        ("cloud.relay.login_refused", 1),
+        ("cloud.relay.login_missing", 1),
+        ("cloud.relay.login_declined", 1),
+        ("cloud.relay.login_failed", 1),
+        ("cloud.relay.login_pending", 75),
+        ("cloud.relay.login_account_changed", 1),
+        ("cloud.relay.login_skipped", 1),
+        ("cloud.relay.login_unverified", 1),
+        ("cloud.relay.login_team_machine", 1),
+    ] {
+        let refusal = json!({"error_code": code, "error_message": "claude on dev has no login",
+                             "delivered": false, "command": "cmux cloud start-session --target machine:vm-1 --agent claude",
+                             "login_reason": "needs-login-choice"});
+        let mut fake = Fake::new(vec![signed_in(), made(), relayed(refusal)]);
+        let asked = request(&["--prompt", "hi", "--wait"]);
+        let Outcome::Failed { error, exit: got } = run(&mut fake, &asked) else {
+            panic!("{code}: {:?}", fake.ran)
+        };
+        assert_eq!((error["code"].as_str(), got), (Some(code), exit));
+        assert_eq!(error["details"]["sent"], false);
+        assert_eq!(
+            error["details"]["command"],
+            "cmux cloud start-session --target machine:vm-1 --agent claude"
+        );
+        assert_eq!(fake.ran.len(), 3, "{code}: ran after the refusal: {:?}", fake.ran);
+        assert_eq!(fake.ran[2][1], "relay-chat");
+    }
+}
+
+#[test]
+fn a_harness_sign_in_failure_is_not_the_cmux_account_signed_out() {
+    // acpmux's Cloud text for a Claude with no sign-in (claude_auth.rs `compose_cloud`) and its typed kind:
+    // the machine's Claude, never the person's cmux account, so no `cmux cloud sign-in`.
+    let claude = "Claude is not signed in here. This Cloud machine has no Claude sign-in (Claude home ~/.claude). \
+        Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again. \
+        (Claude said: Not logged in · Please run /login)";
+    for error in [
+        json!({"code": "cloud_start_failed", "message": claude}),
+        json!({"code": "runtime", "errorKind": "auth.signed_out", "message": "Not logged in · Please run /login"}),
+        json!({"code": "chat.failed", "error_kind": "auth.expired", "message": "sign in again"}),
+        json!({"code": "auth.signed_out", "message": "Not logged in"}),
+    ] {
+        assert!(!signed_out(&error), "{error}");
+    }
+    // The cmux account's own refusals stay signed out.
+    for error in [
+        json!({"code": "unavailable", "message": "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`."}),
+        json!({"code": "not_signed_in", "message": "x"}),
+        json!({"code": "auth.required", "message": "x"}),
+        json!({"code": "cloud_signed_out", "message": "x"}),
+    ] {
+        assert!(signed_out(&error), "{error}");
+    }
+}
+
+#[test]
+fn a_relay_turn_error_keeps_the_machines_type() {
+    let relayed = json!({"machine_id": "vm-1", "session_id": "s-1", "ended": true, "delivered": true,
+        "error_code": "chat.failed", "error_message": "daemon connection closed", "error_detail": "daemon_closed",
+        "error_cause": "panicked", "error_kind": "auth.signed_out", "error_retryable": true, "error_recovery": "Run acpmux again.", "reply": ""});
+    let typed = typed_error(&relayed);
+    assert_eq!(
+        typed,
+        json!({"detail": "daemon_closed", "cause": "panicked", "kind": "auth.signed_out", "recovery": "Run acpmux again.", "retryable": true})
+    );
+    // An older app's answer has none: nothing is made up.
+    assert_eq!(typed_error(&json!({"error_code": "chat.failed"})), json!({}));
+}

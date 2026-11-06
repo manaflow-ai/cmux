@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7";
+pub const ir_sha256 = "e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3128,6 +3128,18 @@ pub const TerminalKeyInput = struct {
     };
 };
 
+pub const TerminalLastCommand = struct {
+    command: []const u8,
+    ended_at_ms: []const u8,
+    exit_code: wire.Nullable(i32),
+    started_at_ms: []const u8,
+};
+
+pub const TerminalLastCommandResult = struct {
+    last_command: wire.Nullable(TerminalLastCommand),
+    terminal_id: []const u8,
+};
+
 pub const TerminalLifecycle = enum {
     launching,
     adopting,
@@ -3470,6 +3482,7 @@ pub const AttachSurfaceRequest = struct {
     expected_generation: wire.Field([]const u8) = .absent,
     expected_terminal_id: wire.Field([]const u8) = .absent,
     mode: wire.Field(AttachSurfaceRequestMode) = .absent,
+    replay_history_rows: wire.Field(u32) = .absent,
     rows: wire.Field(u16) = .absent,
     snapshot: wire.Field([]const u8) = .absent,
     snapshot_images: ?bool = null,
@@ -3498,6 +3511,7 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
                 .{ .name = "expected_generation", .since = null, .capability = "attach-identity-v1" },
                 .{ .name = "expected_terminal_id", .since = null, .capability = "attach-identity-v1" },
                 .{ .name = "mode", .since = 7, .capability = null },
+                .{ .name = "replay_history_rows", .since = null, .capability = "attach-replay-history-rows-v1" },
                 .{ .name = "rows", .since = null, .capability = "attach-initial-size" },
                 .{ .name = "snapshot", .since = null, .capability = "terminal-snapshot-v1" },
                 .{ .name = "snapshot_images", .since = null, .capability = "terminal-snapshot-images-v1" },
@@ -9720,6 +9734,24 @@ pub fn terminalHistory(client: anytype, request: TerminalHistoryRequest) !wire.D
     );
 }
 
+pub const TerminalLastCommandRequest = struct {
+    surface: wire.Field(Id) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+};
+
+pub fn terminalLastCommand(client: anytype, request: TerminalLastCommandRequest) !wire.Decoded(TerminalLastCommandResult) {
+    return client.callTyped(
+        TerminalLastCommandResult,
+        .{
+            .name = "terminal-last-command",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-last-command-v1",
+        },
+        request,
+    );
+}
+
 pub const TerminalPortsRequest = struct {
     surface: Id,
 };
@@ -11259,6 +11291,7 @@ pub const VtStateEvent = struct {
     cols: u16,
     data: Base64,
     event: []const u8,
+    history_rows_omitted: ?u64 = null,
     kitty_graphics_state: ?KittyGraphicsState = null,
     kitty_image_aliases: ?[]const KittyImageAlias = null,
     rows: u16,
@@ -11266,6 +11299,7 @@ pub const VtStateEvent = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "colors",
+        "history_rows_omitted",
         "kitty_graphics_state",
         "kitty_image_aliases",
     };
@@ -11960,7 +11994,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 294;
+pub const command_count: usize = 295;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12228,6 +12262,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-clipboard-subscribe", .authority = "frontend", .since = 12, .capability = "terminal-clipboard-read-v1", .stream = "subscribe" },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
+    .{ .name = "terminal-last-command", .authority = "control", .since = 12, .capability = "terminal-last-command-v1", .stream = null },
     .{ .name = "terminal-ports", .authority = "control", .since = 12, .capability = "terminal-ports-v1", .stream = null },
     .{ .name = "terminal-read-range", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },

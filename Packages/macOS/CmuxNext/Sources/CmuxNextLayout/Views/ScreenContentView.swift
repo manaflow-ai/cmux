@@ -178,10 +178,11 @@ final class ScreenContentView: NSView {
         reconcileAndScroll()
     }
 
-    /// A window resize: frames snap (or, `keepsMotion`, a running spring retargets), and the scroll keeps the
-    /// focused column in place on screen, then fits it (L7).
+    /// A window resize: frames snap (or, `keepsMotion`, a running spring is carried into the new size: each frame and
+    /// its target move together, `AnimatedFrame.rebase`, so the panes follow the resize in this frame and only what
+    /// the spring had left still springs), and the scroll keeps the focused column in place on screen, then fits it (L7).
     fileprivate func reconcileAndScroll(keepsMotion: Bool = false) {
-        reconcile(animated: keepsMotion, presents: false)
+        reconcile(animated: keepsMotion, rebasing: keepsMotion, presents: false)
         syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion)
     }
 
@@ -232,7 +233,11 @@ final class ScreenContentView: NSView {
     }
 
     @discardableResult
-    func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false, presents: Bool = true) -> Bool {
+    /// `rebasing`: the change is the viewport's, not the layout's (the sidebar's slide resizing the screen under a
+    /// running split): a frame on a spring moves with its target (`AnimatedFrame.rebase`) instead of chasing it, so
+    /// the panes ride the moving edge in its frame (Leo 2026-11-05: "the main pane waits for the right pane").
+    func reconcile(animated: Bool, rebasing: Bool = false, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false,
+                   presents: Bool = true) -> Bool {
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
         let before = geometry
         // One style read per pass: it is resolved from the settings.
@@ -246,7 +251,8 @@ final class ScreenContentView: NSView {
         // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.
         let splits = animate && context.animatesPaneLayout
         var arrivals = splits && structural && !unzooming
-            ? PaneArrival.split(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value) : [:]
+            ? PaneArrival.split(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value,
+                                slidesBeside: { [context] in context.hosts[$0]?.holdsContentWhileMoving == true }) : [:]
         // A pane that hands what it shows to the pane this change adds (`LayoutModel.handOffContent`): the
         // added pane shows in place and the giver slides in (`PaneArrival.handoff`). A pane added on the
         // giver's screen spends it.
@@ -273,7 +279,9 @@ final class ScreenContentView: NSView {
             && paneFrames.values.contains { $0.rect != $0.targetRect }
         motionState.retarget(structural: structural, inFlight: inFlight, departing: departing, zooming: zooming, splitting: !arrivals.isEmpty, hasFrames: paneFrames.values.contains { $0.rect != $0.targetRect })
         // An animated width or ratio change (a preset, an equalize) is carried too: its camera may re-anchor (M8).
-        let carried = !arrivals.isEmpty || departing || returning || (animate && !structural)
+        // A viewport resize under a spring (`rebasing`) is not: each frame moves with its target, and putting it
+        // back where it showed (`settleCarried`) would undo that and leave it chasing the moved target.
+        let carried = !arrivals.isEmpty || departing || returning || (animate && !structural && !rebasing)
         // Strip springs run in strip coordinates and fixed ones in the view's: a moved strip origin (a dock
         // that came or went) or a pane changing sides (a zoom shows its pane fixed) keeps it where it showed.
         let offset = scroll.value
@@ -294,6 +302,7 @@ final class ScreenContentView: NSView {
                     carriedShown[pane] = existing.x.value + shift(before, pane)
                     existing.x.value += shift(before, pane) - shift(baseGeometry, pane)
                 }
+                if rebasing, !structural, existing.rect != existing.targetRect { existing.rebase(onto: target) }
                 if let handoff, handoff.pane == pane {
                     // At its new size past the screen edge, from where it slides in.
                     existing = AnimatedFrame(handoff.slide.offsetBy(dx: -shift(baseGeometry, pane), dy: 0))
@@ -312,7 +321,9 @@ final class ScreenContentView: NSView {
                 // Opaque from its first frame: an arriving pane grows in from its edge, never fades; a close taken back
                 // springs back from where its closing frame shows (FRAME OWNER S3c).
                 var frame = takenBack ?? AnimatedFrame(arrivals[pane]?.seed ?? target)
-                if takenBack == nil, let arrival = arrivals[pane] { SplitMotion.ride(&frame, panes: shownBefore, skipping: Set(arrivals.keys), giver: arrival.giver) }
+                if takenBack == nil, let arrival = arrivals[pane] {
+                    SplitMotion.ride(&frame, panes: shownBefore, skipping: Set(arrivals.keys), giver: arrival.giver, slides: arrival.slides)
+                }
                 // Already carried into this layout's coordinates with the closing panes (`ClosingPanes.carry`).
                 if takenBack != nil, carried { carriedShown[pane] = frame.x.value + shift(baseGeometry, pane) }
                 zoomMotion.returning(pane)
@@ -376,6 +387,7 @@ final class ScreenContentView: NSView {
                     if carried { carriedDividers[kind] = frame.x.value + before.viewShift(offset: offset) }
                     frame.x.value += drift
                 }
+                if rebasing, !structural, frame.rect != frame.targetRect { frame.rebase(onto: target.rect) }
                 place(&frame, at: target.rect, animated: animateFrames)
                 dividerFrames[kind] = frame
             } else if case .columnEdge = kind,

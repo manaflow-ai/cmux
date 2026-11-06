@@ -18,9 +18,9 @@ final class OnboardingProgressBar: ThemedView {
     init() {
         super.init(frame: .zero)
         fill = { Palette.hoverFill }
-        cornerRadius = 2
+        cornerRadius = Metrics.capsuleRadius(CGSize(width: 4, height: 4))
         bar.fill = { Palette.textPrimary }
-        bar.cornerRadius = 2
+        bar.cornerRadius = Metrics.capsuleRadius(CGSize(width: 4, height: 4))
         addSubview(bar)
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 4),

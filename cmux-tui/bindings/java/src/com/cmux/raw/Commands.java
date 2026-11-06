@@ -14,7 +14,7 @@ public final class Commands {
     public static final CommandMetadata ADD_SCREENS_TO_SCREEN_GROUP = new CommandMetadata("add-screens-to-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ADD_TABS_TO_TAB_GROUP = new CommandMetadata("add-tabs-to-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPLY_LAYOUT = new CommandMetadata("apply-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("rows", "attach-initial-size"), Map.entry("snapshot", "terminal-snapshot-v1"), Map.entry("snapshot_images", "terminal-snapshot-images-v1"), Map.entry("snapshot_local_history", "terminal-snapshot-local-history-v1"), Map.entry("snapshot_version", "terminal-snapshot-v1"), Map.entry("viewer_backlog_bytes", "terminal-snapshot-v1")));
+    public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("replay_history_rows", "attach-replay-history-rows-v1"), Map.entry("rows", "attach-initial-size"), Map.entry("snapshot", "terminal-snapshot-v1"), Map.entry("snapshot_images", "terminal-snapshot-images-v1"), Map.entry("snapshot_local_history", "terminal-snapshot-local-history-v1"), Map.entry("snapshot_version", "terminal-snapshot-v1"), Map.entry("viewer_backlog_bytes", "terminal-snapshot-v1")));
     public static final CommandMetadata BIND_CONVERSATION_TAB_SESSION = new CommandMetadata("bind-conversation-tab-session", Authority.CONTROL, 12, "agent-session-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_ACTIVATE = new CommandMetadata("browser-activate", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_BACK = new CommandMetadata("browser-back", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -276,6 +276,7 @@ public final class Commands {
     public static final CommandMetadata TERMINAL_CLIPBOARD_SUBSCRIBE = new CommandMetadata("terminal-clipboard-subscribe", Authority.FRONTEND, 12, "terminal-clipboard-read-v1", StreamKind.SUBSCRIBE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_EVENTS = new CommandMetadata("terminal-events", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_HISTORY = new CommandMetadata("terminal-history", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata TERMINAL_LAST_COMMAND = new CommandMetadata("terminal-last-command", Authority.CONTROL, 12, "terminal-last-command-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_PORTS = new CommandMetadata("terminal-ports", Authority.CONTROL, 12, "terminal-ports-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_READ_RANGE = new CommandMetadata("terminal-read-range", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_RESOURCES = new CommandMetadata("terminal-resources", Authority.CONTROL, 12, "terminal-resources-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -574,6 +575,7 @@ public final class Commands {
         values.put("terminal-clipboard-subscribe", TERMINAL_CLIPBOARD_SUBSCRIBE);
         values.put("terminal-events", TERMINAL_EVENTS);
         values.put("terminal-history", TERMINAL_HISTORY);
+        values.put("terminal-last-command", TERMINAL_LAST_COMMAND);
         values.put("terminal-ports", TERMINAL_PORTS);
         values.put("terminal-read-range", TERMINAL_READ_RANGE);
         values.put("terminal-resources", TERMINAL_RESOURCES);

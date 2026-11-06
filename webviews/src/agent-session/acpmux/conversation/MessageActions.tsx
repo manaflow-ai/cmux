@@ -16,6 +16,7 @@ import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, StopRead
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { exactTime, nextRelativeTime, nextReplyTime, relativeTime, replyTime } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
+import { copyMarkdownResult } from "../richClipboard";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { RowReplyButton } from "./SelectionReply";
@@ -82,10 +83,20 @@ export function MessageDot() {
 }
 
 /// Copy through CopyButton (its name as a tooltip, a check once the clipboard took the text), at the
-/// row's compact size.
+/// row's compact size. The message goes as Claude's and ChatGPT's do: its Markdown as the plain text
+/// and its HTML beside it, so Notes, Slack, Docs and Mail paste its headings, bullets and code
+/// (richClipboard.ts).
 export function MessageCopy({ text }: { text: string }) {
   const t = useT();
-  return <CopyButton text={text} label={t("turn.copy")} className="cv-iconbtn cv-iconbtn--compact" size={ROW_ICON} />;
+  return (
+    <CopyButton
+      text={text}
+      label={t("turn.copy")}
+      className="cv-iconbtn cv-iconbtn--compact"
+      size={ROW_ICON}
+      copy={copyMarkdownResult}
+    />
+  );
 }
 
 /// Use the live host action when the page has one: unlike the turn context's legacy callback, it

@@ -15,6 +15,10 @@ name: Cloud capture account provision
 # hourly production Cloud chat probe (cmuxterm-hq synthetic-probes.yml app-chat-production). The log names the
 # account's Stack user id (not a secret). grant_email never runs against production.
 #
+# With `target: journey-production`, the same for the production Cloud journey's own account
+# (cmux-cloud-capture-journey-prod@manaflow.dev), sealed to this repository's cmux-next-cloud-journey environment as
+# CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (cloud-journey-prod.yml and backend.yml journey-production).
+#
 # With `grant_email` set, the run only gives that existing capture test account (cmux-cloud-capture…@manaflow.dev,
 # e.g. the no-team owner account) the `pro` operator plan: no password change, nothing sealed or uploaded.
 
@@ -26,9 +30,9 @@ on:
         required: false
         default: ""
       target:
-        description: "capture: the staging capture account. production: the production probe account (cloud-vm-production)"
+        description: "capture: the staging capture account. production: the production probe account. journey-production: the production Cloud journey's account (both cloud-vm-production)"
         type: choice
-        options: [capture, production]
+        options: [capture, production, journey-production]
         default: capture
 
 permissions:
@@ -44,7 +48,7 @@ jobs:
     if: github.ref == 'refs/heads/feat-cmux-next'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Each target's own server key: the script refuses a key whose project is not the target's.
-    environment: ${{ inputs.target == 'production' && 'cloud-vm-production' || 'cloud-vm-staging' }}
+    environment: ${{ (inputs.target == 'production' || inputs.target == 'journey-production') && 'cloud-vm-production' || 'cloud-vm-staging' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -66,7 +70,7 @@ jobs:
           fi
 
       - name: Grant the operator plan only
-        if: inputs.grant_email != '' && inputs.target != 'production'
+        if: inputs.grant_email != '' && inputs.target != 'production' && inputs.target != 'journey-production'
         env:
           NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}

@@ -9,6 +9,7 @@
 // These types are hand-written until the op set is declared with the cmux-pane-protocol
 // schemars macro; then they come from the generated client.
 
+import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
@@ -700,6 +701,14 @@ export type ProviderAccount = {
   /** Routing may move chats onto it. */
   enabled: boolean;
   builtin: boolean;
+  /** New chats of its family run on it. */
+  default?: boolean;
+  /** An API-key account: no login folder, sign-in or sign-out. */
+  key?: boolean;
+  /** Its plan's 5-hour and weekly limits, read when Settings opens (acpmux `_acpmux/account/usage`,
+   * the chat's `usageLimits` shape); null or absent when none was read (Claude Code reports its
+   * limits only during a chat, and a Codex login in the keychain is not asked). */
+  usage?: AcpmuxUsageLimits | null;
 };
 
 /** The Harnesses part: acpmux's harnesses (the host reads `_acpmux/harnesses`). */
@@ -730,10 +739,12 @@ export type HarnessesState = {
 };
 
 /** One Harnesses gesture: Sign in and Check open a terminal tab with `harness login`; Update
- * (one `id`) and Update all start owner-bound native terminal jobs. */
+ * (one `id`) and Update all start owner-bound native terminal jobs. `focus`: Settings came forward,
+ * so an account sign-in or sign-out typed into a terminal tab since then is read back. */
 export type HarnessesRun = {
   action:
     | "refresh"
+    | "focus"
     | "signIn"
     | "check"
     | "registry"
@@ -744,12 +755,22 @@ export type HarnessesRun = {
     | "dismissUpdate"
     | "accountEnable"
     | "accountAdd"
-    | "accountSignIn";
+    | "accountSignIn"
+    | "accountSignOut"
+    | "accountRename"
+    | "accountDefault"
+    | "accountRemove";
   id?: string;
-  /** With `accountEnable` and `accountSignIn`: a listed account id. */
+  /** With every account gesture but `accountAdd`: a listed account id. */
   account?: string;
-  /** With `accountAdd`: the provider family that gets a new shadow-home account. */
+  /** With `accountAdd`: the provider family (`codex`, `claude`) that gets a new account. */
   family?: string;
+  /** With `accountAdd`: `new` signs in a login folder of its own, `key` adds an API key. */
+  way?: "new" | "key";
+  /** With `accountAdd` and `accountRename`: its name. */
+  name?: string;
+  /** With `accountAdd` `key`: the key's reference (`keychain:NAME`, `env:VAR`, `file:/path`), never a key. */
+  secret?: string;
   /** With `resumeUpdate` and `dismissUpdate`: the retained intent key, not a new operation id. */
   intent?: string;
   /** With `autoUpdate` (for `id`) and `accountEnable` (for `account`): turn it on or off. */

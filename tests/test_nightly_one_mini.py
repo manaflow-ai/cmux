@@ -34,8 +34,7 @@ MINI, BUILDER, SIGN = "glaeda-nightly-mini", "glaeda-nightly-mini-builder", "gla
 MODE = {"vars.CI_NIGHTLY_MINI": MINI, "vars.CI_NIGHTLY_MINI_BUILDER": BUILDER, "vars.CI_NIGHTLY_SIGN_RUNNER": SIGN}
 # glaeda scripts/glaeda-cmux-runner-hook SIGNING_JOBS, nightly.yml entries: the jobs that take the whole Mac.
 SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-nightly-next-notarization",
-           "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names",
-           "sign-nightly-identity-legacy", "generate-nightly-deltas"}
+           "publish-nightly", "publish-nightly-next-github", "sign-nightly-identity-legacy", "generate-nightly-deltas"}
 VISUAL_GATE = {"route-visual-gate-nightly"}
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github/workflows"
 

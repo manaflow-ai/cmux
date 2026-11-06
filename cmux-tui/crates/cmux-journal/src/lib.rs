@@ -26,7 +26,8 @@
 //! loss on macOS takes back at most that interval of acked batches, always a suffix. Rotation,
 //! seal and recovery always sync fully.
 //!
-//! Files (the journal directory): `LOCK` (an exclusive lock held by the one writer), the segments
+//! Files (the journal directory): `LOCK` (an exclusive lock held by the one writer until a seal
+//! that kept everything or the drop, so the next open after a seal never waits), the segments
 //! (`<segment number, 20 digits>.seg`: a header, then records and sync markers back to back, see
 //! `format.rs`), `quarantine/` for segments recovery could not read past damage that is not a
 //! torn tail (named `<segment>.<n>.<floor>`: no LSN at or below `floor` is used again),
@@ -71,7 +72,7 @@ pub use journal::{AppendError, Journal, JournalStats, OpenError, SealError, Wait
 pub use recovery::{Damage, OpenReport};
 #[cfg(any(test, feature = "sim"))]
 pub use sim::{Crash, SIM_PAGE, SimRng, SimStorage};
-pub use storage::{FsStorage, OpenMode, Storage, StorageFile, StorageLock, SyncLevel};
+pub use storage::{FsStorage, OpenMode, Storage, StorageFile, StorageLock, SyncLevel, sync_file};
 
 use std::time::Duration;
 

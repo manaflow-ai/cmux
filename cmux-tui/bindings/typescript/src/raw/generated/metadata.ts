@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7. */
+/* cmux-tui mux protocol 12, IR e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7" as const;
+export const SDK_IR_SHA256 = "e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -97,6 +97,10 @@ export const COMMAND_METADATA = {
         "since": 7,
         "capability": null
       },
+      "replay_history_rows": {
+        "since": null,
+        "capability": "attach-replay-history-rows-v1"
+      },
       "rows": {
         "since": null,
         "capability": "attach-initial-size"
@@ -169,7 +173,9 @@ export const COMMAND_METADATA = {
       "ordering": "Initial state precedes the command response. Later surface events preserve order. A resized replay replaces the previous byte mirror; overflow ends that surface stream.",
       "terminal_event": "detached"
     },
-    "constraints": []
+    "constraints": [
+      "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted."
+    ]
   },
   "bind-conversation-tab-session": {
     "authority": "control",
@@ -3410,6 +3416,17 @@ export const COMMAND_METADATA = {
       "max_bytes defaults to 1048576 and must be 1..=8388608; at least one page is returned when any exists.",
       "A before marker of another marker_epoch or one that left scrollback is range_evicted.",
       "marker_epoch is required: the epoch of the caller's markers (from the snapshot event's marker_epoch or an earlier reply)."
+    ]
+  },
+  "terminal-last-command": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-last-command-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Kept in memory only while terminal command history or workspace freeing is on; never for an incognito terminal.",
+      "Null for a terminal without a live runtime and before its shell finished a command."
     ]
   },
   "terminal-ports": {
@@ -13442,6 +13459,66 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "TerminalLastCommand": {
+    "additional_properties": false,
+    "fields": {
+      "command": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "ended_at_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "exit_code": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      },
+      "started_at_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalLastCommandResult": {
+    "additional_properties": false,
+    "fields": {
+      "last_command": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalLastCommand"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "TerminalLifecycle": {
     "kind": "enum",
     "values": [
@@ -14670,6 +14747,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "bytes",
               "render"
             ]
+          }
+        },
+        "replay_history_rows": {
+          "capability": "attach-replay-history-rows-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
           }
         },
         "rows": {
@@ -27638,6 +27725,45 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "TerminalHistoryPagesResult"
     }
   },
+  "terminal-last-command": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "Exactly one of surface or terminal_id is present."
+      ],
+      "fields": {
+        "surface": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "terminal_id": {
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id",
+              "pattern": "^(term_)?[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalLastCommandResult"
+    }
+  },
   "terminal-ports": {
     "request": {
       "additional_properties": false,
@@ -32542,6 +32668,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": "vt-state"
+        }
+      },
+      "history_rows_omitted": {
+        "capability": "attach-replay-history-rows-v1",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "kitty_graphics_state": {

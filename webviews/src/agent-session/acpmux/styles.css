@@ -404,6 +404,9 @@
 .acpmux-host-line button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-host-line button:disabled{opacity:.6}
 .acpmux-host-line button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* A Fork Conversation acpmux has not answered (ForkPendingLine.tsx): the host line's look, with its
+   spinner first and its time after the words, in the same muted tone; Cancel is its quiet button. */
+.acpmux-fork-pending .acpmux-fork-pending-time{margin-left:var(--ds-space-1);font-variant-numeric:tabular-nums}
 /* The line and its Details text, one group: it may shrink like the line it wraps did, so a long
    reason is cut to the line and its button stays on screen. */
 .acpmux-host-line-group{min-width:0}
@@ -454,7 +457,8 @@
 .acpmux-project-button>span:not(.acpmux-project-badge){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
-.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);max-height:none;overflow:visible;font-size:13px;--acpmux-project-menu-edge:4px}
+/* As wide as its fullest row (design/menus.md menu-fit), from the folder menus' 184 px floor to 300 px. */
+.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:max-content;min-width:184px;max-width:min(300px,calc(100vw - 32px));max-height:none;overflow:visible;font-size:13px;--acpmux-project-menu-edge:4px}
 .acpmux-project-menu .acpmux-menu-item{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-project-search{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-project-browse{padding-inline:var(--acpmux-project-menu-edge)}
@@ -475,7 +479,8 @@
 .acpmux-project-search input{flex:1;min-width:0;height:100%;padding:0;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-search input::placeholder{color:var(--acpmux-composer-dim)}
 /* The shared Combobox has the same project field as the old inline chooser, without a wrapper. */
-.acpmux-project-menu .acpmux-project-search-field{display:block;box-sizing:border-box;appearance:none;width:100%;min-width:0;height:32px;margin:0 0 4px;padding:0 var(--acpmux-project-menu-edge);border:0;border-bottom:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;outline:none}
+/* The rows set the menu's width; the field's default size (about 210 px) never does. */
+.acpmux-project-menu .acpmux-project-search-field{display:block;box-sizing:border-box;appearance:none;width:0;min-width:100%;height:32px;margin:0 0 4px;padding:0 var(--acpmux-project-menu-edge);border:0;border-bottom:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-menu .acpmux-project-search-field::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-project-empty{padding:6px 8px;color:var(--acpmux-composer-dim)}
 .acpmux-project-browse{display:block;width:100%;margin-top:4px;padding:7px 8px;border:0;border-top:.5px solid var(--acpmux-composer-edge);background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:default}
@@ -499,8 +504,11 @@
 .acpmux-project-menu :is(.acpmux-project-lead,.acpmux-project-badge){display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;height:auto;border-radius:0;background:none}
 /* The pinned actions and the folders are two sections: a hairline with the menu's 4px on either
    side, never a blank gap, and none when no folder follows. */
-.acpmux-project-menu .ui-combobox-pinned{margin-bottom:0;padding-bottom:0}
-.acpmux-project-menu .ui-combobox-pinned-list:has(.ui-combobox-scroll [role="option"])>.ui-combobox-pinned::after{content:"";display:block;height:0;margin:var(--ds-space-1,4px) var(--acpmux-project-menu-edge);border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
+.acpmux-project-menu .ui-combobox-pinned{margin:0;padding:0}
+/* The held list height (keepHeight) leaves its room above the actions, so they stay where they opened. */
+.acpmux-project-menu .ui-combobox-pinned[data-placement="bottom"]{margin-block-start:auto}
+.acpmux-project-menu .ui-combobox-pinned-list:has(.ui-combobox-scroll [role="option"])>.ui-combobox-pinned[data-placement="bottom"]::before,
+.acpmux-project-menu .ui-combobox-pinned-list:has(.ui-combobox-scroll [role="option"])>.ui-combobox-pinned[data-placement="top"]::after{content:"";display:block;height:0;margin:var(--ds-space-1,4px) var(--acpmux-project-menu-edge);border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
 .acpmux-project-browse{display:flex;align-items:center;gap:8px}
 .acpmux-context-worktree{display:flex;align-items:center;gap:8px;margin-left:auto;padding-right:4px;color:var(--agent-muted);white-space:nowrap}
 .acpmux-switch{position:relative;width:26px;height:16px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 18%,transparent)}
@@ -941,6 +949,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-command-preview code{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}
 .acpmux-permission-command-full{align-self:stretch;margin:0;max-height:220px;overflow:auto;padding:var(--ds-space-2);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 5%,transparent);color:var(--agent-soft);font:var(--text-detail)/1.5 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere}
 .acpmux-permission-command-full code{font:inherit}
+.acpmux-permission-plan{max-height:min(320px,45vh);overflow:auto;padding:var(--ds-space-2) var(--ds-space-3);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 4%,transparent);color:var(--agent-text);font-size:var(--text-detail);line-height:1.5;overscroll-behavior:contain}
 .acpmux-permission-command-toggle{all:unset;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;cursor:default;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-permission-command-toggle:hover{color:var(--agent-text)}
 .acpmux-permission-command-toggle:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:4px}

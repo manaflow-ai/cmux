@@ -56,6 +56,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY);
+        capabilities.push(AGENT_SESSION_FORK_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
@@ -265,6 +266,7 @@ pub(super) fn advertised_capabilities(
         OPEN_DEVICE_KINDS_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
+        ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
         terminal_snapshot::ATTACH_VISIBILITY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
@@ -284,6 +286,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
         RESUME_COMMAND_CAPABILITY,
+        TERMINAL_LAST_COMMAND_CAPABILITY,
         END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
         CLOSE_WORKSPACE_IF_EMPTY_CAPABILITY,
@@ -388,12 +391,14 @@ pub(super) fn advertised_capabilities(
         crate::state::palette_usage_store::CAPABILITY,
         crate::state::stash_store::CAPABILITY,
         crate::state::stash_store::WORKSPACES_CAPABILITY,
+        crate::state::conductor_import_router::CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
         crate::state::browser_devices::FIT_WIDTH_CAPABILITY,
         crate::browser_profile_ops::CAPABILITY,
         crate::state::layout_bulk::CAPABILITY,
+        crate::state::layout_bulk::BARE_CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::CLOSED_CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
