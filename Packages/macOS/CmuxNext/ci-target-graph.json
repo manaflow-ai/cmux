@@ -637,6 +637,7 @@
         "CmuxNextBrowser",
         "CmuxNextBrowserAutomation",
         "CmuxNextBrowserHost",
+        "CmuxNextTestSupport",
         "CmuxNextWakeups"
       ],
       "packages": [],
@@ -834,7 +835,8 @@
       "targets": [
         "CmuxNextCloud",
         "CmuxNextCloudUI",
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []
