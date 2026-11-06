@@ -554,6 +554,8 @@ public final class LayoutRootView: NSView {
         defer { if !moving { runStillWork() } }
         guard moving != isLayoutInMotion else { return }
         isLayoutInMotion = moving
+        // Hover and tooltip targets made since give up their own areas before any pane moves (PaneTrackingAreaOwnersTests).
+        if moving { for screen in screenViews.values where !screen.isHidden { screen.dividerPointer.targets.adopt(in: screen) } }
         for block in layoutMotionObservers.values { block(moving) }
         // The landing frame synced while still in motion: the window hears the rest now (catchers).
         if !moving { reportInteractiveRects() }

@@ -47,8 +47,30 @@ final class TooltipTracker: NSResponder {
     private(set) var text: String?
     private(set) var shortcut: String?
     private var area: NSTrackingArea?
+    /// Tracking without an area of its own: a layout screen's one pointer area tells the presenter (``PanePointerTargets``).
+    private(set) var isServed = false
 
     static func whole(of view: NSView) -> TooltipTracker? { trackers.object(forKey: view)?.whole }
+
+    /// The trackers of `view` that the screen's pointer area serves now.
+    static func served(of view: NSView) -> [TooltipTracker] { all(of: view).filter(\.isServed) }
+
+    /// `view` sits in a layout screen: its tracking trackers give up their areas; the screen's area serves them.
+    static func adoptServed(_ view: NSView) {
+        for tracker in all(of: view) {
+            guard let area = tracker.area else { continue }
+            view.removeTrackingArea(area)
+            tracker.area = nil
+            tracker.isServed = true
+        }
+    }
+
+    /// Whether `windowPoint` is over this tooltip's view or region now.
+    func contains(_ windowPoint: NSPoint) -> Bool {
+        guard let view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return false }
+        let local = (region ?? view.bounds).intersection(view.visibleRect)
+        return local.contains(view.convert(windowPoint, from: nil))
+    }
 
     /// The trackers of `view` (tests).
     static func all(of view: NSView) -> [TooltipTracker] {
@@ -150,7 +172,18 @@ final class TooltipTracker: NSResponder {
     /// Adds the tracking area while there is text, removes it without.
     private func track(_ on: Bool) {
         guard let view else { return }
+        // In a layout screen the screen's one area serves it: no area that AppKit moves with the pane in every frame.
+        if on, area == nil, view.isServedByPanePointerArea {
+            isServed = true
+            return
+        }
+        if !on, isServed {
+            isServed = false
+            TooltipPresenter.shared.exit(self)
+            return
+        }
         if on, area == nil {
+            isServed = false
             var options: NSTrackingArea.Options = [.mouseEnteredAndExited, WindowPlacement.noActivate ? .activeAlways : .activeInActiveApp]
             if region == nil { options.insert(.inVisibleRect) }
             let made = NSTrackingArea(rect: region ?? .zero, options: options, owner: self, userInfo: nil)

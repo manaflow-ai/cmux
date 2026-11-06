@@ -47,11 +47,8 @@ public final class PointerHover: NSObject {
         // `.inVisibleRect` follows the view's visible rect, so the area never
         // needs replacing; the view's own `updateTrackingAreas` leaves it alone
         // (it removes only areas it owns).
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, requiresKeyWindow ? .activeInKeyWindow : .activeAlways, .inVisibleRect],
-                                  owner: self)
-        view.addTrackingArea(area)
-        self.area = area
         Self.index.insert(self, view: view)
+        serve(view.isServedByPanePointerArea)
         Self.installKeyObserversIfNeeded()
     }
 
@@ -63,6 +60,33 @@ public final class PointerHover: NSObject {
             Self.index.remove(ObjectIdentifier(self), view: viewKey)
         }
     }
+
+    /// Whether a layout screen's one pointer area serves this target (``PanePointerTargets``): then it has no tracking
+    /// area of its own, which AppKit would move with the pane in every frame of a resize (RESIZE MAIN BUDGET).
+    public private(set) var isServed = false
+
+    /// Gives up its own area (`served`) or takes one back.
+    private func serve(_ served: Bool) {
+        guard let view else { return }
+        isServed = served
+        if served {
+            if let area { view.removeTrackingArea(area) }
+            area = nil
+        } else if area == nil {
+            let made = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, requiresKeyWindow ? .activeInKeyWindow : .activeAlways,
+                                                             .inVisibleRect], owner: self)
+            view.addTrackingArea(made)
+            area = made
+        }
+    }
+
+    /// `view` sits in a layout screen: its targets give up their own areas.
+    static func adoptServed(_ view: NSView) {
+        for target in index.targets(of: view) where !target.isServed { target.serve(true) }
+    }
+
+    /// Whether `view` has a target the screen's area serves.
+    static func hasServedTarget(_ view: NSView) -> Bool { index.hasServed(view) }
 
     // MARK: Events
 
@@ -84,6 +108,8 @@ public final class PointerHover: NSObject {
     }
 
     private func update() {
+        // Left every layout screen (a view moved out): it tracks with its own area again.
+        if isServed, let view, view.window != nil, !view.isServedByPanePointerArea { serve(false) }
         let hovering = computeHovering()
         guard hovering != isHovering else { return }
         isHovering = hovering
@@ -294,6 +320,16 @@ private final class TargetIndex {
         guard let entries = byView[view] else { return }
         let live = entries.filter { $0.value != nil }
         byView[view] = live.isEmpty ? nil : live
+    }
+
+    /// Whether `view` has a served target (one lookup, no allocation: the screen asks it for each view under a move).
+    func hasServed(_ view: NSView) -> Bool {
+        byView[ObjectIdentifier(view)]?.contains { $0.value?.view === view && $0.value?.isServed == true } ?? false
+    }
+
+    /// The live targets of `view`.
+    func targets(of view: NSView) -> [PointerHover] {
+        (byView[ObjectIdentifier(view)] ?? []).compactMap { $0.value?.view === view ? $0.value : nil }
     }
 
     func noteHovering(_ target: PointerHover, _ hovers: Bool) {

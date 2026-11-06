@@ -20,6 +20,8 @@ final class ScreenDividerPointer: NSResponder {
     private(set) weak var contentTarget: (any PanePointerFollowing)?
     /// Whether the cursor shown now is pane content's: leaving it for content that sets none gives the cursor back.
     private var showsContentCursor = false
+    /// The hover targets and tooltips inside the screen, served by this area (``PanePointerTargets``).
+    let targets = PanePointerTargets()
 
     private struct Region {
         weak var region: (any PanePointerRegion)?
@@ -92,6 +94,7 @@ final class ScreenDividerPointer: NSResponder {
             target?.panePointerMoved(with: event)
         }
         followRegions(event.locationInWindow, left: left)
+        targets.follow(left ? nil : event.locationInWindow, in: screen)
         guard shownCursor == nil else { return }
         if let target, let cursor = target.panePointerCursor(at: target.convert(event.locationInWindow, from: nil)) {
             cursor.set()
@@ -186,10 +189,14 @@ extension ScreenContentView {
     override func viewDidHide() {
         super.viewDidHide()
         refreshDividerHover()
+        dividerPointer.targets.follow(nil, in: self)
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if newWindow == nil { dividerPointer.show(nil, in: self, pointer: nil, event: nil) }
+        if newWindow == nil {
+            dividerPointer.show(nil, in: self, pointer: nil, event: nil)
+            dividerPointer.targets.follow(nil, in: self)
+        }
         super.viewWillMove(toWindow: newWindow)
     }
 
@@ -197,6 +204,9 @@ extension ScreenContentView {
     /// need recomputing, not for a view that has none yet (px-divider-hover: the pointer on a divider got no event).
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { dividerPointer.installTrackingArea(in: self) }
+        if window != nil {
+            dividerPointer.installTrackingArea(in: self)
+            dividerPointer.targets.adopt(in: self)
+        }
     }
 }
