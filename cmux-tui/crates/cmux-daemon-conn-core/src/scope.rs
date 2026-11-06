@@ -179,7 +179,7 @@ impl Scope {
         if self.closed {
             return None;
         }
-        self.mutations += 1;
+        self.mutations = self.mutations.saturating_add(1);
         Some(derived_uuid(&key, "mutation", self.mutations))
     }
 
@@ -190,7 +190,7 @@ impl Scope {
             return None;
         }
         let ordinal = self.derived.entry(kind.to_string()).or_insert(0);
-        *ordinal += 1;
+        *ordinal = ordinal.saturating_add(1);
         Some(derived_uuid(&key, kind, *ordinal))
     }
 }

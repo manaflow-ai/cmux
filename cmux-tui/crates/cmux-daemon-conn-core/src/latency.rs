@@ -15,7 +15,8 @@ pub const FIRST_BOUND_US: u64 = 64;
 pub const POWERS: u64 = 20;
 pub const SUB_BUCKETS: u64 = 4;
 /// Every bucket: the bounded ones and the overflow bucket.
-pub const BUCKET_COUNT: usize = 1 + (POWERS * SUB_BUCKETS) as usize + 1;
+/// (1 + 20 * 4 + 1; a literal, checked by a test, so no cast or arithmetic.)
+pub const BUCKET_COUNT: usize = 82;
 
 /// The upper bound of each bucket but the overflow one, in microseconds, rising.
 pub fn bounds_us() -> Vec<u64> {
@@ -24,7 +25,7 @@ pub fn bounds_us() -> Vec<u64> {
         let base = FIRST_BOUND_US << power;
         let step = base / SUB_BUCKETS;
         for sub in 1..=SUB_BUCKETS {
-            bounds.push(base + step * sub);
+            bounds.push(base.saturating_add(step.saturating_mul(sub)));
         }
     }
     bounds
@@ -36,15 +37,18 @@ pub fn bucket(micros: u64) -> usize {
         return 0;
     }
     // (64 << k, 64 << (k + 1)] holds `micros`; `micros - 1` puts each bound in its own bucket.
-    let below = micros - 1;
-    let high_bit = u64::from(63 - below.leading_zeros());
-    let power = high_bit - u64::from(FIRST_BOUND_US.trailing_zeros());
+    // `micros` > 64, so none of these wraps; saturating ops keep that visible to the lint.
+    let overflow = BUCKET_COUNT.saturating_sub(1);
+    let below = micros.saturating_sub(1);
+    let high_bit = u64::from(63u32.saturating_sub(below.leading_zeros()));
+    let power = high_bit.saturating_sub(u64::from(FIRST_BOUND_US.trailing_zeros()));
     if power >= POWERS {
-        return BUCKET_COUNT - 1;
+        return overflow;
     }
     let base = FIRST_BOUND_US << power;
-    let sub = (below - base) / (base / SUB_BUCKETS);
-    usize::try_from(1 + power * SUB_BUCKETS + sub).unwrap_or(BUCKET_COUNT - 1)
+    let sub = below.saturating_sub(base).checked_div(base / SUB_BUCKETS).unwrap_or(0);
+    let index = power.saturating_mul(SUB_BUCKETS).saturating_add(sub).saturating_add(1);
+    usize::try_from(index).unwrap_or(overflow)
 }
 
 /// How a request ended.
@@ -135,11 +139,11 @@ pub fn percentile_us(counts: &[u64], max_us: u64, percent: u64) -> Option<u64> {
     if total == 0 {
         return None;
     }
-    let rank = ((percent.min(100) * total).div_ceil(100)).max(1);
+    let rank = percent.min(100).saturating_mul(total).div_ceil(100).max(1);
     let bounds = bounds_us();
     let mut seen = 0u64;
     for (index, count) in counts.iter().enumerate() {
-        seen += count;
+        seen = seen.saturating_add(*count);
         if seen >= rank {
             return Some(bounds.get(index).copied().unwrap_or(max_us));
         }
@@ -150,6 +154,12 @@ pub fn percentile_us(counts: &[u64], max_us: u64, percent: u64) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bucket_count_is_one_per_bound_and_the_overflow() {
+        assert_eq!(BUCKET_COUNT, 1 + (POWERS * SUB_BUCKETS) as usize + 1);
+        assert_eq!(bounds_us().len(), BUCKET_COUNT - 1);
+    }
 
     #[test]
     fn each_bound_is_in_its_own_bucket() {

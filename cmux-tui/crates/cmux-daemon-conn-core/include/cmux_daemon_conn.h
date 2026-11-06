@@ -136,6 +136,9 @@ uint32_t cmux_daemon_conn_abi_version(void);
 
 /*
  Frees a reply buffer.
+
+ # Safety
+ `bytes` came from this library and is freed once.
  */
 void cmux_daemon_conn_bytes_free(CmuxDaemonConnBytes bytes);
 
@@ -143,12 +146,21 @@ void cmux_daemon_conn_bytes_free(CmuxDaemonConnBytes bytes);
  One JSON op (request: a JSON object, or empty for {}). Codes: 0 OK, -1 a
  null pointer, -2 invalid input, -3 an unknown op, -4 a panic (caught). On
  any code but 0 nothing is written to `*out`.
+
+ # Safety
+ `op` is NULL or a NUL-terminated string; `request` has `request_len` readable bytes (or `request_len` is 0); `out` is NULL or writable.
  */
-int32_t cmux_daemon_conn_call(const char *op, const uint8_t *request, size_t request_len, CmuxDaemonConnBytes *out);
+int32_t cmux_daemon_conn_call(const char *op,
+                              const uint8_t *request,
+                              size_t request_len,
+                              CmuxDaemonConnBytes *out);
 
 /*
  A named policy: 0 reconnect, 1 first connect, 2 local reconnect, 3 local
  first connect, 4 resync. -2 for another code.
+
+ # Safety
+ `out` is NULL or writable.
  */
 int32_t cmux_retry_policy_preset(uint32_t preset, CmuxRetryPolicy *out);
 
@@ -176,46 +188,73 @@ CmuxRetryPacer cmux_retry_pacer_new(CmuxRetryPolicy policy);
  Notes one failure; the spacing before the next attempt in nanoseconds, or
  -1 when the budget is spent (wait for an event only). `random`: a draw
  in 0..<1 for the jitter.
+
+ # Safety
+ `pacer` is NULL or points to a pacer the caller does not share during the call.
  */
 int64_t cmux_retry_pacer_failed(CmuxRetryPacer *pacer, double random);
 
 /*
  Notes a failure while the socket (`device`, `inode`) exists; as `failed`.
+
+ # Safety
+ `pacer` is NULL or points to a pacer the caller does not share during the call.
  */
 int64_t cmux_retry_pacer_failed_at(CmuxRetryPacer *pacer, uint64_t device, uint64_t inode, double random);
 
 /*
  Notes a failure while the socket is missing.
+
+ # Safety
+ `pacer` is NULL or points to a pacer the caller does not share during the call.
  */
 void cmux_retry_pacer_failed_while_missing(CmuxRetryPacer *pacer);
 
 /*
  The attempt was refused at the daemon's connection limit.
+
+ # Safety
+ `pacer` is NULL or points to a pacer the caller does not share during the call.
  */
 void cmux_retry_pacer_refused_busy(CmuxRetryPacer *pacer);
 
 /*
  After a success that stayed healthy.
+
+ # Safety
+ `pacer` is NULL or points to a pacer the caller does not share during the call.
  */
 void cmux_retry_pacer_reset(CmuxRetryPacer *pacer);
 
 /*
  What woke the wait: 0 event, 1 socket, 2 timer, 3 cancelled.
+
+ # Safety
+ `pacer` is NULL or points to a pacer the caller does not share during the call.
  */
 void cmux_retry_pacer_woke(CmuxRetryPacer *pacer, uint32_t cause);
 
 /*
  The timed-retry budget is spent.
+
+ # Safety
+ `pacer` is NULL or points to a pacer the caller does not share during the call.
  */
 bool cmux_retry_pacer_is_exhausted(const CmuxRetryPacer *pacer);
 
 /*
  The next wait arms no timer.
+
+ # Safety
+ `pacer` is NULL or points to a pacer the caller does not share during the call.
  */
 bool cmux_retry_pacer_waits_for_event_only(const CmuxRetryPacer *pacer);
 
 /*
  A socket change may wake the next wait.
+
+ # Safety
+ `pacer` is NULL or points to a pacer the caller does not share during the call.
  */
 bool cmux_retry_pacer_wakes_on_socket(const CmuxRetryPacer *pacer);
 
@@ -226,11 +265,17 @@ CmuxHeartbeat cmux_heartbeat_new(void);
 
 /*
  Starts a run; returns its number. `*tell`: tell the observer true.
+
+ # Safety
+ `beat` (and `tell`) is NULL or points to memory the caller holds under its lock.
  */
 uint64_t cmux_heartbeat_start(CmuxHeartbeat *beat, bool *tell);
 
 /*
  Ends the run; whether to tell the observer true.
+
+ # Safety
+ `beat` (and `tell`) is NULL or points to memory the caller holds under its lock.
  */
 bool cmux_heartbeat_stop(CmuxHeartbeat *beat);
 
@@ -238,6 +283,9 @@ bool cmux_heartbeat_stop(CmuxHeartbeat *beat);
  One ask of `run` ended. `action`: 0 the run is over, 1 close the
  transport, 2 schedule the next ask; tell the observer `answering` when
  `tell`.
+
+ # Safety
+ `beat` (and `tell`) is NULL or points to memory the caller holds under its lock.
  */
 CmuxHeartbeatStep cmux_heartbeat_tick(CmuxHeartbeat *beat,
                                       uint64_t run,
@@ -249,11 +297,17 @@ CmuxDaemonLatency *cmux_daemon_latency_new(void);
 
 /*
  NULL is ignored. No call may use the handle afterwards.
+
+ # Safety
+ `probe` is NULL or a handle from `cmux_daemon_latency_new`, freed once.
  */
 void cmux_daemon_latency_free(CmuxDaemonLatency *probe);
 
 /*
  Records one request (`outcome`: 0 reply, 1 error, 2 timed out). Lock-free.
+
+ # Safety
+ `probe` is NULL or a live handle; `counts` has `counts_len` writable u64s; `totals` is NULL or writable.
  */
 void cmux_daemon_latency_record(const CmuxDaemonLatency *probe, uint64_t nanoseconds, uint32_t outcome);
 
@@ -265,6 +319,9 @@ size_t cmux_daemon_latency_bucket_count(void);
 /*
  Reads the probe: up to `counts_len` bucket counts into `counts`, and the
  totals into `*totals`. Returns the number of counts written.
+
+ # Safety
+ `probe` is NULL or a live handle; `counts` has `counts_len` writable u64s; `totals` is NULL or writable.
  */
 size_t cmux_daemon_latency_snapshot(const CmuxDaemonLatency *probe,
                                     uint64_t *counts,
@@ -274,16 +331,25 @@ size_t cmux_daemon_latency_snapshot(const CmuxDaemonLatency *probe,
 /*
  A scope; `key` (UTF-8, `key_len` bytes) is the idempotency key, NULL or
  empty for none. NULL when the key is not UTF-8.
+
+ # Safety
+ `key` is NULL or has `key_len` readable bytes.
  */
 CmuxDaemonScope *cmux_daemon_scope_new(const uint8_t *key, size_t key_len);
 
 /*
  NULL is ignored. No call may use the handle afterwards.
+
+ # Safety
+ `scope` is NULL or a handle from `cmux_daemon_scope_new`, freed once.
  */
 void cmux_daemon_scope_free(CmuxDaemonScope *scope);
 
 /*
  One JSON op on a scope (codes as `cmux_daemon_conn_call`). Thread-safe.
+
+ # Safety
+ `scope` is NULL or a live handle; the other pointers as `cmux_daemon_conn_call`.
  */
 int32_t cmux_daemon_scope_call(const CmuxDaemonScope *scope,
                                const char *op,
