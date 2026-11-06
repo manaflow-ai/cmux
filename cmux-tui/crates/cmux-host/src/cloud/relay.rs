@@ -656,7 +656,7 @@ async fn serve(
                         let chat = run_chat(chat, runner.clone(), tx.clone());
                         let task = tokio::spawn(async move {
                             let _running = running;
-                            chat.await
+                            chat.await;
                         });
                         chats.0.insert(id, task.abort_handle());
                     }

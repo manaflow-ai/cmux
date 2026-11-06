@@ -173,7 +173,7 @@ fn a_stop_drops_the_socket_at_once() {
     struct Socket(std::sync::Arc<std::sync::atomic::AtomicBool>);
     impl Drop for Socket {
         fn drop(&mut self) {
-            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            self.0.store(true, Ordering::SeqCst);
         }
     }
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
@@ -200,7 +200,7 @@ fn a_stop_drops_the_socket_at_once() {
         });
         assert_eq!(out, None);
         assert!(
-            dropped.load(std::sync::atomic::Ordering::SeqCst),
+            dropped.load(Ordering::SeqCst),
             "the socket is dropped with its chats"
         );
         assert!(started.elapsed() < Duration::from_secs(2), "not at the next ping tick");
