@@ -40,3 +40,11 @@ impl Desktop for WindowsDesktop {
     fn perform_action(&self, _w: &str, _e: &str, _a: &str) -> DResult<ActionOutcome> { todo() }
     fn launch_app(&self, _a: &str) -> DResult<App> { todo() }
 }
+
+pub fn person_activity() -> Arc<dyn crate::engine::PersonActivity> {
+    Arc::new(crate::engine::NoTakeover)
+}
+
+pub fn cursor_overlay() -> Arc<dyn crate::cursor::CursorSink> {
+    Arc::new(crate::cursor::NoCursor)
+}
