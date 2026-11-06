@@ -52,7 +52,9 @@ fn config(store: StoreMode) -> Config {
     let mut cfg =
         Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = store;
-    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    // A chat the peer link drives must ask, in a mode the asking table lists (`remote_guard.rs`).
+    cfg.permission_policy = PermissionPolicy::Ask;
+    cfg.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
     cfg
 }
 

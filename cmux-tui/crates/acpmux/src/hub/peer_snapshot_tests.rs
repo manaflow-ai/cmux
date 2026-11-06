@@ -497,13 +497,21 @@ fn a_page_continues_a_copy_only_where_it_joins_it() {
     put(&mut store, "m1", events(7, 1, 8, recs(9..=10)));
     put(&mut store, "m1", attach(7, 1, true, recs(9..=11)));
     assert_eq!(seqs(&mut store, "m1"), (5..=11).collect::<Vec<_>>());
-    // On another link, a peer behind the copy (an older disk) replaces it; on the link that
-    // paged it, a page that raced a live record does not.
+    // On the link that paged it, a page that raced a live record changes nothing.
     live(&mut store, "m1", 1, 12);
     let mut raced = attach(7, 1, true, recs(9..=11));
     raced.host_last_seq = Some(11);
     put(&mut store, "m1", raced);
     assert_eq!(seqs(&mut store, "m1"), (5..=12).collect::<Vec<_>>());
+    // On another link, a peer behind the copy (an older disk) leaves it: the copy holds every
+    // record past where the peer is, and goes back to it (`restore.rs`).
+    put(&mut store, "m1", attach(7, 2, true, recs(8..=9)));
+    assert_eq!(seqs(&mut store, "m1"), (5..=12).collect::<Vec<_>>());
+    let ahead = store.ahead(PEER, vec![("m1".into(), 7, 9)]);
+    let back: Vec<u64> = ahead[0].3.iter().filter_map(seq_of).collect();
+    assert_eq!((ahead.len(), ahead[0].2, back), (1, 9, vec![10, 11, 12]));
+    // The peer refused them (another history): the copy goes, and its next page starts one.
+    store.take(Op::Restored { key: key("m1"), last: None });
     put(&mut store, "m1", attach(7, 2, true, recs(8..=9)));
     assert_eq!(seqs(&mut store, "m1"), vec![8, 9]);
 }
@@ -597,18 +605,29 @@ fn a_peer_behind_what_the_copy_saw_replaces_it_and_older_history_is_left_out() {
 }
 
 #[test]
-fn an_empty_page_from_a_peer_gone_back_drops_the_copy() {
+fn an_empty_page_from_a_peer_gone_back_keeps_the_copy_until_the_peer_takes_it_back() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
     let mut store = store_at(dir.path());
     list(&mut store, &[("m1", 7)]);
     put(&mut store, "m1", attach(7, 1, false, recs(1..=3)));
     // A VM resumed from before its first record: an empty attach on a new link, `lastSeq` 0.
+    // The copy stays: it holds every record the peer lost, which go back to it.
     let mut empty = attach(7, 2, false, vec![]);
     empty.host_last_seq = Some(0);
     put(&mut store, "m1", empty);
-    assert!(seqs(&mut store, "m1").is_empty());
-    // Its new journal never joins the old one.
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3]);
+    assert_eq!(store.ahead(PEER, vec![("m1".into(), 7, 0)])[0].3.len(), 3);
+    // Taken back, the peer's journal ends where the copy does, and its pages join it.
+    store.take(Op::Restored { key: key("m1"), last: Some(3) });
     put(&mut store, "m1", attach(7, 2, true, recs(4..=5)));
+    assert_eq!(seqs(&mut store, "m1"), (1..=5).collect::<Vec<_>>());
+    // A peer that refuses them is another history: the copy goes, and its pages start one.
+    let mut empty = attach(7, 3, false, vec![]);
+    empty.host_last_seq = Some(0);
+    put(&mut store, "m1", empty);
+    store.take(Op::Restored { key: key("m1"), last: None });
+    assert!(seqs(&mut store, "m1").is_empty());
+    put(&mut store, "m1", attach(7, 3, true, recs(4..=5)));
     assert_eq!(seqs(&mut store, "m1"), vec![4, 5]);
 }
 
