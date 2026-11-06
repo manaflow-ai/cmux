@@ -296,8 +296,16 @@ MacBook**, or the sidebar row's menu.
      DMG by the release and nightly jobs and signed by the same signing step
      that writes the appcast's `sparkle:edSignature` (today that signs the
      DMG only, so this is a new step). The key's public half ships in the
-     app, as Sparkle's does; a rotation ships the new public key in a build
-     signed by the old one first. And
+     app, as Sparkle's does. A rotation is a signed statement, not an
+     embedded key (review: key rotation): the release publishes
+     `cmux-release-key-rotation.json` (the new public key, the first build
+     number it signs, and the old key's fingerprint) signed by the old key,
+     and every manifest the new key signs for the next 90 days carries a
+     second signature by the old key. A receiver accepts a manifest signed
+     by a key it does not ship only when it holds a rotation statement for
+     that key, verified against a key it already trusts, and then records
+     the new key; a manifest signed by an unknown key with no such statement
+     is refused. And
      the build's codesign must satisfy the exact designated requirement of
      its channel: Developer ID Manaflow, Inc. (7WLXT3NR37), notarized, *and*
      bundle id `com.cmuxterm.app` (release) or the nightly's id, nothing
@@ -341,7 +349,15 @@ MacBook**, or the sidebar row's menu.
    (review: replacement); the old tree, now in staging, is deleted after the
    ledger records the new one. A crash at any point leaves either the old or
    the new app at the path, never a mix, and the ledger's pending entry tells
-   the next start which one and what to clean up. Installs to one path are
+   the next start which one and what to clean up. The old tree is checked
+   after it leaves the path, not before (review: replacement race): hostd
+   swaps first, then hashes the tree it just swapped out, now in its own
+   staging folder. If that hash is not the ledger's (anything changed the
+   app since this link installed it), it swaps back at once and refuses the
+   send with "MacBook's copy of cmux DEV <tag> changed since it was
+   installed; left as it is". A swap loses nothing, so a tree this link did
+   not install is never deleted, whatever wrote to the path between any
+   check and the swap. Installs to one path are
    serialized by a lock on that path, so two sends of one tag never race.
    The journal order is: write and sync the pending ledger entry (old and
    new tree hashes), swap, write and sync the committed entry, then delete
@@ -354,8 +370,9 @@ MacBook**, or the sidebar row's menu.
    type, mode, size, content SHA-256 or symlink target) of every entry in
    the bundle, so it is the same for the same tree whatever archive carried
    it. It replaces an app only if the ledger says this machine link put it
-   there and the tree on disk still has the ledger's tree hash; anything else at that path is left alone and
-   the send is refused with its reason. A build-key build
+   there and the tree it swaps out still has the ledger's tree hash (checked
+   after the swap, as above); anything else at that path is left alone, or
+   swapped back, and the send is refused with its reason. A build-key build
    installs only as a tagged DEV app: bundle id `com.cmuxterm.app.debug.<tag>`,
    into `~/Applications/cmux DEV <tag>.app`. The tag must match
    `^[a-z0-9][a-z0-9-]{0,39}$`, and the signed bundle id must be exactly
@@ -372,9 +389,15 @@ MacBook**, or the sidebar row's menu.
    resolving. A release build installs beside
    the others under its own name. The running app and the person's nightly are never
    quit or replaced (the nightly has its own updater). With `--open`, the
-   receiver hashes the installed tree again and launches only when it still
-   has the ledger's tree hash, so nothing written between install and launch
-   runs; a release build still passes Gatekeeper on launch.
+   receiver hashes the installed tree again and checks the app's code
+   signature against the build's designated requirement (the release
+   requirement, or the enrolled build key's) just before it launches. The
+   hash catches a tree damaged since install. What it cannot stop, and does
+   not claim to, is another process running as the person rewriting the app
+   between that check and the launch: such a process can already run
+   anything as the person, so this design gives it no new power. The
+   threat this step guards against is the peer and the link, and their
+   bytes were verified before the app ever reached the path.
 5. If a person is logged in at the desktop, it opens the build when asked
    (`--open`); if not, it says "MacBook has no one logged in; the build is
    installed and opens at the next login" and stops. Privacy permissions the
