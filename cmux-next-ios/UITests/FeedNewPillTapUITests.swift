@@ -66,10 +66,7 @@ final class FeedNewPillTapUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_LIVE"] = "\(liveHz)"
         app.launchArguments += ["-cmux-mobile-tab", "feed", "-cmux-mobile-no-restore"]
         app.launch()
-        let choose = app.scrollViews["setup.teams.choose"]
-        if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
-        let all = app.buttons["All"].firstMatch
-        XCTAssertTrue(all.waitForExistence(timeout: 30), "Feed chips\n\(app.debugDescription)")
+        let all = feedChipsAfterSetup(app)
         // The Finished filter: no open asks pinned above the events (FeedStore.pinningNeedsYou), so
         // the rig's live responses arrive on top, above the reader, as the pill counts them.
         app.buttons["Finished"].firstMatch.tap()
@@ -124,4 +121,19 @@ final class FeedNewPillTapUITests: XCTestCase {
         shot.lifetime = .keepAlways
         add(shot)
     }
+}
+
+/// Past the setup screen to the Feed: taps the Manaflow space whenever the space chooser shows
+/// (it can appear after a slow launch), until the Feed's chips are there.
+@MainActor func feedChipsAfterSetup(_ app: XCUIApplication, timeout: TimeInterval = 60) -> XCUIElement {
+    let all = app.buttons["All"].firstMatch
+    let manaflow = app.buttons["Manaflow"].firstMatch
+    let ready = NSPredicate { _, _ in
+        if all.exists { return true }
+        if app.scrollViews["setup.teams.choose"].exists, manaflow.exists, manaflow.isHittable { manaflow.tap() }
+        return false
+    }
+    let wait = XCTNSPredicateExpectation(predicate: ready, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [wait], timeout: timeout), .completed, "Feed chips\n\(app.debugDescription)")
+    return all
 }

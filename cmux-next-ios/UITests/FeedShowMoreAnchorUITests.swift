@@ -15,9 +15,7 @@ final class FeedShowMoreAnchorUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_FEED_STRESS"] = "60"
         app.launchArguments += ["-cmux-mobile-tab", "feed", "-cmux-mobile-no-restore"]
         app.launch()
-        let choose = app.scrollViews["setup.teams.choose"]
-        if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
-        XCTAssertTrue(app.buttons["All"].firstMatch.waitForExistence(timeout: 30), "Feed chips\n\(app.debugDescription)")
+        _ = feedChipsAfterSetup(app)
 
         // The Finished filter: plain events only (no pinned asks), most with long bodies.
         app.buttons["Finished"].firstMatch.tap()
