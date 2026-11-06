@@ -45,7 +45,7 @@ committed. It reads its pane's size, the size its host asked of it, and the size
 `follow`: per terminal, frames sampled, `held` frames (asked is not the pane's size, more than 0.5 pt off), `lagging`
 frames (shown is not the pane's size) and `in_flight` frames (a size asked of Ghostty and not shown yet), with the first
 3 held and lagging ones; the frame presenters' counts in the run (`presenter`: presented, keeps, group waits,
-fallbacks); and the round's `held_frames` and `lagging_frames`. A round with a held frame fails, and the message names
+long keeps); and the round's `held_frames` and `lagging_frames`. A round with a held frame fails, and the message names
 the terminal, its held frames and the first sizes; so does a terminal shown at the start that was never sampled.
 Lagging frames are data only: the frame owner (``TerminalFramePresenter``) keeps a frame while its new size is not
 drawn yet; in a spring the next size is drawn ahead, so only the spring's first refresh keeps.
