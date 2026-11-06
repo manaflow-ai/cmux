@@ -1,6 +1,7 @@
 //! Renewal that fails while offline tries again later, and the catch-up of a machine taken back
 //! after a relaunch. Ported from CloudCodexBrokerRenewalRetryTests.swift.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 

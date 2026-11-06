@@ -105,7 +105,7 @@ impl Broker {
     async fn retry_renewal<T, F, Fut>(&self, cx: &Cx, mut work: F) -> Result<T, Error>
     where
         F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<T, Error>>,
+        Fut: Future<Output = Result<T, Error>>,
     {
         for attempt in 0..=3u32 {
             match work().await {

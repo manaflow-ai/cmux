@@ -4,8 +4,6 @@
 use super::*;
 use crate::target::{ACCESS_PATH, ExecResult, MODE_PATH, VmError};
 use crate::test_support::holder_script;
-use std::os::unix::fs::PermissionsExt as _;
-use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
 
 #[derive(Default)]
 struct Files(Mutex<HashMap<String, Vec<u8>>>);

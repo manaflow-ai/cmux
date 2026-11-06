@@ -241,7 +241,7 @@ impl Target for Fake {
 pub(crate) fn hook_fn<F, Fut>(f: F) -> Hook
 where
     F: Fn(String) -> Fut + Send + Sync + 'static,
-    Fut: std::future::Future<Output = Result<(), Error>> + Send + 'static,
+    Fut: Future<Output = Result<(), Error>> + Send + 'static,
 {
     Arc::new(move |arg: &str| f(arg.to_owned()).boxed())
 }
@@ -249,7 +249,7 @@ where
 pub(crate) fn live_fn<F, Fut>(f: F) -> LiveHook
 where
     F: Fn() -> Fut + Send + Sync + 'static,
-    Fut: std::future::Future<Output = Result<bool, Error>> + Send + 'static,
+    Fut: Future<Output = Result<bool, Error>> + Send + 'static,
 {
     Arc::new(move || f().boxed())
 }

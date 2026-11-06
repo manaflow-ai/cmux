@@ -196,9 +196,10 @@ impl Session {
             let mut exited = self.exited.clone();
             let pid = self.pid;
             tokio::spawn(async move {
-                let ended = tokio::time::timeout(STOP_GRACE, exited.wait_for(|e| *e)).await;
+                let timed_out =
+                    tokio::time::timeout(STOP_GRACE, exited.wait_for(|e| *e)).await.is_err();
                 // Only the child this session launched, and only while it has not exited.
-                if ended.is_err()
+                if timed_out
                     && !*exited.borrow()
                     && let Some(pid) = pid
                 {
