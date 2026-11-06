@@ -190,6 +190,32 @@ class CliSwapTests(unittest.TestCase):
         self.assertEqual(theirs.read_text(), "a person's own file\n")
         self.assertEqual(sorted(p.name for p in bin_dir.iterdir()), [".cmux-mine.cli-swap"])
 
+    def test_a_build_not_published_changes_nothing(self):
+        os.environ["PATH"] = f"{self.bundled.parent}:/usr/bin:/bin"
+        code, out = self.run_cli("apply", "--tree-key", "0" * 40, "--target", TRIPLE)
+        self.assertEqual(code, 1, out)
+        self.assertIn("could not read", out)
+        self.assertNotIn("Traceback", out)
+        self.assertFalse((self.home / ".local/bin").exists())
+
+    def test_a_link_found_through_a_relative_path_entry_is_undone_from_anywhere(self):
+        links = self.tmp / "usr-local-bin"
+        links.mkdir()
+        other = self.tmp / "installed" / "cmux"
+        other.parent.mkdir()
+        other.write_text("install script's build\n")
+        other.chmod(0o755)
+        link = links / "cmux"
+        link.symlink_to(other)
+        cwd = os.getcwd()
+        self.addCleanup(os.chdir, cwd)
+        os.chdir(self.tmp)
+        os.environ["PATH"] = "usr-local-bin:/usr/bin:/bin"
+        self.assertEqual(self.apply()[0], 0)
+        os.chdir(self.home)
+        self.assertEqual(self.run_cli("undo")[0], 0)
+        self.assertEqual(os.readlink(link), str(other))
+
     def test_it_loads_on_python_3_9(self):
         # The system python3 of macOS: no `X | None` at runtime.
         source = (ROOT / "scripts/cmux-next/cli-swap.py").read_text()

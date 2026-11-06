@@ -65,7 +65,8 @@ def terminal_cmux(app: str | None) -> Path | None:
         bundled = Path(app) / "Contents/Resources/bin/cmux"
         return bundled if bundled.exists() else None
     found = shutil.which("cmux")
-    return Path(found) if found else None
+    # Absolute, so the record still names it when undo runs from another directory.
+    return Path(found).absolute() if found else None
 
 
 def in_app_bundle(path: Path) -> bool:
@@ -119,8 +120,13 @@ def command_apply(args) -> int:
     state = state_dir()
     triple = args.target or target_triple()
     url = f"{BASE}/{args.tree_key}/cmux-tui-{triple}"
-    want = args.sha or fetch(url + ".sha256").decode().split()[0]
-    body = fetch(url)
+    try:
+        want = args.sha or fetch(url + ".sha256").decode().split()[0]
+        body = fetch(url)
+    except (OSError, UnicodeDecodeError, IndexError) as error:
+        # Not published (yet), no network, or a .sha256 that is not one: the same "nothing changed".
+        print(f"cli-swap: could not read {url}: {error}; nothing changed", file=sys.stderr)
+        return 1
     have = hashlib.sha256(body).hexdigest()
     if have != want:
         print(f"cli-swap: {url} has sha256 {have}, not {want}; nothing changed", file=sys.stderr)
