@@ -1918,6 +1918,25 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         store.trimOlderIfLarge(preserving: selectedRowIDs)
     }
 
+    /// What a memory warning keeps of the loaded window, for a reader resting at the bottom.
+    static let pressureKeepCount = 200
+
+    /// A memory warning: a reader resting on the newest message keeps only the newest
+    /// `pressureKeepCount` messages loaded; the rest reload as pages from the server when the
+    /// reader scrolls up (`loadOlder`), as after a resting trim. A reader scrolled up keeps
+    /// what they read: their rows are the ones on screen.
+    public override func didReceiveMemoryWarning() {
+        super.didReceiveMemoryWarning()
+        relieveMemoryPressure()
+    }
+
+    func relieveMemoryPressure() {
+        guard isPinnedToBottom, !collectionView.isTracking, !collectionView.isDecelerating,
+              activeFlights.isEmpty, pendingFlight == nil, replyTarget == nil, editingMessageID == nil,
+              !isSelecting, replyOverlay == nil else { return }
+        store.trimOlder(keepingNewest: Self.pressureKeepCount, preserving: selectedRowIDs)
+    }
+
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
         // The open's round trip for spare cells is not the reader's scroll.
         if isWarmingCellPools { return }

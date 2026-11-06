@@ -144,7 +144,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         let once = Self.listingEachWorkspaceOnce(sections)
         // The Archive section takes the archived rows out of the lists; they draw under its row at the end.
         let archive = Self.drawsArchiveSection(o) ? Self.splittingArchive(once, keeping: o.activeWorkspaceID) : nil
-        let sections = archive?.live ?? once
+        // Projects and Recents takes the loose rows out of the computers' lists; they draw under "Recents" after them.
+        let recents = Self.drawsRecents(o) ? Self.splittingRecents(archive?.live ?? once, options: o) : nil
+        let sections = recents?.sections ?? archive?.live ?? once
         var rows: [SidebarRow] = []
         var y = m.topPadding
         var gapY: CGFloat?
@@ -175,8 +177,18 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         let lastMachine = sections.lastIndex { $0.machine != nil }
 
         var firstSection = true, statusShown = false, statusListed = false
+        var projectsHeaded = false, recentsPlaced = false
+        // Projects' "Show N more" and the Recents list, once, right after the last computer's rows.
+        func placeRecents() {
+            guard let recents, !recentsPlaced else { return }
+            recentsPlaced = true
+            let before = rows.count
+            Self.appendRecents(recents, firstRow: rows.isEmpty, options: o, metrics: m, to: &rows, y: &y)
+            if rows.count != before { firstSection = false }
+        }
         for (sectionIndex, section) in sections.enumerated() {
             if let lastMachine, sectionIndex > lastMachine {
+                placeRecents()
                 let before = y
                 chats.placeEarlier(&y)
                 // History drawn above: the sections after it no longer start the list.
@@ -252,13 +264,22 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             // A remote group (remote-groups-DESIGN.md slice 4) and the Chief's workspaces are a section of
             // their own in one list too.
             let flat = o.flattensMachines && section.machine != nil && !Self.keepsHeaderInOneList(section)
+            // Projects and Recents: a computer whose rows all went to Recents lists nothing here.
+            if recents != nil && section.machine != nil && nodes.isEmpty && !gapHere { continue }
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
+            // A Cloud machine with no workspace (paused, or still connecting) lists nothing in one list, as before it had a header;
+            // a remote group the person made keeps its header empty.
+            if o.flattensMachines && section.machine?.kind == .cloud && !section.isHostGroup && nodes.isEmpty && !gapHere { continue }
             // Consecutive computers in one list read as one list: no gap. A block brings its own top padding; under
             // it the next row follows by the row spacing, as under any row (Leo 2026-10-21: no gap after the pins).
             if firstSection && blockHeight > 0 { y -= m.topPadding }
             if !firstSection && !(flat && previousWasMachine) && blockHeight == 0 { y += afterBlock ?? m.sectionSpacing }
             firstSection = false
+            if let recents, !projectsHeaded, section.machine != nil, !nodes.isEmpty, recents.projectCount > 0 {
+                projectsHeaded = true
+                Self.appendProjectsHeader(recents, section: section.id, metrics: m, to: &rows, y: &y)
+            }
             if section.machine != nil { chats.placePinned(&y) }
             // This section's own rows under its block: its groups, or its empty drop zone (or the drop's gap in the zone's
             // place, so the rows below stay put). Any other gap alone opens right under the block and moves the rows
@@ -294,7 +315,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     key: .section(section.id), y: y, height: m.sectionHeaderHeight, section: section.id,
                     group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
                     isCollapsed: collapsed, childCount: nodes.count, groupColor: nil,
-                    titlesProjects: section.machine != nil && machineCount == 1
+                    // A Cloud machine's header says which machine (`keepsHeaderInOneList`), even as the only one.
+                    titlesProjects: (section.machine.map { $0.kind != .cloud } ?? false) && machineCount == 1
                 ))
                 y += m.sectionHeaderHeight + m.rowSpacing
             }
@@ -473,6 +495,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
+        placeRecents()
         if let archive { Self.appendArchive(archive, firstRow: rows.isEmpty, options: o, base: base, metrics: m, to: &rows, y: &y) }
         chats.placeEarlier(&y)
         y += m.bottomPadding

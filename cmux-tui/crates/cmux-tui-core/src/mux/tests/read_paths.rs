@@ -338,6 +338,183 @@ fn a_scoped_terminal_list_reads_only_its_workspace() {
     }
 }
 
+/// One keyed resource mutation; returns its result.
+fn keyed(mux: &Arc<Mux>, operation: &str, fields: Value, key: &str) -> Value {
+    let mut params = fields;
+    params["machine"] = json!("current");
+    params["session"] = json!("current");
+    let envelope = json!({"protocol":"cmux.protocol/2","type":"request","id":key,
+                          "operation":operation,"params":params,"idempotency_key":key});
+    let response =
+        crate::resource_router::handle_resource_message(mux, &envelope.to_string()).unwrap();
+    assert_eq!(response["ok"], true, "{operation}: {response}");
+    response["result"].clone()
+}
+
+/// The changes the journal records after `head`.
+fn journaled_changes(mux: &Arc<Mux>, head: u64) -> Vec<Value> {
+    mux.session_journal_after(head, 64)
+        .unwrap()
+        .records
+        .into_iter()
+        .flat_map(|record| record.payload["changes"].as_array().cloned().unwrap_or_default())
+        .collect()
+}
+
+/// ask-bdd706af47: a focus or tab selection costs the same with 20
+/// workspaces as with one. Each reads the subtrees of the workspaces it
+/// changes (the one it leaves and the one it focuses), never the whole
+/// session's topology, and its deltas are the rows that changed, each equal
+/// to the session snapshot after it.
+#[test]
+fn focus_and_tab_selection_read_only_the_workspaces_they_change() {
+    let mux = test_mux();
+    for _ in 0..20 {
+        let created = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(created.id).unwrap());
+        mux.split(pane, SplitDir::Right, Some((80, 24))).unwrap();
+        mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+    }
+    let snapshot = || resource(&mux, "session.snapshot", json!({}));
+    let rows =
+        |snapshot: &Value, collection: &str| snapshot[collection].as_array().unwrap().clone();
+    let workspace_of_pane = |snapshot: &Value, pane: &Value| {
+        rows(snapshot, "screens")
+            .into_iter()
+            .find(|screen| screen["id"] == pane["screen_id"])
+            .unwrap()["workspace_id"]
+            .clone()
+    };
+    let first = snapshot();
+    let workspaces = rows(&first, "workspaces");
+    assert_eq!(workspaces.len(), 20, "{first}");
+    let unfocused = |snapshot: &Value, skip: usize| {
+        rows(snapshot, "workspaces")
+            .into_iter()
+            .filter(|workspace| workspace["focused"] == false)
+            .nth(skip)
+            .unwrap()["id"]
+            .clone()
+    };
+    let pane_in = |snapshot: &Value, workspace: &Value, focused: bool| {
+        rows(snapshot, "panes")
+            .into_iter()
+            .find(|pane| {
+                workspace_of_pane(snapshot, pane) == *workspace && pane["focused"] == focused
+            })
+            .unwrap()
+    };
+    // A tab that is not its pane's selected tab, in a workspace that is not
+    // focused, or in the focused pane.
+    let inactive_tab = |snapshot: &Value, pane: &Value| {
+        rows(snapshot, "tabs")
+            .into_iter()
+            .find(|tab| tab["pane_id"] == pane["id"] && tab["focused"] != true)
+            .unwrap_or_else(|| panic!("pane {pane} has an unselected tab: {snapshot}"))["id"]
+            .clone()
+    };
+    let check = |label: &str, run: &dyn Fn()| {
+        let before = snapshot();
+        let reads = WorkspaceRegistry::full_topology_reads_for_test();
+        let head = mux.session_journal_head().unwrap();
+        run();
+        assert_eq!(
+            WorkspaceRegistry::full_topology_reads_for_test(),
+            reads,
+            "{label} read the whole topology"
+        );
+        let changes = journaled_changes(&mux, head);
+        assert!(!changes.is_empty(), "{label} journaled its changes");
+        let after = snapshot();
+        let order = changes
+            .iter()
+            .map(|change| format!("{} {} {}", change["kind"], change["resource"], change["id"]))
+            .collect::<Vec<_>>();
+        // A client applies the changes in order, so the last upsert of a row
+        // is the row it ends with.
+        for (position, change) in changes.iter().enumerate() {
+            assert_eq!(change["kind"], "upsert", "{label}: {change}");
+            if changes[position + 1..]
+                .iter()
+                .any(|later| later["resource"] == change["resource"] && later["id"] == change["id"])
+            {
+                continue;
+            }
+            let collection = format!("{}s", change["resource"].as_str().unwrap());
+            // #35912: on base a tab.focus or tab.select journals the screen's new active tab while
+            // its stored row keeps the old one (full reads too); only that comparison waits on the fix.
+            if matches!(label, "tab.focus" | "tab.select") && collection == "screens" {
+                continue;
+            }
+            let row = rows(&after, &collection)
+                .into_iter()
+                .find(|row| row["id"] == change["id"])
+                .unwrap_or_else(|| panic!("{label}: {change} names a live row"));
+            assert_eq!(
+                change["value"], row,
+                "{label}: the delta equals the snapshot row ({order:?})"
+            );
+        }
+        for collection in ["workspaces", "screens", "panes", "tabs"] {
+            for row in rows(&after, collection) {
+                let old = rows(&before, collection).into_iter().find(|old| old["id"] == row["id"]);
+                if old.as_ref() != Some(&row) {
+                    assert!(
+                        changes.iter().any(|change| change["id"] == row["id"]),
+                        "{label} changed {collection} row {row} without a delta"
+                    );
+                }
+            }
+        }
+    };
+
+    let target = unfocused(&first, 3);
+    check("workspace.focus", &|| {
+        keyed(&mux, "workspace.focus", json!({"workspace": target}), "scoped-workspace-focus");
+    });
+
+    let state = snapshot();
+    let target = unfocused(&state, 7);
+    let screen = pane_in(&state, &target, false)["screen_id"].clone();
+    check("screen.focus", &|| {
+        keyed(&mux, "screen.focus", json!({"screen": screen}), "scoped-screen-focus");
+    });
+
+    let state = snapshot();
+    let target = unfocused(&state, 11);
+    let pane = pane_in(&state, &target, false)["id"].clone();
+    check("pane.focus", &|| {
+        keyed(&mux, "pane.focus", json!({"pane": pane}), "scoped-pane-focus");
+    });
+
+    let state = snapshot();
+    let target = unfocused(&state, 13);
+    let pane = rows(&state, "panes")
+        .into_iter()
+        .find(|pane| {
+            workspace_of_pane(&state, pane) == target
+                && rows(&state, "tabs").iter().filter(|tab| tab["pane_id"] == pane["id"]).count()
+                    > 1
+        })
+        .unwrap();
+    let tab = inactive_tab(&state, &pane);
+    check("tab.focus", &|| {
+        keyed(&mux, "tab.focus", json!({"tab": tab}), "scoped-tab-focus");
+    });
+
+    // The ordinary selection (the TUI's next-tab key) of the focused pane.
+    let state = snapshot();
+    let focused = rows(&state, "panes").into_iter().find(|pane| pane["focused"] == true).unwrap();
+    assert!(
+        rows(&state, "tabs").iter().filter(|tab| tab["pane_id"] == focused["id"]).count() > 1,
+        "the focused pane has two tabs: {state}"
+    );
+    check("tab.select", &|| {
+        let pane = mux.with_state(|state| state.active_pane());
+        mux.select_tab_as(&Actor::Daemon, pane, None, Some(1));
+    });
+}
+
 #[test]
 fn a_layout_undo_preview_reads_no_whole_topology() {
     // The preview needs only the resource revision for its token. Reading the

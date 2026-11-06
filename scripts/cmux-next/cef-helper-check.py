@@ -174,14 +174,16 @@ def main():
         time.sleep(opts.settle)  # renderers that die do so ~0.6 s after launch; let any crash loop show
         rows = [(pid, kind_of(cmd), cmd) for pid, cmd in children(proc.pid)]
         renderer_suffix = " Helper (Renderer).app/Contents/MacOS/"
-        gpu_suffix = " Helper (GPU).app/Contents/MacOS/"
+        # Chromium 156 (gpu_process_host.cc) starts the GPU process from the " (GPU)" helper only when SwiftShader
+        # is allowed, and from the plain helper otherwise (the default). Both are right; the Renderer helper is not.
+        gpu_helpers = (" Helper.app/Contents/MacOS/", " Helper (GPU).app/Contents/MacOS/")
         res["processes"] = [{"pid": p, "type": k, "exe": c.split(" --")[0]} for p, k, c in rows if k]
         renderers = [r for r in res["processes"] if r["type"] == "renderer"]
         gpus = [r for r in res["processes"] if r["type"] == "gpu-process"]
         c = res["checks"]
         c["renderer_running"] = bool(renderers)
         c["renderers_use_renderer_helper"] = bool(renderers) and all(renderer_suffix in r["exe"] for r in renderers)
-        c["gpu_uses_gpu_helper"] = all(gpu_suffix in r["exe"] for r in gpus)
+        c["gpu_uses_plain_or_gpu_helper"] = all(any(h in r["exe"] for h in gpu_helpers) for r in gpus)
         c["javascript_ran"] = title == "js-ran-42"
         log_hits = 0
         for log in glob.glob(os.path.join(home, "Library/Application Support/*", "Chromium", "cef.log")):

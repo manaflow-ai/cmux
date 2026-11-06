@@ -193,6 +193,18 @@ impl ConnectInfoError {
         }
     }
 
+    /// What failed, for the dial's `error_detail`: the backend's code (or
+    /// the link's own text), never a credential.
+    pub fn detail(&self) -> String {
+        match self {
+            Self::NotFound => "cloud.machine.not_found".into(),
+            Self::NotBound => "cloud.machine.not_bound: the machine is not bound yet".into(),
+            Self::Forbidden => "auth.forbidden".into(),
+            Self::Unavailable(why) => why.clone(),
+            Self::Invalid(why) => format!("the connect_info record is invalid: {why:?}"),
+        }
+    }
+
     /// The `link.dial` error (contract section 1.7, "Mapping").
     pub fn dial_error(&self) -> DialError {
         match self {

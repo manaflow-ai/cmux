@@ -45,6 +45,10 @@ concurrency:
   group: signing-keychain-macos-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   # The triggers above are wide for bash32-syntax (any scripts/ci change can
   # break macOS /bin/bash 3.2), and that job runs on Linux. The real import

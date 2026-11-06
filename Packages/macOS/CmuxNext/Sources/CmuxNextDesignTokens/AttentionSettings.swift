@@ -82,6 +82,9 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
         return settings
     }
 
+    /// Whether any pane can ring: a terminal's look or an agent chat's, with an arrival style.
+    public var drawsAnyRing: Bool { style != .none && (terminalRing != .none || agentChatRing != .none) }
+
     /// Whether a pane showing an agent chat (`agentChat`) or anything else rings.
     public func rings(agentChat: Bool) -> Bool { surface(agentChat: agentChat).drawsRing }
 

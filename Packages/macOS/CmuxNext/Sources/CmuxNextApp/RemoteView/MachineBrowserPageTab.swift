@@ -188,7 +188,7 @@ nonisolated enum MachineBrowserStrings {
     }
     static func tooOld(_ machine: String) -> String {
         String(format: String(localized: "remote.machineBrowser.tooOld",
-                              defaultValue: "cmux-tui on %@ is too old for browser tabs. Update it, then try again.",
+                              defaultValue: "cmux on %@ is too old for browser tabs. Update it, then try again.",
                               table: "Remote", bundle: .module), machine)
     }
     static func starting(_ machine: String) -> String {

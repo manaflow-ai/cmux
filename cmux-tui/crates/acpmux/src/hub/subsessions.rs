@@ -77,6 +77,12 @@
 //! without running anything from that repository: its files are checked out without the
 //! repository's config. A start that fails after it is made removes it again.
 //!
+//! With `fork: true` the child is a fork of the parent's chat as it is now (`hub/fork.rs`, as Fork
+//! Conversation makes one), with the parent's history, harness, model and folder, and the fork's
+//! `parentId`: an agent branches its own conversation off. It takes no harness, model, effort,
+//! folder or worktree of its own. Its link and lineage are in its meta when it is made, and its
+//! harness starts pinned to the folder the start checked, as a new child's does (`fork_with_boundary`).
+//!
 //! The index of live children per parent (`subsession_index.rs`) is a leaf lock: nothing else is
 //! locked while it is held, so it may be taken under any other lock.
 
@@ -240,6 +246,11 @@ pub struct StartRequest {
     /// Work in a new git worktree of the folder's repository
     /// (`subsession_worktree.rs`) instead of the folder itself.
     pub worktree: bool,
+    /// Start it as a fork of the parent's chat as it is now (`hub/fork.rs`), the way Fork
+    /// Conversation forks one: it has the parent's history, runs its harness, model and
+    /// folder, and shows it was forked from the parent. No harness, model, effort, folder
+    /// or worktree of its own.
+    pub fork: bool,
     /// `_meta.acpmux.forceAdmit` (`acpmux new --parent --force-admit`):
     /// admitted past this host's refusal, logged (`admission.rs`).
     pub force_admit: bool,
@@ -503,6 +514,20 @@ impl Hub {
         if req.prompt.trim().is_empty() {
             return Err(RpcError::invalid_params("prompt must not be empty"));
         }
+        if req.fork {
+            let own = [
+                ("harness", req.harness.is_some()),
+                ("model", req.model.is_some()),
+                ("effort", req.effort.is_some()),
+                ("cwd", req.cwd.is_some()),
+                ("worktree", req.worktree),
+            ];
+            if let Some((field, _)) = own.iter().find(|(_, given)| *given) {
+                return Err(RpcError::invalid_params(format!(
+                    "a fork runs your harness, model and folder: start_session with fork takes no {field}"
+                )));
+            }
+        }
         let pm = parent.meta();
         if pm.status == SessionStatus::Closed {
             return Err(RpcError::invalid_params("a closed session starts no sub-session"));
@@ -621,6 +646,29 @@ impl Hub {
         } else {
             None
         };
+        let link = SubsessionLink {
+            started_by: parent.id.clone(),
+            short_name: short.clone(),
+            depth,
+            offered: false,
+        };
+        if req.fork {
+            let sub = super::fork::SubsessionFork { link, lineage, checked: &cwd };
+            let fork = admitted
+                .run(self.fork_with_boundary(
+                    parent,
+                    Some(name),
+                    None,
+                    Default::default(),
+                    pm.workspace_id.clone(),
+                    None,
+                    None,
+                    false,
+                    Some(sub),
+                ))
+                .await?;
+            return self.started_reply(parent, pm, fork, &req, &cwd, short, depth, None).await;
+        }
         let request = NewRequest {
             harness: Some(harness),
             name: Some(name),
@@ -635,19 +683,30 @@ impl Hub {
             // Same family: the parent's mode, set below. Another family: the
             // person's default start mode only under a full-access parent.
             keep_harness_mode: true,
-            subsession: Some(SubsessionLink {
-                started_by: parent.id.clone(),
-                short_name: short.clone(),
-                depth,
-                offered: false,
-            }),
+            subsession: Some(link),
             lineage: Some(lineage),
             ..Default::default()
         };
         let probe = admitted.run(self.new_session(request)).await?;
+        self.started_reply(parent, pm, probe, &req, &cwd, short, depth, worktree).await
+    }
+
+    /// A new sub-session `probe` settled to its parent and given its first
+    /// prompt: the reply `start_session` answers with.
+    #[allow(clippy::too_many_arguments)]
+    async fn started_reply(
+        self: &Arc<Self>,
+        parent: &Arc<Session>,
+        pm: &SessionMeta,
+        probe: Arc<Session>,
+        req: &StartRequest,
+        cwd: &super::subsession_guard::CheckedFolder,
+        short: String,
+        depth: u32,
+        worktree: Option<KeptWorktree>,
+    ) -> Result<(Arc<Session>, Value, Option<KeptWorktree>), RpcError> {
         // From here every refusal closes the child: it never runs unchecked.
-        if let Err(e) = self.settle_subsession(parent, pm, &probe, &cwd, req.name.as_deref()).await
-        {
+        if let Err(e) = self.settle_subsession(parent, pm, &probe, cwd, req.name.as_deref()).await {
             return Err(self.close_refused(&probe, e).await);
         }
         let cm = probe.meta();
