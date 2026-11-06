@@ -139,6 +139,7 @@ fn activity_cache_follows_live_status_transitions() {
         chat
     };
     assert_eq!(decorate(&hub)["attention"], Value::Null);
+    hub.test_append_activity("live", "message", json!({}));
     hub.test_set_status("live", SessionStatus::Waiting);
     assert_eq!(decorate(&hub)["attention"], "needsInput");
     hub.test_set_status("live", SessionStatus::Running);
@@ -147,4 +148,22 @@ fn activity_cache_follows_live_status_transitions() {
     assert_eq!(decorate(&hub)["attention"], Value::Null);
     hub.test_set_status("live", SessionStatus::Idle);
     assert_eq!(decorate(&hub)["attention"], Value::Null);
+}
+
+#[test]
+fn activity_batch_does_not_keep_expired_parent_relationship() {
+    let expires = crate::store::now_ms() + 10;
+    let hub = hub(vec![
+        row("root", json!({})),
+        row("child", json!({"tags": {"spawnedBy": {"value": "root", "expires_at": expires}}})),
+    ]);
+    let batch = Arc::new(Vec::new());
+    let decorate = |hub: &Hub| {
+        let mut chat = json!({"key": "claude-code:child"});
+        hub.chat_activity_for_batch(&batch).decorate(&mut chat);
+        chat
+    };
+    assert_eq!(decorate(&hub)["parent"], "claude-code:root");
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    assert_eq!(decorate(&hub)["parent"], Value::Null);
 }

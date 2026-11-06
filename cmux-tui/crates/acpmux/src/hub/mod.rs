@@ -2067,10 +2067,8 @@ impl Hub {
         ) {
             session.state_seq.fetch_add(1, Ordering::SeqCst);
         }
-        if record.dir == "mux" {
-            let closed = session.status() == SessionStatus::Closed;
-            self.chat_activity_cache.note(&session.id, &record.kind, closed);
-        }
+        let closed = session.status() == SessionStatus::Closed;
+        self.chat_activity_cache.note(&session.id, &record.kind, closed);
         if notify {
             let event = HubEvent {
                 session_id: session.id.clone(),
@@ -2127,6 +2125,11 @@ impl Hub {
             meta.composer_draft = draft.clone();
             meta.updated_at = now_ms();
         }
+        self.chat_activity_cache.note(
+            &session.id,
+            "composer_draft",
+            session.status() == SessionStatus::Closed,
+        );
         // Answered only once the draft is in `session.json`: "the one durable shared draft".
         self.save_meta_answered(session)?;
         Ok(draft)

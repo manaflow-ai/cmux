@@ -174,7 +174,7 @@ pub struct ActivityCache {
 }
 
 /// A change batch, the counts its activity was read at, and that activity.
-type SharedBatch = (Arc<Vec<SeqChange>>, (u64, u64, usize), Arc<ChatActivity>);
+type SharedBatch = (Arc<Vec<SeqChange>>, (u64, u64, usize), Option<u64>, Arc<ChatActivity>);
 
 struct Built {
     /// The epoch and session count it was built at, and when its first tag expires.
@@ -204,9 +204,6 @@ impl ActivityCache {
 
     /// A mux record of `kind` was appended to session `id` (`closed`: the session is closed now).
     pub(crate) fn note(&self, id: &str, kind: &str, closed: bool) {
-        if !changes_activity(kind) {
-            return;
-        }
         self.records.fetch_add(1, Ordering::SeqCst);
         let stale = closed
             || matches!(kind, "tags" | "purged")
@@ -253,8 +250,15 @@ impl Hub {
     /// Every session's chat activity; the newest session wins a chat two sessions continue.
     /// The closed sessions' part comes from `ActivityCache`; only the live sessions are read.
     pub fn chat_activity(&self) -> Arc<ChatActivity> {
+        self.chat_activity_with_expiry().0
+    }
+
+    fn chat_activity_with_expiry(&self) -> (Arc<ChatActivity>, Option<u64>) {
         let built = self.closed_chat_activity();
-        Arc::new(ChatActivity { closed: built.closed.clone(), live: self.newest(&built.live) })
+        (
+            Arc::new(ChatActivity { closed: built.closed.clone(), live: self.newest(&built.live) }),
+            built.expires_at,
+        )
     }
 
     /// `chat_activity` for one index change batch: every chats watcher of the batch shares one,
@@ -266,21 +270,22 @@ impl Hub {
         let seen = self.activity_version();
         {
             let shared = lock(&cache.batch);
-            if let Some((same_batch, at, activity)) = shared.as_ref()
+            if let Some((same_batch, at, expires_at, activity)) = shared.as_ref()
                 && Arc::ptr_eq(same_batch, batch)
                 && *at == seen
+                && expires_at.is_none_or(|at| at > crate::store::now_ms())
             {
                 return activity.clone();
             }
         }
-        let activity = self.chat_activity();
+        let (activity, expires_at) = self.chat_activity_with_expiry();
         let now = self.activity_version();
         if now == seen {
             let mut shared = lock(&cache.batch);
             // Do not overwrite a result published by a newer reader that raced this call.
-            let newer = shared.as_ref().is_some_and(|(_, at, _)| *at > seen);
+            let newer = shared.as_ref().is_some_and(|(_, at, _, _)| *at > seen);
             if !newer {
-                *shared = Some((batch.clone(), seen, activity.clone()));
+                *shared = Some((batch.clone(), seen, expires_at, activity.clone()));
             }
         }
         activity
