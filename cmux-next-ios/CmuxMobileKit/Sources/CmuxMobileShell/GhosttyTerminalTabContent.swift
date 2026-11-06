@@ -541,10 +541,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         ]
     }
 
-    #if DEBUG
-    /// DEBUG demos drive the open terminal tab through its model.
+    /// The open terminal tab's model: voice mode reads it in every build, and DEBUG demos
+    /// drive the tab through it.
     func model(forTabID id: String) -> TerminalModel? { hosts[id]?.model }
-    #endif
 }
 
 /// A short background task for the background release: begun before the

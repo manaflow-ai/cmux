@@ -316,7 +316,8 @@ public final class ControlRouter: Sendable {
         case .mainActor(let body):
             let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
             let reply = try await queue.run(connection: call.connection, method: call.method, owner: method.owner, workClass: method.workClass,
-                                            deadline: call.deadline, countingFrom: call.engineStartMark) {
+                                            marksSnapshotStale: method.marksSnapshotStale, deadline: call.deadline,
+                                            countingFrom: call.engineStartMark) {
                 // The request may have answered `not_run` already.
                 guard call.progress.begin() else { throw expired }
                 return try body(call)

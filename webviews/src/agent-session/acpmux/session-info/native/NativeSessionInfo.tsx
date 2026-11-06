@@ -6,6 +6,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePaneLanguage, useT, type Translate } from "../../i18n";
 import type { AcpmuxRow } from "../../model";
+import { planDone, type SessionInfoPlan } from "../ProgressSection";
 import { postNative } from "../../native";
 import { opensProcessTerminal } from "../../processTerminal";
 import type { StartedSession } from "../../started/startedSessions";
@@ -34,7 +35,12 @@ import { environmentSection } from "./environment";
 import { setNativeSessionInfoActions, setNativeSessionInfoHost } from "./host";
 import { useNativeOperations } from "./useNativeOperations";
 import { useNativeSourceFiles } from "./useNativeSourceFiles";
-import { NativeInfoActions, type NativeInfoSection, type NativeSessionInfo as NativeSessionInfoModel } from "./model";
+import {
+  NativeInfoActions,
+  type NativeInfoRow,
+  type NativeInfoSection,
+  type NativeSessionInfo as NativeSessionInfoModel,
+} from "./model";
 import { outputsSection } from "./outputs";
 import { useNativeOverlayReport } from "./overlays";
 import { panelAction } from "./panelActions";
@@ -92,6 +98,8 @@ export type NativeSessionInfoProps = {
   artifacts: number;
   documents: readonly OutputArtifact[];
   rows: readonly AcpmuxRow[];
+  /// The agent's current plan, as the page's Progress draws it (ProgressSection.tsx).
+  plan?: SessionInfoPlan;
   agents: readonly Subagent[];
   waiting: ReadonlySet<string>;
   statuses: Readonly<Record<string, SessionInfoPullRequestStatus>>;
@@ -303,6 +311,31 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       }),
     [onReconnectMcp],
   );
+  // The plan keeps its identity while tokens stream (liveProgress.ts): its rows are made once per
+  // checklist change, so other activity does not remap every step on every frame.
+  const progressRows = useMemo<NativeInfoRow[] | undefined>(
+    () =>
+      props.plan?.entries.map((entry, index) => {
+        const working = entry.status === "in_progress" && !props.plan?.ended;
+        // The web list's marks: a filled check when done, the spinner while working, a plain ring
+        // for a step left in progress when the turn ended, a dashed ring while pending.
+        const symbol = working
+          ? undefined
+          : entry.status === "completed"
+            ? "checkmark.circle.fill"
+            : entry.status === "in_progress"
+              ? "circle"
+              : "circle.dashed";
+        return {
+          id: `progress:${index}`,
+          title: entry.content,
+          ...(symbol ? { symbol } : {}),
+          tone: entry.status === "completed" ? "muted" : working ? "running" : "waiting",
+          working,
+        } satisfies NativeInfoRow;
+      }),
+    [props.plan],
+  );
   const actions = new NativeInfoActions();
   const sections: (NativeInfoSection | undefined)[] = [];
   if (shown) {
@@ -346,6 +379,19 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
         actions,
         t,
       ),
+      props.plan && props.plan.entries.length > 0
+        ? {
+            id: "progress",
+            group: "running",
+            title: t("sessionInfo.progress"),
+            meta: t("sessionInfo.progress.count", { done: planDone(props.plan), total: props.plan.entries.length }),
+            meter: planDone(props.plan) / props.plan.entries.length,
+            open: state.sections.progress,
+            foldable: true,
+            reorderable: true,
+            rows: progressRows ?? [],
+          }
+        : undefined,
       connectorsSection(
         {
           servers: summary?.mcpServers ?? [],

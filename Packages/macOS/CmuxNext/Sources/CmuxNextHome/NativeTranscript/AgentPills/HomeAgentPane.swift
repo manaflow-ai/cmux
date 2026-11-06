@@ -33,6 +33,25 @@ final class HomeAgentPane {
         select(peer)
     }
 
+    /// Opens agent `peer` (a click on its pill) as a real cmux pane beside Home when it can (user 2026-11-04,
+    /// msg 21663: "just open it as pane to right side"): `outside` gets the Chief's link to the agent's session
+    /// (where it runs now) and its report is seen. With no link, or when `outside` could not open it, its chat
+    /// opens in this pane instead (``open(_:)``), so the click always shows it.
+    ///
+    /// - Parameters:
+    ///   - peer: The agent's id.
+    ///   - outside: Opens the link beside Home; true when it did.
+    /// - Returns: True when it opened beside Home; false when it opened in this pane.
+    @discardableResult
+    func open(_ peer: String, outside: (URL) -> Bool) -> Bool {
+        if let link = content(peer, now: Date())?.workspaceLink, outside(link) {
+            threads.markAgentSeen(peer, in: conversation)
+            return true
+        }
+        open(peer)
+        return false
+    }
+
     /// Shows agent `peer`'s tab and marks its newest report seen.
     func select(_ peer: String) {
         guard tabs.contains(peer) else { return }

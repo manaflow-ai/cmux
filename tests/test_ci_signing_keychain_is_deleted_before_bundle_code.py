@@ -176,8 +176,9 @@ RUNNER_VARIABLE = re.compile(
 )
 ANY_VARS = re.compile(r"\bvars\b", re.IGNORECASE)
 RUNS_ON_END = re.compile(r"\s*\}\}\s*$")
-# Rule 7a: owned pool variables a claim-gated signing job may fall back to.
-OWNED_ROUTE_VARIABLES = frozenset({"CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER"})
+# Rule 7a: owned pool variables a claim-gated signing job may fall back to. CI_NIGHTLY_SIGNING_POOL names
+# the signer's label (runner_label_policy holds its live value to glaeda-trusted-next-signing).
+OWNED_ROUTE_VARIABLES = frozenset({"CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER", "CI_NIGHTLY_SIGNING_POOL"})
 # These declared pools contain only ephemeral Blacksmith members.  Secret-bearing
 # jobs may use them as their pool-backed fallback; the hosted pools are excluded.
 EPHEMERAL_POOL_KEYS = frozenset({
@@ -211,7 +212,7 @@ def claim_gated(name: str, job: dict) -> bool:
     first = steps[0] if steps and isinstance(steps[0], dict) else {}
     return (tuple(name.split(" ", 1)) in owned_mac.SIGNING_JOBS
             and first.get("id") == owned_mac.CLAIM_GATE_ID
-            and str(first.get("run", "")).strip() == owned_mac.CLAIM_GATE.strip())
+            and str(first.get("run", "")).strip() == owned_mac.claim_gate_for(name.split(" ", 1)[0]).strip())
 
 
 def secret_gate_failures(name: str, job: dict) -> list[str] | None:

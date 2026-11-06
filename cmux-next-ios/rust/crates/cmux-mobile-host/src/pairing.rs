@@ -105,7 +105,7 @@ pub fn epoch_millis(text: &str) -> Option<i64> {
 }
 
 /// One device the Mac approved.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct TrustedDevice {
     pub id: String,
     /// The 65-byte X9.63 identity key, lowercase hex.
@@ -113,6 +113,15 @@ pub struct TrustedDevice {
     /// The approval key, lowercase hex (empty: none).
     #[serde(default)]
     pub approval_key: String,
+    /// What the device is. Absent (every app before machine peers) is a phone,
+    /// so an older app can never approve a Mac: a Mac's request names `mac`
+    /// and matches only a record that says `mac`.
+    #[serde(default)]
+    pub kind: crate::peer::PeerKind,
+    /// What a machine may do here (`peer.rs`). Ignored for phones, whose
+    /// lanes are unchanged.
+    #[serde(default, deserialize_with = "crate::peer::known_grants")]
+    pub grants: Vec<crate::peer::Grant>,
 }
 
 /// What the app approved and refused, as it last said.
@@ -141,11 +150,20 @@ pub enum Standing {
 
 impl DeviceTrust {
     pub fn standing(&self, id: &str, identity_key: &str, approval_key: &str) -> Standing {
-        if self
-            .devices
-            .iter()
-            .any(|d| d.id == id && d.identity_key == identity_key && d.approval_key == approval_key)
-        {
+        self.standing_as(id, identity_key, approval_key, crate::peer::PeerKind::Phone)
+    }
+
+    /// [`DeviceTrust::standing`] for a device of `kind`: a record counts only for its own kind.
+    pub fn standing_as(
+        &self,
+        id: &str,
+        identity_key: &str,
+        approval_key: &str,
+        kind: crate::peer::PeerKind,
+    ) -> Standing {
+        if self.devices.iter().any(|d| {
+            d.id == id && d.identity_key == identity_key && d.approval_key == approval_key && d.kind == kind
+        }) {
             Standing::Trusted
         } else if self.denied.iter().any(|d| d.id == id && d.identity_key == identity_key) {
             Standing::Denied
@@ -156,6 +174,11 @@ impl DeviceTrust {
 
     fn knows_identity(&self, id: &str, identity_key: &str) -> bool {
         self.devices.iter().any(|d| d.id == id && d.identity_key == identity_key)
+    }
+
+    /// The approved record of machine `id` with `identity_key`, as the app says now.
+    pub fn machine(&self, id: &str, identity_key: &str) -> Option<&TrustedDevice> {
+        self.devices.iter().find(|d| d.id == id && d.identity_key == identity_key && d.kind.is_machine())
     }
 }
 
@@ -182,6 +205,8 @@ pub struct Pairing {
     /// Notification replies already applied, over a link or from the mailbox
     /// (`mailbox.rs`): a reply that came both ways is applied once.
     pub spent_replies: Arc<crate::mailbox::SpentReplies>,
+    /// What other machines did here (`activity.rs`).
+    pub activity: Arc<crate::activity::Activity>,
 }
 
 impl Pairing {
@@ -200,7 +225,14 @@ impl Pairing {
             identity: watch::channel(None).1,
             push_keys: Arc::new(crate::push_keys::PushKeys::memory()),
             spent_replies: Arc::new(crate::mailbox::SpentReplies::memory()),
+            activity: Arc::new(crate::activity::Activity::memory()),
         }
+    }
+
+    /// With the machine Activity log.
+    pub fn with_activity(mut self, activity: Arc<crate::activity::Activity>) -> Self {
+        self.activity = activity;
+        self
     }
 
     /// With the store of applied notification replies.
@@ -317,11 +349,17 @@ enum AuthState {
 pub struct LinkAuth {
     state: watch::Sender<AuthState>,
     waiters: std::sync::atomic::AtomicUsize,
+    /// Who passed `auth` on this link: its kind and identity key.
+    peer: Mutex<Option<(crate::peer::PeerKind, String)>>,
 }
 
 impl Default for LinkAuth {
     fn default() -> Self {
-        Self { state: watch::channel(AuthState::Idle).0, waiters: std::sync::atomic::AtomicUsize::new(0) }
+        Self {
+            state: watch::channel(AuthState::Idle).0,
+            waiters: std::sync::atomic::AtomicUsize::new(0),
+            peer: Mutex::new(None),
+        }
     }
 }
 
@@ -336,6 +374,16 @@ pub enum Gate {
 }
 
 impl LinkAuth {
+    /// The kind and identity key that passed `auth` on this link (`None`
+    /// before, or for an unsupervised hostd, which pairs nobody).
+    pub fn peer(&self) -> Option<(crate::peer::PeerKind, String)> {
+        self.peer.lock().expect("link peer").clone()
+    }
+
+    fn set_peer(&self, kind: crate::peer::PeerKind, identity_key: &str) {
+        *self.peer.lock().expect("link peer") = Some((kind, identity_key.to_owned()));
+    }
+
     pub fn is_authenticated(&self) -> bool {
         *self.state.borrow() == AuthState::Paired
     }
@@ -586,8 +634,28 @@ pub async fn serve(
 ) -> Result<(), Refused> {
     // The accept loop counted this channel when it opened (`begin`).
     let result = authenticate(pairing, phone, args, sender, receiver).await;
-    link.end(result.is_ok() && action_is_pair(args));
-    result
+    // A machine's every pairing attempt is in Activity, allowed or not (a phone's is not).
+    let kind = crate::peer::PeerKind::parse(args.get("kind").and_then(Value::as_str).unwrap_or_default());
+    if let (Some(pairing), Some(kind)) = (pairing, kind)
+        && kind.is_machine()
+    {
+        pairing.activity.record(crate::activity::Entry {
+            at_ms: crate::activity::now_ms(),
+            peer: phone.to_owned(),
+            kind: kind.as_str(),
+            direction: "in",
+            service: "auth".to_owned(),
+            decision: result.as_ref().err().map_or("allowed", |(code, _)| *code).to_owned(),
+            target: None,
+        });
+    }
+    let paired = result.is_ok() && action_is_pair(args);
+    if paired && let Ok(Some(kind)) = &result {
+        let identity_key = args.get("identityKey").and_then(Value::as_str).unwrap_or_default();
+        link.set_peer(*kind, identity_key);
+    }
+    link.end(paired);
+    result.map(|_| ())
 }
 
 fn action_is_pair(args: &Value) -> bool {
@@ -600,8 +668,17 @@ async fn authenticate(
     args: &Value,
     sender: &ChannelSender,
     receiver: &mut ChannelReceiver,
-) -> Result<(), Refused> {
+) -> Result<Option<crate::peer::PeerKind>, Refused> {
     let text = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
+    let Some(kind) = crate::peer::PeerKind::parse(text("kind")) else {
+        return Err(("bad_request", "kind is phone, mac or linux".into()));
+    };
+    // What a device is in the prompt and the refusals.
+    let noun = match kind {
+        crate::peer::PeerKind::Phone => "iPhone",
+        crate::peer::PeerKind::Mac => "Mac",
+        crate::peer::PeerKind::Linux => "machine",
+    };
     let identity_key = text("identityKey");
     let approval_key = text("approvalKey");
     let action = match text("action") {
@@ -615,8 +692,12 @@ async fn authenticate(
     let name: String = text("name").chars().filter(|c| !c.is_control()).take(64).collect();
     let Some(pairing) = pairing else {
         // Unsupervised: no app to approve; every link is served as before.
+        // A machine is never admitted here: only an app can grant it anything.
+        if kind.is_machine() {
+            return Err(("unpaired", "this Mac pairs machines only with the cmux app running".into()));
+        }
         send(sender, json!({"ok": true})).await;
-        return Ok(());
+        return Ok(None);
     };
     // A push key that does not check out costs only the sealed pushes, never
     // the pairing (PR B review 7): that phone gets the plain content as before.
@@ -690,7 +771,7 @@ async fn authenticate(
         pairing.push_keys.remove(phone);
         (pairing.emit)(Event::Unpaired { phone_device_id: phone.to_owned() });
         send(sender, json!({"ok": true})).await;
-        return Ok(());
+        return Ok(None);
     }
     // Decide nothing before the app said which phones it approved: a paired
     // phone right after a hostd restart must not be asked again.
@@ -705,13 +786,13 @@ async fn authenticate(
     let result = tokio::time::timeout(APPROVAL_WAIT, async {
         loop {
             let current = trust.borrow_and_update().clone().unwrap_or_default();
-            match current.standing(phone, identity_key, approval_key) {
+            match current.standing_as(phone, identity_key, approval_key, kind) {
                 Standing::Trusted => return Ok(()),
                 Standing::Denied => {
                     if asked {
                         pairing.limiter.lock().expect("limiter").denied(phone, identity_key, Instant::now());
                     }
-                    return Err(("denied", "the Mac did not allow this iPhone".into()));
+                    return Err(("denied", format!("the Mac did not allow this {noun}")));
                 }
                 Standing::Unknown => {}
             }
@@ -725,7 +806,7 @@ async fn authenticate(
                 if let Err(wait) = admitted {
                     return Err((
                         "rate_limited",
-                        format!("the Mac asked about this iPhone recently; try again in {}", wait_text(wait)),
+                        format!("the Mac asked about this {noun} recently; try again in {}", wait_text(wait)),
                     ));
                 }
                 asked = true;
@@ -741,7 +822,9 @@ async fn authenticate(
                     identity_key: identity_key.to_owned(),
                     approval_key: approval_key.to_owned(),
                     registered_at_ms,
-                    pair_token: pair_token.clone(),
+                    // A pairing code pre-approves phones only: a machine always asks.
+                    pair_token: if kind.is_machine() { None } else { pair_token.clone() },
+                    kind,
                 });
                 send(sender, json!({"pending": true})).await;
             }
@@ -757,7 +840,7 @@ async fn authenticate(
                 pairing.push_keys.set(phone, identity_key, &push_key);
             }
             send(sender, json!({"ok": true})).await;
-            Ok(())
+            Ok(Some(kind))
         }
         Ok(Err(refused)) => Err(refused),
         Err(_) => Err(("timeout", "nobody answered the Mac's prompt".into())),
@@ -968,6 +1051,7 @@ mod tests {
                 id: "p".into(),
                 identity_key: "i".into(),
                 approval_key: "a".into(),
+                ..Default::default()
             }],
             denied: vec![DeniedDevice { id: "q".into(), identity_key: "i".into() }],
         };

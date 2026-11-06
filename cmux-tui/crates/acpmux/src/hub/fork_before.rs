@@ -82,6 +82,7 @@ impl Hub {
                 boundary.through_seq,
                 Some((id, boundary)),
                 false,
+                None,
             ))
             .await?;
         Ok((child, warning))

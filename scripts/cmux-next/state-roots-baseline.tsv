@@ -9,7 +9,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectCopy.swift	1	k
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectFiles.swift	1	keep	project-local .cmux/context folder, not a state root
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/LocalServerSource.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/DebugSettingsService.swift	1	move	unreviewed at S7 (cx-is1kf.8)
-Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift	1	move	unreviewed at S7 (cx-is1kf.8)
+Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift	1	move	credentialsDirectory: this build’s own cmux/<bundle id> token files; moving to the resolver needs a migration
 Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Tunnel/CloudPaths.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildIdentity.swift	2	keep	resolver: BuildIdentity
 Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperDaemon.swift	1	move	unreviewed at S7 (cx-is1kf.8)

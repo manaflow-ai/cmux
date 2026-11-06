@@ -98,6 +98,14 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onCloudHandoffTurn: (@MainActor (_ sessionId: String) async -> [String: Any])?
     /// The session a pane with no chat yet asked hand-off turns for (`cloud.handoffTurn`).
     @ObservationIgnored private var handoffSession: String?
+    /// Shared web owns each compose's warm request; native only forwards it to Rust.
+    @ObservationIgnored public var onCloudReservation: (@MainActor (AgentPaneCloudReservationRequest) async -> [String: Any])?
+    /// The one speculative Cloud lease this pane may own before its first chat. The page may
+    /// retry the same compose key, but a second key must release the first one first.
+    @ObservationIgnored private var cloudReservationComposeKey: String?
+
+    /// Whether a Cloud start may bind the pane's currently live reservation.
+    func ownsCloudReservation(_ key: String) -> Bool { cloudReservationComposeKey == key }
     /// A new chat's first send with Cloud picked (``AgentPaneCloudStart``); nil: no Cloud chats here.
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// Reads this Mac's local repository catalog through its cmux daemon frame connection.
@@ -138,6 +146,11 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onChatsPage: ((AgentPaneChatsQuery) async -> AgentPaneChatsPage?)? // `chats.page` (cx-n0i9)
     /// The chat's own right-click menu on empty space: detached items the App renders from its placements.
     @ObservationIgnored public var chatMenuItems: (@MainActor () -> [NSMenuItem])?
+    /// The right-click rows of another chat the transcript names (a link, a name, a sender: a
+    /// `session` part), after Open on Right and Go to Chat: that chat's sidebar row menu, detached
+    /// items the App renders from the catalog's placements. Leo, 2026-11-05: "right clicking on a
+    /// deeplink/link to another session/name of another session/rendering of it shuold give thes options".
+    @ObservationIgnored public var sessionMenuItems: (@MainActor (String) -> [NSMenuItem])?
     /// Search the Web on selected chat text: a browser tab with the omnibar's search engine.
     @ObservationIgnored public var onSearchWeb: (@MainActor (String) -> Void)?
     /// Runs an action advertised by the host's omnibar.
@@ -291,6 +304,10 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
     /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
     @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?
+    /// Runs the Cloud machine + latest transcript fork and opens its sibling without selecting this chat.
+    /// The session is the one this pane showed when the click arrived, so a pane that switched
+    /// sessions meanwhile never forks the newly selected chat.
+    @ObservationIgnored public var onTryAnotherApproach: (@MainActor (_ throughSeq: Int, _ session: String) async throws -> [String: Any])?
     /// The application-owned marked-tab list shared by this page and the palette.
     @ObservationIgnored public let attentionTabs: AgentPaneAttentionTabs?
 
@@ -405,12 +422,13 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList),
+             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
         case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
         case .reply(let reply) where reply.isPassive: break
+        case .cloudReservation: break
         case .cloudEnvironment(let request) where request.action != "update": break
         case .imessage(let action) where action.isPassive: break
         default:
@@ -583,6 +601,33 @@ public final class AgentPaneModel {
                                            try await host.cloudRepository(method: method, params: params, timeout: timeout)
                                        },
                                        localRequest: onCloudRepositoryLocal)
+        case .cloudReservation(let request):
+            guard !remoteChat, request.release || sessionId == nil else {
+                return Self.unsupported(request.release ? "cloud.releaseReservation" : "cloud.reserve")
+            }
+            guard let composeKey = request.composeKey, !composeKey.isEmpty,
+                  let onCloudReservation else {
+                return Self.unsupported(request.release ? "cloud.releaseReservation" : "cloud.reserve")
+            }
+            if request.release {
+                // Release is idempotent: a late page cleanup for an already-cleared key is harmless.
+                guard cloudReservationComposeKey == composeKey else { return AgentPaneReply.success() }
+                let reply = await onCloudReservation(request)
+                if reply["ok"] as? Bool == true { cloudReservationComposeKey = nil }
+                return reply
+            }
+            if let current = cloudReservationComposeKey, current != composeKey {
+                return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
+            }
+            // Picking Cloud is a page gesture recorded by the native pane. Consume it before
+            // the await so concurrent page calls cannot both authorize a paid reservation.
+            if cloudReservationComposeKey != composeKey {
+                guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+                cloudReservationComposeKey = composeKey
+            }
+            let reply = await onCloudReservation(request)
+            if reply["ok"] as? Bool != true, cloudReservationComposeKey == composeKey { cloudReservationComposeKey = nil }
+            return reply
         case .cloudEnvironment(let request):
             guard let onCloudEnvironment else { return Self.unsupported("cloud.environment.\(request.action)") }
             if request.action == "update", !transport.gestures.consume() {
@@ -613,6 +658,19 @@ public final class AgentPaneModel {
             // Preserve the original click's one-use, session/prompt-scoped grant and expiry.
             released = true
             return AgentPaneReply.success(["transferred": true, "promptId": request.retryPromptID, "ticket": ticket])
+        case .tryAnotherApproach(let request):
+            guard remoteChat, newTab == nil, let session = sessionId, let onTryAnotherApproach else {
+                return Self.unsupported(AgentPaneTryAnotherApproach.method)
+            }
+            // A Cloud machine snapshot plus a durable sibling chat: only the person's click starts
+            // one (the host's authenticated click, or the legacy bridge's one-use gesture credit).
+            guard userGesture || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            do {
+                return AgentPaneReply.success(try await onTryAnotherApproach(request.throughSeq, session))
+            } catch {
+                return AgentPaneReply.failure(code: "try_another_approach_failed", message: error.localizedDescription,
+                                              details: nil, retryable: true, origin: "native")
+            }
         case .btwInline(let question, let sessionId):
             // Handshake-attached panes keep the daemon path in `acpmuxSocket`; direct
             // transport tests and pre-handshake calls retain the connection path.
@@ -690,6 +748,7 @@ public final class AgentPaneModel {
         guard id != sessionId else { return }
         if sessionId != nil { droppedPaths.clearForSessionChange() }
         sessionId = id
+        cloudReservationComposeKey = nil
         newTab = nil
         onQuestionKeySessionChange?()
         onSessionChange?(id)

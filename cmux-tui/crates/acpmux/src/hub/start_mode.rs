@@ -46,7 +46,11 @@
 //! policy is one any unix socket client may name. Chief's turn and compactor presets keep their
 //! harness's own mode.
 //!
-//! Only the person widens a mode later (`hub/person.rs`).
+//! Only the person widens a mode later (`hub/person.rs`), with one exception: a running chat may
+//! move to the full-access mode new chats of its profile start in now
+//! ([`Hub::is_start_full_access`]), from the unix socket or the local app. The person already
+//! chose that level for every new chat (Lawrence 2026-11-04: "set EVERY running ACP chat ... to
+//! bypass permissions (yolo) now, not only new sessions"); no other mode that does not ask.
 //!
 //! Inherit (Leo 2026-10-25: "shouldn't sub-agents just inherit the bypass
 //! permission situation?"): a chat an agent starts, by `session/new` from
@@ -511,6 +515,21 @@ impl DefaultMode {
 }
 
 impl Hub {
+    /// Whether `mode` is the full-access mode a new chat on `meta`'s profile starts in now (module
+    /// docs): the start level is full access, full access is allowed here, and `mode` is the
+    /// harness's own full-access mode. A running chat may move to it without the person. Never a
+    /// chat a remote connection started: the start mode never applies to one (module docs).
+    pub(super) async fn is_start_full_access(
+        &self,
+        meta: &crate::store::SessionMeta,
+        mode: &str,
+    ) -> bool {
+        !meta.remote_origin
+            && self.full_access_allowed()
+            && full_access_mode(&available(meta)).as_deref() == Some(mode)
+            && self.start_level(&meta.harness).await.0 == DefaultMode::FullAccess
+    }
+
     /// The mode a new chat on `session` starts in (module docs), or `None`
     /// to keep the harness's own.
     pub(super) async fn start_mode(&self, session: &Session) -> Option<String> {

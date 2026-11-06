@@ -20,6 +20,9 @@ struct CloudCredentialTransferTests {
         var preflightRefusals = 0
         /// Exit codes of other commands; any other command exits `preflight`.
         var answers: [String: Int] = [:]
+        /// How long each exec takes (a slow guest), and the transfer's wait budget.
+        var execDelay: Duration?
+        var budget: Duration?
         var team: String? = "team"
         var user: String? = "user"
         var onAcquire: (() throws -> Void)?
@@ -28,7 +31,10 @@ struct CloudCredentialTransferTests {
             .init(callerOwnsVM: { await MainActor.run { self.owner } },
                   stillAllowed: { await MainActor.run { self.allowed } },
                   pause: { await MainActor.run { self.pauses += 1 } },
-                  exec: { command in await MainActor.run { self.commands.append(command); return self.answer(command) } },
+                  exec: { command in
+                      if let delay = await MainActor.run(body: { self.execDelay }) { try? await Task.sleep(for: delay) }
+                      return await MainActor.run { self.commands.append(command); return self.answer(command) }
+                  },
                   write: { path, data in await MainActor.run { self.writes.append((path, data)); self.onWrite?() } },
                   load: { await MainActor.run { self.cached } },
                   acquire: { try await MainActor.run { self.logins += 1; try self.onAcquire?(); return CloudCredentialTransferTests.token } },
@@ -39,7 +45,9 @@ struct CloudCredentialTransferTests {
             return answers[command] ?? preflight
         }
         var transfer: CloudCredentialTransfer {
-            .init(provider: .claude, machineID: "vm-one", teamID: "team", userID: "user", openTerminal: { _ in false })
+            var transfer = CloudCredentialTransfer(provider: .claude, machineID: "vm-one", teamID: "team", userID: "user", openTerminal: { _ in false })
+            if let budget { transfer.guestBudget = budget }
+            return transfer
         }
         func run(confirmed: Bool = true, refresh: Bool = false) async throws {
             try await transfer.run(currentTeamID: { self.team }, currentUserID: { self.user },
@@ -49,6 +57,17 @@ struct CloudCredentialTransferTests {
 
     /// A Release copy whose switch went off, or whose consent was taken back, during the confirm or
     /// the sign-in: the last check before the write stops it, and nothing reaches the machine.
+    /// A Keychain that does not answer is not "no cached login": the start's record must tell them apart.
+    @Test func anUnreadableCacheIsNotAMissingOne() async {
+        #expect(await CloudCredentialTransfer.cachedLogin { Self.token } == .cached)
+        #expect(await CloudCredentialTransfer.cachedLogin { nil } == .none)
+        #expect(await CloudCredentialTransfer.cachedLogin { throw CloudCredentialTransfer.Failure.storeFailed } == .unreadable)
+        #expect(await CloudCredentialTransfer.cachedLogin(provider: .codex, teamID: "team", userID: "user") == .none)
+        // The start records which one it was.
+        #expect(CloudCredentialTransfer.CachedLogin.cached.startOutcome == nil)
+        #expect(CloudCredentialTransfer.CachedLogin.unreadable.startOutcome != CloudCredentialTransfer.CachedLogin.none.startOutcome)
+    }
+
     @Test func aCopyTurnedOffBeforeTheWriteWritesNothing() async {
         let r = Recorder()
         r.cached = Self.token
@@ -126,6 +145,17 @@ struct CloudCredentialTransferTests {
         r.answers[CloudCredentialTransfer.kindMissing] = 0
         await #expect(throws: CloudCredentialTransfer.Failure.machineNotReady) { try await r.run() }
         #expect(r.pauses == CloudCredentialTransfer.guestCheckTries - 1 && r.writes.isEmpty && r.logins == 0)
+    }
+
+    /// The budget holds in wall time: a guest whose every exec is slow is cut off at the budget, not after the
+    /// exec in flight finishes (two 2 s execs against 200 ms).
+    @Test func aSlowGuestIsCutOffAtTheBudget() async {
+        let r = Recorder(); r.cached = Self.token; r.preflight = 1
+        r.answers[CloudCredentialTransfer.kindMissing] = 0
+        r.execDelay = .seconds(2); r.budget = .milliseconds(200)
+        let started = ContinuousClock.now
+        await #expect(throws: CloudCredentialTransfer.Failure.machineNotReady) { try await r.run() }
+        #expect(ContinuousClock.now - started < .seconds(1) && r.logins == 0 && r.writes.isEmpty)
     }
 
     @Test func firstTransferStoresThenDeliversAndRepeatReusesScopedCache() async throws {

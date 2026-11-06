@@ -4,33 +4,8 @@ import Foundation
 import CmuxNextCompat
 
 #if DEBUG
-final class CaptureFixtureKeyValueStore: CMUXAuthKeyValueStore, Sendable {
-    private enum Value: Sendable { case flag(Bool), data(Data), text(String) }
-    private let values = Mutex<[String: Value]>([:])
-
-    func bool(forKey defaultName: String) -> Bool {
-        values.withLock { if case .flag(let value) = $0[defaultName] { return value }; return false }
-    }
-    func data(forKey defaultName: String) -> Data? {
-        values.withLock { if case .data(let value) = $0[defaultName] { return value }; return nil }
-    }
-    func string(forKey defaultName: String) -> String? {
-        values.withLock { if case .text(let value) = $0[defaultName] { return value }; return nil }
-    }
-    func set(_ value: Any?, forKey defaultName: String) {
-        let stored: Value?
-        switch value {
-        case let flag as Bool: stored = .flag(flag)
-        case let data as Data: stored = .data(data)
-        case let text as String: stored = .text(text)
-        default: stored = nil
-        }
-        values.withLock { $0[defaultName] = stored }
-    }
-    func removeObject(forKey defaultName: String) {
-        _ = values.withLock { $0.removeValue(forKey: defaultName) }
-    }
-}
+/// A capture keeps its auth caches in memory, like a memory-only launch.
+typealias CaptureFixtureKeyValueStore = MemoryAuthKeyValueStore
 
 @MainActor
 final class CaptureFixtureBrowserAuthSessionFactory: HostBrowserAuthSessionFactory {
