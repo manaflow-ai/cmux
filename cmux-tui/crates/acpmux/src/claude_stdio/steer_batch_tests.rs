@@ -214,6 +214,82 @@ async fn a_withdraw_of_one_batched_message_takes_it_back_and_keeps_the_others() 
     assert!(answer(&read, 3).is_none(), "the withdrawn message answered twice");
 }
 
+fn withdraw(n: i64, prompt_id: &str) -> Message {
+    let p = json!({"sessionId": "acp-1", "promptId": prompt_id});
+    Message::request(n, method::MUX_STEER_WITHDRAW, p)
+}
+
+/// Review of #37203: a line written again goes in after every line waiting then, so only the
+/// newest waiting line gives one of its messages back. One in an older line stays, and the
+/// lines keep the order their messages came in.
+#[tokio::test]
+async fn a_withdraw_keeps_the_order_of_lines_past_the_cap() {
+    let (t, mut q) = stepping().await;
+    let big = |i: usize| format!("{i}:{}", "x".repeat(BATCH_MAX_BYTES * 2 / 5));
+    for i in 0..3 {
+        write(&t, &mut q, &from(i as i64 + 2, SENDERS[i], &big(i))).await;
+        q.settle(&t).await;
+    }
+    write(&t, &mut q, &from(5, "lane-d", "text 5")).await;
+    q.settle(&t).await;
+    assert_eq!(q.waiting.len(), 2, "{:#?}", q.waiting.iter().map(text_of).collect::<Vec<_>>());
+    let Outbound::Reply(reply) = t.outbound(&withdraw(8, "p2")).await else {
+        panic!("a message of the older line was dropped to be written after the newer one")
+    };
+    assert_eq!(answer(&[reply], 8).unwrap().unwrap()["withdrawn"], false);
+    let Outbound::Lines(lines) = t.outbound(&withdraw(9, "p5")).await else {
+        panic!("the newest line's message was refused")
+    };
+    q.take(lines);
+    let answers = q.settle(&t).await;
+    assert_eq!(answer(&answers, 9).unwrap().unwrap()["withdrawn"], true, "{answers:?}");
+    assert!(answer(&answers, 5).unwrap().unwrap_err().starts_with(STEER_WITHDRAWN));
+    let texts: Vec<String> = q.waiting.iter().map(text_of).collect();
+    assert_eq!(texts.len(), 2);
+    assert!(texts[0].contains(&big(0)) && texts[0].contains(&big(1)), "first line moved");
+    assert!(texts[1].contains(&big(2)) && !texts[1].contains("text 5"), "{}", texts[1].len());
+    for (line, ids) in [(&q.waiting[0], [2, 3]), (&q.waiting[1], [4, 4])] {
+        let read = t.inbound(&echo(line)).await;
+        for id in ids {
+            assert_eq!(answer(&read, id).unwrap().unwrap()["stopReason"], "steered", "{id}");
+        }
+    }
+}
+
+/// Review of #37203: a message that comes while a withdraw's drop is on its way waits for it,
+/// with no second drop of the same line, then goes in after the line's other messages; the
+/// withdraw still takes its message back.
+#[tokio::test]
+async fn a_message_during_a_withdraw_waits_for_it_and_goes_in_last() {
+    let (t, mut q) = stepping().await;
+    for (id, sender) in [(2, "lane-a"), (3, "codex-lane"), (4, "lane-c")] {
+        write(&t, &mut q, &from(id, sender, &format!("text {id}"))).await;
+        q.settle(&t).await;
+    }
+    let Outbound::Lines(lines) = t.outbound(&withdraw(8, "p3")).await else {
+        panic!("a batched message was refused at once")
+    };
+    q.take(lines);
+    write(&t, &mut q, &from(5, "lane-d", "text 5")).await;
+    assert_eq!(q.drops.len(), 1, "a second drop of the line: {:#?}", q.drops);
+    let Outbound::Reply(reply) = t.outbound(&withdraw(9, "p5")).await else {
+        panic!("a held message was asked to be dropped")
+    };
+    assert_eq!(answer(&[reply], 9).unwrap().unwrap()["withdrawn"], false);
+    let answers = q.settle(&t).await;
+    assert_eq!(answer(&answers, 8).unwrap().unwrap()["withdrawn"], true, "{answers:?}");
+    assert!(answer(&answers, 3).unwrap().unwrap_err().starts_with(STEER_WITHDRAWN));
+    assert_eq!(q.waiting.len(), 1, "{:#?}", q.waiting);
+    let text = text_of(&q.waiting[0]);
+    let at = |s: &str| text.find(s).unwrap_or_else(|| panic!("{s} missing: {text}"));
+    assert!(at("text 2") < at("text 4") && at("text 4") < at("text 5"), "{text}");
+    assert!(!text.contains("text 3"), "{text}");
+    let read = t.inbound(&echo(&q.waiting[0])).await;
+    for id in [2, 4, 5] {
+        assert_eq!(answer(&read, id).unwrap().unwrap()["stopReason"], "steered", "{id}");
+    }
+}
+
 /// The X on a message of a line being written again, or on one held for it: nothing is taken
 /// back (`withdrawn: false`) until that drop is answered, as for a message Claude Code read
 /// first, and every message still goes in the one line.

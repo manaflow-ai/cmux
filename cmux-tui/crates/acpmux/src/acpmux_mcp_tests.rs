@@ -419,6 +419,20 @@ async fn an_attached_image_reaches_the_receiver_as_an_image() {
     assert!(text(&r).contains("absolute file paths"), "{r}");
 }
 
+/// The send relay carries text alone: a send with `attach` to a session neither here nor on a peer
+/// is refused, never relayed without its files.
+#[tokio::test]
+async fn an_attach_to_an_unknown_session_is_refused_not_relayed_as_text() {
+    let item = send::Item { attach: vec!["/tmp/shot.png".into()], ..Default::default() };
+    let (to, text) = ("elsewhere".to_owned(), "the broken card".to_owned());
+    let target =
+        send::Target { index: 0, to: to.clone(), key: to, tag: None, text, file: None, item };
+    let row = send::relay(&target, &anyhow::anyhow!("no session named elsewhere")).await;
+    let row = row.expect("a refusal row, not the relay skipped or taken");
+    assert_eq!(row["ok"], false, "{row}");
+    assert!(row["error"].as_str().unwrap_or_default().contains("attachments"), "{row}");
+}
+
 /// Past both the old 256 KiB file refusal and the 31 MiB RPC envelope: the agent
 /// receives the complete file by reference, through the same durable outbox.
 #[tokio::test]
