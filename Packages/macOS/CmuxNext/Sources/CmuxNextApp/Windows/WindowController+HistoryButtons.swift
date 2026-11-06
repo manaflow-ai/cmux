@@ -23,11 +23,11 @@ extension WindowController {
             // The `scope` layout is the R69 list as it was: nothing to list, no menu. The others always open, a dimmed
             // arrow's too. Recently Closed reads the mirrored closed history (bounded, no daemon request); Show Full
             // History is the registered `history.show` row.
-            if layout == .scope { return sections.isEmpty ? nil : TitlebarHistoryMenu.make(sections, choose: { goTo(registry, $0) }, showAll: nil) }
+            if layout == .scope { return sections.isEmpty ? nil : TitlebarHistoryMenu.make(sections, choose: { Self.goTo(registry, $0) }, showAll: nil) }
             let closed = TitlebarHistoryClosedSection(services.history.closedEntries(limit: TitlebarHistoryMenu.closedLimit),
                                                       served: DaemonClosedHistory.isServed(in: services))
             return TitlebarHistoryMenu.make(sections, closed: closed, style: TitlebarHistoryTunables.menuStyle.value,
-                                            choose: { goTo(registry, $0) }, reopen: { id in
+                                            choose: { Self.goTo(registry, $0) }, reopen: { id in
                 // The row's own item by id, never the "newest closed" of an empty id.
                 _ = registry?.perform("history.reopen", invocation: ActionInvocation(arguments: ["id": .string(id)], origin: .user))
             }, showAll: registry?.makeMenuItem(for: "history.show"))
@@ -44,7 +44,7 @@ extension WindowController {
         refreshHistoryButtons()
     }
 
-    private func goTo(_ registry: ActionRegistry?, _ index: Int) {
+    private static func goTo(_ registry: ActionRegistry?, _ index: Int) {
         _ = registry?.perform("history.goTo", invocation: ActionInvocation(arguments: ["index": .int(index)], origin: .user))
     }
 
