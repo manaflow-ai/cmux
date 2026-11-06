@@ -41,8 +41,10 @@ await requireBrowserLane("picker-row-geometry.test.ts", async () => {
       name: "composer folder menu",
       entry: "agent-pane.composer-context",
       variant: "folder-one-concept",
+      // The gallery frame may or may not have run the variant's play; click only a closed trigger.
       open: async (page) => {
-        await page.getByRole("button", { name: /^Folder/ }).click();
+        const trigger = page.getByRole("button", { name: /^Folder/ });
+        if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
         await page.locator(".acpmux-folder-popover .acpmux-location-action").first().waitFor();
       },
       menu: ".acpmux-folder-popover",
