@@ -25,6 +25,9 @@ import { rememberTrayOpen } from "./trayFoldMemory";
 /// The hat's own chevron (SubagentTray.tsx `onTuck`): one function, so the memoized tray keeps its props.
 export const tuckTray = () => setTrayTucked(true);
 
+/// The tab's count as it reads: its control is sized for two digits, so a hundred or more reads "99+".
+export const pullTabCountText = (running: number): string => (running > 99 ? "99+" : String(running));
+
 /// What the tucked tab flags: the lines that wait on the person (counted as the hat's header counts
 /// them, trayHeadKinds.ts) and the ones that run. A chat queued for a run slot waits on cmux, not on
 /// the person: it counts with what runs, never as a dot (trayAttention.ts asksPerson).
@@ -92,7 +95,7 @@ export function TrayPullTab({
         ) : (
           running > 0 && (
             <span className="acpmux-tray-pull__count" aria-hidden="true">
-              {running}
+              {pullTabCountText(running)}
             </span>
           )
         )}

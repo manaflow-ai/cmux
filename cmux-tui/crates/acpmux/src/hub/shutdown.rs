@@ -60,7 +60,18 @@ impl Hub {
 
     /// Fences new turns and automatic continuations before transports begin draining.
     pub(crate) fn begin_shutdown(&self) {
-        self.shutdown_plan.lock().unwrap().started = true;
+        self.start_shutdown();
+        self.wake_start_retries();
+    }
+
+    /// Marks the shutdown begun, under the lock an unstarted turn's end is decided and written
+    /// under (`start_retry.rs` `fail_unless_shutdown_settles`): that end is wholly before the
+    /// shutdown began, or sees it. Returns the plan's `end_agents` and `keep`.
+    fn start_shutdown(&self) -> (bool, std::collections::HashSet<String>) {
+        let _ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+        let mut plan = self.shutdown_plan.lock().unwrap();
+        plan.started = true;
+        (plan.end_agents, plan.keep.clone())
     }
 
     /// Stop every agent at once and save. Each agent's process group gets
@@ -107,11 +118,9 @@ impl Hub {
         self.stop_idle_reaper();
         // A pass that already started finishes first (bounded by its kills).
         drop(self.idle_pass.lock().await);
-        let (end_agents, keep) = {
-            let mut plan = self.shutdown_plan.lock().unwrap();
-            plan.started = true;
-            (plan.end_agents, plan.keep.clone())
-        };
+        let (end_agents, keep) = self.start_shutdown();
+        // A start that waits to be tried again ends its wait (`start_retry.rs`).
+        self.wake_start_retries();
         // The log retention worker sees the shutdown begun and ends (`retention.rs`).
         self.retention_wake.notify_one();
         let sessions = self.sessions();
