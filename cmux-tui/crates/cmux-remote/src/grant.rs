@@ -121,6 +121,9 @@ pub trait GrantVerifier: Send + Sync {
     /// Admit the grant, or say why not. The message goes back to the client,
     /// so it never carries token or key bytes.
     fn verify(&self, presentation: GrantPresentation<'_>) -> Result<GrantAdmission, String>;
+    /// The new session `link_group` presented for has registered: its
+    /// grant admits no further link.
+    fn seal(&self, link_group: [u8; 32]);
 }
 
 /// The stable device id of `subject`'s client with `noise_key`:
@@ -162,6 +165,10 @@ impl GrantVerifier for CarrierGrantVerifier {
             device_id: grant_device_id(&grant.subject, presentation.noise_key),
             authority: ServiceAuthority::from_services(services),
         })
+    }
+
+    fn seal(&self, link_group: [u8; 32]) {
+        CarrierGrantVerifier::seal(self, link_group);
     }
 }
 
