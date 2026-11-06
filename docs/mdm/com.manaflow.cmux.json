@@ -2068,26 +2068,94 @@
       "title" : "Use My Codex Login on My Own Cloud Machines",
       "type" : "boolean"
     },
-    "computerUse.driver" : {
-      "default" : "upstream",
-      "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
-      "enum" : [
-        "legacy",
-        "upstream"
-      ],
-      "title" : "Computer Use Driver",
-      "type" : "string"
-    },
-    "computerUse.enabled" : {
+    "computerUse.allowForeground" : {
       "default" : false,
-      "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
-      "title" : "Computer Use",
+      "description" : "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input.",
+      "title" : "Allow Foreground Input",
       "type" : "boolean"
+    },
+    "computerUse.allowOwnMachines" : {
+      "default" : true,
+      "description" : "Agents on your other machines, signed in to the same account, may use this Mac's apps.",
+      "title" : "Allow My Other Machines",
+      "type" : "boolean"
+    },
+    "computerUse.deniedApps" : {
+      "default" : [
+        "com.apple.keychainaccess",
+        "com.apple.Passwords",
+        "com.1password.*",
+        "com.agilebits.onepassword*",
+        "com.bitwarden.*",
+        "com.dashlane.*",
+        "com.lastpass.*",
+        "com.nordpass.*",
+        "me.proton.pass",
+        "org.keepassxc.keepassxc",
+        "com.markmcguill.strongbox",
+        "in.sinew.enpass*",
+        "com.keepersecurity.*",
+        "1password.exe",
+        "bitwarden.exe",
+        "keepass.exe",
+        "keepassxc.exe",
+        "org.keepassxc.KeePassXC",
+        "1password",
+        "bitwarden",
+        "com.apple.systempreferences",
+        "com.apple.Terminal",
+        "com.googlecode.iterm2",
+        "com.mitchellh.ghostty",
+        "net.kovidgoyal.kitty",
+        "com.github.wez.wezterm",
+        "org.alacritty",
+        "dev.warp.*",
+        "windowsterminal.exe",
+        "cmd.exe",
+        "powershell.exe",
+        "pwsh.exe",
+        "org.gnome.Terminal",
+        "org.gnome.Ptyxis",
+        "org.kde.konsole",
+        "com.cmuxterm.app",
+        "com.cmuxterm.app.*"
+      ],
+      "description" : "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Denied Apps",
+      "type" : "array"
     },
     "computerUse.livePreview" : {
       "default" : true,
       "description" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
       "title" : "Live Preview in Chat",
+      "type" : "boolean"
+    },
+    "computerUse.mode" : {
+      "default" : "fullAccess",
+      "description" : "What agents may do with the apps on this Mac. Denied apps are never used, in any mode.",
+      "enum" : [
+        "fullAccess",
+        "approvedApps",
+        "askEveryTime",
+        "lookOnly",
+        "off"
+      ],
+      "title" : "Computer Use",
+      "type" : "string"
+    },
+    "computerUse.pauseOnTakeover" : {
+      "default" : true,
+      "description" : "While you use the mouse or keyboard, agents wait before their next click or key press.",
+      "title" : "Pause When I Use the Mouse or Keyboard",
+      "type" : "boolean"
+    },
+    "computerUse.showCursor" : {
+      "default" : true,
+      "description" : "A blue cursor shows wherever an agent clicks or types.",
+      "title" : "Show Agent Cursor",
       "type" : "boolean"
     },
     "ComputerUseActsAsPerson" : {

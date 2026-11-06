@@ -336,7 +336,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
     // mode, the denied apps, the saved approvals and the switches from the
     // `settings.group.computerUse` rows; the page does not draw that group a second time.
     private static let computerUse = CategorySpec(
-        id: "computerUse", title: SettingsText.keyed("settings.category.computerUse", "Computer Use"),
+        id: "computer-use", title: SettingsText.keyed("settings.category.computerUse", "Computer Use"),
         symbol: "cursorarrow.click.2",
         groups: [group("settings.group.computerUse")], lead: [.computerUse])
 

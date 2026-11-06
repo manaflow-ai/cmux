@@ -1033,12 +1033,12 @@ Object.assign(variants, {
   // Settings > Computer Use (ComputerUseCard): the default (Full access, one grant missing, the
   // engine's deny list), every grant given with saved approvals, Look only, Off, a failed worker,
   // a policy lock and a short custom deny list. Focusing the mode picker scrolls the card into view.
-  "computer-use-default": variant("computerUse", {
+  "computer-use-default": variant("computer-use", {
     host: { ...host, computer_use: computerUseReady },
     steps: [wait('[data-card="computer-use"] [data-mode]'), focusComputerUse],
     note: "Full access by default: status (engine, Accessibility allowed, Screen Recording with Grant Access, worker running), the five modes, the denied apps.",
   }),
-  "computer-use-granted": variant("computerUse", {
+  "computer-use-granted": variant("computer-use", {
     host: {
       ...host,
       computer_use: {
@@ -1055,19 +1055,19 @@ Object.assign(variants, {
     steps: [wait('[data-card="computer-use"] [data-approval]'), focusApprovals],
     note: "Approved apps with every grant given: Saved Approvals lists Always Allow and Never, each with Forget.",
   }),
-  "computer-use-look-only": variant("computerUse", {
+  "computer-use-look-only": variant("computer-use", {
     host: { ...host, computer_use: { ...computerUseReady, screen_recording: true } },
     options: { values: { "computerUse.mode": "lookOnly" } },
     steps: [wait('[data-card="computer-use"] [data-mode="lookOnly"][data-checked]'), focusComputerUse],
     note: "Look only: screenshots and reading, no clicks or typing.",
   }),
-  "computer-use-off": variant("computerUse", {
+  "computer-use-off": variant("computer-use", {
     host: { ...host, computer_use: { ...computerUseReady, phase: "off", worker: { state: "stopped" } } },
     options: { values: { "computerUse.mode": "off" } },
     steps: [wait('[data-card="computer-use"] [data-mode="off"][data-checked]'), focusComputerUse],
     note: "Off: the status says pick a mode to turn it on; no grant or worker rows.",
   }),
-  "computer-use-failed": variant("computerUse", {
+  "computer-use-failed": variant("computer-use", {
     host: { ...host, computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: null } },
     steps: [
       wait('[data-card="computer-use"]'),
@@ -1075,7 +1075,7 @@ Object.assign(variants, {
     ],
     note: "The worker did not respond: Restart is the only status action.",
   }),
-  "computer-use-policy-locked": variant("computerUse", {
+  "computer-use-policy-locked": variant("computer-use", {
     host: {
       ...host,
       computer_use: { phase: "disabled_by_policy", accessibility: null, screen_recording: null, helper: null },
@@ -1083,7 +1083,7 @@ Object.assign(variants, {
     steps: [wait('[data-card="computer-use"][data-phase="disabled_by_policy"]'), focusComputerUse],
     note: "A managed policy turned Computer Use off on this Mac: no Grant or Restart; the rows still show.",
   }),
-  "computer-use-custom-deny-list": variant("computerUse", {
+  "computer-use-custom-deny-list": variant("computer-use", {
     host: { ...host, computer_use: { ...computerUseReady, screen_recording: true } },
     options: { values: { "computerUse.deniedApps": ["com.apple.Terminal", "com.1password.*", "name:Notes"] } },
     steps: [wait('[data-card="computer-use"] [data-denied-app="name:Notes"]'), focusDenied],
