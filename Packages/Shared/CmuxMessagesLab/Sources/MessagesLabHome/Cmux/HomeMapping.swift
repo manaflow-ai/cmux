@@ -242,14 +242,14 @@ enum HomeMapping {
     }
 
     /// `text` cut at its pipe tables: the text pieces by `textParts`, each table a table or plan card.
-    /// nil when it has no table, or tables are off (Debug Settings > Home > Rich tables), or no provider
-    /// is installed: the text then maps as it always did, tables as written in the bubble.
+    /// nil when it has no table or no provider is installed: the text then maps as it always did,
+    /// tables as written in the bubble.
     /// A table's pictures (`![alt](source)` in its cells) resolve to local files with `media`: a
     /// `cmux-attachment:<hash>` source is the message's attachment of that hash (the Chief's uploads,
     /// `media(hash)`); a local path, `file:` or `https` URL is its thumbnail (`media(source)`,
     /// ``HomeTablePictures``); any other source, or one without a file yet, shows its alt text.
     static func tableParts(_ text: String, media: Media = { _ in nil }, _ textParts: (String) -> [Part]) -> [Part]? {
-        guard HomeTableRowProvider.isOn, HomeTableRowProvider.installed != nil else { return nil }
+        guard HomeTableRowProvider.installed != nil else { return nil }
         let segments = HomeTableSplitter().segments(in: text)
         guard segments.contains(where: { if case .table = $0 { return true } else { return false } }) else { return nil }
         var out: [Part] = []
@@ -317,7 +317,7 @@ enum HomeMapping {
 
     /// The attachment hashes `text`'s tables show in their cells (each one draws there, not again below).
     static func tableAttachmentHashes(_ text: String) -> Set<String> {
-        guard text.contains(tableAttachmentScheme), HomeTableRowProvider.isOn, HomeTableRowProvider.installed != nil else { return [] }
+        guard text.contains(tableAttachmentScheme), HomeTableRowProvider.installed != nil else { return [] }
         var out: Set<String> = []
         for case .table(let table, _) in HomeTableSplitter().segments(in: text) {
             for cell in ([table.header] + table.rows).flatMap({ $0 }) {

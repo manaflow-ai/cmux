@@ -8,22 +8,13 @@ import os
 /// row (CustomRows.swift, `.fullWidth`) like the Mermaid bubbles (``HomeDiagramRowProvider``).
 /// `HomeMapping.parts` cuts an agent's text at its tables (``HomeTableSplitter``): an assignment
 /// table becomes a plan card (``HomePlanRowProvider``), any other a table card with real column
-/// widths. Copy and VoiceOver read the table's Markdown as written. Debug Settings > Home > Rich
-/// tables off (``isOn``) maps tables as text again, in the bubble.
+/// widths. Copy and VoiceOver read the table's Markdown as written.
 final class HomeTableRowProvider: TranscriptCustomRowProvider {
     static let kind = "cmux.table"
 
     struct Payload: Codable, Hashable {
         var raw: String
         var table: HomeTable
-    }
-
-    // Lock carve-out: the mapping reads it on the loader queue and the main thread; a Bool.
-    private static let enabled = OSAllocatedUnfairLock(initialState: true)
-    /// Tables draw as cards (the host's Debug Settings value; default on).
-    static var isOn: Bool {
-        get { enabled.withLock { $0 } }
-        set { enabled.withLock { $0 = newValue } }
     }
 
     /// The registered provider (nil: tables stay text).
@@ -143,9 +134,21 @@ struct HomeTableGrid {
     var pictures: [[[CGImage]]] { slots.map { $0.map { $0.compactMap(\.image) } } }
     let alignments: [HomeTable.Alignment]
     let cardWidth: CGFloat
-    var height: CGFloat { heights.reduce(0, +) + 2 * Self.pad }
+    /// The table's first header cell is empty (a matrix: row labels down the first column, names across the top).
+    let hasEmptyCorner: Bool
+    /// The large-pairs layout of a Before|After table (``HomeCompareLayout``); nil for a grid.
+    let compare: HomeCompareLayout?
+    var height: CGFloat { compare?.height ?? heights.reduce(0, +) + 2 * Self.pad }
 
-    init(_ table: HomeTable, available: CGFloat) {
+    /// How a table card lays out a comparison table (``HomeCompareLayout/matches(_:)``).
+    enum Style: Sendable {
+        /// Large pairs, the default.
+        case pairs
+        /// The plain grid, one thumbnail per cell.
+        case grid
+    }
+
+    init(_ table: HomeTable, available: CGFloat, style: Style = .pairs) {
         let parsed = ([table.header] + table.rows).map { $0.map { HomeTableCell(markdown: $0) } }
         // A picture with a file draws as a thumbnail; one without (not loaded yet, or not allowed) shows its alt text.
         let pictures = parsed.map { $0.map { cell in cell.images.compactMap { Self.slot($0, in: table) } } }
@@ -178,10 +181,22 @@ struct HomeTableGrid {
         cells = all
         slots = pictures
         alignments = table.alignments
-        cardWidth = min(available, widths.reduce(0, +) + 2 * Self.pad)
+        hasEmptyCorner = table.columns > 1 && table.header[0].trimmingCharacters(in: .whitespaces).isEmpty
+        compare = style == .pairs ? HomeCompareLayout(table, slots: pictures, available: available) : nil
+        cardWidth = compare?.width ?? min(available, widths.reduce(0, +) + 2 * Self.pad)
+    }
+
+    /// Where the rule under row `r` starts and ends (x) in a card drawn at `origin`. The header's rule leaves an
+    /// empty corner cell blank, so it does not cross the row labels' column (the user, 2026-11-05: "top left has
+    /// itnersect").
+    func ruleSpan(below r: Int, at origin: CGPoint) -> ClosedRange<CGFloat> {
+        let start = origin.x + Self.pad + (r == 0 && hasEmptyCorner ? (widths.first ?? 0) : 0)
+        let end = origin.x + cardWidth - Self.pad
+        return min(start, end)...end
     }
 
     func draw(_ ctx: CGContext, at origin: CGPoint) {
+        if let compare { compare.draw(ctx, at: origin); return }
         let card = CGRect(x: origin.x, y: origin.y, width: cardWidth, height: height)
         HomeCardDraw.background(ctx, card)
         // Columns at their 56 pt floor can be wider than a very narrow chat: they stop at the card.
@@ -205,7 +220,8 @@ struct HomeTableGrid {
             }
             y += rowHeight
             if r < cells.count - 1 {
-                HomeCardDraw.hairline(ctx, from: CGPoint(x: card.minX + Self.pad, y: y), to: CGPoint(x: card.maxX - Self.pad, y: y), strong: r == 0)
+                let span = ruleSpan(below: r, at: origin)
+                HomeCardDraw.hairline(ctx, from: CGPoint(x: span.lowerBound, y: y), to: CGPoint(x: span.upperBound, y: y), strong: r == 0)
             }
         }
     }
@@ -213,6 +229,7 @@ struct HomeTableGrid {
     /// Each picture's frame in a card drawn at `origin` (as ``draw(_:at:)`` places it), with its source and
     /// whether it is still loading: the click finds its picture, the skeleton's shimmer its place.
     func pictureRects(at origin: CGPoint) -> [PictureRect] {
+        if let compare { return compare.pictureRects(at: origin) }
         var out: [PictureRect] = []
         var y = origin.y + Self.pad
         for (r, rowHeight) in heights.enumerated() {

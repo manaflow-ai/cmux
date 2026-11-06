@@ -8,8 +8,9 @@ import type { SummarySource } from "../summary/sessionSummary";
 import { extraFolderName } from "../extraFolders";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
+import { SessionInfoFold } from "./SessionInfoSection";
 
-export const SOURCES_SHOWN = 5;
+export const SOURCES_SHOWN = 4;
 type RowProps = {
   source: SummarySource;
   onOpenBeside?: (url: string) => void;
@@ -76,7 +77,8 @@ export function SourcesSection({
   onExpandedChange: (expanded: boolean) => void;
 }) {
   const t = useT();
-  const folds = sources.length > SOURCES_SHOWN;
+  // A fold that would hold back one row shows it instead (OutputsSection `OUTPUTS_SHOWN`).
+  const folds = sources.length - SOURCES_SHOWN >= 2;
   const shown = folds && !expanded ? sources.slice(0, SOURCES_SHOWN) : sources;
   const labels = sourceLabels(t, sources);
   return (
@@ -101,14 +103,15 @@ export function SourcesSection({
         ))}
       </ul>
       {folds && (
-        <button
-          type="button"
-          className="acpmux-session-info-fold acpmux-session-info-sources-fold"
-          aria-expanded={expanded}
-          onClick={() => onExpandedChange(!expanded)}
+        <SessionInfoFold
+          className="acpmux-session-info-sources-fold"
+          open={expanded}
+          onToggle={() => onExpandedChange(!expanded)}
         >
-          {expanded ? t("summary.showFewer") : t("summary.viewAll", { n: sources.length })}
-        </button>
+          {expanded
+            ? t("sessionInfo.outputs.showLess")
+            : t("sessionInfo.list.showMore", { n: sources.length - SOURCES_SHOWN })}
+        </SessionInfoFold>
       )}
     </>
   );

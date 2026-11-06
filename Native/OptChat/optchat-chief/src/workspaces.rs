@@ -89,7 +89,7 @@ impl WorkspaceRef {
 }
 
 /// The value of a leading `key: value` header line of `task` (`Title:`,
-/// `Group:`), among its first three non-empty lines; any case.
+/// `Group:`, `Sidebar:`), among its first three non-empty lines; any case.
 pub fn header(task: &str, key: &str) -> Option<String> {
     task.lines()
         .map(str::trim)
@@ -102,11 +102,13 @@ pub fn header(task: &str, key: &str) -> Option<String> {
         })
 }
 
-/// Whether `line` is a `Title:` or `Group:` header.
-fn is_header(line: &str) -> bool {
+/// Whether `line` is a `Title:`, `Group:` or `Sidebar:` header.
+pub fn is_header(line: &str) -> bool {
     line.split_once(':').is_some_and(|(k, _)| {
         let k = k.trim();
-        k.eq_ignore_ascii_case("title") || k.eq_ignore_ascii_case("group")
+        k.eq_ignore_ascii_case("title")
+            || k.eq_ignore_ascii_case("group")
+            || k.eq_ignore_ascii_case("sidebar")
     })
 }
 

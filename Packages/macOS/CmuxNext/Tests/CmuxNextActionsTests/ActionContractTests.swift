@@ -11,12 +11,16 @@ import Testing
     /// noun-verb form (e.g. `remote open`) when its owner next touches it.
     static let topLevelVerbs: [ActionID: String] = ["remote.openRemote": "open-remote"]
 
+    /// Nested groups (noun, group, verb): `chat channel create` is the path the
+    /// backend protocol declares (`ops-home-inbox.ts`, chief-channels-DESIGN.md).
+    static let nestedNames: [ActionID: String] = ["home.createChannel": "chat channel create"]
+
     @Test func everyActionHasAUniqueNounVerbCLIName() {
         var seen: [String: ActionID] = [:]
         for descriptor in catalog {
             let parts = descriptor.cliName.split(separator: " ")
-            if let verb = Self.topLevelVerbs[descriptor.id] {
-                #expect(descriptor.cliName == verb, "\(descriptor.id): \(descriptor.cliName)")
+            if let name = Self.topLevelVerbs[descriptor.id] ?? Self.nestedNames[descriptor.id] {
+                #expect(descriptor.cliName == name, "\(descriptor.id): \(descriptor.cliName)")
             } else {
                 #expect(parts.count == 2, "\(descriptor.id): \(descriptor.cliName)")
             }
