@@ -22,8 +22,7 @@ extension CloudStartSession {
         var relay: @MainActor () -> CloudRelayChat?
         /// How long a CLI or MCP run waits for `link` and `login` before it answers without sending.
         var loginWithin: Duration = CloudStartSession.loginWithin
-        /// Brings the machine's app link up before the login, as start-session connects first, so the login reads the
-        /// link's owner answer (a cold machine has none). False: no link came up. A machine with no app link goes on.
+        /// The app link up before the login, as start-session connects first, so the login reads its owner answer (false: none came up).
         var link: @MainActor (CloudMachineSession) async -> Bool = { $0.appLink == nil ? true : await $0.linkHop(origin: .script) }
 
         static func live(_ services: AppServices) -> RelaySteps {
@@ -59,14 +58,11 @@ extension CloudStartSession {
             // The machine takes the login first; the account that asked is checked after its wait, as start-session's is.
             let login: @MainActor () async throws -> (code: String, message: String)? = {
                 // The link first, as start-session's connect: a link that never came up sends nothing and runs no login.
-                guard await steps.link(machine) else {
-                    return ("cloud.relay.login_not_connected", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent))
-                }
+                guard await steps.link(machine) else { return ("cloud.relay.login_not_connected", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent)) }
                 try await steps.login(machine, started) { try Self.checked(account, now: cloud.account, started.asked(machine: machine.machine.title)) }
                 let link = machine.appLink, ownership = await link?.callerOwnership ?? .unknown, state = await link?.stateWord ?? "none", decision = machine.harnessLogin
                 let refusal = relayLoginRefusal(decision, started, machine: machine.machine.title, ownership: ownership)
-                // Verdicts only (no id, token, path or provider output); `cached` says when the step never read the cache.
-                let cached = decision.map { $0.machineProbe == nil && $0.machineLogin == nil ? "unqueried" : $0.cached ? "yes" : "no" } ?? "unqueried"
+                let cached = decision.map { $0.machineProbe == nil && $0.machineLogin == nil ? "unqueried" : $0.cached ? "yes" : "no" } ?? "unqueried" // verdicts only: no id, token, path or provider output
                 cloud.logger.info("cloud relay chat: harness login \(refusal?.code ?? "ready", privacy: .public): link \(state, privacy: .public), owner \(ownership.rawValue, privacy: .public), guest \(decision?.guestKind ?? "-", privacy: .public), cached \(cached, privacy: .public) (\(decision?.summary ?? "no step", privacy: .public))")
                 return refusal
             }
@@ -136,10 +132,7 @@ extension CloudStartSession {
             try? await Task.sleep(for: wait)
             continuation.yield(nil)
         }
-        defer {
-            deadline.cancel()
-            continuation.finish()
-        }
+        defer { deadline.cancel(); continuation.finish() }
         for await answer in answers { return try answer?.get() }
         return nil
     }
@@ -151,9 +144,8 @@ extension CloudStartSession {
 
     /// The answer's fields: what the CLI prints with `--json`.
     static func relayFields(_ answer: CloudRelayChat.Answer, machineID: String) -> [String: ActionResultValue] {
-        var fields: [String: ActionResultValue] = ["machine_id": .string(machineID), "reply": .string(answer.reply),
-                                                   "queued": .bool(answer.queued), "ended": .bool(answer.ended),
-                                                   "delivered": .bool(answer.delivered)]
+        var fields: [String: ActionResultValue] = ["machine_id": .string(machineID), "reply": .string(answer.reply), "queued": .bool(answer.queued),
+                                                   "ended": .bool(answer.ended), "delivered": .bool(answer.delivered)]
         let texts = ["session_id": answer.session, "prompt_id": answer.promptID, "stop_reason": answer.stopReason,
                      "error_code": answer.errorCode, "error_message": answer.errorMessage]
         for case let (key, text?) in texts { fields[key] = .string(text) }
