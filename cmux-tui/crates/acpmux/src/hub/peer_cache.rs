@@ -68,6 +68,7 @@ impl Hub {
             // Publish dirty state before deciding whether this notice is throttled. The stop
             // flush can therefore see a notice even when the worker has not started yet.
             p.cache_dirty.store(true, std::sync::atomic::Ordering::SeqCst);
+            p.cache_dirty_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let at = now_ms();
             let last = p.cache_saved_at.load(std::sync::atomic::Ordering::SeqCst);
             if at.saturating_sub(last) < SAVE_EVERY_MS
@@ -119,6 +120,7 @@ impl Hub {
         }
         // Snapshot each shared structure independently. The writer gate preserves ordering for
         // one peer, while readers and notices for every other peer continue immediately.
+        let snapshot_seq = p.cache_dirty_seq.load(std::sync::atomic::Ordering::SeqCst);
         let sessions: Vec<Value> = self
             .remote_sessions
             .lock()
@@ -153,7 +155,10 @@ impl Hub {
             tracing::warn!(peer = %peer, "saving the peer's last-known sessions failed: {e}");
         } else {
             p.cache_saved_at.store(at, std::sync::atomic::Ordering::SeqCst);
-            p.cache_dirty.store(false, std::sync::atomic::Ordering::SeqCst);
+            p.cache_dirty.store(
+                p.cache_dirty_seq.load(std::sync::atomic::Ordering::SeqCst) != snapshot_seq,
+                std::sync::atomic::Ordering::SeqCst,
+            );
             p.cache_saved_outage
                 .store(saved.down_since.is_some(), std::sync::atomic::Ordering::SeqCst);
         }
@@ -498,6 +503,45 @@ mod tests {
         let bytes = std::fs::read(dir.path().join("peers/builder.json")).unwrap();
         let saved: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(saved["sessions"][0]["status"], "running");
+    }
+
+    #[test]
+    fn a_notice_during_a_write_remains_dirty_for_the_stop_flush() {
+        let (hub, dir) = test_hub();
+        let peer = add_idle_peer(&hub, "builder");
+        hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_delay_ms.store(200, std::sync::atomic::Ordering::SeqCst);
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            PeerNotice::Sessions(vec![remote("old", "lane")]),
+        );
+        for _ in 0..100_000 {
+            if hub.cache_test_write_started.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            PeerNotice::Sessions(vec![remote("new", "lane")]),
+        );
+        hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+        for _ in 0..100_000 {
+            if !peer.cache_write_pending.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        assert!(peer.cache_dirty.load(std::sync::atomic::Ordering::SeqCst));
+        if peer.cache_dirty.load(std::sync::atomic::Ordering::SeqCst) {
+            hub.save_peer_cache("builder", peer.generation, true);
+        }
+        let saved: Value =
+            serde_json::from_slice(&std::fs::read(dir.path().join("peers/builder.json")).unwrap())
+                .unwrap();
+        assert_eq!(saved["sessions"][0]["sessionId"], "new");
     }
 
     #[test]
