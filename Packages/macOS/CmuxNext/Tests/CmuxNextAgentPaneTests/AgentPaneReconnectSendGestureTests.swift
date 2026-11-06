@@ -16,6 +16,9 @@ import CmuxNextCompat
 struct AgentPaneReconnectSendGestureTests {
     typealias Slow = AgentPaneSlowStartPromptTests
 
+    /// The connection a test's reconnect opened.
+    @MainActor final class NextConnection { var id: Int? }
+
     static func sendIntent(_ promptId: String) throws -> AgentPaneGestureIntent {
         try #require(AgentPaneGestureIntent(gestureParams: [
             "intent": ["method": "session/prompt", "params": ["promptId": promptId]],
@@ -93,5 +96,27 @@ struct AgentPaneReconnectSendGestureTests {
         let third = try await Self.reopen(pane)
         let setMode = #"{"jsonrpc":"2.0","id":3,"method":"session/set_mode","params":{"sessionId":"s-new","modeId":"plan","_meta":{"cmuxGesture":"\#(modeTicket)"}}}"#
         #expect(await pane.transport.send(connection: third, frames: [setMode]) == .gestureRequired)
+    }
+
+    /// The review of #36961: the pane reconnects while the prompt's frame is read off the main
+    /// actor. That frame goes nowhere, and it must not spend the ticket the person's Enter left, so
+    /// the page's prompt on the next connection still goes.
+    @Test func aFrameLeftStaleByAReconnectSpendsNoSendTicket() async throws {
+        let pane = try await AgentPaneDelayedSendGestureTests.paneWithChat()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
+
+        pane.transport.gestures.record()
+        let ticket = try #require(pane.transport.reserveGesture(Self.sendIntent("p-1")))
+        let next = NextConnection()
+        pane.transport.afterAnalyze = { [transport = pane.transport, url = pane.server.url] in
+            transport.afterAnalyze = nil
+            next.id = try? await transport.open(AcpmuxConnection(url: url, dashboardToken: "t", localAppToken: nil))
+        }
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 2, promptId: "p-1", ticket: ticket)]) == .staleConnection)
+        let again = try #require(next.id, "the pane did not reconnect")
+        #expect(await pane.transport.send(connection: again, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+
+        #expect(await pane.transport.send(connection: again, frames: [Self.prompt(id: 3, promptId: "p-1", ticket: ticket)]) == nil,
+                "the stale frame spent the person's send ticket")
     }
 }

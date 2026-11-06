@@ -200,6 +200,7 @@ extension AgentPaneTransport {
             let snapshot = Snapshot(isFirst: !sentFirst, localAppToken: localAppToken, socketPath: socketPath, modeFields: modeFields,
                                     sessions: sessions, options: permissionOptions, remoteWire: remoteWire)
             let batch = await Self.analyze(texts, snapshot, socket: socket, ids: ids)
+            await afterAnalyze?()
             if batch.firstSent {
                 sentFirst = true
                 localAppToken = nil

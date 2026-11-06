@@ -36,6 +36,9 @@ import CmuxNextCompat
     /// that froze (the app's hibernation) thaws first, so the work runs now instead of waiting on a
     /// page that runs no script (a push's completion paces the next one).
     public var beforePageWork: (@MainActor () -> Void)?
+    /// Tests: runs on the main actor after a pass's frames were read off it and before the main
+    /// actor decides the next one, where a reconnect can land. Nil in the app.
+    var afterAnalyze: (@MainActor () async -> Void)?
     /// Counts pushes, so a late completion of a previous connection's push is ignored.
     private var deliveries = 0
     private var pacerStorage: any AgentPaneTransportPacer
