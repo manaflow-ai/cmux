@@ -64,11 +64,10 @@ public final class Engine: @unchecked Sendable {
             ?? appElement.elements(kAXWindowsAttribute).first
         // The focused window by its id (one window server lookup); the full
         // window list only when the id is unknown.
-        var window = focused?.windowID.flatMap { directory.window(id: $0, pid: app.pid) }
-        if window == nil {
+        let window: WindowInfo? = focused?.windowID.flatMap { directory.window(id: $0, pid: app.pid) } ?? {
             let windows = directory.windows(pid: app.pid)
-            window = windows.first(where: \.onScreen) ?? windows.first
-        }
+            return windows.first(where: \.onScreen) ?? windows.first
+        }()
         let menuBar = appElement.element(kAXMenuBarAttribute)
         let resolved = clock.now
 
