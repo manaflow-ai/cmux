@@ -45,6 +45,15 @@ struct FocusMachineSendBench {
                 sends.append(Self.now() &- start)
             }
         }
+        // The clock ticks every 41.67 ns (24 MHz), 7 % of one send: a sample per round of the 90-event sequence gives the
+        // mean send in picoseconds (0.5 ns resolution), so a 5 % difference shows.
+        var rounds: [UInt64] = []
+        rounds.reserveCapacity(2000)
+        for _ in 0..<2000 {
+            let start = Self.now()
+            for event in events { _ = machine.send(event, into: &state) }
+            rounds.append((Self.now() &- start) &* 1000 / UInt64(events.count))
+        }
         var topologies: [UInt64] = []
         topologies.reserveCapacity(2000)
         for round in 0..<2000 {
@@ -54,6 +63,7 @@ struct FocusMachineSendBench {
             topologies.append(Self.now() &- start)
         }
         print(Self.summary("send", sends))
+        print(Self.summary("send_round_ps", rounds))
         print(Self.summary("topology", topologies))
         #expect(!sends.isEmpty && !topologies.isEmpty)
     }
