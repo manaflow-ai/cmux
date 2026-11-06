@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""A merged commit's cmux CLI for the person typing `cmux`, without a new app and without touching it.
+
+    cli-swap.py apply --tree-key KEY [--name NAME] [--sha SHA256] [--app APP]
+    cli-swap.py status
+    cli-swap.py undo
+
+`apply` downloads the macOS CLI the "cmux-tui artifacts" workflow published for a feat-cmux-next
+commit (https://files.cmux.com/cmux-tui/tree/KEY/; KEY is `scripts/cmux-next/pin-cmux-tui.sh key`
+at that commit), checks its sha256 (the published one, or --sha), and keeps the copy outside any app.
+Then it puts the copy where a cmux terminal finds it:
+
+- The `cmux` a cmux terminal runs is resolved as that terminal resolves it: the first `cmux` on
+  PATH (run this in a cmux terminal), or with --app, the app's Contents/Resources/bin, which the app
+  puts first on its terminals' PATH.
+- When that `cmux` is inside an app bundle it is never written: it is also the file the app runs its
+  daemon from, and the bundle is signed. The copy goes beside it on PATH under its own name,
+  ~/.local/bin/cmux-NAME (NAME defaults to the commit's first 12 characters), and plain `cmux` stays
+  the app's own until the app updates.
+- When it is a link outside any app (an install script's link), the link is pointed at the copy.
+
+`undo` takes back everything `apply` did: the names it added go, the links point where they
+pointed before. Nothing here relaunches or signals the app.
+"""
+import argparse
+import hashlib
+import json
+import os
+import platform
+import shutil
+import sys
+import tempfile
+import urllib.request
+from pathlib import Path
+
+BASE = os.environ.get("CMUX_CLI_SWAP_BASE") or "https://files.cmux.com/cmux-tui/tree"
+
+
+def state_dir() -> Path:
+    if os.environ.get("CMUX_CLI_SWAP_STATE_DIR"):
+        return Path(os.environ["CMUX_CLI_SWAP_STATE_DIR"])
+    home = Path.home()
+    if sys.platform == "darwin":
+        return home / "Library/Caches/cmux-next/cli-swap"
+    return Path(os.environ.get("XDG_CACHE_HOME") or home / ".cache") / "cmux-next/cli-swap"
+
+
+def target_triple() -> str:
+    arch = "aarch64" if platform.machine() in ("arm64", "aarch64") else "x86_64"
+    return f"{arch}-apple-darwin" if sys.platform == "darwin" else f"{arch}-unknown-linux-musl"
+
+
+def fetch(url: str) -> bytes:
+    with urllib.request.urlopen(url, timeout=300) as answer:
+        return answer.read()
+
+
+def terminal_cmux(app: str | None) -> Path | None:
+    """The `cmux` a cmux terminal runs: --app's bundled one, else the first on this PATH."""
+    if app:
+        bundled = Path(app) / "Contents/Resources/bin/cmux"
+        return bundled if bundled.exists() else None
+    found = shutil.which("cmux")
+    return Path(found) if found else None
+
+
+def in_app_bundle(path: Path) -> bool:
+    return ".app/Contents/" in str(path.resolve())
+
+
+def load(state: Path) -> list[dict]:
+    try:
+        return json.loads((state / "applied.json").read_text())
+    except (OSError, ValueError):
+        return []
+
+
+def save(state: Path, records: list[dict]) -> None:
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "applied.json").write_text(json.dumps(records, indent=2) + "\n")
+
+
+def relink(link: Path, to: str) -> None:
+    staged = link.with_name(f".{link.name}.cli-swap")
+    staged.unlink(missing_ok=True)
+    staged.symlink_to(to)
+    os.replace(staged, link)
+
+
+def command_apply(args) -> int:
+    state = state_dir()
+    triple = args.target or target_triple()
+    url = f"{BASE}/{args.tree_key}/cmux-tui-{triple}"
+    want = args.sha or fetch(url + ".sha256").decode().split()[0]
+    body = fetch(url)
+    have = hashlib.sha256(body).hexdigest()
+    if have != want:
+        print(f"cli-swap: {url} has sha256 {have}, not {want}; nothing changed", file=sys.stderr)
+        return 1
+    copy = state / args.tree_key / "cmux"
+    copy.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
+        part.write(body)
+    os.chmod(part.name, 0o755)
+    os.replace(part.name, copy)
+
+    found = terminal_cmux(args.app)
+    records = load(state)
+    if found and not in_app_bundle(found) and found.is_symlink():
+        records.append({"kind": "link", "path": str(found), "previous": os.readlink(found)})
+        relink(found, str(copy))
+        save(state, records)
+        print(f"cli-swap: `cmux` is {copy} now ({found} pointed at {records[-1]['previous']})")
+        return 0
+    name = f"cmux-{args.name or args.tree_key[:12]}"
+    alias = Path.home() / ".local/bin" / name
+    alias.parent.mkdir(parents=True, exist_ok=True)
+    if not any(r["kind"] == "alias" and r["path"] == str(alias) for r in records):
+        records.append({"kind": "alias", "path": str(alias)})
+    relink(alias, str(copy))
+    save(state, records)
+    why = (f"{found} is inside an app bundle, which runs its daemon from that file and is never written"
+           if found and in_app_bundle(found) else f"{found or 'no cmux on PATH'} is not a link this can repoint")
+    print(f"cli-swap: run `{name}` ({alias} -> {copy}); plain `cmux` is unchanged: {why}")
+    on_path = str(alias.parent) in os.environ.get("PATH", "").split(":")
+    if not on_path:
+        print(f"cli-swap: {alias.parent} is not on PATH here; run {alias} by its full path")
+    return 0
+
+
+def command_status(_args) -> int:
+    records = load(state_dir())
+    if not records:
+        print("cli-swap: nothing applied")
+    for record in records:
+        path = Path(record["path"])
+        now = os.readlink(path) if path.is_symlink() else "(gone)"
+        print(f"{record['kind']}: {path} -> {now}" + (f" (was {record['previous']})" if "previous" in record else ""))
+    return 0
+
+
+def command_undo(_args) -> int:
+    state = state_dir()
+    for record in reversed(load(state)):
+        path = Path(record["path"])
+        if record["kind"] == "link":
+            relink(path, record["previous"])
+            print(f"cli-swap: {path} -> {record['previous']} again")
+        elif path.is_symlink():
+            path.unlink()
+            print(f"cli-swap: removed {path}")
+    save(state, [])
+    return 0
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    apply = sub.add_parser("apply")
+    apply.add_argument("--tree-key", required=True)
+    apply.add_argument("--name")
+    apply.add_argument("--sha")
+    apply.add_argument("--app")
+    apply.add_argument("--target")
+    sub.add_parser("status")
+    sub.add_parser("undo")
+    args = parser.parse_args(argv)
+    return {"apply": command_apply, "status": command_status, "undo": command_undo}[args.command](args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -405,6 +405,23 @@ after a few seconds of compiling. Splitting Blink out of the framework in a deve
 configuration is what would bring that down; see the notes for the CEF fork's owners in the PR that
 added this loop.
 
+### A merged CLI change, before the nightly
+
+A cmux terminal puts its app's `Contents/Resources/bin` first on PATH, so the `cmux` you type there
+is the app's own file, which is also the file the app runs its daemon from. That file never changes
+before the app updates. To run a merged commit's CLI sooner:
+
+```sh
+scripts/cmux-next/cli-swap.py apply --tree-key KEY --name 37024   # in a cmux terminal
+cmux-37024 machine new                                            # the merged CLI, beside the app's
+scripts/cmux-next/cli-swap.py undo
+```
+
+KEY is `scripts/cmux-next/pin-cmux-tui.sh key` at the merged commit; the macOS CLI is published under
+it after the merge. `apply` checks its sha256 and puts it on PATH as `cmux-NAME` (in `~/.local/bin`).
+The app, its daemon and its terminals are untouched. A `cmux` that is a link outside any app is
+repointed instead, and `undo` points it back.
+
 ## Every merge, no checkout
 
 Settings > Updates > **Web UI Updates**:
