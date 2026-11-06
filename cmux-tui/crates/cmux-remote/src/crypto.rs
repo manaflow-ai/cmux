@@ -478,8 +478,12 @@ pub async fn initiate_secure_link(
         ClientAuthMode::Carrier => (AuthKind::Carrier, None, None),
         ClientAuthMode::Grant { .. } => (AuthKind::Grant, None, None),
     };
+    // A grant opens a new session only; a resume (generation 1+) re-admits
+    // the same Noise key with no grant.
     let grant = match &config.auth {
-        ClientAuthMode::Grant { token } => Some(token.as_str().to_owned()),
+        ClientAuthMode::Grant { token } if config.generation == 0 => {
+            Some(token.as_str().to_owned())
+        }
         _ => None,
     };
     let prelude = ClientPrelude {

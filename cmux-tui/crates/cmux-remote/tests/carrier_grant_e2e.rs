@@ -31,6 +31,7 @@ const ISSUER: &str = "cmux:cloud:test";
 const MACHINE: &str = "vm_00000000000000000001";
 const NOW: u64 = 1_800_000_000;
 const SUBJECT: &str = "user_00000000000000000001";
+const TEAM: &str = "team_00000000000000000001";
 
 struct Signer(Ed25519KeyPair);
 
@@ -68,7 +69,7 @@ fn grant_claims(noise_key: &[u8; 32], jti: u8) -> Value {
     json!({
         "iss": ISSUER,
         "aud": MACHINE,
-        "team": "team_00000000000000000001",
+        "team": TEAM,
         "sub": SUBJECT,
         "svc": ["mux-control", "terminal-bytes-v1", "a-service-from-the-future"],
         "nk": noise_key_digest(noise_key),
@@ -109,11 +110,27 @@ fn verifier(signer: &Signer, now: &Arc<AtomicU64>) -> CarrierGrantVerifier {
     CarrierGrantVerifier::new(
         ISSUER,
         MACHINE,
+        TEAM,
         signer.keyset(),
         move || Some(clock.load(Ordering::SeqCst)),
         64,
     )
     .unwrap()
+}
+
+async fn group(daemon: &Daemon, session: SessionId) -> Arc<dyn cmux_remote::provider::LinkGroup> {
+    let endpoint =
+        Url::parse(&format!("ws://127.0.0.1:{}/v1/link", daemon.server.local_addr().port()))
+            .unwrap();
+    DirectWebSocketProvider::new(65_535)
+        .connect(ConnectRequest {
+            endpoint,
+            session,
+            lane_policy: LanePolicy::Isolated,
+            routing: Default::default(),
+        })
+        .await
+        .unwrap()
 }
 
 async fn dial(
@@ -122,18 +139,7 @@ async fn dial(
     token: String,
     session: SessionId,
 ) -> Result<Arc<ClientConnection>, cmux_remote::connection::ConnectionError> {
-    let endpoint =
-        Url::parse(&format!("ws://127.0.0.1:{}/v1/link", daemon.server.local_addr().port()))
-            .unwrap();
-    let group = DirectWebSocketProvider::new(65_535)
-        .connect(ConnectRequest {
-            endpoint,
-            session,
-            lane_policy: LanePolicy::Isolated,
-            routing: Default::default(),
-        })
-        .await
-        .unwrap();
+    let group = group(daemon, session).await;
     tokio::time::timeout(
         CONNECT_TIMEOUT,
         ClientConnection::connect(
@@ -191,6 +197,22 @@ async fn a_valid_grant_admits_and_the_session_outlives_its_expiry() {
     assert_eq!(accepted.receive().await.unwrap().unwrap().payload, b"after-exp".as_slice());
     assert_eq!(client.snapshot().await.state, ConnectionState::Connected);
 
+    // A resume on a new carrier needs no grant (the old one is spent and
+    // expired): the same key re-enters its own session, under the same id.
+    let replacement = group(&daemon, SessionId([11; 16])).await;
+    tokio::time::timeout(CONNECT_TIMEOUT, client.reconnect(replacement))
+        .await
+        .expect("grant-free resume timed out")
+        .expect("a resume of a grant-admitted session was refused");
+    assert_eq!(client.snapshot().await.state, ConnectionState::Connected);
+    assert_eq!(accepted.snapshot().await.device_id, grant_device_id(SUBJECT, &key));
+    assert!(accepted.snapshot().await.generation >= 1);
+    client
+        .send(Lane::Interactive, 2, Bytes::from_static(b"after-resume"), FrameFlags::empty())
+        .await
+        .unwrap();
+    assert_eq!(accepted.receive().await.unwrap().unwrap().payload, b"after-resume".as_slice());
+
     // The same grant, still within its life, cannot open another session.
     now.store(NOW, Ordering::SeqCst);
     dial(&daemon, identity, token, SessionId([12; 16]))
@@ -235,5 +257,60 @@ async fn a_grant_for_another_key_or_a_link_token_is_refused() {
         .await
         .expect_err("a link token was admitted as a grant");
     assert!(error.to_string().contains("header_typ"), "{error}");
+    daemon.server.shutdown().await.unwrap();
+}
+
+/// A grant for another machine or another team, signed by the same keyset,
+/// is refused: the daemon's verifier takes both from its own bind record.
+#[tokio::test]
+async fn a_grant_for_another_machine_or_team_is_refused() {
+    let signer = Signer::generate();
+    let now = Arc::new(AtomicU64::new(NOW));
+    let daemon = daemon(Some(verifier(&signer, &now))).await;
+    for (field, value, reason, session) in [
+        ("aud", "vm_00000000000000000002", "audience", 41),
+        ("team", "team_00000000000000000002", "team", 42),
+    ] {
+        let identity = StaticIdentity::generate().unwrap();
+        let mut claims = grant_claims(&identity.public_key(), session);
+        claims[field] = json!(value);
+        let error =
+            dial(&daemon, identity, signer.sign(GRANT_TYP, &claims), SessionId([session; 16]))
+                .await
+                .expect_err("a grant for another machine or team was admitted");
+        assert!(error.to_string().contains(reason), "{field}: {error}");
+    }
+    daemon.server.shutdown().await.unwrap();
+}
+
+/// Without a grant, only a resume of a key a grant admitted gets in: a new
+/// session (generation 0) is refused, and so is a resume by a stranger key.
+#[tokio::test]
+async fn without_a_grant_only_a_known_key_may_resume() {
+    use cmux_remote::crypto::{
+        AuthKind, AuthRequest, ConnectionAttemptId, InboundAuthEvidence, NetworkPeer,
+        ServerAuthenticator,
+    };
+    let signer = Signer::generate();
+    let now = Arc::new(AtomicU64::new(NOW));
+    let daemon = daemon(Some(verifier(&signer, &now))).await;
+    let request = |key: [u8; 32], generation: u64| AuthRequest {
+        mode: AuthKind::Grant,
+        invitation_id: None,
+        grant: None,
+        connection_attempt: ConnectionAttemptId([5; 16]),
+        device_public_key: key,
+        device_name: "no-grant".into(),
+        session: SessionId([51; 16]),
+        lane: Lane::Interactive,
+        lanes: vec![Lane::Interactive],
+        generation,
+        inbound: InboundAuthEvidence::Network(NetworkPeer::Tcp),
+    };
+    let stranger = StaticIdentity::generate().unwrap().public_key();
+    let error = daemon.auth.authorize(request(stranger, 0)).await.unwrap_err();
+    assert!(error.contains("needs a grant"), "{error}");
+    let error = daemon.auth.authorize(request(stranger, 1)).await.unwrap_err();
+    assert!(error.contains("no carrier grant admitted"), "{error}");
     daemon.server.shutdown().await.unwrap();
 }

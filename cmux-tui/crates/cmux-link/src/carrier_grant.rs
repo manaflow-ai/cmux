@@ -22,10 +22,18 @@
 //! A grant only admits a session: nothing here re-checks it afterwards, so an
 //! established session outlives the grant's `exp`.
 //!
-//! Every physical link of one connection attempt runs its own handshake and
+//! `aud` and `team` must equal the machine id and team this verifier was
+//! built with, which the daemon's owner reads from the machine's own bind
+//! record, never from anything a client sends.
+//!
+//! Every physical link of one new session runs its own handshake and
 //! presents the same grant. A `jti` may therefore be presented again only by
-//! the same Noise key in the same connection attempt; any other use is a
-//! replay. A reconnect is a new attempt and needs a new grant.
+//! the same Noise key for the same link group (the daemon's digest of the
+//! session, generation and connection attempt), and at most
+//! [`MAX_PRESENTATIONS`] times; any other use is a replay. The daemon fences
+//! generations, so a link group that already registered can never open a
+//! session again. A resume of an admitted session needs no grant: the
+//! daemon re-admits the same Noise key (cmux-remote `grant.rs`).
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -54,6 +62,10 @@ pub const MAX_GRANT_SERVICES: usize = 16;
 /// The most unexpired spent grants held; past it new grants are refused
 /// (never evict a live `jti`).
 pub const MAX_SPENT_GRANTS: usize = 4096;
+
+/// The most handshakes one grant may admit: one per physical lane link of
+/// one new session (cmux-remote has four lanes).
+pub const MAX_PRESENTATIONS: u8 = 4;
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
@@ -86,7 +98,8 @@ struct Claims {
 struct Spent {
     exp: u64,
     noise_key: [u8; 32],
-    attempt: [u8; 16],
+    link_group: [u8; 32],
+    presentations: u8,
 }
 
 struct State {
@@ -101,6 +114,7 @@ type Clock = dyn Fn() -> Option<u64> + Send + Sync;
 pub struct CarrierGrantVerifier {
     issuer: String,
     machine: String,
+    team: String,
     state: Mutex<State>,
     clock: Box<Clock>,
     replay_capacity: usize,
@@ -112,24 +126,29 @@ impl std::fmt::Debug for CarrierGrantVerifier {
             .debug_struct("CarrierGrantVerifier")
             .field("issuer", &self.issuer)
             .field("machine", &self.machine)
+            .field("team", &self.team)
             .finish_non_exhaustive()
     }
 }
 
 impl CarrierGrantVerifier {
-    /// A verifier for grants with audience `machine` from `issuer`. `clock`
-    /// answers the current Unix time in seconds (`None` refuses every grant).
+    /// A verifier for grants from `issuer` with audience `machine` and team
+    /// `team`, both from the machine's bind record. `clock` answers the
+    /// current Unix time in seconds (`None` refuses every grant).
     pub fn new(
         issuer: impl Into<String>,
         machine: impl Into<String>,
+        team: impl Into<String>,
         keys: Keyset,
         clock: impl Fn() -> Option<u64> + Send + Sync + 'static,
         replay_capacity: usize,
     ) -> Result<Self, TokenRefused> {
         let issuer = issuer.into();
         let machine = machine.into();
+        let team = team.into();
         if issuer.is_empty()
             || machine.is_empty()
+            || !name(&team)
             || !valid_keys(&keys)
             || !(1..=MAX_SPENT_GRANTS).contains(&replay_capacity)
         {
@@ -138,6 +157,7 @@ impl CarrierGrantVerifier {
         Ok(Self {
             issuer,
             machine,
+            team,
             state: Mutex::new(State { keys, spent: BTreeMap::new() }),
             clock: Box::new(clock),
             replay_capacity,
@@ -148,11 +168,13 @@ impl CarrierGrantVerifier {
     pub fn with_system_clock(
         issuer: impl Into<String>,
         machine: impl Into<String>,
+        team: impl Into<String>,
         keys: Keyset,
     ) -> Result<Self, TokenRefused> {
         Self::new(
             issuer,
             machine,
+            team,
             keys,
             || SystemTime::now().duration_since(UNIX_EPOCH).ok().map(|now| now.as_secs()),
             MAX_SPENT_GRANTS,
@@ -174,12 +196,13 @@ impl CarrierGrantVerifier {
     }
 
     /// Check `token` for the client whose Noise handshake finished with
-    /// `noise_key`, in connection attempt `attempt`. A refusal spends nothing.
+    /// `noise_key`, for the daemon's `link_group` (one new session's
+    /// physical links). A refusal spends nothing.
     pub fn verify(
         &self,
         token: &str,
         noise_key: &[u8; 32],
-        attempt: [u8; 16],
+        link_group: [u8; 32],
     ) -> Result<CarrierGrant, TokenRefusal> {
         use TokenRefused::{Expired, Invalid};
         let no = TokenRefusal::new;
@@ -204,7 +227,7 @@ impl CarrierGrantVerifier {
         }
         let checks = [
             (c.aud != self.machine, "audience"),
-            (!name(&c.team), "team"),
+            (c.team != self.team, "team"),
             (!name(&c.sub), "subject"),
             (c.iat == 0 || c.iat > MAX_SAFE_INTEGER || c.exp > MAX_SAFE_INTEGER, "claims_range"),
             (c.iat > now, "iat_in_future"),
@@ -227,14 +250,23 @@ impl CarrierGrantVerifier {
             return Err(no(Invalid, "services"));
         }
         state.spent.retain(|_, spent| spent.exp > now);
-        match state.spent.get(&c.jti) {
-            Some(spent) if spent.noise_key == *noise_key && spent.attempt == attempt => {}
+        match state.spent.get_mut(&c.jti) {
+            Some(spent)
+                if spent.noise_key == *noise_key
+                    && spent.link_group == link_group
+                    && spent.presentations < MAX_PRESENTATIONS =>
+            {
+                spent.presentations += 1;
+            }
             Some(_) => return Err(TokenRefused::Replayed.into()),
             None => {
                 if state.spent.len() >= self.replay_capacity {
                     return Err(TokenRefused::ReplayCapacity.into());
                 }
-                state.spent.insert(c.jti, Spent { exp: c.exp, noise_key: *noise_key, attempt });
+                state.spent.insert(
+                    c.jti,
+                    Spent { exp: c.exp, noise_key: *noise_key, link_group, presentations: 1 },
+                );
             }
         }
         Ok(CarrierGrant { team: c.team, subject: c.sub, services: c.svc, expires_at: c.exp })

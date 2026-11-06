@@ -8,14 +8,26 @@
 //! a refusal. The Cloud verifier is cmux-link's
 //! [`CarrierGrantVerifier`](cmux_link::carrier_grant::CarrierGrantVerifier).
 //!
-//! A grant only admits: an admitted session is never re-checked against the
-//! grant's expiry, and it ends only by the session's own rules (its resume
-//! lease, or a retire pushed to it).
+//! A grant only admits a new session (generation 0): an admitted session is
+//! never re-checked against the grant's expiry, and it ends only by the
+//! session's own rules (its resume lease, or a retire pushed to it). A resume
+//! (generation 1 and up) carries no grant: the daemon re-admits the Noise key
+//! a grant admitted before ([`AdmittedGrants`]), with the same device id and
+//! services. Its generation fence admits that only into the key's existing
+//! session, so a resume never opens a new one.
+
+use std::collections::{HashMap, VecDeque};
+use std::sync::Mutex;
+
+use sha2::{Digest as _, Sha256};
 
 use cmux_link::carrier_grant::CarrierGrantVerifier;
-use cmux_remote_protocol::Service;
+use cmux_remote_protocol::{Service, SessionId};
 
 use crate::crypto::{ConnectionAttemptId, ServiceAuthority, public_key_fingerprint};
+
+/// The most grant-admitted Noise keys the daemon remembers for resumes.
+pub const MAX_ADMITTED_GRANTS: usize = 4096;
 
 /// The device id prefix of a session a carrier grant admitted.
 pub const GRANT_DEVICE_PREFIX: &str = "carrier:";
@@ -26,8 +38,48 @@ pub struct GrantPresentation<'a> {
     pub token: &'a str,
     /// The client's Noise static public key, from the finished handshake.
     pub noise_key: &'a [u8; 32],
-    /// Every physical link of one attempt presents the same grant.
-    pub connection_attempt: ConnectionAttemptId,
+    /// [`link_group`] of the handshake: every physical link of one new
+    /// session presents the same grant with the same group.
+    pub link_group: [u8; 32],
+}
+
+/// The daemon's digest of one new session's physical links: its session,
+/// generation and connection attempt. The daemon's generation fence makes a
+/// group that already registered unable to open a session again.
+pub fn link_group(session: SessionId, generation: u64, attempt: ConnectionAttemptId) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(b"cmux-carrier-grant-link-group-v1");
+    digest.update(session.0);
+    digest.update(generation.to_be_bytes());
+    digest.update(attempt.0);
+    digest.finalize().into()
+}
+
+/// The grants this daemon admitted, by Noise key, for resumes. Bounded: the
+/// oldest is forgotten first, and a forgotten key needs a new grant.
+#[derive(Debug, Default)]
+pub(crate) struct AdmittedGrants {
+    inner: Mutex<(HashMap<[u8; 32], GrantAdmission>, VecDeque<[u8; 32]>)>,
+}
+
+impl AdmittedGrants {
+    pub(crate) fn remember(&self, noise_key: [u8; 32], admission: GrantAdmission) {
+        let mut guard = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (admitted, order) = &mut *guard;
+        if admitted.insert(noise_key, admission).is_none() {
+            order.push_back(noise_key);
+            while order.len() > MAX_ADMITTED_GRANTS {
+                if let Some(oldest) = order.pop_front() {
+                    admitted.remove(&oldest);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn get(&self, noise_key: &[u8; 32]) -> Option<GrantAdmission> {
+        let guard = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.0.get(noise_key).cloned()
+    }
 }
 
 /// An admitted grant.
@@ -70,7 +122,7 @@ impl GrantVerifier for CarrierGrantVerifier {
             self,
             presentation.token,
             presentation.noise_key,
-            presentation.connection_attempt.0,
+            presentation.link_group,
         )
         .map_err(|refusal| format!("carrier grant refused: {refusal}"))?;
         // A name this daemon does not know grants nothing; a grant naming

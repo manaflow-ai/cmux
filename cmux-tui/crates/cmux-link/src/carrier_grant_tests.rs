@@ -9,7 +9,8 @@ use super::*;
 const ISSUER: &str = "cmux:cloud:test";
 const MACHINE: &str = "vm_00000000000000000001";
 const NOW: u64 = 1_800_000_000;
-const ATTEMPT: [u8; 16] = [1; 16];
+const TEAM: &str = "team_00000000000000000001";
+const ATTEMPT: [u8; 32] = [1; 32];
 
 /// A freshly generated signing key; no key material is checked in.
 struct Signer {
@@ -48,7 +49,7 @@ fn claims(noise_key: &[u8; 32]) -> Value {
     json!({
         "iss": ISSUER,
         "aud": MACHINE,
-        "team": "team_00000000000000000001",
+        "team": TEAM,
         "sub": "user_00000000000000000001",
         "svc": ["mux-control", "workspace-rpc"],
         "nk": noise_key_digest(noise_key),
@@ -64,6 +65,7 @@ fn verifier(signer: &Signer) -> (CarrierGrantVerifier, Arc<AtomicU64>) {
     let verifier = CarrierGrantVerifier::new(
         ISSUER,
         MACHINE,
+        TEAM,
         signer.keyset(),
         move || Some(clock.load(Ordering::SeqCst)),
         64,
@@ -92,6 +94,7 @@ fn every_wrong_claim_is_refused_and_spends_nothing() {
         ("iss", json!("cmux:cloud:other"), "issuer"),
         ("aud", json!("vm_00000000000000000002"), "audience"),
         ("team", json!(""), "team"),
+        ("team", json!("team_00000000000000000002"), "team"),
         ("sub", json!("user:with:colons"), "subject"),
         ("nk", json!(noise_key_digest(&[4; 32])), "noise_key"),
         ("iat", json!(0), "claims_range"),
@@ -140,16 +143,20 @@ fn an_expired_grant_is_refused() {
 }
 
 #[test]
-fn a_spent_jti_is_refused_outside_its_own_connection_attempt() {
+fn a_spent_jti_is_refused_outside_its_own_link_group_and_lane_count() {
     let signer = Signer::generate("k1");
     let (verifier, _) = verifier(&signer);
     let key = [3_u8; 32];
     let token = signer.sign(GRANT_TYP, &claims(&key));
     verifier.verify(&token, &key, ATTEMPT).unwrap();
-    // Another physical link of the same attempt presents it again.
-    verifier.verify(&token, &key, ATTEMPT).unwrap();
-    // A new attempt (a reconnect, or a copy of the token) is a replay.
-    let refusal = verifier.verify(&token, &key, [2; 16]).unwrap_err();
+    // The other physical links of the same new session present it again,
+    // up to one per lane.
+    for _ in 1..MAX_PRESENTATIONS {
+        verifier.verify(&token, &key, ATTEMPT).unwrap();
+    }
+    assert_eq!(verifier.verify(&token, &key, ATTEMPT).unwrap_err().kind, TokenRefused::Replayed);
+    // A new link group (another session, generation or attempt) is a replay.
+    let refusal = verifier.verify(&token, &key, [2; 32]).unwrap_err();
     assert_eq!(refusal.kind, TokenRefused::Replayed);
     // A different grant with the same jti, bound to another key, too.
     let other = [5_u8; 32];
@@ -166,7 +173,7 @@ fn a_replaced_keyset_keeps_spent_grants_spent() {
     let token = signer.sign(GRANT_TYP, &claims(&key));
     verifier.verify(&token, &key, ATTEMPT).unwrap();
     verifier.replace_keys(signer.keyset()).unwrap();
-    assert_eq!(verifier.verify(&token, &key, [2; 16]).unwrap_err().kind, TokenRefused::Replayed);
+    assert_eq!(verifier.verify(&token, &key, [2; 32]).unwrap_err().kind, TokenRefused::Replayed);
 }
 
 #[test]
@@ -219,7 +226,7 @@ fn a_native_link_token_is_not_a_grant() {
         "iat": NOW - 10,
         "exp": NOW + 200,
         "jti": URL_SAFE_NO_PAD.encode([8_u8; 16]),
-        "team": "team_00000000000000000001",
+        "team": TEAM,
         "network": {},
     });
     let refusal =
@@ -249,6 +256,7 @@ fn replay_capacity_never_evicts_a_live_grant() {
     let verifier = CarrierGrantVerifier::new(
         ISSUER,
         MACHINE,
+        TEAM,
         signer.keyset(),
         move || Some(clock.load(Ordering::SeqCst)),
         1,
@@ -271,8 +279,9 @@ fn replay_capacity_never_evicts_a_live_grant() {
 }
 
 #[test]
-fn construction_refuses_an_empty_issuer_or_machine() {
+fn construction_refuses_an_empty_issuer_machine_or_team() {
     let signer = Signer::generate("k1");
-    assert!(CarrierGrantVerifier::with_system_clock("", MACHINE, signer.keyset()).is_err());
-    assert!(CarrierGrantVerifier::with_system_clock(ISSUER, "", signer.keyset()).is_err());
+    assert!(CarrierGrantVerifier::with_system_clock("", MACHINE, TEAM, signer.keyset()).is_err());
+    assert!(CarrierGrantVerifier::with_system_clock(ISSUER, "", TEAM, signer.keyset()).is_err());
+    assert!(CarrierGrantVerifier::with_system_clock(ISSUER, MACHINE, "", signer.keyset()).is_err());
 }

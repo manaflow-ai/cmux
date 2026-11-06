@@ -815,6 +815,8 @@ pub struct AuthDatabase {
     allow_carrier: bool,
     /// Carrier grants are refused until the owner installs a verifier.
     grant_verifier: std::sync::OnceLock<Arc<dyn crate::grant::GrantVerifier>>,
+    /// Grant-admitted Noise keys, so a resume needs no grant.
+    admitted_grants: crate::grant::AdmittedGrants,
     state: Arc<Mutex<AuthState>>,
     persistence: Arc<PersistenceCoordinator>,
     pending_changed: Notify,
@@ -887,6 +889,7 @@ impl AuthDatabase {
             identity,
             allow_carrier,
             grant_verifier: std::sync::OnceLock::new(),
+            admitted_grants: crate::grant::AdmittedGrants::default(),
             state: Arc::new(Mutex::new(AuthState::from_persisted(persisted))),
             persistence,
             pending_changed: Notify::new(),
@@ -1415,25 +1418,46 @@ impl ServerAuthenticator for AuthDatabase {
                 })
             }
             AuthKind::Carrier => Err("trusted carrier access is disabled or unavailable".into()),
+            // A grant's session ignores the revocation generation (a grant is
+            // not a device record), so it is pinned to 0: a revocation between
+            // two lane handshakes never splits one connection's lanes.
             AuthKind::Grant => {
                 let verifier = self
                     .grant_verifier
                     .get()
                     .ok_or_else(|| "carrier grants are not accepted by this daemon".to_string())?;
-                let token =
-                    request.grant.as_ref().ok_or_else(|| "carrier grant is missing".to_string())?;
-                let admission = verifier.verify(crate::grant::GrantPresentation {
-                    token: token.as_str(),
-                    noise_key: &request.device_public_key,
-                    connection_attempt: request.connection_attempt,
-                })?;
-                if !crate::grant::is_grant_device_id(&admission.device_id) {
-                    return Err("carrier grant verifier answered a non-grant device id".into());
-                }
+                let admission = match request.grant.as_ref() {
+                    Some(token) => {
+                        let admission = verifier.verify(crate::grant::GrantPresentation {
+                            token: token.as_str(),
+                            noise_key: &request.device_public_key,
+                            link_group: crate::grant::link_group(
+                                request.session,
+                                request.generation,
+                                request.connection_attempt,
+                            ),
+                        })?;
+                        if !crate::grant::is_grant_device_id(&admission.device_id) {
+                            return Err(
+                                "carrier grant verifier answered a non-grant device id".into()
+                            );
+                        }
+                        self.admitted_grants.remember(request.device_public_key, admission.clone());
+                        admission
+                    }
+                    // A resume: only into a session this key already holds
+                    // (the daemon refuses generation 1+ without one).
+                    None if request.generation > 0 => {
+                        self.admitted_grants.get(&request.device_public_key).ok_or_else(|| {
+                            "no carrier grant admitted this key; ask for a grant".to_string()
+                        })?
+                    }
+                    None => return Err("a new carrier session needs a grant".into()),
+                };
                 Ok(AuthGrant {
                     device_id: admission.device_id,
                     daemon_name: self.daemon_name.clone(),
-                    revocation_generation: *self.revocation_tx.borrow(),
+                    revocation_generation: 0,
                     authority: admission.authority,
                 })
             }
