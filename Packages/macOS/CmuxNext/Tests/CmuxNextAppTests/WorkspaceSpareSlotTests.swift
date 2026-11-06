@@ -90,7 +90,7 @@ import Testing
         #expect(harness.slot.ready == nil)
     }
 
-    @Test func aFillDropsTheOtherWindowsViews() async throws {
+    @Test func aFillDropsTheOtherWindowsViews() throws {
         let (key, other) = (Harness(), Harness())
         other.slot.start()
         (0..<3).forEach { _ in other.runStep() }
