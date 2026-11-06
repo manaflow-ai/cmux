@@ -282,9 +282,35 @@ public final class Engine: @unchecked Sendable {
             throw EngineError("click needs element_index, or x and y in the last screenshot's pixels")
         }
         let point = geometry.globalPoint(x: x, y: y)
+        // A background window drops pid-posted mouse events in many apps. A
+        // plain left click on a point over a pressable element presses that
+        // element instead (the same element the pointer would have hit).
+        if button == .left, count == 1, let hit = pressable(at: point, pid: pid) {
+            return try await acting(app: app, pid: pid, window: target.snapshot.window, geometry: target.snapshot.geometry,
+                                    "Clicked at (\(Int(x)), \(Int(y))).") {
+                if hit.perform(kAXPressAction) != .success {
+                    input.click(at: point, pid: pid, windowNumber: target.snapshot.window?.id, button: button, count: count)
+                }
+            }
+        }
         return try await acting(app: app, pid: pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Clicked at (\(Int(x)), \(Int(y))).") {
             input.click(at: point, pid: pid, windowNumber: target.snapshot.window?.id, button: button, count: count)
         }
+    }
+
+    /// The element under `point` when it (or its nearest ancestor within
+    /// three levels) offers AXPress; nil for text, canvases and other areas
+    /// where a press is not what a click means.
+    func pressable(at point: CGPoint, pid: pid_t) -> AXElement? {
+        var candidate = sessions.appElement(pid: pid).element(at: point)
+        for _ in 0..<4 {
+            guard let element = candidate else { return nil }
+            let role = element.string(kAXRoleAttribute) ?? ""
+            if [kAXTextAreaRole, kAXTextFieldRole, kAXWebAreaRole, kAXScrollAreaRole, kAXWindowRole].contains(role) { return nil }
+            if element.actionNames.contains(kAXPressAction) { return element }
+            candidate = element.element(kAXParentAttribute)
+        }
+        return nil
     }
 
     func pressKey(app: String, key: String) async throws -> ToolResult {

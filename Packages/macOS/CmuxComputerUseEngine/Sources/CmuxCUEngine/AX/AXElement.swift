@@ -43,6 +43,13 @@ struct AXElement: @unchecked Sendable, Hashable {
         return CGRect(origin: position, size: size)
     }
 
+    /// The deepest element of this app at a global point (top-left origin).
+    func element(at point: CGPoint) -> AXElement? {
+        var hit: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(raw, Float(point.x), Float(point.y), &hit) == .success, let hit else { return nil }
+        return AXElement(hit)
+    }
+
     func setMessagingTimeout(_ seconds: Float) { AXUIElementSetMessagingTimeout(raw, seconds) }
 
     @discardableResult
