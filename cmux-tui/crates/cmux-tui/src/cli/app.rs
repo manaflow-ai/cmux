@@ -960,9 +960,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
 /// does a machine still starting. A failed open is a note: the machine is made either way.
 fn open_created(global: &GlobalArgs, stream: &mut UnixStream, params: &Value, value: &Value) {
     let Some(target) = created_target(global.output, params, value) else { return };
-    let args = ["--target".to_owned(), target];
-    let Ok(AppCommand::Call { method, mut params, timeout, .. }) =
-        run_action("cloud open-machine", &args, ActionName::Cli)
+    let Ok(AppCommand::Call { method, mut params, timeout, .. }) = open_created_command(target)
     else {
         return;
     };
@@ -973,6 +971,13 @@ fn open_created(global: &GlobalArgs, stream: &mut UnixStream, params: &Value, va
         let reason = error.get("message").and_then(Value::as_str).unwrap_or("no answer");
         eprintln!("cmux: the machine is made, but its workspace did not open: {reason}");
     }
+}
+
+/// [`open_created`]'s `cloud open-machine` run. `--focus`: a CLI run changes the window only
+/// when it asks to (the app's `allowsViewChange`).
+fn open_created_command(target: String) -> Result<AppCommand, UsageError> {
+    let args = ["--target".to_owned(), target, "--focus".to_owned()];
+    run_action("cloud open-machine", &args, ActionName::Cli)
 }
 
 /// The machine a person's `cloud new-machine` made, for [`open_created`]; `None` otherwise.

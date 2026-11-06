@@ -1992,11 +1992,9 @@ fn a_persons_new_machine_opens_the_machine_it_made() {
     assert_eq!(created_target(OutputMode::Human, &params, &starting), None);
     assert_eq!(created_target(OutputMode::Human, &json!({ "action": "cloud exec" }), &made), None);
 
-    let (method, open) = call(
-        run_action("cloud open-machine", &args(&["--target", "machine:vm_1"]), ActionName::Cli)
-            .unwrap(),
-    );
+    let (method, open) = call(open_created_command("machine:vm_1".to_owned()).unwrap());
     assert_eq!(method, "action.run");
     assert_eq!(open["action"], "cloud open-machine");
     assert!(open.to_string().contains("machine:vm_1"), "{open}");
+    assert_eq!(open["focus"], true, "a CLI run shows the workspace only when it asks to: {open}");
 }
