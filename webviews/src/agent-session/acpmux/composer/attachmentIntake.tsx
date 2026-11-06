@@ -809,28 +809,39 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
 /// `unsettled` (default `pending`) is what a held send waits for once it holds. The composer counts
 /// files streaming to the session's machine and failed uploads in both, so a send waits for every
 /// file the person added (or its x lets it go without it). While one waits, a later send replaces it.
-export function useSendWhenAttached(
+///
+/// `bind`: binds the person's key press or click to the send the moment it is held, and the held
+/// send gets that gesture (`send(gesture)`). The host keeps one grant per key press or click, and
+/// a pasted file's upload begins only after the host answered where the paste's files are, so its
+/// `chat.upload.begin` spent the Enter that a send bound only once the chip was ready (Leo,
+/// 2026-11-06, "Not sent: it needs your own key press or click."). `hold(send, kept)`: a send that
+/// already has its gesture (one an earlier hold bound) keeps it and binds none. A later hold keeps
+/// the gesture the held one bound: one send, one gesture.
+export function useSendWhenAttached<G = unknown>(
   pending: number,
   scope?: string,
   unsettled: number = pending,
-): ((send: () => void) => boolean) & { cancel(): void } {
-  const held = useRef<(() => void) | undefined>(undefined);
+  bind?: () => G | undefined,
+): ((send: (gesture?: G) => void, kept?: G) => boolean) & { cancel(): void } {
+  const held = useRef<{ send: (gesture?: G) => void; gesture: G | undefined } | undefined>(undefined);
   const count = useRef(pending);
   count.current = pending;
+  const binder = useRef(bind);
+  binder.current = bind;
   useEffect(() => {
     held.current = undefined;
   }, [scope]);
   useEffect(() => {
-    const send = held.current;
-    if (unsettled > 0 || !send) return;
+    const waiting = held.current;
+    if (unsettled > 0 || !waiting) return;
     held.current = undefined;
-    send();
+    waiting.send(waiting.gesture);
   }, [unsettled]);
   const [hold] = useState(() =>
     Object.assign(
-      (send: () => void) => {
+      (send: (gesture?: G) => void, kept?: G) => {
         if (count.current === 0 && !held.current) return false;
-        held.current = send;
+        held.current = { send, gesture: kept ?? held.current?.gesture ?? binder.current?.() };
         return true;
       },
       {
@@ -845,16 +856,18 @@ export function useSendWhenAttached(
 
 /// A send too large for one acpmux message waits for the originals of its images still uploading
 /// (`uploading` of them), then goes once, with them as links (promptBudget.ts `awaitsOriginals`).
-/// `hold(awaits, send)`: when `awaits`, holds `send` (true; a later hold replaces it); otherwise the
-/// send goes now (false) and any held one is dropped, so it never goes later on its own with
-/// whatever draft the composer has then. A new `scope` drops it too.
-export function useSendWhenOriginals(
+/// `hold(awaits, send, kept)`: when `awaits`, holds `send` (true; a later hold replaces it);
+/// otherwise the send goes now (false) and any held one is dropped, so it never goes later on its
+/// own with whatever draft the composer has then. A new `scope` drops it too. `bind` and `kept`: the
+/// held send's gesture, as useSendWhenAttached binds it.
+export function useSendWhenOriginals<G = unknown>(
   uploading: number,
   scope?: string,
-): (awaits: boolean, send: () => void) => boolean {
-  const wait = useSendWhenAttached(uploading, scope);
-  const [hold] = useState(() => (awaits: boolean, send: () => void) => {
-    if (awaits && wait(send)) return true;
+  bind?: () => G | undefined,
+): (awaits: boolean, send: (gesture?: G) => void, kept?: G) => boolean {
+  const wait = useSendWhenAttached<G>(uploading, scope, uploading, bind);
+  const [hold] = useState(() => (awaits: boolean, send: (gesture?: G) => void, kept?: G) => {
+    if (awaits && wait(send, kept)) return true;
     wait.cancel();
     return false;
   });

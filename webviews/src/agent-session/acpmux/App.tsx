@@ -198,7 +198,7 @@ import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
 import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
 import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwner } from "./trustRefusalRoute";
-import { heldPrompts } from "./heldPrompt";
+import { heldPrompts, type SendGesture } from "./heldPrompt";
 import { StartingSends, type StartingSend } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { Inspector, type ExportOutcome } from "./Inspector";
@@ -912,6 +912,12 @@ const heldGoesAfterTrust = () => undefined;
 type SentFrom = { chat: string | undefined; cwd: string | undefined };
 /// A send of a prompt the folder's trust held: its id and its send's ticket (in-page only).
 type HeldSend = { promptId: string; ticket?: string };
+/// The in-page `gesture` of `chat.send` (Composer `onBindSendGesture`), or undefined.
+function sendGestureParam(value: unknown): SendGesture | undefined {
+  const gesture = value as { promptId?: unknown; ticket?: unknown } | null | undefined;
+  if (typeof gesture?.promptId !== "string" || !(gesture.ticket instanceof Promise)) return undefined;
+  return { promptId: gesture.promptId, ticket: gesture.ticket as Promise<string | undefined> };
+}
 function heldPromptParams(value: unknown): HeldSend | undefined {
   const held = value as { promptId?: unknown; ticket?: unknown } | null | undefined;
   if (typeof held?.promptId !== "string") return undefined;
@@ -6657,6 +6663,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           seeded = false,
           // A prompt the folder's trust held (trustHeld.ts): its id and its own send's ticket.
           fromTrust?: HeldSend,
+          // The gesture the composer bound at this send's Enter or click while it held it.
+          gesture?: SendGesture,
         ) => {
           if (expectedSessionId && (directClient.current !== client || client.selectedSession !== expectedSessionId))
             throw startCancelled();
@@ -6684,6 +6692,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               expectedSessionId,
               seeded,
               fromTrust,
+              gesture,
             );
           } finally {
             handedOn();
@@ -6736,6 +6745,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           expectedSessionId?: string,
           seeded = false,
           fromTrust?: HeldSend,
+          gesture?: SendGesture,
         ) => {
           // The chat it is sent in; once a start made the chat's session, that session (trustHeld.ts).
           let sentFrom = shownFrom.current();
@@ -6833,7 +6843,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // host ticket instead of sharing the one checked when the relay finally drains.
           const sendPromptId = promptId ?? switchPromptId;
           // One the folder's trust held (trustHeld.ts) goes with its own send's ticket.
-          const heldForTrust = fromTrust ?? heldPrompt.take();
+          // A send the composer held for its files goes with the gesture of its own Enter or click.
+          const heldForTrust = fromTrust ?? gesture ?? heldPrompt.take();
           const kept = heldForTrust ?? (client.selectedSession ? client.bindSendGesture(sendPromptId) : undefined);
           const sessionId = await client.ensureSession().catch((error: unknown) => {
             // A folder harness that waits for Enable or Trust says so on its own card.
@@ -6886,7 +6897,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         window.cmuxAcpmuxActions = {
           // `accepted` (in-page only): the composer holds the prompt until acpmux takes it.
           // `fromTrust` (in-page only): a prompt the folder's trust held, with its id and ticket.
-          "chat.send": ({ text, attachments, accepted, steer, expectedSessionId, fromTrust }) =>
+          // `gesture` (in-page only): the gesture the composer bound at the Enter of a send it held.
+          "chat.send": ({ text, attachments, accepted, steer, expectedSessionId, fromTrust, gesture }) =>
             send(
               String(text ?? ""),
               Array.isArray(attachments) ? attachments : [],
@@ -6896,6 +6908,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               typeof expectedSessionId === "string" ? expectedSessionId : undefined,
               false,
               heldPromptParams(fromTrust),
+              sendGestureParam(gesture),
             ),
           "chat.cancel": () => client.cancel(),
           "chat.typing": async ({ text, sessionId }) =>
@@ -9620,7 +9633,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onSuggestionTaken={() => directClient.current?.takeSuggestion()}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}
-            onSend={(text, chips, steer) => {
+            // A send the composer holds for its files (a pasted screenshot still being read) binds
+            // its Enter or click now, for the chat shown: a New Tab's start spends that gesture itself.
+            onBindSendGesture={() => {
+              const client = directClient.current;
+              return client?.selectedSession ? client.bindSendGesture() : undefined;
+            }}
+            onSend={(text, chips, steer, gesture) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
               // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
@@ -9707,7 +9726,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 }
                 const holder = composerHandle.current;
                 const sentOn = directClient.current;
-                callNative("chat.send", { text, attachments, steer }).then(
+                callNative("chat.send", { text, attachments, steer, ...(gesture ? { gesture } : {}) }).then(
                   () => {
                     rememberStart();
                     promptLanded.current();
@@ -9777,6 +9796,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   attachments,
                   accepted: () => accept(true),
                   steer,
+                  ...(gesture ? { gesture } : {}),
                 });
               };
               // The composer that holds the prompt: a refusal that comes once it is gone (the pane
