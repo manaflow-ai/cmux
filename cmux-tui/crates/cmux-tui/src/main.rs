@@ -12,6 +12,8 @@ use cmux_json::JsonSet as _;
 mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
+#[cfg(unix)]
+mod agent_computer_use;
 use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 #[cfg(unix)]

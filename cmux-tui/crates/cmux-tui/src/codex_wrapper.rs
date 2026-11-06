@@ -102,6 +102,13 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
         launch.push(OsString::from("-c"));
         launch.push(OsString::from(setting));
     }
+    // cmux Computer Use, with no setup (agent_computer_use.rs).
+    for setting in
+        crate::agent_computer_use::codex_settings(&executable, &socket).unwrap_or_default()
+    {
+        launch.push(OsString::from("-c"));
+        launch.push(setting);
+    }
     launch.extend(hoist_session_global_args(args));
     Ok(Some(launch))
 }
