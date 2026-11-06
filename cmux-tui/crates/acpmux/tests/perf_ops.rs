@@ -51,6 +51,13 @@ const OPEN: &[(&str, &str)] = &[
     ("many.token_to_client", "finding 19: token to client under STRESS"),
 ];
 
+fn mark(what: std::fmt::Arguments<'_>) {
+    let us = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_micros());
+    eprintln!("JPROBE {us} BENCH {what}");
+}
+
 fn now_ns() -> u64 {
     unsafe extern "C" {
         fn clock_gettime_nsec_np(clock: u32) -> u64;
@@ -422,6 +429,7 @@ fn scratch() -> PathBuf {
 async fn time_ops(c: &mut Client, s: &str, rounds: usize, label: &str, report: &mut Report) {
     let mut rows: Vec<(&str, Vec<u64>)> = Vec::new();
     for op in ["status", "sessions", "draft_set", "rename", "attach", "events"] {
+        mark(format_args!("ops {label} {op} start"));
         let mut ns = Vec::with_capacity(rounds);
         for i in 0..rounds + 5 {
             let (m, p) = match op {
@@ -508,13 +516,17 @@ async fn acpmux_ops_and_streaming_meet_the_daemon_budgets_light_and_stress() {
     let mut accepted = Vec::new();
     for i in 0..30 {
         let id = format!("light-{i}");
+        mark(format_args!("prompt {i} send"));
         let start = now_ns();
         let rx = prompt(&mut app, &chat, "hi", &id).await;
         rx.await.unwrap();
+        mark(format_args!("prompt {i} turn-done"));
         if let Some(at) = app.accepted.lock().unwrap().get(&id) {
+            mark(format_args!("prompt {i} accepted_us={}", (at - start) / 1000));
             accepted.push(at - start);
         }
     }
+    mark(format_args!("light prompts done"));
     report.latency("light.op.prompt_accepted", accepted, Some(OP_P95));
     let mut created = Vec::new();
     for _ in 0..10 {

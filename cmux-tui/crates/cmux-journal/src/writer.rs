@@ -307,10 +307,20 @@ impl Writer {
                 return Err(Failure::Segment(no_segment()));
             };
             let unwritten = self.retained.get(self.written..).unwrap_or_default();
+            let probe_t = Instant::now();
+            let probe_n = unwritten.len();
             if let Err(error) = active.file.append(unwritten) {
                 return Err(cut_back(active, error));
             }
             active.size = active.size.saturating_add(len64(unwritten.len()));
+            crate::probe::line(format_args!(
+                "write bytes={} us={} retained={} recs_unsynced={} ack={}",
+                probe_n,
+                probe_t.elapsed().as_micros(),
+                self.retained.len(),
+                self.retained_last.saturating_sub(self.durable),
+                self.retained_ack
+            ));
             self.written = self.retained.len();
             self.unmarked = true;
             if self.unsynced_since.is_none() {
@@ -340,7 +350,29 @@ impl Writer {
                 || self.unsynced_since.is_some_and(|since| passed(since, stream_delay, now)));
         if due || (full && owed) {
             let level = if full { SyncLevel::Full } else { SyncLevel::Barrier };
+            let why = if self.retained_ack {
+                "ack"
+            } else if self.retained.len() >= MAX_UNSYNCED_BYTES {
+                "size"
+            } else if due {
+                "delay"
+            } else {
+                "full"
+            };
+            let probe_age = self.unsynced_since.map_or(0, |t| t.elapsed().as_micros());
+            let probe_bytes = self.retained.len();
+            let probe_recs = self.retained_last.saturating_sub(self.durable);
+            let probe_t = Instant::now();
             self.sync(level).map_err(Failure::Segment)?;
+            crate::probe::line(format_args!(
+                "sync level={} why={} bytes={} recs={} age_us={} us={}",
+                if full { "full" } else { "barrier" },
+                why,
+                probe_bytes,
+                probe_recs,
+                probe_age,
+                probe_t.elapsed().as_micros()
+            ));
             self.write_marker()?;
         }
         if (close || full_segment) && self.marker_unsynced {
