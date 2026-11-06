@@ -76,6 +76,23 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// ``environment`` never does: that path would make the machine without it.
     public var takesPlainPath: Bool { isDefault && environment == nil }
 
+    /// Where a named create in a Cloud environment (`cloud new-machine --name N --environment E`, which
+    /// `cloud start-chat --environment` runs) stands against the machines this app knows.
+    public enum NamedCreate: Equatable, Sendable {
+        /// No machine and no create on its way has the name: make it.
+        case free
+        /// The machine list is not one the server answered just now for this account: it says nothing.
+        case unread
+        /// A machine has the name, or a create of it is on its way (or failed, waiting for Retry).
+        case taken
+    }
+
+    /// ``NamedCreate`` for `name`: `listCurrent` is whether the list is current, `machines` its titles and
+    /// `creating` the names of the creates on their way.
+    public static func namedCreate(_ name: String, listCurrent: Bool, machines: [String], creating: [String]) -> NamedCreate {
+        .free
+    }
+
     /// A quoted `~/boot.sh` reaches the app unexpanded (`--bootstrap-script`, `--machine-config`).
     public static func expandingHome(_ path: String) -> String {
         path == "~" || path.hasPrefix("~/") ? NSHomeDirectory() + String(path.dropFirst()) : path

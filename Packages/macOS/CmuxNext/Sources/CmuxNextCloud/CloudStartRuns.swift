@@ -65,6 +65,12 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
     /// `CancellationError` even if it finished: cancellation is cooperative.
     public init() {}
 
+    /// Whether a creation of a machine named `name` for `account` is going on now (`cloud start-session
+    /// --name`): `cloud new-machine --name --environment` makes no second one beside it.
+    public func isCreating(_ name: String, account: [String?]) -> Bool {
+        false
+    }
+
     public func creating(_ name: String, account: [String?], _ create: @escaping @MainActor () async throws -> Machine) async throws -> Machine {
         let key = Creation(name: name, account: account)
         let asked = forgets

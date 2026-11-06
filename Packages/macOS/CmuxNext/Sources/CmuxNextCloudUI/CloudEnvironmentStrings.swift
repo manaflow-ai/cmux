@@ -25,6 +25,13 @@ public nonisolated struct CloudEnvironmentStrings: Sendable {
                table: "Cloud", bundle: .module)
     }
 
+    /// `cloud new-machine --environment NAME` when the team's environments could not be read.
+    public var listUnread: String {
+        String(localized: "cloud.environments.listUnread",
+               defaultValue: "Couldn't read your team's Cloud environments, so no machine was made. Run the command again in a moment.",
+               table: "Cloud", bundle: .module)
+    }
+
     /// The Build confirmation's title for the environment named `name`.
     public func buildTitle(_ name: String) -> String {
         String(format: String(localized: "cloud.environments.buildTitle", defaultValue: "Build %@?", table: "Cloud", bundle: .module), name)

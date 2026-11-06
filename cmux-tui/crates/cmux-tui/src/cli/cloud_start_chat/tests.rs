@@ -522,6 +522,48 @@ fn an_environment_for_a_machine_that_exists_or_is_still_being_made_says_so() {
     assert_eq!(fake.ran.len(), 2);
 }
 
+/// `--environment` with `--name` makes a machine of that name only when the app's list says none exists
+/// and none is on its way: a list the app has not loaded yet says nothing, and a create of that name still
+/// in flight (a first run that answered pending, or another start) is joined as pending or refused, never
+/// made a second time.
+#[test]
+fn an_environment_never_makes_a_second_machine_of_its_name() {
+    let asked = request(&["--name", "py-1", "--environment", "env_1", "--prompt", "x"]);
+    // The list is not loaded: no create.
+    let mut fake = Fake::new(vec![ok(
+        json!({"account": {"signed_in": true}, "loaded": false, "machines": [], "creating": []}),
+    )]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.list_unread"), 75));
+    assert_eq!(error["details"]["machine_name"], "py-1");
+    assert_eq!(fake.ran.len(), 1, "no new-machine on a list that says nothing");
+    // A create of that name is on its way: pending, and no second create.
+    let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": true}, "loaded": true,
+        "machines": [{"title": "dev"}], "creating": [{"name": "py-1", "status": "creating"}]}))]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75));
+    assert!(error["message"].as_str().unwrap().contains("py-1"));
+    assert_eq!(fake.ran.len(), 1);
+    // Its create failed and waits in cmux for Retry: refused, not made again beside it.
+    let mut fake =
+        Fake::new(vec![ok(json!({"account": {"signed_in": true}, "loaded": true, "machines": [],
+        "creating": [{"name": "py-1", "status": "failed", "reason": "quota"}]}))]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_failed"), 1));
+    assert!(error["message"].as_str().unwrap().contains("quota"));
+    assert_eq!(fake.ran.len(), 1);
+    // Another name's create on its way, on a loaded list: this one is made.
+    let mut fake = Fake::new(vec![
+        ok(json!({"account": {"signed_in": true}, "loaded": true, "machines": [],
+            "creating": [{"name": "other", "status": "creating"}]})),
+        made(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(&fake.ran[1][..2], &strings(&["cloud", "new-machine"]));
+}
+
 #[test]
 fn a_signed_out_app_says_how_to_sign_in() {
     let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": false}, "machines": []}))]);

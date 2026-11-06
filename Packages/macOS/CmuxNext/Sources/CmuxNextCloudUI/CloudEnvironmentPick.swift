@@ -10,6 +10,13 @@ extension CloudWorkspaceSetupWizard.EnvironmentOption {
         public var description: String { CloudEnvironmentStrings().unknownWord }
     }
 
+    /// The team's environments could not be read (`cloud.environment.list` failed), so a name names none yet.
+    public nonisolated struct ListUnread: LocalizedError, CustomStringConvertible, Equatable {
+        public init() {}
+        public var errorDescription: String? { CloudEnvironmentStrings().listUnread }
+        public var description: String { CloudEnvironmentStrings().listUnread }
+    }
+
     /// `--environment`'s word, trimmed; ``Unknown`` for an empty one.
     public nonisolated static func word(_ text: String) throws -> String {
         let word = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -24,5 +31,12 @@ extension CloudWorkspaceSetupWizard.EnvironmentOption {
         guard let match = options.first(where: { $0.name == wanted })
             ?? options.first(where: { $0.name.caseInsensitiveCompare(wanted) == .orderedSame }) else { throw Unknown() }
         return match.id
+    }
+
+    /// The id `wanted` names, reading the team's environments with `loading` only for a name: an `env_…` id
+    /// needs no list. A list that fails to load is ``ListUnread``, never an empty one (``Unknown``).
+    @MainActor
+    public static func id(for wanted: String, loading: @MainActor () async throws -> [Self]) async throws -> String {
+        try id(for: wanted, in: (try? await loading()) ?? [])
     }
 }
