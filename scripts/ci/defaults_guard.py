@@ -125,18 +125,18 @@ FLAG_RE = re.compile(r"\bstatic\s+(?:let|var)\s+(\w*Enabled)\s*(?::\s*Bool\s*)?=
 TUNABLE_RE = re.compile(r'\bTunable<[\w.?]+>\s*\.(choice|toggle|number|color|spring)\(\s*"([^"\\]+)"')
 # An independent review's verdict on the exact head, on a comment's or review's first line:
 # "Review (subagent, correctness first): SHIP at <full head sha>". The grammar, and when a receipt
-# counts, is scripts/ci/receipt_grammar.py, the one copy risk_tier.py reads too: a SHIP from the pull
-# request author's own account must name its reviewer agent and who started it, neither of them the
-# description's `Author-agent:` (cmux-ad m25 item 7). Imported where a receipt is read, so `snapshot`
-# and `source-stamp` run from a checkout that has only this file.
+# counts, lives in scripts/ci/risk_tier.py (its one copy; risk-tier.yml runs that file alone): a SHIP
+# from the pull request author's own account must name its reviewer agent and who started it, neither
+# of them the description's `Author-agent:` (cmux-ad m25 item 7). Imported where a receipt is read, so
+# `snapshot` and `source-stamp` run from a checkout that has only this file.
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
 def grammar():
     if str(SCRIPT_DIR) not in sys.path:
         sys.path.insert(0, str(SCRIPT_DIR))
-    import receipt_grammar
-    return receipt_grammar
+    import risk_tier
+    return risk_tier
 
 
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
@@ -726,7 +726,7 @@ def receipt_items(pull: Mapping[str, object]) -> list[tuple[Mapping[str, object]
 
 
 def receipt_line(item: Mapping[str, object], head: str):
-    """The receipt (receipt_grammar.Receipt) on the item's first line when it names the full head and is not a
+    """The receipt (risk_tier.Receipt) on the item's first line when it names the full head and is not a
     self-review. Whether a SHIP from the author's own account counts is receipt_verdict's to decide."""
     first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
     return grammar().parse(first, head)
@@ -740,7 +740,7 @@ def receipt_verdict(pull: Mapping[str, object], head: str,
     A user whose association reads as untrusted is trusted when listed in `writers` (repository
     write access, looked up by `repo_writers`). A user in `unchecked` (their lookup failed, so nobody
     knows) counts for a BLOCK only: an unverified receipt can make the guard red, never green. A SHIP
-    from the pull request author's own account counts only as receipt_grammar.refusal allows (it names
+    from the pull request author's own account counts only as risk_tier.refusal allows (it names
     a reviewer agent and who started it, neither the description's `Author-agent:`)."""
     writers = {w.lower() for w in writers}
     unchecked = {u.lower() for u in unchecked}

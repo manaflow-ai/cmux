@@ -50,7 +50,7 @@ account must name the reviewer agent and the agent that started it:
 `Review (<reviewer agent id>, started by <agent id>): SHIP at <sha>`. The PR body
 names its author agent on one line, `Author-agent: <agent id>`. Such a SHIP does not
 count when either id is the author agent or the PR body has no `Author-agent:` line;
-a BLOCK always counts (`scripts/ci/receipt_grammar.py`). So the author agent never
+a BLOCK always counts (`scripts/ci/risk_tier.py`). So the author agent never
 starts its own reviewer: the lead (or another agent) starts it. A receipt that carries an older head's SHIP to a new head across a base
 merge is not a review. Mark it in the reviewer label:
 `Review (<reviewer>; carried): SHIP at <new head sha>`. next-autoland and

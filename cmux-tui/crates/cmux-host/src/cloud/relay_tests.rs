@@ -173,7 +173,7 @@ fn a_stop_drops_the_socket_at_once() {
     struct Socket(std::sync::Arc<std::sync::atomic::AtomicBool>);
     impl Drop for Socket {
         fn drop(&mut self) {
-            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            self.0.store(true, Ordering::SeqCst);
         }
     }
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
@@ -199,10 +199,7 @@ fn a_stop_drops_the_socket_at_once() {
             tokio::join!(or_stop(&mut rx, serving), stopper).0
         });
         assert_eq!(out, None);
-        assert!(
-            dropped.load(std::sync::atomic::Ordering::SeqCst),
-            "the socket is dropped with its chats"
-        );
+        assert!(dropped.load(Ordering::SeqCst), "the socket is dropped with its chats");
         assert!(started.elapsed() < Duration::from_secs(2), "not at the next ping tick");
     }
 }
@@ -469,4 +466,33 @@ fn a_failed_session_create_keeps_its_exit_and_its_type() {
     assert_eq!(event["code"], "chat.no_session", "{event}");
     assert_eq!(event["detail"], "daemon_closed");
     assert_eq!(event["retryable"], true);
+}
+
+#[test]
+fn a_chat_counts_as_running_until_its_task_ends_or_is_aborted() {
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let (release, wait) = tokio::sync::oneshot::channel::<()>();
+        let running = Running::start(&COUNT);
+        let done = tokio::spawn(async move {
+            let _running = running;
+            let _ = wait.await;
+        });
+        assert_eq!(COUNT.load(Ordering::SeqCst), 1);
+        let _ = release.send(());
+        done.await.unwrap();
+        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
+
+        // Aborted before it ever ran: the count still goes back down.
+        let running = Running::start(&COUNT);
+        let aborted = tokio::spawn(async move {
+            let _running = running;
+            std::future::pending::<()>().await;
+        });
+        assert_eq!(COUNT.load(Ordering::SeqCst), 1);
+        aborted.abort();
+        let _ = aborted.await;
+        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
+    });
 }

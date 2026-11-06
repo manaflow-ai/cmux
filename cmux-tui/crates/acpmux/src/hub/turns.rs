@@ -1418,6 +1418,9 @@ impl Hub {
                 self.save_meta(session);
             }
         }
+        // Its todo calls still held go with it, however the turn ends or is handed off
+        // (`acp_todo_plan.rs`): a late result passes through as any other tool's.
+        crate::acp_todo_plan::forget(&session.id);
         // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
         // no agent starts after it, so the lane reports nothing (`lane_reports.rs`). A restart
         // handed it to the next daemon, which continues it: its end is that daemon's to write.
@@ -1539,8 +1542,6 @@ impl Hub {
             }
             // The turn's wrap-up answer, taken whatever the turn's end (`wrap_up_suggestion.rs`).
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
-            // Its todo calls still held go with it (`acp_todo_plan.rs`).
-            crate::acp_todo_plan::forget(&session.id);
             match &result {
                 Ok(v) => {
                     self.note_reply_refusal(session);
@@ -1927,8 +1928,17 @@ impl Hub {
                 // The mode first, then the mark, under the lock, only while the chat runs it:
                 // a write that moves the mode takes the mark (`write_mode_state`).
                 let reported = res.get("currentModeId").or(res.get("modeId")).cloned();
+                let mut writes = Vec::new();
+                // Claude Code answers with its options too, the `mode` option now at the new
+                // mode: kept with it, so the option never shows the mode the chat started in.
+                if let Some(opts) = res.get("configOptions").filter(|o| o.is_array()) {
+                    writes.push(ModeWrite::ConfigOptions(opts.clone()));
+                }
                 if let Some(mode) = reported.or_else(|| asked_mode.clone().map(Value::String)) {
-                    self.write_mode_state(session, [ModeWrite::CurrentMode(mode)]);
+                    writes.push(ModeWrite::CurrentMode(mode));
+                }
+                if !writes.is_empty() {
+                    self.write_mode_state(session, writes);
                 }
                 let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
                 if asked_mode.is_some() && crate::web_modes::mode_of(&meta) == asked_mode {

@@ -291,6 +291,9 @@ export const MCP_RECONNECT_METHOD = "_acpmux/mcp/reconnect";
 /// Most reads of a chat's running limit one step makes when each is overtaken in flight
 /// (`readRunningLimit`): enough for an attach and a record landing together, never a loop.
 const LIMIT_READS = 3;
+/// The waits before each new read of the events a lag dropped, after a failed one
+/// (`readMissedAfterLag`): about 15 s in all, then the pane reports the failure.
+const LAG_RETRY_MS = [250, 500, 1_000, 2_000, 4_000, 8_000];
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
 const COMMANDS_KIND = "available_commands_update";
 /// How many withdrawn queue prompts a snapshot names (`queueWithdrawn`).
@@ -3724,10 +3727,28 @@ export class AcpmuxDirectClient {
     if (Array.isArray(params?.sessionIds) && !params.sessionIds.map(String).includes(sessionId)) return;
     this.emit("resyncing");
     void this.permissions.refresh().catch(() => {});
-    const generation = this.selectionGeneration;
-    void this.fetchMissedEvents(sessionId, generation, this.lastSeq).catch(() => {
-      if (!this.closed && generation === this.selectionGeneration)
+    this.readMissedAfterLag(sessionId, this.selectionGeneration, this.lastSeq, 0);
+  }
+
+  /// Reads the events a lag dropped, again after a failed read: a daemon too busy to answer
+  /// (acpmux at several cores) left the dropped chunks out of the reply for good, so a table
+  /// showed its separator row with no header and a bold its close with no opening (Leo,
+  /// 2026-11-06: "iam seeing messages and formating get cut off"). Every try reads from the
+  /// lag's cursor, since live events after the hole move `lastSeq` past it; it stops when a
+  /// read lands, the chat or connection changes, or after `LAG_RETRY_MS`'s tries, and only
+  /// then reports the failure.
+  private readMissedAfterLag(sessionId: string, generation: number, afterSeq: number, attempt: number): void {
+    void this.fetchMissedEvents(sessionId, generation, afterSeq).catch(() => {
+      if (this.closed || generation !== this.selectionGeneration) return;
+      const delay = LAG_RETRY_MS[attempt];
+      if (delay === undefined || this.socket?.readyState !== WebSocket.OPEN) {
         this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+        return;
+      }
+      setTimeout(() => {
+        if (!this.closed && generation === this.selectionGeneration)
+          this.readMissedAfterLag(sessionId, generation, afterSeq, attempt + 1);
+      }, delay);
     });
   }
 
@@ -4377,6 +4398,12 @@ export class AcpmuxDirectClient {
   /// files (`paths`) and their unchanged context (`context_lines`, changes/wholeFile.ts).
   gitDiff(scope: string, narrow: { paths?: string[]; context_lines?: number } = {}): Promise<unknown> {
     return this.git("git.diff", { scope, include_patch: true, ...narrow });
+  }
+
+  /// The totals of one git scope of the selected session's repository, with no patch: Session Info's
+  /// Changes row (session-info/changeCounts.ts).
+  gitDiffCounts(scope: string): Promise<unknown> {
+    return this.git("git.diff", { scope, include_patch: false });
   }
 
   /// The selected session's branch, upstream and how far it is ahead and behind.
@@ -5243,6 +5270,81 @@ export class AcpmuxDirectClient {
     this.reduce(event);
     this.noticeRefusal(event);
     this.emitInFrame(event.kind, this.streamGrew);
+    if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId)
+      this.checkFinishedTurn(event.sessionId, event.seq);
+  }
+
+  /// A turn that just ended live is drawn from its stored records, not only from the ones that
+  /// reached this pane: under load acpmux drops a slow client's streamed chunks, and a marker can
+  /// be lost behind a full queue or its read fail, so a finished reply kept a hole in its middle
+  /// ("without a focus-ring-stuck-2") or lost its first lines (Leo, 2026-11-06: "your sends are
+  /// getting busted intermittently as things load"). One read of the turn's transcript, from its
+  /// opening record to its end, O(turn) and never O(chat); the records the pane lacks are merged
+  /// and the chat drawn again, and a turn it already holds whole changes nothing. A failed read is
+  /// tried again on `LAG_RETRY_MS`; the chat changing or the pane closing stops it.
+  private checkFinishedTurn(sessionId: string, endSeq: number, attempt = 0): void {
+    const generation = this.selectionGeneration;
+    // Back from the end to the turn before's `turn_result`: the turn's own `turn_end` and
+    // `turn_error` come just before its result, so only a result ends the turn before. A turn
+    // older than the records held is read from the oldest one held: the part shown is repaired.
+    let start: number | undefined;
+    let before = false;
+    for (let index = this.events.length - 1; index >= 0; index--) {
+      const event = this.events[index]!;
+      if (event.seq >= endSeq) continue;
+      if (event.dir === "mux" && event.kind === "turn_result") {
+        before = true;
+        break;
+      }
+      if (event.kind === "turn_started" || event.kind === "user_message") start = event.seq;
+    }
+    if (!before) start = Math.min(start ?? endSeq, this.events[0]?.seq ?? endSeq);
+    if (start === undefined || start >= endSeq) return;
+    const afterSeq = start - 1;
+    void this.readTurnRecords(sessionId, generation, afterSeq, endSeq).then(
+      (stored) => {
+        if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+        const held = new Set(this.events.map((event) => event.seq));
+        const missing = stored.filter((event) => !held.has(event.seq));
+        if (missing.length === 0) return;
+        this.events = mergeEventRecords(this.events, missing);
+        this.sawPrompts(missing);
+        this.rebuildKeepingLiveState(Math.min(...missing.map((event) => event.seq)) - 1);
+        this.emit("connected");
+      },
+      () => {
+        const delay = LAG_RETRY_MS[attempt];
+        if (delay === undefined) return;
+        setTimeout(() => {
+          if (!this.closed && generation === this.selectionGeneration && this.selectedSessionId === sessionId)
+            this.checkFinishedTurn(sessionId, endSeq, attempt + 1);
+        }, delay);
+      },
+    );
+  }
+
+  /// The chat's stored transcript records after `afterSeq` through `endSeq`, paged.
+  private async readTurnRecords(
+    sessionId: string,
+    generation: number,
+    afterSeq: number,
+    endSeq: number,
+  ): Promise<EventRecord[]> {
+    const stored: EventRecord[] = [];
+    for (let cursor = afterSeq; cursor < endSeq;) {
+      const result = await this.typed("_acpmux/events", {
+        sessionId,
+        afterSeq: cursor,
+        limit: 5_000,
+        kinds: ["transcript"],
+      });
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+      const page = records(result?.events);
+      stored.push(...page.filter((event) => event.seq <= endSeq));
+      if (result?.hasMore !== true || page.length === 0) break;
+      cursor = Math.max(cursor, ...page.map((event) => event.seq));
+    }
+    return stored;
   }
 
   /// A queued prompt acpmux refused when its turn came, heard live, that this client did not send
@@ -6784,6 +6886,9 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
       const tool = update._meta?.claude?.tool ?? update.title;
+      // A call starting under an id seen before is a new call (an adapter may number calls per
+      // run): it is hidden only if it is itself one of the calls below.
+      if (event.kind === "tool_call") this.planCalls.delete(callId);
       if (event.kind === "tool_call" && tool === "TodoWrite" && this.planRow) this.planCalls.add(callId);
       // Muse's write_todos, and a todo call acpmux makes the plan of (DeepSeek Harness's todo_write),
       // announce their call before the plan they make, so they are hidden on sight; a failed one

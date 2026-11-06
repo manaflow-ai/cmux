@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/defaults_guard.py"
-GRAMMAR = ROOT / "scripts/ci/receipt_grammar.py"
+RISK_TIER = ROOT / "scripts/ci/risk_tier.py"
 AUTHOR = "teamleaderleo"
 OWNERS = {"cmux-next": ["lawrencecchen", "austinywang", "teamleaderleo"]}
 REVIEWER = "austinywang"  # a member account other than the author: a receipt from it keeps the rule from before Author-agent
@@ -84,7 +84,7 @@ class DefaultsGuardTests(unittest.TestCase):
         self.repo = Repo(pathlib.Path(self.tmp.name))
         self.repo.git("init", "-q")
         self.repo.write("scripts/ci/defaults_guard.py", SCRIPT.read_text(encoding="utf-8"))
-        self.repo.write("scripts/ci/receipt_grammar.py", GRAMMAR.read_text(encoding="utf-8"))
+        self.repo.write("scripts/ci/risk_tier.py", RISK_TIER.read_text(encoding="utf-8"))
         self.repo.write(".github/defaults-call-owners.json", json.dumps(OWNERS))
         self.repo.sources(BASE_ACTIONS, BASE_SETTINGS)
         self.base = self.repo.commit("base")
@@ -569,7 +569,7 @@ struct Flags: TunableFactory {
 
     def test_a_ship_receipt_posted_as_a_review_body_passes(self):
         head = self.changed_head()
-        # From the author's own account, so it names the reviewer agent and its starter (receipt_grammar).
+        # From the author's own account, so it names the reviewer agent and its starter (risk_tier.py).
         pull = {"author": {"login": AUTHOR}, "body": "Author-agent: claude-author", "headRefOid": head,
                 "merged": False, "comments": {"nodes": []},
                 "reviews": {"nodes": [{"author": {"login": AUTHOR, "__typename": "User"}, "authorAssociation": "MEMBER",
@@ -609,7 +609,7 @@ struct Flags: TunableFactory {
             self.assertEqual(self.check(head, comments=[receipt]).returncode, 1, receipt)
 
     # cmux-ad m25 item 7: a SHIP from the author's own account names its reviewer agent and who started it, neither
-    # of them the description's `Author-agent:` (receipt_grammar). #36311: the author agent's own subagent posted
+    # of them the description's `Author-agent:` (risk_tier.py). #36311: the author agent's own subagent posted
     # `Review (claude-review-subagent): SHIP at ...` from the author's account and the guard read it as independent.
 
     def same_account(self, head, text, body="Author-agent: claude-author", extra=()):

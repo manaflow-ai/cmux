@@ -8,7 +8,7 @@ import Testing
 /// The always-on flicker detector's ring file (Leo, 2026-11-04: "a flicker across nearly the full
 /// screen"): each line carries its time in UTC, a page's events keep only known kinds and short
 /// scalar fields, and the file rolls over to `.1` past its size, so it never grows without bound.
-@Suite
+@Suite(.closesItsWindows)
 struct AgentPageFlickerLogTests {
     private func directory() -> URL {
         FileManager.default.temporaryDirectory.appending(path: "flicker-log-\(UUID().uuidString)", directoryHint: .isDirectory)
