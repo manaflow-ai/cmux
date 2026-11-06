@@ -20,9 +20,18 @@ SCHEMA = "cmux.cloud-golden-path-receipt/v1"
 _VM_ID = re.compile(r"\bvm_[0-9a-f]{1,64}\b")
 _SECRET = re.compile(
     r"(?i)\b(?:cmvm|cmk|crt|crk|cmm|cmj|pck|ssk)_[A-Za-z0-9_-]{8,}"
-    r"|\bsk-(?:ant-)?[A-Za-z0-9_-]{10,}"
-    r"|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)?"
-    r"|\bbearer\s+[A-Za-z0-9._~+/=-]+"
+    r"|\bgh[pousr]_[A-Za-z0-9]{16,}"                      # GitHub tokens
+    r"|\bgithub_pat_[A-Za-z0-9_]{16,}"
+    r"|\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{10,}"             # OpenAI / Anthropic keys
+    r"|\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{10,}"      # Stripe keys
+    r"|\bxox[abposr]-[A-Za-z0-9-]{10,}"                   # Slack tokens
+    r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"                     # AWS access key ids
+    r"|\bglpat-[A-Za-z0-9_-]{16,}"                        # GitLab tokens
+    r"|\bAIza[0-9A-Za-z_-]{30,}"                          # Google API keys
+    r"|\bnpm_[A-Za-z0-9]{30,}"
+    r"|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)?"   # JWTs
+    r"|\b(?:bearer|basic|token)\s+[A-Za-z0-9._~+/=-]{6,}"
+    r"|\b(?:api[_-]?key|access[_-]?token|secret|password|passwd)\s*[:=]\s*\S+"
 )
 
 def _norm(value: object) -> str:
@@ -33,11 +42,8 @@ def _clean(value: object, limit: int = 160) -> str:
     return _SECRET.sub("[withheld]", text)[:limit]
 
 def _truthy(value: object) -> bool:
-    if value is True:
-        return True
-    if isinstance(value, str):
-        return _norm(value) in {"true", "ok", "pass", "passed", "success", "succeeded", "running", "ready"}
-    return False
+    """Success is exactly True, "ok" or "passed"; anything else is not success."""
+    return value is True or (isinstance(value, str) and value in {"ok", "passed"})
 
 def _falsey(value: object) -> bool:
     if value is False:
@@ -213,15 +219,44 @@ def _continuity(records: list[object]) -> tuple[bool, dict[str, object]]:
         },
     )
 
-def _provider_proof(records: list[object]) -> tuple[bool, bool, dict[str, object]]:
-    values = _field_values(records, {
-        "providerverified", "providersuccess", "modelverified", "providerproofverified",
-    })
-    verified = any(_truthy(value) for value in values)
-    rejected = any(_falsey(value) for value in values)
-    if not values:
+_PROVIDER_ALIASES = {"providerverified", "providersuccess", "modelverified", "providerproofverified"}
+_MACHINE_KEYS = ("machineId", "machine_id", "machine")
+
+def _own_machine(value: dict[str, object], inherited: str) -> str:
+    for key in _MACHINE_KEYS:
+        if isinstance(value.get(key), str):
+            return value[key]
+    return inherited
+
+def _bound_fields(value: object, aliases: set[str], machine: str) -> Iterable[tuple[str, object]]:
+    """(machine the value is about, value) for each field in `aliases`; the nearest machine id wins."""
+    if isinstance(value, dict):
+        machine = _own_machine(value, machine)
+        for key, child in value.items():
+            if _norm(key) in aliases:
+                yield machine, child
+            yield from _bound_fields(child, aliases, machine)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _bound_fields(child, aliases, machine)
+
+def _provider_proof(
+    records: list[object], sources: list[tuple[object, str]] | None = None, machine_id: str | None = None,
+) -> tuple[bool, bool, dict[str, object]]:
+    """Provider proof; with `machine_id`, only proof about that machine counts as verified."""
+    if machine_id is None:
+        found = [("", value) for value in _field_values(records, _PROVIDER_ALIASES)]
+    else:
+        found = [
+            pair for source, inherited in (sources or []) for pair in _bound_fields(source, _PROVIDER_ALIASES, inherited)
+        ]
+    verified = any(_truthy(value) and (machine_id is None or (machine_id and owner == machine_id)) for owner, value in found)
+    rejected = any(_falsey(value) for _owner, value in found)
+    if not found:
         return verified, rejected, {"observed": False}
     detail: dict[str, object] = {"observed": verified, "verified": verified}
+    if machine_id is not None and not verified and any(_truthy(value) for _owner, value in found):
+        detail["unbound"] = True
     if rejected:
         detail["rejected"] = True
     return verified, rejected, detail
@@ -287,6 +322,16 @@ def _evidence(value: dict[str, object], keys: tuple[str, ...], state: str | None
         return None
     return None
 
+def _bound_discovery(chat_value: dict[str, object], machine_id: str) -> str | None:
+    if not machine_id or _own_machine(chat_value, machine_id) != machine_id:
+        return None
+    keys = ("discovery", "session_discovery", "session_discovered", "sessionDiscovered", "acp_session")
+    for key in keys:
+        item = chat_value.get(key)
+        if isinstance(item, dict) and _own_machine(item, machine_id) != machine_id:
+            return None
+    return _evidence(chat_value, keys)
+
 def _golden_machine_id(receipt_value: dict[str, object]) -> str:
     candidates = [receipt_value.get("machineId")]
     for item in receipt_value["stages"]:
@@ -304,6 +349,8 @@ def _normalize_golden(records: list[object]) -> dict[str, object]:
     if len(machine_ids) > 1:
         blockers.append("machine_id_mismatch")
     machine_id = machine_ids[0] if len(machine_ids) == 1 else ""
+    if any(not _golden_machine_id(item) for item in receipts):
+        blockers.append("receipt_machine_id_missing")
 
     reported_failure = False
     stage_state: dict[str, str] = {}
@@ -315,21 +362,25 @@ def _normalize_golden(records: list[object]) -> dict[str, object]:
         failure_code = str(failure.get("code", "")) if isinstance(failure, dict) else ""
         if receipt_value.get("outcome") != "passed" and not failure_code.endswith(".not_observable"):
             reported_failure = True
+        bound = bool(machine_id) and _golden_machine_id(receipt_value) == machine_id
         for item in receipt_value["stages"]:
-            name = str(item["stage"])
-            ok = item.get("ok") is True
+            name = _clean(item["stage"], 40)
+            # ok:true next to a failure object is a contradiction, so it fails.
+            ok = item.get("ok") is True and not item.get("failure")
             started, ended = _iso_ms(item.get("startedAt")), _iso_ms(item.get("endedAt"))
             if started is not None and ended is not None and ended >= started:
                 stage_ms[name] = max(stage_ms.get(name, 0), ended - started)
             if ok:
-                stage_state.setdefault(name, "ok")
-                if isinstance(item.get("value"), dict):
-                    values.setdefault(name, []).append(item["value"])
+                # A receipt not bound to this machine cannot prove a stage, only fail one.
+                if bound:
+                    stage_state.setdefault(name, "ok")
+                    if isinstance(item.get("value"), dict):
+                        values.setdefault(name, []).append(item["value"])
                 continue
             stage_failure = item.get("failure") if isinstance(item.get("failure"), dict) else {}
             code = str(stage_failure.get("code", ""))
             failures.append({
-                "stage": _clean(name, 40),
+                "stage": name,
                 "probe_id": _clean(receipt_value.get("probeId"), 80),
                 "code": _clean(code, 80) or None,
                 "message": _clean(stage_failure.get("message")) or None,
@@ -346,10 +397,7 @@ def _normalize_golden(records: list[object]) -> dict[str, object]:
 
     chat_values = values.get("chat", [])
     session_id = _first_text(chat_values, {"sessionid", "acpsessionid"})
-    discovery = [
-        _evidence(value, ("discovery", "session_discovery", "session_discovered", "sessionDiscovered", "acp_session"))
-        for value in chat_values
-    ]
+    discovery = [_bound_discovery(value, machine_id) for value in chat_values]
     reconnect_values = values.get("reconnect", [])
     pause = [_evidence(value, ("pause", "paused"), "paused") for value in reconnect_values]
     resume = [_evidence(value, ("resume", "resumed"), "running") for value in reconnect_values]
@@ -373,9 +421,10 @@ def _normalize_golden(records: list[object]) -> dict[str, object]:
         ),
     }
 
-    provider_true, provider_false, provider_detail = _provider_proof(receipts + [
-        record for record in records if not _is_golden_receipt(record)
-    ])
+    provider_sources = [
+        (record, _golden_machine_id(record) if _is_golden_receipt(record) else "") for record in records
+    ]
+    provider_true, provider_false, provider_detail = _provider_proof(records, provider_sources, machine_id)
     failed_stages = [name for name, state in golden_stages.items() if state == "failed"]
     if reported_failure or failed_stages or explicit_failure:
         blockers.append("receipt_reports_failure")
@@ -498,13 +547,28 @@ def load_receipt(path: Path) -> list[object]:
         return values
     return value if isinstance(value, list) else [value]
 
+def _unreadable(blocker: str, error: Exception) -> dict[str, object]:
+    return {
+        "schema": SCHEMA,
+        "status": "blocked",
+        "blockers": [blocker],
+        "stages": {},
+        "provider_verification": {"observed": False},
+        "evidence": {"error": _clean(f"{type(error).__name__}: {error}")},
+    }
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--receipt", required=True, type=Path)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--check", action="store_true", help="exit 2 unless the normalized receipt passes")
     args = parser.parse_args(argv)
-    normalized = normalize(load_receipt(args.receipt))
+    try:
+        normalized = normalize(load_receipt(args.receipt))
+    except (UnicodeDecodeError, ValueError) as error:
+        normalized = _unreadable("receipt_malformed", error)
+    except OSError as error:
+        normalized = _unreadable("receipt_unreadable", error)
     rendered = json.dumps(normalized, indent=2, sort_keys=True) + "\n"
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
