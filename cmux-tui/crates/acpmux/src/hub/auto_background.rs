@@ -113,6 +113,27 @@ pub(super) fn persons_message(provenance: Option<&Value>, agent: Option<&str>) -
         })
 }
 
+/// `answer`, running `moving` beside it from when `written` is told until either ends; an answer
+/// that comes first (a steer held or refused before it was written) never starts `moving`.
+async fn answer_once_written<T>(
+    written: &tokio::sync::Notify,
+    answer: impl std::future::Future<Output = T>,
+    moving: impl std::future::Future<Output = ()>,
+) -> T {
+    tokio::pin!(answer);
+    let moving = async {
+        let _ = written;
+        moving.await;
+    };
+    tokio::pin!(moving);
+    tokio::select! {
+        biased;
+        answer = &mut answer => return answer,
+        () = &mut moving => {}
+    }
+    answer.await
+}
+
 impl Hub {
     /// How long a foreground call runs before the person's waiting message moves it; None turns
     /// it off (tests shorten it).
@@ -120,28 +141,23 @@ impl Hub {
         *self.message_background_after.lock().unwrap_or_else(|e| e.into_inner()) = after;
     }
 
-    /// `answer`, the agent's answer to the person's steer into `session`'s turn; until it comes,
-    /// the calls that block the turn go to the background as they reach the threshold (module
-    /// docs). The wait ends with the answer, so nothing outlives the message.
+    /// `answer`, the agent's answer to the person's steer into `session`'s turn; once the steer
+    /// is `written` and until the answer comes, the calls that block the turn go to the
+    /// background as they reach the threshold (module docs). A steer held or refused before it
+    /// is written moves nothing, and the wait ends with the answer, so nothing outlives the
+    /// message.
     pub(super) async fn answer_moving_work<T>(
         &self,
         session: &Arc<Session>,
         child: &ChildAgent,
+        written: &tokio::sync::Notify,
         answer: impl std::future::Future<Output = T>,
     ) -> T {
         let after = *self.message_background_after.lock().unwrap_or_else(|e| e.into_inner());
         let Some(after) = after.filter(|_| session.backgrounds_work.load(Ordering::SeqCst)) else {
             return answer.await;
         };
-        tokio::pin!(answer);
-        let moving = self.move_blocking_work(session, child, after);
-        tokio::pin!(moving);
-        tokio::select! {
-            biased;
-            answer = &mut answer => return answer,
-            () = &mut moving => {}
-        }
-        answer.await
+        answer_once_written(written, answer, self.move_blocking_work(session, child, after)).await
     }
 
     /// Moves each foreground call of `session`'s turn that has run `after` to the background, then
@@ -255,6 +271,31 @@ impl Hub {
 mod tests {
     use super::*;
     use cmux_json::JsonSet as _;
+
+    /// A steer answered before it was written (held, or refused) moves nothing; one written moves
+    /// work only from then on, while its answer is still to come.
+    #[tokio::test]
+    async fn work_moves_only_once_the_steer_is_written() {
+        let moved = std::sync::atomic::AtomicBool::new(false);
+        let mover = || async { moved.store(true, Ordering::SeqCst) };
+        let written = tokio::sync::Notify::new();
+        let held = async {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            "held"
+        };
+        assert_eq!(answer_once_written(&written, held, mover()).await, "held");
+        assert!(!moved.load(Ordering::SeqCst), "a steer never written moved work");
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<&str>();
+        let answer = async {
+            written.notify_one();
+            tokio::task::yield_now().await;
+            assert!(moved.load(Ordering::SeqCst), "the written steer moved nothing");
+            rx.await.unwrap()
+        };
+        tx.send("read").unwrap();
+        assert_eq!(answer_once_written(&written, answer, mover()).await, "read");
+    }
 
     #[test]
     fn the_wait_comes_from_the_env_and_zero_turns_it_off() {
