@@ -5,7 +5,9 @@
 //! Bar as the folder marked `PERSONAL_TOOLBAR_FOLDER="true"`, then Other
 //! Bookmarks' children at the top level, and [`read`] returns the same tree.
 
-use cmux_bookmarks_core::{BOOKMARKS_BAR, BookmarkImportNode, OTHER_BOOKMARKS, Tree, validate_url};
+use cmux_bookmarks_core::{
+    BOOKMARKS_BAR, BookmarkImportNode, MAX_BOOKMARK_DEPTH, OTHER_BOOKMARKS, Tree, validate_url,
+};
 
 /// A parsed file: the toolbar folder's children (`None` when the file has
 /// none) and every other top-level node, in file order.
@@ -13,6 +15,10 @@ use cmux_bookmarks_core::{BOOKMARKS_BAR, BookmarkImportNode, OTHER_BOOKMARKS, Tr
 pub struct Document {
     pub bar: Option<Vec<BookmarkImportNode>>,
     pub other: Vec<BookmarkImportNode>,
+    /// The file nests folders deeper than [`MAX_BOOKMARK_DEPTH`]: the
+    /// reader kept nothing below that depth (it never builds or walks a
+    /// deeper tree), and an import of it is refused as too deep.
+    pub too_deep: bool,
 }
 
 /// Nodes in `nodes`, their descendants included.
@@ -75,7 +81,18 @@ pub fn read(html: &str) -> Document {
     let mut queued: Option<OpenFolder> = None;
     let mut bar = None;
     let mut saw_root_list = false;
+    // Lists open below the depth limit: counted, never built.
+    let mut beyond = 0usize;
+    let mut too_deep = false;
     while let Some(tag) = scanner.next_tag() {
+        if beyond > 0 {
+            match tag.name.as_str() {
+                "dl" => beyond += 1,
+                "/dl" => beyond -= 1,
+                _ => {}
+            }
+            continue;
+        }
         match tag.name.as_str() {
             "h3" => {
                 let title = decode(&scanner.text_until("h3"));
@@ -109,6 +126,13 @@ pub fn read(html: &str) -> Document {
                     continue;
                 }
                 saw_root_list = true;
+                // `stack` holds the root's level and one per open list.
+                if stack.len() > MAX_BOOKMARK_DEPTH {
+                    queued = None;
+                    beyond = 1;
+                    too_deep = true;
+                    continue;
+                }
                 // A list with no heading keeps its items in the parent.
                 open.push(queued.take().unwrap_or(OpenFolder {
                     title: String::new(),
@@ -141,7 +165,7 @@ pub fn read(html: &str) -> Document {
     {
         level.push(folder(&open.title, open.created_ms, Vec::new()));
     }
-    Document { bar, other: stack.into_iter().next().unwrap_or_default() }
+    Document { bar, other: stack.into_iter().next().unwrap_or_default(), too_deep }
 }
 
 fn close(
@@ -249,7 +273,7 @@ fn append(tree: &Tree, parent: &str, depth: usize, out: &mut String) {
         if node.kind == "folder" {
             out.push_str(&format!("{indent}<DT><H3{added}>{}</H3>\n", escape(&node.title)));
             out.push_str(&format!("{indent}<DL><p>\n"));
-            if depth <= cmux_bookmarks_core::MAX_BOOKMARK_DEPTH {
+            if depth <= MAX_BOOKMARK_DEPTH {
                 append(tree, &node.id, depth + 1, out);
             }
             out.push_str(&format!("{indent}</DL><p>\n"));

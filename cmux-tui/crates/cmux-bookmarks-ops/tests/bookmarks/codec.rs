@@ -102,14 +102,16 @@ fn writes_what_it_reads() {
 
 #[test]
 fn a_file_imports_into_one_folder_at_the_end_of_the_bar() {
-    let import = import_plan::html("default", CHROME_EXPORT, "Imported", "Bookmarks Bar");
+    let import = import_plan::html("default", CHROME_EXPORT, "Imported", "Bookmarks Bar").unwrap();
     let import = import.unwrap_or_default();
     assert_eq!(import.parent, "bar");
     assert!(!import.replace);
     assert_eq!(titles(&import.nodes), ["Imported"]);
     let children = import.nodes[0].children.clone().unwrap_or_default();
     assert_eq!(titles(&children), ["Bookmarks Bar", "Other"]);
-    assert!(import_plan::html("default", "<html>nothing</html>", "Imported", "Bar").is_none());
+    assert!(
+        import_plan::html("default", "<html>nothing</html>", "Imported", "Bar").unwrap().is_none()
+    );
 }
 
 fn item(title: &str, url: &str, path: &[&str]) -> SourceItem {
@@ -129,7 +131,8 @@ fn a_source_import_drops_the_shared_first_folder_and_skips_duplicates() {
         item("A again", "https://a.test", &["Bar"]),
         item("B elsewhere", "https://b.test", &["Bar"]),
     ];
-    let plan = import_plan::source("default", "Imported from Chrome", "chrome:Default", &items);
+    let plan =
+        import_plan::source("default", "Imported from Chrome", "chrome:Default", &items).unwrap();
     assert_eq!(plan.added, 3);
     assert_eq!(plan.duplicates, 1);
     assert!(plan.import.replace);
@@ -143,7 +146,7 @@ fn a_source_import_drops_the_shared_first_folder_and_skips_duplicates() {
 #[test]
 fn a_source_import_keeps_different_first_folders() {
     let items = [item("A", "https://a.test", &["Bar"]), item("B", "https://b.test", &["Other"])];
-    let plan = import_plan::source("default", "T", "k", &items);
+    let plan = import_plan::source("default", "T", "k", &items).unwrap();
     assert_eq!(
         titles(plan.import.nodes[0].children.as_deref().unwrap_or_default()),
         ["Bar", "Other"]
@@ -158,8 +161,9 @@ fn a_link_the_store_would_refuse_is_skipped() {
         "<DL><DT><A HREF=\"http://[bad\">Bad</A><DT><A HREF=\"https://ok.test/\">Good</A></DL>";
     let document = netscape::read(html);
     assert_eq!(titles(&document.other), ["Good"]);
-    let import =
-        import_plan::html("default", html, "Imported", "Bar").expect("the good link imports");
+    let import = import_plan::html("default", html, "Imported", "Bar")
+        .unwrap()
+        .expect("the good link imports");
     assert_eq!(titles(import.nodes[0].children.as_deref().unwrap_or_default()), ["Good"]);
 }
 
@@ -167,7 +171,54 @@ fn a_link_the_store_would_refuse_is_skipped() {
 #[test]
 fn a_source_item_the_store_would_refuse_is_skipped() {
     let items = [item("Bad", "http://[bad", &["Bar"]), item("Good", "https://ok.test", &["Bar"])];
-    let plan = import_plan::source("default", "T", "k", &items);
+    let plan = import_plan::source("default", "T", "k", &items).unwrap();
     assert_eq!((plan.added, plan.duplicates, plan.skipped), (1, 0, 1));
     assert_eq!(titles(plan.import.nodes[0].children.as_deref().unwrap_or_default()), ["Good"]);
+}
+
+/// Review F1 (third review): a 10,000-deep file is read without recursing past the depth limit
+/// and its import is refused as too deep; nothing below the limit is kept.
+#[test]
+fn a_ten_thousand_deep_file_is_refused_as_too_deep() {
+    let depth = 10_000;
+    let mut html = String::from("<DL>");
+    for level in 0..depth {
+        html.push_str(&format!("<DT><H3>F{level}</H3><DL>"));
+    }
+    html.push_str("<DT><A HREF=\"https://deep.test/\">Deep</A>");
+    html.push_str(&"</DL>".repeat(depth + 1));
+    let document = netscape::read(&html);
+    assert!(document.too_deep);
+    assert_eq!(document.count(), cmux_bookmarks_core::MAX_BOOKMARK_DEPTH);
+    let refusal = import_plan::html("default", &html, "Imported", "Bar").unwrap_err();
+    assert_eq!(refusal.reason(), cmux_bookmarks_core::Reason::TooDeep);
+}
+
+/// A browser source whose folder path passes the depth limit is refused as too deep, before any
+/// folder is built (a 10,000-level path).
+#[test]
+fn a_source_path_past_the_depth_limit_is_refused() {
+    let path = (0..10_000).map(|level| format!("F{level}")).collect::<Vec<_>>();
+    let items = [SourceItem {
+        title: "Deep".into(),
+        url: "https://deep.test/".into(),
+        folder_path: path,
+        created_ms: None,
+    }];
+    let refusal = import_plan::source("default", "T", "k", &items).unwrap_err();
+    assert_eq!(refusal.reason(), cmux_bookmarks_core::Reason::TooDeep);
+}
+
+/// Review F2 (third review): a skipped row never decides the layout: the valid rows share the
+/// bar folder, so it is dropped even when a bad row elsewhere comes first.
+#[test]
+fn a_skipped_row_does_not_keep_the_shared_folder() {
+    let items = [
+        item("Bad", "http://[bad", &["Other"]),
+        item("A", "https://a.test", &["Bar"]),
+        item("B", "https://b.test", &["Bar", "Work"]),
+    ];
+    let plan = import_plan::source("default", "T", "k", &items).unwrap();
+    assert_eq!(plan.skipped, 1);
+    assert_eq!(titles(plan.import.nodes[0].children.as_deref().unwrap_or_default()), ["A", "Work"]);
 }

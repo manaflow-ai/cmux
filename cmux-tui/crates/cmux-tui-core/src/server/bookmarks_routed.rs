@@ -185,7 +185,9 @@ pub(super) fn routed(
                 &import.html,
                 &import.folder_title,
                 &import.bar_title,
-            ) else {
+            )
+            .map_err(|error| failure(operation, &error.into(), None))?
+            else {
                 return Err(ResourceError::operation_failed(
                     operation,
                     "the file holds no bookmarks",
@@ -226,7 +228,8 @@ pub(super) fn routed(
                 &import.title,
                 &import.source_key,
                 &import.items,
-            );
+            )
+            .map_err(|error| failure(operation, &error.into(), None))?;
             let mut result = one(mux, &actor, key, BookmarkOp::Import(plan.import))
                 .map_err(|error| failure(operation, &error, None))?;
             if let Some(object) = result.as_object_mut() {

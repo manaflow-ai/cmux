@@ -8,7 +8,10 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::netscape::{self, Document, folder, link};
-use cmux_bookmarks_core::{BOOKMARKS_BAR, BookmarkImport, BookmarkImportNode, validate_url};
+use cmux_bookmarks_core::{
+    BOOKMARKS_BAR, BookmarkError, BookmarkImport, BookmarkImportNode, MAX_BOOKMARK_DEPTH, Reason,
+    validate_url,
+};
 
 /// A flat imported bookmark, with its folder path from the source's root
 /// (the shape the app's browser import reads from every browser).
@@ -41,17 +44,24 @@ pub struct SourcePlan {
 /// folder titled `title` that carries `source_key`. Items keep their order;
 /// folders appear in order of first use. When every item shares the same
 /// first folder (the source's bar), that level is dropped.
-pub fn source(profile: &str, title: &str, source_key: &str, items: &[SourceItem]) -> SourcePlan {
-    let shared = items.first().and_then(|item| item.folder_path.first());
-    let strip = shared.is_some() && items.iter().all(|item| item.folder_path.first() == shared);
+pub fn source(
+    profile: &str,
+    title: &str,
+    source_key: &str,
+    items: &[SourceItem],
+) -> Result<SourcePlan, BookmarkError> {
+    // Rows the store would refuse go first, so they never change the layout of the rest.
+    let usable = items.iter().filter(|item| validate_url(&item.url).is_ok()).collect::<Vec<_>>();
+    let skipped = items.len() - usable.len();
+    // The source's folder and its first level sit above each path.
+    if usable.iter().any(|item| item.folder_path.len() + 1 > MAX_BOOKMARK_DEPTH) {
+        return Err(too_deep());
+    }
+    let shared = usable.first().and_then(|item| item.folder_path.first());
+    let strip = shared.is_some() && usable.iter().all(|item| item.folder_path.first() == shared);
     let mut root = Builder::default();
     let mut added = 0;
-    let mut skipped = 0;
-    for item in items {
-        if validate_url(&item.url).is_err() {
-            skipped += 1;
-            continue;
-        }
+    for item in usable {
         let path =
             if strip { item.folder_path.get(1..).unwrap_or_default() } else { &item.folder_path };
         if root.add(link(&item.title, &item.url, item.created_ms), path) {
@@ -66,7 +76,12 @@ pub fn source(profile: &str, title: &str, source_key: &str, items: &[SourceItem]
         replace: true,
         nodes: vec![folder(title, None, root.nodes())],
     };
-    SourcePlan { import, added, duplicates: items.len() - added - skipped, skipped }
+    Ok(SourcePlan { import, added, duplicates: items.len() - added - skipped, skipped })
+}
+
+fn too_deep() -> BookmarkError {
+    BookmarkError::invalid(format!("bookmarks nest at most {MAX_BOOKMARK_DEPTH} deep"))
+        .because(Reason::TooDeep)
 }
 
 /// An HTML file into a new folder named `title` at the end of the bar (the
@@ -83,9 +98,18 @@ pub fn file(profile: &str, document: Document, title: &str, bar_title: &str) -> 
 }
 
 /// [`file`] from the file's text; `None` when it holds no bookmark.
-pub fn html(profile: &str, html: &str, title: &str, bar_title: &str) -> Option<BookmarkImport> {
+/// Refused as too deep when the file nests past [`MAX_BOOKMARK_DEPTH`].
+pub fn html(
+    profile: &str,
+    html: &str,
+    title: &str,
+    bar_title: &str,
+) -> Result<Option<BookmarkImport>, BookmarkError> {
     let document = netscape::read(html);
-    (document.count() > 0).then(|| file(profile, document, title, bar_title))
+    if document.too_deep {
+        return Err(too_deep());
+    }
+    Ok((document.count() > 0).then(|| file(profile, document, title, bar_title)))
 }
 
 /// A folder tree under construction, in first-use order.

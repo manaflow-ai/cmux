@@ -291,3 +291,26 @@ fn an_oversized_query_is_refused() {
     }
     mux.shutdown();
 }
+
+/// A file nested past the depth limit is refused as too deep, not walked (third review F1).
+#[test]
+fn a_too_deep_file_is_refused() {
+    let (mux, conn) = app();
+    let depth = 10_000;
+    let mut html = String::from("<DL>");
+    for level in 0..depth {
+        html.push_str(&format!("<DT><H3>F{level}</H3><DL>"));
+    }
+    html.push_str(&"</DL>".repeat(depth + 1));
+    let reply = send(
+        &mux,
+        &conn,
+        "bookmarks.import_html",
+        json!({"browser_profile_id": "default", "html": html, "folder_title": "Imported",
+               "bar_title": "Bookmarks Bar"}),
+        Some("d1"),
+    );
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error"]["details"]["extra"]["reason"], "too_deep", "{reply}");
+    mux.shutdown();
+}
