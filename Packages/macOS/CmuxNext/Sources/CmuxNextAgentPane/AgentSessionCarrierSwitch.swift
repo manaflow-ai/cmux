@@ -53,6 +53,11 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
         /// The relay's attachment after a move, until its detach returns: a push still in flight
         /// then reaches the page if it is not a record (the direct link carries those) or its end.
         var retiring: UInt64?
+        /// Fall-backs waiting for that detach: the relay client does not order a detach after an
+        /// attach, so the relay's re-attach goes only once it returned.
+        var detachWaiters: [CheckedContinuation<Void, Never>] = []
+        /// The client a move is bringing up, closed too if the chat ends first.
+        var pending: (any AgentSessionRemoteClient)?
         /// The newest record seq the page got (or its attach answer covered).
         var newest: UInt64 = 0
         /// Calls running on ``current``.
@@ -108,6 +113,7 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
         let start = state.withLock { state -> (AgentSessionPage, UInt64, UInt64)? in
             guard !state.ended, !state.moving, state.preferred == nil, let page = state.page else { return nil }
             state.moving = true
+            state.pending = preferred
             return (page, state.newest, Self.beginBuffering(&state))
         }
         guard let (page, from, generation) = start else { return false }
@@ -125,7 +131,12 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
         guard cutover(to: preferred, generation: generation, preferred: true) else { return await abandon(preferred) }
         Self.logger.info("carrier move: moved")
         await fallback.detach()
-        state.withLock { $0.retiring = nil }
+        let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+            state.retiring = nil
+            defer { state.detachWaiters = [] }
+            return state.detachWaiters
+        }
+        for waiter in waiters { waiter.resume() }
         return true
     }
 
@@ -142,6 +153,14 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
         guard let (page, from, generation, gone) = start else { return }
         Self.logger.info("carrier: the direct attachment ended (\(reason, privacy: .public)); back to the relay")
         await gone?.close()
+        await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
+            let now = state.withLock { state -> Bool in
+                guard state.retiring != nil else { return true }
+                state.detachWaiters.append(waiter)
+                return false
+            }
+            if now { waiter.resume() }
+        }
         do {
             try await attach(fallback, from: from, kinds: page.kinds, generation: generation)
             // Calls still running on the direct client end before held ones go to the relay, so a
@@ -238,6 +257,7 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
             state.alsoLive = nil
             state.current = client
             if preferred { state.preferred = client }
+            state.pending = nil
             state.moving = false
             return Self.release(&state)
         }
@@ -253,6 +273,7 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
             Self.releaseEarly(&state)
             state.buffering = nil
             state.buffer = []
+            state.pending = nil
             state.moving = false
             return Self.release(&state)
         }
@@ -451,7 +472,12 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
         let answer = try await call { try await $0.events(page) }
         if page.afterSeq != nil, page.beforeSeq == nil {
             let covered = Self.covered(answer, by: page)
-            state.withLock { $0.newest = max($0.newest, covered) }
+            state.withLock { state in
+                // A page narrower than the attachment (a transcript-only read) left out the other
+                // kinds, so it covers nothing a move would otherwise replay.
+                guard page.kinds == nil || page.kinds == state.page?.kinds else { return }
+                state.newest = max(state.newest, covered)
+            }
         }
         return answer
     }
@@ -496,7 +522,8 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
             state.buffer = []
             state.early = []
             state.retiring = nil
-            let clients: [any AgentSessionRemoteClient] = [fallback] + (state.preferred.map { [$0] } ?? [])
+            let clients: [any AgentSessionRemoteClient] = [fallback] + [state.preferred, state.pending].compactMap { $0 }
+            state.pending = nil
             return (clients, Self.release(&state))
         }
         released.resume()
