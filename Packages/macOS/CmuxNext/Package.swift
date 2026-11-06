@@ -1690,7 +1690,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextBrowserHostTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextBrowserHost", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextBrowserHost", "CmuxNextTestSupport", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
