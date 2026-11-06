@@ -1125,7 +1125,6 @@ fn a_folder_that_is_there_or_a_machine_with_no_bootstrap_starts_as_before() {
     for check in [
         exec_out("ready\n"),
         exec_out("none\n"),
-        exec_out("ended\n{\"state\":\"done\",\"exit_code\":0}\n"),
         Ran {
             code: 1,
             stderr: json!({"code": "vm_busy", "message": "busy"}).to_string(),
@@ -1183,4 +1182,218 @@ fn a_clone_longer_than_the_timeout_answers_pending() {
     assert_eq!(exit, 75);
     assert!(fake.ran[1..].iter().all(|args| is_folder_check(args, "/home/cmux/work/gitlab-test")));
     assert!(fake.ran.len() <= 8, "bounded by --timeout: {}", fake.ran.len());
+}
+
+/// A fake app whose `cloud exec` runs the command in `sh` with `HOME` set to a folder of the test's
+/// own, so the folder check's real script reads real bootstrap files. Its `sleep 1` takes no time
+/// (the fake clock still moves 5 s a step). `after` changes the files once the given exec has run.
+struct ShellFake {
+    home: std::path::PathBuf,
+    ran: Vec<Vec<String>>,
+    clock: Instant,
+    execs: usize,
+    after: Option<(usize, Box<dyn FnMut(&std::path::Path)>)>,
+}
+
+impl ShellFake {
+    fn new(home: &std::path::Path) -> Self {
+        Self {
+            home: home.to_owned(),
+            ran: Vec::new(),
+            clock: Instant::now(),
+            execs: 0,
+            after: None,
+        }
+    }
+}
+
+impl Runner for ShellFake {
+    fn cmux(&mut self, args: &[String]) -> Ran {
+        self.ran.push(args.to_vec());
+        self.clock += Duration::from_secs(5);
+        match args.get(1).map(String::as_str) {
+            Some("list-machines") => signed_in(),
+            Some("exec") => {
+                let command = args[5].replace("sleep 1", ":");
+                let out = std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(command)
+                    .env("HOME", &self.home)
+                    .current_dir(&self.home)
+                    .output()
+                    .unwrap();
+                self.execs += 1;
+                if let Some((n, change)) = &mut self.after
+                    && *n == self.execs
+                {
+                    change(&self.home);
+                }
+                exec_out(&String::from_utf8_lossy(&out.stdout))
+            }
+            Some("relay-chat") => relayed(json!({"session_id": "relay-1", "reply": "ok"})),
+            other => panic!("no answer for {other:?}"),
+        }
+    }
+    fn pause(&mut self, duration: Duration) {
+        self.clock += duration;
+    }
+    fn now(&mut self) -> Instant {
+        self.clock
+    }
+    fn fresh_name(&mut self) -> String {
+        "chat-fresh".into()
+    }
+    fn prompt_id(&mut self) -> String {
+        "p-1".into()
+    }
+}
+
+fn bootstrap(home: &std::path::Path, status: &str, repo: Option<&str>) {
+    let dir = home.join(".cmux/bootstrap");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("status.json"), format!("{status}\n")).unwrap();
+    match repo {
+        Some(repo) => std::fs::write(dir.join("repo-status.json"), format!("{repo}\n")).unwrap(),
+        None => {
+            let _ = std::fs::remove_file(dir.join("repo-status.json"));
+        }
+    }
+}
+
+const RUNNING: &str =
+    r#"{"state":"running","exit_code":null,"script_sha256":"a","start_sha256":"b","at":1}"#;
+const CLONED: &str = r#"{"status":"cloned","url":"https://gitlab.com/g/r.git","ref":"","dir":"x","credential":"none","sha":"c"}"#;
+
+/// Review of #37248: `git clone URL DIR` makes DIR before its checkout ends, so a folder that is there
+/// while the bootstrap runs is not ready. The start waits for the repository step's own status.
+#[test]
+fn a_folder_that_is_there_while_the_clone_runs_is_not_ready_until_the_repo_step_says_so() {
+    let home = tempfile::tempdir().unwrap();
+    let cwd = home.path().join("work/gitlab-test");
+    std::fs::create_dir_all(cwd.join(".git")).unwrap();
+    bootstrap(home.path(), RUNNING, None);
+    let mut fake = ShellFake::new(home.path());
+    fake.after = Some((2, Box::new(|home| bootstrap(home, RUNNING, Some(CLONED)))));
+    let cwd = cwd.to_str().unwrap();
+    let Outcome::Done(answer) = run(&mut fake, &repo_start(cwd, "900")) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "ok");
+    // Two checks said busy (the folder was there), the third read the repository step's `cloned`.
+    assert_eq!(fake.ran.len(), 5, "{:?}", fake.ran);
+    assert!(fake.ran[1..4].iter().all(|args| is_folder_check(args, cwd)), "{:?}", fake.ran);
+    assert_eq!(fake.ran[4][..2], strings(&["cloud", "relay-chat"]));
+}
+
+/// The bootstrap files decide, never the folder alone: no bootstrap (the folder is enough), the whole
+/// bootstrap done, a bootstrap without a repository step that failed in its script while the folder is
+/// there each start; a failed repository step fails the start with its status.
+#[test]
+fn the_bootstrap_files_decide_whether_the_folder_is_ready() {
+    let failed_repo = r#"{"state":"failed","exit_code":1,"script_sha256":"a","start_sha256":"b","repo":{"status":"failed"},"at":1,"step":"repo"}"#;
+    let failed_script = r#"{"state":"failed","exit_code":2,"script_sha256":"a","start_sha256":"b","repo":null,"at":1,"step":"script"}"#;
+    let done = r#"{"state":"done","exit_code":0,"script_sha256":"a","start_sha256":"b","repo":null,"at":1}"#;
+    for (status, repo, folder, starts) in [
+        (None, None, true, true),
+        (Some(done), Some(CLONED), true, true),
+        (Some(failed_script), None, true, true),
+        (Some(failed_repo), Some(r#"{"status":"failed"}"#), false, false),
+        (Some(failed_script), None, false, false),
+    ] {
+        let home = tempfile::tempdir().unwrap();
+        let cwd = home.path().join("work/r");
+        if folder {
+            std::fs::create_dir_all(&cwd).unwrap();
+        }
+        if let Some(status) = status {
+            bootstrap(home.path(), status, repo);
+        }
+        let mut fake = ShellFake::new(home.path());
+        let got = run(&mut fake, &repo_start(cwd.to_str().unwrap(), "900"));
+        match (starts, got) {
+            (true, Outcome::Done(answer)) => assert_eq!(answer["reply"], "ok"),
+            (false, Outcome::Failed { error, .. }) => {
+                assert_eq!(error["code"], "cloud.folder_missing", "{status:?}");
+                assert_eq!(fake.ran.len(), 2);
+            }
+            (_, other) => panic!("{status:?} {repo:?} folder {folder}: {other:?} {:?}", fake.ran),
+        }
+    }
+}
+
+/// Review of #37248: one deadline from the command's start. Each check waits on the machine at most
+/// what is left of it, and the time spent waiting for the folder counts against the relay's window.
+#[test]
+fn the_folder_wait_and_the_start_share_one_deadline_from_the_command_start() {
+    let mut fake = Fake::new((0..10).map(|_| exec_out("busy\n")).collect::<Vec<_>>());
+    fake.answers.push_front(signed_in());
+    let Outcome::Failed { error, .. } = run(&mut fake, &repo_start("/home/cmux/work/r", "22"))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.folder_pending");
+    // The list took 5 s of the 22: checks of 15 s (the most), then 12, 7 and 2.
+    for (step, slice) in [(1, 15), (2, 12), (3, 7), (4, 2)] {
+        assert!(
+            fake.ran[step][5].contains(&format!("-lt {slice} ]")),
+            "{step}: {:?}",
+            fake.ran[step]
+        );
+    }
+    assert_eq!(fake.ran.len(), 5, "no check starts past the deadline: {:?}", fake.ran);
+
+    // 10 s of the 50 went on the list and a busy check, 5 on the ready one: 35 s are left, less than the
+    // relay's answer window, so the start goes the link way (the relay never gets a fresh 50 s).
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        exec_out("busy\n"),
+        exec_out("ready\n"),
+        started(),
+        exec_out("@@history\n\n@@send\nno such session\n@@exit 1\n"),
+    ]);
+    let _ = run(&mut fake, &repo_start("/home/cmux/work/r", "50"));
+    assert_eq!(fake.ran[3][1], "start-session", "{:?}", fake.ran);
+    assert!(fake.ran.iter().all(|step| step.get(1).map(String::as_str) != Some("relay-chat")));
+}
+
+/// `--cwd` is one shell word on the machine whatever it holds: quotes, `$(...)`, backquotes and a
+/// newline name the folder and run nothing.
+#[test]
+fn a_cwd_with_shell_text_in_it_is_only_ever_a_folder_name() {
+    for name in [
+        "it's",
+        "$(touch pwned)",
+        "`touch pwned`",
+        "a\"b\" ; touch pwned ; \"",
+        "two\nlines",
+        "$HOME",
+        "x'\"$(id)\"'y",
+    ] {
+        let home = tempfile::tempdir().unwrap();
+        let cwd = home.path().join("work").join(name);
+        std::fs::create_dir_all(&cwd).unwrap();
+        // A script step failed with no repository step: the folder alone decides, so the exact name must match.
+        bootstrap(
+            home.path(),
+            r#"{"state":"failed","exit_code":2,"repo":null,"at":1,"step":"script"}"#,
+            None,
+        );
+        let mut fake = ShellFake::new(home.path());
+        let cwd = cwd.to_str().unwrap();
+        let Outcome::Done(_) = run(&mut fake, &repo_start(cwd, "900")) else {
+            panic!("{name:?}: {:?}", fake.ran)
+        };
+        assert!(
+            !home.path().join("pwned").exists() && !home.path().join("work/pwned").exists(),
+            "{name:?} ran"
+        );
+        // And a missing folder of that name is missing, not some other folder.
+        std::fs::remove_dir(cwd).unwrap();
+        let mut fake = ShellFake::new(home.path());
+        let Outcome::Failed { error, .. } = run(&mut fake, &repo_start(cwd, "900")) else {
+            panic!("{name:?}: {:?}", fake.ran)
+        };
+        assert_eq!(error["details"]["cwd"], cwd, "{name:?}");
+        assert!(!home.path().join("pwned").exists(), "{name:?} ran");
+    }
 }
