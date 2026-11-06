@@ -1,6 +1,60 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.placeholder.wordOrPhrase": {
+      "comment": "Placeholder of a free-text list of words (Settings > Chief > Subagents show and hide words).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Add a word or phrase"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أضف كلمة أو عبارة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dodajte riječ ili frazu"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tilføj et ord eller en sætning"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Wort oder Ausdruck hinzufügen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Añade una palabra o frase"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ajouter un mot ou une expression"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Aggiungi una parola o una frase"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "単語またはフレーズを追加"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បន្ថែមពាក្យ ឬឃ្លា"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "단어 또는 구문 추가"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Legg til et ord eller en frase"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Dodaj słowo lub frazę"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Adicione uma palavra ou frase"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Добавьте слово или фразу"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เพิ่มคำหรือวลี"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir kelime veya ifade ekleyin"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Додайте слово або фразу"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thêm một từ hoặc cụm từ"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "添加字词或短语"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "新增字詞或片語"}}
+      }
+    },
+    "settings.placeholder.githubOwner": {
+      "comment": "Placeholder of Trusted GitHub Owners (a GitHub user or organization name).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Add a user or organization"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أضف مستخدمًا أو مؤسسة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dodajte korisnika ili organizaciju"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tilføj en bruger eller organisation"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Benutzer oder Organisation hinzufügen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Añade un usuario u organización"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ajouter un utilisateur ou une organisation"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Aggiungi un utente o un'organizzazione"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ユーザーまたは組織を追加"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បន្ថែមអ្នកប្រើ ឬស្ថាប័ន"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사용자 또는 조직 추가"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Legg til en bruker eller organisasjon"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Dodaj użytkownika lub organizację"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Adicione um usuário ou organização"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Добавьте пользователя или организацию"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เพิ่มผู้ใช้หรือองค์กร"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir kullanıcı veya kuruluş ekleyin"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Додайте користувача або організацію"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thêm người dùng hoặc tổ chức"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "添加用户或组织"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "新增使用者或組織"}}
+      }
+    },
     "settings.group.terminalCompatibility": {
       "extractionState": "manual",
       "localizations": {
