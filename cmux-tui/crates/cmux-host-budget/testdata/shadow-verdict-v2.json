@@ -1,6 +1,6 @@
 {
   "formula_version": "shadow-admission/2",
-  "about": "Inputs to `acpmux machine verdict` (cmux-host-budget shadow_verdict) and the verdict fields each must give. `next` is the state to pass back as `previous`.",
+  "about": "Inputs to `acpmux machine verdict` (cmux-host-budget shadow_verdict) and the verdict fields each must give. `next` is the state to pass back as `previous`. `inputs_digest` is FNV-1a 64 over the canonical text of the input as parsed (a `previous` track missing fields reads state unknown, hot 0, calm 0; a session missing fields reads inactive, 0 cores, 0 bytes; host missing reads \"\"): compact JSON without now_ms, keys sorted, null members and empty arrays left out, every number written with six decimals with trailing zeros and point dropped (-0 reads 0), strings as JSON with non-ASCII kept.",
   "vectors": [
     {
       "name": "calm-32-core-host",
@@ -57,7 +57,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:7417f6a777f89051"
       }
     },
     {
@@ -128,7 +129,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:91e56944c4084c31"
       }
     },
     {
@@ -164,7 +166,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:f49311b06edcec7e"
       }
     },
     {
@@ -213,7 +216,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:67025629a6b954bd"
       }
     },
     {
@@ -262,7 +266,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:cf3de4e85e3b0d74"
       }
     },
     {
@@ -311,7 +316,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:68a5e8baab3fdb7a"
       }
     },
     {
@@ -347,7 +353,8 @@
             "hot": 1,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:20495ff2395e3ee1"
       }
     },
     {
@@ -383,7 +390,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:9ab415be5f1ae114"
       }
     },
     {
@@ -419,7 +427,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:f890b68a16c11e1f"
       }
     },
     {
@@ -454,7 +463,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:051cd33e0ec726f4"
       }
     },
     {
@@ -490,7 +500,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:9705ff158d15ad40"
       }
     },
     {
@@ -539,7 +550,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:c4da40c7670beec3"
       }
     },
     {
@@ -575,7 +587,8 @@
             "hot": 1,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:0b4474a007b33e5f"
       }
     },
     {
@@ -624,7 +637,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:fc08630ae13740c4"
       }
     },
     {
@@ -660,7 +674,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:2a412478883bfa75"
       }
     },
     {
@@ -695,7 +710,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:2f93384710135cab"
       }
     },
     {
@@ -743,7 +759,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:83ec228e28f56ef1"
       }
     },
     {
@@ -792,7 +809,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:d65ab18c0727ba59"
       }
     },
     {
@@ -841,7 +859,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:d55d9af5448252aa"
       }
     },
     {
@@ -890,7 +909,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:6fba3c38527de3ad"
       }
     },
     {
@@ -939,7 +959,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:b95a3101e3ca9ad8"
       }
     },
     {
@@ -989,7 +1010,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:35109dcf15e4700e"
       }
     },
     {
@@ -1025,7 +1047,8 @@
             "hot": 1,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:ed81201049664829"
       }
     },
     {
@@ -1074,7 +1097,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:c83fba41ec436568"
       }
     },
     {
@@ -1108,7 +1132,8 @@
             "hot": 1,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:c80c492db0acc5ca"
       }
     },
     {
@@ -1156,7 +1181,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:2a176e8ed92dbb2b"
       }
     },
     {
@@ -1191,7 +1217,8 @@
             "hot": 0,
             "calm": 0
           }
-        }
+        },
+        "inputs_digest": "fnv1a64:8eba4230de9e1e62"
       }
     }
   ]

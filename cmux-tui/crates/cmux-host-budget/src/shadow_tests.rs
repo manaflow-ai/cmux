@@ -27,6 +27,7 @@ fn every_golden_vector_gives_its_verdict() {
         assert_eq!(got["cpu"]["state"], want["cpu"], "{name}: cpu state");
         assert_eq!(got["mem"]["state"], want["mem"], "{name}: mem state");
         assert_eq!(got["next"], want["next"], "{name}: next state");
+        assert_eq!(got["inputs_digest"], want["inputs_digest"], "{name}: inputs_digest");
         assert_eq!(got["formula_version"], SHADOW_FORMULA_VERSION, "{name}");
     }
 }
@@ -159,4 +160,21 @@ fn a_clock_behind_the_reading_counts_as_fresh() {
     };
     let v = shadow_verdict(&inputs);
     assert_eq!((v.health_age_s, v.reason), (Some(0), "ok"));
+}
+
+#[test]
+fn the_canonical_text_sorts_keys_and_drops_nulls_and_the_clock() {
+    let inputs = ShadowInputs {
+        host: "h".into(),
+        now_ms: Some(5),
+        cores: Some(8),
+        load1: Some(205.0),
+        available_fraction: Some(0.420_000_04),
+        swap_growth_mb_per_min: Some(-0.0),
+        ..ShadowInputs::default()
+    };
+    assert_eq!(
+        canonical_inputs(&inputs),
+        r#"{"available_fraction":0.42,"cores":8,"host":"h","load1":205,"swap_growth_mb_per_min":0}"#
+    );
 }

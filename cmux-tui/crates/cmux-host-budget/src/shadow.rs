@@ -413,17 +413,79 @@ fn session_cost(sessions: &[SessionLoad]) -> Cost {
     cost
 }
 
-/// FNV-1a (64-bit) over the inputs' JSON without `now_ms`: two callers that
-/// judged the same sample with the same previous state log the same digest.
+/// FNV-1a (64-bit) over the inputs' canonical text ([`canonical_inputs`]): two
+/// callers that judged the same sample with the same previous state log the
+/// same digest, whatever language they are written in.
 pub fn inputs_digest(inputs: &ShadowInputs) -> String {
-    let keyed = ShadowInputs { now_ms: None, ..inputs.clone() };
-    let bytes = serde_json::to_vec(&keyed).unwrap_or_default();
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in bytes {
+    for b in canonical_inputs(inputs).bytes() {
         hash ^= u64::from(b);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     format!("fnv1a64:{hash:016x}")
+}
+
+/// The inputs as the digest reads them: compact JSON without `now_ms`, object
+/// keys sorted, null members and empty arrays left out, and every number
+/// written with six decimals and its trailing zeros (and point) dropped, so
+/// `205`, `205.0` and `205.0000001` all read `205` (`-0` reads `0`). Strings
+/// are JSON strings with non-ASCII kept as is.
+pub fn canonical_inputs(inputs: &ShadowInputs) -> String {
+    let keyed = ShadowInputs { now_ms: None, ..inputs.clone() };
+    let value = serde_json::to_value(&keyed).unwrap_or_default();
+    let mut out = String::new();
+    write_canonical(&value, &mut out);
+    out
+}
+
+fn write_canonical(value: &serde_json::Value, out: &mut String) {
+    use serde_json::Value;
+    match value {
+        Value::Null => out.push_str("null"),
+        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Value::Number(n) => out.push_str(&canonical_number(n)),
+        Value::String(s) => out.push_str(&serde_json::to_string(s).unwrap_or_default()),
+        Value::Array(items) => {
+            out.push('[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                write_canonical(item, out);
+            }
+            out.push(']');
+        }
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map
+                .iter()
+                .filter(|(_, v)| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty()))
+                .map(|(k, _)| k)
+                .collect();
+            keys.sort();
+            out.push('{');
+            for (i, k) in keys.into_iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                out.push_str(&serde_json::to_string(k).unwrap_or_default());
+                out.push(':');
+                write_canonical(&map[k], out);
+            }
+            out.push('}');
+        }
+    }
+}
+
+fn canonical_number(n: &serde_json::Number) -> String {
+    if let Some(i) = n.as_u64() {
+        return i.to_string();
+    }
+    if let Some(i) = n.as_i64() {
+        return i.to_string();
+    }
+    let text = format!("{:.6}", n.as_f64().unwrap_or(0.0));
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    if text == "-0" { "0".to_owned() } else { text.to_owned() }
 }
 
 fn round(n: f64, scale: f64) -> f64 {

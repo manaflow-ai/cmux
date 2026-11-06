@@ -379,7 +379,7 @@ mod shadow;
 pub use shadow::{
     Cost, CpuView, Fits, MAX_HEALTH_AGE_MS, MIN_SAMPLE_GAP_MS, MemView, NEW_SESSION_PRIOR,
     SHADOW_FORMULA_VERSION, SessionCost, SessionLoad, ShadowInputs, ShadowState, ShadowVerdict,
-    SignalState, Track, inputs_digest, shadow_verdict,
+    SignalState, Track, canonical_inputs, inputs_digest, shadow_verdict,
 };
 
 // The JSON calls the app's C ABI makes, and that C ABI (`include/cmux_host_budget_ffi.h`).
