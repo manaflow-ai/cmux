@@ -29,21 +29,24 @@ pub(super) fn embed_message_context(
     message: Option<&MessageContext>,
     receiver: &str,
 ) {
+    let forwarder =
+        opts.provenance.as_ref().and_then(|p| crate::prompt_provenance::sender_of(Some(p)).0);
     let Some(provenance) = opts.provenance.as_mut() else { return };
     let Some(object) = provenance.as_object_mut() else { return };
     object.remove(MESSAGE_META);
     let Some(message) = message else { return };
-    object.insert(
-        MESSAGE_META.to_owned(),
-        json!({
-            "sender": message.sender.clone(),
-            "text": message.text.clone(),
-            "messageId": message.message_id.clone(),
-            "recordSenderCopy": message.record_sender_copy,
-            "at": message.at,
-            "receiverId": receiver,
-        }),
-    );
+    let mut context = json!({
+        "sender": message.sender.clone(),
+        "text": message.text.clone(),
+        "messageId": message.message_id.clone(),
+        "recordSenderCopy": message.record_sender_copy,
+        "at": message.at,
+        "receiverId": receiver,
+    });
+    if let Some(forwarder) = forwarder.filter(|id| id != &message.sender_session) {
+        context.set("forwardedBy", json!({"session": forwarder}));
+    }
+    object.insert(MESSAGE_META.to_owned(), context);
 }
 
 fn resolve_exact(hub: &Hub, id: &str) -> Option<Arc<Session>> {
@@ -219,11 +222,14 @@ pub(super) fn message_context(
     {
         return None;
     }
-    let sender = if let Some(sender) = opts.message_sender.as_ref() {
+    let mut sender = if let Some(sender) = opts.message_sender.as_ref() {
         sender.clone()
     } else {
         json!({"name": name, "sessionId": sender_session, "host": host_label()})
     };
+    if let Some(label) = crate::prompt_provenance::declared_label(opts.provenance.as_ref()) {
+        sender.set("label", json!(label));
+    }
     let message_id = opts
         .message_id
         .clone()
@@ -295,6 +301,9 @@ pub(super) fn ensure_message_provenance(opts: &mut PromptOptions, target_id: &st
         if let Some(value) = opts.provenance.as_ref().and_then(|p| p.get(key)) {
             provenance.set(key, value.clone());
         }
+    }
+    if let Some(label) = sender.get("label").and_then(Value::as_str) {
+        provenance = crate::prompt_provenance::stamp_declared(provenance, Some(label));
     }
     opts.provenance = Some(provenance);
 }
@@ -867,6 +876,8 @@ mod message_recovery_tests {
         let sender_id = sender.id.clone();
         original.detach_child(&sender).await;
         original.store.flush().unwrap();
+        // The first daemon's shutdown seal: the journal's lock passes to the restarted one.
+        original.seal();
         // The restarted daemon has not read its saved sessions yet.
         let restarted = Hub::new_loading(
             config.clone(),

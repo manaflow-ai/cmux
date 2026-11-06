@@ -116,7 +116,8 @@ def main():
         return 1
     workflow = yaml.safe_load(open(NIGHTLY, encoding="utf-8"))
     step = next(s for s in workflow["jobs"]["republish-nightly-deltas"]["steps"] if s.get("id") == "republish")
-    script = render(step["run"], {"needs.resolve-nightly-cmux-tui-client.outputs.build_sha": BUILD})
+    # The resolved build commit, as published-build carries it to the dispatched post-publish run.
+    script = render(step["run"], {"needs.published-build.outputs.resolve_build_sha": BUILD})
 
     for label, tag_object in (
         ("a lightweight tag", {"sha": BUILD, "type": "commit"}),

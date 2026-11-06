@@ -42,6 +42,15 @@ usage() { awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0";
 die() { echo "side-instance: $*" >&2; exit 1; }
 
 root="${CMUX_SIDE_ROOT:-$HOME/Library/Application Support/cmux-side}"
+# Not under a folder macOS guards with a privacy prompt (Documents, Desktop, Downloads): the copy reads
+# its config from the root at launch, macOS holds that read until someone answers a Documents-folder
+# prompt (TCC kTCCServiceSystemPolicyDocumentsFolder) nobody sees for a copy, and the app hangs before
+# its socket exists. Checked on the path as given, before anything touches it.
+for guarded in Documents Desktop Downloads; do
+  case "$root/" in
+    "$HOME/$guarded/"*) die "CMUX_SIDE_ROOT $root is under ~/$guarded, which macOS guards with a privacy prompt: the copy's launch would wait on that prompt (TCC kTCCServiceSystemPolicyDocumentsFolder) and hang. Use a root outside ~/Documents, ~/Desktop and ~/Downloads (the default is ~/Library/Application Support/cmux-side)" ;;
+  esac
+done
 # The physical path (/tmp and /var are links to /private/...): a process started through
 # Launch Services reports its executable by its physical path, and the pid checks compare paths.
 mkdir -p "$root"; root="$(cd "$root" && pwd -P)"

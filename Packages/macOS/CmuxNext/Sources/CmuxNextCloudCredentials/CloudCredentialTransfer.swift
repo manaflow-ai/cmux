@@ -135,11 +135,45 @@ public import Foundation
         try await api.writeFile(machineID, path: path, data: credential, mode: 0o644)
     }
 
+    /// What cmux holds of this account's login: one, none, or a Keychain that did not answer (locked,
+    /// `security` timed out or failed). Unreadable is never "none": a start that reads it passes no login
+    /// either, but its record says the Keychain failed, not that the person never signed in.
+    public enum CachedLogin: String, Sendable, Equatable {
+        case cached, none, unreadable
+
+        /// A start's record when it passes nothing for want of a cached login, and the chat's own
+        /// "Sign in to Claude" card takes over; nil when there is one.
+        public var startOutcome: String? {
+            switch self {
+            case .cached: nil
+            case .none: "no cached login: the chat's Sign in to Claude card"
+            case .unreadable: "cached login unreadable (the Keychain did not answer): the chat's Sign in to Claude card"
+            }
+        }
+
+        /// `check`'s ``startOutcome``. A check cancelled with its start throws ``CancellationError``: the Keychain
+        /// read the cancellation cut short is not a Keychain that did not answer.
+        public static func startOutcome(_ check: () async -> Self) async throws -> String? {
+            let cached = await check()
+            try Task.checkCancellation()
+            return cached.startOutcome
+        }
+    }
+
     /// Whether cmux already holds this account's login for `provider` (Claude only: a Codex login is
     /// never kept on the Mac), so a transfer needs no sign-in. Reads the Keychain; prompts nothing.
+    public static func cachedLogin(provider: Provider, teamID: String?, userID: String, otherTeams: [String?] = []) async -> CachedLogin {
+        guard provider == .claude else { return .none }
+        return await cachedLogin { try await CloudCredentialLogin.loadAny(provider: provider, teamID: teamID, otherTeams: otherTeams, userID: userID) }
+    }
+
+    /// ``cachedLogin(provider:teamID:userID:otherTeams:)`` over `read`, the Keychain read.
+    static func cachedLogin(_ read: () async throws -> Data?) async -> CachedLogin {
+        do { return try await read() == nil ? .none : .cached } catch { return .unreadable }
+    }
+
     public static func hasCachedLogin(provider: Provider, teamID: String?, userID: String, otherTeams: [String?] = []) async -> Bool {
-        guard provider == .claude else { return false }
-        return ((try? await CloudCredentialLogin.loadAny(provider: provider, teamID: teamID, otherTeams: otherTeams, userID: userID)) ?? nil) != nil
+        await cachedLogin(provider: provider, teamID: teamID, userID: userID, otherTeams: otherTeams) == .cached
     }
 
     nonisolated struct Effects: Sendable {

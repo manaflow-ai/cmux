@@ -173,10 +173,11 @@ pub(super) fn refuse_cloud_mobile_forward() -> RpcError {
     .with_data(serde_json::json!({"reason": "remote.cloud_mobile_peer"}))
 }
 
-/// `_meta.acpmux.personProven` on a prompt a peer forwards: the forwarding daemon's connection
+/// `_meta.acpmux.personVerified` on a prompt a peer forwards: the forwarding daemon's connection
 /// proved the person (`hub/person.rs`). Read only from a Peer link (`person_admitted`), as that
-/// peer's word: the receiver records it as come over `peer`.
-pub(super) const PERSON_PROVEN: &str = "personProven";
+/// peer's word: the receiver records it as come over `peer`. One key with the inbox's proof
+/// (`prompt_provenance::PERSON_VERIFIED`), so either daemon reads the other's.
+pub(super) const PERSON_PROVEN: &str = crate::prompt_provenance::PERSON_VERIFIED;
 
 pub(super) fn mark_forwarded(
     origin: super::Origin,
@@ -184,13 +185,26 @@ pub(super) fn mark_forwarded(
     params: &Value,
     forwarded: &mut Value,
 ) {
+    mark_forwarded_with_person(origin, auth, params, forwarded, false);
+}
+
+pub(super) fn mark_forwarded_with_person(
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    params: &Value,
+    forwarded: &mut Value,
+    person_verified: bool,
+) {
     // A peer takes a prompt's provenance from its own unix socket only (prompt_provenance.rs):
     // the prompt goes there without it. Its `author` goes on as it came (`author.rs`): the peer
-    // takes it from this link and stamps the provenance itself. A client's own `personProven`
+    // takes it from this link and stamps the provenance itself. A client's own `personVerified`
     // is never passed on: only this daemon says it, of a connection that proved the person.
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
         mux.remove(PERSON_PROVEN);
+    }
+    if person_verified {
+        crate::hub::merge_mux_meta(forwarded, serde_json::json!({PERSON_PROVEN: true}));
     }
     let control = control_of(origin, auth, params);
     if control == crate::hub::Control::Web {

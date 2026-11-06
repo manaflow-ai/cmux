@@ -619,6 +619,7 @@ impl Hub {
             provenance: sender.map(|s| {
                 crate::prompt_provenance::unverified(&target.id, s.transport, Default::default())
             }),
+            human_authenticated: false,
             agent: None,
             class: None,
             after_turn: None,

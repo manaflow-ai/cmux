@@ -55,18 +55,16 @@ extension CmuxRemoteService {
         return devices
     }
 
-    /// Sends the person's switches whenever `config` (read inside an observation) changes.
-    /// `remote.enabled` is read once, when the settings load: turning cmux Remote on or off
-    /// applies at the next launch, so this Mac's hub identity never changes under a running app.
+    /// Sends the person's switches whenever `config` (read inside an observation) changes,
+    /// from the first settings load on.
     public func follow(_ settings: SettingsController,
-                       config: @escaping @MainActor (_ enabled: Bool) -> (computerUse: Bool, screenSharing: Bool, headless: Bool)) {
+                       config: @escaping @MainActor () -> (computerUse: Bool, screenSharing: Bool, headless: Bool)) {
         // task-owner: lives with the app; follows the settings, the sign-in and the daemon.
         Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            let enabled = settings.snapshot.remote.enabled
-            self?.currentConfig = { config(enabled) }
-            for await next in ObservationStream({ config(enabled) }) {
+            self?.currentConfig = config
+            for await next in ObservationStream(config) {
                 guard let self else { return }
                 await apply(computerUse: next.computerUse, screenSharing: next.screenSharing, headless: next.headless)
             }

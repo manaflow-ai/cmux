@@ -7,8 +7,8 @@ import Foundation
 /// here nor the iOS thing."). The prompt as the agent got it stays `raw` (Copy as Sent). A port of
 /// the Mac's `webviews/src/agent-session/acpmux/conversation/incomingMessage.ts` and
 /// `relayEnvelope.ts`, case for case in `AgentIncomingTests`.
-public struct AgentIncoming: Hashable, Sendable {
-    public struct Message: Hashable, Sendable {
+public struct AgentIncoming: Hashable, Sendable, Codable {
+    public struct Message: Hashable, Sendable, Codable {
         /// The sender's name, as the chat knows it or as it named itself.
         public var sender: String
         /// What the sender wrote (Markdown).

@@ -34,7 +34,7 @@ afterAll(() => {
 
 test("a weather event fills, replaces and clears the shown page's reading", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { newTabHost } = await import("../src/agent-session/acpmux/NewTabPage");
+  const { newTabHost } = await import("../src/agent-session/acpmux/newTabModel");
   const { NEW_TAB_WEATHER_EVENT, useNewTabWeather } = await import("../src/agent-session/acpmux/newtab/adoption");
   type Host = ReturnType<typeof newTabHost>;
   let shown: Host | undefined;
