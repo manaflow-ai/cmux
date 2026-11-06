@@ -225,7 +225,8 @@ fn a_fork_of_a_fork_read_before_any_list_shows_both_histories() {
 /// write it once (review of #37020: each wrote it, and the fork showed it twice).
 #[test]
 fn a_forks_history_is_written_once_however_many_ask() {
-    let view = std::sync::Arc::new(forked(Box::new(MemoryStore::default()), 30_000, 20_000, 4));
+    let store = LocalStore::new(tempfile::tempdir().unwrap().keep(), 1 << 20).unwrap();
+    let view = std::sync::Arc::new(forked(Box::new(store), 6_000, 5_000, 4));
     let writers: Vec<_> = (0..4)
         .map(|_| {
             let view = view.clone();
@@ -233,7 +234,7 @@ fn a_forks_history_is_written_once_however_many_ask() {
         })
         .collect();
     writers.into_iter().for_each(|w| w.join().unwrap());
-    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20_000, 4));
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(5_000, 4));
 }
 
 /// A meta read before the history was written in and noted after it never brings the reference
