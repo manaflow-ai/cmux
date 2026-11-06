@@ -96,6 +96,32 @@ fn a_malformed_carrier_section_is_refused() {
     }
 }
 
+#[test]
+fn the_relay_host_and_port_are_checked_strictly() {
+    let with = |relay: &str| {
+        section(&format!(
+            r#"{{"relay": "{relay}", "machine": "vm_0123456789abcdefghij", "slot": "{SLOT}"}}"#
+        ))
+    };
+    for good in ["relay+do://relay.cmux.dev", "relay+do://relay.example:8443", "relay+do://r-1.x"] {
+        assert!(with(good).is_ok(), "{good}");
+    }
+    for bad in [
+        "relay+do://relay.example:",
+        "relay+do://relay.example:notaport",
+        "relay+do://relay.example:0",
+        "relay+do://relay.example:65536",
+        "relay+do://relay.example:443:443",
+        "relay+do://relay..example",
+        "relay+do://-relay.example",
+        "relay+do://relay-.example",
+        "relay+do://.relay.example",
+        "relay+do://relay.example.",
+    ] {
+        assert!(with(bad).is_err(), "{bad}");
+    }
+}
+
 fn route() -> CarrierRoute {
     CarrierRoute {
         relay: "relay+do://relay.cmux.dev".into(),

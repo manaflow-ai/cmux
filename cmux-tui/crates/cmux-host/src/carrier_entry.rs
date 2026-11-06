@@ -183,11 +183,26 @@ fn field(section: &Map<String, Value>, name: &str) -> Result<String, String> {
     }
 }
 
-/// A host name with an optional port, no path, query or credentials.
-fn valid_host(host: &str) -> bool {
-    (1..=253).contains(&host.len())
-        && host.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b".-:".contains(&b))
-        && !host.starts_with(['.', '-', ':'])
+/// A host name (dot-separated labels of lowercase letters, digits and
+/// inner hyphens) with an optional port 1-65535; no path, query or
+/// credentials.
+fn valid_host(authority: &str) -> bool {
+    let (host, port) = match authority.split_once(':') {
+        Some((host, port)) => (host, Some(port)),
+        None => (authority, None),
+    };
+    let port_ok = port.is_none_or(|port| {
+        (1..=5).contains(&port.len())
+            && port.bytes().all(|b| b.is_ascii_digit())
+            && port.parse::<u16>().is_ok_and(|port| port > 0)
+    });
+    let label_ok = |label: &str| {
+        (1..=63).contains(&label.len())
+            && label.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+    };
+    port_ok && (1..=253).contains(&host.len()) && host.split('.').all(label_ok)
 }
 
 /// `vm_` and 20 lowercase letters or digits (cmux-platform's machine id).
