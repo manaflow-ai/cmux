@@ -1,0 +1,287 @@
+{
+  "version": 1,
+  "build": "4213554708501",
+  "notes": "notes/4213554708501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 36858,
+      "title": "acpmux: DeepSeek Harness's todo_write becomes the turn's ACP plan",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36888,
+      "title": "Cloud start: after a refused start's update, start again on the new link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36875,
+      "title": "debug(sidebar): the motion probe names each row key once, not with String(describing:) per row per frame",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36880,
+      "title": "fix(new-tab-hold): the keys the New Tab hold gives back go on with no ActionRunScope of the run that ends the hold",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36535,
+      "title": "live code switch: one live build per tag slug, and an absolute builds folder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36900,
+      "title": "History: closed chats take their agent identity from the daemon; delete the Swift closed-row enrichment",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36884,
+      "title": "cmux NEXT sidebar: the notice card measures again when a spacing token changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36878,
+      "title": "acpmux: a session or host name in another case, a prefix or without separators finds its one session",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36864,
+      "title": "cmux-host: a machine that wakes from a pause redials its relay at once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36837,
+      "title": "fix(next): a hovered tab shows only its x, in the spinner's slot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36887,
+      "title": "Onboarding steps: text, icons and controls share their edges; type from the scale",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36847,
+      "title": "Cloud relay chat: the machine's typed error reaches the app's answer and cloud start-chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36631,
+      "title": "m29 drags: a terminal's program gets its size during a divider drag, coalesced at 25 ms, only sizes shown on screen",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36587,
+      "title": "Sidebar row insert/remove oracle: an independent judge of each row's place per frame (cmux-ad m23)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36819,
+      "title": "Agent chat: a reply streaming when a message lands stays whole",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36626,
+      "title": "cmux-next: a diff tab opens on a diff computed while its page boots, or before anyone clicks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36841,
+      "title": "webviews: the dev server proves the agent pane's document (token middleware first)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36839,
+      "title": "cmux NEXT: the sidebar's needs-input dot is the tab strip's yellow, one token",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36860,
+      "title": "cmux live --rust: swap a cmux app's own daemon by the app's handoff, keeping its pid and shells",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36531,
+      "title": "ci: affected-only test plans for cmux-ci test --affected, sharded over the fleet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36603,
+      "title": "debug.motion record: write the movie fragmented, so a cut-off recording still plays",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36848,
+      "title": "Cloud: the machine record says desktop, and the app offers its rd viewer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36882,
+      "title": "measure: hover preload bench runs OFF,ON,OFF,ON arms on one build and one mini (OFF: keepNeighborTabsAwake 0)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36835,
+      "title": "cmux NEXT sidebar: the notice card's icon, text and buttons share one edge, and nothing truncates or clips",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36874,
+      "title": "measure: hover preload bench (sweep wakes, dwell vs cold time to content, grace)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36868,
+      "title": "journeys: pixel judge m20: a band of the terminal's last frame is lag; page markers must not jump (m20 item 8)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36870,
+      "title": "Machines: stopAging cancels the deadline when no section left is on screen",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36062,
+      "title": "CmuxVNCWebRTC: bitrate ceiling from bits per pixel (Petal's 0.18), screen content in host stats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36838,
+      "title": "measure: try-pr-live-code shows Home before its stills, and says what it showed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36806,
+      "title": "cmux live --chromium: swap rebuilt CEF renderer code into the running app",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36840,
+      "title": "acpmux: a named new --reuse reconnects when the daemon restarts during its create",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36607,
+      "title": "acpmux-hot: fix stale-trap rollback, a module missing at start, and in-place rewrites",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36823,
+      "title": "Cloud VM image agent tools probe: the code-mode cmux MCP server must list cmux_exec",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36862,
+      "title": "perf flags cleanup: a resize gap always shows the page's own color; delete browserResize.pageBackdrop",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36828,
+      "title": "Cloud: keep acpmux's typed error up the relay and in cloud start-chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36826,
+      "title": "cloud journey: lifecycle turns (a second turn, a guest daemon restart, a turn after resume)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36852,
+      "title": "Machines: the joined rows' aging deadline is set only while a section is on screen",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36863,
+      "title": "ci: mint production INTERNAL_TOKEN once and put it on cmux-platform-production and cmux-api",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36637,
+      "title": "perf(hibernation): a hovered sidebar workspace or tab wakes the pages its click would show (dwell 100 ms, off-main gate)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36449,
+      "title": "cmux NEXT tabs: a close while a new tab opens no longer shuffles the strip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36861,
+      "title": "cmux-vm: approve cloud-native-8c00572 (cmux-tui 8c00572a, the golden cbbeec18 plus only the relay fix) for development, staging and production (hq#7086)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36811,
+      "title": "cmux NEXT: new browser tabs take a page made ahead, on by default (WebKit and Chromium)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36577,
+      "title": "ghostty-next: pin 850bb9849 (fork PR #84): a reflow preview frame re-wraps off the terminal lock",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36780,
+      "title": "who-else card: stays in sight in folds, counts what acpmux left out, ages out idle chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36816,
+      "title": "Live code proof: say why the engine stayed silent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36830,
+      "title": "cmux NEXT agent chat: the Terminal button adds a terminal each click, on by default",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
