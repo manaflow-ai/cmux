@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextDaemon
 import Foundation
 
 /// Keeps every open New Tab page's open tabs and workspaces current (Leo 2026-10-11: after rapid
@@ -21,11 +22,10 @@ enum NewTabPlacesFeed {
                 guard let tabs, let services, !tabs.pageTabs.ids.isEmpty else { return nil }
                 return services.machines.allWorkspaces.map(\.0)
             },
-            id: { $0.id },
-            item: { workspace in key(workspace) },
+            // By object: two machines' workspaces may share an id (`handle:<n>` without the registry).
+            id: { "\(ObjectIdentifier($0))" }, item: { workspace in key(workspace) },
             changed: { [weak tabs, weak services] in
-                guard let tabs, let services else { return }
-                push(tabs, services: services)
+                if let tabs, let services { push(tabs, services: services) }
             }).start()
     }
 
