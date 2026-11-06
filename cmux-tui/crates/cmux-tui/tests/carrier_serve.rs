@@ -20,13 +20,17 @@ use carrier_support::*;
 use serde_json::{Value, json};
 
 fn serve(world: &World, socket: &Path) -> Child {
+    serve_with_token(world, socket, TOKEN)
+}
+
+fn serve_with_token(world: &World, socket: &Path, token: &str) -> Child {
     Command::new(BIN)
         .args(["carrier", "serve", "--machine", MACHINE, "--deadline-ms", "30000"])
         .args(["--socket", socket.to_str().unwrap()])
         .args(["--cloud-api", &format!("http://{}", world.platform)])
         .env_clear()
         .env("HOME", world.dir.path())
-        .env("CMUX_CLOUD_ACCESS_TOKEN", TOKEN)
+        .env("CMUX_CLOUD_ACCESS_TOKEN", token)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -110,7 +114,7 @@ fn a_refused_dial_closes_only_its_connection_and_serve_goes_on() {
     let world = world(200, Arc::new(AtomicUsize::new(0)));
     let socket = socket_path(&world);
     let mut child = serve(&world, &socket);
-    let (ready, _stderr) = first_line(&mut child);
+    let (ready, mut stderr) = first_line(&mut child);
     assert_eq!(ready["ok"], true, "{ready}");
 
     let mut kept = open(&socket);
@@ -121,6 +125,13 @@ fn a_refused_dial_closes_only_its_connection_and_serve_goes_on() {
     let mut read = Vec::new();
     refused.read_to_end(&mut read).unwrap();
     assert!(read.is_empty(), "a refused dial writes nothing before it closes");
+    let failed = line(&mut stderr);
+    assert!(!failed.contains("cloud.connect"), "{failed}");
+    let failed: Value = serde_json::from_str(&failed).unwrap();
+    assert_eq!(failed["ok"], false, "{failed}");
+    assert_eq!(failed["error_code"], "ticket", "{failed}");
+    assert_eq!(failed["route"], "carrier", "{failed}");
+    assert!(failed["error_detail"].as_str().unwrap().contains("auth.forbidden"), "{failed}");
     assert_eq!(ask(&mut kept, 2), session, "the other connection is untouched");
 
     world.status.store(200, Ordering::SeqCst);
@@ -147,8 +158,8 @@ fn the_socket_path_is_claimed_only_when_free_or_stale() {
     let mut child = serve(&world, &socket);
     let (reply, _) = first_line(&mut child);
     assert_eq!(reply["ok"], false, "{reply}");
-    assert_eq!(reply["error_code"], "socket", "{reply}");
-    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(6));
+    assert_eq!(reply["error_code"], "bad_request", "{reply}");
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(64));
     assert_eq!(std::fs::read_to_string(&socket).unwrap(), "not a socket", "never replaced");
     std::fs::remove_file(&socket).unwrap();
 
@@ -161,11 +172,41 @@ fn the_socket_path_is_claimed_only_when_free_or_stale() {
     // A live one is not.
     let mut second = serve(&world, &socket);
     let (reply, _) = first_line(&mut second);
-    assert_eq!(reply["error_code"], "socket", "{reply}");
-    assert_eq!(wait(&mut second, Duration::from_secs(20)), Some(6));
+    assert_eq!(reply["error_code"], "bad_request", "{reply}");
+    assert_eq!(wait(&mut second, Duration::from_secs(20)), Some(64), "a live listener is refused");
     assert!(socket.exists(), "the refused serve left the live socket alone");
 
     drop(serving.stdin.take());
     assert_eq!(wait(&mut serving, Duration::from_secs(20)), Some(0));
     assert!(!socket.exists());
+}
+
+#[test]
+fn a_token_line_on_stdin_is_the_credential_of_later_dials() {
+    let world = world(200, Arc::new(AtomicUsize::new(0)));
+    let socket = socket_path(&world);
+    let mut child = serve_with_token(&world, &socket, "an-expired-credential");
+    let (ready, mut stderr) = first_line(&mut child);
+    assert_eq!(ready["ok"], true, "{ready}");
+
+    let mut before = open(&socket);
+    let mut read = Vec::new();
+    before.read_to_end(&mut read).unwrap();
+    assert!(read.is_empty(), "the platform refused the old credential");
+    let failed: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(failed["error_code"], "ticket", "{failed}");
+
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(format!("{{\"access_token\":\"{TOKEN}\"}}\n\nnot json\n").as_bytes()).unwrap();
+    stdin.flush().unwrap();
+    // Lines apply in order: once the bad line is refused, the token is in.
+    let refused: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error_code"], "bad_request", "{refused}");
+
+    let mut after = open(&socket);
+    ask(&mut after, 1);
+    drop(stdin);
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+    assert!(!socket.exists(), "the socket is removed on exit");
 }

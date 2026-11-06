@@ -84,11 +84,17 @@ the daemon key pin, its own deadline and session) and then carries
 connection having written nothing; the listener goes on, up to 64 connections at
 once. The socket is claimed like a daemon's (a live socket or another file at the
 path is refused, a stale socket is replaced, the directory must be the user's
-alone) and is 0600. Once listening, stderr gets one line,
-`{"ok":true,"socket":PATH,"route":"carrier"}`, and nothing more: route lines go
-only to `connect.log`. Before that a failure writes the dial's failure line: exit
-64 usage, 2 no API or credential, 5 no device key, 6 `socket` (the path could not
-be claimed). It exits 0 when stdin ends or on SIGTERM or SIGINT, removing the socket.
+alone) and is 0600. Once listening, stderr gets
+`{"ok":true,"socket":PATH,"route":"carrier"}`; after it, only failure lines in the
+dial's shape: one per connection whose dial failed (`ticket`, `relay`,
+`parked_timeout`, `handshake`), one `bad_request` per unusable stdin line, one
+`socket` if the listener fails for good. None holds `cloud.connect`: route lines go
+only to `connect.log`. stdin carries JSON lines: `{"access_token":"…"}` replaces the
+credential for every later dial, and sessions already up stay up. Before ready a
+failure writes the dial's failure line: exit 64 usage or a path it cannot claim (a
+live listener, a file that is not a socket), 2 no API or credential, 5 no device
+key. It exits 0 when stdin ends or on SIGTERM or SIGINT, 6 when accepting fails for
+good, and removes the socket on every exit after the bind.
 
 `link dial` bridges standard I/O to a service of a paired install or a Cloud
 host (`host_…`) through this machine's running `cmux link` (the caller never

@@ -207,6 +207,9 @@ impl Credential {
 pub(super) struct HttpSource {
     api: String,
     credential: Credential,
+    /// A credential handed over later (`carrier serve`'s stdin), used in
+    /// place of `credential` from then on.
+    replaced: Mutex<Option<Zeroizing<String>>>,
     /// Sent as `x-cmux-team` when set (a machine of a shared team).
     team: Option<String>,
     client: reqwest::Client,
@@ -226,7 +229,20 @@ impl HttpSource {
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|_| "the HTTP client is unavailable".to_owned())?;
-        Ok(Self { api, credential, team, client })
+        Ok(Self { api, credential, replaced: Mutex::new(None), team, client })
+    }
+
+    /// Every later fetch uses `token`.
+    pub(super) fn replace_credential(&self, token: Zeroizing<String>) {
+        *self.replaced.lock().unwrap_or_else(PoisonError::into_inner) = Some(token);
+    }
+
+    fn current(&self) -> Result<Zeroizing<String>, SourceError> {
+        let replaced = self.replaced.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        match replaced {
+            Some(token) => Ok(token),
+            None => self.credential.current(),
+        }
     }
 }
 
@@ -237,7 +253,7 @@ impl CarrierSource for HttpSource {
         machine: &str,
         noise_key: Option<&[u8; 32]>,
     ) -> Result<CarrierAnswer, SourceError> {
-        let credential = self.credential.current()?;
+        let credential = self.current()?;
         let body = match noise_key {
             Some(key) => json!({ "noise_key": key_text(key) }),
             None => json!({}),

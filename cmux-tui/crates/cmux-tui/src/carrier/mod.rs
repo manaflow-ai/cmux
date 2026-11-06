@@ -195,13 +195,11 @@ fn source(args: &DialArgs) -> Result<answer::HttpSource, Failure> {
 
 /// What every dial of one invocation shares: the platform source and this
 /// device's Noise identity. `Err` is the exit code, its line written.
-fn prepare(
-    args: DialArgs,
-) -> Result<(DialArgs, Arc<dyn answer::CarrierSource>, StaticIdentity), i32> {
+fn prepare(args: DialArgs) -> Result<(DialArgs, Arc<answer::HttpSource>, StaticIdentity), i32> {
     let Some(args) = with_team_env(args, std::env::var(TEAM_ENV).ok()) else {
         return Err(usage(&format!("{TEAM_ENV} is not team_ and 20 lowercase hex digits")));
     };
-    let source: Arc<dyn answer::CarrierSource> = match source(&args) {
+    let source = match source(&args) {
         Ok(source) => Arc::new(source),
         Err(failure) => return Err(fail(&failure)),
     };

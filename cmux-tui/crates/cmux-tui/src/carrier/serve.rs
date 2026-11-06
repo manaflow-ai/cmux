@@ -14,10 +14,20 @@
 //!   replaced, and the new one is 0600. A `<path>.lock` sibling leases the
 //!   path while it serves.
 //! - Once listening, stderr gets one JSON line,
-//!   `{"ok":true,"socket":PATH,"route":"carrier"}`, and nothing after it. A
-//!   failure before that writes `dial`'s failure line instead and exits:
-//!   64 bad usage, 2 no API or credential, 5 no device key, 6 `socket` (the
-//!   path could not be claimed).
+//!   `{"ok":true,"socket":PATH,"route":"carrier"}`. A failure before that
+//!   writes `dial`'s failure line instead and exits: 64 bad usage or a path
+//!   that cannot be claimed (a live listener, a file that is not a socket),
+//!   2 no API or credential, 5 no device key.
+//! - After the ready line, stderr gets only failure lines in `dial`'s shape
+//!   (`{"ok":false,"error_code":…,"error_detail"?:…,"route":"carrier"}`):
+//!   one per connection whose dial failed, with `dial`'s codes (`ticket`,
+//!   `relay`, `parked_timeout`, `handshake`), one `bad_request` per stdin
+//!   line it could not use, and one `socket` if the listener fails for good.
+//!   None holds the text `cloud.connect`.
+//! - stdin carries JSON lines: `{"access_token":"…"}` replaces the
+//!   credential for every later dial (and ticket refresh); sessions already
+//!   up stay up. Blank lines are skipped; any other line is refused with one
+//!   `bad_request` line and changes nothing.
 //! - Each accepted connection gets its own dial, exactly `dial`'s: a fresh
 //!   grant, the required daemon key pin, its own deadline (default 180 s)
 //!   from the accept, its own session. Connected, the connection carries
@@ -28,8 +38,9 @@
 //! - Route lines go only to `<workspace state dir>/carrier/connect.log`, in
 //!   `dial`'s format: stderr gets none.
 //! - It exits 0 when stdin ends (whoever spawned it holds the other end)
-//!   or on SIGTERM or SIGINT, removing the socket. It exits 6 if accepting
-//!   fails for good. Open sessions are closed on the way out.
+//!   or on SIGTERM or SIGINT, and 6 if accepting fails for good. Every exit
+//!   after the bind removes the socket; open sessions are closed on the way
+//!   out.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -37,14 +48,15 @@ use std::time::Duration;
 
 use cmux_remote::crypto::StaticIdentity;
 use cmux_remote::unix_socket::{OwnedUnixListener, UnixAcceptBackoff};
-use tokio::io::AsyncReadExt as _;
+use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _};
 use tokio::net::UnixStream;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
+use zeroize::Zeroizing;
 
-use super::answer::CarrierSource;
-use super::contract::{self, SOCKET, SOCKET_EXIT};
+use super::answer::{CarrierSource, HttpSource};
+use super::contract::{self, BAD_REQUEST, MAX_STDIN_LINE, SOCKET, SOCKET_EXIT, StdinLine};
 use super::{STDIO_SHUTDOWN_TIMEOUT, ServeArgs, client, reply, route_log};
 
 /// Connections served at once.
@@ -58,6 +70,8 @@ struct Shared {
     machine: String,
     deadline: Duration,
     source: Arc<dyn CarrierSource>,
+    /// The same source, for stdin's credential lines.
+    http: Arc<HttpSource>,
     identity: StaticIdentity,
     log: Arc<dyn Fn(String) + Send + Sync>,
 }
@@ -79,7 +93,8 @@ pub(super) fn run(args: &[String]) -> i32 {
     let shared = Arc::new(Shared {
         machine: dial.machine,
         deadline: dial.deadline,
-        source,
+        source: source.clone(),
+        http: source,
         identity,
         log: Arc::new(move |line| {
             if let Some(path) = &connect_log {
@@ -95,17 +110,14 @@ pub(super) fn run(args: &[String]) -> i32 {
 async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
     let listener = match OwnedUnixListener::bind(socket.clone()).await {
         Ok(listener) => listener,
-        Err(error) => {
-            reply(&contract::failure_line(SOCKET, Some(&error.to_string())));
-            return SOCKET_EXIT;
-        }
+        Err(error) => return super::usage(&error.to_string()),
     };
     reply(&contract::serving_line(&socket.to_string_lossy()));
     let (stop, stopped) = watch::channel(false);
     let permits = Arc::new(Semaphore::new(MAX_CONNECTIONS));
     let mut tasks = JoinSet::new();
     let mut backoff = UnixAcceptBackoff::new();
-    let ended = ended();
+    let ended = ended(shared.http.clone());
     tokio::pin!(ended);
     let code = loop {
         tokio::select! {
@@ -121,7 +133,10 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
                 }
                 Err(error) => match backoff.retry_delay(&error) {
                     Some(delay) => tokio::time::sleep(delay).await,
-                    None => break SOCKET_EXIT,
+                    None => {
+                        reply(&contract::failure_line(SOCKET, Some(&error.to_string())));
+                        break SOCKET_EXIT;
+                    }
                 },
             },
         }
@@ -135,8 +150,9 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
     code
 }
 
-/// Ends when stdin ends or fails, or on SIGTERM or SIGINT.
-async fn ended() {
+/// Ends when stdin ends or fails, or on SIGTERM or SIGINT. Until then each
+/// stdin line is read as a credential for later dials.
+async fn ended(source: Arc<HttpSource>) {
     use tokio::signal::unix::{SignalKind, signal};
     async fn on(kind: SignalKind) {
         match signal(kind) {
@@ -146,21 +162,54 @@ async fn ended() {
             Err(_) => std::future::pending().await,
         }
     }
-    let stdin = async {
-        let mut stdin = tokio::io::stdin();
-        let mut sink = [0_u8; 512];
-        while let Ok(1..) = stdin.read(&mut sink).await {}
-    };
     tokio::select! {
-        () = stdin => {}
+        () = read_stdin(&source) => {}
         () = on(SignalKind::terminate()) => {}
         () = on(SignalKind::interrupt()) => {}
     }
 }
 
+/// Applies stdin's lines until it ends or fails: `{"access_token":"…"}`
+/// replaces the credential of later dials (sessions already up keep
+/// theirs); anything else gets one `bad_request` line on stderr. A line past
+/// [`MAX_STDIN_LINE`] bytes is skipped to its end and refused.
+async fn read_stdin(source: &HttpSource) {
+    let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
+    let mut line = Zeroizing::new(Vec::new());
+    loop {
+        line.clear();
+        let limit = (MAX_STDIN_LINE + 1) as u64;
+        match (&mut stdin).take(limit).read_until(b'\n', &mut line).await {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {}
+        }
+        let complete = line.last() == Some(&b'\n');
+        if !complete && line.len() > MAX_STDIN_LINE {
+            // The rest of an overlong line, up to its newline.
+            loop {
+                line.clear();
+                match (&mut stdin).take(limit).read_until(b'\n', &mut line).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(_) if line.last() == Some(&b'\n') => break,
+                    Ok(_) => {}
+                }
+            }
+            reply(&contract::failure_line(BAD_REQUEST, Some("a stdin line is too long")));
+            continue;
+        }
+        let text = line.strip_suffix(b"\n").unwrap_or(&line[..]);
+        match contract::stdin_line(text) {
+            StdinLine::Blank => {}
+            StdinLine::Token(token) => source.replace_credential(token),
+            StdinLine::Invalid(why) => reply(&contract::failure_line(BAD_REQUEST, Some(why))),
+        }
+    }
+}
+
 /// One accepted connection: its own dial, then its bytes bridged to the
 /// session's mux control stream until either side ends or serve stops. A
-/// failed dial drops the stream, so the caller reads end of stream.
+/// failed dial writes its failure line on stderr and drops the stream, so
+/// the caller reads end of stream.
 async fn connection(
     stream: UnixStream,
     shared: Arc<Shared>,
@@ -178,7 +227,13 @@ async fn connection(
         dialed = client::dial(&plan, super::jitter) => dialed,
         _ = stopped.wait_for(|stopped| *stopped) => return,
     };
-    let Ok(client::Dialed { connection, multiplexer, mux, .. }) = dialed else { return };
+    let client::Dialed { connection, multiplexer, mux, .. } = match dialed {
+        Ok(dialed) => dialed,
+        Err(failure) => {
+            reply(&contract::failure_line(failure.step.error_code(), Some(&failure.detail)));
+            return;
+        }
+    };
     let (reader, writer) = stream.into_split();
     tokio::select! {
         _ = mux.bridge(reader, writer) => {}

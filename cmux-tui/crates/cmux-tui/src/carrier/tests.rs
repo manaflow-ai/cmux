@@ -138,12 +138,44 @@ fn serve_takes_the_dial_flags_and_one_absolute_socket() {
         format!("serve --machine {VM} --socket relative.sock"),
         format!("serve --machine {VM} --socket {long}"),
         format!("serve --machine {VM} --socket /a --socket /b"),
-        format!("serve --machine vm_short --socket /a"),
+        "serve --machine vm_short --socket /a".to_owned(),
         format!("dial --machine {VM} --socket /a"),
     ] {
         assert_eq!(parse_serve(&words(&bad)), None, "{bad}");
     }
     assert_eq!(parse(&words(&format!("dial --machine {VM} --socket /a"))), None);
+}
+
+#[test]
+fn serve_stdin_lines_are_a_token_or_refused() {
+    match stdin_line(br#"{"access_token":" tok.en-1 ","other":1}"#) {
+        StdinLine::Token(token) => assert_eq!(token.as_str(), "tok.en-1"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(stdin_line(b"  \r"), StdinLine::Blank);
+    for bad in [
+        &b"not json"[..],
+        br#"["access_token"]"#,
+        br#"{"token":"x"}"#,
+        br#"{"access_token":""}"#,
+        br#"{"access_token":"has space"}"#,
+        br#"{"access_token":7}"#,
+    ] {
+        assert!(
+            matches!(stdin_line(bad), StdinLine::Invalid(_)),
+            "{}",
+            String::from_utf8_lossy(bad)
+        );
+    }
+    let long = format!(r#"{{"access_token":"{}"}}"#, "a".repeat(8193));
+    assert!(matches!(stdin_line(long.as_bytes()), StdinLine::Invalid(_)));
+}
+
+#[test]
+fn a_failure_line_never_says_cloud_connect() {
+    let line = failure_line("ticket", Some("cmux-platform answered 403 cloud.connect: no"));
+    assert!(!line.contains("cloud.connect"), "{line}");
+    assert!(line.contains("cloud connect"), "{line}");
 }
 
 #[test]

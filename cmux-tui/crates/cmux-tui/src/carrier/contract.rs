@@ -53,7 +53,8 @@ impl Step {
     }
 }
 
-/// The `error_code` of a `serve` whose socket path could not be claimed.
+/// The `error_code` of a `serve` whose listener failed for good after it
+/// was ready.
 pub(super) const SOCKET: &str = "socket";
 /// Its exit code.
 pub(super) const SOCKET_EXIT: i32 = 6;
@@ -118,6 +119,51 @@ pub(super) fn connected_line(vmk: Option<Vmk>) -> String {
     cmux_link::dial::line(&value)
 }
 
+/// The longest stdin line `carrier serve` reads, in bytes.
+pub(super) const MAX_STDIN_LINE: usize = 16 * 1024;
+
+/// What one stdin line of `carrier serve` asks.
+#[derive(PartialEq, Eq)]
+pub(super) enum StdinLine {
+    /// Blank: nothing.
+    Blank,
+    /// `{"access_token":"…"}`: later dials use this credential.
+    Token(zeroize::Zeroizing<String>),
+    /// Anything else, and why.
+    Invalid(&'static str),
+}
+
+impl std::fmt::Debug for StdinLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Blank => f.write_str("Blank"),
+            Self::Token(_) => f.write_str("Token(..)"),
+            Self::Invalid(why) => f.debug_tuple("Invalid").field(why).finish(),
+        }
+    }
+}
+
+/// Reads one stdin line (without its newline). The token is 1 to 8192
+/// visible ASCII bytes; other keys are ignored.
+pub(super) fn stdin_line(bytes: &[u8]) -> StdinLine {
+    if bytes.iter().all(u8::is_ascii_whitespace) {
+        return StdinLine::Blank;
+    }
+    let Ok(serde_json::Value::Object(object)) = serde_json::from_slice(bytes) else {
+        return StdinLine::Invalid("a stdin line is one JSON object, {\"access_token\":\"…\"}");
+    };
+    match object.get("access_token").and_then(serde_json::Value::as_str).map(str::trim) {
+        Some(token)
+            if !token.is_empty()
+                && token.len() <= 8192
+                && token.bytes().all(|b| (0x21..=0x7e).contains(&b)) =>
+        {
+            StdinLine::Token(zeroize::Zeroizing::new(token.to_owned()))
+        }
+        _ => StdinLine::Invalid("access_token is not 1 to 8192 visible ASCII bytes"),
+    }
+}
+
 /// The ready line of `carrier serve`, once it listens at `socket`.
 pub(super) fn serving_line(socket: &str) -> String {
     cmux_link::dial::line(&json!({ "ok": true, "socket": socket, "route": "carrier" }))
@@ -132,8 +178,10 @@ pub(super) fn failure_line(error_code: &str, detail: Option<&str>) -> String {
     cmux_link::dial::line(&value)
 }
 
-/// One display line of at most [`MAX_DETAIL_BYTES`], control characters dropped.
+/// One display line of at most [`MAX_DETAIL_BYTES`], control characters
+/// dropped. It never holds `cloud.connect`, the route lines' own marker.
 pub(super) fn clip_detail(text: &str) -> Option<String> {
+    let text = text.replace("cloud.connect", "cloud connect");
     let mut kept = String::new();
     for c in text.chars().filter(|c| !c.is_control()) {
         if kept.len() + c.len_utf8() > MAX_DETAIL_BYTES {
