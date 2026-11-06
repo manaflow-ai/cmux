@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 pub const LOW_SPACE_BYTES: u64 = 64 << 20;
 
 /// The words a failure caused by a full disk carries (ENOSPC, SQLITE_FULL).
-const DISK_FULL_MARKERS: [&str; 5] = ["no space left on device", "os error 28", "enospc", "disk is full", "disk full"];
+const DISK_FULL_MARKERS: [&str; 5] =
+    ["no space left on device", "os error 28", "enospc", "disk is full", "disk full"];
 
 /// Whether an error's words say the disk is full.
 pub fn says_disk_full(text: &str) -> bool {
@@ -55,7 +56,8 @@ impl ErrorInput {
         match self.kind.as_str() {
             "restore_timeout" | "timed_out" => true,
             "launch_failed" => {
-                self.detail().contains("\"server.unavailable\"") || self.detail().contains("\"server.busy\"")
+                self.detail().contains("\"server.unavailable\"")
+                    || self.detail().contains("\"server.busy\"")
             }
             _ => false,
         }
@@ -66,7 +68,8 @@ impl ErrorInput {
     pub fn is_disk_full(&self) -> bool {
         match self.kind.as_str() {
             "command" => {
-                self.message.as_deref().is_some_and(says_disk_full) || self.reason.as_deref().is_some_and(says_disk_full)
+                self.message.as_deref().is_some_and(says_disk_full)
+                    || self.reason.as_deref().is_some_and(says_disk_full)
             }
             "launch_failed" => says_disk_full(self.detail()),
             _ => false,
@@ -97,7 +100,9 @@ impl StartFailure {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EnsureKind {
     /// It worked; `pid` is the owner it found or started.
-    Ready { pid: Option<i32> },
+    Ready {
+        pid: Option<i32>,
+    },
     Stuck,
     /// Refused at the connection limit: alive and answering.
     Busy,
@@ -139,10 +144,16 @@ pub struct Noted {
 }
 
 /// Records how an ensure ended (`error` none: it worked, finding `pid`).
-pub fn note_outcome(state: &Outcome, error: Option<&ErrorInput>, pid: Option<i32>, free_bytes: Option<u64>) -> Noted {
+pub fn note_outcome(
+    state: &Outcome,
+    error: Option<&ErrorInput>,
+    pid: Option<i32>,
+    free_bytes: Option<u64>,
+) -> Noted {
     let stuck = error.is_some_and(ErrorInput::is_stuck_owner);
     let failure = error.map(|e| StartFailure::new(e, free_bytes));
-    let failed_in_a_row = if failure.is_none() { 0 } else { state.failed_in_a_row.saturating_add(1) };
+    let failed_in_a_row =
+        if failure.is_none() { 0 } else { state.failed_in_a_row.saturating_add(1) };
     let next = Outcome { owner_looks_stuck: stuck, failure, failed_in_a_row };
     Noted { changed: next != *state, state: next, watch: EnsureKind::new(error, pid) }
 }

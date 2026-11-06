@@ -72,18 +72,26 @@ pub enum Decision {
 pub fn version_decision(running: &Stamp, bundled: Option<&Stamp>) -> Decision {
     let running = running.normalized();
     let bundled = bundled.map(Stamp::normalized);
-    if let (Some(running_id), Some(bundled_id)) = (&running.id, bundled.as_ref().and_then(|b| b.id.clone())) {
+    if let (Some(running_id), Some(bundled_id)) =
+        (&running.id, bundled.as_ref().and_then(|b| b.id.clone()))
+    {
         return if *running_id == bundled_id {
             Decision::Keep("same build".into())
         } else {
             Decision::Restart { running: running_id.clone(), bundled: bundled_id }
         };
     }
-    let Some(running) = running.commit else { return Decision::Keep("running build unknown".into()) };
+    let Some(running) = running.commit else {
+        return Decision::Keep("running build unknown".into());
+    };
     let Some(bundled) = bundled.and_then(|b| b.commit) else {
         return Decision::Keep("bundled build unknown".into());
     };
-    if running == bundled { Decision::Keep("same build".into()) } else { Decision::Restart { running, bundled } }
+    if running == bundled {
+        Decision::Keep("same build".into())
+    } else {
+        Decision::Restart { running, bundled }
+    }
 }
 
 /// Which handoff the app asks about.
@@ -191,13 +199,24 @@ pub fn gate(input: &GateInput) -> Gate {
             Gate::begin(format!("capability:{}", input.capability.as_deref().unwrap_or_default()))
         }
         Kind::InstallKey => {
-            if input.has_install_key { Gate::begin("install-key".into()) } else { Gate::skip() }
+            if input.has_install_key {
+                Gate::begin("install-key".into())
+            } else {
+                Gate::skip()
+            }
         }
         Kind::Update => {
-            if input.binary_is_bundled { Gate::begin(format!("update:{}", input.pid)) } else { Gate::skip() }
+            if input.binary_is_bundled {
+                Gate::begin(format!("update:{}", input.pid))
+            } else {
+                Gate::skip()
+            }
         }
         Kind::Incompatible => {
-            if !input.binary_is_bundled || input.pid <= 1 || input.session != input.configured_session {
+            if !input.binary_is_bundled
+                || input.pid <= 1
+                || input.session != input.configured_session
+            {
                 return Gate::skip();
             }
             if exiting {

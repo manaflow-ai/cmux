@@ -12,7 +12,8 @@ use std::process::Command;
 fn committed_daemon_launch_header_is_cbindgen_output() {
     let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../cmux-daemon-launch-core");
     let header = crate_dir.join("include/cmux_daemon_launch.h");
-    let config = cbindgen::Config::from_file(crate_dir.join("cbindgen.toml")).expect("cbindgen.toml");
+    let config =
+        cbindgen::Config::from_file(crate_dir.join("cbindgen.toml")).expect("cbindgen.toml");
     let mut generated = Vec::new();
     cbindgen::Builder::new()
         .with_config(config)

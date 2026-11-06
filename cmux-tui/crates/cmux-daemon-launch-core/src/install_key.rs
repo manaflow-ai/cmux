@@ -5,7 +5,9 @@
 //! daemon checks: cmux-local-auth `frontend_proof`). The app keeps the
 //! random source and the file.
 
-use cmux_local_auth::frontend_proof::{INSTALL_KEY_LEN, NONCE_LEN, hello_proof, hex, unhex, valid_install_id};
+use cmux_local_auth::frontend_proof::{
+    INSTALL_KEY_LEN, NONCE_LEN, hello_proof, hex, unhex, valid_install_id,
+};
 
 /// An install key.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,7 +39,8 @@ impl InstallKey {
 
     /// Parses [`InstallKey::payload`] (surrounding newlines ignored).
     pub fn parse(payload: &str) -> Option<Self> {
-        let words: Vec<&str> = payload.trim_matches(|c| c == '\n' || c == '\r').split(' ').collect();
+        let words: Vec<&str> =
+            payload.trim_matches(|c| c == '\n' || c == '\r').split(' ').collect();
         let [tag, id, key] = words.as_slice() else { return None };
         if *tag != "cmuxik1" {
             return None;

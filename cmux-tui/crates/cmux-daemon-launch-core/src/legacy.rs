@@ -28,7 +28,8 @@ pub const SNAPSHOT_MAX_BYTES: u64 = 8 * 1024 * 1024;
 /// running `cmux-app-<channel>`).
 pub fn channel(bundle_id: Option<&str>, session: &str) -> Option<&'static str> {
     CHANNELS.into_iter().find(|c| {
-        bundle_id == Some(format!("com.cmuxterm.app.{c}").as_str()) && session == format!("cmux-app-{c}")
+        bundle_id == Some(format!("com.cmuxterm.app.{c}").as_str())
+            && session == format!("cmux-app-{c}")
     })
 }
 
@@ -51,12 +52,18 @@ fn standardized(path: &str) -> String {
 /// `<session>-<id>` with one id part, so `cmux-app-a` never takes
 /// `cmux-app-a-b`'s registry.
 fn is_registry(name: &str, session: &str) -> bool {
-    name.strip_prefix(session).and_then(|rest| rest.strip_prefix('-')).is_some_and(|id| !id.contains('-'))
+    name.strip_prefix(session)
+        .and_then(|rest| rest.strip_prefix('-'))
+        .is_some_and(|id| !id.contains('-'))
 }
 
 fn entries(dir: &str) -> Vec<String> {
     std::fs::read_dir(dir)
-        .map(|read| read.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+        .map(|read| {
+            read.filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -95,7 +102,8 @@ pub fn workspaces(path: &str, touched_only: bool) -> usize {
 pub fn workspaces_in(bytes: &[u8], touched_only: bool) -> usize {
     let unreadable = usize::from(touched_only);
     let Ok(Value::Object(file)) = serde_json::from_slice::<Value>(bytes) else { return unreadable };
-    let Some(list) = file.get("tree").and_then(|t| t.get("workspaces")).and_then(Value::as_array) else {
+    let Some(list) = file.get("tree").and_then(|t| t.get("workspaces")).and_then(Value::as_array)
+    else {
         return unreadable;
     };
     if !list.iter().all(Value::is_object) {
@@ -103,7 +111,9 @@ pub fn workspaces_in(bytes: &[u8], touched_only: bool) -> usize {
     }
     list.iter()
         .filter(|ws| {
-            if ws.get("kind").and_then(Value::as_str) == Some("home") || ws.get("ephemeral").and_then(Value::as_bool) == Some(true) {
+            if ws.get("kind").and_then(Value::as_str) == Some("home")
+                || ws.get("ephemeral").and_then(Value::as_bool) == Some(true)
+            {
                 return false;
             }
             if !touched_only {
@@ -120,7 +130,10 @@ fn array<'a>(value: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
 }
 
 fn tabs(workspace: &Value) -> Vec<&Value> {
-    array(workspace, "screens").flat_map(|s| array(s, "panes")).flat_map(|p| array(p, "tabs")).collect()
+    array(workspace, "screens")
+        .flat_map(|s| array(s, "panes"))
+        .flat_map(|p| array(p, "tabs"))
+        .collect()
 }
 
 fn is_touched(tab: &Value) -> bool {
@@ -131,7 +144,10 @@ fn is_touched(tab: &Value) -> bool {
     if binding.and_then(|b| b.get("conversation")).is_some_and(|c| !c.is_null()) {
         return true;
     }
-    binding.and_then(|b| b.get("agent_session")).and_then(|a| a.get("session")).is_some_and(|s| !s.is_null())
+    binding
+        .and_then(|b| b.get("agent_session"))
+        .and_then(|a| a.get("session"))
+        .is_some_and(|s| !s.is_null())
 }
 
 /// The build's own session never ran (no registry), or its launch snapshot
@@ -160,7 +176,9 @@ pub struct AdoptInput<'a> {
 /// decided now (and recorded; an adopt that cannot be recorded is refused,
 /// never one for this launch only).
 pub fn adopts(input: &AdoptInput<'_>) -> bool {
-    let (Some(_), Some(state_directory)) = (channel(input.bundle_id, input.session), input.state_directory) else {
+    let (Some(_), Some(state_directory)) =
+        (channel(input.bundle_id, input.session), input.state_directory)
+    else {
         return false;
     };
     let marker = join(&parent_path(state_directory), MARKER_NAME);
@@ -175,7 +193,8 @@ pub fn adopts(input: &AdoptInput<'_>) -> bool {
     {
         return false;
     }
-    let record = serde_json::json!({"adopted_at": input.now, "session": SESSION, "state_root": legacy_root});
+    let record =
+        serde_json::json!({"adopted_at": input.now, "session": SESSION, "state_root": legacy_root});
     write_atomic(&marker, record.to_string().as_bytes()).is_ok()
 }
 

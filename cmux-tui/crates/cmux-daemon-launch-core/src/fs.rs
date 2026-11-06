@@ -40,7 +40,9 @@ impl Fs {
         match self {
             Fs::Real => Path::new(path).exists(),
             Fs::Fake(fake) => {
-                fake.files.contains(path) || fake.dirs.contains(path) || fake.executables.contains(path)
+                fake.files.contains(path)
+                    || fake.dirs.contains(path)
+                    || fake.executables.contains(path)
             }
         }
     }
@@ -65,7 +67,8 @@ impl Fs {
 #[cfg(unix)]
 fn real_executable(path: &str) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+    std::fs::metadata(path)
+        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
 
 #[cfg(not(unix))]

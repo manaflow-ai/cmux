@@ -17,8 +17,14 @@ pub fn cases(file: &str) -> Vec<Value> {
     }
 }
 
-pub const OP_FILES: [&str; 6] =
-    ["handoff.json", "ensure.json", "failure.json", "environment.json", "cloud_link.json", "install_key.json"];
+pub const OP_FILES: [&str; 6] = [
+    "handoff.json",
+    "ensure.json",
+    "failure.json",
+    "environment.json",
+    "cloud_link.json",
+    "install_key.json",
+];
 
 #[test]
 fn every_op_vector_answers_as_the_swift_code_did() {
@@ -31,12 +37,18 @@ fn every_op_vector_answers_as_the_swift_code_did() {
             let op = case["op"].as_str().unwrap_or_default();
             match call(op, &case["request"]) {
                 Ok(reply) if reply == case["expect"] => {}
-                other => failures.push(format!("{file} {name} ({op}): got {other:?}, want {}", case["expect"])),
+                other => failures
+                    .push(format!("{file} {name} ({op}): got {other:?}, want {}", case["expect"])),
             }
         }
     }
     assert!(count > 100, "only {count} vectors");
-    assert!(failures.is_empty(), "{} of {count} vectors failed:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} of {count} vectors failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }
 
 #[test]
@@ -49,7 +61,10 @@ fn every_watch_scenario_runs_as_the_swift_watch_did() {
             let op = step["op"].as_str().unwrap_or_default();
             match watch_call(&mut watch, op, &step["request"]) {
                 Ok(reply) if reply == step["expect"] => {}
-                other => failures.push(format!("{name} step {index} ({op} {}): got {other:?}, want {}", step["request"], step["expect"])),
+                other => failures.push(format!(
+                    "{name} step {index} ({op} {}): got {other:?}, want {}",
+                    step["request"], step["expect"]
+                )),
             }
         }
     }

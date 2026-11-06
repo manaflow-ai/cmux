@@ -127,7 +127,10 @@ impl Watch {
                     self.streak_id = self.streak_id.wrapping_add(1);
                     self.window_passed = false;
                     // One bounded deadline per streak, not a poll.
-                    effects.schedule = Some(Schedule { streak: self.streak_id, after_ms: self.policy.sustained_ms });
+                    effects.schedule = Some(Schedule {
+                        streak: self.streak_id,
+                        after_ms: self.policy.sustained_ms,
+                    });
                 }
                 effects
             }

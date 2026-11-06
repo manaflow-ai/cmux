@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 
 /// The variables the link may get from the app's environment; nothing else
 /// (no `CMUX_NEXT_*`, no `DYLD_*`, no credentials) reaches it.
-pub const INHERITED_KEYS: [&str; 7] = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL"];
+pub const INHERITED_KEYS: [&str; 7] =
+    ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL"];
 
 /// One launcher's settings.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -34,16 +35,22 @@ impl Link {
 
     /// `link ensure`; `--handoff` goes only with an explicit `--state-dir`.
     pub fn ensure_arguments(&self, install: &str) -> Vec<String> {
-        let mut args: Vec<String> = vec!["link".into(), "ensure".into(), "--install".into(), install.into()];
+        let mut args: Vec<String> =
+            vec!["link".into(), "ensure".into(), "--install".into(), install.into()];
         let Some(state) = self.state_directory() else { return args };
         args.extend(["--handoff".into(), "--state-dir".into(), state]);
         if let Some(socket) = &self.credential_socket {
             args.extend(["--credential-socket".into(), socket.clone()]);
         }
-        if self.tagged {
-            if let Some(root) = &self.state_root {
-                args.extend(["--port".into(), "0".into(), "--server-config".into(), join(root, "server.json")]);
-            }
+        if self.tagged
+            && let Some(root) = &self.state_root
+        {
+            args.extend([
+                "--port".into(),
+                "0".into(),
+                "--server-config".into(),
+                join(root, "server.json"),
+            ]);
         }
         args
     }
@@ -60,8 +67,11 @@ impl Link {
     /// The link's environment: the allow-listed variables of `base`, the
     /// state root and the fixed runtime base.
     pub fn environment(&self, base: &Env, runtime_base: &str) -> Env {
-        let mut env: Env =
-            base.iter().filter(|(k, _)| INHERITED_KEYS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+        let mut env: Env = base
+            .iter()
+            .filter(|(k, _)| INHERITED_KEYS.contains(&k.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         if let Some(root) = &self.state_root {
             env.insert("CMUX_TUI_STATE_DIR".into(), root.clone());
         }

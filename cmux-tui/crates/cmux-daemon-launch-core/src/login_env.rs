@@ -40,7 +40,11 @@ pub fn capture_plan(shell: Option<&str>, base: &Env, user_shell: Option<&str>) -
     seed.insert("SHELL".into(), shell.clone());
     seed.insert("PATH".into(), "/usr/bin:/bin:/usr/sbin:/sbin".into());
     let script = format!("printf '\\n{MARKER}\\n'; /usr/bin/env -0");
-    CapturePlan { shell, arguments: vec!["-l".into(), "-i".into(), "-c".into(), script], environment: seed }
+    CapturePlan {
+        shell,
+        arguments: vec!["-l".into(), "-i".into(), "-c".into(), script],
+        environment: seed,
+    }
 }
 
 /// Parses `<noise>\n<marker>\n` followed by NUL-separated `KEY=value`; none

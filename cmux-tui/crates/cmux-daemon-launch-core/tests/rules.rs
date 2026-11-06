@@ -41,7 +41,8 @@ struct Temp(PathBuf);
 
 impl Temp {
     fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("cmux-daemon-launch-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("cmux-daemon-launch-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         Self(dir)
@@ -74,7 +75,11 @@ fn snapshot_workspaces_count_what_the_person_may_have_used() {
     let bound = r#"{"tree":{"workspaces":[{"screens":[{"panes":[{"tabs":[{"kind":"conversation","conversation":{"conversation":"c1"}}]}]}]}]}}"#;
     assert_eq!(legacy::workspaces_in(bound.as_bytes(), true), 1);
     let unsettled = r#"{"tree":{"workspaces":[{"kind":"normal"}]}}"#;
-    assert_eq!(legacy::workspaces_in(unsettled.as_bytes(), true), 1, "no tab listed counts as used");
+    assert_eq!(
+        legacy::workspaces_in(unsettled.as_bytes(), true),
+        1,
+        "no tab listed counts as used"
+    );
     let ephemeral = r#"{"tree":{"workspaces":[{"ephemeral":true}]}}"#;
     assert_eq!(legacy::workspaces_in(ephemeral.as_bytes(), false), 0);
     assert_eq!(legacy::workspaces_in(b"nope", true), 1, "unreadable counts as touched");
@@ -107,17 +112,29 @@ fn a_channel_build_adopts_the_old_session_once_and_records_it() {
         remembered_snapshot: remembered.map(|r| &*Box::leak(r.to_string().into_boxed_str())),
         now: "2026-11-06T00:00:00Z",
     };
-    assert!(!legacy::adopts(&input(Some(&legacy_snapshot), "com.cmuxterm.app")), "release is no channel build");
-    assert!(!legacy::adopts(&input(None, "com.cmuxterm.app.nightly")), "this bundle never ran the old session");
+    assert!(
+        !legacy::adopts(&input(Some(&legacy_snapshot), "com.cmuxterm.app")),
+        "release is no channel build"
+    );
+    assert!(
+        !legacy::adopts(&input(None, "com.cmuxterm.app.nightly")),
+        "this bundle never ran the old session"
+    );
     let elsewhere = temp.path("other/cmux-app-xyz/launch-snapshot.json");
     temp.write("other/cmux-app-xyz/launch-snapshot.json", USED);
-    assert!(!legacy::adopts(&input(Some(&elsewhere), "com.cmuxterm.app.nightly")), "a snapshot outside the old root");
+    assert!(
+        !legacy::adopts(&input(Some(&elsewhere), "com.cmuxterm.app.nightly")),
+        "a snapshot outside the old root"
+    );
 
     // The channel's own session was used: never replaced.
     temp.write("support/cmux/tags/nightly/tui/cmux-app-nightly-1/launch-snapshot.json", USED);
     assert!(!legacy::adopts(&input(Some(&legacy_snapshot), "com.cmuxterm.app.nightly")));
     // Only the launch's own New Tab page: untouched, so it adopts and records it.
-    temp.write("support/cmux/tags/nightly/tui/cmux-app-nightly-1/launch-snapshot.json", NEW_TAB_ONLY);
+    temp.write(
+        "support/cmux/tags/nightly/tui/cmux-app-nightly-1/launch-snapshot.json",
+        NEW_TAB_ONLY,
+    );
     assert!(legacy::adopts(&input(Some(&legacy_snapshot), "com.cmuxterm.app.nightly")));
     let marker = temp.path("support/cmux/tags/nightly/legacy-session-adopted");
     assert!(Path::new(&marker).exists());
@@ -130,5 +147,8 @@ fn a_channel_build_adopts_the_old_session_once_and_records_it() {
 fn only_an_untagged_channel_build_has_a_channel() {
     assert_eq!(legacy::channel(Some("com.cmuxterm.app.rc"), "cmux-app-rc"), Some("rc"));
     assert_eq!(legacy::channel(Some("com.cmuxterm.app.rc"), "cmux-app-mytag"), None);
-    assert_eq!(legacy::channel(Some("com.cmuxterm.app.nightly.cmux-next"), "cmux-app-nightly"), None);
+    assert_eq!(
+        legacy::channel(Some("com.cmuxterm.app.nightly.cmux-next"), "cmux-app-nightly"),
+        None
+    );
 }

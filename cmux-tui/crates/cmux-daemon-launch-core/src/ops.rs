@@ -6,7 +6,9 @@
 use crate::failure::{self, ErrorInput, Outcome, StartFailure};
 use crate::fs::{FakeFs, Fs};
 use crate::shell_integration::{BundledCli, Integration, shell_arguments};
-use crate::{Env, cloud_link, ensure, handoff, install_key::InstallKey, legacy, login_env, terminal_env};
+use crate::{
+    Env, cloud_link, ensure, handoff, install_key::InstallKey, legacy, login_env, terminal_env,
+};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -333,20 +335,38 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         }
         "tag_state_directory" => {
             let r: Names = de(request)?;
-            Ok(Value::String(ensure::tag_state_directory(r.tag.as_deref().unwrap_or_default(), &r.application_support)))
+            Ok(Value::String(ensure::tag_state_directory(
+                r.tag.as_deref().unwrap_or_default(),
+                &r.application_support,
+            )))
         }
-        "channel_bundle_ids" => Ok(json!(ensure::CHANNEL_BUNDLE_IDS.iter().map(|(id, c)| json!({"bundleId": id, "channel": c})).collect::<Vec<_>>())),
+        "channel_bundle_ids" => Ok(json!(
+            ensure::CHANNEL_BUNDLE_IDS
+                .iter()
+                .map(|(id, c)| json!({"bundleId": id, "channel": c}))
+                .collect::<Vec<_>>()
+        )),
         "resolve_binary" => {
             let r: Binary = de(request)?;
             let fs = Fs::from_request(r.fs);
-            Ok(match ensure::resolve_binary(r.override_path.as_deref(), r.resources.as_deref(), &fs) {
-                Ok(binary) => json!({"binary": binary}),
-                Err(searched) => json!({"searched": searched}),
-            })
+            Ok(
+                match ensure::resolve_binary(
+                    r.override_path.as_deref(),
+                    r.resources.as_deref(),
+                    &fs,
+                ) {
+                    Ok(binary) => json!({"binary": binary}),
+                    Err(searched) => json!({"searched": searched}),
+                },
+            )
         }
         "bundled_executable" => {
             let r: Binary = de(request)?;
-            to_value(&ensure::bundled_executable(r.resources.as_deref(), r.name.as_deref().unwrap_or_default(), r.override_path.as_deref()))
+            to_value(&ensure::bundled_executable(
+                r.resources.as_deref(),
+                r.name.as_deref().unwrap_or_default(),
+                r.override_path.as_deref(),
+            ))
         }
 
         // Start failures.
@@ -384,12 +404,19 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         "daemon_identity_keys" => to_value(&terminal_env::DAEMON_IDENTITY_KEYS),
         "term" => {
             let r: TermRequest = de(request)?;
-            Ok(Value::String(terminal_env::term(r.prefers_ghostty_term, &r.home, &Fs::from_request(r.fs)).into()))
+            Ok(Value::String(
+                terminal_env::term(r.prefers_ghostty_term, &r.home, &Fs::from_request(r.fs)).into(),
+            ))
         }
         "ghostty_identity" => {
             let r: TermRequest = de(request)?;
             let fs = Fs::from_request(r.fs);
-            to_value(&terminal_env::ghostty(r.resources_directory.as_deref(), r.prefers_ghostty_term, &r.home, &fs))
+            to_value(&terminal_env::ghostty(
+                r.resources_directory.as_deref(),
+                r.prefers_ghostty_term,
+                &r.home,
+                &fs,
+            ))
         }
         "terminal_spawn_environment" => {
             let r: SpawnRequest = de(request)?;
@@ -408,7 +435,12 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         }
         "shell_integration_apply" => {
             let r: IntegrationRequest = de(request)?;
-            to_value(&r.integration.apply(&r.env, r.shell.as_deref(), &r.home, &Fs::from_request(r.fs)))
+            to_value(&r.integration.apply(
+                &r.env,
+                r.shell.as_deref(),
+                &r.home,
+                &Fs::from_request(r.fs),
+            ))
         }
         "shell_integration_features" => {
             let r: IntegrationRequest = de(request)?;
@@ -417,7 +449,9 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         "shell_integration_shell" => {
             let r: IntegrationRequest = de(request)?;
             let mode = r.integration.shell_for(r.shell.as_deref());
-            Ok(mode.map_or(Value::Null, |m| serde_json::to_value(format!("{m:?}").to_lowercase()).unwrap_or(Value::Null)))
+            Ok(mode.map_or(Value::Null, |m| {
+                serde_json::to_value(format!("{m:?}").to_lowercase()).unwrap_or(Value::Null)
+            }))
         }
         "shell_arguments" => {
             let r: IntegrationEnv = de(request)?;
@@ -460,7 +494,11 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         }
         "find_launch_snapshot" => {
             let r: Snapshot = de(request)?;
-            to_value(&r.state_directory.as_deref().and_then(|dir| legacy::find_snapshot(&r.session, dir)))
+            to_value(
+                &r.state_directory
+                    .as_deref()
+                    .and_then(|dir| legacy::find_snapshot(&r.session, dir)),
+            )
         }
         "snapshot_workspaces" => {
             let r: Snapshot = de(request)?;
@@ -512,13 +550,19 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         }
         "install_key_generate" => {
             let r: KeyRequest = de(request)?;
-            let key = cmux_local_auth::frontend_proof::unhex::<32>(r.key_hex.as_deref().unwrap_or_default());
+            let key = cmux_local_auth::frontend_proof::unhex::<32>(
+                r.key_hex.as_deref().unwrap_or_default(),
+            );
             let random = r.id_random_hex.as_deref().and_then(unhex_any);
-            Ok(key_value(key.zip(random).and_then(|(key, random)| InstallKey::generate(key, &random))))
+            Ok(key_value(
+                key.zip(random).and_then(|(key, random)| InstallKey::generate(key, &random)),
+            ))
         }
         "install_key_valid_id" => {
             let r: KeyRequest = de(request)?;
-            Ok(Value::Bool(cmux_local_auth::frontend_proof::valid_install_id(r.install_id.as_deref().unwrap_or_default())))
+            Ok(Value::Bool(cmux_local_auth::frontend_proof::valid_install_id(
+                r.install_id.as_deref().unwrap_or_default(),
+            )))
         }
         "install_key_proof" => {
             let r: KeyRequest = de(request)?;
@@ -535,7 +579,7 @@ struct IntegrationEnv {
 }
 
 fn unhex_any(text: &str) -> Option<Vec<u8>> {
-    if text.len() % 2 != 0 {
+    if !text.len().is_multiple_of(2) {
         return None;
     }
     (0..text.len()).step_by(2).map(|i| u8::from_str_radix(text.get(i..i + 2)?, 16).ok()).collect()

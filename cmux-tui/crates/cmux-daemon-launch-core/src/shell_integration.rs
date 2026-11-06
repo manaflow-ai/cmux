@@ -79,9 +79,19 @@ impl Integration {
         }
         let mut names = Vec::new();
         if features & CURSOR != 0 {
-            names.push(if self.cursor_blink.unwrap_or(true) { "cursor:blink" } else { "cursor:steady" });
+            names.push(if self.cursor_blink.unwrap_or(true) {
+                "cursor:blink"
+            } else {
+                "cursor:steady"
+            });
         }
-        for (bit, name) in [(PATH, "path"), (SSH_ENV, "ssh-env"), (SSH_TERMINFO, "ssh-terminfo"), (SUDO, "sudo"), (TITLE, "title")] {
+        for (bit, name) in [
+            (PATH, "path"),
+            (SSH_ENV, "ssh-env"),
+            (SSH_TERMINFO, "ssh-terminfo"),
+            (SUDO, "sudo"),
+            (TITLE, "title"),
+        ] {
             if features & bit != 0 {
                 names.push(name);
             }
@@ -127,9 +137,13 @@ impl Integration {
         }
         let resources = non_empty(self.resources_directory.as_ref());
         if let Some(resources) = resources {
-            let current = env.get("XDG_DATA_DIRS").cloned().unwrap_or_else(|| DEFAULT_XDG_DATA_DIRS.into());
+            let current =
+                env.get("XDG_DATA_DIRS").cloned().unwrap_or_else(|| DEFAULT_XDG_DATA_DIRS.into());
             let value = format!("{resources}/..");
-            env.insert("XDG_DATA_DIRS".into(), if current.is_empty() { value } else { format!("{current}:{value}") });
+            env.insert(
+                "XDG_DATA_DIRS".into(),
+                if current.is_empty() { value } else { format!("{current}:{value}") },
+            );
             // Always a leading colon: an empty MANPATH element keeps the system man path.
             let manpath = env.get("MANPATH").cloned().unwrap_or_default();
             env.insert("MANPATH".into(), format!("{manpath}:{resources}/../man"));
@@ -153,7 +167,10 @@ impl Integration {
             }
             Mode::Fish | Mode::Elvish | Mode::Nushell => {
                 if fs.is_dir(&integration) {
-                    let current = env.get("XDG_DATA_DIRS").cloned().unwrap_or_else(|| DEFAULT_XDG_DATA_DIRS.into());
+                    let current = env
+                        .get("XDG_DATA_DIRS")
+                        .cloned()
+                        .unwrap_or_else(|| DEFAULT_XDG_DATA_DIRS.into());
                     env.insert("GHOSTTY_SHELL_INTEGRATION_XDG_DIR".into(), integration.clone());
                     env.insert("XDG_DATA_DIRS".into(), format!("{integration}:{current}"));
                 }
@@ -189,7 +206,8 @@ pub fn shell_arguments(env: &Env) -> Option<Vec<String>> {
         "bash" => {
             let injected = shell != "/bin/bash"
                 && env.contains_key("GHOSTTY_BASH_INJECT")
-                && (env.get("ENV").is_some_and(|e| e.ends_with(GHOSTTY_BASH_SCRIPT)) || BundledCli::wraps_ghostty_bash(env));
+                && (env.get("ENV").is_some_and(|e| e.ends_with(GHOSTTY_BASH_SCRIPT))
+                    || BundledCli::wraps_ghostty_bash(env));
             injected.then(|| vec!["--posix".into()])
         }
         "nu" => env
@@ -246,36 +264,40 @@ impl BundledCli {
         env.insert("CMUX_BUNDLED_CLI_PATH".into(), cli);
         // A `BROWSER` already set is the user's and wins. The bare name: gh
         // splits `BROWSER` on spaces, and an app path can hold one.
-        if non_empty(env.get("BROWSER")).is_none() && fs.is_executable(&format!("{bin}/{URL_OPENER_NAME}")) {
+        if non_empty(env.get("BROWSER")).is_none()
+            && fs.is_executable(&format!("{bin}/{URL_OPENER_NAME}"))
+        {
             env.insert("BROWSER".into(), URL_OPENER_NAME.into());
         }
         let Some(layer) = non_empty(self.path_integration.as_ref()) else { return env };
-        let Some(shell) = env.get("SHELL").map(|s| last_component(s).to_string()) else { return env };
+        let Some(shell) = env.get("SHELL").map(|s| last_component(s).to_string()) else {
+            return env;
+        };
         match shell.as_str() {
-            "zsh" => {
-                if fs.exists(&format!("{layer}/zsh/.zshenv")) {
-                    if let Some(next) = env.get("ZDOTDIR").cloned() {
-                        env.insert(ZSH_NEXT_ZDOTDIR_KEY.into(), next);
-                    }
-                    env.insert("ZDOTDIR".into(), format!("{layer}/zsh"));
+            "zsh" if fs.exists(&format!("{layer}/zsh/.zshenv")) => {
+                if let Some(next) = env.get("ZDOTDIR").cloned() {
+                    env.insert(ZSH_NEXT_ZDOTDIR_KEY.into(), next);
                 }
+                env.insert("ZDOTDIR".into(), format!("{layer}/zsh"));
             }
+            // Only over Ghostty's integration: bash reads `ENV` only in its POSIX mode.
             "bash" => {
-                // Only over Ghostty's integration: bash reads `ENV` only in its POSIX mode.
                 let next = env.get("ENV").filter(|e| e.ends_with(GHOSTTY_BASH_SCRIPT)).cloned();
-                if let Some(next) = next {
-                    if env.contains_key("GHOSTTY_BASH_INJECT") && fs.exists(&format!("{layer}{CLI_BASH_SCRIPT}")) {
-                        env.insert(BASH_NEXT_ENV_KEY.into(), next);
-                        env.insert("ENV".into(), format!("{layer}{CLI_BASH_SCRIPT}"));
-                    }
+                if let Some(next) = next
+                    && env.contains_key("GHOSTTY_BASH_INJECT")
+                    && fs.exists(&format!("{layer}{CLI_BASH_SCRIPT}"))
+                {
+                    env.insert(BASH_NEXT_ENV_KEY.into(), next);
+                    env.insert("ENV".into(), format!("{layer}{CLI_BASH_SCRIPT}"));
                 }
             }
-            "fish" => {
-                if fs.exists(&format!("{layer}/fish/vendor_conf.d/cmux-cli-path.fish")) {
-                    let current = env.get("XDG_DATA_DIRS").cloned().unwrap_or_else(|| DEFAULT_XDG_DATA_DIRS.into());
-                    env.insert(FISH_DATA_DIR_KEY.into(), layer.into());
-                    env.insert("XDG_DATA_DIRS".into(), format!("{layer}:{current}"));
-                }
+            "fish" if fs.exists(&format!("{layer}/fish/vendor_conf.d/cmux-cli-path.fish")) => {
+                let current = env
+                    .get("XDG_DATA_DIRS")
+                    .cloned()
+                    .unwrap_or_else(|| DEFAULT_XDG_DATA_DIRS.into());
+                env.insert(FISH_DATA_DIR_KEY.into(), layer.into());
+                env.insert("XDG_DATA_DIRS".into(), format!("{layer}:{current}"));
             }
             _ => {}
         }

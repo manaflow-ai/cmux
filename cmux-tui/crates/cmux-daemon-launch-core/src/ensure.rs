@@ -57,8 +57,10 @@ fn yes() -> bool {
 
 /// The `server ensure` command line.
 pub fn ensure_arguments(a: &Arguments) -> Vec<String> {
-    let mut args: Vec<String> =
-        ["--session", &a.session, "--json", "server", "ensure"].iter().map(|s| s.to_string()).collect();
+    let mut args: Vec<String> = ["--session", &a.session, "--json", "server", "ensure"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     if a.reap_grace {
         args.push(REAP_GRACE_OPTION.into());
         args.push(a.reap_grace_seconds.to_string());
@@ -179,7 +181,11 @@ pub fn timing(binary_is_bundled: bool, ensure_timeout_ms: u64, replace: bool) ->
     }
     Timing {
         progress,
-        timeout_ms: if progress { ENSURE_RESTORE_CAP_MS } else { ensure_timeout_ms.max(ENSURE_RESTORE_CAP_MS) },
+        timeout_ms: if progress {
+            ENSURE_RESTORE_CAP_MS
+        } else {
+            ensure_timeout_ms.max(ENSURE_RESTORE_CAP_MS)
+        },
         progress_idle_ms: progress.then_some(ensure_timeout_ms),
     }
 }
@@ -243,23 +249,27 @@ pub fn failure(stderr: &str) -> Option<Failure> {
 /// Reads one ensure's result: the last stdout line that is a JSON object on
 /// exit 0, else the typed failure. `replace`: a `--replace-unresponsive` run.
 pub fn parse(status: i32, stdout: &str, stderr: &str, replace: bool) -> Parsed {
-    if replace && status != 0 {
-        if let Some(failure) = failure(stderr).filter(|f| f.code.starts_with("server.replace_")) {
-            return Parsed::ReplaceRefusal(failure);
-        }
+    if replace
+        && status != 0
+        && let Some(failure) = failure(stderr).filter(|f| f.code.starts_with("server.replace_"))
+    {
+        return Parsed::ReplaceRefusal(failure);
     }
-    let last = split_lines(stdout).map(trim_spaces).filter(|line| line.starts_with('{')).next_back();
-    if status == 0 {
-        if let Some(ensured) = last.and_then(|line| serde_json::from_str::<Ensured>(line).ok()) {
-            return Parsed::Ok(ensured);
-        }
+    let last = split_lines(stdout).map(trim_spaces).rfind(|line| line.starts_with('{'));
+    if status == 0
+        && let Some(ensured) = last.and_then(|line| serde_json::from_str::<Ensured>(line).ok())
+    {
+        return Parsed::Ok(ensured);
     }
     if let Some(failure) = failure(stderr).filter(|f| f.code == "server.restore_timeout") {
         return Parsed::RestoreTimeout(failure.message.unwrap_or_default());
     }
     let stderr = stderr.trim();
     let stdout = stdout.trim();
-    Parsed::LaunchFailed(format!("exit {status}: {}", if stderr.is_empty() { stdout } else { stderr }))
+    Parsed::LaunchFailed(format!(
+        "exit {status}: {}",
+        if stderr.is_empty() { stdout } else { stderr }
+    ))
 }
 
 /// The variables the Chief owner's `server ensure` keeps from its base: the
@@ -306,7 +316,11 @@ pub fn diagnostic_knobs(environment: &Env) -> Env {
 
 /// The Chief owner's `server ensure` environment.
 pub fn chief_environment(base: &Env) -> Env {
-    let mut env: Env = base.iter().filter(|(k, _)| CHIEF_KEPT.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+    let mut env: Env = base
+        .iter()
+        .filter(|(k, _)| CHIEF_KEPT.contains(&k.as_str()))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     let knobs = diagnostic_knobs(base);
     for name in CHIEF_KNOBS {
         if let Some(value) = knobs.get(name) {
@@ -319,8 +333,11 @@ pub fn chief_environment(base: &Env) -> Env {
 /// The untagged channel builds (bundle id, channel), each with its own
 /// daemon session and state (cmux-tui `app_identity.rs` `CHANNELS`). Release
 /// (`com.cmuxterm.app`) keeps `cmux-app`.
-pub const CHANNEL_BUNDLE_IDS: [(&str, &str); 3] =
-    [("com.cmuxterm.app.nightly", "nightly"), ("com.cmuxterm.app.rc", "rc"), ("com.cmuxterm.app.staging", "staging")];
+pub const CHANNEL_BUNDLE_IDS: [(&str, &str); 3] = [
+    ("com.cmuxterm.app.nightly", "nightly"),
+    ("com.cmuxterm.app.rc", "rc"),
+    ("com.cmuxterm.app.staging", "staging"),
+];
 
 /// `cmux-app`, or `cmux-app-<tag>` with the tag cut to one safe path
 /// component; none when nothing of the tag is left.
@@ -344,7 +361,11 @@ pub fn tag_state_directory(tag: &str, application_support: &str) -> String {
 
 /// `CMUX_NEXT_TUI_BIN` when executable, then `<Resources>/bin/cmux-tui`;
 /// `Err` lists what was searched.
-pub fn resolve_binary(override_path: Option<&str>, resources: Option<&str>, fs: &Fs) -> Result<String, Vec<String>> {
+pub fn resolve_binary(
+    override_path: Option<&str>,
+    resources: Option<&str>,
+    fs: &Fs,
+) -> Result<String, Vec<String>> {
     let mut searched = Vec::new();
     if let Some(path) = override_path.filter(|p| !p.is_empty()) {
         searched.push(path.to_string());
@@ -364,7 +385,11 @@ pub fn resolve_binary(override_path: Option<&str>, resources: Option<&str>, fs: 
 
 /// `<Resources>/bin/<name>`, or the override when one is set: the app's
 /// bundled executables (`CMUX_NEXT_TUI_BIN` runs in place of `cmux`).
-pub fn bundled_executable(resources: Option<&str>, name: &str, override_path: Option<&str>) -> Option<String> {
+pub fn bundled_executable(
+    resources: Option<&str>,
+    name: &str,
+    override_path: Option<&str>,
+) -> Option<String> {
     if let Some(path) = override_path.filter(|p| !p.is_empty()) {
         return Some(path.to_string());
     }

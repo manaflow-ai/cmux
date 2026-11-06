@@ -143,9 +143,13 @@ pub unsafe extern "C" fn cmux_daemon_launch_call(
     }
     guarded(|| {
         // SAFETY: a NUL-terminated string from the caller.
-        let Ok(op) = unsafe { CStr::from_ptr(op) }.to_str() else { return CMUX_DAEMON_LAUNCH_ERR_INVALID };
+        let Ok(op) = unsafe { CStr::from_ptr(op) }.to_str() else {
+            return CMUX_DAEMON_LAUNCH_ERR_INVALID;
+        };
         // SAFETY: the caller's pointer rules.
-        let Some(bytes) = (unsafe { input(request_ptr, request_len) }) else { return CMUX_DAEMON_LAUNCH_ERR_NULL };
+        let Some(bytes) = (unsafe { input(request_ptr, request_len) }) else {
+            return CMUX_DAEMON_LAUNCH_ERR_NULL;
+        };
         let request = match request(bytes) {
             Ok(request) => request,
             Err(code) => return code,
@@ -176,7 +180,9 @@ pub unsafe extern "C" fn cmux_daemon_launch_login_env_accept(
     }
     guarded(|| {
         // SAFETY: the caller's pointer rules.
-        let Some(bytes) = (unsafe { input(output, output_len) }) else { return CMUX_DAEMON_LAUNCH_ERR_NULL };
+        let Some(bytes) = (unsafe { input(output, output_len) }) else {
+            return CMUX_DAEMON_LAUNCH_ERR_NULL;
+        };
         let env = crate::login_env::accept(status, bytes);
         let value = serde_json::to_value(env).unwrap_or(Value::Null);
         // SAFETY: `out` checked non-null.
@@ -224,7 +230,9 @@ pub unsafe extern "C" fn cmux_daemon_launch_lines_push(
     }
     guarded(|| {
         // SAFETY: the caller's pointer rules.
-        let Some(bytes) = (unsafe { input(bytes, bytes_len) }) else { return CMUX_DAEMON_LAUNCH_ERR_NULL };
+        let Some(bytes) = (unsafe { input(bytes, bytes_len) }) else {
+            return CMUX_DAEMON_LAUNCH_ERR_NULL;
+        };
         // SAFETY: a live handle, one thread at a time.
         let splitter = unsafe { &mut (*lines).lines };
         let mut done = splitter.push(bytes);
@@ -243,11 +251,15 @@ pub unsafe extern "C" fn cmux_daemon_launch_lines_push(
 ///
 /// `policy` with its length is readable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_daemon_launch_watch_new(policy: *const u8, policy_len: usize) -> *mut CmuxDaemonLaunchWatch {
+pub unsafe extern "C" fn cmux_daemon_launch_watch_new(
+    policy: *const u8,
+    policy_len: usize,
+) -> *mut CmuxDaemonLaunchWatch {
     let made = catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: the caller's pointer rules.
         let bytes = unsafe { input(policy, policy_len) }?;
-        let policy = if bytes.is_empty() { Policy::STANDARD } else { serde_json::from_slice(bytes).ok()? };
+        let policy =
+            if bytes.is_empty() { Policy::STANDARD } else { serde_json::from_slice(bytes).ok()? };
         Some(Box::into_raw(Box::new(CmuxDaemonLaunchWatch { watch: Watch::new(policy) })))
     }));
     made.ok().flatten().unwrap_or(std::ptr::null_mut())
@@ -287,9 +299,13 @@ pub unsafe extern "C" fn cmux_daemon_launch_watch_call(
     }
     guarded(|| {
         // SAFETY: a NUL-terminated string from the caller.
-        let Ok(op) = unsafe { CStr::from_ptr(op) }.to_str() else { return CMUX_DAEMON_LAUNCH_ERR_INVALID };
+        let Ok(op) = unsafe { CStr::from_ptr(op) }.to_str() else {
+            return CMUX_DAEMON_LAUNCH_ERR_INVALID;
+        };
         // SAFETY: the caller's pointer rules.
-        let Some(bytes) = (unsafe { input(request_ptr, request_len) }) else { return CMUX_DAEMON_LAUNCH_ERR_NULL };
+        let Some(bytes) = (unsafe { input(request_ptr, request_len) }) else {
+            return CMUX_DAEMON_LAUNCH_ERR_NULL;
+        };
         let request = match request(bytes) {
             Ok(request) => request,
             Err(code) => return code,
@@ -313,7 +329,8 @@ pub fn watch_call(watch: &mut Watch, op: &str, request: &Value) -> Result<Value,
     match op {
         "note" => {
             let ensure: EnsureKind =
-                serde_json::from_value(request.get("ensure").cloned().unwrap_or(Value::Null)).map_err(|_| OpError::Invalid)?;
+                serde_json::from_value(request.get("ensure").cloned().unwrap_or(Value::Null))
+                    .map_err(|_| OpError::Invalid)?;
             value(watch.note(ensure, enabled))
         }
         "window_passed" => value(watch.window_passed(streak.ok_or(OpError::Invalid)?, enabled)),

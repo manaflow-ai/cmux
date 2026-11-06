@@ -57,8 +57,17 @@ pub const ALLOWED_PREFIXES: [&str; 3] = ["LC_", "XDG_", "CMUX_"];
 /// Process identity the daemon itself needs, from the app process only.
 pub const DAEMON_IDENTITY_KEYS: [&str; 5] = ["HOME", "USER", "LOGNAME", "TMPDIR", "SSH_AUTH_SOCK"];
 /// Name parts that mark a credential.
-const CREDENTIAL_PARTS: [&str; 9] =
-    ["PASSWORD", "PASSWD", "PASS", "TOKEN", "SECRET", "CREDENTIAL", "CREDENTIALS", "APIKEY", "PRIVATE"];
+const CREDENTIAL_PARTS: [&str; 9] = [
+    "PASSWORD",
+    "PASSWD",
+    "PASS",
+    "TOKEN",
+    "SECRET",
+    "CREDENTIAL",
+    "CREDENTIALS",
+    "APIKEY",
+    "PRIVATE",
+];
 
 /// Whether `key` names a credential: one of its `_`-separated parts is a
 /// credential word, or it ends in `_KEY`. A key allowed by prefix (`CMUX_`)
@@ -92,14 +101,18 @@ pub fn filter(env: &Env) -> Env {
 pub fn terminal(login: Option<&Env>, base: &Env) -> Env {
     let mut env = filter(login.unwrap_or(base));
     for (key, value) in base {
-        if key.starts_with("CMUX_") && !key.starts_with("CMUX_NEXT_") && is_allowed(key) && !env.contains_key(key) {
+        if key.starts_with("CMUX_")
+            && !key.starts_with("CMUX_NEXT_")
+            && is_allowed(key)
+            && !env.contains_key(key)
+        {
             env.insert(key.clone(), value.clone());
         }
     }
-    if login.is_none() {
-        if let Some(path) = env.get("PATH").filter(|p| !p.contains("/opt/homebrew/bin")).cloned() {
-            env.insert("PATH".into(), format!("/opt/homebrew/bin:/usr/local/bin:{path}"));
-        }
+    if login.is_none()
+        && let Some(path) = env.get("PATH").filter(|p| !p.contains("/opt/homebrew/bin")).cloned()
+    {
+        env.insert("PATH".into(), format!("/opt/homebrew/bin:/usr/local/bin:{path}"));
     }
     env
 }
@@ -128,21 +141,33 @@ pub fn has_installed_ghostty_terminfo(home: &str, fs: &Fs) -> bool {
         "/opt/homebrew/share/terminfo".into(),
         "/usr/local/share/terminfo".into(),
     ];
-    roots.iter().any(|root| fs.exists(&format!("{root}/78/xterm-ghostty")) || fs.exists(&format!("{root}/x/xterm-ghostty")))
+    roots.iter().any(|root| {
+        fs.exists(&format!("{root}/78/xterm-ghostty"))
+            || fs.exists(&format!("{root}/x/xterm-ghostty"))
+    })
 }
 
 /// A new terminal's `TERM`: `xterm-256color`, the entry every ssh target has;
 /// `xterm-ghostty` only when the user opted in (`terminal.term`) and it is
 /// installed here, since ssh carries `TERM` to hosts that lack it.
 pub fn term(prefers_ghostty_term: bool, home: &str, fs: &Fs) -> &'static str {
-    if prefers_ghostty_term && has_installed_ghostty_terminfo(home, fs) { "xterm-ghostty" } else { "xterm-256color" }
+    if prefers_ghostty_term && has_installed_ghostty_terminfo(home, fs) {
+        "xterm-ghostty"
+    } else {
+        "xterm-256color"
+    }
 }
 
 /// The terminal identity Ghostty exports to its shells: `TERM` ([`term`]),
 /// `COLORTERM=truecolor`, `TERM_PROGRAM=ghostty` (no `TERM_PROGRAM_VERSION`:
 /// advertising a version makes Codex drop its copy-on-select fallback), and
 /// `GHOSTTY_RESOURCES_DIR`.
-pub fn ghostty(resources_directory: Option<&str>, prefers_ghostty_term: bool, home: &str, fs: &Fs) -> Env {
+pub fn ghostty(
+    resources_directory: Option<&str>,
+    prefers_ghostty_term: bool,
+    home: &str,
+    fs: &Fs,
+) -> Env {
     let mut env = Env::new();
     env.insert("TERM".into(), term(prefers_ghostty_term, home, fs).into());
     env.insert("COLORTERM".into(), "truecolor".into());
