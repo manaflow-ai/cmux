@@ -262,6 +262,12 @@ async fn attempt(
     Ok(Dialed { connection, multiplexer, mux })
 }
 
+/// The step a failed resume names: a provider error is the relay's (or the
+/// park's), anything else the handshake's.
+pub(super) fn resume_outcome(error: &ConnectionError) -> Step {
+    classify(error, Step::Relay).step
+}
+
 /// Route lines for an established session's resumes.
 pub(super) struct Resume {
     machine: String,
@@ -270,7 +276,7 @@ pub(super) struct Resume {
 
 impl ResumeHooks for Resume {
     fn attempt_ended(&self, result: Result<(), &ConnectionError>, elapsed: Duration) {
-        let outcome = result.err().map(|error| classify(error, Step::Handshake).step);
+        let outcome = result.err().map(resume_outcome);
         (self.log)(route_line(&self.machine, Phase::Resume, outcome, elapsed));
     }
 }
