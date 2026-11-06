@@ -19,15 +19,15 @@ import Observation
 extension AppServices {
     /// Open Desktop's `cmux-rd` viewer: the machine's desktop host over the carrier, a new
     /// `cmux carrier dial --service desktop` per session with the platform origin and the person's
-    /// access token (``CloudDesktopLinkDial``); each session's transport in the mode it asks for.
+    /// access token (``CloudCarrierDial/Connector``); each session's transport in the mode it asks for.
     func cloudDesktopRdTransport(machine: String) -> (@MainActor (_ control: Bool) -> RemoteRdStreamTransport?)? {
         guard let session = machines.cloud.first(where: { $0.machineID.lowercased() == machine.lowercased() }),
-              let dial = CloudDesktopLinkDial(machine: session.machineID), let cli = cloud.binary else { return nil }
-        let (auth, platform, hello, team) = (cloud.auth, cloud.configuration.relayAPIBaseURL(), RemoteRdHello.cloudDesktop(), session.machine.team)
+              let dial = CloudCarrierDial.Connector(machine: session.machineID, service: .desktop, cli: cloud.binary, auth: cloud.auth,
+                                                    platform: cloud.configuration.relayAPIBaseURL(), team: session.machine.team) else { return nil }
+        let hello = RemoteRdHello.cloudDesktop()
         return { control in
             let carrier = RemoteRdStreamCarrier {
-                let environment = CloudDesktopLinkDial.environment(platform: platform, accessToken: try await auth.tokens().access, team: team)
-                let stream = try await dial.open(cli: cli, environment: environment)
+                let stream = try await dial.open()
                 return RemoteRdByteStream(read: { await stream.read() }, write: { try await stream.send($0) }, close: { stream.close() })
             }
             return RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString, control: control)
