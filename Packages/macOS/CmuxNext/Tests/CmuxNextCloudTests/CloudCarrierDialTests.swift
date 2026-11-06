@@ -21,11 +21,25 @@ import Testing
             == ["carrier", "serve", "--machine", "vm_abc123", "--socket", "/tmp/x/cmux-link-0123456789ab.sock"])
     }
 
-    @Test func theReadyLineNamesItsSocket() {
-        #expect(CloudCarrierDial.readySocket(#"{"ok":true,"socket":"/tmp/a.sock","route":"carrier"}"#) == "/tmp/a.sock")
-        #expect(CloudCarrierDial.readySocket(#"{"ok":false,"error_code":"ticket"}"#) == nil)
-        #expect(CloudCarrierDial.readySocket(#"{"ok":true}"#) == nil)
-        #expect(CloudCarrierDial.readySocket("carrier: listening") == nil)
+    @Test func theServeLinesAreTheReadyLineAndRefusals() {
+        #expect(CloudCarrierDial.serveLine(#"{"ok":true,"socket":"/tmp/a.sock","route":"carrier"}"#) == .ready(socket: "/tmp/a.sock"))
+        #expect(CloudCarrierDial.serveLine(#"{"ok":false,"error_code":"ticket","route":"carrier"}"#) == .refused(code: "ticket", detail: nil))
+        #expect(CloudCarrierDial.serveLine(#"{"ok":false,"error_code":"socket","error_detail":"in use"}"#) == .refused(code: "socket", detail: "in use"))
+        #expect(CloudCarrierDial.serveLine(#"{"ok":true}"#) == nil)
+        #expect(CloudCarrierDial.serveLine("carrier: listening") == nil)
+    }
+
+    /// A refused connection's step reads as the sidebar's existing link wording.
+    @Test func aRefusedStepHasItsLinkWording() {
+        #expect(CloudCarrierDial.linkError(code: "relay", detail: nil) == .disconnected(reason: "relay"))
+        #expect(CloudCarrierDial.linkError(code: "parked_timeout", detail: nil) == .notUp(state: "parked_timeout"))
+        #expect(CloudCarrierDial.linkError(code: "ticket", detail: nil) == .failed(code: "ticket", message: ""))
+        #expect(CloudCarrierDial.linkError(code: "handshake", detail: "pin") == .failed(code: "handshake", message: "handshake: pin"))
+    }
+
+    @Test func theTokenLineIsOneJSONObject() throws {
+        let object = try JSONSerialization.jsonObject(with: Data(CloudCarrierDial.tokenLine("t-\"9").utf8)) as? [String: String]
+        #expect(object == ["access_token": "t-\"9"])
     }
 
     @Test func theEnvironmentCarriesTheCredentialAndTheTeamWhenSet() throws {
@@ -67,10 +81,10 @@ import Testing
         #expect(String(decoding: bytes, as: UTF8.self) == "carrier dial --machine vm_abc123 --service desktop --deadline-ms 180000 https://p t-1 team_x ")
     }
 
-    /// The session's link is the serve child's socket: the ready line hands it over, every connect starts
-    /// a fresh child (with a fresh token) only after the last one exited, and closing stdin stops it.
+    /// The session's link is the serve child's socket: the ready line hands it over, a later connect gives
+    /// the same child a fresh token on stdin, closing stdin stops it, and the next starts after it exited.
     @Test func theServeSocketIsTheLinksSocket() async throws {
-        let cli = try Self.standIn("echo \"$CMUX_CLOUD_ACCESS_TOKEN\" >> \"$(dirname \"$0\")/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\ncat >/dev/null\n")
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho \"$CMUX_CLOUD_ACCESS_TOKEN\" >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nwhile read -r l; do echo \"$l\" >> \"$d/stdin\"; done\n")
         let folder = cli.deletingLastPathComponent()
         defer { try? FileManager.default.removeItem(at: folder) }
         let socket = folder.appendingPathComponent("cmux-link-0123456789ab.sock").path
@@ -84,11 +98,39 @@ import Testing
         #expect(ticket.socket.path == socket)
         #expect(await link.currentSocket == socket)
         #expect(await link.ownerLink != nil)
-        #expect(try await serve.socketPath() == socket)
         _ = try await link.connect(origin: .user)
         await link.close()
-        let launches = try String(contentsOf: folder.appendingPathComponent("launches"), encoding: .utf8)
-        #expect(launches == "t-1\nt-2\n")
+        #expect(try await serve.socketPath() == socket)
+        await serve.stop()
+        #expect(try String(contentsOf: folder.appendingPathComponent("launches"), encoding: .utf8) == "t-1\nt-3\n")
+        #expect(try String(contentsOf: folder.appendingPathComponent("stdin"), encoding: .utf8) == #"{"access_token":"t-2"}"# + "\n")
+    }
+
+    /// After the ready line, a refused connection's line ends the link with its step.
+    @Test func aRefusedConnectionEndsTheLinkWithItsStep() async throws {
+        let cli = try Self.standIn("printf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nprintf '{\"ok\":false,\"error_code\":\"parked_timeout\",\"route\":\"carrier\"}\\n' >&2\ncat >/dev/null\n")
+        defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { [:] }
+        let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock") { _ in }
+        let link = CloudLinkSession(key: CloudLinkKey(machine: "vm_abc123"), resolver: CloudCarrierResolver(serve: serve) { .owner })
+        let ticket = try await link.connect(origin: .user)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await serve.refusal == nil, ContinuousClock.now < deadline { await Task.yield() }
+        _ = try await link.endpoint(ticket)
+        await #expect(throws: CloudLinkError.notUp(state: "parked_timeout")) { _ = try await link.endpoint(ticket) }
+        await link.close()
+    }
+
+    /// A socket another serve holds (its `socket` refusal, or a usage exit 64) is a clear failure.
+    @Test(arguments: ["printf '{\"ok\":false,\"error_code\":\"socket\"}\\n' >&2\nexit 6\n", "exit 64\n"])
+    func aTakenSocketIsAClearFailure(body: String) async throws {
+        let cli = try Self.standIn(body)
+        defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { [:] }
+        let serve = CloudCarrierServe(connector: connector, socket: "/tmp/mine.sock") { _ in }
+        await #expect(throws: CloudLinkError.failed(code: "socket", message: "another cmux is serving this machine's connection socket")) {
+            _ = try await serve.socketPath()
+        }
     }
 
     /// A child that serves another socket than the one asked for is refused.

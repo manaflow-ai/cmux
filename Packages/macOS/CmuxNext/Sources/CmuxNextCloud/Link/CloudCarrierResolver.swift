@@ -18,20 +18,24 @@ public struct CloudCarrierResolver: CloudLinkResolver {
 
     public func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
         guard let serve else { throw CloudLinkError.helperNotRunning(reason: "no bundled cmux-tui") }
-        // Each connect starts a fresh child: its environment's access token is read as it starts.
-        let socket = try await serve.socketPath(fresh: true)
+        let socket = try await serve.socketPath()
         // TODO(carrier): read "vmk":"owner"|"team" from the dial's ok line once the carrier sends it.
         let caller = await ownership()
         return CloudLinkSocket(key: key, path: socket, generation: nil, callerOwnsVM: caller == .owner, callerIsTeammate: caller == .team)
     }
 
+    /// Why the serve child's last dial was refused since this connect, when it was.
+    public func refusal(_ key: CloudLinkKey) async -> CloudLinkError? { await serve?.refusal }
+
     /// Ends the session's `carrier serve` (machine removed, sign-out, quit).
     public func close(_ key: CloudLinkKey) async { await serve?.stop() }
 }
 
-/// One Cloud session's `cmux carrier serve --machine <vm_id> --socket <path>`: started on the first
-/// connect, kept for the session, stopped by closing its stdin (it then removes its socket and exits).
-/// A child that ended is started again only once it has exited, so two never hold the same socket.
+/// One Cloud session's `cmux carrier serve --machine <vm_id> --socket <path>` (#37278): started on the first
+/// connect and kept for the session; each later connect hands it a fresh access token on stdin
+/// (`{"access_token":…}`), since the app has no token refresh signal. Closing stdin stops it (it removes its
+/// socket); another starts only once it exited, so two never claim the same socket. After its ready line its
+/// stderr names each refused connection's step, which ends the link with that step's wording.
 public actor CloudCarrierServe {
     /// `carrier serve` binds at once and dials only per connection, so its ready line comes fast.
     static let readyDeadline: Duration = .seconds(15)
@@ -41,6 +45,8 @@ public actor CloudCarrierServe {
     private var child: ChildProcess?
     private var ready = false
     private var starting: Task<String, any Error>?
+    /// The last refused dial since the current connect.
+    private(set) var refusal: CloudLinkError?
 
     /// The socket is the machine's `cmux-link-<12 hex>.sock` in this user's private temporary folder
     /// (``CloudPaths``), which ``CloudLinkSocketPolicy`` checks once the child is ready.
@@ -52,11 +58,15 @@ public actor CloudCarrierServe {
         (self.connector, self.socket, self.check) = (connector, socket, check)
     }
 
-    /// The serving socket, starting the child when none runs, or anew (after the old one exits) when `fresh`.
-    /// Throws ``CloudLinkError`` when it does not get ready.
-    public func socketPath(fresh: Bool = false) async throws -> String {
+    /// The serving socket: a running child gets a fresh access token, else a new child starts (after the
+    /// last one exited). Throws ``CloudLinkError`` when it does not get ready.
+    public func socketPath() async throws -> String {
+        refusal = nil
         if let starting { return try await starting.value }
-        if fresh { stop() } else if ready, child?.isRunning == true { return socket }
+        if ready, let child, child.isRunning,
+           let token = try? await connector.environment()["CMUX_CLOUD_ACCESS_TOKEN"], child.writeInput(line: CloudCarrierDial.tokenLine(token)) {
+            return socket
+        }
         let task = Task { try await self.launch() }
         starting = task
         defer { starting = nil }
@@ -69,17 +79,42 @@ public actor CloudCarrierServe {
         child?.closeInput()
     }
 
+    private func noteRefused(_ error: CloudLinkError) { refusal = error }
+
     private func launch() async throws -> String {
-        if let previous = child { _ = await previous.waitForExit() }
+        if let previous = child { previous.closeInput(); _ = await previous.waitForExit() }
         ready = false
         let environment = ProcessInfo.processInfo.environment.merging(try await connector.environment()) { $1 }
         let child = ChildProcess(executable: connector.cli, arguments: connector.dial.serveArguments(socket: socket), environment: environment)
         self.child = child
+        let (answers, answer) = AsyncStream.makeStream(of: CloudCarrierDial.ServeLine.self, bufferingPolicy: .bufferingNewest(1))
+        // One reader for all of stderr: the first answer, then one line per refused connection.
+        // task-owner: ends with the child's stderr
+        Task { [weak self, lines = child.stderrLines] in
+            var answered = false
+            for await text in lines {
+                guard let line = CloudCarrierDial.serveLine(text) else { continue }
+                if !answered { answered = true; answer.yield(line); answer.finish(); continue }
+                if case .refused(let code, let detail) = line { await self?.noteRefused(CloudCarrierDial.linkError(code: code, detail: detail)) }
+            }
+            answer.finish()
+        }
         do {
             try child.startHoldingInput()
-            let served = try await child.firstLine(within: Self.readyDeadline, label: "cmux carrier serve", stderr: true) { CloudCarrierDial.readySocket($0) }
-            guard served == socket else { throw CloudLinkError.invalidAnswer("served another socket") }
-            try check(served)
+            let first = try await withDeadline(Self.readyDeadline, label: "cmux carrier serve") { () -> CloudCarrierDial.ServeLine? in
+                for await line in answers { return line }
+                return nil
+            }
+            switch first {
+            case .ready(let served)?:
+                guard served == socket else { throw CloudLinkError.invalidAnswer("served another socket") }
+                try check(served)
+            case .refused(let code, let detail)?:
+                throw code == "socket" ? Self.socketTaken : CloudCarrierDial.linkError(code: code, detail: detail)
+            case nil:
+                // Exit 64 is a usage refusal, a live listener at the path included.
+                throw await child.waitForExit() == 64 ? Self.socketTaken : CloudLinkError.helperNotRunning(reason: child.stderrText)
+            }
         } catch {
             child.closeInput()
             throw (error as? CloudLinkError) ?? CloudLinkError.helperNotRunning(reason: String(describing: error))
@@ -87,6 +122,8 @@ public actor CloudCarrierServe {
         ready = true
         return socket
     }
+
+    private static let socketTaken = CloudLinkError.failed(code: "socket", message: "another cmux is serving this machine's connection socket")
 }
 
 extension CloudCallerOwnership {

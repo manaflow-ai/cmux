@@ -150,14 +150,17 @@ public actor CloudLinkSession {
     /// The daemon connection's endpoint: the ticket's socket, once. Throws
     /// ``CloudLinkError`` otherwise; a current ticket's second call ends the
     /// link, an old ticket changes nothing.
-    public func endpoint(_ ticket: CloudLinkTicket) throws -> String {
+    public func endpoint(_ ticket: CloudLinkTicket) async throws -> String {
         guard ticket.id == attempt else { throw Self.superseded }
         switch state {
         case .ready(let socket):
             state = .attached(socket)
             return socket.path
         case .attached:
-            let error = CloudLinkError.disconnected(reason: "connection ended")
+            // A refused connection's step (a carrier dial's), else the plain drop.
+            let refusal = await resolver.refusal(key)
+            guard ticket.id == attempt, case .attached = state else { throw Self.superseded }
+            let error = refusal ?? CloudLinkError.disconnected(reason: "connection ended")
             state = .ended(error)
             throw error
         case .ended(let error):
