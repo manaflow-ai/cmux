@@ -1376,6 +1376,30 @@ class SupersededCancelledRun(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "cancelled"):
             self.judge()
 
+    def check(self, name=SWIFT):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
+
+    def test_a_check_named_whose_newest_run_passed_a_cancelled_one_is_not_a_red(self):
+        # gh-merge-green names a red required check by --check: GitHub's latest of the name is the green one.
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        lines = self.check()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its newest job 5 on {HEAD} is success, superseding 1 "
+                                            "cancelled run(s)"), lines)
+
+    def test_a_check_named_whose_newest_run_passed_a_failure_stays_a_red(self):
+        self.newer("success")
+        with self.assertRaisesRegex(excuse.Refused, "success"):
+            self.check()
+
+    def test_a_check_named_whose_cancelled_run_is_another_workflows_stays_a_red(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        self.gh.workflows = {11: 8}
+        with self.assertRaisesRegex(excuse.Refused, "success"):
+            self.check()
+
     def test_a_cancelled_run_with_nothing_newer_stays_a_red(self):
         self.gh.jobs[1]["conclusion"] = "cancelled"
         with self.assertRaisesRegex(excuse.Refused, "cancelled"):

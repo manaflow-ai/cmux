@@ -1139,37 +1139,59 @@ GREEN = ("success", "skipped", "neutral")
 ACTIONS_JOB_URL = r"https://github\.com/{repo}/actions/runs/(\d+)/job/(\d+)"
 
 
-def superseding_check(repo: str, sha: str, job: dict, github, seen: dict) -> dict | None:
-    """The newest check run of JOB's name on SHA in a newer run of JOB's workflow, when it has completed with a
-    verdict; None when there is none, it is still running, it was cancelled too, or a workflow cannot be read. SEEN
-    keeps the head's check runs and each run's workflow for one judge call."""
+def linked_checks(repo: str, sha: str, name: str, github, seen: dict) -> list[tuple[int, int, dict]]:
+    """(Actions job id, run id, check run) of each GitHub Actions check run of NAME on SHA, every attempt, newest job
+    first. Recency is the job id each check run links (its details URL), never the check run's own id: one kind of id
+    whatever the check run's own is. SEEN keeps the head's check runs for one judge call."""
     if "checks" not in seen:
         listed = github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True)
         seen["checks"] = [check for page in listed for check in page.get("check_runs") or []
                           if (check.get("app") or {}).get("slug") == "github-actions"]
-
-    def workflow(run: int):
-        if run not in seen:
-            seen[run] = github.json(f"repos/{repo}/actions/runs/{run}").get("workflow_id")
-        return seen[run]
-
-    # Recency is the Actions job id each check run links (its details URL), compared with JOB's own id: one kind of
-    # id on both sides, whatever the check run's own id is.
     url = re.compile(ACTIONS_JOB_URL.format(repo=re.escape(repo)))
     linked = [(int(match[2]), int(match[1]), check) for check in seen["checks"]
-              if check.get("name") == job.get("name") and (match := url.fullmatch(check.get("details_url") or ""))]
+              if check.get("name") == name and (match := url.fullmatch(check.get("details_url") or ""))]
+    return sorted(linked, key=lambda found: found[0], reverse=True)
+
+
+def run_workflow(repo: str, run: int, github, seen: dict):
+    """RUN's workflow id, read once per judge call (SEEN)."""
+    if run not in seen:
+        seen[run] = github.json(f"repos/{repo}/actions/runs/{run}").get("workflow_id")
+    return seen[run]
+
+
+def superseding_check(repo: str, sha: str, job: dict, github, seen: dict) -> dict | None:
+    """The newest check run of JOB's name on SHA in a newer run of JOB's workflow, when it has completed with a
+    verdict; None when there is none, it is still running, it was cancelled too, or a workflow cannot be read."""
     mine = None
-    for job_id, run, check in sorted(linked, key=lambda found: found[0], reverse=True):
+    for job_id, run, check in linked_checks(repo, sha, job.get("name", ""), github, seen):
         if job_id <= job["id"] or run == job["run_id"]:
             continue  # older, or a later attempt of the same run (last_real_jobs reads those)
-        mine = workflow(job["run_id"]) if mine is None else mine
-        if mine is None or workflow(run) != mine:
+        mine = run_workflow(repo, job["run_id"], github, seen) if mine is None else mine
+        if mine is None or run_workflow(repo, run, github, seen) != mine:
             continue
         # The newest run of this workflow and name decides; it must have finished with a verdict of its own.
         if check.get("status") != "completed" or check.get("conclusion") in SUPERSEDABLE:
             return None
         return {**check, "job_id": job_id}
     return None
+
+
+def superseded_by_green(repo: str, sha: str, job: dict, github, seen: dict) -> list[dict]:
+    """The older red check runs of green JOB's name on SHA when every one is a cancelled (or stale) run of JOB's own
+    workflow, so JOB, the newest, supersedes them all; [] when there is none, or any is a failure (a verdict that
+    stays red whatever a later run says) or another workflow's or a still-running run's."""
+    mine = run_workflow(repo, job["run_id"], github, seen)
+    older = [(job_id, run, check) for job_id, run, check in linked_checks(repo, sha, job.get("name", ""), github, seen)
+             if job_id < job["id"]]
+    reds = [(run, check) for _, run, check in older if check.get("conclusion") not in GREEN]
+    if mine is None or not reds:
+        return []
+    for run, check in reds:
+        if (check.get("status") != "completed" or check.get("conclusion") not in SUPERSEDABLE
+                or run_workflow(repo, run, github, seen) != mine):
+            return []
+    return [check for _, check in reds]
 
 
 def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *, base: str | None = None,
@@ -1247,6 +1269,24 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                     continue
                 aggregate_jobs.append(job)
             else:
+                if job.get("conclusion") in GREEN and (cancelled := superseded_by_green(repo, sha, job, github, seen)):
+                    # The newest run of the name passed; the reds GitHub still lists for it are cancelled runs of
+                    # its workflow that it superseded (cmux#36965's 'risk evidence').
+                    if ignored is not None:
+                        ignored.append(f"ignored '{name}': its newest job {job['id']} on {sha} is "
+                                       f"{job['conclusion']}, superseding {len(cancelled)} cancelled run(s) of the "
+                                       "same workflow; the newest completed run is the verdict")
+                    continue
+                if (job.get("conclusion") in SUPERSEDABLE
+                        and (newer := superseding_check(repo, sha, job, github, seen)) is not None):
+                    # GitHub's latest is by check run id; a newer job of the name decides (linked_checks).
+                    if newer.get("conclusion") in GREEN:
+                        if ignored is not None:
+                            ignored.append(f"ignored '{name}': its {job['conclusion']} job {job['id']} is superseded "
+                                           f"by job {newer['job_id']} of the same workflow, {newer['conclusion']} on "
+                                           f"{sha}; the newest completed run is the verdict")
+                        continue
+                    job = job_for(repo, newer, sha, github)
                 jobs[job["id"]] = job
         for name, run in aggregate_runs:
             found = head_jobs(repo, sha, [run], [], github, ignored=ignored, seen=seen)
