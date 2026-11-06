@@ -102,9 +102,10 @@ export function CloudProgressView({
     </ol>
   );
   const status = (
-    <span className="cloud-progress__status" role="status">
+    // Only the stage word is live: the elapsed line ticks every second and would be read out each time.
+    <span className="cloud-progress__status">
       <StatusGlyph name={statusGlyph(state.stage)} size={12} />
-      <span className="cloud-progress__stage">{stageWord}</span>
+      <output className="cloud-progress__stage">{stageWord}</output>
       <span className="cloud-progress__elapsed">{elapsedText}</span>
     </span>
   );
