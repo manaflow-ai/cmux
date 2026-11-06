@@ -1,10 +1,8 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
-import CmuxNextPages
-import CmuxNextSettings
 import Foundation
 import Testing
-@testable import CmuxNextGitHubViewer
+@testable import CmuxNextPullRequestDiff
 
 /// A pull request's diff from commits already on this Mac: read from a checkout of its repository
 /// before GitHub, only for an open pull request whose commits are known, and never as a partial
@@ -12,7 +10,6 @@ import Testing
 @MainActor
 @Suite
 struct GitHubLocalDiffTests {
-    private static let click = PageCallContext(page: "cmux.github", userGesture: true, gestureEvent: 1)
     private static let pull = URL(string: "https://github.com/manaflow-ai/cmux/pull/36002")!
     private static let base = String(repeating: "a", count: 40), head = String(repeating: "b", count: 40)
     nonisolated private static let ghPatch = "diff --git a/gh b/gh\n--- a/gh\n+++ b/gh\n@@ -1 +1 @@\n-a\n+b\n"
@@ -35,18 +32,19 @@ struct GitHubLocalDiffTests {
         return cache
     }
 
-    private static func provider(_ cache: AgentReplyPullRequests, _ calls: Calls, local answer: Data?,
-                                 opened: @escaping @MainActor (String) -> Void) -> GitHubPageProvider {
-        GitHubPageProvider(cache: cache, diffReader: { _ in
-            await MainActor.run { calls.gh += 1 }
-            return ghPatch
-        }, localDiff: GitHubLocalDiff(cache: cache) { params in
+    /// View diff on the pull request: the diff it opened (or its web page's address).
+    private static func open(_ cache: AgentReplyPullRequests, _ calls: Calls, local answer: Data?) async throws -> String {
+        let link = try #require(GitHubLink(URL(string: pull.absoluteString + "/files")!))
+        let diff = PullRequestDiff(local: GitHubLocalDiff(cache: cache) { params in
             calls.local.append(params)
             return answer
-        }, openWeb: { _, _ in false }, openDiff: { text, _, _, _ in
-            opened(text)
-            return true
+        }, read: { _ in
+            await MainActor.run { calls.gh += 1 }
+            return ghPatch
         })
+        return await withCheckedContinuation { done in
+            diff.open(link, openDiff: { done.resume(returning: $0) }, openWeb: { done.resume(returning: $0.absoluteString) })
+        }
     }
 
     @Test func aReplyBecomesTheWholeUnifiedDiff() async throws {
@@ -118,10 +116,8 @@ struct GitHubLocalDiffTests {
 
     @Test func anOpenPullRequestsDiffIsReadFromItsCommitsHereBeforeGitHub() async throws {
         let calls = Calls(), cache = try Self.cache()
-        var opened: [String] = []
         let local = Self.reply([["path": "a.txt", "status": "modified", "additions": 1, "deletions": 1, "patch": "@@ -1 +1 @@\n-a\n+b\n"]])
-        let provider = Self.provider(cache, calls, local: local) { opened.append($0) }
-        _ = try await provider.call("cmux.github.diff.open", params: ["url": .string(Self.pull.absoluteString)], context: Self.click)
+        let opened = try await Self.open(cache, calls, local: local)
         #expect(calls.gh == 0)
         #expect(calls.local.count == 1)
         let params = try #require(calls.local.first)
@@ -129,24 +125,21 @@ struct GitHubLocalDiffTests {
         #expect(params["scope"] == .string("commits"))
         #expect(params["base"] == .string(Self.base))
         #expect(params["head"] == .string(Self.head))
-        #expect(opened.first?.hasPrefix("diff --git a/a.txt b/a.txt\n") == true)
+        #expect(opened.hasPrefix("diff --git a/a.txt b/a.txt\n"))
     }
 
     @Test func aFolderWithoutTheCommitsFallsBackToGitHub() async throws {
         let calls = Calls(), cache = try Self.cache()
-        var opened: [String] = []
-        let provider = Self.provider(cache, calls, local: nil) { opened.append($0) }
-        _ = try await provider.call("cmux.github.diff.open", params: ["url": .string(Self.pull.absoluteString)], context: Self.click)
+        let opened = try await Self.open(cache, calls, local: nil)
         #expect(calls.local.count == 1)
         #expect(calls.gh == 1)
-        #expect(opened == [Self.ghPatch])
+        #expect(opened == Self.ghPatch)
     }
 
     @Test func aMergedPullRequestOrNoCheckoutIsReadFromGitHubOnly() async throws {
         for cache in [try Self.cache(state: "MERGED"), try Self.cache(folder: nil)] {
             let calls = Calls()
-            let provider = Self.provider(cache, calls, local: Self.reply([])) { _ in }
-            _ = try await provider.call("cmux.github.diff.open", params: ["url": .string(Self.pull.absoluteString)], context: Self.click)
+            _ = try await Self.open(cache, calls, local: Self.reply([]))
             #expect(calls.local.isEmpty)
             #expect(calls.gh == 1)
         }

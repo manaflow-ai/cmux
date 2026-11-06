@@ -413,8 +413,8 @@ public final class AgentReplyPullRequests {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Puts `pullRequest` in the cache for `url` as a read that just answered (the instant-create
-    /// bench's `github_right`: the link card already read it, as in a chat). Fresh for `freshness`.
+    /// Puts `pullRequest` in the cache for `url` as a read that just answered (tests: the link card
+    /// already read it, as in a chat). Fresh for `freshness`.
     public func seed(_ pullRequest: AgentPanePullRequest, for url: URL) {
         record(pullRequest, for: url, began: Date())
     }

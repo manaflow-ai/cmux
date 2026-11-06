@@ -335,7 +335,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextLiveCode",
                 "CmuxNextAgentLanes",
                 "CmuxNextChiefViews",
-                "CmuxNextGitHubViewer",
+                "CmuxNextPullRequestDiff",
                 "CmuxNextAgentCursor",
                 .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
                 "CmuxNextAgentCursorVisibility",
@@ -1018,26 +1018,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextChiefMemory"],
             swiftSettings: uiSwiftSettings
         ),
-        // The GitHub page (webviews/src/pages/github): a pull request link clicked in a chat shows
-        // natively from the app's pull request cache, with its diff in the diff viewer. The App
-        // places its tab and opens what it asks to (GitHubPageTab).
+        // A pull request's diff for View diff (a `/pull/N/files` link): read from its commits on this
+        // Mac before GitHub, opened in the diff viewer. The App opens what it reads (PullRequestFilesLink).
         .target(
-            name: "CmuxNextGitHubViewer",
+            name: "CmuxNextPullRequestDiff",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPane",
                 "CmuxNextDaemon",
-                "CmuxNextDesign",
-                "CmuxNextPages",
-                "CmuxNextSettings",
-            ],
-            resources: [
-                .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
-            name: "CmuxNextGitHubViewerTests",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextGitHubViewer", "CmuxNextPages", "CmuxNextSettings"],
+            name: "CmuxNextPullRequestDiffTests",
+            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextPullRequestDiff"],
             swiftSettings: uiSwiftSettings
         ),
         // The Chief view gallery (webviews/src/pages/chief-views): the page's provider over the
@@ -1835,6 +1828,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPagesTestSupport",
                 "CmuxNextPalette",
                 "CmuxNextProcessEnvironment",
+                "CmuxNextPullRequestDiff",
                 "CmuxNextRemote",
                 "CmuxNextRemoteLocalhostService",
                 "CmuxNextRemoteViewSessions",

@@ -5,6 +5,7 @@ import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextPages
+import CmuxNextPullRequestDiff
 import CmuxNextTestSupport
 import CmuxNextTabs
 import Foundation
@@ -24,9 +25,8 @@ struct ClickedLinkFocusTests {
 
     /// The link's tab opens in the source's own pane (Open Links and Files set to Same Pane): the source
     /// pane keeps the focus with the new tab selected, and its close selects the source tab again,
-    /// not the tab after it. `native`: the pull request link opens the GitHub page (``WebPageTab/openGitHub(_:from:services:)``)
-    /// instead of its web tab, with the same opener.
-    @Test(arguments: [false, true]) func aLinksTabInItsPaneTakesTheFocusAndItsCloseSelectsTheSourceAgain(native: Bool) async throws {
+    /// not the tab after it.
+    @Test func aLinksTabInItsPaneTakesTheFocusAndItsCloseSelectsTheSourceAgain() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let store = services.daemon.store
             let content = try #require(services.windows.active?.workspaceContent)
@@ -42,7 +42,7 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ content.focusedPane === pane && pane.stripModel.selectedID?.rawValue == source })
 
             services.linkOpener.placement = { .samePane }
-            let opened = try await Self.click(services, from: pane, native: native)
+            let opened = try await Self.click(services, from: pane)
             try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == opened && content.focusedPane === pane },
                                             report: { Self.describe(content, opened) })
 
@@ -91,27 +91,24 @@ struct ClickedLinkFocusTests {
         }
     }
 
-    /// A pull request link's GitHub page (``WebPageTab/openGitHub(_:from:services:)``) opened in the browser pane right
-    /// of the source (``splitRightHoldingABrowser(_:_:_:)``; made in the source, then moved there): its close, emptying
-    /// that pane, gives the focus back to the source, as the web tab's does.
-    @Test func theGitHubPageInAnotherPaneGivesTheFocusBackToTheSource() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+    /// A github.com pull request, issue or commit link clicked in a chat opens github.com's own page in a
+    /// browser tab, never a page of cmux's (Leo, 2026-11-06: "stop doing our own renderer for this"); only a
+    /// pull request's Files tab (View diff) is taken, to open its diff.
+    @Test func aGitHubLinkOpensItsWebPage() async throws {
+        try await PinnedPageTests.withApp { services, _ in
             let store = services.daemon.store
-            let content = try #require(services.windows.active?.workspaceContent)
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
             let pane = try #require(services.paneController(for: model))
-            let right = try await Self.splitRightHoldingABrowser(services, content, connection)
-            PaneHandlers.focus(pane.layoutPaneID, in: content)
-            try await PinnedPageTests.until({ content.focusedPane === pane })
-            services.linkOpener.placement = { .splitRight }
-
-            let opened = try await Self.click(services, from: pane, native: true)
-            try await PinnedPageTests.until({ content.focusedPane === right && right.pane.tabs.contains { $0.id == opened } },
-                                            report: { "the GitHub page is not in the focused pane on the right: " + Self.describe(content, opened) })
-            // A close that empties its pane goes back to the chat's pane, not a neighbour: the record that close reads.
-            let shown = try #require(content.focusedPane)
-            #expect(services.linkOpener.returnPane(closing: TabID(opened), in: shown, emptiesPane: true) === pane,
-                    "the GitHub tab's close does not give the focus back to the chat's pane")
+            services.linkOpener.placement = { .samePane }
+            for address in ["https://github.com/manaflow-ai/cmux/pull/1", "https://github.com/manaflow-ai/cmux/issues/1",
+                            "https://github.com/manaflow-ai/cmux/commit/6683eb35f7d54f67707fcd6214dd0c3c7041520f"] {
+                let url = try #require(URL(string: address))
+                #expect(PullRequestDiff.openFiles(url, from: pane, services: services) == nil, "\(address) did not go to its web page")
+                let opened = try await Self.click(services, from: pane, url: url)
+                try await PinnedPageTests.until({ store.tab(id: opened)?.kind == .browser && Self.shownURL(services, opened) == url },
+                                                report: { "\(address) opened no browser tab with its page" })
+            }
+            #expect(PullRequestDiff.openFiles(URL(string: "https://github.com/manaflow-ai/cmux/pull/1/files")!, from: pane, services: services) == true)
         }
     }
 
@@ -375,14 +372,10 @@ struct ClickedLinkFocusTests {
     }
 
     /// Opens the link from `pane` as a click does and returns the new tab's id once the store has it.
-    private static func click(_ services: AppServices, from pane: PaneController, native: Bool = false) async throws -> String {
+    private static func click(_ services: AppServices, from pane: PaneController, url: URL = link) async throws -> String {
         let store = services.daemon.store
         let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
-        if native {
-            #expect(WebPageTab.openGitHub(link, from: pane, services: services) == true)
-        } else {
-            services.linkOpener.openWeb(link, from: pane, background: false)
-        }
+        services.linkOpener.openWeb(url, from: pane, background: false)
         @MainActor func opened() -> String? {
             // The daemon's tab: a person's link shows a stand-in first (PaneBrowserTabOpener.openStandIn), which it replaces.
             store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }?.id

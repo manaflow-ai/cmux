@@ -1,6 +1,6 @@
 // A pull request's View diff (Session Info's Changes and Sources rows): its Files tab's address,
 // which the App opens as the pull request's diff in the diff viewer beside the chat, with no
-// github.com page in between (WebPageTab.openGitHub, GitHubPageProvider.openFiles). Leo, 2026-11-05:
+// github.com page in between (PullRequestDiff.openFiles). Leo, 2026-11-05:
 // "you want to see the diff? Boom, here's a diff. ... We can know which one to give you."
 import { callChipHost } from "../chips/host";
 

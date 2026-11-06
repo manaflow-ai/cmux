@@ -527,6 +527,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         case .remoteTerminal:
             return services.remoteTerminals.content(for: tab, home: daemon)
         case .conversation where tab.agentSession != nil: return AgentTabContent(pane: self).content(key)
+        case .conversation where tab.page == "github": return retiredGitHubTabContent(tab)
         case .conversation where tab.page != nil:
             return services.pages.view(forStoreTab: tab, in: daemon.store, local: daemon.isLocal,
                                        window: state.flatMap { services.windows.controller(for: $0.id) })

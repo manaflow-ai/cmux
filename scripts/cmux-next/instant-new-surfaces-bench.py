@@ -14,8 +14,8 @@ display frame of visibility (1 = the first frame drawn after the key) is above N
 `--commands` picks the commands (default all; `link_right`, a web link opened to the right as a new split,
 `link_home`, the same link from Home's dock alone (a new column beside it), `split_browser`, Split Browser Right,
 `dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, `github_right`, a github.com
-pull request link opened to the right in the native GitHub page (`--link-url`, default a cmux pull request; its
-pull request is seeded into the app's cache, as a chat's link card has read it, and `page_ms` is the page drawing it),
+pull request link opened to the right as `link_right` opens one: github.com's own page in the browser (`--link-url`,
+default a cmux pull request; `page_ms` is that page painting),
 and the diff viewer's `diff_small` (one file, 20 changed lines), `diff_5k` (5,000 changed lines in 10 files) and
 `diff_200` (200 files), each a scratch repository's uncommitted changes opened in a diff tab of the focused pane
 (`page_ms`: the frame after the page drew its first hunk, `cmux.diff.shown`; `diff` has the page's timeline), run
@@ -252,13 +252,12 @@ def ensure_terminal(settle=True):
 
 def timed(command, phase, index, arm=None):
     """One timed `bench_create` of `command` (the key goes through the real key path in the app), printed."""
-    # `link_home` is the app's `link_right` from Home's dock (LinkOpener reads the source, not the command).
-    sent = "link_right" if command == "link_home" else command
+    # `link_home` is the app's `link_right` from Home's dock (LinkOpener reads the source, not the command);
+    # `github_right` is `link_right` of a github.com pull request (its real page).
+    sent = "link_right" if command in ("link_home", "github_right") else command
     params = {"action": "bench_create", "command": sent}
     if sent == "link_right":
-        params["url"] = LINK_URL
-    if sent == "github_right":
-        params.update({"url": GITHUB_URL, "seed": True})
+        params["url"] = GITHUB_URL if command == "github_right" else LINK_URL
     if command in DIFF_COMMANDS:
         params.update({"command": "diff_right", "folder": DIFF_FOLDERS[command]})
     result = rpc("debug.new_tab", params, timeout=20) or {}

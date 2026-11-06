@@ -7,7 +7,11 @@ import type { AcpmuxRow } from "./model";
 /// The pull request page the reply links.
 export const LINKED_PAGE = "https://example.com/pull/4321";
 
-export function linkRows(at: number): AcpmuxRow[] {
+/// A github.com pull request for `fixture: "github-link"`, a capture of where a GitHub link opens:
+/// a public bot pull request, so the live page shows no person's name.
+export const GITHUB_PAGE = "https://github.com/manaflow-ai/cmux/pull/37053";
+
+export function linkRows(at: number, page = LINKED_PAGE): AcpmuxRow[] {
   return [
     { id: "link-ask", version: 1, at, kind: "user", text: "Open the pull request for the right pane fix" },
     {
@@ -15,7 +19,7 @@ export function linkRows(at: number): AcpmuxRow[] {
       version: 1,
       at: at + 3_000,
       kind: "assistant",
-      text: `The fix is up for review: [Reuse the pane on the right](${LINKED_PAGE}).`,
+      text: `The fix is up for review: [Reuse the pane on the right](${page}).`,
     },
     { id: "link-summary", version: 1, at: at + 3_000, kind: "turnSummary", durationMs: 3_000, toolCount: 0 },
   ] as AcpmuxRow[];

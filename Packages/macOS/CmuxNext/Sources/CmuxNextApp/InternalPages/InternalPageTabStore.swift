@@ -20,6 +20,9 @@ final class InternalPageTabStore {
     /// tabs of a pane closed out of sight close once the tree drops it.
     @ObservationIgnored private var paneStores: [String: DaemonStore] = [:]
     @ObservationIgnored private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// Restored tabs of the removed GitHub page whose browser tab this run already opened
+    /// (``PaneController/retiredGitHubTabContent(_:)``), so each opens one.
+    @ObservationIgnored var retiringTabs: Set<String> = []
     /// Go Back (true) or Go Forward (false) from a page view's mouse buttons and swipes.
     @ObservationIgnored var navigate: ((Bool) -> Void)?
     /// Sends `new-conversation-tab` for a page tab (`page-tabs-v1`) on its
