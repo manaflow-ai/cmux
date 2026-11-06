@@ -3,7 +3,7 @@ public import Foundation
 import os
 
 /// One op of the Cloud app server (`cmux/cloud`) as the `apps-run` request the local daemon runs
-/// (contract 2.3, C13b); the App's `CloudAppLinks.runner` sends it on the local connection.
+/// (contract 2.3, C13b). Cloud sessions no longer run it: they connect over the carrier (``CloudCarrierResolver``).
 ///
 /// It is sent once, with ``wireOrigin(_:userOriginAllowed:)``. A refusal, an origin refusal of
 /// `user` included, is thrown as ``CloudAppOpError`` and shown; it is never sent again with another

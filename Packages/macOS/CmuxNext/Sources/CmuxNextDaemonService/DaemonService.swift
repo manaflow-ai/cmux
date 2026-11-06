@@ -326,13 +326,16 @@ public final class DaemonService {
     /// socket (``DaemonEndpoint/bridge``). `onEnd` runs on each drop (EOF, heartbeat).
     /// `stream`: the route for every other connection to that daemon (``remoteEndpoint``), when
     /// asking `endpoint` again means this connection dropped (a Cloud app link's ticket); nil uses `endpoint`.
+    /// `bridging`: the child of each connection, `stream`'s too, made as it opens (a Cloud carrier dial,
+    /// whose environment carries a fresh access token); it takes the place of `bridge`.
     public func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
                requiredCapabilities: [String] = DaemonCapability.required,
                admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil,
-               stream: (@Sendable () async throws -> String)? = nil) {
+               stream: (@Sendable () async throws -> String)? = nil,
+               bridging: (@Sendable () async throws -> DaemonBridge)? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
         let streamEndpoint = stream ?? endpoint
-        remoteEndpoint = { DaemonEndpoint(socketPath: try await streamEndpoint()) }
+        remoteEndpoint = { DaemonEndpoint(socketPath: try await streamEndpoint(), bridge: try await bridging?()) }
         let store = store
         if let onEnd { store.onDisconnected = onEnd }
         let machineID = machineID
@@ -356,7 +359,7 @@ public final class DaemonService {
             while !Task.isCancelled {
                 let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock) {
                     DaemonConnection(configuration: configuration) {
-                        DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge)
+                        DaemonEndpoint(socketPath: try await endpoint(), bridge: try await bridging?() ?? bridge)
                     }
                 } onFailure: { error in
                     logger.error("\(machineID, privacy: .public): daemon unavailable: \(error.description, privacy: .public)")

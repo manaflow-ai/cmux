@@ -89,10 +89,10 @@ public actor CloudLinkSession {
     /// ``endpoint(_:)`` still serves it once. For another, short-lived client of the same machine
     /// daemon (`cmux link machine update`), also while the app refused that daemon: the carrier
     /// dials the machine once per connection it accepts (``CloudConnectOpResolver``). Nil before a
-    /// connect answered and once the link ended.
+    /// connect answered, once the link ended, and for a carrier link, which has no socket (``CloudCarrierResolver``).
     public var currentSocket: String? {
         switch state {
-        case .ready(let socket), .attached(let socket): socket.path
+        case .ready(let socket), .attached(let socket): socket.path.isEmpty ? nil : socket.path
         case .idle, .connecting, .ended: nil
         }
     }
@@ -101,7 +101,7 @@ public actor CloudLinkSession {
     /// separately could combine a replacement socket with a superseded owner answer.
     public var currentLinkSocket: CloudLinkSocket? {
         switch state {
-        case .ready(let socket), .attached(let socket): socket
+        case .ready(let socket), .attached(let socket): socket.path.isEmpty ? nil : socket
         case .idle, .connecting, .ended: nil
         }
     }

@@ -20,6 +20,9 @@ final class CloudMachineSession {
     var sizePick: CloudSizePick?
     let daemon: DaemonService
     @ObservationIgnored let appLink: CloudLinkSession?
+    /// The carrier's `mux` dial, one per daemon connection; the connection watches its bundled CLI's path.
+    /// Nil connects to the link's socket.
+    @ObservationIgnored var carrier: CloudCarrierDial.Connector?
     /// The last Cloud start's harness login decision here: its summary for `cloud.machines`, its team skip for the chat's card.
     @ObservationIgnored var harnessLogin: CloudHarnessLoginDecision?
     /// This Mac's own daemon identity: an app link socket that leads back to
@@ -56,7 +59,7 @@ final class CloudMachineSession {
     @ObservationIgnored private(set) var connects = 0
     @ObservationIgnored private var linkTransition: Task<Void, Never>?
     /// The app-link connect hop in flight: a pause or a disconnect cancels
-    /// it instead of waiting up to `CloudAppLinks.connectTimeout`.
+    /// it instead of waiting for its link.
     @ObservationIgnored private var connectHop: Task<Void, Never>?
     /// A transition overtook a connect after its carrier answered. If that transition
     /// rolls back, reconnect the interrupted live session unless another change replaced it.
@@ -244,13 +247,14 @@ final class CloudMachineSession {
         interruptedMutation = nil
         appTicket = ticket.id
         linkPhase = .up
-        let localIdentity = localIdentity
+        let (localIdentity, carrier) = (localIdentity, carrier)
         daemon.start(remote: { [weak self] in
             do {
-                return try await appLink.endpoint(ticket)
+                let socket = try await appLink.endpoint(ticket)
+                return carrier?.cli.path ?? socket
             } catch {
-                // The connection asked again: it dropped.
-                let message = await self?.endAppLink(error, ticket: ticket.id) ?? String(describing: error)
+                // The connection asked again: it dropped, or its carrier dial refused (named by the refusal).
+                let message = await self?.endAppLink(error, ticket: ticket.id, refusal: true) ?? String(describing: error)
                 throw DaemonError.endpointBlocked(message)
             }
         }, requiredCapabilities: DaemonCapability.nativeRemoteRequired, admit: { [weak self] identity in
@@ -262,8 +266,9 @@ final class CloudMachineSession {
             }
         }, stream: {
             // An agent chat's attach and the history reader dial the same carrier: never the drop signal above.
-            try await appLink.streamEndpoint(ticket)
-        })
+            let socket = try await appLink.streamEndpoint(ticket)
+            return carrier?.cli.path ?? socket
+        }, bridging: carrier?.bridging)
     }
 
     private func noteMutationInterruption() {
@@ -290,7 +295,8 @@ final class CloudMachineSession {
     /// The current connect's link ended: drop its connection and show why.
     /// A stale ticket (an older connect's connection) changes nothing.
     @discardableResult
-    private func endAppLink(_ error: any Error, ticket: UInt64) -> String {
+    private func endAppLink(_ error: any Error, ticket: UInt64, refusal: Bool = false) -> String {
+        let error = refusal ? CloudCarrierDial.linkError(daemon.lastStartupError) ?? error : error
         let message = CloudAppLinks.endedMessage(error)
         guard !disconnected, ticket == appTicket else { return message }
         appTicket = nil
