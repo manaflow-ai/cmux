@@ -282,14 +282,26 @@ fn an_isolated_window_capture_paints_nothing_out_of_the_target() {
 }
 
 #[test]
-fn a_denied_window_behind_an_allowed_one_is_not_painted_over_it() {
-    // 1Password (denied) in front of Safari: painted out of a display shot.
-    let front = engine(Arc::new(FakeDesktop::standard()), PolicyConfig::default());
-    assert_eq!(front.call(&ctx(None), "screenshot", &json!({})).body["redacted_windows"], 1);
-    // Safari in front, covering 1Password whole: nothing of 1Password shows,
-    // so nothing is painted (before the fix Safari's pixels were blacked out).
+fn denied_apps_are_left_out_of_the_capture_where_the_desktop_can() {
+    // A desktop that cannot leave processes out: the denied window is painted
+    // out whole, whatever is in front of it.
+    for reversed in [false, true] {
+        let mut desktop = FakeDesktop::standard();
+        if reversed {
+            desktop.windows.reverse();
+        }
+        let e = engine(Arc::new(desktop), PolicyConfig::default());
+        let shot = e.call(&ctx(None), "screenshot", &json!({}));
+        assert_eq!(shot.body["redacted_windows"], 1, "reversed={reversed}");
+    }
+    // A desktop that can (macOS): 1Password's process (pid 20) is left out of
+    // the capture itself and nothing is painted over Safari.
     let mut desktop = FakeDesktop::standard();
-    desktop.windows.reverse();
-    let behind = engine(Arc::new(desktop), PolicyConfig::default());
-    assert_eq!(behind.call(&ctx(None), "screenshot", &json!({})).body["redacted_windows"], 0);
+    desktop.excludes_apps = true;
+    let desktop = Arc::new(desktop);
+    let e = engine(desktop.clone(), PolicyConfig::default());
+    let shot = e.call(&ctx(None), "screenshot", &json!({}));
+    assert_eq!(shot.body["redacted_windows"], 0);
+    assert_eq!(shot.body["left_out_apps"], 1);
+    assert_eq!(*desktop.last_excluded.lock().unwrap(), vec![20]);
 }

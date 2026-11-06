@@ -21,6 +21,9 @@ pub enum Event {
 pub struct FakeDesktop {
     /// Whether a window capture holds only the window's own pixels.
     pub isolated_window_capture: bool,
+    /// Whether a display capture can leave processes out; the last list asked for.
+    pub excludes_apps: bool,
+    pub last_excluded: Mutex<Vec<u32>>,
     pub apps: Vec<App>,
     pub windows: Vec<Window>,
     pub scale: f64,
@@ -52,6 +55,8 @@ impl FakeDesktop {
         };
         Self {
             isolated_window_capture: false,
+            excludes_apps: false,
+            last_excluded: Mutex::new(vec![]),
             apps: vec![
                 app("com.apple.Safari", "Safari", 10),
                 app("com.1password.1password", "1Password", 20),
@@ -112,6 +117,20 @@ impl Desktop for FakeDesktop {
     }
     fn window_capture_isolated(&self) -> bool {
         self.isolated_window_capture
+    }
+
+    fn excludes_apps_from_display_capture(&self) -> bool {
+        self.excludes_apps
+    }
+
+    fn capture_display_excluding(
+        &self,
+        display: Option<&str>,
+        exclude_pids: &[u32],
+    ) -> DResult<RawFrame> {
+        *self.last_excluded.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            exclude_pids.to_vec();
+        self.capture(&CaptureTarget::Display(display.map(str::to_string)))
     }
 
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame> {

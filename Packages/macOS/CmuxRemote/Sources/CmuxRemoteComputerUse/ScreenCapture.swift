@@ -78,11 +78,15 @@ struct ScreenCapture: Sendable {
                 guard let window = content.windows.first(where: { $0.windowID == id }) else { return .failure(.noWindow(id)) }
                 filter = SCContentFilter(desktopIndependentWindow: window)
                 frame = window.frame
-            case .display(let id):
+            case .display(let id, let excluding):
                 let wanted = id ?? CGMainDisplayID()
                 guard let display = content.displays.first(where: { $0.displayID == wanted }) else { return .failure(.noDisplay(id)) }
-                // This process's windows (the agent cursor, the approval panel) never reach an agent.
-                filter = SCContentFilter(display: display, excludingApplications: own, exceptingWindows: [])
+                // This process's windows (the agent cursor, the approval panel) and every window of the
+                // denied apps never reach an agent: the compositor leaves them out, at every window
+                // level, and draws what is behind them (an allowed window keeps its pixels).
+                let left = Set(excluding)
+                let denied = content.applications.filter { left.contains($0.processID) }
+                filter = SCContentFilter(display: display, excludingApplications: own + denied, exceptingWindows: [])
                 frame = display.frame
             }
             let scale = Double(filter.pointPixelScale)

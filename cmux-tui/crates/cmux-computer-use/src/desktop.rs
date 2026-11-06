@@ -302,6 +302,20 @@ pub trait Desktop: Send + Sync {
     fn window_capture_isolated(&self) -> bool {
         false
     }
+    /// Whether a display capture can leave out whole processes' windows (the
+    /// compositor draws what is behind them), so denied apps need no painting.
+    fn excludes_apps_from_display_capture(&self) -> bool {
+        false
+    }
+    /// A display capture without the windows of `exclude_pids`, at every
+    /// window level. Only when [`Desktop::excludes_apps_from_display_capture`].
+    fn capture_display_excluding(
+        &self,
+        _display: Option<&str>,
+        _exclude_pids: &[u32],
+    ) -> DResult<RawFrame> {
+        Err(DesktopError::Unsupported("this desktop cannot leave apps out of a capture".into()))
+    }
     fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree>;
     fn click(&self, target: &PointerTarget, spec: &ClickSpec) -> DResult<ActionOutcome>;
     /// Types `text` into the window's focused element (or `element_id`).
@@ -357,5 +371,14 @@ pub mod fake;
 /// worker).
 pub trait HostServices: Send + Sync {
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame>;
+    /// A display capture without the windows of `exclude_pids` (ScreenCaptureKit's
+    /// application filter in the macOS worker).
+    fn capture_display_excluding(
+        &self,
+        _display: Option<&str>,
+        _exclude_pids: &[u32],
+    ) -> DResult<RawFrame> {
+        Err(DesktopError::Unsupported("the host cannot leave apps out of a capture".into()))
+    }
     fn request_permission(&self, which: &str) -> DResult<()>;
 }

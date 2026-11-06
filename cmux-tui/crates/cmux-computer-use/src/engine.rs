@@ -854,59 +854,59 @@ impl Engine {
             label: ctx.label.clone(),
             at: focus,
         });
-        let raw = self.desktop.capture(&target).map_err(|e| ToolOutput::desktop(&e))?;
-        // Every on-screen window of a blocked app is painted out of a display
-        // shot, and out of a window shot where it overlaps when the platform's
-        // window capture is a composited crop (a covering denied window would
-        // show in it). An isolated window capture (macOS) holds only
-        // the target's pixels, so nothing in it is painted out. The windows
-        // are read again after the capture and both lists count, so a denied
-        // window that appeared or moved during it is painted out too; if the
-        // second read fails, the capture is not returned.
-        let after = self.windows()?;
+        // Denied, protected and Never apps never reach an agent's screenshot.
+        // Where the display capture can leave whole processes out (macOS:
+        // ScreenCaptureKit's application filter), the compositor leaves out
+        // every window of theirs, at every level, and draws what is behind
+        // them, so an allowed window in front keeps its pixels. Elsewhere, and
+        // for a denied window whose process was not left out (an app that
+        // started during the capture), the window is painted out whole. A
+        // window capture that holds only its window's pixels (macOS) needs
+        // neither. The windows are read again after the capture; if that read
+        // fails, the capture is not returned.
         let saved = self.sessions.saved();
         let isolated =
             matches!(&target, CaptureTarget::Window(_)) && self.desktop.window_capture_isolated();
-        let mut redact: Vec<frame::Redaction> = Vec::new();
-        if !isolated {
-            let shown = |w: &Window| w.on_screen && !w.minimized;
-            let is_target =
-                |w: &Window| matches!(&target, CaptureTarget::Window(id) if w.id == *id);
-            // A window covers what is behind it only if it was in front before the
-            // capture and is still there, unmoved, after it.
-            let stable =
-                |w: &Window| after.iter().any(|a| a.id == w.id && a.frame == w.frame && shown(a));
-            // `windows` is front to back: the allowed windows before a denied
-            // one cover it. A denied window seen only after the capture is
-            // painted whole.
-            let mut add = |w: &Window, occluders: Vec<Rect>| {
-                if !redact.iter().any(|r| r.rect == w.frame) {
-                    redact.push(frame::Redaction { rect: w.frame, occluders });
+        let blocked_pid = |pid: u32, app: &TargetApp| -> bool {
+            pid != 0 && self.blocked(config, &saved, app).is_some()
+        };
+        let mut left_out: Vec<u32> = Vec::new();
+        let excluding = matches!(&target, CaptureTarget::Display(_))
+            && self.desktop.excludes_apps_from_display_capture();
+        if excluding {
+            for w in &windows {
+                if blocked_pid(w.pid, &self.target_of(w, &names)) && !left_out.contains(&w.pid) {
+                    left_out.push(w.pid);
                 }
-            };
-            for (i, w) in windows.iter().enumerate() {
-                if !shown(w)
-                    || is_target(w)
-                    || self.blocked(config, &saved, &self.target_of(w, &names)).is_none()
-                {
-                    continue;
-                }
-                let occluders = windows[..i]
-                    .iter()
-                    .filter(|o| shown(o) && stable(o))
-                    .filter(|o| self.blocked(config, &saved, &self.target_of(o, &names)).is_none())
-                    .map(|o| o.frame)
-                    .collect();
-                add(w, occluders);
             }
-            for w in &after {
-                let known = windows.iter().any(|b| b.id == w.id && b.frame == w.frame);
-                if !known
-                    && shown(w)
-                    && !is_target(w)
-                    && self.blocked(config, &saved, &self.target_of(w, &names)).is_some()
-                {
-                    add(w, vec![]);
+            if let Ok(apps) = self.desktop.list_apps() {
+                for a in apps {
+                    let t = TargetApp { id: a.id.clone(), name: a.name.clone() };
+                    if blocked_pid(a.pid, &t) && !left_out.contains(&a.pid) {
+                        left_out.push(a.pid);
+                    }
+                }
+            }
+        }
+        let raw = match (&target, excluding) {
+            (CaptureTarget::Display(display), true) => {
+                self.desktop.capture_display_excluding(display.as_deref(), &left_out)
+            }
+            _ => self.desktop.capture(&target),
+        }
+        .map_err(|e| ToolOutput::desktop(&e))?;
+        let after = self.windows()?;
+        let mut redact: Vec<Rect> = Vec::new();
+        if !isolated {
+            for w in windows.iter().chain(after.iter()) {
+                let skip = !w.on_screen
+                    || w.minimized
+                    || matches!(&target, CaptureTarget::Window(id) if w.id == *id)
+                    || (excluding && w.pid != 0 && left_out.contains(&w.pid))
+                    || self.blocked(config, &saved, &self.target_of(w, &names)).is_none();
+                // The same window in both lists, unmoved, is painted once.
+                if !skip && !redact.contains(&w.frame) {
+                    redact.push(w.frame);
                 }
             }
         }
@@ -924,6 +924,7 @@ impl Engine {
             "height": encoded.geometry.height,
             "unchanged": encoded.unchanged,
             "redacted_windows": encoded.redacted,
+            "left_out_apps": left_out.len(),
             "coordinates": "pass pixels of this image to click, scroll and drag",
         }));
         out.png_base64 = encoded.png_base64;

@@ -229,11 +229,13 @@ enum ApprovalAnswer: Int32, CaseIterable, Sendable {
     case never = 5
 }
 
-/// Where `capture` reads: `{"window":"<CGWindowID>"}` or `{"display":null|"<id>"}`.
+/// Where `capture` reads: `{"window":"<CGWindowID>"}` or `{"display":null|"<id>","exclude_pids":[N]}`.
+/// `exclude_pids`: the processes (denied and protected apps) whose windows the compositor leaves out
+/// of a display capture, at every window level, so an agent never sees them.
 enum CaptureTarget: Equatable, Sendable {
     case window(UInt32)
     /// Nil: the main display.
-    case display(UInt32?)
+    case display(UInt32?, excluding: [pid_t] = [])
 
     init?(json: Data) {
         guard let object = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any] else { return nil }
@@ -241,10 +243,21 @@ enum CaptureTarget: Equatable, Sendable {
             guard let id = Self.number(window) else { return nil }
             self = .window(id)
         } else if object.keys.contains("display") {
+            var excluding: [pid_t] = []
+            if let list = object["exclude_pids"] {
+                guard let numbers = list as? [NSNumber] else { return nil }
+                for number in numbers {
+                    guard let pid = pid_t(exactly: number.int64Value), pid > 0 else { return nil }
+                    excluding.append(pid)
+                }
+            }
             let display = object["display"]
-            if display == nil || display is NSNull { self = .display(nil); return }
+            if display == nil || display is NSNull {
+                self = .display(nil, excluding: excluding)
+                return
+            }
             guard let id = Self.number(display) else { return nil }
-            self = .display(id)
+            self = .display(id, excluding: excluding)
         } else {
             return nil
         }

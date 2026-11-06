@@ -116,6 +116,11 @@ import Testing
         #expect(CaptureTarget(json: Data(#"{"display":"1"}"#.utf8)) == .display(1))
         #expect(CaptureTarget(json: Data(#"{"window":"x"}"#.utf8)) == nil)
         #expect(CaptureTarget(json: Data(#"{}"#.utf8)) == nil)
+        #expect(CaptureTarget(json: Data(#"{"display":null,"exclude_pids":[12,34]}"#.utf8)) == .display(nil, excluding: [12, 34]))
+        #expect(CaptureTarget(json: Data(#"{"display":"1","exclude_pids":[]}"#.utf8)) == .display(1))
+        // A bad exclusion list refuses the capture rather than capturing without it.
+        #expect(CaptureTarget(json: Data(#"{"display":null,"exclude_pids":["x"]}"#.utf8)) == nil)
+        #expect(CaptureTarget(json: Data(#"{"display":null,"exclude_pids":[0]}"#.utf8)) == nil)
     }
 
     @Test func rgbaIsTightlyPacked() throws {

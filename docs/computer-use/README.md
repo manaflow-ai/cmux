@@ -57,11 +57,11 @@ the agent's words.
 
 - `computerUse.deniedApps` (exact id, `prefix*`, `name:App Name`) holds password
   managers and keychains, System Settings, terminals and cmux by default; the
-  person can remove any entry. The visible part of every denied window is
-  painted out of display screenshots (an allowed window in front of it keeps
-  its pixels, less a 12-point margin for rounded corners and shadows), so a
-  whole-screen capture never shows a denied window. A translucent allowed
-  window in front of a denied one shows it blurred, as it does on screen.
+  person can remove any entry. No agent screenshot shows a denied window: on
+  macOS the capture itself leaves out every window of every denied app, at
+  every window level, and the compositor draws what is behind them (an allowed
+  window in front keeps its pixels); elsewhere, and for an app that started
+  during the capture, the denied window is painted out whole.
 - Protected targets are never usable and not on the list: OS sign-in and
   authentication prompts (SecurityAgent, loginwindow, UAC consent, the polkit
   agents) and cmux Remote itself.

@@ -230,6 +230,22 @@ impl Desktop for MacDesktop {
         true
     }
 
+    /// Through the worker's ScreenCaptureKit capture; the CoreGraphics fallback cannot.
+    fn excludes_apps_from_display_capture(&self) -> bool {
+        self.host.is_some()
+    }
+
+    fn capture_display_excluding(
+        &self,
+        display: Option<&str>,
+        exclude_pids: &[u32],
+    ) -> DResult<RawFrame> {
+        match &self.host {
+            Some(host) => host.capture_display_excluding(display, exclude_pids),
+            None => Err(DesktopError::Unsupported("no capture host".into())),
+        }
+    }
+
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame> {
         if let Some(host) = &self.host {
             return host.capture(target);

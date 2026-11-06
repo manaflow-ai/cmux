@@ -58,31 +58,10 @@ pub struct Encoded {
     pub redacted: usize,
 }
 
-/// One window to paint out: its frame, and the frames (global points) of the
-/// allowed windows in front of it, whose pixels are left as they are.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Redaction {
-    pub rect: Rect,
-    pub occluders: Vec<Rect>,
-}
-
-/// How far a covering window's frame is shrunk before it counts as covering:
-/// rounded corners and shadows can show what is behind them.
-pub const OCCLUDER_INSET: f64 = 12.0;
-
 /// Paints `rects` (global points) black inside `frame`.
 pub fn redact(frame: &mut RawFrame, rects: &[Rect]) -> usize {
-    let items: Vec<Redaction> =
-        rects.iter().map(|r| Redaction { rect: *r, occluders: vec![] }).collect();
-    redact_visible(frame, &items)
-}
-
-/// Paints each window's visible part black: its frame minus its occluders
-/// (each shrunk by [`OCCLUDER_INSET`]). Returns how many windows had any pixel painted.
-pub fn redact_visible(frame: &mut RawFrame, items: &[Redaction]) -> usize {
     let mut count = 0;
-    for item in items {
-        let r = item.rect;
+    for r in rects {
         let x0 = ((r.x - frame.origin.x) * frame.scale).floor().max(0.0) as i64;
         let y0 = ((r.y - frame.origin.y) * frame.scale).floor().max(0.0) as i64;
         let x1 = (((r.x + r.width) - frame.origin.x) * frame.scale).ceil() as i64;
@@ -92,39 +71,16 @@ pub fn redact_visible(frame: &mut RawFrame, items: &[Redaction]) -> usize {
         if x0 >= x1 || y0 >= y1 {
             continue;
         }
-        // The occluders in frame pixels, shrunk; empty ones dropped.
-        let covers: Vec<(f64, f64, f64, f64)> = item
-            .occluders
-            .iter()
-            .map(|o| {
-                (
-                    (o.x + OCCLUDER_INSET - frame.origin.x) * frame.scale,
-                    (o.y + OCCLUDER_INSET - frame.origin.y) * frame.scale,
-                    (o.x + o.width - OCCLUDER_INSET - frame.origin.x) * frame.scale,
-                    (o.y + o.height - OCCLUDER_INSET - frame.origin.y) * frame.scale,
-                )
-            })
-            .filter(|(a, b, c, d)| a < c && b < d)
-            .collect();
-        let mut painted = false;
+        count += 1;
         for y in y0..y1 {
-            let py = y as f64 + 0.5;
             let row = (y as usize) * frame.width as usize * 4;
             for x in x0..x1 {
-                let px = x as f64 + 0.5;
-                if covers.iter().any(|(a, b, c, d)| px >= *a && px < *c && py >= *b && py < *d) {
-                    continue;
-                }
                 let i = row + x as usize * 4;
                 frame.rgba[i] = 24;
                 frame.rgba[i + 1] = 24;
                 frame.rgba[i + 2] = 28;
                 frame.rgba[i + 3] = 255;
-                painted = true;
             }
-        }
-        if painted {
-            count += 1;
         }
     }
     count
@@ -194,7 +150,7 @@ pub fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, Strin
 /// same target; `force` sends the image even when unchanged.
 pub fn process(
     mut frame: RawFrame,
-    redactions: &[Redaction],
+    redact_rects: &[Rect],
     max_edge: u32,
     previous: Option<u64>,
     force: bool,
@@ -207,7 +163,7 @@ pub fn process(
             frame.height
         ));
     }
-    let redacted = redact_visible(&mut frame, redactions);
+    let redacted = redact(&mut frame, redact_rects);
     let (w, h, pixels) = downscale(&frame, max_edge);
     let digest = fnv(&pixels);
     let points_per_pixel = (frame.width as f64 / w as f64) / frame.scale.max(0.01);
@@ -264,35 +220,6 @@ mod tests {
         assert_eq!(f.rgba[last], 255); // bottom-right untouched
         // Outside the frame: nothing.
         assert_eq!(redact(&mut f, &[Rect { x: 0.0, y: 0.0, width: 10.0, height: 10.0 }]), 0);
-    }
-
-    #[test]
-    fn an_allowed_window_in_front_keeps_its_pixels() {
-        // A 100x100 pt frame at 1x; a denied window fills it; an allowed window
-        // covers its middle. Only the uncovered parts (and the inset) are painted.
-        let mut f = RawFrame {
-            width: 100,
-            height: 100,
-            rgba: vec![255; 100 * 100 * 4],
-            scale: 1.0,
-            origin: Point { x: 0.0, y: 0.0 },
-        };
-        let item = Redaction {
-            rect: Rect { x: 0.0, y: 0.0, width: 100.0, height: 100.0 },
-            occluders: vec![Rect { x: 20.0, y: 20.0, width: 60.0, height: 60.0 }],
-        };
-        assert_eq!(redact_visible(&mut f, &[item]), 1);
-        let at = |x: usize, y: usize| f.rgba[(y * 100 + x) * 4];
-        assert_eq!(at(5, 5), 24, "outside the cover: painted");
-        assert_eq!(at(50, 50), 255, "under the cover: left as it is");
-        assert_eq!(at(25, 25), 24, "within the inset: painted (corners, shadows)");
-        // Fully covered: nothing painted, not counted.
-        let mut g = RawFrame { rgba: vec![255; 100 * 100 * 4], ..f.clone() };
-        let hidden = Redaction {
-            rect: Rect { x: 40.0, y: 40.0, width: 10.0, height: 10.0 },
-            occluders: vec![Rect { x: 0.0, y: 0.0, width: 100.0, height: 100.0 }],
-        };
-        assert_eq!(redact_visible(&mut g, &[hidden]), 0);
     }
 
     #[test]

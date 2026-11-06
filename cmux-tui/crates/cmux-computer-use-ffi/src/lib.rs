@@ -84,14 +84,31 @@ unsafe impl Sync for Host {}
 
 impl HostServices for Host {
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame> {
-        let Some(capture) = self.0.capture else {
-            return Err(DesktopError::Unsupported("the worker supplies no capture".into()));
-        };
         let request = match target {
             CaptureTarget::Window(id) => json!({"window": id}),
             CaptureTarget::Display(d) => json!({"display": d}),
-        }
-        .to_string();
+        };
+        self.capture_request(&request.to_string())
+    }
+
+    fn capture_display_excluding(
+        &self,
+        display: Option<&str>,
+        exclude_pids: &[u32],
+    ) -> DResult<RawFrame> {
+        self.capture_request(&json!({"display": display, "exclude_pids": exclude_pids}).to_string())
+    }
+
+    fn request_permission(&self, which: &str) -> DResult<()> {
+        self.request_permission_named(which)
+    }
+}
+
+impl Host {
+    fn capture_request(&self, request: &str) -> DResult<RawFrame> {
+        let Some(capture) = self.0.capture else {
+            return Err(DesktopError::Unsupported("the worker supplies no capture".into()));
+        };
         let mut frame = CmuxCuFrame {
             width: 0,
             height: 0,
@@ -142,7 +159,7 @@ impl HostServices for Host {
         })
     }
 
-    fn request_permission(&self, which: &str) -> DResult<()> {
+    fn request_permission_named(&self, which: &str) -> DResult<()> {
         let Some(f) = self.0.request_permission else {
             return Err(DesktopError::Unsupported("no permission prompt here".into()));
         };
