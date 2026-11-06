@@ -58,7 +58,7 @@ impl Fake {
 /// The value after `flag` in a `host approvals add` script, its shell quotes taken off.
 fn arg(script: &str, flag: &str) -> String {
     let rest = &script[script.find(flag).unwrap() + flag.len() + 1..];
-    let word = if let Some(quoted) = rest.strip_prefix('\'') {
+    if let Some(quoted) = rest.strip_prefix('\'') {
         let mut out = String::new();
         let mut rest = quoted;
         loop {
@@ -76,8 +76,7 @@ fn arg(script: &str, flag: &str) -> String {
         out
     } else {
         rest.split(' ').next().unwrap().to_owned()
-    };
-    word
+    }
 }
 
 fn unhex(s: &str) -> Vec<u8> {
