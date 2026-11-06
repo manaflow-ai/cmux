@@ -13,7 +13,7 @@
 #   --base-revert=<sha>: this checkout with commit <sha> reverted (uncommitted), so OFF and ON differ only in that
 #                        change and the setting; or
 #   --base-ref=<sha>:    that commit (it must carry this bench's debug socket methods). A base before 1ff2637da6f
-#                        (#37124) has no setting: there preload is on whenever browser.keepNeighborTabsAwake > 0.
+#                        (#37124) has no setting: there preload is on whenever browser.keepNeighborTabsAwake > 0; the script warns.
 # Runs alone on the worker because it launches an app:
 #   cmux-ci run --class exclusive --label measure --measurement --script scripts/measure/hover-preload.sh --ref <sha> \
 #     [--arg=--arms=OFF,ON,OFF,ON] [--arg=--base-ref=<sha>] [--arg=--engine=chromium]
@@ -32,6 +32,8 @@ for arg in "$@"; do
     --arms=*) arms="${arg#--arms=}" ;;
     --base-ref=*) base_ref="${arg#--base-ref=}" ;;
     --base-revert=*) base_revert="${arg#--base-revert=}" ;;
+    # Each arm sets --wake-on-hover itself; the bench takes the last one, so a passed one would make every arm alike.
+    --wake-on-hover*) echo "hover-preload: do not pass --wake-on-hover; OFF arms run with it 0, ON arms with it 1" >&2; exit 2 ;;
     *) bench_args+=("$arg") ;;
   esac
 done
@@ -54,6 +56,16 @@ build() {
   printf '%s\n' "$app"
 }
 
+# Warns when the checked-out base (with any uncommitted revert) has no browser.wakeTabsOnHover setting (before
+# 1ff2637da6f): there its OFF arm still preloads whenever browser.keepNeighborTabsAwake > 0.
+check_base_setting() {
+  if ! git grep -q wakeTabsOnHover -- Packages/macOS/CmuxNext/Sources/CmuxNextSettings 2>/dev/null; then
+    echo "hover-preload: WARNING: the base ($base_desc) has no browser.wakeTabsOnHover setting (it predates 1ff2637da6f):" \
+      "its OFF arm preloads whenever browser.keepNeighborTabsAwake > 0, so OFF vs ON may compare ON with ON" >&2
+    base_desc="$base_desc, no wakeTabsOnHover setting"
+  fi
+}
+
 # Puts the checkout back at the head commit with no local change (after a base build).
 restore_head() {
   git reset --quiet --hard "$head_sha"
@@ -73,12 +85,14 @@ if [[ -n "$base_revert" ]]; then
     exit 1
   fi
   base_desc="head minus $base_revert"
+  check_base_setting
   base_app="$(build hoverbase)" || { restore_head; exit 1; }
   restore_head
 elif [[ -n "$base_ref" ]]; then
   git cat-file -e "$base_ref^{commit}" 2>/dev/null || git fetch --quiet origin "$base_ref"
   git -c advice.detachedHead=false checkout --quiet --detach "$base_ref"
   base_desc="base $(git rev-parse HEAD)"
+  check_base_setting
   base_app="$(build hoverbase)" || { restore_head; exit 1; }
   restore_head
 fi
