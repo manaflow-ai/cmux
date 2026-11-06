@@ -85,7 +85,7 @@ enum CloudPresenter {
         if let page = (window.windowController as? WindowController)?.root.content as? CloudProgressHost,
            (page.source as? CloudMachineCreation)?.planRefusal != nil {
             page.provider.ask(CloudProgressAsk(kind: .upgrade, title: CloudStrings.proRequiredTitle, body: message ?? CloudStrings.proRequiredBody,
-                                               button: CloudStrings.proRequiredUpgrade, cancel: CloudStrings.cancel), done: closed)
+                                               button: CloudStrings.proRequiredUpgrade, cancel: CloudStrings.cancel), done: { closed($0) })
             return true
         }
         confirm(CloudStrings.proRequiredTitle, message ?? CloudStrings.proRequiredBody, button: CloudStrings.proRequiredUpgrade,
