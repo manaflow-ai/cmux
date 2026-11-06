@@ -120,6 +120,11 @@ impl Hub {
         if !sign_in_refused(retry) || attempt < SIGN_IN_REFUSED_END_ATTEMPT {
             return;
         }
+        // Read first, after the tap counted this retry's line (`heard_now`) and before the turn
+        // and its marker: a new agent for the turn (a failover keeps its id), or the model
+        // answering, at any point after it moves it, and the end is not carried out
+        // (`stalled_gen`, as the stalled end).
+        let generation = session.stalled_gen.load(Ordering::SeqCst);
         let Some(turn) = session.turn() else { return };
         // A turn a Stop ends needs no end of its own.
         if super::cancel::is_stopping(session, &turn.turn_id) {
@@ -134,10 +139,6 @@ impl Hub {
             }
             *scheduled = Some(turn.turn_id.clone());
         }
-        // Read after the tap counted this retry's line (`heard_now`): a new agent for the turn
-        // (a failover keeps its id), or the model answering meanwhile, moves it, and the end is
-        // not carried out (`stalled_gen`, as the stalled end).
-        let generation = session.stalled_gen.load(Ordering::SeqCst);
         tracing::warn!(session = %session.id, turn = %turn.turn_id, attempt, "the model API refused the agent's sign-in: ending its turn");
         let answer = json!({"stopReason": "cancelled", "_meta": {"acpmux": {"signInRefused": {
             "attempt": attempt, "errorStatus": retry.get("errorStatus"), "error": retry.get("error")}}}});
