@@ -28,14 +28,19 @@ final class AgentCursorOverlay {
     }
     private var cursors: [String: SessionCursor] = [:]
     private let reduceMotion: () -> Bool
-    /// Never shown: it makes this process own a window from the start, so a display capture that
-    /// leaves out this process's windows (`ScreenCapture`) finds the process even before the first
-    /// cursor panel exists and also leaves out a panel that appears during the capture.
+    /// A real, invisible (alpha 0, 1 x 1 point, click-through) window ordered in from the start: a
+    /// panel that was never ordered in has no window-server window, so ScreenCaptureKit would not
+    /// list this process. With it, a display capture that leaves out this process's windows
+    /// (`ScreenCapture`) always finds the process, and so also leaves out a cursor or approval
+    /// panel that first appears during the capture.
     private let anchor = AgentCursorOverlay.makePanel(root: CALayer())
 
     init(reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
         self.reduceMotion = reduceMotion
-        anchor.orderOut(nil)
+        anchor.alphaValue = 0
+        anchor.ignoresMouseEvents = true
+        anchor.setFrame(CGRect(x: 0, y: 0, width: 1, height: 1), display: false)
+        anchor.orderFrontRegardless()
     }
 
     private var animates: Bool { motion.animates(reduceMotion: reduceMotion()) }
