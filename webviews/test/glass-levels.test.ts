@@ -5,7 +5,13 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
 import designScale from "../../schemas/design-scale/design-scale.json";
-import { findRawBlurs, rawBlursInCss, rawBlursInScript } from "../scripts/check-glass-levels";
+import {
+  findRawBlurs,
+  findRawNativeGlass,
+  rawBlursInCss,
+  rawBlursInScript,
+  rawNativeGlass,
+} from "../scripts/check-glass-levels";
 
 const source = (file: string) => readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
 
@@ -75,4 +81,51 @@ test("the check fails a raw blur and passes a level, an element filter and a sta
   expect(rawBlursInScript('el.style.backdropFilter = "blur(12px)";\nconst ok = "blur(var(--r))";', "x.ts")).toEqual([
     'x.ts:1: el.style.backdropFilter = "blur(12px)";',
   ]);
+});
+
+test("every native glass view and tint is a glass level", () => {
+  expect(findRawNativeGlass()).toEqual([]);
+});
+
+test("the native GlassLevel names the design scale's levels, and the roles map onto them", () => {
+  const swift = readFileSync(
+    new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/GlassLevel.swift", import.meta.url),
+    "utf8",
+  );
+  const cases = [...swift.matchAll(/^\s*case (\w+)$/gm)].map((match) => match[1]);
+  const levels = designScale.glass.filter((level) => level.kind === "level").map((level) => level.name);
+  expect(cases).toEqual(levels);
+  // The overlay tint tunable defaults to the popover level's strength.
+  const popover = swift.match(/case \.popover, \.menu: ([\d.]+)/)?.[1];
+  const tunables = readFileSync(
+    new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift", import.meta.url),
+    "utf8",
+  );
+  expect(tunables).toContain(
+    `default: ${popover}, range: 0...3, step: 0.05, unit: .multiplier, code: "ChromeTunables.glassOverlayTintStrength"`,
+  );
+  const roles = readFileSync(
+    new URL(
+      "../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/SurfaceRole+GlassLevel.swift",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  for (const role of ["popover", "menu", "card", "group", "toast", "sheet", "tooltip"])
+    expect(roles, role).toMatch(new RegExp(`case [^:]*\\.${role}\\b[^:]*:`));
+});
+
+test("the native check fails a glass view or tint scale outside the levels and passes a stated reason", () => {
+  const swift = [
+    "let a = NSVisualEffectView()",
+    "glass.tintColor = tint.withAlphaComponent(tint.alphaComponent * 1.5)",
+    "let b = GlassPanelView(style: .regular) // glass-level-allow: a system control's untinted glass",
+    "let c = Glass.makePanel(level: .chip)",
+    "// let d = NSVisualEffectView()",
+  ].join("\n");
+  expect(rawNativeGlass(swift, "CmuxNextDemo/X.swift")).toEqual([
+    "CmuxNextDemo/X.swift:1: let a = NSVisualEffectView()",
+    "CmuxNextDemo/X.swift:2: glass.tintColor = tint.withAlphaComponent(tint.alphaComponent * 1.5)",
+  ]);
+  expect(rawNativeGlass(swift, "CmuxNextDesign/GlassPanelView.swift")).toEqual([]);
 });

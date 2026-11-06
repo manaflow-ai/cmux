@@ -169,6 +169,12 @@
   ) {
   margin-right: var(--cv-inset-end);
 }
+/* A new chat's hero question and the lists under it center on the composer's column, not the whole
+   pane, so they move left with it while the panel pushes. */
+.acpmux-shell[data-session-info-chat-placement="push"] > .acpmux-main :is(.acpmux-empty, .acpmux-home-area) {
+  padding-left: var(--cv-inset);
+  padding-right: var(--cv-inset-end);
+}
 .acpmux-shell .acpmux-header {
   width: calc(
     100% + var(--acpmux-summary-push, 0px) + var(--acpmux-session-info-push, 0px) +

@@ -79,6 +79,51 @@ export function rawBlursInScript(source: string, file: string): string[] {
   return out;
 }
 
+// The native side (Packages/macOS/CmuxNext/Sources): a glass view is built by the glass's own files
+// (Glass.makePanel / makeOverlayPanel / makeSurface, the window's material), tinted at a GlassLevel.
+// Anywhere else a new NSVisualEffectView, NSGlassEffectView, GlassPanelView or SwiftUI .glassEffect,
+// or a glass tint whose alpha is scaled by a literal, is a glassiness of its own. A view that is not
+// a level (a system control's untinted glass, a setting's look, a Debug fixture) says why on its line:
+// `// glass-level-allow: <reason>`.
+const SWIFT_SOURCES = join(dirname(fileURLToPath(import.meta.url)), "../../Packages/macOS/CmuxNext/Sources");
+const NATIVE_ALLOW = /glass-level-allow:\s*\S/;
+const GLASS_BUILDERS = new Set([
+  "CmuxNextDesign/Glass.swift",
+  "CmuxNextDesign/GlassPanelView.swift",
+  "CmuxNextDesign/OverlaySurface.swift",
+  "CmuxNextDesign/WindowMaterialView.swift",
+  "CmuxNextDesign/FloatingGlass/GlassLevel.swift",
+]);
+const NATIVE_RAW = /\b(NSVisualEffectView|NSGlassEffectView|GlassPanelView)\(|\.glassEffect\(/;
+const TINT_SCALE = /tint\w*\.alphaComponent\s*\*\s*[\d.]/i;
+
+function* swiftFiles(dir: string): Generator<string> {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) yield* swiftFiles(full);
+    else if (entry.name.endsWith(".swift")) yield full;
+  }
+}
+
+/// `file:line: text` for each native glass view or tint scale in `source` outside the levels.
+export function rawNativeGlass(source: string, file: string): string[] {
+  if (GLASS_BUILDERS.has(file)) return [];
+  const out: string[] = [];
+  source.split("\n").forEach((text, line) => {
+    if (/^\s*\/\//.test(text) || NATIVE_ALLOW.test(text)) return;
+    const code = text.split("//", 1)[0]!;
+    if (NATIVE_RAW.test(code) || TINT_SCALE.test(code)) out.push(`${file}:${line + 1}: ${text.trim()}`);
+  });
+  return out;
+}
+
+/// Every native glass view or tint scale outside the levels under `root` (the CmuxNext sources).
+export function findRawNativeGlass(root = SWIFT_SOURCES): string[] {
+  const out: string[] = [];
+  for (const full of swiftFiles(root)) out.push(...rawNativeGlass(readFileSync(full, "utf8"), relative(root, full)));
+  return out;
+}
+
 /// Every raw blur under `root` (webviews/src by default).
 export function findRawBlurs(root = SRC): string[] {
   const out: string[] = [];
@@ -91,12 +136,12 @@ export function findRawBlurs(root = SRC): string[] {
 }
 
 if (import.meta.main) {
-  const found = findRawBlurs();
+  const found = [...findRawBlurs(), ...findRawNativeGlass()];
   if (found.length > 0) {
     console.error(
       "A raw blur outside the glass levels (design-scale glass: chrome, popover, menu, chip). Name a level " +
         "(var(--ds-glass-<level>-blur), or blur(var(--ds-glass-<level>-radius))), or say why it is not glass " +
-        "with /* glass-raw-blur-allow: <reason> */:",
+        "with /* glass-raw-blur-allow: <reason> */ (Swift: Glass.makePanel(level:), GlassLevel, or // glass-level-allow: <reason>):",
     );
     for (const line of found) console.error(`  ${line}`);
     process.exit(1);
