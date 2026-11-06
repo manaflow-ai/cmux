@@ -62,6 +62,9 @@ public struct AgentPaneHeaderHooks {
     /// This chat's tab follows its shown subagent. An identity update without a loaded title keeps
     /// the name bound at open; returning to the chat clears both name and tone.
     public var showsSubagent: @MainActor (_ title: String?, _ tone: Int?, _ keepingTitle: Bool) -> Void
+    /// A subagent pane goes back to the chat that opened it: that chat's tab takes focus and this tab
+    /// closes; false when no opening chat tab is open (the page then shows the chat in place).
+    public var backToChat: @MainActor () -> Bool
     /// Opens `viewer` (a background process's read-only terminal) in a tab beside the chat; false
     /// when no tab opened.
     public var openProcess: @MainActor (_ viewer: AgentPaneProcessViewer) -> Bool
@@ -119,6 +122,7 @@ public struct AgentPaneHeaderHooks {
                 openTab: @escaping @MainActor (String, AgentForkDestination) -> Bool = { _, _ in false },
                 openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
                 showsSubagent: @escaping @MainActor (String?, Int?, Bool) -> Void = { _, _, _ in },
+                backToChat: @escaping @MainActor () -> Bool = { false },
                 openProcess: @escaping @MainActor (AgentPaneProcessViewer) -> Bool = { _ in false },
                 newChat: @escaping @MainActor (String) -> Bool = { _ in false },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
@@ -141,6 +145,7 @@ public struct AgentPaneHeaderHooks {
         self.openTab = openTab
         self.openSubagent = openSubagent
         self.showsSubagent = showsSubagent
+        self.backToChat = backToChat
         self.openProcess = openProcess
         self.newChat = newChat
         self.sideTabs = sideTabs
@@ -300,6 +305,12 @@ extension AgentPaneModel {
             }
             header.showsSubagent(agent == nil ? nil : title, agent == nil ? nil : tone, agent != nil && title == nil)
             return AgentPaneReply.success()
+        case .subagentBack:
+            // A subagent pane's own page: back to the chat tab that opened it. Not from a New Tab page.
+            guard newTab == nil, let header else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentBack")
+            }
+            return AgentPaneReply.success(["back": header.backToChat()])
         case .processTerminal(let call):
             return AgentPaneProcessViewer.open(call, in: self)
         case .chatTab(let chat, let destination):

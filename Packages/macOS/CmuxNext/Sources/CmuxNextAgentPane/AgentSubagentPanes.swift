@@ -16,6 +16,8 @@ import CmuxNextCompat
 @MainActor
 public final class AgentSubagentPanes {
     private var tabs: [String: String] = [:]
+    /// The chat tab this tracker opens subagent panes beside (``chat(_:source:)``).
+    private var source: String?
     private var opening: String?
     /// The subagent whose open runs without focus but that the person asked to see meanwhile (a
     /// click while its pane opens on its own), and when: its pane takes focus once it has opened,
@@ -203,7 +205,34 @@ extension AgentSubagentPanes {
     /// The tracker of source chat `source` on acpmux session `session`: a session can have several chat
     /// tabs, and each keeps its own remembered subagent tabs, so a click in one chat never reuses a tab
     /// opened beside another (and never pulls the person into another workspace).
-    public static func chat(_ session: String, source: String) -> AgentSubagentPanes { self.session("\(session):\(source)") }
+    public static func chat(_ session: String, source: String) -> AgentSubagentPanes {
+        let panes = self.session("\(session):\(source)")
+        panes.source = source
+        return panes
+    }
+
+    /// Subagent tab `own` goes back to the chat tab that opened it (Lucas, 2026-11-06: "close the subagent
+    /// tab, and bring them back to the open chat instead"): `focus` that tab, then `close` this one; the
+    /// chat stays open in its own tab, so the close never needs to ask. False when no tracker remembers
+    /// an opener, or its tab is gone (`exists`).
+    public static func back(from own: String, resolve: (String) -> String, exists: (String) -> Bool,
+                            focus: (String) -> Void, close: (String) -> Void) -> Bool {
+        // The opener's key as it is now: a chat tab that was provisional when it opened the split has its own key since.
+        guard let source = opener(ofTab: own, resolve: resolve).map(resolve), source != own, exists(source) else { return false }
+        focus(source)
+        close(own)
+        return true
+    }
+
+    /// The chat tab that opened subagent tab `key` (``chat(_:source:)``'s `source`), or nil when no
+    /// tracker remembers it. `resolve` maps a provisional tab key to the tab's key now.
+    public static func opener(ofTab key: String, resolve: (String) -> String) -> String? {
+        for panes in sessions.values {
+            guard let source = panes.source, panes.tabs.values.contains(where: { resolve($0) == key }) else { continue }
+            return source
+        }
+        return nil
+    }
 
     /// Whether a remembered subagent tab at `candidate` is still in the clicked chat's pane (`source`) or
     /// in one of the panes of its current right column (`column`). Pane keys are scoped to a daemon (a
