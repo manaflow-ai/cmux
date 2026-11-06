@@ -476,7 +476,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           setPending((chips) =>
             chips.map((chip) =>
               chip.id === id
-                ? { ...chip, failed: live.current.t("upload.notStarted"), uploadFailed: true, retrying: false, uploading: false, progress: undefined }
+                ? {
+                    ...chip,
+                    failed: failed.includes("agent connection") ? live.current.t("upload.notStarted") : failed,
+                    uploadFailed: true,
+                    retrying: false,
+                    uploading: false,
+                    progress: undefined,
+                  }
                 : chip,
             ),
           );
@@ -798,7 +805,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// video uploaded went at once without it (Leo, 2026-11-01: "oh i guess mp4 couldnt get sent").
   /// A file the composer refused (no images here, one that would not decode) holds none: its
   /// Retry could never make it. A chip the host makes (`bound`) holds it even once failed.
-  const loading = shown.filter((chip) => !chip.failed || chip.bound || chip.uploadFailed).length;
+  const loading = shown.filter((chip) => !chip.failed || chip.bound || chip.uploadFailed || chip.retrying).length;
   /// The same chips (useSendWhenAttached's `unsettled`).
   const unsettled = loading;
   /// The video chips whose poster and frames the host still reads, for a chat on this Mac: a send

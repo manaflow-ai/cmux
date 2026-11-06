@@ -305,7 +305,7 @@ public final class AgentPaneModel {
     /// A failed staged begin may be retried by the same upload without another person gesture.
     /// This credit is deliberately held by this pane and keyed to the file's begin request, so it
     /// cannot authorize an unrelated command or a different attachment.
-    @ObservationIgnored private var uploadRetryCredits: [String: TimeInterval] = [:]
+    @ObservationIgnored private var uploadRetryCredits: [String: (expires: TimeInterval, uses: Int)] = [:]
     @ObservationIgnored private var stagedUploadKeys: [String: String] = [:]
     private static let uploadRetryLifetime: TimeInterval = 30
     /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
@@ -743,7 +743,7 @@ public final class AgentPaneModel {
             // whether it can take one. Refusing it as unsupported told the page this host is too old
             // to stream, so a recording over the one-frame size failed with Retry (#28647).
             guard let stager = onUploadStage?() else { return Self.unsupported("chat.upload.stage") }
-            guard case .begin(let name, let size, let batchToken, _) = stage, batchToken == nil else {
+            guard case .begin(let name, let size, nil, _) = stage else {
                 let reply = await stager(stage, sessionId)
                 let token: String? = switch stage {
                 case .chunk(let token, _, _), .finish(let token), .cancel(let token): token
@@ -757,14 +757,20 @@ public final class AgentPaneModel {
                     if reply["ok"] as? Bool == true, endsStage {
                         stagedUploadKeys.removeValue(forKey: token)
                     } else if (reply["error"] as? [String: Any])?["code"] as? String == "upload_failed" {
-                        uploadRetryCredits[key] = transport.gestures.uptime + Self.uploadRetryLifetime
+                        armUploadRetry(key)
                     }
+                } else if case .begin(let name, let size, _, _) = stage,
+                          let token = (reply["value"] as? [String: Any])?["token"] as? String {
+                    let key = uploadRetryKey(name: name, size: size)
+                    stagedUploadKeys[token] = key
+                    if reply["ok"] as? Bool != true,
+                       (reply["error"] as? [String: Any])?["code"] as? String == "upload_failed" { armUploadRetry(key) }
                 }
                 return reply
             }
-            let key = "\(sessionId ?? "")\u{0}\(name)\u{0}\(size)"
+            let key = uploadRetryKey(name: name, size: size)
             let now = transport.gestures.uptime
-            let retry = uploadRetryCredits[key].map { now <= $0 } == true
+            let retry = uploadRetryCredits[key].map { now <= $0.expires && $0.uses < 2 } == true
             if retry {
                 uploadRetryCredits.removeValue(forKey: key)
             } else {
@@ -773,10 +779,24 @@ public final class AgentPaneModel {
             let reply = await stager(stage, sessionId)
             if let token = (reply["value"] as? [String: Any])?["token"] as? String { stagedUploadKeys[token] = key }
             if reply["ok"] as? Bool != true,
-               (reply["error"] as? [String: Any])?["code"] as? String == "upload_failed" { uploadRetryCredits[key] = now + Self.uploadRetryLifetime }
+               (reply["error"] as? [String: Any])?["code"] as? String == "upload_failed" { armUploadRetry(key) }
             return reply
         case .unsupported(let method): return Self.unsupported(method)
         }
+    }
+
+    private func uploadRetryKey(name: String, size: Int) -> String {
+        "\(sessionId ?? "")\u{0}\(name)\u{0}\(size)"
+    }
+
+    private func armUploadRetry(_ key: String) {
+        let now = transport.gestures.uptime
+        let uses = uploadRetryCredits[key].map { now <= $0.expires ? $0.uses + 1 : 1 } ?? 1
+        guard uses <= 2 else {
+            uploadRetryCredits.removeValue(forKey: key)
+            return
+        }
+        uploadRetryCredits[key] = (now + Self.uploadRetryLifetime, uses)
     }
 
     /// The page's chat became session `id` (it started, or the quick panel moved it); no longer a new tab page.
