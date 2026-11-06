@@ -7,7 +7,7 @@ import Foundation
 /// clean"). A table whose corner cell is empty, whose other header cells name the pictures ("Before",
 /// "After") and whose rows each hold a label ("Light", "Dark") and one picture per column draws without a
 /// grid: each row is a caption with its pictures side by side across the card's full width, each picture
-/// named by a pill on its top-left corner. A click opens the row's pair in the picture viewer's slider
+/// named by a pill on its bottom-left corner (a window shot keeps its window buttons on top). A click opens the row's pair in the picture viewer's slider
 /// (``HomePictureViewer``), with the rows as a switch. Pure CoreText, any thread.
 struct HomeCompareLayout {
     static let captionHeight: CGFloat = 22
@@ -108,7 +108,7 @@ struct HomeCompareLayout {
                 if let image = picture.slot.image { HomeCardDraw.picture(ctx, image, in: rect) } else { HomeCardDraw.skeleton(ctx, rect) }
                 guard !picture.title.isEmpty, rect.width > 2 * Self.pillInset + 24, rect.height > Self.pillHeight + 2 * Self.pillInset else { continue }
                 HomeCardDraw.pill(ctx, picture.title,
-                                  in: CGRect(x: rect.minX + Self.pillInset, y: rect.minY + Self.pillInset,
+                                  in: CGRect(x: rect.minX + Self.pillInset, y: rect.maxY - Self.pillInset - Self.pillHeight,
                                              width: rect.width - 2 * Self.pillInset, height: Self.pillHeight),
                                   trailing: false, fill: UIColor(white: 0, alpha: 0.55), text: UIColor(white: 1, alpha: 1))
             }
