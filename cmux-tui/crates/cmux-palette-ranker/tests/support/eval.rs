@@ -5,6 +5,9 @@
 //! and MRR. Ranking changes are measured against this report, not guessed. `tests/eval.rs` holds
 //! the floors; `examples/eval.rs` prints the report.
 
+// Shared by the test and the example; each reads a different part.
+#![allow(dead_code)]
+
 use cmux_palette_ranker::{RankRequest, rank_request};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -24,7 +27,6 @@ pub struct FixtureEntry {
 #[derive(Debug, Clone, Deserialize)]
 pub struct FixtureSection {
     pub id: String,
-    #[allow(dead_code)]
     pub title: String,
     pub order: i64,
 }
@@ -33,7 +35,6 @@ pub struct FixtureSection {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Fixture {
-    #[allow(dead_code)]
     pub scope: String,
     pub shows_recent: bool,
     pub section_orders: Vec<i64>,
