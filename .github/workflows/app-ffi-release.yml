@@ -44,6 +44,7 @@ on:
       - "cmux-tui/crates/cmux-bookmarks-core/**"
       - "cmux-tui/crates/cmux-cloud-config/**"
       - "cmux-tui/crates/cmux-cloud-start-core/**"
+      - "cmux-tui/crates/cmux-conversation/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
       - "cmux-tui/crates/cmux-layout-reducer/**"

@@ -1,0 +1,2255 @@
+{
+ "format": "cmux-conversation-session/1",
+ "note": "One open conversation's mirror and intent log (src/session.rs) as the Swift HomeConversationSession, ConversationMirror and ConversationIntentLog ran them. tests/session.rs runs every flow through the C session handle.",
+ "flows": [
+  {
+   "name": "events before the first snapshot are kept and replayed when newer",
+   "tail_limit": 0,
+   "source": "ConversationMirror.swift, ConversationIntentLog.swift, HomeConversationSession.swift",
+   "steps": [
+    {
+     "op": "apply",
+     "request": {
+      "event": {
+       "conversation": "c1",
+       "rev": 3,
+       "change": {
+        "kind": "message",
+        "message": {
+         "id": "m3",
+         "conversation": "c1",
+         "seq": 3,
+         "client_msg_id": "x3",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:03.000Z",
+         "reactions": []
+        }
+       }
+      }
+     },
+     "expect": {
+      "outcome": "buffered",
+      "settled": []
+     }
+    },
+    {
+     "op": "load_started",
+     "request": {},
+     "expect": {}
+    },
+    {
+     "op": "apply",
+     "request": {
+      "event": {
+       "conversation": "c1",
+       "rev": 2,
+       "change": {
+        "kind": "message",
+        "message": {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       }
+      }
+     },
+     "expect": {
+      "outcome": "buffered",
+      "settled": []
+     }
+    },
+    {
+     "op": "loaded",
+     "request": {
+      "snapshot": {
+       "conversation": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 2,
+        "rev": 2,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       },
+       "messages": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        },
+        {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       ]
+      }
+     },
+     "expect": {
+      "replaced": true,
+      "settled": []
+     }
+    },
+    {
+     "op": "state",
+     "request": {
+      "tail": 10
+     },
+     "expect": {
+      "mirror": {
+       "rev": 3,
+       "summary": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 3,
+        "rev": 3,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:03.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m3",
+         "conversation": "c1",
+         "seq": 3,
+         "client_msg_id": "x3",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:03.000Z",
+         "reactions": []
+        }
+       },
+       "tail": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        },
+        {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        },
+        {
+         "id": "m3",
+         "conversation": "c1",
+         "seq": 3,
+         "client_msg_id": "x3",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:03.000Z",
+         "reactions": []
+        }
+       ]
+      },
+      "pending": [],
+      "typing": [],
+      "loading": false,
+      "buffered": 0
+     }
+    }
+   ]
+  },
+  {
+   "name": "stale and gap",
+   "tail_limit": 0,
+   "source": "ConversationMirror.swift, ConversationIntentLog.swift, HomeConversationSession.swift",
+   "steps": [
+    {
+     "op": "loaded",
+     "request": {
+      "snapshot": {
+       "conversation": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 1,
+        "rev": 5,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       },
+       "messages": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       ]
+      }
+     },
+     "expect": {
+      "replaced": true,
+      "settled": []
+     }
+    },
+    {
+     "op": "apply",
+     "request": {
+      "event": {
+       "conversation": "c1",
+       "rev": 5,
+       "change": {
+        "kind": "message",
+        "message": {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       }
+      }
+     },
+     "expect": {
+      "outcome": "stale",
+      "settled": []
+     }
+    },
+    {
+     "op": "apply",
+     "request": {
+      "event": {
+       "conversation": "c1",
+       "rev": 4,
+       "change": {
+        "kind": "message",
+        "message": {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       }
+      }
+     },
+     "expect": {
+      "outcome": "stale",
+      "settled": []
+     }
+    },
+    {
+     "op": "apply",
+     "request": {
+      "event": {
+       "conversation": "c1",
+       "rev": 7,
+       "change": {
+        "kind": "message",
+        "message": {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       }
+      }
+     },
+     "expect": {
+      "outcome": "gap",
+      "settled": []
+     }
+    },
+    {
+     "op": "apply",
+     "request": {
+      "event": {
+       "conversation": "c1",
+       "rev": 6,
+       "change": {
+        "kind": "future-kind"
+       }
+      }
+     },
+     "expect": {
+      "outcome": "applied",
+      "change": {
+       "kind": "future-kind"
+      },
+      "settled": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "a send stays pending until the mirror reaches its acknowledged rev",
+   "tail_limit": 0,
+   "source": "ConversationMirror.swift, ConversationIntentLog.swift, HomeConversationSession.swift",
+   "steps": [
+    {
+     "op": "loaded",
+     "request": {
+      "snapshot": {
+       "conversation": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 1,
+        "rev": 1,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       },
+       "messages": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       ]
+      }
+     },
+     "expect": {
+      "replaced": true,
+      "settled": []
+     }
+    },
+    {
+     "op": "add",
+     "request": {
+      "send": {
+       "client_msg_id": "c_a",
+       "conversation": "c1",
+       "parts": [
+        {
+         "type": "text",
+         "text": "hi"
+        }
+       ],
+       "created_at": 1.5
+      }
+     },
+     "expect": {
+      "added": true
+     }
+    },
+    {
+     "op": "add",
+     "request": {
+      "send": {
+       "client_msg_id": "c_a",
+       "conversation": "c1",
+       "parts": [
+        {
+         "type": "text",
+         "text": "hi"
+        }
+       ],
+       "created_at": 1.5
+      }
+     },
+     "expect": {
+      "added": false
+     }
+    },
+    {
+     "op": "acknowledge",
+     "request": {
+      "client_msg_id": "c_a",
+      "rev": 3
+     },
+     "expect": {
+      "settled": []
+     }
+    },
+    {
+     "op": "apply",
+     "request": {
+      "event": {
+       "conversation": "c1",
+       "rev": 2,
+       "change": {
+        "kind": "read-cursor",
+        "participant": "agent_x",
+        "seq": 1
+       }
+      }
+     },
+     "expect": {
+      "outcome": "applied",
+      "change": {
+       "kind": "read-cursor",
+       "participant": "agent_x",
+       "seq": 1
+      },
+      "settled": []
+     }
+    },
+    {
+     "op": "resendable",
+     "request": {},
+     "expect": {
+      "sends": []
+     }
+    },
+    {
+     "op": "apply",
+     "request": {
+      "event": {
+       "conversation": "c1",
+       "rev": 3,
+       "change": {
+        "kind": "read-cursor",
+        "participant": "agent_x",
+        "seq": 0
+       }
+      }
+     },
+     "expect": {
+      "outcome": "applied",
+      "change": {
+       "kind": "read-cursor",
+       "participant": "agent_x",
+       "seq": 0
+      },
+      "settled": [
+       "c_a"
+      ]
+     }
+    },
+    {
+     "op": "state",
+     "request": {
+      "tail": 0
+     },
+     "expect": {
+      "mirror": {
+       "rev": 3,
+       "summary": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 1,
+        "rev": 3,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {
+         "agent_x": 1
+        },
+        "last_message": {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       },
+       "tail": []
+      },
+      "pending": [],
+      "typing": [],
+      "loading": false,
+      "buffered": 0
+     }
+    }
+   ]
+  },
+  {
+   "name": "a send leaves on its echo",
+   "tail_limit": 0,
+   "source": "ConversationMirror.swift, ConversationIntentLog.swift, HomeConversationSession.swift",
+   "steps": [
+    {
+     "op": "loaded",
+     "request": {
+      "snapshot": {
+       "conversation": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 1,
+        "rev": 1,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       },
+       "messages": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       ]
+      }
+     },
+     "expect": {
+      "replaced": true,
+      "settled": []
+     }
+    },
+    {
+     "op": "add",
+     "request": {
+      "send": {
+       "client_msg_id": "c_b",
+       "conversation": "c1",
+       "parts": [
+        {
+         "type": "text",
+         "text": "hi"
+        }
+       ],
+       "created_at": 1.5,
+       "reply_to": {
+        "message_id": "m1",
+        "part_index": 0
+       }
+      }
+     },
+     "expect": {
+      "added": true
+     }
+    },
+    {
+     "op": "resendable",
+     "request": {},
+     "expect": {
+      "sends": [
+       {
+        "client_msg_id": "c_b",
+        "conversation": "c1",
+        "parts": [
+         {
+          "type": "text",
+          "text": "hi"
+         }
+        ],
+        "created_at": 1.5,
+        "state": {
+         "kind": "sending"
+        },
+        "reply_to": {
+         "message_id": "m1",
+         "part_index": 0
+        },
+        "op": {
+         "kind": "message.send",
+         "client_msg_id": "c_b",
+         "parts": [
+          {
+           "type": "text",
+           "text": "hi"
+          }
+         ],
+         "reply_to": {
+          "message_id": "m1",
+          "part_index": 0
+         }
+        }
+       }
+      ]
+     }
+    },
+    {
+     "op": "apply",
+     "request": {
+      "event": {
+       "conversation": "c1",
+       "rev": 2,
+       "change": {
+        "kind": "message",
+        "message": {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "c_b",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       }
+      }
+     },
+     "expect": {
+      "outcome": "applied",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m2",
+        "conversation": "c1",
+        "seq": 2,
+        "client_msg_id": "c_b",
+        "author": "user_local",
+        "parts": [
+         {
+          "type": "text",
+          "text": "t"
+         }
+        ],
+        "created_at": "2026-11-06T00:00:02.000Z",
+        "reactions": []
+       }
+      },
+      "settled": [
+       "c_b"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "reject, retry, discard",
+   "tail_limit": 0,
+   "source": "ConversationMirror.swift, ConversationIntentLog.swift, HomeConversationSession.swift",
+   "steps": [
+    {
+     "op": "loaded",
+     "request": {
+      "snapshot": {
+       "conversation": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 1,
+        "rev": 1,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       },
+       "messages": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       ]
+      }
+     },
+     "expect": {
+      "replaced": true,
+      "settled": []
+     }
+    },
+    {
+     "op": "add",
+     "request": {
+      "send": {
+       "client_msg_id": "c_c",
+       "conversation": "c1",
+       "parts": [
+        {
+         "type": "text",
+         "text": "hi"
+        }
+       ],
+       "created_at": 1.5,
+       "thread_root": "m1"
+      }
+     },
+     "expect": {
+      "added": true
+     }
+    },
+    {
+     "op": "reject",
+     "request": {
+      "client_msg_id": "c_c",
+      "reason": "too long"
+     },
+     "expect": {}
+    },
+    {
+     "op": "resendable",
+     "request": {},
+     "expect": {
+      "sends": []
+     }
+    },
+    {
+     "op": "state",
+     "request": {
+      "tail": 0
+     },
+     "expect": {
+      "mirror": {
+       "rev": 1,
+       "summary": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 1,
+        "rev": 1,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       },
+       "tail": []
+      },
+      "pending": [
+       {
+        "client_msg_id": "c_c",
+        "conversation": "c1",
+        "parts": [
+         {
+          "type": "text",
+          "text": "hi"
+         }
+        ],
+        "created_at": 1.5,
+        "state": {
+         "kind": "failed",
+         "reason": "too long"
+        },
+        "thread_root": "m1",
+        "op": {
+         "kind": "message.send",
+         "client_msg_id": "c_c",
+         "parts": [
+          {
+           "type": "text",
+           "text": "hi"
+          }
+         ],
+         "thread_root": "m1"
+        }
+       }
+      ],
+      "typing": [],
+      "loading": false,
+      "buffered": 0
+     }
+    },
+    {
+     "op": "retry",
+     "request": {
+      "client_msg_id": "c_c"
+     },
+     "expect": {
+      "send": {
+       "client_msg_id": "c_c",
+       "conversation": "c1",
+       "parts": [
+        {
+         "type": "text",
+         "text": "hi"
+        }
+       ],
+       "created_at": 1.5,
+       "state": {
+        "kind": "sending"
+       },
+       "thread_root": "m1",
+       "op": {
+        "kind": "message.send",
+        "client_msg_id": "c_c",
+        "parts": [
+         {
+          "type": "text",
+          "text": "hi"
+         }
+        ],
+        "thread_root": "m1"
+       }
+      }
+     }
+    },
+    {
+     "op": "retry",
+     "request": {
+      "client_msg_id": "nope"
+     },
+     "expect": {
+      "send": null
+     }
+    },
+    {
+     "op": "discard",
+     "request": {
+      "client_msg_id": "c_c"
+     },
+     "expect": {}
+    },
+    {
+     "op": "resendable",
+     "request": {},
+     "expect": {
+      "sends": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "an older snapshot never replaces a newer mirror",
+   "tail_limit": 0,
+   "source": "ConversationMirror.swift, ConversationIntentLog.swift, HomeConversationSession.swift",
+   "steps": [
+    {
+     "op": "loaded",
+     "request": {
+      "snapshot": {
+       "conversation": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 1,
+        "rev": 4,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       },
+       "messages": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       ]
+      }
+     },
+     "expect": {
+      "replaced": true,
+      "settled": []
+     }
+    },
+    {
+     "op": "typing",
+     "request": {
+      "participant": "agent_x",
+      "on": true
+     },
+     "expect": {
+      "changed": true,
+      "typing": [
+       "agent_x"
+      ]
+     }
+    },
+    {
+     "op": "load_started",
+     "request": {},
+     "expect": {}
+    },
+    {
+     "op": "loaded",
+     "request": {
+      "snapshot": {
+       "conversation": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 1,
+        "rev": 3,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       },
+       "messages": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       ]
+      }
+     },
+     "expect": {
+      "replaced": false,
+      "settled": []
+     }
+    },
+    {
+     "op": "typing",
+     "request": {
+      "participant": "agent_x",
+      "on": true
+     },
+     "expect": {
+      "changed": false,
+      "typing": [
+       "agent_x"
+      ]
+     }
+    },
+    {
+     "op": "load_started",
+     "request": {},
+     "expect": {}
+    },
+    {
+     "op": "loaded",
+     "request": {
+      "snapshot": {
+       "conversation": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 1,
+        "rev": 4,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       },
+       "messages": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       ]
+      }
+     },
+     "expect": {
+      "replaced": true,
+      "settled": []
+     }
+    },
+    {
+     "op": "typing",
+     "request": {
+      "participant": "agent_x",
+      "on": false
+     },
+     "expect": {
+      "changed": false,
+      "typing": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "a load failure drops the kept events",
+   "tail_limit": 0,
+   "source": "ConversationMirror.swift, ConversationIntentLog.swift, HomeConversationSession.swift",
+   "steps": [
+    {
+     "op": "load_started",
+     "request": {},
+     "expect": {}
+    },
+    {
+     "op": "apply",
+     "request": {
+      "event": {
+       "conversation": "c1",
+       "rev": 2,
+       "change": {
+        "kind": "message",
+        "message": {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       }
+      }
+     },
+     "expect": {
+      "outcome": "buffered",
+      "settled": []
+     }
+    },
+    {
+     "op": "load_failed",
+     "request": {},
+     "expect": {}
+    },
+    {
+     "op": "loaded",
+     "request": {
+      "snapshot": {
+       "conversation": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 1,
+        "rev": 1,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       },
+       "messages": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       ]
+      }
+     },
+     "expect": {
+      "replaced": true,
+      "settled": []
+     }
+    },
+    {
+     "op": "state",
+     "request": {},
+     "expect": {
+      "mirror": {
+       "rev": 1,
+       "summary": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 1,
+        "rev": 1,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       },
+       "tail": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        }
+       ]
+      },
+      "pending": [],
+      "typing": [],
+      "loading": false,
+      "buffered": 0
+     }
+    }
+   ]
+  },
+  {
+   "name": "a message the tail cannot join restarts the tail",
+   "tail_limit": 0,
+   "source": "ConversationMirror.swift, ConversationIntentLog.swift, HomeConversationSession.swift",
+   "steps": [
+    {
+     "op": "loaded",
+     "request": {
+      "snapshot": {
+       "conversation": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 2,
+        "rev": 1,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       },
+       "messages": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        },
+        {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       ]
+      }
+     },
+     "expect": {
+      "replaced": true,
+      "settled": []
+     }
+    },
+    {
+     "op": "apply",
+     "request": {
+      "event": {
+       "conversation": "c1",
+       "rev": 2,
+       "change": {
+        "kind": "message",
+        "message": {
+         "id": "m5",
+         "conversation": "c1",
+         "seq": 5,
+         "client_msg_id": "x5",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:05.000Z",
+         "reactions": []
+        }
+       }
+      }
+     },
+     "expect": {
+      "outcome": "applied",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m5",
+        "conversation": "c1",
+        "seq": 5,
+        "client_msg_id": "x5",
+        "author": "user_local",
+        "parts": [
+         {
+          "type": "text",
+          "text": "t"
+         }
+        ],
+        "created_at": "2026-11-06T00:00:05.000Z",
+        "reactions": []
+       }
+      },
+      "settled": []
+     }
+    },
+    {
+     "op": "state",
+     "request": {},
+     "expect": {
+      "mirror": {
+       "rev": 2,
+       "summary": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 5,
+        "rev": 2,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:05.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m5",
+         "conversation": "c1",
+         "seq": 5,
+         "client_msg_id": "x5",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:05.000Z",
+         "reactions": []
+        }
+       },
+       "tail": [
+        {
+         "id": "m5",
+         "conversation": "c1",
+         "seq": 5,
+         "client_msg_id": "x5",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:05.000Z",
+         "reactions": []
+        }
+       ]
+      },
+      "pending": [],
+      "typing": [],
+      "loading": false,
+      "buffered": 0
+     }
+    }
+   ]
+  },
+  {
+   "name": "the tail keeps its limit",
+   "tail_limit": 2,
+   "source": "ConversationMirror.swift, ConversationIntentLog.swift, HomeConversationSession.swift",
+   "steps": [
+    {
+     "op": "loaded",
+     "request": {
+      "snapshot": {
+       "conversation": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 3,
+        "rev": 1,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m3",
+         "conversation": "c1",
+         "seq": 3,
+         "client_msg_id": "x3",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:03.000Z",
+         "reactions": []
+        }
+       },
+       "messages": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        },
+        {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        },
+        {
+         "id": "m3",
+         "conversation": "c1",
+         "seq": 3,
+         "client_msg_id": "x3",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:03.000Z",
+         "reactions": []
+        }
+       ]
+      }
+     },
+     "expect": {
+      "replaced": true,
+      "settled": []
+     }
+    },
+    {
+     "op": "state",
+     "request": {},
+     "expect": {
+      "mirror": {
+       "rev": 1,
+       "summary": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 3,
+        "rev": 1,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m3",
+         "conversation": "c1",
+         "seq": 3,
+         "client_msg_id": "x3",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:03.000Z",
+         "reactions": []
+        }
+       },
+       "tail": [
+        {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        },
+        {
+         "id": "m3",
+         "conversation": "c1",
+         "seq": 3,
+         "client_msg_id": "x3",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:03.000Z",
+         "reactions": []
+        }
+       ]
+      },
+      "pending": [],
+      "typing": [],
+      "loading": false,
+      "buffered": 0
+     }
+    },
+    {
+     "op": "apply",
+     "request": {
+      "event": {
+       "conversation": "c1",
+       "rev": 2,
+       "change": {
+        "kind": "message",
+        "message": {
+         "id": "m4",
+         "conversation": "c1",
+         "seq": 4,
+         "client_msg_id": "x4",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:04.000Z",
+         "reactions": []
+        }
+       }
+      }
+     },
+     "expect": {
+      "outcome": "applied",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m4",
+        "conversation": "c1",
+        "seq": 4,
+        "client_msg_id": "x4",
+        "author": "user_local",
+        "parts": [
+         {
+          "type": "text",
+          "text": "t"
+         }
+        ],
+        "created_at": "2026-11-06T00:00:04.000Z",
+        "reactions": []
+       }
+      },
+      "settled": []
+     }
+    },
+    {
+     "op": "state",
+     "request": {},
+     "expect": {
+      "mirror": {
+       "rev": 2,
+       "summary": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 4,
+        "rev": 2,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:04.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m4",
+         "conversation": "c1",
+         "seq": 4,
+         "client_msg_id": "x4",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:04.000Z",
+         "reactions": []
+        }
+       },
+       "tail": [
+        {
+         "id": "m3",
+         "conversation": "c1",
+         "seq": 3,
+         "client_msg_id": "x3",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:03.000Z",
+         "reactions": []
+        },
+        {
+         "id": "m4",
+         "conversation": "c1",
+         "seq": 4,
+         "client_msg_id": "x4",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:04.000Z",
+         "reactions": []
+        }
+       ]
+      },
+      "pending": [],
+      "typing": [],
+      "loading": false,
+      "buffered": 0
+     }
+    }
+   ]
+  },
+  {
+   "name": "an edit replaces the tail's copy and the head's last message",
+   "tail_limit": 0,
+   "source": "ConversationMirror.swift, ConversationIntentLog.swift, HomeConversationSession.swift",
+   "steps": [
+    {
+     "op": "loaded",
+     "request": {
+      "snapshot": {
+       "conversation": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 2,
+        "rev": 1,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       },
+       "messages": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        },
+        {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       ]
+      }
+     },
+     "expect": {
+      "replaced": true,
+      "settled": []
+     }
+    },
+    {
+     "op": "apply",
+     "request": {
+      "event": {
+       "conversation": "c1",
+       "rev": 2,
+       "change": {
+        "kind": "message-updated",
+        "message": {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "edited"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       }
+      }
+     },
+     "expect": {
+      "outcome": "applied",
+      "change": {
+       "kind": "message-updated",
+       "message": {
+        "id": "m2",
+        "conversation": "c1",
+        "seq": 2,
+        "client_msg_id": "x2",
+        "author": "user_local",
+        "parts": [
+         {
+          "type": "text",
+          "text": "edited"
+         }
+        ],
+        "created_at": "2026-11-06T00:00:02.000Z",
+        "reactions": []
+       }
+      },
+      "settled": []
+     }
+    },
+    {
+     "op": "state",
+     "request": {},
+     "expect": {
+      "mirror": {
+       "rev": 2,
+       "summary": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 2,
+        "rev": 2,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "edited"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       },
+       "tail": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        },
+        {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "edited"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       ]
+      },
+      "pending": [],
+      "typing": [],
+      "loading": false,
+      "buffered": 0
+     }
+    }
+   ]
+  },
+  {
+   "name": "a new head keeps the last message it lacks and takes the event's rev",
+   "tail_limit": 0,
+   "source": "ConversationMirror.swift, ConversationIntentLog.swift, HomeConversationSession.swift",
+   "steps": [
+    {
+     "op": "loaded",
+     "request": {
+      "snapshot": {
+       "conversation": {
+        "id": "c1",
+        "owner": "local",
+        "title": "T",
+        "participants": [],
+        "last_seq": 2,
+        "rev": 1,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       },
+       "messages": [
+        {
+         "id": "m1",
+         "conversation": "c1",
+         "seq": 1,
+         "client_msg_id": "x1",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:01.000Z",
+         "reactions": []
+        },
+        {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       ]
+      }
+     },
+     "expect": {
+      "replaced": true,
+      "settled": []
+     }
+    },
+    {
+     "op": "apply",
+     "request": {
+      "event": {
+       "conversation": "c1",
+       "rev": 2,
+       "change": {
+        "kind": "conversation",
+        "conversation": {
+         "id": "c1",
+         "owner": "local",
+         "title": "Renamed",
+         "participants": [],
+         "last_seq": 2,
+         "rev": 9,
+         "created_at": "2026-11-06T00:00:00.000Z",
+         "updated_at": "2026-11-06T00:00:00.000Z",
+         "read_cursors": {}
+        }
+       }
+      }
+     },
+     "expect": {
+      "outcome": "applied",
+      "change": {
+       "kind": "conversation",
+       "conversation": {
+        "id": "c1",
+        "owner": "local",
+        "title": "Renamed",
+        "participants": [],
+        "last_seq": 2,
+        "rev": 9,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {}
+       }
+      },
+      "settled": []
+     }
+    },
+    {
+     "op": "state",
+     "request": {
+      "tail": 0
+     },
+     "expect": {
+      "mirror": {
+       "rev": 2,
+       "summary": {
+        "id": "c1",
+        "owner": "local",
+        "title": "Renamed",
+        "participants": [],
+        "last_seq": 2,
+        "rev": 2,
+        "created_at": "2026-11-06T00:00:00.000Z",
+        "updated_at": "2026-11-06T00:00:00.000Z",
+        "read_cursors": {},
+        "last_message": {
+         "id": "m2",
+         "conversation": "c1",
+         "seq": 2,
+         "client_msg_id": "x2",
+         "author": "user_local",
+         "parts": [
+          {
+           "type": "text",
+           "text": "t"
+          }
+         ],
+         "created_at": "2026-11-06T00:00:02.000Z",
+         "reactions": []
+        }
+       },
+       "tail": []
+      },
+      "pending": [],
+      "typing": [],
+      "loading": false,
+      "buffered": 0
+     }
+    }
+   ]
+  },
+  {
+   "name": "ops refuse what they cannot read",
+   "tail_limit": 0,
+   "source": "ConversationMirror.swift, ConversationIntentLog.swift, HomeConversationSession.swift",
+   "steps": [
+    {
+     "op": "loaded",
+     "request": {
+      "snapshot": {
+       "messages": []
+      }
+     },
+     "expect": {
+      "error": "invalid"
+     }
+    },
+    {
+     "op": "add",
+     "request": {
+      "send": {
+       "conversation": "c1"
+      }
+     },
+     "expect": {
+      "error": "invalid"
+     }
+    },
+    {
+     "op": "acknowledge",
+     "request": {
+      "client_msg_id": "c"
+     },
+     "expect": {
+      "error": "invalid"
+     }
+    },
+    {
+     "op": "apply",
+     "request": {
+      "event": 5
+     },
+     "expect": {
+      "error": "invalid"
+     }
+    }
+   ]
+  }
+ ]
+}

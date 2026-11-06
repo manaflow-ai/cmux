@@ -8,8 +8,10 @@
 //! run the same reducer, so both speak the same ops and events.
 
 pub mod agent_sender;
+pub mod app;
 mod attachments;
 mod budget;
+pub mod ffi;
 mod home;
 mod id;
 mod link;
@@ -18,6 +20,7 @@ mod question;
 pub mod question_reply;
 mod reducer;
 mod search;
+pub mod session;
 mod types;
 
 pub use attachments::{
