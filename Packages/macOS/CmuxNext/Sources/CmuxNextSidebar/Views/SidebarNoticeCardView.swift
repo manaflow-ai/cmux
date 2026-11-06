@@ -378,7 +378,7 @@ final class SidebarNoticeCardView: NSView {
     private func frames(for notice: SidebarNoticeCard, width: CGFloat) -> Frames {
         let dismissWidth = notice.dismissTitle == nil ? 0 : dismissButton.fittingWidth
         let key = FramesKey(notice: notice, width: width, dismissWidth: dismissWidth, placement: glyphPlacement,
-                            scale: [Self.padding, Metrics.space1, Metrics.space2, Metrics.space4, Typography.caption.pointSize,
+                            scale: [Self.padding, Metrics.space1, Metrics.space2, Metrics.space4, Self.trailingSide, Typography.caption.pointSize,
                                     Typography.bodyEmphasized.pointSize, SidebarUpdateButton.font.pointSize, SidebarUpdateButton.height],
                             faces: [Typography.caption.fontName, Typography.bodyEmphasized.fontName, SidebarUpdateButton.font.fontName])
         if let measured, measured.key == key { return measured.frames }
@@ -392,7 +392,7 @@ final class SidebarNoticeCardView: NSView {
         var width: CGFloat
         var dismissWidth: CGFloat
         var placement: GlyphPlacement
-        /// The spacing and type sizes the rows are measured in, and the faces.
+        /// Every spacing and type size the rows are measured in (the trailing control's side included), and the faces.
         var scale: [CGFloat]
         var faces: [String]
     }
