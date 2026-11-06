@@ -4,9 +4,9 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 
-/// The one floating card host for the server cards (design/server-cards.md): a borderless,
+/// A floating web card host (first user: the server cards, design/server-cards.md): a borderless,
 /// non-activating glass panel near the top center of the cmux window, on every Space and over full
-/// screen, that shows one warm first-party React page (`cmux.server-cards`), one card per route
+/// screen, that shows one warm first-party React page (any descriptor; `cmux.server-cards`), one card per route
 /// (`#/pair-invite`, ...). The page and its providers are made once and kept: a later open swaps
 /// the route, never loads a page.
 ///
@@ -80,7 +80,7 @@ public final class WebCardPanel: NSPanel {
         isMovableByWindowBackground = true
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
-        setAccessibilityIdentifier("cmux.serverCard")
+        setAccessibilityIdentifier("cmux.webCard")
         glass.autoresizingMask = [.width, .height]
         contentView = glass
         host.panel = self
