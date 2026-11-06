@@ -6,7 +6,7 @@ name: cmux-next perf bench
 # (class exclusive) and fails when a cmux row regressed past
 # scripts/perf-bench/baseline/<chip>-macos<major>.json, or broke an enforced resource budget
 # (cmux-budget, scripts/perf-bench/budgets.json). It goes through the
-# build-fleet gateway runner (the one CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY names),
+# build-fleet gateway runner (the one CI_EVAL_STEP_GATEWAY names),
 # which only hands the step to the controller with `cmux-ci run`.
 
 on:
@@ -42,8 +42,8 @@ concurrency:
 
 jobs:
   bench:
-    if: github.repository_owner == 'manaflow-ai' && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != ''
-    runs-on: ${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
+    if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
     timeout-minutes: 420
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
