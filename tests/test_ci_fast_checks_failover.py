@@ -340,6 +340,19 @@ class HostedLightJobsGuardTests(unittest.TestCase):
                 result = self.run_guard(self.workflow().replace(before, after, 1), {"runner": "ubuntu-24.04", "why": "x"})
                 self.assertNotEqual(result.returncode, 0, result.stdout)
 
+    def test_a_declared_job_without_explicit_read_only_permissions_fails(self) -> None:
+        # No permissions block inherits the repository's default token, which may write.
+        for before, after in (("permissions: {}\n", ""), ("permissions: {}", "permissions: write-all")):
+            with self.subTest(change=after or "no block"):
+                result = self.run_guard(self.workflow().replace(before, after, 1), {"runner": "ubuntu-24.04", "why": "x"})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_a_declaration_without_a_usable_why_fails(self) -> None:
+        for why in (None, False, 0, [], "", "   "):
+            with self.subTest(why=why):
+                result = self.run_guard(self.workflow(), {"runner": "ubuntu-24.04", "why": why})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
     def test_a_copied_declared_line_on_another_job_fails(self) -> None:
         text = self.workflow() + "  other:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo hi\n"
         result = self.run_guard(text, {"runner": "ubuntu-24.04", "why": "x"})

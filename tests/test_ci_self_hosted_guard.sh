@@ -1311,21 +1311,23 @@ WORK = re.compile(
 def fail(message):
     print(f"FAIL: hosted light job {message}")
     raise SystemExit(1)
-def writes(permissions):
-    if permissions in ("write-all",):
+def read_only(permissions):
+    """An explicit block that grants nothing above read: {} or every scope `read`/`none`. A missing block
+    inherits the repository's default token, which may write, so it never counts."""
+    if permissions == "read-all":
         return True
-    return isinstance(permissions, dict) and any(str(v) == "write" for v in permissions.values())
+    return isinstance(permissions, dict) and all(str(v) in ("read", "none") for v in permissions.values())
 for key, entry in declared.items():
     if key.startswith("$"):
         continue
     workflow_name, _, job_name = key.partition(":")
     if not job_name or not isinstance(entry, dict):
         fail(f"{key}: declare it as \"workflow.yml:job\" with runner and why")
-    runner, why = str(entry.get("runner", "")), str(entry.get("why", "")).strip()
-    if not UBUNTU.match(runner):
+    runner, why = entry.get("runner"), entry.get("why")
+    if not isinstance(runner, str) or not UBUNTU.match(runner):
         fail(f"{key}: only a hosted Ubuntu label may be declared, not {runner!r}")
-    if not why:
-        fail(f"{key}: say why it is light")
+    if not isinstance(why, str) or not why.strip():
+        fail(f"{key}: say why it is light (a nonempty string)")
     if NAME.search(job_name):
         fail(f"{key}: a build, signing or release job never runs on a hosted runner")
     path = root / ".github/workflows" / workflow_name
@@ -1352,8 +1354,8 @@ for key, entry in declared.items():
         fail(f"{key}: runs-on must be {runner} itself or pick only allowlisted Blacksmith labels, never an open input or variable")
     if job.get("environment") is not None:
         fail(f"{key}: a job with an environment never runs on a hosted runner")
-    if writes(job.get("permissions", workflow.get("permissions"))):
-        fail(f"{key}: a hosted light job is read-only")
+    if not read_only(job["permissions"] if "permissions" in job else workflow.get("permissions")):
+        fail(f"{key}: a hosted light job declares read-only permissions (job or workflow level)")
     for step in job.get("steps") or []:
         text = " ".join(str(step.get(field, "")) for field in ("name", "run", "uses")) if isinstance(step, dict) else str(step)
         if WORK.search(text):
