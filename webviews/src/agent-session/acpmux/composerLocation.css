@@ -1133,7 +1133,7 @@
 /* Actions under the folders (Leo, 2026-11-06: "it's just folder"): the rule
    sits over them, and each carries its glyph in the folders' icon column. */
 .acpmux-folder-popover .ui-combobox-pinned[data-placement="bottom"]::before { content: ""; display: block; height: 1px; margin: 0 6px 4px; background: color-mix(in srgb, currentColor 12%, transparent); }
-.acpmux-location-action-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; color: var(--agent-muted); }
+.acpmux-location-action-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; color: var(--agent-muted); }
 /* Match the environment picker (#33137): hover/search/arrow navigation is neutral; the check
    alone marks selection. Preserve automatic keyboard focus without painting it on open. */
 .acpmux-folder-popover .acpmux-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); box-shadow: none; }
@@ -1162,11 +1162,8 @@
    them: "⑂ 4 ›", quiet until the row is hovered or highlighted; its chevron turns down while open. */
 .acpmux-location-row[data-worktree] { padding-inline-start: 28px; }
 .acpmux-location-branch-icon { display: inline-flex; flex: none; justify-content: center; width: 20px; color: var(--agent-muted); }
-/* One column for every name (Leo 2026-10-21, "aligned columns"): the actions after the folders start
-   where a repository's name does, past the 20 px badge and the shared icon gap. */
-.acpmux-folder-popover .acpmux-location-action {
-  padding-inline-start: calc(20px + var(--cmux-menu-icon-gap));
-}
+/* One column for every name (Leo 2026-10-21, "aligned columns"): an action's glyph sits in the
+   20 px badge column (.acpmux-location-action-icon), so its label starts where a folder's name does. */
 .acpmux-location-worktrees {
   display: inline-flex;
   flex: none;
