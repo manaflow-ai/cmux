@@ -661,7 +661,8 @@ pub fn allowed_with(
         "NODE_EXTRA_CA_CERTS",
         "SSL_CERT_FILE",
     ];
-    // An exact name the person added always comes in; a prefix they added,
+    // An exact name the person added always comes in (another harness's login
+    // still never reaches an agent: `agent/foreign_login.rs`); a prefix they added,
     // like the version-manager prefixes, never brings in a secret
     // (MISE_GITHUB_TOKEN, NVM_AUTH_HEADER).
     if extra_exact(key) || COMMON.contains(&key) || key == "SSL_CERT_DIR" {
@@ -779,7 +780,8 @@ fn pairs_with(
 ) -> Vec<(String, String)> {
     // A name delivered to this machine (`cmux cloud deliver-secrets`) goes to
     // every local child: the person sent it for this machine's shells and
-    // agents. Remote-origin launches never call this (`apply_remote_tokio`).
+    // agents, except another harness's login (`agent/foreign_login.rs`).
+    // Remote-origin launches never call this (`apply_remote_tokio`).
     let names = machine::names();
     let values: BTreeMap<_, _> = pairs()
         .into_iter()

@@ -5,6 +5,12 @@
 
 use super::*;
 
+// How long a long chat's fork takes to answer (an ignored bench).
+#[path = "fork_latency.rs"]
+mod fork_latency;
+// Fork Conversation's Cancel and its quiet history copy.
+#[path = "fork_cancel.rs"]
+mod fork_cancel;
 // Side questions fork the chat too, and share its Claude helpers.
 #[path = "aside.rs"]
 mod aside;

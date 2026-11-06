@@ -2588,18 +2588,6 @@
     },
     {
       "params": {
-        "action": "cloud share-machine",
-        "args": {
-          "revoke": true,
-          "teammate": "/tmp/contract"
-        },
-        "cli": true,
-        "wait": true
-      },
-      "source": "cmux cloud share-machine --teammate /tmp/contract --revoke"
-    },
-    {
-      "params": {
         "action": "cloud kill-machine",
         "args": {
           "confirm": true

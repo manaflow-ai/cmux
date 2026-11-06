@@ -19,7 +19,6 @@ import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlu
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, thisMacName } from "./environments";
 import { restoreForkSource } from "./handoff/restoreForkSource";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
-import { applyAgentTheme } from "../shared/theme";
 import { agentKey } from "../shared/agentKey";
 import {
   paneHeader,
@@ -52,7 +51,8 @@ import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, startCancelled } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabChat, type NewTabHost } from "./NewTabPage";
+import { NewTabPage } from "./NewTabPage";
+import { FOCUS_LOCATION_EVENT, newTabHost, type NewTabChat, type NewTabHost } from "./newTabModel";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
@@ -198,7 +198,8 @@ import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
 import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
 import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwner } from "./trustRefusalRoute";
-import { heldPrompts } from "./heldPrompt";
+import { heldPrompts, type SendGesture } from "./heldPrompt";
+import { bindsHeldSendNow } from "./heldSendBinding";
 import { StartingSends, type StartingSend } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { Inspector, type ExportOutcome } from "./Inspector";
@@ -247,14 +248,13 @@ import { runRetry, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/WorkflowCard";
 import {
   type DoneLineCache,
-  configureSubagentTray,
   finishedTrayItems,
   trayItems,
   useSubagentTray,
   withSubagentLines,
 } from "./subagents/runningTray";
-import { configureSubagentTrayPlacement, useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
-import { configureSelectionReply, SelectionReplyChip, setQuoteReplySink } from "./conversation/SelectionReply";
+import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
+import { SelectionReplyChip, setQuoteReplySink } from "./conversation/SelectionReply";
 import { AgentTonesContext, agentTone, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
@@ -449,7 +449,6 @@ import { harnessLabel } from "./subagents/agentRuns";
 import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
-import { configureChatWidth } from "./chatWidth";
 import {
   registerChatDisplayHost,
   useChatDisplay,
@@ -465,19 +464,13 @@ import { messagesRows } from "./conversation/messagesRows";
 import { PresentationContext } from "./conversation/PresentationContext";
 import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingVerbs";
 import { useStatusVerbConfig } from "./statusVerbs";
-import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
-import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
-import { configureToolRunLook } from "./toolRunLook";
-import { configureSentLook } from "./conversation/SentMessageLine";
-import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
-import { configureMessageLineLook } from "./conversation/messageLineLook";
-import { configureNoticeLook } from "./conversation/noticeLook";
+import { useCodexToolRuns } from "./codexToolRuns";
+import { useLiveLineBelow } from "./liveLineBelow";
 import { mergeInboxNotices } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
 import { cloudAgentLogin, localApiKeyLogin, SIGN_IN_ON_MACHINE } from "./cloudAgentLogin";
 import { handoffTurns } from "./cloudHandoffTurn";
-import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { archiveClosesTab, deleteClosesTab } from "./header/archiveClose";
 import { afterDeleteDismiss } from "./header/deleteDismiss";
@@ -503,6 +496,7 @@ import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
+import { ForkPendingLine } from "./ForkPendingLine";
 import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
 import { hostLineText } from "./hostLine";
 import {
@@ -613,9 +607,10 @@ import { PermissionAsk } from "./rows/PermissionAsk";
 
 import { defaultRegistry } from "./rows/registry";
 import { NO_ROWS, type ScrollAnchor, VirtualTranscript, rowKind } from "./VirtualTranscript";
-export { FOLLOW_BOTTOM_DEADBAND_PX, SCROLL_ANCHOR_SETTLE_MS, VirtualTranscript } from "./VirtualTranscript";
+import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";
+import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
+export { VirtualTranscript } from "./VirtualTranscript";
 export type { ScrollAnchor } from "./VirtualTranscript";
-export { readOnlyRegistry } from "./rows/registry";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -707,132 +702,9 @@ declare global {
   }
 }
 
-function emptySnapshot(): AcpmuxSnapshot {
-  return {
-    type: "snapshot",
-    protocolVersion: 1,
-    rows: [],
-    sessions: [],
-    connection: "connecting",
-    isWorking: false,
-    queue: [],
-    catalog: [],
-    canLoadOlder: false,
-  };
-}
-
-/// The latest snapshot, kept for a reload of the page (`cachedSnapshot`). A streaming reply sends
-/// one a display frame, and serializing the whole transcript each frame took main-thread time that
-/// grew with the chat: it is written at most every SNAPSHOT_SAVE_MS, and at once as the page hides
-/// or unloads, so a reload still finds the latest one.
-const SNAPSHOT_SAVE_MS = 250;
-const snapshotSave: {
-  next?: AcpmuxSnapshot;
-  timer?: ReturnType<typeof setTimeout>;
-  hooked?: boolean;
-} = {};
-function writeSnapshot(): void {
-  clearTimeout(snapshotSave.timer);
-  snapshotSave.timer = undefined;
-  const next = snapshotSave.next;
-  snapshotSave.next = undefined;
-  if (!next) return;
-  try {
-    sessionStorage.setItem("cmux.acpmux.snapshot", JSON.stringify({ ...next, sessions: savedSessions(next) }));
-  } catch {
-    // Painting remains live when storage is unavailable or full.
-  }
-}
-
-/// Whether the shown chat's turn ended between two renders (App.tsx `pane.tabState`): the same chat
-/// went idle, or its client counted an end. Only the same chat counts; switching away from a working
-/// chat is no turn end. A turn that started and ended between two renders (a hidden page's batch,
-/// drawn as one render) shows in `turnsEnded` alone; a new client counts from 0, so any change to a
-/// count above 0 is an end.
-export type TurnState = { session?: string; working: boolean; turnsEnded?: number };
-export function turnEndedBetween(last: TurnState, next: TurnState): boolean {
-  if (last.session !== next.session) return false;
-  if (last.working && !next.working) return true;
-  return next.turnsEnded !== undefined && next.turnsEnded > 0 && next.turnsEnded !== last.turnsEnded;
-}
-
-/// The reload copy keeps the newest SAVED_SESSIONS chats of the list, and the shown chat with its
-/// parent and its own sub-sessions and forks at any age. The whole list (3,055 chats on a busy
-/// Mac) was serialized on every write and went past sessionStorage's 5 MB, so the copy was lost;
-/// the live list replaces this one as soon as the watch reads it.
-export const SAVED_SESSIONS = 200;
-const savedList: { sessions?: readonly AcpmuxSessionEntry[]; shown?: string; saved: AcpmuxSessionEntry[] } = {
-  saved: [],
-};
-export function savedSessions(snapshot: AcpmuxSnapshot): AcpmuxSessionEntry[] {
-  const { sessions, sessionId: shown } = snapshot;
-  if (sessions.length <= SAVED_SESSIONS) return sessions;
-  // A streaming reply writes with the list unchanged: it is chosen again only when it changes. Each
-  // snapshot maps the list into a new array of the same cached entries (direct.ts `sessionEntries`),
-  // so the entries are compared, not the array.
-  const last = savedList.sessions;
-  if (
-    savedList.shown === shown &&
-    last?.length === sessions.length &&
-    (last === sessions || sessions.every((entry, index) => entry === last[index]))
-  )
-    return savedList.saved;
-  const at = (entry: AcpmuxSessionEntry) => entry.activityAt ?? entry.updatedAt ?? 0;
-  const newest = new Set(
-    sessions
-      .map((entry, index) => ({ at: at(entry), index }))
-      .sort((a, b) => b.at - a.at)
-      .slice(0, SAVED_SESSIONS)
-      .map(({ index }) => index),
-  );
-  const own = sessions.find((entry) => entry.sessionId === shown);
-  const kin = new Set([own?.parentId, own?.spawnedBy, own?.startedBy]);
-  const related = (entry: AcpmuxSessionEntry) =>
-    shown !== undefined &&
-    (entry.sessionId === shown ||
-      kin.has(entry.sessionId) ||
-      entry.parentId === shown ||
-      entry.spawnedBy === shown ||
-      entry.startedBy === shown);
-  const saved = sessions.filter((entry, index) => newest.has(index) || related(entry));
-  Object.assign(savedList, { sessions, shown, saved });
-  return saved;
-}
-export function saveSnapshot(next: AcpmuxSnapshot): void {
-  snapshotSave.next = next;
-  if (!snapshotSave.hooked && typeof window !== "undefined") {
-    snapshotSave.hooked = true;
-    window.addEventListener("pagehide", writeSnapshot);
-    document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && writeSnapshot());
-  }
-  snapshotSave.timer ??= setTimeout(writeSnapshot, SNAPSHOT_SAVE_MS);
-}
-
-function cachedSnapshot(): AcpmuxSnapshot {
-  try {
-    const value = JSON.parse(sessionStorage.getItem("cmux.acpmux.snapshot") ?? "null");
-    if (value?.type === "snapshot" && Array.isArray(value.rows) && Array.isArray(value.sessions)) {
-      acpmuxPerf.markAgent("snapshotPaint");
-      // `connection`, `drewKeptTail`, `chatRead` and `turnsEnded` are facts about a live client, and this one is
-      // restored: no client has drawn anything yet, so this document's first paint is its own to report.
-      return {
-        ...emptySnapshot(),
-        ...value,
-        connection: "connecting",
-        drewKeptTail: undefined,
-        chatRead: undefined,
-        turnsEnded: undefined,
-      };
-    }
-  } catch {
-    // A corrupt or unavailable session store must never block the pane.
-  }
-  return emptySnapshot();
-}
-
 /// A page action: the connected client's (chat actions run against acpmux), else the native host.
 /** Saves the inspector's export through the host's save panel (`pane.saveLog`): true is saved, false a cancelled panel. A host without it, or one that refuses the log, leaves the inspector to copy it. */
-export async function saveLogNatively(text: string, suggestedName: string): Promise<ExportOutcome> {
+async function saveLogNatively(text: string, suggestedName: string): Promise<ExportOutcome> {
   try {
     return (await callNative<boolean>("pane.saveLog", { text, suggestedName })) === true ? "saved" : "cancelled";
   } catch {
@@ -887,9 +759,16 @@ const removeQueued = (promptId: string) =>
 /// Sends a prompt that waited for a new chat; settles once acpmux took it (its turn's later failure
 /// is the transcript's), and rejects when it was refused before. One acpmux refused for the folder's
 /// trust that joined the pane's hold (`holdRefused`) counts as taken: it waits in the queue now.
-const sendWhenTaken = (steer: boolean) => (text: string, attachments: ComposerAttachment[]) =>
+/// `gesture`: the Enter or click the composer bound to a send it held for its files.
+const sendWhenTaken = (steer: boolean) => (text: string, attachments: ComposerAttachment[], gesture?: SendGesture) =>
   new Promise<void>((resolve, reject) => {
-    callNative("chat.send", { text, attachments, accepted: () => resolve(), steer }).then(
+    callNative("chat.send", {
+      text,
+      attachments,
+      accepted: () => resolve(),
+      steer,
+      ...(gesture ? { gesture } : {}),
+    }).then(
       () => resolve(),
       (error: unknown) => (heldRefusal(error) ? resolve() : reject(error)),
     );
@@ -913,6 +792,12 @@ const heldGoesAfterTrust = () => undefined;
 type SentFrom = { chat: string | undefined; cwd: string | undefined };
 /// A send of a prompt the folder's trust held: its id and its send's ticket (in-page only).
 type HeldSend = { promptId: string; ticket?: string };
+/// The in-page `gesture` of `chat.send` (Composer `onBindSendGesture`), or undefined.
+function sendGestureParam(value: unknown): SendGesture | undefined {
+  const gesture = value as { promptId?: unknown; ticket?: unknown } | null | undefined;
+  if (typeof gesture?.promptId !== "string" || !(gesture.ticket instanceof Promise)) return undefined;
+  return { promptId: gesture.promptId, ticket: gesture.ticket as Promise<string | undefined> };
+}
 function heldPromptParams(value: unknown): HeldSend | undefined {
   const held = value as { promptId?: unknown; ticket?: unknown } | null | undefined;
   if (typeof held?.promptId !== "string") return undefined;
@@ -1078,7 +963,7 @@ const postOpenInWindow = (sessionId: string) =>
 const QUICK_NAME_LIMIT = 80;
 
 /// A started chat's workspace name: the prompt's first non-empty line, or none.
-export function quickChatName(text: string): string | undefined {
+function quickChatName(text: string): string | undefined {
   const line = text
     .split("\n")
     .map((part) => part.trim())
@@ -1325,34 +1210,6 @@ function DefaultComposerChips({
       onHarnessHint={(harness) => void window.cmuxAcpmuxActions?.["chat.harness.hint"]?.({ harness })}
     />
   );
-}
-
-/** The same host theme before mount and on subsequent bridge pushes. */
-export function applyPaneTheme(theme: Record<string, unknown>): void {
-  applyAgentTheme(theme as never);
-  configureChatWidth(theme.chatWidth);
-  configureCodexToolRuns(theme.codexToolRuns);
-  configureLiveLineBelow(theme.liveLineBelow);
-  configureToolRunLook(theme.toolRunLook);
-  configureSentLook(theme.sentLook);
-  configureInboxNoticeLook(theme.inboxNoticeLook);
-  configureMessageLineLook(theme.messageLineLook);
-  configureNoticeLook(theme.noticeLook);
-  configureTurnActionsPlacement(theme.turnActionsPlacement);
-  configureSubagentTray(theme.subagentTray);
-  configureSubagentTrayPlacement(theme.subagentTrayPlacement);
-  configureSelectionReply(theme.selectionReply);
-}
-
-/** Install the user font/layout stylesheet before the first render when already known. */
-export function applyPaneThemeCSS(themeCSS: string): void {
-  let style = document.getElementById("acpmux-user-theme") as HTMLStyleElement | null;
-  if (!style) {
-    style = document.createElement("style");
-    style.id = "acpmux-user-theme";
-    document.head.append(style);
-  }
-  style.textContent = themeCSS;
 }
 
 /** Static preview boot state, not a production host handshake. The gallery still delivers the
@@ -6702,6 +6559,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           seeded = false,
           // A prompt the folder's trust held (trustHeld.ts): its id and its own send's ticket.
           fromTrust?: HeldSend,
+          // The gesture the composer bound at this send's Enter or click while it held it.
+          gesture?: SendGesture,
         ) => {
           if (expectedSessionId && (directClient.current !== client || client.selectedSession !== expectedSessionId))
             throw startCancelled();
@@ -6729,6 +6588,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               expectedSessionId,
               seeded,
               fromTrust,
+              gesture,
             );
           } finally {
             handedOn();
@@ -6781,6 +6641,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           expectedSessionId?: string,
           seeded = false,
           fromTrust?: HeldSend,
+          gesture?: SendGesture,
         ) => {
           // The chat it is sent in; once a start made the chat's session, that session (trustHeld.ts).
           let sentFrom = shownFrom.current();
@@ -6841,7 +6702,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           if (!ownsSession()) throw startCancelled();
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
-          const switchPromptId = promptId ?? crypto.randomUUID();
+          const switchPromptId = promptId ?? gesture?.promptId ?? crypto.randomUUID();
           // Only the person's own send, not one with a seeded prompt's own id (its host ticket is bound
           // to it), keeps its gesture for a prompt held behind a slow start (#23031).
           // A prompt the folder's trust held keeps its id and its send's ticket there too, and is
@@ -6854,6 +6715,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             fromTrust ? () => accepted?.() : undefined,
             switchPromptId,
             !seeded && promptId === undefined,
+            // A send the composer held for its files goes with the ticket its Enter bound.
+            gesture?.promptId === switchPromptId ? gesture.ticket : undefined,
           );
           if (!held && fromTrust) trustTickets.delete(fromTrust.promptId);
           if (held) {
@@ -6878,7 +6741,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // host ticket instead of sharing the one checked when the relay finally drains.
           const sendPromptId = promptId ?? switchPromptId;
           // One the folder's trust held (trustHeld.ts) goes with its own send's ticket.
-          const heldForTrust = fromTrust ?? heldPrompt.take();
+          // A send the composer held for its files goes with the gesture of its own Enter or click.
+          const heldForTrust = fromTrust ?? gesture ?? heldPrompt.take();
           const kept = heldForTrust ?? (client.selectedSession ? client.bindSendGesture(sendPromptId) : undefined);
           const sessionId = await client.ensureSession().catch((error: unknown) => {
             // A folder harness that waits for Enable or Trust says so on its own card.
@@ -6931,7 +6795,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         window.cmuxAcpmuxActions = {
           // `accepted` (in-page only): the composer holds the prompt until acpmux takes it.
           // `fromTrust` (in-page only): a prompt the folder's trust held, with its id and ticket.
-          "chat.send": ({ text, attachments, accepted, steer, expectedSessionId, fromTrust }) =>
+          // `gesture` (in-page only): the gesture the composer bound at the Enter of a send it held.
+          "chat.send": ({ text, attachments, accepted, steer, expectedSessionId, fromTrust, gesture }) =>
             send(
               String(text ?? ""),
               Array.isArray(attachments) ? attachments : [],
@@ -6941,6 +6806,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               typeof expectedSessionId === "string" ? expectedSessionId : undefined,
               false,
               heldPromptParams(fromTrust),
+              sendGestureParam(gesture),
             ),
           "chat.cancel": () => client.cancel(),
           "chat.typing": async ({ text, sessionId }) =>
@@ -9435,8 +9301,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         return result.cwd;
       })
       .catch((error: unknown) => {
-        setFolderError(errorMessage(error) || undefined);
+        // A deferred ask's caller (the folder menu) shows the failure with its Retry; one notice, not two.
         if (request?.deferPick) throw error;
+        setFolderError(errorMessage(error) || undefined);
         return undefined;
       });
   };
@@ -9674,7 +9541,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onSuggestionTaken={() => directClient.current?.takeSuggestion()}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}
-            onSend={(text, chips, steer) => {
+            // A send the composer holds for its files (a pasted screenshot still being read) binds
+            // its Enter or click now only when it goes straight to the chat open now: a chat start,
+            // a harness switch (deferred included), a Cloud start or wake and a sandbox run spend
+            // that gesture themselves first (heldSendBinding.ts).
+            onBindSendGesture={() => {
+              const client = directClient.current;
+              const route = {
+                openChat: client?.selectedSession,
+                switchPending: harnessSwitch.view().intent !== undefined,
+                startsChat: Boolean(projectDraft && !snapshot.sessionId),
+                cloudStart: cloudPicked,
+                cloudWake: Boolean(cloudWakeChat && cloudRecovery.state !== "deleted"),
+                sandbox: sandboxing || sandboxPickedNotOffered || (sandboxHoldsChat && !sandboxDraftMoved),
+              };
+              return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
+            }}
+            onSend={(text, chips, steer, gesture) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
               // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
@@ -9728,7 +9611,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // (trustHeld.ts). One sent while earlier held prompts still go waits behind them, so
               // none overtakes another.
               if (trustHolds || trustHeld.pending()) {
-                trustHeld.hold(text, attachments);
+                // A send the composer held for its files keeps the ticket its Enter bound.
+                trustHeld.hold(text, attachments, undefined, false, gesture);
                 return true;
               }
               if (!snapshot.sessionId) claimShellRuns.current = true;
@@ -9756,12 +9640,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               ) {
                 // Prompts sent while the chat started still wait to go: this one goes after them.
                 if (startingSends.busy) {
-                  startingSends.add(text, attachments, sendWhenTaken(steer === true));
+                  startingSends.add(text, attachments, sendWhenTaken(steer === true), gesture);
                   return true;
                 }
                 const holder = composerHandle.current;
                 const sentOn = directClient.current;
-                callNative("chat.send", { text, attachments, steer }).then(
+                callNative("chat.send", { text, attachments, steer, ...(gesture ? { gesture } : {}) }).then(
                   () => {
                     rememberStart();
                     promptLanded.current();
@@ -9791,7 +9675,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // Quick Composer and a View Only chat still keep the prompt until acpmux takes it.
               const queues = surfaceRef.current !== "quick" && !snapshot.summary?.watching;
               if (queues && startingSends.busy) {
-                startingSends.add(text, attachments, sendWhenTaken(steer === true));
+                startingSends.add(text, attachments, sendWhenTaken(steer === true), gesture);
                 return true;
               }
               let accept: (taken: true) => void = () => undefined;
@@ -9831,6 +9715,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   attachments,
                   accepted: () => accept(true),
                   steer,
+                  ...(gesture ? { gesture } : {}),
                 });
               };
               // The composer that holds the prompt: a refusal that comes once it is gone (the pane
@@ -10127,6 +10012,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     ) : (
       hostErrorCard
     );
+  // A pending Fork Conversation and its Cancel, in the dock and in Quick Chat alike: Quick Chat's
+  // menu forks too (review of #36979).
+  const forkPendingLine = snapshot.forkPending && (
+    <ForkPendingLine since={snapshot.forkPending.since} onCancel={() => directClient.current?.cancelFork()} />
+  );
   // The floating chat's compact bar shows whether the chat is working or waiting on the user, and
   // the reply's last line.
   let lastReply: (typeof snapshot.rows)[number] | undefined;
@@ -10204,6 +10094,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               <>
                 {asks}
                 {hostLine}
+                {forkPendingLine}
               </>
             }
             composer={composer}
@@ -10898,6 +10789,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   </div>
                 )}
                 {hostLine}
+                {forkPendingLine}
                 <LiveTypingLine
                   sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                   fallback={snapshot.presence}
