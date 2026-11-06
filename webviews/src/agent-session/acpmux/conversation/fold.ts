@@ -103,8 +103,7 @@ export function settleFoldsIn(root: Element): void {
 }
 
 /// A gap between two painted frames this long means the page is missing frames: about three at 60 Hz.
-// motion-allow: a frame-drop threshold, not an animation's duration
-export const FOLD_DROP_MS = 50;
+export const FOLD_DROP_MS = 50; // motion-allow: a frame-drop threshold, not an animation's duration
 
 /// Lands `node`'s fold at its end on the first frame that comes `FOLD_DROP_MS` or more after the one
 /// before it (Leo, 2026-11-06, on a recording under heavy load: "way too discontinuous", "jittery").
