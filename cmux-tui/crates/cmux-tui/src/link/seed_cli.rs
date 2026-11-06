@@ -700,8 +700,13 @@ mod tests {
         drop(std::os::unix::net::UnixListener::bind(&socket).expect("bind"));
         let Err(error) = Machine::read(&socket) else { panic!("no daemon answers") };
         let line = SeedError::of(&error.into()).line();
-        assert_eq!(line["error_code"], "sync_failed");
+        assert_eq!(line["error_code"], "machine_not_answering");
         assert_eq!(line["identify_failure"], "connect");
+        let message = line["error"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("connect") && !message.contains(&*socket.to_string_lossy()),
+            "{message}"
+        );
     }
 
     #[test]
