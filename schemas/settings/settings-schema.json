@@ -811,6 +811,16 @@
               "key" : "settings.pageGroup.terminalBehavior",
               "text" : "Behavior"
             }
+          },
+          {
+            "key" : "settings.group.terminalCompatibility",
+            "rows" : [
+              "terminal.term"
+            ],
+            "title" : {
+              "key" : "settings.group.terminalCompatibility",
+              "text" : "Compatibility"
+            }
           }
         ],
         "id" : "terminal",
