@@ -320,6 +320,9 @@ impl Translator {
                             json!({"type": "control_request", "request_id": format!("bg-{}", id), "request": request}),
                         ])
                     }
+                    FOREGROUND_WORK => {
+                        Outbound::Reply(Message::ok(id.clone(), self.foreground_work().await))
+                    }
                     MCP_RECONNECT => {
                         let server = p.get("server").and_then(Value::as_str).unwrap_or("");
                         if server.is_empty() {
