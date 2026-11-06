@@ -115,6 +115,7 @@ public struct LiveCallScreen: View {
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(.white)
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("chief.call.name")
             HStack(spacing: 6) {
                 Text(statusLine)
                     .contentTransition(.opacity)
