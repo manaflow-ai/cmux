@@ -27,6 +27,7 @@ const GLOBALS = [
   "NodeFilter",
   "HTMLElement",
   "Element",
+  "MutationObserver",
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
@@ -58,6 +59,8 @@ async function render(node: ReactNode): Promise<HTMLElement> {
     NodeFilter: dom.window.NodeFilter,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    // The highlighted lines watch the page's theme (HighlightedCode.tsx) when a highlight pool is up.
+    MutationObserver: dom.window.MutationObserver,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   const container = dom.window.document.getElementById("root")!;
