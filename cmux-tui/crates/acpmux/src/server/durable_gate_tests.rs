@@ -172,7 +172,7 @@ async fn a_journal_that_syncs_nothing_asks_the_daemon_to_stop() {
 /// started: a line the log holds while its record is not appended is not sent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_replay_never_sends_a_line_before_its_record() {
-    use crate::store::PAUSE_AFTER_LOG_WRITE;
+    use crate::store::pause_next_log_write_on_this_thread;
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(63);
     let hub = hub(home.path(), &journal);
@@ -180,17 +180,24 @@ async fn a_replay_never_sends_a_line_before_its_record() {
     let first = hub.append(&session, "mux", "note", json!({"n": 1}));
     let (arrived_tx, arrived) = std::sync::mpsc::channel();
     let (release, release_rx) = std::sync::mpsc::channel::<()>();
-    *PAUSE_AFTER_LOG_WRITE.lock().unwrap_or_else(|e| e.into_inner()) =
-        Some((arrived_tx, release_rx));
     let appender = {
         let (hub, session) = (hub.clone(), session.clone());
-        std::thread::spawn(move || hub.append(&session, "mux", "note", json!({"n": 2})).seq)
+        std::thread::spawn(move || {
+            pause_next_log_write_on_this_thread(arrived_tx, release_rx);
+            hub.append(&session, "mux", "note", json!({"n": 2})).seq
+        })
     };
     arrived
         .recv_timeout(Duration::from_secs(10))
         .unwrap_or_else(|e| panic!("the append never paused: {e}"));
+    // The replay reads `lastSeq` and says so before it scans the log: only then the append goes
+    // on. (The first append caught the chat up, so the replay takes no append lock first.)
+    let (scans_tx, scans) = std::sync::mpsc::channel();
+    crate::hub::NOTE_BEFORE_REPLAY_SCAN.with(|note| *note.borrow_mut() = Some(scans_tx));
     let releaser = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(200));
+        scans
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap_or_else(|e| panic!("the replay never began its scan: {e}"));
         let _ = release.send(());
     });
     let mut seen = Vec::new();
@@ -258,15 +265,15 @@ async fn a_replay_after_a_hard_stop_sends_the_tail_past_the_saved_last_seq() {
 /// `lastSeq`. `catch_up_locked` marked the chat caught up before it counted the tail, so a replay
 /// that read the mark skipped the catch-up and stopped at the saved `lastSeq`. The first catch-up
 /// is held while it counts: its read of the tail waits at the journal's read fence, because
-/// another chat's append holds the appends' lock (`PAUSE_AFTER_LOG_WRITE`). The first replay says
-/// when its catch-up is under way (`NOTE_IN_CATCH_UP`). The second says when it waits for the
-/// chat's append lock (`NOTE_BEFORE_CATCH_UP_LOCK`, the fixed code) or reads the log having
-/// skipped its catch-up (`NOTE_BEFORE_REPLAY_SCAN`, the code before), and only then is the append
-/// let go.
+/// another chat's append holds the appends' lock (`pause_next_log_write_on_this_thread`, set on
+/// the appending thread). The first replay says when its catch-up is under way
+/// (`NOTE_IN_CATCH_UP`). The second says when it waits for the chat's append lock
+/// (`NOTE_BEFORE_CATCH_UP_LOCK`, the fixed code) or reads the log having skipped its catch-up
+/// (`NOTE_BEFORE_REPLAY_SCAN`, the code before), and only then is the append let go.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_replay_during_another_catch_up_sends_the_tail_past_the_saved_last_seq() {
     use crate::hub::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
-    use crate::store::PAUSE_AFTER_LOG_WRITE;
+    use crate::store::pause_next_log_write_on_this_thread;
     const WAIT: Duration = Duration::from_secs(10);
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let mut config = Config::default();
@@ -320,11 +327,12 @@ async fn a_replay_during_another_catch_up_sends_the_tail_past_the_saved_last_seq
     let other = hub.resolve(OTHER).unwrap_or_else(|e| panic!("{e:?}"));
     let (arrived_tx, arrived) = std::sync::mpsc::channel();
     let (release, release_rx) = std::sync::mpsc::channel::<()>();
-    *PAUSE_AFTER_LOG_WRITE.lock().unwrap_or_else(|e| e.into_inner()) =
-        Some((arrived_tx, release_rx));
     let appender = {
         let hub = hub.clone();
-        std::thread::spawn(move || hub.append(&other, "mux", "note", json!({"n": 1})).seq)
+        std::thread::spawn(move || {
+            pause_next_log_write_on_this_thread(arrived_tx, release_rx);
+            hub.append(&other, "mux", "note", json!({"n": 1})).seq
+        })
     };
     arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the append never paused: {e}"));
     // The first replay: its catch-up is under way, and its read of the tail waits at the fence.

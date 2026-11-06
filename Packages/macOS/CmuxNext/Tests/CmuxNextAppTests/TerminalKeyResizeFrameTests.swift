@@ -7,8 +7,10 @@ import CmuxNextCompat
 import CmuxNextSignposts
 @testable import CmuxNextTabs
 @testable import CmuxNextTerminal
+import CmuxNextTerminalGeometry
 import CmuxNextTestSupport
 import Foundation
+import GhosttyNextKit
 import Testing
 
 /// cmux-ad m6 (Lawrence on dogfood 363e39f2: "tabbar moves smoothly on ctrl shift hjkl but browsers/terminals do not
@@ -143,6 +145,152 @@ struct TerminalKeyResizeFrameTests {
         #expect(resizes.allSatisfy { $0 <= 1 }, "a press resized a terminal's program more than once: \(resizes) (p1: \(grids))")
     }
 
+    /// cmux-ad m14 (a P0 from Lawrence): in every frame each terminal shows pixels drawn at its pane's size, and its
+    /// program's grid changes at most once per press. pixel-perfect's films of a key spring with the switch on (jjk-3kz:
+    /// 75 frames ON, 77 OFF) showed two failures for a terminal whose prompt is low:
+    /// - F2: a pane a press grows kept its surface at the press's final size on its bottom edge (the low prompt's bottom
+    ///   hold), taller than the pane, so its top rows were cut for the whole spring;
+    /// - H3: a pane that shrinks drew the owner's grid from its top-left, so its last rows, the prompt with them, were cut
+    ///   until the owner announced the new grid, and then that grid was drawn padded.
+    ///
+    /// The terminal must draw, in each frame, the grid its size fits: Ghostty's reflow preview reflows a copy of the
+    /// terminal to that grid, and the reflow keeps the cursor row in view (rows that shrink lose the blank rows below the
+    /// cursor, then the top rows go to history; rows that grow pull history down while the cursor is on the last row).
+    ///
+    /// p1 over p2, each with history and its prompt on its last row, an IO that announces each grid its view reports,
+    /// as the daemon does (``AnnouncingTerminalIO``, MANUAL_MIRROR), the switch on. Ctrl-Shift-J on p1 (p1 grows down, p2
+    /// shrinks), Ctrl-Shift-K (p1 shrinks, p2 grows up), and J, J, K two frames apart. Each frame's sizes land with their
+    /// own frames before the next frame (the test waits for them). After each frame, per terminal:
+    /// - the surface's frame is its area's (never taller, never on another edge);
+    /// - the grid Ghostty drew is the grid the shown frame's pixel size fits.
+    /// After the landing, each terminal rests at its area with the owner's grid drawn and its prompt on the last row,
+    /// and its program got at most one grid per press.
+    @Test(arguments: [[LayoutDirection.down], [.up], [.down, .down, .up]])
+    func aLowPromptTerminalDrawsTheGridItsPaneFitsInEveryFrameOfAKeySpring(presses: [LayoutDirection]) async throws {
+        let screen = try await PaneScreen(axis: .vertical, announcesGrids: true)
+        defer { screen.close() }
+        // The prompt on the last row, under the history.
+        for io in screen.ios { io.send(.output(Data("\r\n$ ".utf8))) }
+        let low = await Self.commits(screen) { $0.sessions.allSatisfy(Self.restsWithItsPromptLow) }
+        try #require(low, "SETUP: a terminal does not rest with its prompt on the last row of the grid its owner announced")
+        await Self.settle(screen)
+        let resizesBefore = screen.ios.map { $0.resizes.count }
+
+        var frames: [[GridSample]] = []
+        /// This frame's sizes land with their own frames (at most 2 s), then each terminal is sampled.
+        func sampleFrame() async {
+            _ = await Self.commits(screen, seconds: 2) { $0.sessions.allSatisfy(Self.showsItsOwnFrame) }
+            frames.append(screen.sessions.map(GridSample.init))
+        }
+        var steps = 0
+        for (index, direction) in presses.enumerated() {
+            try #require(PaneResize.press("p1", direction, model: screen.model, view: screen.root),
+                         "Ctrl-Shift-\(direction) on p1 moved nothing")
+            // A press before the last lands two frames later, a key repeat apart; the last runs to its landing.
+            let last = index == presses.count - 1
+            var moving = true, stepped = 0
+            while moving, stepped < (last ? 240 : 2) {
+                moving = await Self.stepFrame(screen).moving
+                await sampleFrame()
+                stepped += 1
+            }
+            try #require(last || moving, "press \(index + 1) landed before the next press")
+            steps += stepped
+        }
+        // The landing's release.
+        for _ in 0..<6 {
+            await Self.commit()
+            await sampleFrame()
+        }
+        try #require(steps >= 4, "the presses' spring ran \(steps) frames: no spring ran")
+
+        var off: [String] = [], undrawn: [String] = [], unshown: [String] = []
+        for (index, frame) in frames.enumerated() {
+            for (terminal, sample) in frame.enumerated() {
+                let label = "frame \(index + 1) p\(terminal + 1)"
+                if !sample.onItsArea { off.append("\(label): surface \(sample.surface), its area \(sample.area)") }
+                guard sample.showsItsOwnFrame else {
+                    unshown.append(label)
+                    continue
+                }
+                if sample.drawn == nil || sample.drawn != sample.fits {
+                    undrawn.append("\(label): drew \(Self.text(sample.drawn)), its frame fits \(Self.text(sample.fits))")
+                }
+            }
+        }
+        await Self.settle(screen)
+        var rested: [String] = []
+        for (index, session) in screen.sessions.enumerated() {
+            let sample = GridSample(session), grids = session.drawnAndOwnerGrid
+            if !sample.onItsArea { rested.append("p\(index + 1): surface \(sample.surface), its area \(sample.area)") }
+            if !Self.restsWithItsPromptLow(session) || sample.fits != grids.owner {
+                rested.append("p\(index + 1): drew \(Self.text(grids.drawn)), owner's \(Self.text(grids.owner)), fits \(Self.text(sample.fits)), prompt not on its last row")
+            }
+        }
+        let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }
+        print("m14 low prompt, presses \(presses): \(steps) spring frames; off their area \(off.count), drawn grid off \(undrawn.count), " +
+              "frame not shown \(unshown.count); PTY grids per terminal \(resizes)")
+        #expect(off.isEmpty, "\(off.count) frames showed a terminal off its area (a hold): \(off.prefix(6))")
+        #expect(undrawn.isEmpty, "\(undrawn.count) frames drew a grid other than the one the terminal's size fits (its prompt cut or padded): \(undrawn.prefix(6))")
+        #expect(unshown.isEmpty, "\(unshown.count) frames' sizes never showed their own frames: \(unshown.prefix(6))")
+        #expect(rested.isEmpty, "after the landing: \(rested)")
+        #expect(resizes.allSatisfy { $0 <= presses.count }, "the presses resized a terminal's program more than once per press: \(resizes)")
+    }
+
+    /// One terminal after a frame's sizes landed: its surface's frame and its area (host points: the host's area under
+    /// its top edge, less a legacy scroller's strip), whether it shows the frame drawn at its size, the grid Ghostty drew
+    /// and the grid the shown frame's pixel size fits.
+    struct GridSample {
+        var surface: CGRect
+        var area: CGRect
+        var scale: CGFloat
+        var showsItsOwnFrame: Bool
+        var drawn: TerminalGridSize?
+        var fits: TerminalGridSize?
+
+        @MainActor init(_ session: TerminalSession) {
+            let view = session.surfaceView, host = session.view
+            let size = host.surfaceSize(forHostSize: host.bounds.size)
+            surface = view.frame
+            area = CGRect(x: host.bounds.minX, y: host.bounds.maxY - size.height, width: size.width, height: size.height)
+            scale = view.layer?.contentsScale ?? 2
+            showsItsOwnFrame = TerminalKeyResizeFrameTests.showsItsOwnFrame(session)
+            drawn = session.drawnAndOwnerGrid.drawn
+            var columns: UInt16 = 0, rows: UInt16 = 0
+            if let ghostty = view.surface, let frame = view.presentedFrame,
+               ghostty_surface_fit_grid(ghostty, UInt32(frame.width), UInt32(frame.height), &columns, &rows) {
+                fits = TerminalGridSize(columns: Int(columns), rows: Int(rows))
+            }
+        }
+
+        /// The surface's frame is its area's, within a device pixel on each edge.
+        var onItsArea: Bool {
+            func near(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) * scale <= 1 }
+            return near(surface.minX, area.minX) && near(surface.maxX, area.maxX) && near(surface.minY, area.minY)
+                && near(surface.maxY, area.maxY)
+        }
+    }
+
+    /// Whether `session`'s surface shows the frame drawn at its size: no size waits for its frame, and its layer and
+    /// the frame it shows have one pixel size.
+    static func showsItsOwnFrame(_ session: TerminalSession) -> Bool {
+        let view = session.surfaceView
+        guard view.frameOwnership.inFlight == nil, let layer = view.layer, let frame = view.presentedFrame else { return false }
+        let scale = layer.contentsScale
+        return Int((layer.bounds.width * scale).rounded()) == frame.width && Int((layer.bounds.height * scale).rounded()) == frame.height
+    }
+
+    /// Whether `session` rests with its prompt low: its owner announced the grid its view fits, the last frame drew that
+    /// grid, and the cursor is on its last row.
+    static func restsWithItsPromptLow(_ session: TerminalSession) -> Bool {
+        let grids = session.drawnAndOwnerGrid
+        guard let surface = session.surfaceView.surface, let owner = grids.owner, owner == session.surfaceView.fittedGrid,
+              grids.drawn == owner else { return false }
+        var metrics = ghostty_surface_grid_metrics_s()
+        return ghostty_surface_grid_metrics(surface, &metrics) && metrics.cursor_in_viewport && !metrics.alternate_screen
+            && Int(metrics.cursor_row) == Int(metrics.rows) - 1
+    }
+
     /// One terminal in one committed frame: its surface layer's size and top-left, its host's area size and top-left
     /// (points; top-lefts in the window's root layer, the committed model), and the size of the frame it shows (px).
     struct Sample {
@@ -171,8 +319,9 @@ struct TerminalKeyResizeFrameTests {
         }
     }
 
-    /// p1 | p2 in a window on screen, each pane the app's `PaneContentView` with a terminal in its content area; the
-    /// switch on, Reduce Motion off, the spring stepped by the test.
+    /// p1 | p2 (`axis` .vertical: p1 over p2) in a window on screen, each pane the app's `PaneContentView` with a terminal
+    /// in its content area; the switch on, Reduce Motion off, the spring stepped by the test. `announcesGrids`: each
+    /// terminal's IO answers as the daemon does (``AnnouncingTerminalIO``); else it announces nothing.
     final class PaneScreen {
         final class Panes: LayoutPaneContentProvider {
             let reveal: LaunchReveal = {
@@ -198,13 +347,13 @@ struct TerminalKeyResizeFrameTests {
         var ios: [ScriptedTerminalIO] = []
         private let drew: Bool
 
-        init() async throws {
+        init(axis: SplitAxis = .horizontal, announcesGrids: Bool = false) async throws {
             _ = NSApplication.shared
             TunableStore.shared.activate(file: nil)
             TunableStore.shared.register(TerminalDragTunables.all)
             drew = WindowDrawPolicy.drawsWhenOccluded
             WindowDrawPolicy.drawsWhenOccluded = true
-            let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
+            let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p2")
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
@@ -223,7 +372,8 @@ struct TerminalKeyResizeFrameTests {
             let text = Array(repeating: line, count: 400).joined(separator: "\r\n")
             for pane: PaneID in ["p1", "p2"] {
                 let io = ScriptedTerminalIO()
-                let session = TerminalSession(io: io)
+                let owner: any TerminalIO = announcesGrids ? AnnouncingTerminalIO(io) : io
+                let session = TerminalSession(io: owner)
                 ios.append(io)
                 guard session.surfaceView.surface != nil, let content = provider.views[pane] else {
                     close()
@@ -255,6 +405,8 @@ struct TerminalKeyResizeFrameTests {
 
     static func text(_ size: CGSize) -> String { "\(size.width)x\(size.height)" }
 
+    static func text(_ grid: TerminalGridSize?) -> String { grid.map { "\($0.columns)x\($0.rows)" } ?? "none" }
+
     static func ms(_ duration: Duration) -> Double {
         let ms = Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
         return (ms * 100).rounded() / 100
@@ -268,11 +420,9 @@ struct TerminalKeyResizeFrameTests {
         var moving = true
         var steps = 0
         while moving, steps < 240 {
-            let started = ContinuousClock.now
-            moving = screen.root.advanceFrame(1.0 / 120)
-            screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
-            intervals.append(ms(started.duration(to: .now)))
-            await commit()
+            let frame = await stepFrame(screen)
+            moving = frame.moving
+            intervals.append(frame.ms)
             record?(screen.sessions.map(Sample.init))
             steps += 1
         }
@@ -281,6 +431,27 @@ struct TerminalKeyResizeFrameTests {
             record?(screen.sessions.map(Sample.init))
         }
         return (steps, intervals)
+    }
+
+    /// One frame of the spring: the step, its layout pass and its commit. Returns whether the spring still moves and the
+    /// frame's main time (step and layout, ms).
+    static func stepFrame(_ screen: PaneScreen) async -> (moving: Bool, ms: Double) {
+        let started = ContinuousClock.now
+        let moving = screen.root.advanceFrame(1.0 / 120)
+        screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
+        let elapsed = ms(started.duration(to: .now))
+        await commit()
+        return (moving, elapsed)
+    }
+
+    /// Commits until `done` holds for `screen`, checked before each commit (at most `seconds`); whether it held.
+    static func commits(_ screen: PaneScreen, seconds: Int = 10, until done: (PaneScreen) -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(seconds))
+        while !done(screen) {
+            guard ContinuousClock.now < deadline else { return false }
+            await commit()
+        }
+        return true
     }
 
     /// Commits until the panes and their terminals have not changed for 300 ms of wall-clock time (at most 3 s).
@@ -300,4 +471,31 @@ struct TerminalKeyResizeFrameTests {
             CommitBoundary().after { _ in done.resume() }
         }
     }
+}
+
+/// A daemon terminal's IO over a ``ScriptedTerminalIO``, which records what it is asked: each grid the view reports
+/// becomes the PTY's grid and is announced back in the stream (`.resize`), as the cmux-tui daemon does for a visible
+/// view that holds geometry. So the view's grid is applied (``TerminalIO/appliesViewGrid(reporting:)``) and the surface
+/// draws its reflow preview until the announcement. MANUAL_MIRROR, as a daemon terminal: the announced grid locks the
+/// mirror and clips or pads its lines; the mirror never reflows on its own.
+nonisolated final class AnnouncingTerminalIO: TerminalIO {
+    let scripted: ScriptedTerminalIO
+
+    init(_ scripted: ScriptedTerminalIO) {
+        self.scripted = scripted
+    }
+
+    var events: AsyncStream<TerminalIOEvent> { scripted.events }
+    var answersTerminalQueries: Bool { scripted.answersTerminalQueries }
+
+    func write(_ data: Data) async {
+        await scripted.write(data)
+    }
+
+    func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
+        await scripted.resize(cols: cols, rows: rows, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+        scripted.send(.resize(cols: cols, rows: rows))
+    }
+
+    @MainActor func appliesViewGrid(reporting: Bool) -> Bool { true }
 }

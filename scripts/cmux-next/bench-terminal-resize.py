@@ -19,7 +19,7 @@ vertical divider left and right, one `debug.mouse` move per display frame:
   stress   the STRESS session (perf-stress-session.py: 60 workspaces, 4x3 panes + nested splits, 6
            tabs each, 10 busy terminals); the divider between its first two columns. Every terminal
            in those columns must change size with its pane in each frame. A build that holds terminals
-           through a drag (`terminalDrag.holdSurface`, on by default since #32006) fails: they keep their
+           through a drag (`terminalDrag.holdSurface`, on by default from #32006 until cmux-ad m19, 2026-11-05) fails: they keep their
            size through the drag (each round reports `holds_terminals` as it ran, as data). Before its timed
            rounds each drag layout runs a probe (one drag that ends --probe-pt away, then one back) and prints
            it as its own TERMINAL-RESIZE-PROBE line: the divider moved, a terminal fits a new grid, and its
@@ -39,12 +39,16 @@ vertical divider left and right, one `debug.mouse` move per display frame:
            S4's A/B.
 
 The rule for the drag and key layouts: a terminal changes size with its pane in every frame of the motion.
-`debug.terminal_display` samples each terminal shown at the round's start once per display frame, after the frame's
-commit: its pane's size, the size its host asked of it, and the size its layer shows. Each round reports `follow`:
-per terminal, frames sampled, `held` frames (asked is not the pane's size, more than 0.5 pt off) and `lagging` frames
-(shown is not the pane's size), with the first 3 of each, and the round's `held_frames` and `lagging_frames`. A round
-with a held frame fails, and the message names the terminal, its held frames and the first sizes. Lagging frames are
-data only: the frame owner (`motion.frameOwner.terminals`) keeps a frame for 1-4 refreshes by design.
+`debug.terminal_display` samples each terminal shown at the round's start once per frame of its window: after the
+Core Animation commit of the run-loop turn in which that window's frame clock ticked, so a sample is what that frame
+committed. It reads its pane's size, the size its host asked of it, and the size its layer shows. Each round reports
+`follow`: per terminal, frames sampled, `held` frames (asked is not the pane's size, more than 0.5 pt off), `lagging`
+frames (shown is not the pane's size) and `in_flight` frames (a size asked of Ghostty and not shown yet), with the first
+3 held and lagging ones; the frame presenters' counts in the run (`presenter`: presented, keeps, group waits,
+fallbacks); and the round's `held_frames` and `lagging_frames`. A round with a held frame fails, and the message names
+the terminal, its held frames and the first sizes; so does a terminal shown at the start that was never sampled.
+Lagging frames are data only: the frame owner (`motion.frameOwner.terminals`) keeps a frame for 1-4 refreshes by
+design.
 
 Per layout it records display-frame intervals and main-thread busy time per frame (`debug.frames`,
 missed = an interval over 1.5 refresh periods, each split by cause into main late, commit late or presented late),
@@ -223,7 +227,8 @@ def pane_check(display):
     if checked is None:
         return {"follow": None}
     return {"follow": checked, "held_frames": checked["held_frames"], "held_terminals": checked["held_terminals"],
-            "lagging_frames": checked["lagging_frames"]}
+            "lagging_frames": checked["lagging_frames"], "in_flight_frames": checked["in_flight_frames"],
+            "presenter": checked["presenter"]}
 
 
 def frame_numbers(frames):

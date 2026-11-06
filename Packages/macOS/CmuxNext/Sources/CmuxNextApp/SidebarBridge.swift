@@ -87,6 +87,11 @@ final class SidebarBridge {
             let tabs = self.services.agentTabs
             tabs.existingView(shown.rawValue)?.forwardHover(tab.flatMap { tabs.existingView($0.rawValue) == nil && tabs.daemonForTab($0.rawValue)?.isLocal == true ? tabs.session(of: $0.rawValue) : nil })
         }
+        // The pages a row's click would show wake once the pointer rests on it (plans/cmux-next/hover-preload-DESIGN.md).
+        container.sidebarView.onHoverWorkspace = { [weak self] id in
+            guard let self, let window = self.state?.id else { return }
+            self.services.cache.hibernation?.noteWorkspaceHover(id?.rawValue, window: window)
+        }
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.customization = services.sidebarCustomization
@@ -165,6 +170,11 @@ final class SidebarBridge {
             self.showProfiles(profiles, active: active, launching: launching)
             self.show(SidebarSection.decorated(feed.fill(sections), decorations), shownAt: shownAt, layout: shown, launching: launching, failed: failed,
                       creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
+            // A grouped create this pass listed loose (and left out) joins its group now: the document's move draws it
+            // there on the next pass, its first frame.
+            for (id, group) in PendingWorkspaceRows.shared.groupJoins.takeDue(in: windowState.id) {
+                AgentSessionWorkspace.join(id, group: group, sidebar: self)
+            }
             services.windows.retryDeferredPlacements() // before pending stand-ins are forgotten
             // A workspace the window lists shows its own row from here on (cx-9a7wx). No create waits: no walk of every row.
             guard !PendingWorkspaceRows.shared.rows.isEmpty else { return }

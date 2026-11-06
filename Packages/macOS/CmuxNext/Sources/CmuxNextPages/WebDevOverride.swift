@@ -60,41 +60,43 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// the projection window and Gallery Stage ask.
     public static let isEnabled = true
 
-    private static let state = Mutex(WebDevOverride())
-    /// `updates.liveWebReload` (``setAllowed(_:)``): on until the settings say otherwise.
-    private static let allowed = Mutex(true)
+    /// What the watcher read from `web-dev.json`, and `updates.liveWebReload` (``setAllowed(_:)``),
+    /// on until the settings say otherwise: one lock for both.
+    private nonisolated struct Held: Sendable {
+        var read = WebDevOverride()
+        var allowed = true
+    }
+
+    private static let state = Mutex(Held())
 
     /// The override in force: what the watcher read from `web-dev.json`, or empty while
     /// Live Web Reload is off.
     public static var current: WebDevOverride {
-        guard allowed.withLock({ $0 }) else { return WebDevOverride() }
-        return state.withLock { $0 }
+        state.withLock { $0.allowed ? $0.read : WebDevOverride() }
     }
 
     /// Follows the Live Web Reload setting (`updates.liveWebReload`): off ignores `web-dev.json`
     /// without editing it. A change reloads every page and agent pane from where it now loads.
     @MainActor public static func setAllowed(_ on: Bool) {
-        let changed = allowed.withLock { held in
-            guard held != on else { return false }
-            held = on
-            return true
+        let reload = state.withLock { held in
+            guard held.allowed != on else { return false }
+            held.allowed = on
+            return held.read.isActive
         }
-        guard changed else { return }
-        let active = state.withLock { $0.isActive }
-        if active { WebDevOverrideWatcher.reloadPages() }
+        if reload { WebDevOverrideWatcher.reloadPages() }
     }
 
     /// The live gallery's server for Gallery Stage: web-dev.json's `gallery`, else ``defaultGallery``.
     /// Read whatever Live Web Reload says, since no page loads from it.
-    public static var galleryServer: URL? { state.withLock { $0.gallery } ?? defaultGallery }
+    public static var galleryServer: URL? { state.withLock { $0.read.gallery } ?? defaultGallery }
 
     /// Replaces ``current``; returns whether it changed. Ignored unless ``isEnabled``.
     @discardableResult
     static func update(_ value: WebDevOverride) -> Bool {
         guard isEnabled else { return false }
         return state.withLock { held in
-            guard held != value else { return false }
-            held = value
+            guard held.read != value else { return false }
+            held.read = value
             return true
         }
     }

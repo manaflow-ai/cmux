@@ -65,7 +65,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml
+  NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/appcast-arm64.xml
   # Bumping it smokes every feed build again.
   SMOKE_CACHE_PREFIX: nightly-next-launch-smoke-v1-
   # A pull request into feat-cmux-next tests its own head; every other run (and a

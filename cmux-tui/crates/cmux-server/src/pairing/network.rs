@@ -84,6 +84,14 @@ fn invalid() -> Error {
 }
 
 impl super::Transport for Network {
+    fn machine_join(
+        &self,
+        join: &cmux_server_core::pairing::enrollment::MachineJoin,
+        api: &str,
+        name: &str,
+    ) -> Value {
+        super::machine_join::redeem(join, api, name)
+    }
     fn backend_post(
         &self,
         api: &str,
