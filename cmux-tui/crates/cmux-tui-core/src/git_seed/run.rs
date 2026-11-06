@@ -70,8 +70,9 @@ pub struct Seed {
     credentials: Vec<Credential>,
     /// The path that worked last (the first one until one has).
     chosen: Credential,
-    /// The path the last network step succeeded with; None when no step
-    /// reached the remote (a delta seed, a fetch that failed).
+    /// The path the last step on the repository's own remote succeeded
+    /// with (never a submodule's or LFS's); None when none reached it (a
+    /// delta seed, a fetch that failed).
     reached: Option<Credential>,
 }
 
@@ -215,7 +216,11 @@ impl Seed {
         if !self.has_ref(&commit) && git_ref.len() >= 40 {
             let folder = self.folder.clone();
             let sha = git_ref.to_owned();
-            let _ = self.net(Some(&folder), &["fetch", "--progress", "origin", &sha], &mut || {});
+            let _ = self.net_origin(
+                Some(&folder),
+                &["fetch", "--progress", "origin", &sha],
+                &mut || {},
+            );
         }
         if !self.has_ref(&commit) {
             return Err(failed(
@@ -238,6 +243,22 @@ impl Seed {
 
     /// `git ARGS` (in `cwd`) with each GitHub path until one works.
     /// `between` runs after each failed try.
+    /// [`Self::net`] for the seeded repository's own remote (not a
+    /// submodule's or LFS's): the path that worked is the one the checkout
+    /// keeps for push ([`Self::keep_credential`]).
+    fn net_origin(
+        &mut self,
+        cwd: Option<&Path>,
+        args: &[&str],
+        between: &mut dyn FnMut(),
+    ) -> Result<(), Vec<Failure>> {
+        let result = self.net(cwd, args, between);
+        if result.is_ok() {
+            self.reached = Some(self.chosen.clone());
+        }
+        result
+    }
+
     fn net(
         &mut self,
         cwd: Option<&Path>,
@@ -249,7 +270,6 @@ impl Seed {
             let job = self.job.clone();
             match self.git.run(cwd, &credential, args, &mut |line| job.progress(line)) {
                 Ok(_) => {
-                    self.reached = Some(credential.clone());
                     self.chosen = credential;
                     return Ok(());
                 }
@@ -275,7 +295,7 @@ impl Seed {
             self.job.enter(Phase::Fetch);
             // A fetch that fails is not the end: the base may be here already.
             if let Err(failures) =
-                self.net(Some(&folder), &["fetch", "--progress", "origin"], &mut || {})
+                self.net_origin(Some(&folder), &["fetch", "--progress", "origin"], &mut || {})
                 && failures.iter().any(Failure::disk_full)
             {
                 return Err(classify(&failures, "seed.clone_failed"));
@@ -298,7 +318,7 @@ impl Seed {
             ["clone", "--progress", "--filter=blob:none", "--no-checkout", "--", &url, &target];
         // A clone cut short is removed before the next path tries.
         let mut clean = || clean_folder(&folder, existed);
-        self.net(None, &args, &mut clean)
+        self.net_origin(None, &args, &mut clean)
             .map_err(|failures| classify(&failures, "seed.clone_failed"))
     }
 
@@ -371,7 +391,7 @@ impl Seed {
         let folder = self.folder.clone();
         let base = self.params.base.clone();
         let fetched =
-            self.net(Some(&folder), &["fetch", "--progress", "origin", &base], &mut || {});
+            self.net_origin(Some(&folder), &["fetch", "--progress", "origin", &base], &mut || {});
         if self.has_commit(&base) {
             return Ok(());
         }
