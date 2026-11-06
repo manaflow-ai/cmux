@@ -345,6 +345,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         groups: [
             // How the Chief chat's bubbles look (the theme's colours, or iMessage's).
             group("settings.group.chiefChat"),
+            // The Chief window dock (Cmd-I): its edge, and whether links from the Chief keep it docked.
+            group("settings.group.chiefDock"),
             // The Chief pet floating over every app, and its character.
             group("settings.group.chiefPet"),
             // Which Chief Home opens; the Chiefs card draws it as its Engine row.

@@ -53,6 +53,7 @@ pub mod memory_sync;
 pub mod memory_sync_state;
 pub mod migrate;
 pub mod migrate_cloud;
+pub mod migrate_fork;
 pub mod migrate_reach;
 pub mod migrate_return;
 pub mod migrate_subagents;

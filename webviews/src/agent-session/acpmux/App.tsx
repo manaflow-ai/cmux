@@ -265,6 +265,7 @@ import { releaseReaderScroll, useHeldWhileScrolling } from "./summary/heldWhileS
 import type { WorkflowAgent, WorkflowSummary } from "./summary/workflow";
 import { WorkflowSideTab } from "./summary/WorkflowSideTab";
 import {
+  backToOpeningChat,
   showSubagent as showSubagentIn,
   revealedSubagent,
   subagentTabTitle,
@@ -3145,6 +3146,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   // Session Info shows: every listed chat's usage is read now (direct.ts `refreshUsage`).
   const refreshUsage = useCallback(() => directClient.current?.refreshUsage(), []);
+  // Session Info's Changes row reads the folder's git changes (session-info/changeCounts.ts).
+  const readChanges = useCallback(
+    (scope: string) => directClient.current?.gitDiffCounts(scope) ?? Promise.reject(new Error()),
+    [],
+  );
   const reconnectPeer = useCallback(
     (peer: string) => directClient.current?.reconnectPeer(peer) ?? Promise.reject(new Error()),
     [],
@@ -4228,8 +4234,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }),
     [autoOpenSubagents],
   );
+  /// Shows subagent `id`'s view in place, or the chat's (`undefined`). In a pane opened on a subagent
+  /// (beside the chat that opened it), going to the chat goes back to that chat's own tab instead and
+  /// closes this one, so the chat never shows twice (subagentPanes.ts backToOpeningChat); a pane no
+  /// chat opened shows the chat in place.
+  const navigateSubagent = useCallback((id: string | undefined) => {
+    if (id !== undefined || !subagentPane.current) return setSubagentView(id);
+    void backToOpeningChat(callNative).then((back) => {
+      if (!back) setSubagentView(undefined);
+    });
+  }, []);
   // Escape closes a subagent's view to the chat's, as its pill's × does (subagents/subagentEscape.ts).
-  useEscapeClosesSubagent(!quick && !!subagentView, () => setSubagentView(undefined));
+  useEscapeClosesSubagent(!quick && !!subagentView, () => navigateSubagent(undefined));
   // A pane opened on a subagent shows the chat's other subagents in place, and its "Subagent of" pill goes
   // back to the chat: its tab's name follows what it shows (review of #28497 at 995299ff). Not before
   // the subagent it was opened on has shown, or the name the app gave the tab would flash away; and not
@@ -4400,7 +4416,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       parent: parent === null ? chatName : (chatAgents.find((agent) => agent.id === parent)?.name ?? chatName),
       agents: descendants(chatAgents, scopedAgent.id),
       // As its "Subagent of" pill: back to its parent subagent's view, else the chat's.
-      onBack: () => setSubagentView(parent ?? undefined),
+      onBack: () => navigateSubagent(parent ?? undefined),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new scope only when what it shows changes
   }, [scopedKey, cardScopedRows, chatName, chatAgents]);
@@ -4553,6 +4569,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       quick || !sessionInfoLocal
         ? undefined
         : (path) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.files, cwd: path, mode: "open" })),
+    // Environment's Changes: the header's Changes counts and what it opens (the chat folder's diff
+    // beside the chat), only where the header offers it.
+    readChanges: quick ? undefined : readChanges,
+    onOpenChanges: quick ? undefined : () => openChangesTab.current(),
     // Active chat panes do not support environment.save; the native handler accepts it only from
     // New Tab. Keep the inspector's optional callback for gallery/host integrations, but do not
     // expose a button here that would always be rejected.
@@ -8992,7 +9012,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         <SessionEditsContext.Provider value={editRows}>
                           <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                             <OfferDefaultsContext.Provider value={offerDefaultsValue}>
-                              <SubagentNavContext.Provider value={setSubagentView}>
+                              <SubagentNavContext.Provider value={navigateSubagent}>
                                 <SubagentViewsContext.Provider value={readSubagentView}>
                                   <SubagentPaneContext.Provider value={showSubagent}>
                                     <WorkingCountsContext.Provider value={workingCounts}>
@@ -9611,6 +9631,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // attached) draws no new chat's folder and environment strip.
             chatKnown={paneKnowsNewChat({ handshaken, newSession }, composerSnapshot)}
             chips={ComposerChips}
+            // The context card's Details opens Session Info on Context, unfolded and lit (main's).
             onOpenContext={sessionInfo.reveal ? () => sessionInfo.reveal?.("context") : undefined}
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}

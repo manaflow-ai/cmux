@@ -189,6 +189,7 @@ extension SettingsSchema {
         "status.inferCommandBusyAfter",
         "terminal.fontFamily",
         "terminal.fontSize",
+        "terminal.term",
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",

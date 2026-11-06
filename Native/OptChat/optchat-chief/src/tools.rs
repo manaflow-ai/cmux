@@ -1281,6 +1281,9 @@ pub struct Served {
     /// The Chiefs on other machines (peer_chiefs.rs): `tell("chief:<name>")`
     /// posts to them through the agent hub and `chiefs` lists them. None: off.
     pub peers: Option<Arc<crate::peer_chiefs::PeerChiefs>>,
+    /// This Chief's fork in the cloud (migrate_fork.rs): `tell("chief:fork")`
+    /// reaches it and its reply comes back as a note. None: off.
+    pub fork: Option<Arc<crate::migrate_fork::ForkPeer>>,
 }
 
 /// Serves the tools on `path` until the process ends. The host holds the
@@ -1305,6 +1308,7 @@ pub fn serve_with(
             chief: None,
             turn: None,
             peers: None,
+            fork: None,
         },
     )
 }
@@ -1644,6 +1648,15 @@ fn connection(conn: UnixStream, served: &Served) {
                     {
                         Err(crate::chief_profile::Grant::refusal("tell"))
                     }
+                    // This Chief's own fork in the cloud (migrate_fork.rs).
+                    Ok(Call::Tell {
+                        ref id,
+                        ref message,
+                        ..
+                    }) if served.fork.as_ref().is_some_and(|f| f.names(id)) => served
+                        .fork
+                        .as_ref()
+                        .map_or_else(|| Err("tell: no fork".to_owned()), |f| f.tell(message)),
                     // A Chief on another machine (peer_chiefs.rs), through the agent hub.
                     Ok(Call::Tell {
                         ref id,
