@@ -76,3 +76,36 @@ test("the project picker with no projects says none are recent until a search fi
   });
   expect(empty()).toBe("No matching folders");
 });
+
+// Add folder… goes straight to the host's folder panel. A refused panel says why beside a Retry
+// (review of cmux#36964: the Add project dialog that showed it is gone).
+test("a failed Add folder… says why and Retry asks the host again", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ProjectChooser } = await import("../src/agent-session/acpmux/ProjectChooser");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  let calls = 0;
+  const onBrowse = () => {
+    calls += 1;
+    return calls === 1 ? Promise.reject(new Error("Folder access was denied")) : Promise.resolve(undefined);
+  };
+  await act(async () =>
+    root!.render(<ProjectChooser projects={[]} icon={null} onPick={() => {}} onBrowse={onBrowse} side="bottom" />),
+  );
+  await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+  const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+    option.textContent?.includes("Add folder…"),
+  )!;
+  await act(async () => add.click());
+  await act(async () => new Promise((done) => setTimeout(done, 0)));
+  expect(calls).toBe(1);
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("Folder access was denied");
+
+  const retry = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "Retry",
+  )!;
+  await act(async () => retry.click());
+  await act(async () => new Promise((done) => setTimeout(done, 0)));
+  expect(calls).toBe(2);
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+});

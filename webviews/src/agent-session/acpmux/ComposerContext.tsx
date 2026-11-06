@@ -364,6 +364,8 @@ export function ComposerContext({
   const pickKey = `${summary?.sessionId ?? ""}\u0000${initialComputer}`;
   const [picked, setPicked] = useState<{ key: string; computer?: string }>({ key: pickKey });
   const [browseError, setBrowseError] = useState<string>();
+  // The browse that failed, so Retry runs the same one.
+  const browseRetry = useRef<() => void>(undefined);
   const browseRequest = useRef(0);
   useEffect(
     () => () => {
@@ -500,10 +502,29 @@ export function ComposerContext({
               if (request === browseRequest.current && cwd) onNewChat(cwd);
             })
             .catch((error: unknown) => {
-              if (request === browseRequest.current) setBrowseError(browseFailureMessage(error));
+              if (request !== browseRequest.current) return;
+              browseRetry.current = browseNewChat;
+              setBrowseError(browseFailureMessage(error));
             });
         }
       : undefined;
+  // A new chat's Add folder…: the host's folder panel, then the chat's folder. A refused or failed
+  // panel says why beside a Retry, as Add project's dialog did before the menu dropped it.
+  const browseProject = onBrowseProject
+    ? (request?: BrowseRequest): Promise<BrowseResult> => {
+        const id = ++browseRequest.current;
+        setBrowseError(undefined);
+        return Promise.resolve()
+          .then(() => onBrowseProject(request) ?? undefined)
+          .catch((error: unknown) => {
+            if (id === browseRequest.current) {
+              browseRetry.current = () => void browseProject?.();
+              setBrowseError(browseFailureMessage(error));
+            }
+            return undefined;
+          });
+      }
+    : undefined;
   // An account Cloud machine acpmux does not list runs its machine action (resume or open); the
   // chat cannot start there until acpmux links it. The pick waits for that (`waiting`): the
   // control names the machine as starting, and the chat moves there once its row is ready, so a
@@ -794,7 +815,7 @@ export function ComposerContext({
               folders={folders}
               current={currentFolder}
               onPick={pickFolder}
-              onBrowse={onBrowseProject}
+              onBrowse={browseProject}
               onNoProject={onNoProject}
               noProject={noProject && !currentFolder}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
@@ -967,8 +988,12 @@ export function ComposerContext({
             />
           )}
         </div>
-        {browseError && browseNewChat && (
-          <BrowseFailure error={browseError} onRetry={browseNewChat} onDismiss={() => setBrowseError(undefined)} />
+        {browseError && browseRetry.current && (
+          <BrowseFailure
+            error={browseError}
+            onRetry={browseRetry.current}
+            onDismiss={() => setBrowseError(undefined)}
+          />
         )}
         {runToggle && (
           <EnvironmentPicker

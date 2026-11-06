@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
 import type { BrowseRequest, BrowseResult } from "./AddProjectPanel";
+import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
 import { useT } from "./i18n";
 import { Popover } from "../../ui/Popover";
 import { Combobox } from "../../ui/Combobox";
@@ -66,6 +67,7 @@ export function ProjectChooser({
   const t = useT();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [browseError, setBrowseError] = useState<string>();
   const trigger = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const currentKey = current
@@ -136,6 +138,14 @@ export function ProjectChooser({
         : key;
   };
 
+  // The host's folder panel picks the folder. A refused or failed panel says why beside a Retry, as
+  // Add project's dialog did before the menu dropped it.
+  const browse = () => {
+    setBrowseError(undefined);
+    void Promise.resolve()
+      .then(() => onBrowse?.())
+      .catch((error: unknown) => setBrowseError(browseFailureMessage(error)));
+  };
   const label = currentLabel ?? t("composer.chooseFolder");
   return (
     <span className={`acpmux-picker acpmux-project${inline ? " acpmux-project-inline" : ""}`}>
@@ -178,11 +188,8 @@ export function ProjectChooser({
             onQuery={setQuery}
             onSubmit={(key) => {
               if (key === ADD_PROJECT_KEY) {
-                // The host's folder panel picks the folder and reports a failure itself.
                 close(false);
-                void Promise.resolve()
-                  .then(() => onBrowse?.())
-                  .catch(() => undefined);
+                browse();
                 return;
               }
               const row =
@@ -257,6 +264,9 @@ export function ProjectChooser({
           )}
         </div>
       </Popover>
+      {browseError && (
+        <BrowseFailure error={browseError} onRetry={browse} onDismiss={() => setBrowseError(undefined)} />
+      )}
     </span>
   );
 }
