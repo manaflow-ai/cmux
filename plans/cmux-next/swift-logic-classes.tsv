@@ -7908,61 +7908,61 @@ CmuxNextHistory	struct	VaultPullRequests	0	LOGIC	100	0	Packages/macOS/CmuxNext/S
 CmuxNextHistory	struct	VaultResumeCommand	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Vault/VaultResumeCommand.swift	resume command line per agent session
 CmuxNextHistory	struct	VaultRow	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Vault/VaultRow.swift	immutable vault row snapshot
 CmuxNextHistory	protocol	VaultSessionSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Vault/VaultSessionSource.swift	from protocol VaultSessionSource:6: vault session source seam
-CmuxNextHome	class	HomeChatColorStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/ChatColors/HomeChatColorStore.swift	from class HomeChatColorStore:9: per-chat bubble colors persisted in UserDefaults
-CmuxNextHome	extension	HomeBubbleColors	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/ChatColors/HomeChatColorStore.swift	from class HomeChatColorStore:9: per-chat bubble colors persisted in UserDefaults
+CmuxNextHomeModel	class	HomeChatColorStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/ChatColors/HomeChatColorStore.swift	from class HomeChatColorStore:9: per-chat bubble colors persisted in UserDefaults
+CmuxNextHomeModel	extension	HomeBubbleColors	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/ChatColors/HomeChatColorStore.swift	from class HomeChatColorStore:9: per-chat bubble colors persisted in UserDefaults
 CmuxNextHome	class	HomeChatColorsPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/ChatColors/HomeChatColorsPanel.swift	from class HomeChatColorsPanel:8: AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeChatColorSwatch	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/ChatColors/HomeChatColorsParts.swift	from class HomeChatColorsPreviewView:8: AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeChatColorWell	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/ChatColors/HomeChatColorsParts.swift	from class HomeChatColorsPreviewView:8: AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeChatColorsBubble	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/ChatColors/HomeChatColorsParts.swift	from class HomeChatColorsPreviewView:8: AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeChatColorsPreviewView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/ChatColors/HomeChatColorsParts.swift	from class HomeChatColorsPreviewView:8: AppKit/SwiftUI view or platform code
-CmuxNextHome	struct	HomeChatColorsRefusal	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/ChatColors/HomeChatColorsRefusal.swift	AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	struct	HomeChatColorsRefusal	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/ChatColors/HomeChatColorsRefusal.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	enum	HomeChatColorsStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/ChatColors/HomeChatColorsStrings.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeChatColorsView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/ChatColors/HomeChatColorsView.swift	from class HomeChatColorsView:11: AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	HomeColor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/ChatColors/HomeChatColorsView.swift	from class HomeChatColorsView:11: AppKit/SwiftUI view or platform code
 CmuxNextHome	struct	HomeChatColorsPreview	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/ChatColors/HomeChatColorsView.swift	from class HomeChatColorsView:11: AppKit/SwiftUI view or platform code
-CmuxNextHome	struct	ChiefBackend	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/ChiefBackend.swift	Swift hand list of official engines (harness id and title)
-CmuxNextHome	extension	String	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/ChiefNames.swift	names for harness ids, invite-waiting predicate
-CmuxNextHome	func	chiefNameIsDate	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/ChiefNames.swift	from extension String:8: names for harness ids, invite-waiting predicate
-CmuxNextHome	func	chiefNameTokens	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/ChiefNames.swift	from extension String:8: names for harness ids, invite-waiting predicate
-CmuxNextHome	func	chiefNameWord	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/ChiefNames.swift	from extension String:8: names for harness ids, invite-waiting predicate
-CmuxNextHome	let	chiefNameAcronyms	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/ChiefNames.swift	from extension String:8: names for harness ids, invite-waiting predicate
-CmuxNextHome	let	chiefNameBuiltins	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/ChiefNames.swift	from extension String:8: names for harness ids, invite-waiting predicate
-CmuxNextHome	let	chiefNameRoutes	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/ChiefNames.swift	from extension String:8: names for harness ids, invite-waiting predicate
+CmuxNextHomeModel	struct	ChiefBackend	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/ChiefBackend.swift	Swift hand list of official engines (harness id and title)
+CmuxNextHomeModel	extension	String	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/ChiefNames.swift	names for harness ids, invite-waiting predicate
+CmuxNextHomeModel	func	chiefNameIsDate	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/ChiefNames.swift	from extension String:8: names for harness ids, invite-waiting predicate
+CmuxNextHomeModel	func	chiefNameTokens	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/ChiefNames.swift	from extension String:8: names for harness ids, invite-waiting predicate
+CmuxNextHomeModel	func	chiefNameWord	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/ChiefNames.swift	from extension String:8: names for harness ids, invite-waiting predicate
+CmuxNextHomeModel	let	chiefNameAcronyms	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/ChiefNames.swift	from extension String:8: names for harness ids, invite-waiting predicate
+CmuxNextHomeModel	let	chiefNameBuiltins	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/ChiefNames.swift	from extension String:8: names for harness ids, invite-waiting predicate
+CmuxNextHomeModel	let	chiefNameRoutes	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/ChiefNames.swift	from extension String:8: names for harness ids, invite-waiting predicate
 CmuxNextHome	extension	ConversationSummary	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/ConversationSummary+InviteWaiting.swift	names for harness ids, invite-waiting predicate
-CmuxNextHome	extension	HomeChiefAvatar	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeChiefAvatar+Bubbles.swift	AppKit/SwiftUI view or platform code
-CmuxNextHome	enum	HomeChiefAvatar	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeChiefAvatar.swift	AppKit/SwiftUI view or platform code
-CmuxNextHome	enum	HomeChiefDefault	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeChiefDefault.swift	default chief / place rules
-CmuxNextHome	enum	HomeChiefPlace	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeChiefPlace.swift	default chief / place rules
+CmuxNextHomeModel	extension	HomeChiefAvatar	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeChiefAvatar+Bubbles.swift	AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	enum	HomeChiefAvatar	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeChiefAvatar.swift	AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	enum	HomeChiefDefault	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeChiefDefault.swift	default chief / place rules
+CmuxNextHomeModel	enum	HomeChiefPlace	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeChiefPlace.swift	default chief / place rules
 CmuxNextHome	extension	HomeChiefRoster	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeChiefRoster+NewMessage.swift	Chief roster order: main pinned first, tagged by host
-CmuxNextHome	extension	HomeChiefRoster	1	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeChiefRoster+NewMessage.swift	Chief roster order: main pinned first, tagged by host
-CmuxNextHome	struct	HomeChiefRoster	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeChiefRoster.swift	Chief roster order: main pinned first, tagged by host
-CmuxNextHome	enum	HomeComposeOutcome	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeContact.swift	from struct HomeContact:6: contact ordering, Home conversation sections and order (Chiefs, pinned, DMs by activity)
-CmuxNextHome	enum	HomeRecipient	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeContact.swift	from struct HomeContact:6: contact ordering, Home conversation sections and order (Chiefs, pinned, DMs by activity)
-CmuxNextHome	struct	HomeContact	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeContact.swift	contact ordering, Home conversation sections and order (Chiefs, pinned, DMs by activity)
+CmuxNextHomeModel	extension	HomeChiefRoster	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeChiefRoster+Members.swift	Chief roster order: main pinned first, tagged by host
+CmuxNextHomeModel	struct	HomeChiefRoster	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeChiefRoster.swift	Chief roster order: main pinned first, tagged by host
+CmuxNextHomeModel	enum	HomeComposeOutcome	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeContact.swift	from struct HomeContact:6: contact ordering, Home conversation sections and order (Chiefs, pinned, DMs by activity)
+CmuxNextHomeModel	enum	HomeRecipient	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeContact.swift	from struct HomeContact:6: contact ordering, Home conversation sections and order (Chiefs, pinned, DMs by activity)
+CmuxNextHomeModel	struct	HomeContact	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeContact.swift	contact ordering, Home conversation sections and order (Chiefs, pinned, DMs by activity)
 CmuxNextHome	enum	HomeConversationLine	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeConversationList.swift	from enum HomeConversationSectionKind:5: contact ordering, Home conversation sections and order (Chiefs, pinned, DMs by activity)
 CmuxNextHome	enum	HomeConversationSectionKind	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeConversationList.swift	contact ordering, Home conversation sections and order (Chiefs, pinned, DMs by activity)
 CmuxNextHome	extension	Array	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeConversationList.swift	from enum HomeConversationSectionKind:5: contact ordering, Home conversation sections and order (Chiefs, pinned, DMs by activity)
 CmuxNextHome	extension	InboxRow	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeConversationList.swift	from enum HomeConversationSectionKind:5: contact ordering, Home conversation sections and order (Chiefs, pinned, DMs by activity)
 CmuxNextHome	struct	HomeConversationSection	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeConversationList.swift	from enum HomeConversationSectionKind:5: contact ordering, Home conversation sections and order (Chiefs, pinned, DMs by activity)
 CmuxNextHome	enum	HomeConversationStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeConversationStrings.swift	AppKit/SwiftUI view or platform code
-CmuxNextHome	extension	HomeComposeOutcome	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeConversationStrings.swift	from enum HomeConversationStrings:8: AppKit/SwiftUI view or platform code
-CmuxNextHome	extension	HomeGroupInfo	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeConversationStrings.swift	from enum HomeConversationStrings:8: AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	extension	HomeComposeOutcome	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeModelStrings.swift	from enum HomeModelStrings: strings of the Home models
+CmuxNextHomeModel	extension	HomeGroupInfo	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeModelStrings.swift	from enum HomeModelStrings: strings of the Home models
 CmuxNextHome	struct	HomeGroupAvatar	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupAvatar.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	struct	HomeGroupContactRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupContactRow.swift	AppKit/SwiftUI view or platform code
-CmuxNextHome	struct	HomeGroupInfo	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfo.swift	group info value copy
+CmuxNextHomeModel	struct	HomeGroupInfo	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeGroupInfo.swift	group info value copy
 CmuxNextHome	struct	HomeGroupInfoActions	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoActions.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	struct	HomeGroupInfoColors	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoColors.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeGroupInfoModel	0	MIXED	32	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoModel.swift	from class HomeGroupInfoModel:9: sheet edit state (name, people being added, status) mostly view-local; add/remove rule decisions LOGIC 37
 CmuxNextHome	class	HomeGroupInfoSheet	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoSheet.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	struct	HomeGroupInfoView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoView.swift	AppKit/SwiftUI view or platform code
-CmuxNextHome	struct	HomeGroupMember	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupMember.swift	group member value copy
+CmuxNextHomeModel	struct	HomeGroupMember	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeGroupMember.swift	group member value copy
 CmuxNextHome	struct	HomeGroupMemberRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupMemberRow.swift	AppKit/SwiftUI view or platform code
-CmuxNextHome	enum	HomeGroupOutcome	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupOutcome.swift	AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	enum	HomeGroupOutcome	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeGroupOutcome.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeInviteSheet	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeInviteSheet.swift	AppKit/SwiftUI view or platform code
-CmuxNextHome	struct	HomeMessageRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeMessageRequest.swift	message request value copy
+CmuxNextHomeModel	struct	HomeMessageRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeMessageRequest.swift	message request value copy
 CmuxNextHome	class	HomeNewChiefSheet	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeNewChiefSheet.swift	AppKit/SwiftUI view or platform code
-CmuxNextHome	struct	HomePins	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomePins.swift	pinned conversations order per account (user order plus default pins); client-side pin state
-CmuxNextHome	enum	HomeRequestAnswer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeRequestAnswer.swift	AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	struct	HomePins	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomePins.swift	pinned conversations order per account (user order plus default pins); client-side pin state
+CmuxNextHomeModel	enum	HomeRequestAnswer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeRequestAnswer.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeRequestsSheet	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeRequestsSheet.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	Date	0	MIXED	58	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeRowText.swift	list time formatting PLATFORM (system formatter) 22; row preview text rule (reaction/reply/markdown strip) LOGIC 30
 CmuxNextHome	extension	InboxRow	0	MIXED	58	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeRowText.swift	from extension Date:5: list time formatting PLATFORM (system formatter) 22; row preview text rule (reaction/reply/markdown strip) LOGIC 30
@@ -7977,27 +7977,27 @@ CmuxNextHome	struct	HomeAvatar	0	MIXED	40	60	Packages/macOS/CmuxNext/Sources/Cmu
 CmuxNextHome	struct	HomeSidebarItem	0	MIXED	40	60	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeSidebarModel.swift	from struct HomeAvatar:5: HomeSidebarModel: pinned/rows/people copy of inbox 140; search match, neighbor, unread, nameKey LOGIC 92 (:171-232)
 CmuxNextHome	struct	HomeSidebarModel	0	MIXED	40	60	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeSidebarModel.swift	from struct HomeAvatar:5: HomeSidebarModel: pinned/rows/people copy of inbox 140; search match, neighbor, unread, nameKey LOGIC 92 (:171-232)
 CmuxNextHome	struct	HomeSidebarPerson	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeSidebarPerson.swift	sidebar person value copy
-CmuxNextHome	enum	HomeTeamInviteFailure	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeTeamInviteFailure.swift	AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	enum	HomeTeamInviteFailure	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeTeamInviteFailure.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeTeamInviteSheet	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeTeamInviteSheet.swift	AppKit/SwiftUI view or platform code
-CmuxNextHome	enum	HomeTeamSeatImpact	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeTeamSeatImpact.swift	team seat cost rule for invite
-CmuxNextHome	extension	HomeDockSelection	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Dock/HomeDockSelection+Link.swift	AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	enum	HomeTeamSeatImpact	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeTeamSeatImpact.swift	team seat cost rule for invite
+CmuxNextHomeModel	extension	HomeDockSelection	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Dock/HomeDockSelection+Link.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	HomeDockSwitchView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Dock/HomeDockSwitchView+TabRow.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	HomeDockSwitchView	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Dock/HomeDockSwitchView+TabRow.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeDockSwitchView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Dock/HomeDockSwitchView.swift	from enum HomeDockMode:6: AppKit/SwiftUI view or platform code
-CmuxNextHome	enum	HomeDockMode	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Dock/HomeDockSwitchView.swift	AppKit/SwiftUI view or platform code
-CmuxNextHome	struct	HomeDockSelection	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Dock/HomeDockSwitchView.swift	from enum HomeDockMode:6: AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	enum	HomeDockMode	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Dock/HomeDockMode.swift	AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	struct	HomeDockSelection	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Dock/HomeDockMode.swift	from enum HomeDockMode:6: AppKit/SwiftUI view or platform code
 CmuxNextHome	struct	HomeFlightRecording	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/HomeFlightRecording.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeReduceMotion	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/HomeReduceMotion.swift	from class HomeReduceMotion:13: AppKit/SwiftUI view or platform code
-CmuxNextHome	enum	HomeTopFadeChoice	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/HomeTopFadeChoice.swift	AppKit/SwiftUI view or platform code
-CmuxNextHome	extension	HomeTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/HomeTunables+HeaderPanels.swift	AppKit/SwiftUI view or platform code
-CmuxNextHome	enum	HomeTurnProgressChoice	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/HomeTunables.swift	from struct HomeTunables:16: AppKit/SwiftUI view or platform code
-CmuxNextHome	struct	HomeTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/HomeTunables.swift	AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	enum	HomeTopFadeChoice	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/HomeTopFadeChoice.swift	AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	extension	HomeTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/HomeTunables+HeaderPanels.swift	AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	enum	HomeTurnProgressChoice	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/HomeTunables.swift	from struct HomeTunables:16: AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	struct	HomeTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/HomeTunables.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeLinkChipHoverSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/LinkChips/HomeLinkChipHoverSource.swift	from class HomeLinkChipHoverSource:11: AppKit/SwiftUI view or platform code
 CmuxNextHome	protocol	HomeLinkPreviewing	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/LinkChips/HomeLinkPreview.swift	from struct HomeLinkPreview:7: AppKit/SwiftUI view or platform code
 CmuxNextHome	struct	HomeLinkPreview	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/LinkChips/HomeLinkPreview.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeLinkPreviewCardView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/LinkChips/HomeLinkPreviewCardView.swift	AppKit/SwiftUI view or platform code
-CmuxNextHome	enum	ChiefIntroKind	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/ChiefIntroKind.swift	intro kind enum
-CmuxNextHome	struct	ChiefIntroStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/ChiefIntroStore.swift	which Chief intro shows, persisted once per install/Chief
+CmuxNextHomeModel	enum	ChiefIntroKind	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/NativeTranscript/ChiefIntroKind.swift	intro kind enum
+CmuxNextHomeModel	struct	ChiefIntroStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/NativeTranscript/ChiefIntroStore.swift	which Chief intro shows, persisted once per install/Chief
 CmuxNextHome	struct	OndineDiagramColors	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/Diagrams/OndineDiagramColors.swift	diagram rendering (Ondine, SVG colors, rasterizer)
 CmuxNextHome	let	ondineHostShims	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/Diagrams/OndineHostShims.swift	diagram rendering (Ondine, SVG colors, rasterizer)
 CmuxNextHome	class	OndineMermaidRenderer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/Diagrams/OndineMermaidRenderer.swift	diagram rendering (Ondine, SVG colors, rasterizer)
@@ -8005,8 +8005,8 @@ CmuxNextHome	struct	SVGColor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/Cmux
 CmuxNextHome	struct	SVGCustomPropertyResolver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/Diagrams/SVGCustomPropertyResolver.swift	diagram rendering (Ondine, SVG colors, rasterizer)
 CmuxNextHome	struct	SVGRasterizer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/Diagrams/SVGRasterizer.swift	diagram rendering (Ondine, SVG colors, rasterizer)
 CmuxNextHome	struct	SVGTextFlattener	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/Diagrams/SVGTextFlattener.swift	diagram rendering (Ondine, SVG colors, rasterizer)
-CmuxNextHome	extension	HomeAgentGlance.Status	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeAgentGlance.swift	from struct HomeAgentGlance:8: maps tab status to agent glance word and urgency order
-CmuxNextHome	struct	HomeAgentGlance	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeAgentGlance.swift	maps tab status to agent glance word and urgency order
+CmuxNextHomeModel	extension	HomeAgentGlance.Status	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/NativeTranscript/HomeAgentGlance.swift	from struct HomeAgentGlance:8: maps tab status to agent glance word and urgency order
+CmuxNextHomeModel	struct	HomeAgentGlance	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/NativeTranscript/HomeAgentGlance.swift	maps tab status to agent glance word and urgency order
 CmuxNextHome	enum	HomeAttachmentIntake	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeAttachmentIntake.swift	from extension NSPasteboard:40: AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	HomePasteboardContents	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeAttachmentIntake.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	NSFilePromiseReceiver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeAttachmentIntake.swift	from protocol HomePasteboardContents:7: AppKit/SwiftUI view or platform code
@@ -8062,7 +8062,7 @@ CmuxNextHome	class	HomeStarterChips	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextHome	struct	HomeStarterContext	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeStarterContext.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	struct	HomeStarterStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeStarterStrings.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	enum	HomeStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeStrings.swift	AppKit/SwiftUI view or platform code
-CmuxNextHome	struct	HomeSwitchKeys	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeSwitchKeys.swift	AppKit/SwiftUI view or platform code
+CmuxNextHomeModel	struct	HomeSwitchKeys	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/NativeTranscript/HomeSwitchKeys.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	enum	HomeThemePalette	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeThemePalette.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeVoiceDictation	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeVoiceDictation.swift	from class HomeVoiceDictation:28: AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	DictationSession	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeVoiceDictation.swift	from protocol HomeDictationEngine:12: AppKit/SwiftUI view or platform code
@@ -12438,3 +12438,8 @@ CmuxNextLayout	extension	ShownResizeRange	0	PLATFORM	0	0	Packages/macOS/CmuxNext
 CmuxNextLayout	struct	ShownResizeRange	0	MIXED	15	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/ShownResizeRange.swift	gathers the values the keyboard resize rules read from the placed ScreenGeometry (divider extents and minimums, the strip and both columns' frames and minimums, the docks, the rows) and calls ShownResizeRange+Rules, whose rules are Rust's (cmux_shown_resize_*); still Swift logic: the trade's placement check (lines 67-73 try the two width pairs in order, lines 76-85 movesOnlyTheDivider places each with ScreenGeometry.compute and keeps it only when exactly the divider moved by the step; 17 of 111 lines)
 CmuxNextTabs	struct	HoverClosePlaygroundVariants	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Playground/HoverClosePlaygroundVariants.swift	DEV and NIGHTLY Tab Bar Playground (Debug menu): treatments of a hovered tab x taking its status slot; demo tooling, not product state
 CmuxNextTabs	enum	TabHoverCloseSwap	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabTunables.swift	presentation choice of how the hovered x replaces a tab status (fade or instant); view treatment, not state
+CmuxNextHomeModel	enum	HomeModelStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/Conversations/HomeModelStrings.swift	Localized strings of the Home models
+CmuxNextHome	extension	HomeChiefAvatar	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeChiefAvatar+Monogram.swift	AppKit/SwiftUI view or platform code
+CmuxNextHome	extension	HomeDockMode	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Dock/HomeDockMode+Enabled.swift	AppKit/SwiftUI view or platform code
+CmuxNextHome	extension	HomeTurnProgressChoice	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/HomeTunables+Styles.swift	AppKit/SwiftUI view or platform code
+CmuxNextHome	extension	HomeTopFadeChoice	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/HomeTunables+Styles.swift	AppKit/SwiftUI view or platform code
