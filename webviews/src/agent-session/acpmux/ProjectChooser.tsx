@@ -70,6 +70,13 @@ export function ProjectChooser({
   const [browseError, setBrowseError] = useState<string>();
   // Counts picks: a folder panel's late answer (or failure) after one is dropped.
   const picks = useRef(0);
+  // A folder panel's late answer after the chooser is gone picks nothing.
+  useEffect(
+    () => () => {
+      picks.current += 1;
+    },
+    [],
+  );
   const trigger = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const currentKey = current

@@ -372,6 +372,8 @@ export function ComposerContext({
   useEffect(
     () => () => {
       browseRequest.current += 1;
+      // A folder panel's late answer after the menu is gone picks nothing.
+      folderPicks.current += 1;
     },
     [],
   );
@@ -548,13 +550,16 @@ export function ComposerContext({
     return machine !== undefined;
   };
   const pickComputer = (id: string) => {
+    if (!readOnly && id !== selectedComputer) {
+      // Another machine (a Cloud one too): a folder panel's answer or failure for the last one no
+      // longer applies.
+      folderPicks.current += 1;
+      setBrowseError(undefined);
+    }
     if (pickCloudMachine(id)) return;
     onCloudMachinePicked?.(undefined);
     if (waiting) setWaiting(undefined);
     if (!readOnly && id !== selectedComputer) {
-      // Another machine: a folder panel's answer or failure for the last one no longer applies.
-      folderPicks.current += 1;
-      setBrowseError(undefined);
       // Folders are the machine's: another machine starts with none.
       if (extraFolders?.draft && extraFolders.draft.machine !== id) extraFolders.onChange(undefined);
       setSelectedComputer(id);
@@ -632,18 +637,22 @@ export function ComposerContext({
     ? (): Promise<string | undefined> => {
         const picks = folderPicks.current;
         setBrowseError(undefined);
-        return Promise.resolve()
-          .then(() => extraFolders.onBrowse?.() ?? undefined)
-          .catch((error: unknown) => {
-            if (picks === folderPicks.current) {
-              browseRetry.current = () =>
-                void browseExtra?.().then((path) => {
-                  if (path) extra?.onAdd(path);
-                });
-              setBrowseError(browseFailureMessage(error));
-            }
-            return undefined;
-          });
+        return (
+          Promise.resolve()
+            .then(() => extraFolders.onBrowse?.() ?? undefined)
+            // A folder or machine picked while the panel was open: its answer adds nothing.
+            .then((path) => (picks === folderPicks.current ? path : undefined))
+            .catch((error: unknown) => {
+              if (picks === folderPicks.current) {
+                browseRetry.current = () =>
+                  void browseExtra?.().then((path) => {
+                    if (path) extra?.onAdd(path);
+                  });
+                setBrowseError(browseFailureMessage(error));
+              }
+              return undefined;
+            })
+        );
       }
     : undefined;
   const extra: ExtraFolderRows | undefined =
