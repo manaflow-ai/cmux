@@ -66,28 +66,6 @@ fn applied() -> Value {
 
 impl Http for Fake {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
-    fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        let mut st = self.0.borrow_mut();
-        st.empty_posts.push(Seen {
-            url: url.to_owned(),
-            bearer: bearer.map(str::to_owned),
-            body: Value::Null,
-        });
-        let path = url.strip_prefix(DEV).ok_or_else(|| format!("unexpected origin in {url}"))?;
-        match path {
-            "/v1/cloud/machines/vm_m0000000000000000004/carrier" => Ok((
-                200,
-                json!({ "ok": true, "value": {
-                    "relay": "relay+do://relay.example",
-                    "slot": "AAAAAAAAAAAAAAAAAAAAAA",
-                    "ticket": "ticket-1",
-                    "expires_at": T0 + 60_000,
-                }}),
-            )),
-            _ => Ok((404, json!({}))),
-        }
-    }
-
         let mut st = self.0.borrow_mut();
         st.seen.push(Seen {
             url: url.to_owned(),
@@ -138,6 +116,29 @@ impl Http for Fake {
             _ => Ok((404, json!({}))),
         }
     }
+
+    fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        let mut st = self.0.borrow_mut();
+        st.empty_posts.push(Seen {
+            url: url.to_owned(),
+            bearer: bearer.map(str::to_owned),
+            body: Value::Null,
+        });
+        let path = url.strip_prefix(DEV).ok_or_else(|| format!("unexpected origin in {url}"))?;
+        match path {
+            "/v1/cloud/machines/vm_m0000000000000000004/carrier" => Ok((
+                200,
+                json!({ "ok": true, "value": {
+                    "relay": "relay+do://relay.example",
+                    "slot": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "ticket": "ticket-1",
+                    "expires_at": T0 + 60_000,
+                }}),
+            )),
+            _ => Ok((404, json!({}))),
+        }
+    }
+
 }
 
 fn daemon() -> DaemonInfo {
