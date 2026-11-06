@@ -180,6 +180,9 @@ def bubbles():
 def open_tab(session):
     """The chat of `session` as a tab of the focused pane, shown, as a Chief subagent link opens it."""
     ran = rpc("action.run", {"action": "agent.openSessionTab", "args": {"session": session}, "focus": True}, timeout=60)
+    tab = ((ran or {}).get("result") or {}).get("tab")
+    if tab:  # a script's run may leave the new tab behind the pane's current one: show it, as a click does
+        rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab}", "focus": True}, timeout=30)
     shown = wait(lambda: (lambda s: s if s.get("sessionId") == session else None)(pane("chat_state") or {}), 30, 0.5)
     print("open tab", session, json.dumps(ran)[:200], "shown" if shown else "NOT shown", flush=True)
     return bool(shown)
@@ -251,8 +254,9 @@ def main():
                                                  "_meta": {"acpmux": {"promptId": pid}}}, timeout=120)
 
     # live: the tab shows the session before the Chief's first prompt arrives.
+    opened = open_tab(sid)
     row("live: the chat opens in a tab", f"chat_state sessionId {sid}", str((pane("chat_state") or {}).get("sessionId")),
-        open_tab(sid))
+        opened)
     view = chief_view(opts.view_kb)
     first = f"{view}Your task:\n\n{TASK}"
     print(f"first prompt {len(first.encode())} bytes", flush=True)
@@ -271,8 +275,9 @@ def main():
     # reopen: the tab closes and the chat opens again: a fresh page, so a fresh 128 KB open page.
     print("close tab", json.dumps(rpc("action.run", {"action": "closeTab", "focus": True}, timeout=30))[:200], flush=True)
     wait(lambda: (pane("chat_state") or {}).get("sessionId") != sid, 15, 0.5)
+    opened = open_tab(sid)
     row("reopen: the chat opens in a tab again", f"chat_state sessionId {sid}",
-        str((pane("chat_state") or {}).get("sessionId")), open_tab(sid))
+        str((pane("chat_state") or {}).get("sessionId")), opened)
     check_first("reopen")
 
     # tell: a Chief follow-up is a second bubble from the Chief; the task stays first.
