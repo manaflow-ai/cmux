@@ -88,6 +88,38 @@ class GoldenPathReceiptTests(unittest.TestCase):
         self.assertIn("receipt_reports_failure", result["blockers"])
         self.assertIn("missing_pause_resume_reconnect", result["blockers"])
 
+    def test_paused_resume_harness_rounds_are_consumed(self) -> None:
+        records = [
+            {
+                "machine": "vm_ab12",
+                "first_chat": {
+                    "ok": True,
+                    "turn": {"session_id": "sess_acp_1", "first_text_ms": 42},
+                },
+                "rounds": [
+                    {
+                        "paused": True,
+                        "chat": {"reply_ok": True},
+                        "resume": {"running": True},
+                    },
+                    {
+                        "paused": True,
+                        "chat": {"reply_ok": True},
+                        "resume": {"running": True},
+                    },
+                ],
+                "outcome": "ok",
+                "provider_verified": True,
+            }
+        ]
+
+        result = receipt.normalize(records)
+
+        self.assertEqual(result["status"], "pass")
+        self.assertTrue(result["stages"]["fresh_cloud_chat_start"])
+        self.assertTrue(result["stages"]["acpmux_session_discovery"])
+        self.assertTrue(result["stages"]["pause_resume_reconnect"])
+
     def test_jsonl_input_and_check_exit_are_supported(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "receipt.jsonl"
