@@ -60,11 +60,15 @@ public final class Engine: @unchecked Sendable {
         let app = try directory.resolve(query)
         monitor.watch(pid: app.pid)
         let appElement = sessions.appElement(pid: app.pid)
-        let windows = directory.windows(pid: app.pid)
         let focused = appElement.element(kAXFocusedWindowAttribute) ?? appElement.element(kAXMainWindowAttribute)
             ?? appElement.elements(kAXWindowsAttribute).first
-        let focusedID = focused?.windowID
-        let window = windows.first(where: { $0.id == focusedID }) ?? windows.first(where: \.onScreen) ?? windows.first
+        // The focused window by its id (one window server lookup); the full
+        // window list only when the id is unknown.
+        var window = focused?.windowID.flatMap { directory.window(id: $0, pid: app.pid) }
+        if window == nil {
+            let windows = directory.windows(pid: app.pid)
+            window = windows.first(where: \.onScreen) ?? windows.first
+        }
         let menuBar = appElement.element(kAXMenuBarAttribute)
         let resolved = clock.now
 

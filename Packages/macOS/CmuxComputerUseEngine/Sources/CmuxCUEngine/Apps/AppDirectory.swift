@@ -62,20 +62,31 @@ struct AppDirectory: Sendable {
         throw LookupError.notRunning(query)
     }
 
+    /// One window by id, without listing every window on the system
+    /// (`CGWindowListCreateDescriptionFromArray` asks only for this id).
+    func window(id: CGWindowID, pid: pid_t) -> WindowInfo? {
+        let ids = [UnsafeRawPointer(bitPattern: UInt(id))] as CFArray
+        guard let list = CGWindowListCreateDescriptionFromArray(ids) as? [[String: Any]],
+              let entry = list.first else { return nil }
+        return Self.info(entry, pid: pid)
+    }
+
+    static func info(_ entry: [String: Any], pid: pid_t) -> WindowInfo? {
+        guard (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
+              let id = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+              let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue, layer == 0,
+              let bounds = entry[kCGWindowBounds as String] as? NSDictionary,
+              let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary), frame.width > 1, frame.height > 1
+        else { return nil }
+        return WindowInfo(id: id, pid: pid, title: entry[kCGWindowName as String] as? String ?? "",
+                          frame: frame, layer: layer,
+                          onScreen: (entry[kCGWindowIsOnscreen as String] as? Bool) ?? false)
+    }
+
     /// Layer-0 windows of `pid`, front to back.
     func windows(pid: pid_t) -> [WindowInfo] {
         guard let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] else { return [] }
-        return list.compactMap { entry in
-            guard (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
-                  let id = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
-                  let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue, layer == 0,
-                  let bounds = entry[kCGWindowBounds as String] as? NSDictionary,
-                  let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary), frame.width > 1, frame.height > 1
-            else { return nil }
-            return WindowInfo(id: id, pid: pid, title: entry[kCGWindowName as String] as? String ?? "",
-                              frame: frame, layer: layer,
-                              onScreen: (entry[kCGWindowIsOnscreen as String] as? Bool) ?? false)
-        }
+        return list.compactMap { Self.info($0, pid: pid) }
     }
 }

@@ -53,30 +53,77 @@ struct AXTreeWalker: Sendable {
 
     init(limits: AXTreeLimits = AXTreeLimits()) { self.limits = limits }
 
+    /// Reads at most this many nodes of one level at a time. The target app
+    /// answers on its own main thread, so this only overlaps round-trip
+    /// latency; more threads stop helping.
+    static let readWidth = 4
+
+    /// Breadth-first, one level at a time with the level's nodes read in
+    /// parallel, then emitted in preorder (window first, then menu bar), so
+    /// indexes read top to bottom like the screen.
     func walk(window: AXElement?, menuBar: AXElement?) -> (elements: [SnapshotElement], truncated: Bool) {
-        var out: [SnapshotElement] = []
-        out.reserveCapacity(256)
+        final class Node: @unchecked Sendable {
+            let element: AXElement
+            let depth: Int
+            let cap: Int
+            var info = AXNodeInfo()
+            var children: [Node] = []
+            var rawChildren: [AXElement] = []
+            var wasRead = false
+            init(_ element: AXElement, depth: Int, cap: Int) {
+                self.element = element
+                self.depth = depth
+                self.cap = cap
+            }
+        }
+        var roots: [Node] = []
+        if let window { roots.append(Node(window, depth: 0, cap: limits.maxDepth)) }
+        if let menuBar { roots.append(Node(menuBar, depth: 0, cap: limits.menuBarDepth)) }
+        var level = roots
+        var count = 0
         var truncated = false
-        // An explicit stack keeps preorder without recursion depth limits.
-        var stack: [(AXElement, Int, Int)] = [] // element, depth, depth cap
-        if let menuBar { stack.append((menuBar, 0, limits.menuBarDepth)) }
-        if let window { stack.append((window, 0, limits.maxDepth)) }
-        while let item = stack.popLast() {
-            let (element, depth, cap) = item
-            if out.count >= limits.maxNodes {
+        while !level.isEmpty {
+            let budget = limits.maxNodes - count
+            if level.count > budget {
+                level = Array(level.prefix(max(0, budget)))
+                truncated = true
+            }
+            let batch = level
+            DispatchQueue.concurrentPerform(iterations: min(Self.readWidth, batch.count)) { worker in
+                var index = worker
+                while index < batch.count {
+                    let read = Self.read(batch[index].element)
+                    batch[index].info = read.0
+                    batch[index].info.depth = batch[index].depth
+                    batch[index].rawChildren = read.1
+                    batch[index].wasRead = true
+                    index += Self.readWidth
+                }
+            }
+            count += batch.count
+            var next: [Node] = []
+            for node in batch {
+                guard node.depth < node.cap else {
+                    if !node.rawChildren.isEmpty, node.cap == limits.maxDepth { truncated = true }
+                    continue
+                }
+                node.children = node.rawChildren.map { Node($0, depth: node.depth + 1, cap: node.cap) }
+                next.append(contentsOf: node.children)
+            }
+            if count >= limits.maxNodes, !next.isEmpty {
                 truncated = true
                 break
             }
-            let read = Self.read(element)
-            var info = read.0
-            let children = read.1
-            info.depth = depth
-            out.append(SnapshotElement(info: info, element: element))
-            guard depth < cap else {
-                if !children.isEmpty { truncated = truncated || cap == limits.maxDepth }
-                continue
-            }
-            for child in children.reversed() { stack.append((child, depth + 1, cap)) }
+            level = next
+        }
+        var out: [SnapshotElement] = []
+        out.reserveCapacity(count)
+        var stack = Array(roots.reversed())
+        while let node = stack.popLast() {
+            // A node of the last, cut level was never read: leave it out.
+            guard node.wasRead else { continue }
+            out.append(SnapshotElement(info: node.info, element: node.element))
+            stack.append(contentsOf: node.children.reversed())
         }
         return (out, truncated)
     }
