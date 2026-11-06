@@ -925,7 +925,7 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::Sender<String>, detached
     // A reattached chat: `send` answered the first run's outcome, and that run's reply went to its own client, so the
     // turn's reply comes from the session, which holds only this chat. A new turn with no reply stays empty.
     if reattached
-        && done["kind"] == "done"
+        && done.get("kind").and_then(Value::as_str) == Some("done")
         && done.get("reply_cut").is_none()
         && done.get("reply").and_then(Value::as_str).is_none_or(str::is_empty)
     {
