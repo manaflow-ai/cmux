@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextWakeups
 import WebKit
 
 /// Presses on a page's own title row (https://github.com/manaflow-ai/cmux/issues/36897). A page
@@ -68,7 +69,7 @@ enum PageTitleRowPress {
     })();
     """
 
-    static func install(in controller: WKUserContentController, onPress: @escaping @MainActor (Report) -> Void) {
+    static func install(in controller: WKUserContentController, onPress: @escaping @MainActor @Sendable (Report) -> Void) {
         controller.addUserScript(userScript)
         controller.add(Receiver(onPress: onPress), contentWorld: .page, name: handlerName)
     }
@@ -78,16 +79,16 @@ enum PageTitleRowPress {
     }
 
     private final class Receiver: NSObject, WKScriptMessageHandler {
-        let onPress: @MainActor (Report) -> Void
+        let onPress: @MainActor @Sendable (Report) -> Void
 
-        init(onPress: @escaping @MainActor (Report) -> Void) {
+        init(onPress: @escaping @MainActor @Sendable (Report) -> Void) {
             self.onPress = onPress
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard message.frameInfo.isMainFrame, let report = Report(message.body) else { return }
-            let onPress = onPress
-            Task { @MainActor in onPress(report) }
+            // WebKit delivers on the main thread: the press runs in the same turn, while the button is down.
+            MainDelivery().run { [onPress] in onPress(report) }
         }
     }
 }
