@@ -535,6 +535,22 @@ class SnapMotion(unittest.TestCase):
         late = film("remove", row_progress={9: lambda i: ease(i - 1)})
         self.assertEqual(judge_snap(late)["verdict"], "FAIL")
 
+    def test_a_zero_size_new_view_before_the_snap_is_not_a_snap_frame(self):
+        # real films (build 80fc694b, film-light-200 #6): the new row's view is made one frame before it is laid out, at
+        # zero size (it draws nothing), while the rows below are still in place; the snap is the next frame. Not a slide.
+        frames = snap_film(new_from=2, row_y=lambda r, i, y: TOP + r * STEP if (r >= 2 and i == 1) else y)
+        frames[FIRST]["views"][NEW] = [0.0, 0.0, 0.0, 0.0, 1.0]
+        result = judge_snap(frames)
+        self.assertEqual(result["verdict"], "PASS", result["fails"])
+        self.assertEqual(result["motions"][0]["gap_frames"] + result["motions"][0]["overlap_frames"], [])
+
+    def test_a_snap_fade_held_at_zero_fails(self):
+        # real films (build 80fc694b, film-light-200 #0): the rows snap and the new row stays at opacity 0 for a second
+        # frame: the empty slot shows one refresh longer
+        result = judge_snap(snap_film(opacity=lambda i: 0.0 if i <= 2 else min(1.0, (i - 2) / FADE)))
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["fade_held_frames"], [FIRST + 1])
+
     def test_cli_motion_flag(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "motion.json")
