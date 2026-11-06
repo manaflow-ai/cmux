@@ -187,6 +187,9 @@ struct CloudRelayChatLoginTests {
         let fields = try Self.fields(run.result)
         #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_cancelled"))
         #expect(fields["command"].map { "\($0)".contains("cmux cloud start-session --target machine:") } == true)
+        // Its own words: the login was cancelled, not "still getting your login" (login_pending's).
+        guard case .string(let message) = fields["error_message"] else { Issue.record("no message"); return }
+        #expect(message.contains("was cancelled") && !message.contains("still getting"), "\(message)")
     }
 
     /// `--login machine` on a machine with no login of its own: the recovery is `--login none` (the chat's Sign in to Claude

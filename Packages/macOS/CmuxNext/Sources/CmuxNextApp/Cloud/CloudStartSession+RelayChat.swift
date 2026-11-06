@@ -4,10 +4,11 @@ import CmuxNextCloudCredentials
 import Foundation
 
 /// `cmux cloud relay-chat` (cmuxterm-hq#7086; Leo: "it should take <30 seconds from starting a thing to having a response on
-/// cloud"): sends a prompt to an agent on a Cloud machine over its relay (``CloudRelayChat``), with no link from this Mac, and
-/// answers when the turn ends (its acpmux session, the reply, the first text's time) or within ``CloudHandlers/answerWithin``
-/// with what came so far. `delivered` false: the prompt certainly never reached the machine. `cmux cloud start-chat` uses it
-/// first. A turn still running when this answers keeps its stream until it ends; quitting the app cancels it on the machine.
+/// cloud"): sends a prompt to an agent on a Cloud machine over its relay (``CloudRelayChat``) in the order link, owner check, login,
+/// send (cmux#36846: a cold machine's link from this Mac and its owner answer, ``RelaySteps/link``, come before the login and the send),
+/// and answers when the turn ends (its acpmux session, the reply, the first text's time) or within ``CloudHandlers/answerWithin`` with
+/// what came so far. `delivered` false: the prompt certainly never reached the machine. `cmux cloud start-chat` uses it first. A turn
+/// still running when this answers keeps its stream until it ends; quitting the app cancels it on the machine.
 ///
 /// Before the send the machine takes the person's harness login as start-session's start does (``passHarnessLogin(_:agent:login:still:)``;
 /// Leo: "we have the daemon, we have the token, we have the thing that can just send it over the authentication"). A login
@@ -56,7 +57,7 @@ extension CloudStartSession {
             let login: @MainActor () async throws -> (code: String, message: String)? = {
                 // This entry never resumes a paused or resuming machine (it outlasts 15 s): no login, no send; start-chat's start-session resumes it.
                 if machine.machine.status == .paused || machine.machine.shownStatus.isChanging { return ("cloud.relay.machine_not_ready", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent)) }
-                // The link for the account that asked (none: no login, no send); after its wait the account again, and a run not yet answered.
+                // Link, owner check, login, send: a cold machine's link and owner answer come first (none: no login, no send); after the link's wait the account again, and a run not yet answered.
                 let linking = ContinuousClock.now, asked = started.asked(machine: machine.machine.title)
                 try Self.checked(account, now: now(), asked)
                 guard await steps.link(machine) else { return ("cloud.relay.not_connected", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent)) }
@@ -107,7 +108,7 @@ extension CloudStartSession {
         // No login copied to a machine that needs one: none cached on this Mac, or the person said no to its copy (the confirm or Release's consent, after the cache check).
         if decision.outcome == CloudStartChat.loginDeclined { return ("cloud.relay.login_declined", CloudStartSessionStrings.relayLoginDeclined(asked)) }
         if CloudStartChat.signInOnMachine.contains(decision.outcome) { return ("cloud.relay.login_missing", CloudStartSessionStrings.relayLoginMissing(asked)) }
-        if decision.outcome == CloudStartChat.loginCancelled { return ("cloud.relay.login_cancelled", CloudStartSessionStrings.relayLoginPending(asked)) } // its step never finished
+        if decision.outcome == CloudStartChat.loginCancelled { return ("cloud.relay.login_cancelled", CloudStartSessionStrings.relayLoginCancelled(asked)) } // its step never finished
         if let outcome = decision.outcome, outcome.hasPrefix(CloudStartChat.loginFailed) {
             return ("cloud.relay.login_failed", CloudStartSessionStrings.relayLoginFailed(asked, reason: Self.reason(String(outcome.dropFirst(CloudStartChat.loginFailed.count)))))
         }

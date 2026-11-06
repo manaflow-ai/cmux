@@ -20,9 +20,8 @@ enum CloudStartSessionStrings {
     static func relayLoginMissing(_ asked: Asked) -> String {
         String(format: String(localized: "cloud.relayChat.loginMissing", defaultValue: "%2$@ on %1$@ isn't signed in, and this Mac holds no login of yours to give it, so the prompt wasn't sent. Run `%3$@` and use Sign in to Claude in its chat, then send the prompt again.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
     }
-    static func relayLoginPending(_ asked: Asked) -> String {
-        String(format: String(localized: "cloud.relayChat.loginPending", defaultValue: "%2$@ on %1$@ is still getting your login, so the prompt wasn't sent over the relay. Run `%3$@`, which waits for it.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
-    }
+    static func relayLoginPending(_ asked: Asked) -> String { String(format: String(localized: "cloud.relayChat.loginPending", defaultValue: "%2$@ on %1$@ is still getting your login, so the prompt wasn't sent over the relay. Run `%3$@`, which waits for it.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command) }
+    static func relayLoginCancelled(_ asked: Asked) -> String { String(format: String(localized: "cloud.relayChat.loginCancelled", defaultValue: "Giving %2$@ on %1$@ your login was cancelled with the start, so the prompt wasn't sent. Run `%3$@` to give it your login again.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command) }
     static func relayLoginDeclined(_ asked: Asked) -> String {
         String(format: String(localized: "cloud.relayChat.loginDeclined", defaultValue: "You chose not to give %2$@ on %1$@ your login, so the prompt wasn't sent. Run `%3$@` and sign in there with Sign in to Claude, or allow the copy when cmux asks.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
     }

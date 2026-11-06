@@ -1054,6 +1054,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "%2$@ trên %1$@ vẫn đang nhận đăng nhập của bạn, nên lời nhắc chưa được gửi qua relay. Chạy `%3$@`, lệnh này sẽ chờ nó."}}
       }
     },
+    "cloud.relayChat.loginCancelled": {
+      "comment": "Relay chat refusal: the login step was cancelled with its start before it finished, so nothing was sent. %1$@ machine, %2$@ agent, %3$@ the cmux command (keep in English).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Giving %2$@ on %1$@ your login was cancelled with the start, so the prompt wasn't sent. Run `%3$@` to give it your login again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%1$@ の %2$@ へのログインの受け渡しは開始とともにキャンセルされたため、プロンプトは送信されませんでした。もう一度ログインを渡すには `%3$@` を実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Das Übergeben deiner Anmeldung an %2$@ auf %1$@ wurde mit dem Start abgebrochen, daher wurde der Prompt nicht gesendet. Führe `%3$@` aus, um die Anmeldung erneut zu übergeben."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La transmission de votre connexion à %2$@ sur %1$@ a été annulée avec le démarrage, donc le prompt n'a pas été envoyé. Exécutez `%3$@` pour la transmettre à nouveau."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Se canceló con el inicio el envío de tu inicio de sesión a %2$@ en %1$@, así que el prompt no se envió. Ejecuta `%3$@` para enviarlo de nuevo."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أُلغي تمرير تسجيل دخولك إلى %2$@ على %1$@ مع البدء، لذلك لم تُرسل المطالبة. شغّل `%3$@` لتمريره مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "%1$@의 %2$@에 로그인을 전달하는 작업이 시작과 함께 취소되어 프롬프트를 보내지 않았습니다. 다시 전달하려면 `%3$@`을(를) 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "向 %1$@ 上的 %2$@ 传递你的登录已随启动一起取消，所以提示没有发送。运行 `%3$@` 重新传递登录。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "向 %1$@ 上的 %2$@ 傳遞你的登入已隨啟動一起取消，所以提示沒有送出。執行 `%3$@` 重新傳遞登入。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Davanje tvoje prijave za %2$@ na %1$@ otkazano je zajedno s pokretanjem, pa prompt nije poslan. Pokreni `%3$@` da je ponovo daš."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Overførslen af dit login til %2$@ på %1$@ blev annulleret sammen med starten, så prompten blev ikke sendt. Kør `%3$@` for at overføre det igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il passaggio del tuo accesso a %2$@ su %1$@ è stato annullato insieme all'avvio, quindi il prompt non è stato inviato. Esegui `%3$@` per passarlo di nuovo."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ការផ្តល់ការចូលរបស់អ្នកទៅ %2$@ នៅលើ %1$@ ត្រូវបានបោះបង់ជាមួយការចាប់ផ្តើម ដូច្នេះប្រអប់បញ្ចូលមិនត្រូវបានផ្ញើទេ។ ដំណើរការ `%3$@` ដើម្បីផ្តល់វាម្តងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Overføringen av påloggingen din til %2$@ på %1$@ ble avbrutt sammen med starten, så ledeteksten ble ikke sendt. Kjør `%3$@` for å overføre den på nytt."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przekazanie twojego logowania do %2$@ na %1$@ zostało anulowane wraz ze startem, więc prompt nie został wysłany. Uruchom `%3$@`, aby przekazać je ponownie."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A entrega do seu login para %2$@ em %1$@ foi cancelada junto com o início, então o prompt não foi enviado. Execute `%3$@` para entregá-lo de novo."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Передача вашего входа в %2$@ на %1$@ отменена вместе с запуском, поэтому запрос не отправлен. Запустите `%3$@`, чтобы передать вход снова."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "การส่งการลงชื่อเข้าใช้ของคุณให้ %2$@ บน %1$@ ถูกยกเลิกพร้อมกับการเริ่ม จึงไม่ได้ส่งพรอมต์ เรียกใช้ `%3$@` เพื่อส่งอีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%1$@ üzerindeki %2$@ için oturumunuzun aktarılması başlatmayla birlikte iptal edildi, bu yüzden istem gönderilmedi. Yeniden aktarmak için `%3$@` komutunu çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Передачу вашого входу до %2$@ на %1$@ скасовано разом із запуском, тому запит не надіслано. Запустіть `%3$@`, щоб передати вхід знову."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Việc chuyển đăng nhập của bạn cho %2$@ trên %1$@ đã bị hủy cùng lần khởi động, nên lời nhắc chưa được gửi. Chạy `%3$@` để chuyển lại."}}
+      }
+    },
     "cloud.relayChat.loginDeclined": {
       "comment": "Relay chat refusal: the person declined copying their login (the confirm or the one-time consent). %1$@ machine, %2$@ agent, %3$@ the cmux command (keep in English; keep the Sign in to Claude button name as the app shows it).",
       "extractionState": "manual",
