@@ -5264,6 +5264,73 @@ export class AcpmuxDirectClient {
     this.reduce(event);
     this.noticeRefusal(event);
     this.emitInFrame(event.kind, this.streamGrew);
+    if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId)
+      this.checkFinishedTurn(event.sessionId, event.seq);
+  }
+
+  /// A turn that just ended live is drawn from its stored records, not only from the ones that
+  /// reached this pane: under load acpmux drops a slow client's streamed chunks, and a marker can
+  /// be lost behind a full queue or its read fail, so a finished reply kept a hole in its middle
+  /// ("without a focus-ring-stuck-2") or lost its first lines (Leo, 2026-11-06: "your sends are
+  /// getting busted intermittently as things load"). One read of the turn's transcript, from its
+  /// opening record to its end, O(turn) and never O(chat); the records the pane lacks are merged
+  /// and the chat drawn again, and a turn it already holds whole changes nothing. A failed read is
+  /// tried again on `LAG_RETRY_MS`; the chat changing or the pane closing stops it.
+  private checkFinishedTurn(sessionId: string, endSeq: number, attempt = 0): void {
+    const generation = this.selectionGeneration;
+    let start: number | undefined;
+    for (let index = this.events.length - 1; index >= 0; index--) {
+      const event = this.events[index]!;
+      if (event.seq >= endSeq) continue;
+      if (event.dir === "mux" && ["turn_result", "turn_end", "turn_error"].includes(event.kind)) break;
+      if (event.kind === "turn_started" || event.kind === "user_message") start = event.seq;
+    }
+    if (start === undefined) return;
+    const afterSeq = start - 1;
+    void this.readTurnRecords(sessionId, generation, afterSeq, endSeq).then(
+      (stored) => {
+        if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+        const held = new Set(this.events.map((event) => event.seq));
+        const missing = stored.filter((event) => !held.has(event.seq));
+        if (missing.length === 0) return;
+        this.events = mergeEventRecords(this.events, missing);
+        this.sawPrompts(missing);
+        this.rebuildKeepingLiveState(Math.min(...missing.map((event) => event.seq)) - 1);
+        this.emit("connected");
+      },
+      () => {
+        const delay = LAG_RETRY_MS[attempt];
+        if (delay === undefined) return;
+        setTimeout(() => {
+          if (!this.closed && generation === this.selectionGeneration && this.selectedSessionId === sessionId)
+            this.checkFinishedTurn(sessionId, endSeq, attempt + 1);
+        }, delay);
+      },
+    );
+  }
+
+  /// The chat's stored transcript records after `afterSeq` through `endSeq`, paged.
+  private async readTurnRecords(
+    sessionId: string,
+    generation: number,
+    afterSeq: number,
+    endSeq: number,
+  ): Promise<EventRecord[]> {
+    const stored: EventRecord[] = [];
+    for (let cursor = afterSeq; cursor < endSeq;) {
+      const result = await this.typed("_acpmux/events", {
+        sessionId,
+        afterSeq: cursor,
+        limit: 5_000,
+        kinds: ["transcript"],
+      });
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+      const page = records(result?.events);
+      stored.push(...page.filter((event) => event.seq <= endSeq));
+      if (result?.hasMore !== true || page.length === 0) break;
+      cursor = Math.max(cursor, ...page.map((event) => event.seq));
+    }
+    return stored;
   }
 
   /// A queued prompt acpmux refused when its turn came, heard live, that this client did not send
