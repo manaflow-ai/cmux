@@ -132,7 +132,45 @@ pub(super) fn build_id(identity: &Value) -> Option<&str> {
 
 /// `identify`'s `data`, or None when the daemon does not answer it.
 pub(crate) fn identify(socket: &Path) -> Option<Value> {
-    call_within(socket, json!({"cmd": "identify"}), IDENTIFY_BUDGET).ok()
+    identify_checked(socket).ok()
+}
+
+/// Why `identify` got no `data`: a category with no path, OS text or answer bytes, so a
+/// caller can report it as it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IdentifyFailure {
+    /// The daemon answered and refused `identify`.
+    Refused,
+    /// The daemon closed the connection (or reset it) before its answer ended.
+    Eof,
+    /// An answer came that is not one: not JSON, too long, or only other requests' lines.
+    Parse,
+    /// No connection: the socket is gone, refuses connections, or took no request.
+    Connect,
+    /// The answer did not end within the budget.
+    Timeout,
+}
+
+impl IdentifyFailure {
+    /// Its name on an answer line (`identify_failure`).
+    pub(crate) fn code(self) -> &'static str {
+        match self {
+            Self::Refused => "refused",
+            Self::Eof => "eof",
+            Self::Parse => "parse",
+            Self::Connect => "connect",
+            Self::Timeout => "timeout",
+        }
+    }
+}
+
+/// [`identify`], saying why it got no `data`.
+pub(crate) fn identify_checked(socket: &Path) -> Result<Value, IdentifyFailure> {
+    identify_within(socket, IDENTIFY_BUDGET)
+}
+
+fn identify_within(socket: &Path, budget: Duration) -> Result<Value, IdentifyFailure> {
+    call_within(socket, json!({"cmd": "identify"}), budget).map_err(|_| IdentifyFailure::Connect)
 }
 
 /// One request on the daemon's socket: its `data`, or why not (the daemon's
@@ -274,5 +312,85 @@ mod tests {
         let message = current.message();
         assert!(message.contains("fs-v1") && !message.contains("update the machine"), "{message}");
         assert!(outdated_identity(&json!({"capabilities": ["fs-v1"]}), &["fs-v1"]).is_none());
+    }
+
+    /// A daemon at a temporary socket that reads one request and does `then` with the stream.
+    fn daemon(
+        then: impl FnOnce(UnixStream) + Send + 'static,
+    ) -> (tempfile::TempDir, std::path::PathBuf) {
+        let folder = tempfile::tempdir().expect("socket folder");
+        let socket = folder.path().join("d.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind");
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept");
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().expect("clone"))
+                .read_line(&mut request)
+                .expect("read");
+            then(stream);
+        });
+        (folder, socket)
+    }
+
+    fn answered(line: &'static str) -> impl FnOnce(UnixStream) + Send + 'static {
+        move |mut stream| stream.write_all(line.as_bytes()).expect("answer")
+    }
+
+    #[test]
+    fn identify_says_a_daemon_refused_it() {
+        let (_folder, socket) = daemon(answered(
+            "{\"id\":1,\"ok\":false,\"error_code\":\"unknown_cmd\",\"error\":\"/secret\"}\n",
+        ));
+        assert_eq!(identify_checked(&socket), Err(IdentifyFailure::Refused));
+    }
+
+    #[test]
+    fn identify_says_the_daemon_closed_before_answering() {
+        let (_folder, socket) = daemon(answered("{\"id\":1,"));
+        assert_eq!(identify_checked(&socket), Err(IdentifyFailure::Eof));
+    }
+
+    #[test]
+    fn identify_says_the_answer_never_ended_within_its_budget() {
+        let (held, keep) = std::sync::mpsc::channel::<()>();
+        let (_folder, socket) = daemon(move |_stream| drop(keep.recv()));
+        let started = Instant::now();
+        assert_eq!(
+            identify_within(&socket, Duration::from_millis(200)),
+            Err(IdentifyFailure::Timeout)
+        );
+        assert!(started.elapsed() < Duration::from_secs(3));
+        drop(held);
+    }
+
+    #[test]
+    fn identify_says_an_answer_that_is_not_one_and_a_socket_with_no_daemon() {
+        let (_folder, socket) = daemon(answered("not json\n"));
+        assert_eq!(identify_checked(&socket), Err(IdentifyFailure::Parse));
+        let folder = tempfile::tempdir().expect("socket folder");
+        let stale = folder.path().join("gone.sock");
+        drop(std::os::unix::net::UnixListener::bind(&stale).expect("bind"));
+        assert_eq!(
+            identify_checked(&stale),
+            Err(IdentifyFailure::Connect),
+            "a socket file nobody listens on"
+        );
+        assert_eq!(
+            identify_checked(&folder.path().join("none.sock")),
+            Err(IdentifyFailure::Connect)
+        );
+    }
+
+    #[test]
+    fn an_identify_failure_names_no_path_or_os_text() {
+        for failure in [
+            IdentifyFailure::Refused,
+            IdentifyFailure::Eof,
+            IdentifyFailure::Parse,
+            IdentifyFailure::Connect,
+            IdentifyFailure::Timeout,
+        ] {
+            assert!(failure.code().bytes().all(|byte| byte.is_ascii_lowercase()), "{failure:?}");
+        }
     }
 }
