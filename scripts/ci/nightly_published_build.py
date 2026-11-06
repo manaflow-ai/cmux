@@ -5,19 +5,28 @@ nightly-next has one push group (nightly-build-nightly-next-push): one run build
 pushed head waits for the whole run, including what follows the feed. Those jobs (GitHub release,
 deltas, dSYMs, release notes, reel) held the group 17 to 35 minutes after the feed went live on
 the 7 runs before 2026-11-06, so a new push waited for them (run 42149108998: 20 of its 43 queued
-minutes). Now the push run ends at publish-nightly. dispatch-published-in packs this record into a
-dispatched nightly.yml run (nightly_next_post_publish), whose published-build job hands it to those
-jobs, outside the push group. Main's nightly and RC run the same jobs in their own run, from the
+minutes). Now the push run ends at publish-nightly. dispatch-published-in uploads this record and
+dispatches nightly.yml (nightly_next_post_publish), whose published-build job checks it and hands it
+to those jobs, outside the push group. Main's nightly and RC run the same jobs in their own run, from the
 same record of that run's own jobs.
 
     nightly_published_build.py pack
-        NEEDS (toJSON(needs)), RUN_ID, RUN_ATTEMPT, SHA: prints the dispatch input.
+        NEEDS (toJSON(needs)), RUN_ID, RUN_ATTEMPT, SHA: writes the record to RECORD_FILE, for this run's
+        nightly-published-build-<attempt> artifact, and prints the dispatch input: this run's id and attempt.
+    nightly_published_build.py source
+        SOURCE (the dispatch input): writes the run and attempt to check to GITHUB_OUTPUT (none for an input
+        from an older push run).
+    nightly_published_build.py check-source
+        SOURCE, GITHUB_REPOSITORY, SOURCE_RUN_FILE (that run attempt from the API): exits 1 unless it is a
+        push run of this repository's nightly.yml on nightly-next.
     nightly_published_build.py outputs
-        SOURCE (the dispatch input; empty in the run that published), else NEEDS, RUN_ID,
-        RUN_ATTEMPT, SHA: writes the record to GITHUB_OUTPUT.
+        SOURCE and RECORD_FILE (the checked run's artifact), or with no SOURCE: NEEDS, RUN_ID, RUN_ATTEMPT,
+        SHA: writes the record to GITHUB_OUTPUT.
 
-A dispatch input without "tail" came from a push run that ran those jobs itself: only its PR
-comments are left (comment=true), and the rest stay empty, so every other job skips.
+Anyone who may dispatch the workflow writes the input, and the tail checks out the record's build commit
+with the Sparkle key and release credentials. So the input names only the run, the API confirms what that
+run is, and the record comes from that run's own artifact, which only its jobs can write. An input from a
+push run older than this (no "tail") carries unchecked fields, so it runs nothing.
 """
 from __future__ import annotations
 
@@ -76,24 +85,80 @@ def from_env() -> dict[str, str]:
 
 def pack() -> int:
     rec = from_env()
-    print(json.dumps({"source_run": rec["source_run"], "version": rec["daemon_version"],
-                      "head_sha": rec["resolve_build_sha"], "published_sha": rec["published_sha"], "tail": rec},
+    with open(os.environ["RECORD_FILE"], "w", encoding="utf-8") as handle:
+        json.dump(rec, handle, sort_keys=True)
+    print(json.dumps({"source_run": rec["source_run"], "source_attempt": rec["source_attempt"], "tail": "artifact"},
                      separators=(",", ":"), sort_keys=True))
     return 0
 
 
+def source_ref() -> tuple[str, str] | None:
+    """The run and attempt the input names, None for an older push run's input; ValueError if malformed."""
+    source = json.loads(os.environ.get("SOURCE") or "{}")
+    if not isinstance(source, dict) or "tail" not in source:
+        return None
+    run, attempt = source.get("source_run"), source.get("source_attempt")
+    if source["tail"] != "artifact" or not isinstance(run, str) or not isinstance(attempt, str) \
+            or not run.isdigit() or not attempt.isdigit():
+        raise ValueError("the dispatch input must name its source run and attempt, and carry no record")
+    return run, attempt
+
+
+def write_source() -> int:
+    if not os.environ.get("SOURCE"):
+        return 0  # the run that published: no other run to check
+    try:
+        ref = source_ref()
+    except ValueError as error:
+        print(f"published-build: {error}", file=sys.stderr)
+        return 1
+    if ref is None:
+        print("::warning::published-build: this input comes from a push run older than the checked record; "
+              "its fields are unchecked, so nothing runs")
+        return 0
+    with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+        handle.write(f"run={ref[0]}\nattempt={ref[1]}\n")
+    return 0
+
+
+def check_source() -> int:
+    ref = source_ref()
+    with open(os.environ["SOURCE_RUN_FILE"], encoding="utf-8") as handle:
+        run = json.load(handle)
+    repo = os.environ["GITHUB_REPOSITORY"].lower()
+    checks = {
+        "the run named": ref is not None and str(run.get("id")) == ref[0] and str(run.get("run_attempt")) == ref[1],
+        "a push": run.get("event") == "push",
+        "on nightly-next": run.get("head_branch") == "nightly-next",
+        "of nightly.yml": run.get("path") == ".github/workflows/nightly.yml",
+        "in this repository": str((run.get("repository") or {}).get("full_name", "")).lower() == repo
+        and str((run.get("head_repository") or {}).get("full_name", "")).lower() == repo,
+    }
+    failed = [name for name, ok in checks.items() if not ok]
+    if failed:
+        print(f"published-build: the source run is not {', '.join(failed)}", file=sys.stderr)
+        return 1
+    print(f"published-build: run {ref[0]} attempt {ref[1]} is a nightly.yml push on nightly-next")
+    return 0
+
+
 def write_outputs() -> int:
-    source = os.environ.get("SOURCE", "")
-    if source:
-        tail = json.loads(source).get("tail")
-        if tail is None:
-            rec, cross_run, comment = {}, "", True
-        elif not valid(tail) or tail["track"] != "nightly-next":
+    try:
+        ref = source_ref() if os.environ.get("SOURCE") else None
+    except ValueError as error:
+        print(f"published-build: {error}", file=sys.stderr)
+        return 1
+    if os.environ.get("SOURCE") and ref is None:
+        rec, cross_run, comment = {}, "", False
+    elif ref is not None:
+        with open(os.environ["RECORD_FILE"], encoding="utf-8") as handle:
+            rec = json.load(handle)
+        if not valid(rec) or rec["track"] != "nightly-next" or (rec["source_run"], rec["source_attempt"]) != ref:
             # Only nightly-next dispatches this run; its environment is release-next (decide's, by ref).
-            print("published-build: the dispatch input's tail record is malformed or not nightly-next", file=sys.stderr)
+            print("published-build: the record is malformed, not nightly-next or not the checked run's",
+                  file=sys.stderr)
             return 1
-        else:
-            rec, cross_run, comment = tail, "true", comments(tail)
+        cross_run, comment = "true", comments(rec)
     else:
         rec, cross_run = from_env(), ""
         comment = False
@@ -108,11 +173,11 @@ def write_outputs() -> int:
     return 0
 
 
+MODES = {"pack": pack, "source": write_source, "check-source": check_source, "outputs": write_outputs}
+
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) == 2 else ""
-    if mode == "pack":
-        sys.exit(pack())
-    if mode == "outputs":
-        sys.exit(write_outputs())
+    if mode in MODES:
+        sys.exit(MODES[mode]())
     print(__doc__, file=sys.stderr)
     sys.exit(2)

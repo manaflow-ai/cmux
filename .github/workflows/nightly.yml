@@ -125,7 +125,7 @@ on:
         default: ''
         type: string
       nightly_next_post_publish:
-        description: nightly-next only, sent by a run's dispatch-published-in once its feed is published. JSON {source_run, version, head_sha, published_sha, tail} of that build (scripts/ci/nightly_published_build.py). This run builds and signs no app; it runs what follows the feed (GitHub release, deltas, dSYMs, release notes, reel, PR comments), so none of it holds the push group.
+        description: nightly-next only, sent by a run's dispatch-published-in once its feed is published. JSON {source_run, source_attempt, tail} naming that push run; the build's record is read only from that run's own artifact, after the API confirms it is a nightly.yml push on nightly-next (scripts/ci/nightly_published_build.py). This run builds and signs no app; it runs what follows the feed (GitHub release, deltas, dSYMs, release notes, reel, PR comments), so none of it holds the push group.
         required: false
         default: ''
         type: string
@@ -6311,6 +6311,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: read
     outputs:
       source_run: ${{ steps.record.outputs.source_run }}
       source_attempt: ${{ steps.record.outputs.source_attempt }}
@@ -6361,8 +6362,35 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
+      # Anyone who may dispatch this workflow writes the input, and the tail checks out the record's build
+      # commit with the Sparkle key. So the input only names the run: the API says what that run is, and the
+      # record comes from its own artifact, which only its jobs can write.
+      - name: Name the run that published
+        id: source
+        run: python3 scripts/ci/nightly_published_build.py source
+      - name: Check the run that published
+        if: steps.source.outputs.run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ steps.source.outputs.run }}
+          ATTEMPT: ${{ steps.source.outputs.attempt }}
+          SOURCE_RUN_FILE: ${{ runner.temp }}/source-run.json
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/attempts/$ATTEMPT" > "$SOURCE_RUN_FILE"
+          python3 scripts/ci/nightly_published_build.py check-source
+      - name: Download its record
+        if: steps.source.outputs.run != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          run-id: ${{ steps.source.outputs.run }}
+          github-token: ${{ github.token }}
+          name: nightly-published-build-${{ steps.source.outputs.attempt }}
+          path: ${{ runner.temp }}/published-build
       - name: Read the published build
         id: record
+        env:
+          RECORD_FILE: ${{ runner.temp }}/published-build/published-build.json
         run: python3 scripts/ci/nightly_published_build.py outputs
 
   # Everything after the feed runs in a dispatched run of this workflow (nightly_next_post_publish), not
@@ -6391,10 +6419,25 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
+      - name: Record the published build
+        env:
+          RECORD_FILE: ${{ runner.temp }}/published-build/published-build.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$RECORD_FILE")"
+          python3 scripts/ci/nightly_published_build.py pack > "$RUNNER_TEMP/dispatch-input.json"
+      # The post-publication run reads the record only from here (published-build), never from its input.
+      - name: Upload the record
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-published-build-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/published-build/published-build.json
+          if-no-files-found: error
+          retention-days: 3
       - name: Ask for this build's post-publication run
         run: |
-          source=$(python3 scripts/ci/nightly_published_build.py pack)
-          gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" -f nightly_next_post_publish="$source"
+          gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
+            -f nightly_next_post_publish="$(cat "$RUNNER_TEMP/dispatch-input.json")"
 
   # In the dispatched post-publication run. decide skips when nightly_next_post_publish is set, so only
   # published-build and the jobs below it run there (tests/test_nightly_next_post_publish.py). The comments
@@ -6413,13 +6456,13 @@ jobs:
       contents: read
       pull-requests: write
     env:
-      NIGHTLY_VERSION: ${{ fromJSON(inputs.nightly_next_post_publish).version }}
-      HEAD_SHA: ${{ fromJSON(inputs.nightly_next_post_publish).head_sha }}
-      PUBLISHED_SHA: ${{ fromJSON(inputs.nightly_next_post_publish).published_sha }}
+      NIGHTLY_VERSION: ${{ needs.published-build.outputs.daemon_version }}
+      HEAD_SHA: ${{ needs.published-build.outputs.resolve_build_sha }}
+      PUBLISHED_SHA: ${{ needs.published-build.outputs.published_sha }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ fromJSON(inputs.nightly_next_post_publish).head_sha }}
+          ref: ${{ needs.published-build.outputs.resolve_build_sha }}
           persist-credentials: false
           sparse-checkout: scripts
       - *wait-through-github-api-rate-l
