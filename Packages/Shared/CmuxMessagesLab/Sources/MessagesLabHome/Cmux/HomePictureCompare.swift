@@ -54,15 +54,17 @@ final class HomePictureCompare: NSView {
             arrows.draw(in: r, from: .zero, operation: .sourceOver, fraction: 0.75, respectFlipped: true, hints: nil)
             NSGraphicsContext.restoreGraphicsState()
         }
-        label(firstTitle, at: CGPoint(x: frame.minX + 10, y: frame.minY + 10), trailing: false)
-        label(secondTitle, at: CGPoint(x: frame.maxX - 10, y: frame.minY + 10), trailing: true)
+        // The names sit on the bottom corners: a window shot keeps its title bar and window buttons on top.
+        label(firstTitle, at: CGPoint(x: frame.minX + 10, y: frame.maxY - 10), trailing: false)
+        label(secondTitle, at: CGPoint(x: frame.maxX - 10, y: frame.maxY - 10), trailing: true)
     }
 
+    /// A name pill whose bottom edge is at `p.y`, starting (or, `trailing`, ending) at `p.x`.
     private func label(_ text: String, at p: CGPoint, trailing: Bool) {
         guard !text.isEmpty else { return }
         let s = NSAttributedString(string: text, attributes: [.font: HomeFonts.system(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white])
         let size = s.size()
-        let pill = CGRect(x: trailing ? p.x - size.width - 16 : p.x, y: p.y, width: size.width + 16, height: size.height + 8)
+        let pill = CGRect(x: trailing ? p.x - size.width - 16 : p.x, y: p.y - size.height - 8, width: size.width + 16, height: size.height + 8)
         NSColor.black.withAlphaComponent(0.55).setFill()
         NSBezierPath(roundedRect: pill, xRadius: pill.height / 2, yRadius: pill.height / 2).fill()
         s.draw(at: CGPoint(x: pill.minX + 8, y: pill.minY + 4))

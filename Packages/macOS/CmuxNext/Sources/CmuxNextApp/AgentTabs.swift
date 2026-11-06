@@ -402,10 +402,10 @@ final class AgentTabStore {
     /// The tab's pane view, made on first show. A tab whose session runs on another machine is
     /// carried by that tab's own session daemon (``remoteHost``); nil when it cannot be (the
     /// pane then shows the "runs on" notice).
-    func view(for key: String) -> AgentPaneView? {
+    func view(for key: String, known: (record: AgentSessionRef, store: DaemonStore)? = nil) -> AgentPaneView? { // known: a tab no store lists (a reserved Cmd-N page)
         let key = resolve(key)
         if let view = views[key] { return view }
-        guard let (record, store) = lookup(key) else { return nil }
+        guard let (record, store) = known ?? lookup(key) else { return nil }
         let kind = hostKind(record, listedHere: daemonForTab(key)?.isLocal != false)
         // A Chief subagent runs on this Mac too, in the Chief home's acpmux.
         let local = kind != .remote

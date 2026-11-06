@@ -28,6 +28,7 @@ import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
 import type { NextStepAsk } from "./conversation/nextStepAsk";
+import { webSources } from "./conversation/webSourceList";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
@@ -1007,6 +1008,9 @@ export type AcpmuxSnapshot = {
   sessions: AcpmuxSessionEntry[];
   /// Who else has a shared chat open and who of them types (multiplayer/participants.ts).
   presence?: ChatPresence;
+  /// A Fork Conversation acpmux has not answered yet, since when (Unix ms): the line above the
+  /// composer with its Cancel (ForkPendingLine.tsx).
+  forkPending?: { since: number };
   /// Present only when an acpmux workflow event is available; the Labs surface stays hidden otherwise.
   workflow?: AcpmuxWorkflowWire;
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
@@ -1467,8 +1471,10 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
     case "move":
     case "fileChange":
     case "search":
-    case "fetch":
       return toolRowHeight();
+    // A web call's sources chip draws one 24px line under it, 4px below (WebSources.tsx).
+    case "fetch":
+      return toolRowHeight() + (webSources(tool).length ? 28 : 0);
     default:
       return 26;
   }

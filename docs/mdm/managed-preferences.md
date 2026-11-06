@@ -150,6 +150,10 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `workspaces.hibernation.enabled` | boolean | `true` |  | Hibernate Idle Workspaces. Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace. |
 | `workspaces.hibernation.idleMinutes` | real | `60` | 5 to 10080 | Hibernate After. A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate. |
 | `workspaces.hibernation.hiddenSpaceMinutes` | real | `15` | 5 to 1440 | Hibernate Hidden Spaces After. When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate. |
+| `workspaces.freeing.enabled` | boolean | `false` |  | Free Idle Terminals. Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed. |
+| `workspaces.freeing.idleMinutes` | real | `1440` | 60 to 43200 | Free Terminals After. A hibernated workspace's idle shells end after this many minutes without use (1440 is one day). |
+| `workspaces.freeing.agents` | boolean | `true` |  | Free Idle Agents. Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session. |
+| `workspaces.freeing.runningCommands` | string | `"never"` | `never`, `relaunch` | Running Commands. What happens to a command that still runs in a workspace that frees its terminals. |
 | `tasks.layout` | string | `"inbox"` | `list`, `board`, `inbox` | Tasks Layout. Inbox lists what needs you first, with the task beside it. Changes apply at once. |
 | `appearance.theme` | string |  |  | Theme. Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it. |
 | `appearance.appTheme` | string | `"followTerminal"` |  | App Theme. Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast. |
@@ -362,7 +366,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.showChats` | boolean | `true` |  | Show All Chats on New Tab. On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only. |
 | `sidebar.sessionTree` | boolean | `false` |  | Session Tree. Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys. |
 | `sidebar.showProjects` | boolean | `true` |  | Show Projects |
-| `sidebar.groupBy` | string | `"none"` | `none`, `folder` | Group Projects By |
+| `sidebar.groupBy` | string | `"none"` | `none`, `folder`, `recents` | Group Projects By |
 | `sidebar.showSpaces` | boolean | `true` |  | Show Spaces |
 | `sidebar.showProfileControl` | boolean | `true` |  | Show Profile Button |
 | `sidebar.showSearchButton` | boolean | `true` |  | Show Search Button. A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette. |
@@ -383,6 +387,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.showLocalMachine` | boolean | `false` |  | Mark This Mac's Workspaces. With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too. |
 | `sidebar.groupHeader.memberCount` | boolean | `false` |  | Show Group Member Count. A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner. |
 | `sidebar.groupHeader.unreadCount` | boolean | `false` |  | Show Group Unread Count. A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner. |
+| `sidebar.groupHeader.background` | string | `"auto"` | `auto`, `glass`, `solid` | Group Background. How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. |
 | `sidebar.minimalMode` | string | `"off"` | `off`, `bottom`, `top`, `both` | Hide Bands Until Hover. Hides the chosen sections until the pointer is over the sidebar. |
 | `sidebar.cards.tips` | boolean | `true` |  | Show Tips. A "Did you know" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once. |
 | `sidebar.priorityView.enabled` | boolean | `false` |  | Priority View. A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle. |
@@ -580,6 +585,10 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `chief.reactionClassifier.model` | string | `"claude-haiku-5-5"` |  | Reaction Classifier Model. The model that decides whether a reaction starts a turn. Claude Haiku by default: it is fast and cheap. |
 | `chief.reactionClassifier.prompt` | string | `""` |  | Reaction Classifier Instructions. What the classifier is told when it decides. Empty uses the built-in instructions. |
 | `chief.autoRouteSubagents` | boolean | `false` |  | Route Subagents to the Best Agent. The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent. |
+| `chief.subagentSidebar` | string | `"auto"` | `auto`, `always`, `never` | Subagents in the Sidebar. Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief. |
+| `chief.subagentSidebarShowWords` | array | `[]` |  | Show Tasks That Mention. Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you. |
+| `chief.subagentSidebarHideWords` | array | `[]` |  | Hide Tasks That Mention. Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins. |
+| `chief.subagentSidebarMinWords` | real | `50` | 0 to 1000 | Show Tasks Longer Than. A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter. |
 | `notifications.dismissal` | string | `"focus"` | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Clear Notification When |
 | `notifications.timeoutSeconds` | real | `30` | 1 to 86400 | Timeout. Used when a source clears after a timeout. |
 | `notifications.sources.agent.dismissal` | string |  | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Agents |
