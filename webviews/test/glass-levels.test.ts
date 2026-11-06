@@ -95,6 +95,15 @@ test("the native GlassLevel names the design scale's levels, and the roles map o
   const cases = [...swift.matchAll(/^\s*case (\w+)$/gm)].map((match) => match[1]);
   const levels = designScale.glass.filter((level) => level.kind === "level").map((level) => level.name);
   expect(cases).toEqual(levels);
+  // The overlay tint tunable defaults to the popover level's strength.
+  const popover = swift.match(/case \.popover, \.menu: ([\d.]+)/)?.[1];
+  const tunables = readFileSync(
+    new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift", import.meta.url),
+    "utf8",
+  );
+  expect(tunables).toContain(
+    `default: ${popover}, range: 0...3, step: 0.05, unit: .multiplier, code: "ChromeTunables.glassOverlayTintStrength"`,
+  );
   const roles = readFileSync(
     new URL(
       "../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/SurfaceRole+GlassLevel.swift",

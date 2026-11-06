@@ -22,7 +22,8 @@ public nonisolated enum GlassLevel: String, CaseIterable, Sendable {
 
     /// How much denser than the theme's glass tint (`Palette.glassTint`) the level's tint is: a
     /// multiplier on its alpha. Popovers and menus are a little denser so text over busy content
-    /// stays readable (`ChromeTunables.glassOverlayTintStrength` defaults to it), chips denser again.
+    /// stays readable (`ChromeTunables.glassOverlayTintStrength` defaults to the same 1.25;
+    /// webviews/test/glass-levels.test.ts holds the two equal), chips denser again.
     public var tintStrength: Double {
         switch self {
         case .chrome: 1
