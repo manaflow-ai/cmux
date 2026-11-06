@@ -241,6 +241,7 @@ final class CEFLayerHosting {
     /// The new window's live resize state replaces the old one: AppKit tells only
     /// the views in a window when its live resize starts and ends.
     func windowDidChange() {
+        _ = holdsFirstFrame()
         let wasInMotion = inResizeMotion
         inLiveResize = view?.window?.inLiveResize ?? false
         if isDetached {
@@ -343,12 +344,9 @@ final class CEFLayerHosting {
 
     /// The page takes the keys during a motion (a focus shortcut mid-drag): its window comes back now, so the grant
     /// that follows makes a page window key as before, and the page stays attached for the rest of the motion.
-    /// A page on its way back after the frame it showed in (``firstFrameHold``) has no window to make key yet: the grant
-    /// waits, and ``pageAppeared(windowInWindow:then:)`` grants it once the window is in.
     /// - Returns: Whether the page window was detached and came back now (its grant then waits for the next commit).
     @discardableResult
     func pageTakesFocus() -> Bool {
-        if firstFrameHold != .none { return true }
         guard inResizeMotion else { return false }
         motionKeepsAttached = true
         return isDetached && setDetached(false)
@@ -383,6 +381,18 @@ final class CEFLayerHosting {
         runAfterFrameShown { [weak self] in self?.attachAfterFirstFrame() }
     }
 
+    /// Whether a page shown in a recent turn is still on its way back into the window (``firstFrameHold``): it has no
+    /// window to make key yet, so a focus grant keeps its ask and the hold's end grants it (one grant, no grant per
+    /// pass). A hold whose frame tick was dropped (its window closed: the scheduler lets its clients go without a call)
+    /// attaches now, so no page stays detached and no grant waits forever.
+    func holdsFirstFrame() -> Bool {
+        if firstFrameHold == .detached, let shownFrame, !shownFrame.isActive {
+            self.shownFrame = nil
+            attachAfterFirstFrame()
+        }
+        return firstFrameHold != .none
+    }
+
     private func runAfterFrameShown(_ block: @escaping @MainActor @Sendable () -> Void) {
         if let afterFrameShown { return afterFrameShown(block) }
         shownFrame?.deactivate()
@@ -414,6 +424,9 @@ final class CEFLayerHosting {
         let grant = afterFirstFrame
         firstFrameHold = .none
         afterFirstFrame = nil
+        // The fork refused the attach: the page has no window to make key. The ask stays kept (the tab's pending
+        // focus) for the next grant, after ``attachIfOwed()`` brings the window back.
+        if attachOwed, isDetached { return }
         grant?()
     }
 

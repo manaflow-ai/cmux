@@ -165,7 +165,8 @@ final class CEFPaneHost {
         } else {
             // Shown in this turn with its input window out of the window: that window comes in after this turn's frame.
             if tab.appearedThisTurn, !hostView.isHidden {
-                hostView.layerHosting.pageAppeared(windowInWindow: tab.pageWindow != nil) { [weak tab] in tab?.grantPendingFocusIfShown() }
+                // The hold's end grants the kept ask of the tab this host shows then (a tab switch in the hold).
+                hostView.layerHosting.pageAppeared(windowInWindow: tab.pageWindow != nil) { [weak self] in self?.visibleTab?.grantPendingFocusIfShown() }
             }
             showBrowser(of: tab)
             tab.grantPendingFocusIfShown()
