@@ -545,11 +545,17 @@ fn thread_sender(provenance: Option<&Value>, sender: &str) -> String {
     {
         return format!("declared:{label}");
     }
-    if identity.get("authenticated") == Some(&Value::Bool(true))
-        && let Some(session) =
-            provenance.and_then(|p| crate::prompt_provenance::sender_of(Some(p)).0)
-    {
-        return format!("session:{session}");
+    // Keep authenticated conversations keyed by the sender's stable display name.  The
+    // stamped session id remains in the additive sender record and is used for routing replies,
+    // but changing the thread key to that id would split existing `from:<name>` threads.
+    if identity.get("authenticated") == Some(&Value::Bool(true)) {
+        if sender.starts_with("declared:")
+            || sender.starts_with("session:")
+            || sender.starts_with("raw:")
+        {
+            return format!("session:{sender}");
+        }
+        return sender.to_owned();
     }
     if sender.starts_with("declared:")
         || sender.starts_with("session:")
@@ -579,6 +585,19 @@ fn thread_matches(item: &Item, requested: &str, allow_declared_fallback: bool) -
                 .thread
                 .strip_prefix("declared:")
                 .is_some_and(|rest| requested == format!("from:{rest}")))
+}
+
+/// The receiver's sender thread becomes the reply author's sender thread on the other inbox.
+/// Keep the peer's display name in the key so replies join the same stable conversation after
+/// sender provenance gains a session id.
+fn reply_thread_key(thread: &str, sender_name: &str) -> String {
+    match thread.strip_prefix("from:") {
+        Some(rest) => match rest.rsplit_once("/pr:") {
+            Some((_, n)) => format!("from:{sender_name}/pr:{n}"),
+            None => format!("from:{sender_name}"),
+        },
+        None => thread.to_owned(),
+    }
 }
 
 /// Whether a message reports work this chat gave: a lane's report (`lane_reports.rs`) or a task's
@@ -1867,13 +1886,7 @@ impl Hub {
         let prompt_id = uuid::Uuid::now_v7().to_string();
         let provenance = crate::prompt_provenance::session_message(&session.id, &name, &target.id);
         // A thread named by its sender's key here is named by ours there.
-        let key = match thread.strip_prefix("from:") {
-            Some(rest) => match rest.rsplit_once("/pr:") {
-                Some((_, n)) => format!("from:{name}/pr:{n}"),
-                None => format!("from:{name}"),
-            },
-            None => thread.to_owned(),
-        };
+        let key = reply_thread_key(thread, &name);
         let (tx, rx) = tokio::sync::oneshot::channel();
         let opts = PromptOptions {
             prompt_id: Some(prompt_id.clone()),

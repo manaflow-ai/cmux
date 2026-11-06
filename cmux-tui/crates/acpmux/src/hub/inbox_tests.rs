@@ -72,7 +72,8 @@ fn a_self_declared_label_has_a_distinct_thread_key_and_display() {
         ),
         Some("other"),
     );
-    assert_eq!(thread_sender(Some(&authenticated), "dot"), "session:dot");
+    assert_eq!(thread_sender(Some(&authenticated), "dot"), "dot");
+    assert_eq!(thread_key(None, "dot", "hello"), "from:dot");
 }
 
 #[test]
@@ -80,6 +81,23 @@ fn an_authenticated_session_named_declared_does_not_collide_with_a_declared_labe
     assert_eq!(thread_key(None, "declared:dot", "hello"), "declared:dot");
     assert_eq!(thread_key(None, "session:declared:dot", "hello"), "from:declared:dot");
     assert_eq!(thread_key(None, &thread_sender(None, "session:dot"), "hello"), "from:session:dot");
+}
+
+#[test]
+fn an_authenticated_message_and_reply_keep_name_threads_on_each_side() {
+    let authenticated = crate::prompt_provenance::stamp_sender(
+        crate::prompt_provenance::session_message("dot-session", "dot", "target"),
+        Some(&crate::prompt_provenance::BoundSender {
+            session_id: Some("dot-session".into()),
+            harness: Some("codex".into()),
+        }),
+    );
+    let sender = thread_sender(Some(&authenticated), "dot");
+    let incoming = thread_key(None, &sender, "hello");
+    assert_eq!(incoming, "from:dot");
+    // `inbox_reply` uses this key for the message placed in the original sender's inbox.
+    assert_eq!(reply_thread_key(&incoming, "target"), "from:target");
+    assert_eq!(thread_key(None, "target", "reply"), "from:target");
 }
 
 #[test]
