@@ -35,7 +35,7 @@ if retry is None:
 else:
     cond = str(retry.get("if", ""))
     for term in ("!cancelled()", "needs.publish-nightly.result != 'success'", "github.ref == 'refs/heads/nightly-next'",
-                 "needs.decide.outputs.should_build == 'true'"):
+                 "needs.decide.outputs.should_build == 'true'", "needs.decide.outputs.no_publish != 'true'"):
         if term not in cond:
             failures.append(f"retry-nightly-next must run only after a failed nightly-next build ({term})")
     if (retry.get("permissions") or {}).get("actions") != "write":

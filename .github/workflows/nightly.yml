@@ -6644,7 +6644,7 @@ jobs:
   # unsigned app (it is the newest commit); any other is built again. At most two retries in a row.
   retry-nightly-next:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, publish-nightly]
-    if: "always() && !cancelled() && github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result != 'success'"
+    if: "always() && !cancelled() && github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result != 'success'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 10
     permissions:
@@ -6763,8 +6763,8 @@ jobs:
             // A refused publication succeeds as a job but published nothing.
             if (process.env.REFUSAL_REASON) failed.push(`publish-nightly (refused: ${process.env.REFUSAL_REASON})`);
             // nightly-next: notes jobs that were skipped after a publication
-            // (a recovered one skips them on purpose), in the dispatched run that runs them.
-            if (process.env.TRACK === 'nightly-next' && results['published-build']?.outputs?.cross_run === 'true'
+            // (a recovered one skips them on purpose), in the run that ran the tail.
+            if (process.env.TRACK === 'nightly-next' && results['published-build']?.result === 'success'
                 && results['published-build']?.outputs?.publish_result === 'success' && process.env.PUBLISH_SOURCE !== 'recovered') {
               for (const job of ['sign-release-notes', 'publish-release-notes']) {
                 const result = results[job]?.result;

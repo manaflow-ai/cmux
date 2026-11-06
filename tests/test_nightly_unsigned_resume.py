@@ -262,11 +262,18 @@ class WorkflowRoutingTests(unittest.TestCase):
         self.assertNotIn("Restore the original unsigned nightly inputs", selected)
 
     def test_resume_keeps_normal_publication_and_forces_past_same_tip_skip(self):
+        # Only the loop's own retry (retry-nightly-next, nightly_next_loop_retry) resumes a run.
+        result = decisions.run_decide(event="workflow_dispatch", ref="refs/heads/nightly-next",
+                                      tag_sha=decisions.HEAD_SHA,
+                                      extra_env={"UNSIGNED_RUN": "123", "UNSIGNED_ATTEMPT": "1", "LOOP_RETRY": "1"})
+        self.assertEqual(result["outputs"]["should_build"], "true")
+        self.assertEqual(result["outputs"]["should_publish"], "true")
+
+    def test_a_resume_from_outside_the_loop_builds_nothing(self):
         result = decisions.run_decide(event="workflow_dispatch", ref="refs/heads/nightly-next",
                                       tag_sha=decisions.HEAD_SHA,
                                       extra_env={"UNSIGNED_RUN": "123", "UNSIGNED_ATTEMPT": "1"})
-        self.assertEqual(result["outputs"]["should_build"], "true")
-        self.assertEqual(result["outputs"]["should_publish"], "true")
+        self.assertEqual(result["outputs"]["should_build"], "false")
 
     def test_resume_is_rejected_on_wrong_track_or_conflicting_modes(self):
         for ref, extra in (("refs/heads/main", {}), ("refs/heads/nightly-next", {"FAST_BUILD": "true"}),
