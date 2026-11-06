@@ -84,7 +84,9 @@ extension CloudStartSession {
                 let decided: (code: String, message: String)??
                 do { decided = try await Self.first(within: steps.loginWithin, login) } catch let failure as ActionFailure { return refused("cloud.relay.login_account_changed", failure.message) }
                 guard let refusal = decided else { return refused("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(asked)) }
-                if let refusal { return refused(refusal.code, refusal.message).merging(machine.harnessLogin.map { ["login_reason": .string($0.reason.rawValue)] } ?? [:]) { $1 } }
+                // With no login choice a bare rerun is refused the same way; `--login none` starts it, copies nothing, and its chat's Sign in to Claude card signs in.
+                let recovery = machine.harnessLogin?.reason == .needsLoginChoice ? asked.command + " --login none" : asked.command, reason = machine.harnessLogin?.reason.rawValue
+                if let refusal { return refused(refusal.code, refusal.message).merging(["command": .string(recovery)].merging(reason.map { ["login_reason": .string($0)] } ?? [:]) { $1 }) { $1 } }
                 let answer = try await relay.answer(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd,
                                                     promptID: promptID, within: CloudHandlers.answerWithin - (clock.now - begun))
                 return relayFields(answer, machineID: machineID)

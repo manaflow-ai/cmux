@@ -313,6 +313,25 @@ struct CloudRelayChatLoginTests {
                           "cloud.relay.login_unverified", "cloud.relay.login_team_machine"])
     }
 
+    /// The default relay request (no `--login`) on a machine with no login, none cached, and no prompt possible: the
+    /// refusal names the choices, and its command is not the bare rerun (refused the same way) but `--login none`, which
+    /// the rules start with nothing copied, so the chat's Sign in to Claude card signs the machine in. No transfer is granted.
+    @Test func aDefaultRequestsRecoveryLeadsToTheSignInCard() async throws {
+        let unchosen = Self.decision(requested: nil, outcome: nil)
+        try #require(unchosen.refusal == .needsLoginChoice)
+        let run = try await Self.relayChat(unchosen)
+        #expect(run.steps == ["login"])
+        let fields = try Self.fields(run.result)
+        #expect(fields["error_code"] == .string("cloud.relay.login_refused") && fields["login_reason"] == .string("needs-login-choice"))
+        guard case .string(let command) = fields["command"], case .string(let message) = fields["error_message"] else { Issue.record("\(fields)"); return }
+        #expect(command.hasSuffix(" --login none") && message.contains("--login machine") && message.contains("--login none"), "\(command) / \(message)")
+        // The suggested command, run: start-session's headless start with `--login none` goes on, copying nothing.
+        var rerun = Self.decision(requested: CloudHarnessLoginDecision.Choice.none, outcome: nil)
+        rerun.requestedByPerson = true
+        #expect(rerun.step == .skip && rerun.reason == .choseNone && rerun.refusal == nil && !rerun.readsMachine)
+        #expect(Self.decision(requested: nil, outcome: nil).refusal == .needsLoginChoice, "the bare rerun is refused again")
+    }
+
     /// The person's own run (the palette) sees the same refusal, and nothing is sent.
     @Test func thePersonsRunIsRefusedTheSameWay() async throws {
         let run = try await Self.relayChat(Self.decision(outcome: CloudCredentialTransfer.CachedLogin.none.startOutcome), origin: .user)
