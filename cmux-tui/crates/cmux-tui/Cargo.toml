@@ -185,6 +185,8 @@ serde_json.workspace = true
 
 [dev-dependencies]
 cmux-pty.workspace = true
+# Paused-clock tests of the Cloud dial's handshake wait.
+tokio = { workspace = true, features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true
 

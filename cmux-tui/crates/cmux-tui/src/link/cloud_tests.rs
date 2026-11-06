@@ -117,6 +117,9 @@ struct CloudOverlay {
     connects: Mutex<Vec<SocketAddr>>,
     far_ends: Mutex<Vec<DuplexStream>>,
     fail: bool,
+    /// Connects that fail before one succeeds: a new machine's receiver
+    /// admits the device only once its first policy read answers.
+    fail_first: Mutex<usize>,
 }
 
 impl Overlay for CloudOverlay {
@@ -124,7 +127,13 @@ impl Overlay for CloudOverlay {
 
     async fn connect(&self, remote: SocketAddr) -> std::io::Result<DuplexStream> {
         self.connects.lock().unwrap().push(remote);
-        if self.fail {
+        let early = {
+            let mut left = self.fail_first.lock().unwrap();
+            let early = *left > 0;
+            *left = left.saturating_sub(1);
+            early
+        };
+        if self.fail || early {
             return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "no handshake"));
         }
         let (near, far) = tokio::io::duplex(64 * 1024);
@@ -288,6 +297,27 @@ async fn a_failed_handshake_refetches_once_then_reports_paused_or_unreachable() 
         );
         assert_eq!(overlay.connects.lock().unwrap().len(), 2, "{state}");
     }
+}
+
+/// RED (start-matrix-production 42279589445, 2026-11-06): a just-created
+/// machine's receiver read its first policy 5-19 s after it bound, and its
+/// first dial ended after two 5 s tries with "no handshake", so the start
+/// failed and nothing dialed again. A running machine's dial keeps trying.
+#[tokio::test(start_paused = true)]
+async fn a_running_machine_that_admits_the_device_late_still_connects() {
+    let overlay: &'static CloudOverlay =
+        Box::leak(Box::new(CloudOverlay { fail_first: Mutex::new(8), ..CloudOverlay::default() }));
+    let resolver: &'static CloudResolver<FakeSource> = Box::leak(Box::new(CloudResolver::new(
+        FakeSource::with(vec![
+            Ok(record("running", &["daemon"])),
+            Ok(record("running", &["daemon"])),
+        ])
+        .tokens(vec![Ok(grant("t1", HOST, &["daemon"]))]),
+    )));
+    let reply = spawn_dial(overlay, resolver).await.unwrap();
+    assert_eq!(reply, "{\"ok\":true,\"path_state\":\"tunnel\",\"relay_available\":false}\n");
+    assert_eq!(overlay.connects.lock().unwrap().len(), 9);
+    assert_eq!(*resolver.source.calls.lock().unwrap(), 2, "one refetch, then the fresh record");
 }
 
 #[tokio::test]
