@@ -1,5 +1,6 @@
 //! Cloud host dials: resolve through connect_info, check the record, use
-//! each token once, refetch once on a failed handshake, map the errors.
+//! each token once, refetch once on a failed handshake (a running machine is
+//! then tried again for a while), map the errors.
 
 use std::collections::VecDeque;
 use std::net::SocketAddr;
@@ -183,11 +184,11 @@ async fn dial(
         caller.read_line(&mut reply).await.unwrap();
         reply
     };
-    let ((), reply) = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+    let ((), reply) = tokio::time::timeout(std::time::Duration::from_secs(60), async {
         tokio::join!(serve, read)
     })
     .await
-    .expect("the dial ends within 20 s");
+    .expect("the dial ends within 60 s");
     let (_, idle) = tokio::io::duplex(1);
     (reply, idle)
 }
@@ -270,7 +271,9 @@ async fn a_service_the_policy_does_not_allow_is_refused() {
     assert!(overlay.connects.lock().unwrap().is_empty());
 }
 
-#[tokio::test]
+/// A paused machine is reported after the refetch; a running one after
+/// RUNNING_HANDSHAKE_WAIT of tries with the fresh record.
+#[tokio::test(start_paused = true)]
 async fn a_failed_handshake_refetches_once_then_reports_paused_or_unreachable() {
     for (state, code) in [("paused", "host_paused"), ("running", "unreachable")] {
         let overlay = CloudOverlay { fail: true, ..CloudOverlay::default() };
@@ -295,7 +298,13 @@ async fn a_failed_handshake_refetches_once_then_reports_paused_or_unreachable() 
             0,
             "{state}: no token without a handshake"
         );
-        assert_eq!(overlay.connects.lock().unwrap().len(), 2, "{state}");
+        let connects = overlay.connects.lock().unwrap().len();
+        if state == "paused" {
+            assert_eq!(connects, 2, "{state}");
+        } else {
+            assert!(connects > 40, "{state}: {connects} tries in the wait");
+            assert!(detail.contains(&format!("{connects} tries in 4")), "{reply}");
+        }
     }
 }
 

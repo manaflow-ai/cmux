@@ -8,7 +8,7 @@ use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use cmux_link::LINK_PORT;
 use cmux_link::connect_info::{
@@ -450,6 +450,16 @@ pub(super) async fn apply_cloud_event<O: Overlay, S: ConnectInfoSource>(
     }
 }
 
+/// How long a dial to a running machine keeps trying for a handshake after
+/// its refetch. A new machine's receiver admits no device until its first
+/// receiver policy read answers, and production reads took 5-19 s after the
+/// bind (start-matrix-production 42279589445, 2026-11-06): two 5 s tries
+/// ended the first dial before the machine could answer, and nothing dialed
+/// again. A paused machine is reported at once.
+const RUNNING_HANDSHAKE_WAIT: Duration = Duration::from_secs(45);
+/// The pause between those tries, so a connect that fails at once does not spin.
+const HANDSHAKE_RETRY_PAUSE: Duration = Duration::from_secs(1);
+
 /// A refused Cloud dial: the typed code, and what failed in `error_detail`
 /// and on this link's stderr (the app keeps it in the link's `link.log`).
 /// Both get the same clipped, one-line detail (`failed_because`), never the
@@ -483,9 +493,11 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
 {
     let host = request.host.as_str();
     let service = request.service;
-    let mut refresh = false;
+    let began = tokio::time::Instant::now();
+    let mut tries = 0u32;
     let (resolved, mut stream) = loop {
-        let resolved = match resolver.resolve(host, refresh).await {
+        // The second try reads a fresh record; later ones keep that one.
+        let resolved = match resolver.resolve(host, tries == 1).await {
             Ok(resolved) => resolved,
             Err(error) => {
                 let detail = format!("connect_info: {}", error.detail());
@@ -509,18 +521,26 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
                 Err(_) => format!("no handshake with {remote} within {} s", DIAL_TIMEOUT.as_secs()),
             },
         };
+        tries += 1;
         // Rule 3: a handshake failure fetches once more before it reports.
-        if refresh {
-            let error = if resolved.info.is_paused() {
-                DialError::HostPaused
-            } else {
-                DialError::Unreachable
-            };
-            let detail =
-                format!("{failed} (after a fresh connect_info, state {})", resolved.info.state);
-            return refuse(&mut caller, host, service, error, &detail).await;
+        if tries == 1 {
+            continue;
         }
-        refresh = true;
+        // A running machine may still be reading its first receiver policy.
+        if !resolved.info.is_paused()
+            && began.elapsed() + HANDSHAKE_RETRY_PAUSE < RUNNING_HANDSHAKE_WAIT
+        {
+            tokio::time::sleep(HANDSHAKE_RETRY_PAUSE).await;
+            continue;
+        }
+        let error =
+            if resolved.info.is_paused() { DialError::HostPaused } else { DialError::Unreachable };
+        let detail = format!(
+            "{failed}, {tries} tries in {} s (after a fresh connect_info, state {})",
+            began.elapsed().as_secs(),
+            resolved.info.state
+        );
+        return refuse(&mut caller, host, service, error, &detail).await;
     };
     // One fresh token per attempt, used once, never kept.
     let grant = match resolver.token(host, service).await {
