@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-06: the workspace group editor bubble is a React page (webviews/src/pages/group-editor) in one warm native
+  glass panel (`GroupEditorService`, CmuxNextSidebar). Leo, verbatim (all-hands move of NEXT's Swift to React/Rust):
+  "ok we need to go all hands on deck here. don't just do baby steps. we can just... do it". The look is the native
+  bubble's (gallery V1, chosen; V2 and V3 are alternatives); the AppKit panel, swatches and rows are gone. The sidebar
+  keeps the editor's rules (`SidebarGroupEditor`: when it opens, the toggle click, following a re-identified group,
+  No color clears the color, where the card sits: `SidebarGroupEditor.cardFrame`); the page only draws and reports.
+  Instant open (#26400, #27056) holds: the panel stays ordered in with its card transparent and click-through, the page
+  paints the pushed group and answers ready with its height, and the card shows in that one step (no fade or grow in);
+  150 ms without an answer shows it as it is. Cost: one WebKit page process for the editor, kept warm from an idle
+  moment after launch. Regression: `GroupEditorServiceTests`, the page's own tests.
 - 2026-11-06: the workspace hover card stands on the shared hover card glass, and a tab row with no detail line is
   one row tall. Leo, verbatim: "it's got, like, a bit too much just default space, maybe, and you got all these empty
   things" and "it quite clearly seems like when you hover on the left, there's no glass." The card's default material

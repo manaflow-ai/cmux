@@ -1605,7 +1605,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextSidebar",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings", "CmuxNextResources", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI"],
             resources: [
                 .process("Resources"),
             ],

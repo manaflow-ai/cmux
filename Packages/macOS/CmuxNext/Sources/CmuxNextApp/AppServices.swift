@@ -395,6 +395,8 @@ final class AppServices {
     private(set) lazy var pageHostPool = PageHostPool(memoryPressure: memoryPressure)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self)
+    /// The sidebar's workspace group editor: one warm page in a glass panel (GroupEditorService).
+    private(set) lazy var groupEditor = GroupEditorService()
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // first read in init (no IUO)
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.

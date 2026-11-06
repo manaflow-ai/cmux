@@ -252,7 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // delaying that frame.
         // Then the icon picker (its panel, page and symbol catalog), so the first Set Icon opens warm.
         launchSettle.whenSettled { [palette = services.palette, weak services] in
-            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare() } }
+            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare(); services?.groupEditor.prepare() } }
         }
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the
