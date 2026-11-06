@@ -89,6 +89,11 @@ export const AXES: readonly Axis[] = [
   { key: "interfaceScale", to: "frame", default: "1", note: "The chrome token multiplier (0.9 to 1.25)." },
   { key: "fontFamily", to: "frame", note: "The transcript font (the user's theme.css)." },
   { key: "fontSize", to: "frame", note: "The transcript font size in px." },
+  {
+    key: "fontStudy",
+    to: "frame",
+    note: "A font study pairing (fontStudy/candidates.ts): the chrome, prose and code faces, in the panes and the chrome.",
+  },
   // Theme and customization.
   { key: "theme", to: "frame", note: "A shipped Ghostty theme's name (the window and every pane)." },
   {

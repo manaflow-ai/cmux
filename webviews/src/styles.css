@@ -121,7 +121,7 @@ html:has(.acpmux-shell[data-tab-row]) {
     --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-fg) 5%, transparent);
     /* The blur alone: the shared glass blur's saturate(1.4) would push the backdrop's own hues
        (a navy or a vivid image) through the film. */
-    --cmux-diff-glass-filter: blur(20px);
+    --cmux-diff-glass-filter: blur(var(--ds-glass-chrome-radius));
   }
   /* Chromium (cmux's default page engine) draws a backdrop-filter's blurred copy over the page's
      own pixels, so code under a frosted bar reads crisp through its tint (ui/glass/glass.css,
@@ -1131,7 +1131,9 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     padding: 0;
     border: 0;
     background: var(--cmux-scrim, color-mix(in srgb, #000 38%, transparent));
+    /* glass-raw-blur-allow: a scrim's softening under a dialog, not a glass surface */
     -webkit-backdrop-filter: blur(2px);
+    /* glass-raw-blur-allow: a scrim's softening under a dialog, not a glass surface */
     backdrop-filter: blur(2px);
     cursor: default;
   }

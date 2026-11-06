@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextTestSupport
+import CmuxNextWakeups
 import Testing
 
 /// Detached hosting in a resize motion (fork API 30, STATUS 14261 slice 1), without Chromium: a fake fork records
@@ -180,5 +181,171 @@ import Testing
         #expect(hosting.isDetached && !hosting.attachOwed, "mid-motion the page stays detached")
         hosting.resizeMotion(active: false)
         #expect(!hosting.isDetached)
+    }
+
+    // MARK: The frame a page shows in (SWITCH STALL 5)
+
+    /// A hosted page whose blocks after a commit (`commit`) and after the next display frame (`frame`) the test runs
+    /// (``CEFLayerHosting/pageAppeared(windowInWindow:then:)``).
+    func shownPage() -> (CEFLayerHosting, commit: @MainActor () -> Void, frame: @MainActor () -> Void) {
+        var blocks: [@MainActor @Sendable () -> Void] = []
+        var committed: [@MainActor @Sendable () -> Void] = []
+        var framed: [@MainActor @Sendable () -> Void] = []
+        let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { blocks.append($0) },
+                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
+                                      holdsFocus: { false }, afterCommit: { committed.append($0) },
+                                      afterFrameShown: { framed.append($0) })
+        hosting.view = view
+        hosting.pageWindowCreated(browser: 4, fork: fake.fork)
+        for block in blocks { block() }
+        #expect(hosting.page != nil)
+        return (hosting, {
+            let pass = committed
+            committed.removeAll()
+            for block in pass { block() }
+        }, {
+            let pass = framed
+            framed.removeAll()
+            for block in pass { block() }
+        })
+    }
+
+    /// Cmd-N's page shows in the key's turn with its window out of the window: detached in that turn (no window order
+    /// before the first frame), attached once that frame came (not at the key's commit, which comes before the frame's
+    /// display tick), and the focus grant comes one pass later, after the fork's order-in. A grant asked meanwhile waits.
+    @Test func aPageShownWithItsWindowOutAttachesAfterTheFrameAndGrantsAfterTheAttach() {
+        let (hosting, commit, frame) = shownPage()
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: false) { grants += 1 }
+        #expect(calls == ["4:detach"])
+        #expect(hosting.holdsFirstFrame(), "no window to make key in the turn it showed: a grant keeps its ask")
+        #expect(!hosting.pageTakesFocus(), "the hold's end grants: a grant does not wait for each commit meanwhile")
+        commit()
+        #expect(calls == ["4:detach"], "the key's commit alone does not attach: its frame's display tick has not come")
+        frame()
+        #expect(calls == ["4:detach", "4:attach"])
+        #expect(grants == 0, "the fork orders the window in at its next observer")
+        #expect(hosting.holdsFirstFrame())
+        commit()
+        #expect(grants == 1)
+        #expect(!hosting.holdsFirstFrame() && !hosting.isDetached && hosting.firstFrameHold == .none)
+    }
+
+    /// A page whose window is already in the window (a tab switch inside its pane) is left alone.
+    @Test func aPageShownWithItsWindowInIsLeftAlone() {
+        let (hosting, commit, frame) = shownPage()
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: true) { grants += 1 }
+        frame()
+        commit()
+        #expect(calls.isEmpty && grants == 0 && hosting.firstFrameHold == .none)
+    }
+
+    /// A motion that began before the frame owns the detached page: no attach at the frame, one at the landing.
+    @Test func aMotionStartedInTheShowTurnAttachesOnlyAtItsLanding() {
+        let (hosting, _, frame) = shownPage()
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: false) { grants += 1 }
+        hosting.resizeMotion(active: true)
+        frame()
+        #expect(calls == ["4:detach"] && grants == 1 && hosting.isDetached)
+        hosting.resizeMotion(active: false)
+        #expect(calls == ["4:detach", "4:attach"])
+    }
+
+    /// The page window closed before the frame: nothing reaches the fork for it after.
+    @Test func aPageWindowClosedBeforeTheFrameIsNotAttached() {
+        let (hosting, commit, frame) = shownPage()
+        hosting.pageAppeared(windowInWindow: false) {}
+        hosting.stop()
+        frame()
+        commit()
+        #expect(calls == ["4:detach"] && hosting.firstFrameHold == .none)
+    }
+
+    /// The fork refuses the attach after the frame: the page has no window to make key, so the hold ends with no grant
+    /// (the tab keeps its ask) and the attach is owed for the next retry.
+    @Test func aRefusedAttachAfterTheFrameEndsTheHoldWithNoGrant() {
+        let (hosting, commit, frame) = shownPage()
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: false) { grants += 1 }
+        fake.accepts = false
+        frame()
+        commit()
+        #expect(calls == ["4:detach", "4:attach"] && hosting.attachOwed && hosting.isDetached)
+        commit()
+        #expect(grants == 0 && !hosting.holdsFirstFrame())
+    }
+
+    /// The fork refused the attach after the frame, and a later retry (a tracker read) attaches: the kept ask is
+    /// granted once, after the commit that orders the window in (#37175 gap: the retry attached and granted nothing).
+    @Test func aRetriedAttachGrantsTheKeptAskOnce() {
+        let (hosting, commit, frame) = shownPage()
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: false) { grants += 1 }
+        fake.accepts = false
+        frame()
+        commit()
+        commit()
+        #expect(grants == 0 && hosting.attachOwed)
+        fake.accepts = true
+        hosting.trackerDidRead()
+        #expect(!hosting.isDetached && grants == 0, "the fork orders the window in at its next observer")
+        commit()
+        #expect(grants == 1)
+        hosting.trackerDidRead()
+        commit()
+        #expect(grants == 1, "one grant")
+    }
+
+    /// A motion that began while the attach was owed owns the page: its landing attaches it and grants the kept ask.
+    @Test func aMotionLandingThatAttachesAnOwedPageGrantsTheKeptAsk() {
+        let (hosting, commit, frame) = shownPage()
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: false) { grants += 1 }
+        fake.accepts = false
+        frame()
+        commit()
+        commit()
+        fake.accepts = true
+        hosting.resizeMotion(active: true)
+        hosting.trackerDidRead()
+        #expect(hosting.isDetached && grants == 0, "mid-motion the page stays detached")
+        hosting.resizeMotion(active: false)
+        #expect(!hosting.isDetached)
+        commit()
+        #expect(grants == 1)
+    }
+
+    /// The window closed in the hold: its scheduler lets the one-tick client go with no tick. The drop counts as the
+    /// frame: the page attaches after that pass's commit with no focus ask (#37175 gap: it stayed detached until the
+    /// next ask or window change). The hold ends with no grant: a closed window's page must not take the keys (SetFocus
+    /// orders its window front); the tab keeps its ask for the next show.
+    @Test func aHoldWhoseFrameTickWasDroppedAttachesWithNoAskAndNoGrant() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless,
+                              backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        window.contentView?.addSubview(view)
+        var blocks: [@MainActor @Sendable () -> Void] = []
+        var committed: [@MainActor @Sendable () -> Void] = []
+        let commit = {
+            let pass = committed
+            committed.removeAll()
+            for block in pass { block() }
+        }
+        let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { blocks.append($0) },
+                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
+                                      holdsFocus: { false }, afterCommit: { committed.append($0) })
+        hosting.view = view
+        hosting.pageWindowCreated(browser: 4, fork: fake.fork)
+        for block in blocks { block() }
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: false) { grants += 1 }
+        #expect(calls == ["4:detach"])
+        FrameScheduler.forWindow(window).invalidate()
+        commit()
+        #expect(calls == ["4:detach", "4:attach"], "the drop attaches with no ask")
+        commit()
+        #expect(grants == 0 && hosting.firstFrameHold == .none, "no grant into a closed window")
     }
 }
