@@ -17,7 +17,7 @@ extension SettingsHarnesses: AgentSignInSource {
     /// for the id ("Claude Code"), else the id. A harness the check did not find that cmux can
     /// install (Claude Code, Codex) is listed as not installed, for the step's Install.
     var signInRows: [OnboardingAgent] {
-        rows.compactMap { row in
+        let listed: [OnboardingAgent] = rows.compactMap { row in
             guard row.kind != "terminal", row.problem == nil else { return nil }
             let health = health[row.id]
             let missing = healthAnswered && health?["path"]?.stringValue == nil && health?["version"]?.stringValue == nil
@@ -28,6 +28,13 @@ extension SettingsHarnesses: AgentSignInSource {
                                    auth: health?["auth"]?.stringValue.flatMap(OnboardingAgent.Auth.init(rawValue:)) ?? .unknown,
                                    installed: !missing)
         }
+        // acpmux lists Claude Code or Codex only once it finds them: one it lists no row for is not here,
+        // and the step offers to install it.
+        let absent = OnboardingAgent.installPages.keys.sorted().filter { id in !rows.contains { $0.id == id } }.map { id in
+            OnboardingAgent(id: id, name: AgentBrandCatalog.agents.first { $0.id == id }?.name ?? id,
+                            brand: AgentBrandCatalog.brand(for: id)?.rawValue, auth: .unknown, installed: false)
+        }
+        return listed + absent
     }
 
     /// Reads the harnesses and their health again (`recheck`: the daemon checks again instead of

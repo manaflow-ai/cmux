@@ -157,11 +157,15 @@ public final class AgentsStepModel {
             generation += 1
             let mine = generation
             let fresh = await source?.agentSignIns(recheck: true) ?? []
-            installs[id] = nil
-            guard mine == generation else { return }
+            guard mine == generation else { return installs[id] = nil }
             show(fresh)
             loading = false
             loaded = true
+            // The installer finished but acpmux does not find the agent yet: say so beside the button.
+            guard agents.contains(where: { $0.id == id }) else {
+                return installs[id] = .failed("installed, but cmux does not find it yet; reopen cmux to look again")
+            }
+            installs[id] = nil
             signIn(id)
         }
     }

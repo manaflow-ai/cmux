@@ -113,6 +113,22 @@ import Testing
         #expect(found.map(\.id) == ["claude", "codex"], "both are offered to install")
     }
 
+    /// acpmux lists no row for a CLI it neither has configured nor found: a missing Claude Code or
+    /// Codex is still offered to install.
+    @Test func aCliAcpmuxListsNoRowForIsStillOfferedToInstall() async {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cn-onboarding-norow-\(UUID().uuidString)")
+        let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
+                                            socketPath: directory.appending(path: "a.sock").path, daemonArguments: [], childEnvironment: [:])
+        let harnesses = SettingsHarnesses(environment: { environment },
+            fetch: { _ in [.init(id: "claude", kind: "claude-stdio", source: "path")] },
+            fetchHealth: { _, _ in Data(#"{"harnesses":[{"id":"claude","path":"/opt/homebrew/bin/claude","auth":"signedIn"}]}"#.utf8) },
+            openTerminal: { _ in true },
+            accountsCall: { _, _, _ in throw AcpmuxRPCError(code: -32601, message: "method not found") })
+        let rows = await harnesses.agentSignIns(recheck: false)
+        #expect(rows.map(\.id) == ["claude", "codex"])
+        #expect(rows.map(\.installed) == [true, false])
+    }
+
     /// Install runs `acpmux harness install ID --json` and answers acpmux's error message.
     @Test func installRunsTheHarnessInstallAndAnswersItsError() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-onboarding-install-\(UUID().uuidString)")
@@ -199,7 +215,7 @@ import Testing
                 return Data(#"{"loggedIn":true,"subscriptionType":"max"}"#.utf8)
             })
         let rows = await harnesses.agentSignIns(recheck: true)
-        #expect(rows.map(\.auth) == [.signedIn])
+        #expect(rows.filter(\.installed).map(\.auth) == [.signedIn])
         #expect(asked.withLock { $0 } == 0, "onboarding ran claude auth status")
     }
 
