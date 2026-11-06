@@ -49,7 +49,9 @@ nonisolated extension AcpmuxPaneMethods {
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
         "_acpmux/typing": (["sessionId", "on"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
-        "_acpmux/kill": (["sessionId", "purge"], []),
+        // `cancelFork`: Fork Conversation's Cancel takes back a fork nobody used, with the transcript
+        // copy its agent made (direct.ts `takeBackFork`, acpmux hub/fork_cancel.rs).
+        "_acpmux/kill": (["sessionId", "purge", "cancelFork"], []),
         // `ifLive`: `fork` or `open` once the person chose, for a chat still live in its own app.
         "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         // Background processes (direct.ts listProcesses, tailProcess, killProcess, backgroundWork):
