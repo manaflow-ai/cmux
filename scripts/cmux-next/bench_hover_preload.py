@@ -178,6 +178,25 @@ class Bench:
     def asleep(self, tabs: list[str]) -> bool:
         return set(tabs) <= set(self.hibernation().get("hibernated") or [])
 
+    def diagnose(self, label: str, tabs: list[str]) -> dict:
+        """Why `tabs` are not asleep: each one's lifecycle phase and exemption, counted, plus the setting the
+        app reports. Printed as one PERF-HOVER-DIAG line and kept in the report."""
+        h = self.hibernation()
+        hibernated, frozen = set(h.get("hibernated") or []), set(h.get("frozen") or [])
+        phases, exemptions = h.get("page_phases") or {}, h.get("exemptions") or {}
+        counts: dict[str, int] = {}
+        for tab in tabs:
+            state = "hibernated" if tab in hibernated else phases.get(tab, "no_page")
+            if tab in frozen:
+                state += "+frozen"
+            key = f"{state}/{exemptions.get(tab, '-')}"
+            counts[key] = counts.get(key, 0) + 1
+        result = {"label": label, "tabs": len(tabs), "states": counts, "mode": h.get("mode"),
+                  "pressure": h.get("pressure"), "hibernated_total": h.get("hibernated_total"),
+                  "sample_ids": {"bench": tabs[:2], "app": sorted(phases)[:2]}}
+        print(f"PERF-HOVER-DIAG {json.dumps(result)}", flush=True)
+        return result
+
 
 def sweep(bench: Bench, args, report: dict, points: list[list[float]]):
     if len(points) < 2:
@@ -227,13 +246,18 @@ def click_trials(bench: Bench, args, report: dict, target: str, tabs: list[str],
                  point: list[float] | None):
     trials = []
     for trial in range(args.trials):
+        if report.get("click_stopped"):
+            break
         for mode in ("cold", "dwell"):
             bench.hover(None)  # first: the reveal scroll must not move rows under a resting pointer
             bench.app.action("goToWorkspace", workspace=away)
             if not wait_for(lambda: bench.asleep(tabs), args.sleep_wait_s, 1):
-                trials.append({"trial": trial, "mode": mode, "error": "pages did not hibernate"})
+                trials.append({"trial": trial, "mode": mode, "error": "pages did not hibernate",
+                               "diag": bench.diagnose(f"click-{trial}-{mode}", tabs)})
                 print(f"PERF-HOVER-CLICK trial={trial} mode={mode} error=not_hibernated", flush=True)
-                continue
+                # Every later trial would wait the same timeout for the same reason: the arm stops here.
+                report["click_stopped"] = f"trial {trial} {mode}: pages did not hibernate"
+                break
             if mode == "dwell":
                 if not point:
                     trials.append({"trial": trial, "mode": mode, "error": "row not hoverable"})
@@ -267,7 +291,7 @@ def grace(bench: Bench, args, report: dict, pid: int, bundle: str, tabs: list[st
     bench.hover(None)
     bench.app.action("goToWorkspace", workspace=away)
     if not wait_for(lambda: bench.asleep(tabs), args.sleep_wait_s, 1):
-        report["grace"] = {"error": "pages did not hibernate"}
+        report["grace"] = {"error": "pages did not hibernate", "diag": bench.diagnose("grace", tabs)}
         print("PERF-HOVER-GRACE error=not_hibernated", flush=True)
         return
     time.sleep(5)  # test script: renderers of the discarded pages exit
@@ -359,7 +383,8 @@ def main():
             if report["sweep_pages_settled"]:
                 sweep(bench, args, report, [p for p in points if p != target_point])
             else:
-                report["sweep"] = {"error": "invalid: the swept pages did not all freeze or hibernate first"}
+                report["sweep"] = {"error": "invalid: the swept pages did not all freeze or hibernate first",
+                                   "diag": bench.diagnose("sweep", sweep_tabs)}
                 print("PERF-HOVER-SWEEP invalid=not_settled", flush=True)
         if "click" in phases and target:
             click_trials(bench, args, report, target, target_tabs, home, target_point)

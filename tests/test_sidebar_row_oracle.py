@@ -436,6 +436,247 @@ class Selection(unittest.TestCase):
         self.assertEqual(off, expected)
 
 
+FADE = 16  # snap: the new row's fade, motion frames (about the .tabOpen spring's settling time at 120 Hz)
+
+
+def snap_film(rows=12, at=2, opacity=None, height=None, row_y=None, rows_move=False, new_from=1, tail=TAIL):
+    """A snap insert (sidebar.insertMotion snap, the default since #28205): the rows below are in their slots from the first
+    motion frame, and the new row shows at its slot at full height with its opacity rising from 0 to 1 over FADE frames.
+    OPACITY(i), HEIGHT(i) and ROW_Y(r, i) override the new row's opacity and height and a row's y; ROWS_MOVE puts the rows
+    below on the ease curve (the grow motion's rows) instead."""
+    frames = []
+    t0 = 1000.0
+    for f in range(STILL + MOTION + tail):
+        i = f - STILL
+        views = {}
+        for r in range(rows):
+            y = TOP + r * STEP
+            if r >= at and i >= 1:
+                y += (ease(i) if rows_move else 1.0) * STEP
+            if row_y is not None:
+                y = row_y(r, i, y)
+            views[key(r)] = [X, y, W, ROW_H, 1.0]
+        if i >= new_from:
+            alpha = opacity(i) if opacity else min(1.0, i / FADE)
+            views[NEW] = [X, TOP + at * STEP, W, height(i) if height else ROW_H, alpha]
+        frames.append({"t": t0 + f / FPS + 0.0004, "scroll": 0.0, "views": views})
+    return frames
+
+
+def judge_snap(frames, **hints):
+    opts = oracle.Options()
+    opts.motion = "snap"
+    return oracle.judge_film("synthetic-snap", frames, hints, opts)
+
+
+class SnapMotion(unittest.TestCase):
+    """--motion snap (INSTANT OWNER, the lead's ruling at STATUS 15439: snap stays the default sidebar.insertMotion; the m23
+    grow and shrink clauses apply to the grow value only). A snap insert: the rows below are in their slots from the first
+    frame (no slide), and the new row shows at its slot at full height from its first frame while its opacity rises to 1
+    with no step back. Removes take the same path under both values (removeFrame: the closing row closes to height 0 on the
+    rows' spring), so a remove is judged as in grow. Missed refreshes, rebuilt rows and flicker are judged in both modes."""
+
+    def test_a_correct_snap_insert_passes(self):
+        result = judge_snap(snap_film())
+        self.assertEqual(result["verdict"], "PASS", result["fails"])
+        motion, = result["motions"]
+        self.assertEqual((motion["kind"], motion["inserted"], motion["motion"]), ("insert", [NEW], "snap"))
+        self.assertLess(result["max_row_error_px"], 1e-6)
+        self.assertLess(result["max_height_error_px"], 1e-6)
+        self.assertEqual(result["missed_refreshes"], 0)
+
+    def test_the_grow_mode_fails_a_correct_snap_insert(self):
+        # grow (the default value of --motion): the new row must grow from 0, so a snap insert is a pop-in there
+        self.assertEqual(judge(snap_film())["verdict"], "FAIL")
+
+    def test_a_snap_row_at_partial_height_fails(self):
+        result = judge_snap(snap_film(height=lambda i: ROW_H if i >= 4 else ROW_H * i / 4))
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["height_error_frames"], [FIRST, FIRST + 1, FIRST + 2])
+
+    def test_a_snap_insert_with_a_frame_gap_fails(self):
+        # the rows below take their slots one frame before the new row shows: a frame with a gap where the new row goes
+        result = judge_snap(snap_film(new_from=2))
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["gap_frames"], [FIRST])
+
+    def test_a_snap_insert_whose_new_row_overlaps_fails(self):
+        # the new row shows one frame before the rows below make room: it covers the row below it
+        result = judge_snap(snap_film(row_y=lambda r, i, y: TOP + r * STEP if (r >= 2 and i == 1) else y))
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["overlap_frames"], [FIRST])
+
+    def test_snap_rows_that_slide_fail(self):
+        # snap: no slide; rows below on a curve (the grow motion's rows, or a spring an earlier move left) fail
+        result = judge_snap(snap_film(rows_move=True))
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertTrue(any("not in their slots" in f for f in result["fails"]), result["fails"])
+
+    def test_a_snap_fade_that_steps_back_fails(self):
+        result = judge_snap(snap_film(opacity=lambda i: 0.6 if i == 5 else min(1.0, i / FADE)))
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["fade_back_frames"], [FIRST + 5])
+
+    def test_a_snap_row_shown_fully_opaque_at_once_fails(self):
+        # no fade at all: the row pops in (the fade is the snap motion)
+        result = judge_snap(snap_film(opacity=lambda i: 1.0))
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertTrue(any("does not fade in" in f for f in result["fails"]), result["fails"])
+
+    def test_a_snap_insert_with_a_dropped_refresh_fails(self):
+        frames = snap_film()
+        del frames[STILL + 6]
+        result = judge_snap(frames)
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["missed_refreshes"], 1)
+
+    def test_a_remove_is_judged_as_in_grow(self):
+        self.assertEqual(judge_snap(film("remove"))["verdict"], "PASS")
+        late = film("remove", row_progress={9: lambda i: ease(i - 1)})
+        self.assertEqual(judge_snap(late)["verdict"], "FAIL")
+
+    def test_a_zero_size_new_view_before_the_snap_is_not_a_snap_frame(self):
+        # real films (build 80fc694b, film-light-200 #6): the new row's view is made one frame before it is laid out, at
+        # zero size (it draws nothing), while the rows below are still in place; the snap is the next frame. Not a slide.
+        frames = snap_film(new_from=2, row_y=lambda r, i, y: TOP + r * STEP if (r >= 2 and i == 1) else y)
+        frames[FIRST]["views"][NEW] = [0.0, 0.0, 0.0, 0.0, 1.0]
+        result = judge_snap(frames)
+        self.assertEqual(result["verdict"], "PASS", result["fails"])
+        self.assertEqual(result["motions"][0]["gap_frames"] + result["motions"][0]["overlap_frames"], [])
+
+    def test_cli_motion_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "motion.json")
+            with open(path, "w") as handle:
+                json.dump({"frames": snap_film()}, handle)
+            done = subprocess.run([sys.executable, "-I", str(ORACLE), path, "--motion", "snap"], capture_output=True, text=True, timeout=60)
+            self.assertEqual(done.returncode, 0, done.stdout[-600:] + done.stderr)
+            self.assertIn("motion snap", done.stdout.strip().splitlines()[-1])
+            grow = subprocess.run([sys.executable, "-I", str(ORACLE), path], capture_output=True, text=True, timeout=60)
+            self.assertEqual(grow.returncode, 1, grow.stdout[-600:] + grow.stderr)
+
+
+def instant_film(kind="insert", rows=12, at=2, change=1, new_opacity=None, new_height=None, row_y=None, tail=TAIL):
+    """A change no one in the window asked for (a script's newTab with focus false; the film press `mode` "noswitch"):
+    the calm-movement rule (plans/cmux-next/sidebar-calm-movement.md, Lawrence 2026-10-20) shows it in one step. At motion
+    frame CHANGE the rows below take their new slots, the new row shows at its slot at full height and opacity 1, or the
+    closing row is gone. NEW_OPACITY(i), NEW_HEIGHT(i) and ROW_Y(r, i, y) override."""
+    frames = []
+    t0 = 1000.0
+    for f in range(STILL + MOTION + tail):
+        i = f - STILL
+        views = {}
+        for r in range(rows):
+            y = TOP + r * STEP
+            if kind == "insert" and r >= at and i >= change:
+                y += STEP
+            if kind == "remove":
+                if r == at:
+                    if i >= change:
+                        continue
+                elif r > at and i >= change:
+                    y -= STEP
+            if row_y is not None:
+                y = row_y(r, i, y)
+            views[key(r)] = [X, y, W, ROW_H, 1.0]
+        if kind == "insert" and i >= change:
+            views[NEW] = [X, TOP + at * STEP, W, new_height(i) if new_height else ROW_H, new_opacity(i) if new_opacity else 1.0]
+        frames.append({"t": t0 + f / FPS + 0.0004, "scroll": 0.0, "views": views})
+    return frames
+
+
+def judge_mode(frames, mode, motion="grow", kind="insert"):
+    """A film-harness press with its `mode` ("keys": the user's Cmd-N or Cmd-Shift-W; "noswitch": a script's change)."""
+    before = [{"key": key(r), "y": TOP + r * STEP, "h": ROW_H} for r in range(12)]
+    if kind == "insert":
+        after = before[:2] + [{"key": NEW, "y": TOP + 2 * STEP, "h": ROW_H}] + [dict(row, y=row["y"] + STEP) for row in before[2:]]
+    else:
+        after = [dict(row, y=row["y"] - STEP) if row["y"] > TOP + 2 * STEP else row for row in before if row["key"] != key(2)]
+    press = {"kind": kind, "mode": mode, "index": 0, "frames": frames, "rows_before": before, "rows_after": after}
+    (name, raw, hints), = oracle.films_from_json({"scenario": "s", "presses": [press]}, "film-s.json")
+    opts = oracle.Options()
+    opts.motion = motion
+    return oracle.judge_film(name, raw, hints, opts)
+
+
+class InstantChanges(unittest.TestCase):
+    """SIDEBAR ROWS, 02:1xZ: a press whose `mode` is "noswitch" (a script's change: no user intent) goes through
+    showModelChange with reload(animated: model.followsUserIntent), so it shows in one step (the calm-movement rule,
+    Lawrence 2026-10-20: "Any other change takes its place in one step: no slide, no open, no close"). Such a press is
+    judged as instant under any --motion: every row at its start or its end slot, all in one frame; the new row at full
+    height and opacity 1 from its first frame (no fade), the closing row gone in that frame (no shrink); missed refreshes,
+    rebuilt rows and flicker as in every mode."""
+
+    def test_a_noswitch_insert_in_one_step_passes_under_both_motions(self):
+        for motion in ("grow", "snap"):
+            result = judge_mode(instant_film("insert"), "noswitch", motion)
+            self.assertEqual(result["verdict"], "PASS", (motion, result["fails"]))
+            self.assertEqual(result["motions"][0]["motion"], "instant")
+
+    def test_a_noswitch_remove_in_one_step_passes(self):
+        result = judge_mode(instant_film("remove"), "noswitch", "snap", kind="remove")
+        self.assertEqual(result["verdict"], "PASS", result["fails"])
+        self.assertEqual(result["motions"][0]["motion"], "instant")
+
+    def test_a_noswitch_insert_that_fades_in_fails(self):
+        result = judge_mode(instant_film("insert", new_opacity=lambda i: min(1.0, i / FADE)), "noswitch", "snap")
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertTrue(any("not in one step" in f for f in result["fails"]), result["fails"])
+
+    def test_a_noswitch_change_with_rows_that_slide_fails(self):
+        slide = instant_film("insert", row_y=lambda r, i, y: TOP + r * STEP + ease(i) * STEP if r >= 2 and i >= 1 else y)
+        result = judge_mode(slide, "noswitch", "snap")
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+
+    def test_a_noswitch_insert_with_a_dropped_refresh_at_the_change_fails(self):
+        frames = instant_film("insert")
+        for frame in frames[FIRST:]:
+            frame["t"] += 0.03
+        result = judge_mode(frames, "noswitch", "snap")
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertGreater(result["missed_refreshes"], 0)
+
+    def test_a_noswitch_insert_whose_new_row_shows_a_frame_late_fails(self):
+        # the rows below move at the change, the new row draws one frame later: a gap frame (INSTANT OWNER, 02:3xZ)
+        frames = instant_film("insert")
+        del frames[FIRST]["views"][NEW]
+        result = judge_mode(frames, "noswitch", "snap")
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["change_frames"], [FIRST, FIRST + 1])
+
+    def test_a_noswitch_insert_whose_new_row_shows_a_frame_early_fails(self):
+        # the new row draws one frame before the rows below make room: an overlap frame
+        frames = instant_film("insert", change=2)
+        frames[FIRST]["views"][NEW] = [X, TOP + 2 * STEP, W, ROW_H, 1.0]
+        result = judge_mode(frames, "noswitch", "snap")
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["change_frames"], [FIRST, FIRST + 1])
+
+    def test_a_noswitch_remove_whose_rows_close_the_slot_a_frame_late_fails(self):
+        # the closing row is gone one frame before the rows below close its slot: a gap frame (real film noswitch-200 #5)
+        frames = instant_film("remove")
+        for r in range(3, 12):
+            frames[FIRST]["views"][key(r)][1] = TOP + r * STEP
+        result = judge_mode(frames, "noswitch", "snap", kind="remove")
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["change_frames"], [FIRST, FIRST + 1])
+
+    def test_a_keys_press_is_judged_by_its_motion(self):
+        # mode "keys" (the user's Cmd-N): the motion the flag names; an instant insert is a pop-in under snap
+        self.assertEqual(judge_mode(instant_film("insert"), "keys", "snap")["verdict"], "FAIL")
+        self.assertEqual(judge_mode(snap_film(), "keys", "snap")["verdict"], "PASS")
+
+    def test_a_snap_fade_held_one_frame_fails_and_names_its_source(self):
+        # real films (build 80fc694b, film-light-200 #0): the new row holds opacity 0 one frame after the rows snap. SIDEBAR
+        # ROWS (02:2xZ): real in code (the fade is added in a later CA transaction than the frames; F4 fixes it). The probe
+        # reads opacity from each row layer's presentation (CALayer.presentation(), on the main thread at the frame tick),
+        # not from pixels: the verdict says so (INSTANT OWNER, 02:1xZ).
+        result = judge_snap(snap_film(opacity=lambda i: 0.0 if i <= 2 else min(1.0, (i - 2) / FADE)))
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(result["motions"][0]["fade_held_frames"], [FIRST + 1])
+        self.assertIn("presentation", result["values"])
+
+
 class Inputs(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run([sys.executable, "-I", str(ORACLE), *args], capture_output=True, text=True, timeout=60)

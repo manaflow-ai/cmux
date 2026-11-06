@@ -36,6 +36,7 @@ extension TerminalSurfaceView {
                 framePresenter?.cancel(self)
                 frameOwnership.inFlight = nil
                 applyHeldScale()
+                gridReports.shownCancelled(live: isFollowingResizeGesture)
             }
             if self.frame != frame { self.frame = frame }
             return
@@ -101,17 +102,14 @@ extension TerminalSurfaceView {
     }
 
     /// The commit that changed the shown size is done: frames at that size go to the screen off the main thread again.
-    func hostFrameCommitted() {
-        guard let surface, frameOwnership.embedderPresents else { return }
-        ghostty_surface_host_frame_committed(surface)
-    }
+    func hostFrameCommitted() { if let surface, frameOwnership.embedderPresents { ghostty_surface_host_frame_committed(surface) } }
 
-    /// The switch, a window change: a size that waits takes its bounds now, through the usual path, and a held scale
-    /// goes to the layer.
+    /// The switch, a window change: a size that waits takes its bounds now (its drag grid goes), a held scale its layer.
     func releaseFrameOwnership() {
         guard frameOwnership.embedderPresents else { return }
         framePresenter?.cancel(self)
         applyHeldScale()
+        gridReports.shownCancelled(live: isFollowingResizeGesture)
         guard frameOwnership.inFlight != nil, let wanted = frameOwnership.wanted else { return }
         frameOwnership.inFlight = nil
         if frame != wanted { frame = wanted }
