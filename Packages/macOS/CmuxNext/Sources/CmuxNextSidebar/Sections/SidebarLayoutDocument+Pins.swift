@@ -9,7 +9,8 @@ import Foundation
 /// do not change, and it draws only while it has items (an untitled empty
 /// section has no rows). "Add to Top" puts an item in `sec_top` beside
 /// Home and the App Store. Each command is one op against the visible
-/// document; pure, so the store's reducer is the only judge.
+/// document; pure (Rust `sidebar_layout_plan`), so the store's reducer is the
+/// only judge.
 extension SidebarLayoutDocument {
     public static let pinnedSectionID = LayoutSectionID("sec_pinned")
 
@@ -38,33 +39,31 @@ extension SidebarLayoutDocument {
     /// last in the top region) holding it when the section is missing. Nil
     /// when it is pinned already. `label` (the workspace's name now) is
     /// stored with the tile and drawn while the workspace is closed.
+    /// (Rust `sidebar_layout_plan::pin_op`.)
     public func pinOp(_ ref: LayoutItemRef, label: String? = nil, newItem: LayoutItemID = .mint()) -> SidebarLayoutOp? {
-        guard !isPinned(ref) else { return nil }
-        let item = LayoutItem(id: newItem, ref: ref, label: label)
-        if section(Self.pinnedSectionID) != nil { return .itemAdd(item, section: Self.pinnedSectionID, index: Int.max) }
-        let top = sections(in: .top, room: nil).map(\.id)
-        let index = top.firstIndex(of: Self.topSectionID).map { $0 + 1 } ?? Int.max
-        return .sectionAdd(Self.pinnedSection(items: [item]), index: index)
+        var request = SidebarLayoutPlanRequest("pin", document: self)
+        request.ref = ref
+        request.label = Self.storedLabel(label, ref: ref, id: newItem)
+        request.newItem = newItem
+        return SidebarLayoutReducer.plan(request)?.op
     }
 
     /// The ops that pin (or unpin) every ref in `refs`, each planned against the document the
     /// earlier ones leave, so they apply in order as one change (Pin on a selection). Refs
-    /// already in the asked state add no op.
+    /// already in the asked state add no op. (Rust `sidebar_layout_plan::pin_ops`.)
     public func pinOps(_ refs: [(ref: LayoutItemRef, label: String?)], pinned: Bool) -> [SidebarLayoutOp] {
-        var document = self, ops: [SidebarLayoutOp] = []
-        for (ref, label) in refs {
-            guard let op = pinned ? document.pinOp(ref, label: label) : document.unpinOp(ref),
-                  case let .success(next) = SidebarLayoutReducer.reduce(document, op) else { continue }
-            ops.append(op)
-            document = next
-        }
-        return ops
+        var request = SidebarLayoutPlanRequest("pin_all", document: self)
+        request.pins = Self.pins(refs)
+        request.pinned = pinned
+        return SidebarLayoutReducer.plan(request)?.ops ?? []
     }
 
     /// Unpins `ref` (its tile only; a top row of the same ref stays). Nil
     /// when it is not pinned.
     public func unpinOp(_ ref: LayoutItemRef) -> SidebarLayoutOp? {
-        section(Self.pinnedSectionID)?.items.first { $0.ref == ref }.map { .itemRemove($0.id) }
+        var request = SidebarLayoutPlanRequest("unpin", document: self)
+        request.ref = ref
+        return SidebarLayoutReducer.plan(request)?.op
     }
 
     /// Adds `ref` as the last row of `sec_top` ("Add to Top"), else of the
@@ -72,19 +71,20 @@ extension SidebarLayoutDocument {
     /// row already shows it (its tile does not count). `label` is stored like a tile's.
     public func addToTopOp(_ ref: LayoutItemRef, label: String? = nil, newItem: LayoutItemID = .mint(),
                            newSection: LayoutSectionID = .mint()) -> SidebarLayoutOp? {
-        guard removeFromTopOp(ref) == nil else { return nil }
-        let item = LayoutItem(id: newItem, ref: ref, label: label)
-        let target = section(Self.topSectionID).map(\.id)
-            ?? sections.first { $0.region == .top && $0.room == nil && $0.content == .items && $0.id != Self.pinnedSectionID }?.id
-        if let target { return .itemAdd(item, section: target, index: Int.max) }
-        return .sectionAdd(LayoutSection(id: newSection, region: .top, look: .builtIn, items: [item]), index: 0)
+        var request = SidebarLayoutPlanRequest("add_to_top", document: self)
+        request.ref = ref
+        request.label = Self.storedLabel(label, ref: ref, id: newItem)
+        request.newItem = newItem
+        request.newSection = newSection
+        return SidebarLayoutReducer.plan(request)?.op
     }
 
     /// Removes `ref` from the top rows ("Remove from Top"; tiles stay).
     /// Nil when no top row shows it.
     public func removeFromTopOp(_ ref: LayoutItemRef) -> SidebarLayoutOp? {
-        sections.first { $0.region == .top && $0.id != Self.pinnedSectionID && $0.items.contains { $0.ref == ref } }?
-            .items.first { $0.ref == ref }.map { .itemRemove($0.id) }
+        var request = SidebarLayoutPlanRequest("remove_from_top", document: self)
+        request.ref = ref
+        return SidebarLayoutReducer.plan(request)?.op
     }
 
     /// The op that undoes `op` applied to this document (RECOVERABLE-BY-
@@ -92,23 +92,9 @@ extension SidebarLayoutDocument {
     /// comes back with its id at its section and index; an added item (alone, or the only item of an added
     /// section) is removed. Nil for other ops, or when `op` changes nothing.
     public func inverse(of op: SidebarLayoutOp) -> SidebarLayoutOp? {
-        switch op {
-        case let .itemRemove(id):
-            guard let (s, i) = locate(id) else { return nil }
-            return .itemAdd(sections[s].items[i], section: sections[s].id, index: i)
-        case let .itemAdd(item, section, _):
-            guard self.section(section)?.items.contains(where: { $0.ref == item.ref }) == false else { return nil }
-            return .itemRemove(item.id)
-        case let .itemRemoveRef(ref):
-            let holders = sections.indices.flatMap { s in sections[s].items.indices.filter { sections[s].items[$0].ref == ref }.map { (s, $0) } }
-            guard holders.count == 1, let (s, i) = holders.first else { return nil }
-            return .itemAdd(sections[s].items[i], section: sections[s].id, index: i)
-        case let .sectionAdd(section, _):
-            guard self.section(section.id) == nil, section.items.count == 1, let item = section.items.first else { return nil }
-            return .itemRemove(item.id)
-        default:
-            return nil
-        }
+        var request = SidebarLayoutPlanRequest("inverse", document: self)
+        request.op = op
+        return SidebarLayoutReducer.plan(request)?.op
     }
 
     /// One-time move of legacy pinned workspaces (`workspace-pin-v1`) into
@@ -117,14 +103,22 @@ extension SidebarLayoutDocument {
     /// (a tile or a top row). Lossless: nothing is removed. `labels` are the
     /// workspaces' names, stored with their tiles.
     public func legacyPinMigrationOps(_ refs: [LayoutItemRef], labels: [LayoutItemRef: String] = [:]) -> [SidebarLayoutOp] {
-        var document = self
-        var ops: [SidebarLayoutOp] = []
-        for ref in refs where !document.isOnTop(ref) {
-            guard let op = document.pinOp(ref, label: labels[ref]), case .success(let next) = SidebarLayoutReducer.reduce(document, op) else { continue }
-            ops.append(op)
-            document = next
+        var request = SidebarLayoutPlanRequest("legacy_pins", document: self)
+        request.pins = Self.pins(refs.map { (ref: $0, label: labels[$0]) })
+        return SidebarLayoutReducer.plan(request)?.ops ?? []
+    }
+
+    /// Each ref with a freshly minted item id, its label as `LayoutItem` stores it.
+    private static func pins(_ refs: [(ref: LayoutItemRef, label: String?)]) -> [SidebarLayoutPlanRequest.Pin] {
+        refs.map { pin in
+            let id = LayoutItemID.mint()
+            return SidebarLayoutPlanRequest.Pin(ref: pin.ref, label: storedLabel(pin.label, ref: pin.ref, id: id), newItem: id)
         }
-        return ops
+    }
+
+    /// `label` as `LayoutItem` stores it (at most `LayoutItem.maxLabelLength` characters, nil when empty).
+    private static func storedLabel(_ label: String?, ref: LayoutItemRef, id: LayoutItemID) -> String? {
+        LayoutItem(id: id, ref: ref, label: label).label
     }
 }
 

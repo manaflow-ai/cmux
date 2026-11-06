@@ -15,7 +15,4 @@ extension SidebarLayoutDocument {
         result.sections.removeAll { $0.id == Self.recentsSectionID || $0.contribution == Self.recentsContribution }
         return result
     }
-
-    /// Legacy layouts may still contain the section; the sidebar hides it.
-    public nonisolated var recentsMigrationOps: [SidebarLayoutOp] { [] }
 }

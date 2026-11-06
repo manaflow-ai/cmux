@@ -48,10 +48,6 @@ public nonisolated struct SectionArrangement: Hashable, Sendable, Codable {
     public static let inline = SectionArrangement(layout: .inline)
     public static let grid = SectionArrangement(layout: .grid)
 
-    /// Valid ranges (invariant L4).
-    public static let gapRange = 0...32
-    public static let columnsRange = 1...12
-
     enum CodingKeys: String, CodingKey { case layout, align, gap, columns }
 
     public init(from decoder: any Decoder) throws {
@@ -62,9 +58,5 @@ public nonisolated struct SectionArrangement: Hashable, Sendable, Codable {
         align = (try? c.decodeIfPresent(String.self, forKey: .align)).flatMap(Alignment.init(rawValue:)) ?? .leading
         gap = try c.decodeIfPresent(Int.self, forKey: .gap)
         columns = try c.decodeIfPresent(Int.self, forKey: .columns)
-    }
-
-    public var isValid: Bool {
-        (gap.map(Self.gapRange.contains) ?? true) && (columns.map(Self.columnsRange.contains) ?? true)
     }
 }

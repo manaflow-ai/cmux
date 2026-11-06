@@ -104,7 +104,7 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     /// amendment 2, Lawrence 2026-10-07). Pinned
     /// sections use the built-in look and draw no header. Stored layouts
     /// still equal to an older default move to this one
-    /// (`sectionsMigrationOps`).
+    /// (`layoutMigrationOps`).
     public static let defaults = SidebarLayoutDocument(sections: [
         LayoutSection(id: topSectionID, region: .top, look: .builtIn,
                       items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
@@ -116,6 +116,23 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
                           LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
                       ]),
     ])
+
+    /// Home's item: the cmux/home app (R63/R64).
+    public static let homeRef = LayoutItemRef.app("cmux/home")
+
+    /// Built-ins that are first-party apps now (R63/R64).
+    public static let firstPartyApps: [SidebarBuiltIn: String] = [.home: "cmux/home", .appStore: "cmux/app-store"]
+
+    /// Every one-time migration of a stored layout, as one op list that
+    /// applies to it, or none (Rust `sidebar_layout_plan::layout_migration_ops`):
+    /// a layout still equal to an older default (the window rail's, R53's
+    /// grid footer, SIDEBAR-FOOTER-MINIMAL's) moves to the current one, built-in
+    /// Home and App Store items become app items (R63/R64), and retired
+    /// built-ins (S1) leave. A layout the user changed never moves. They are
+    /// ordinary layout ops, so the owner applies and syncs them like any edit.
+    public var layoutMigrationOps: [SidebarLayoutOp] {
+        SidebarLayoutReducer.plan(SidebarLayoutPlanRequest("migrate", document: self))?.ops ?? []
+    }
 
     /// Sections of `region` that show in `room`, in order.
     public func sections(in region: SidebarRegion, room: String?) -> [LayoutSection] {

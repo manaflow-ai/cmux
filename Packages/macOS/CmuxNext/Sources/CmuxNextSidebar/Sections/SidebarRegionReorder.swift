@@ -13,16 +13,16 @@ nonisolated enum SidebarRegionDragSubject: Hashable, Sendable {
 /// (moved) slot nothing changes, so the order never flips back and forth.
 nonisolated enum SidebarRegionReorder {
     /// The ordinary document move for an app section dropped in a pinned
-    /// band's shown order. Hidden sections keep their document positions.
+    /// band's shown order. Hidden sections keep their document positions
+    /// (Rust `sidebar_layout_plan::app_section_move_op`).
     static func appSectionMove(_ id: LayoutSectionID, to region: SidebarRegion, before next: LayoutSectionID?,
                                shown: [LayoutSection], document: SidebarLayoutDocument) -> SidebarLayoutOp? {
-        guard var section = document.section(id), section.content == .app,
-              region == .top || region == .bottom else { return nil }
-        section.region = region
-        var sections = shown.filter { $0.id != id }
-        let index = next.flatMap { next in sections.firstIndex { $0.id == next } } ?? sections.count
-        sections.insert(section, at: index)
-        return op(for: .section(id), shown: sections, document: document)
+        var request = SidebarLayoutPlanRequest("app_section_move", document: document)
+        request.id = id
+        request.region = region
+        request.before = next
+        request.shown = shown
+        return SidebarLayoutReducer.plan(request)?.op
     }
 
     /// `sections` with `subject` moved to the slot under `point` in
@@ -71,23 +71,16 @@ nonisolated enum SidebarRegionReorder {
 
     /// The layout op that gives the document the order of `shown` (the
     /// sections the region shows, hidden items left out): `subject` goes
-    /// before the shown neighbor that follows it, or last.
+    /// before the shown neighbor that follows it, or last (Rust
+    /// `sidebar_layout_plan::region_move_op`; once per drop).
     static func op(for subject: SidebarRegionDragSubject, shown: [LayoutSection], document: SidebarLayoutDocument) -> SidebarLayoutOp? {
-        switch subject {
-        case let .item(id):
-            guard let (t, p) = SidebarLayoutReducer.locate(id, in: shown),
-                  let target = document.sections.first(where: { $0.id == shown[t].id }) else { return nil }
-            let rest = target.items.filter { $0.id != id }
-            let next = shown[t].items.dropFirst(p + 1).lazy.compactMap { item in rest.firstIndex { $0.id == item.id } }.first
-            return .itemMove(id, section: target.id, index: next ?? rest.count)
-        case let .section(id):
-            guard let p = shown.firstIndex(where: { $0.id == id }) else { return nil }
-            let region = shown[p].region
-            let rest = document.sections.filter { $0.region == region && $0.id != id }
-            let next = shown.dropFirst(p + 1).lazy.filter { $0.region == region }
-                .compactMap { section in rest.firstIndex { $0.id == section.id } }.first
-            return .sectionMove(id, region: region, index: next ?? rest.count)
+        var request = SidebarLayoutPlanRequest("region_move", document: document)
+        request.subject = switch subject {
+        case let .item(id): ["item": id.rawValue]
+        case let .section(id): ["section": id.rawValue]
         }
+        request.shown = shown
+        return SidebarLayoutReducer.plan(request)?.op
     }
 
     /// The item a row shows, with its section.
@@ -112,11 +105,15 @@ nonisolated enum SidebarRegionReorder {
 }
 
 extension SidebarLayoutOp {
-    /// Expand a visible row move into the saved layout's index space.
+    /// Expand a visible row move into the saved layout's index space
+    /// (Rust `sidebar_layout_plan::translating_hidden_item_index`).
     public func translatingHiddenItemIndex(from projected: SidebarLayoutDocument,
                                           to stored: SidebarLayoutDocument) -> SidebarLayoutOp {
-        guard case let .itemMove(id, section, index) = self else { return self }
-        return .itemMove(id, section: section,
-                         index: stored.storedInsertionIndex(index, in: section, from: projected, excluding: id))
+        guard case .itemMove = self else { return self }
+        var request = SidebarLayoutPlanRequest("translate_hidden_index")
+        request.op = self
+        request.projected = projected
+        request.stored = stored
+        return SidebarLayoutReducer.plan(request)?.op ?? self
     }
 }

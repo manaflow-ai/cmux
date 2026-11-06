@@ -1,7 +1,8 @@
 import Foundation
 
 /// Turns user commands ("Add Home to Sidebar", "Pin to Section") into one
-/// layout op against the current document. Pure; the caller sends the op.
+/// layout op against the current document (Rust `sidebar_layout_plan::add_op`
+/// and `remove_op`). Pure; the caller sends the op.
 public nonisolated enum SidebarLayoutPlanner {
     /// Adds `ref` to the first items section of `region` that shows in
     /// every room: first in the top region, last elsewhere. With no such
@@ -10,19 +11,22 @@ public nonisolated enum SidebarLayoutPlanner {
     public static func add(_ ref: LayoutItemRef, to region: SidebarRegion = .top, in document: SidebarLayoutDocument,
                            look: SectionLook = .builtIn, showsLabel: Bool = true, newItem: LayoutItemID = .mint(),
                            newSection: LayoutSectionID = .mint()) -> SidebarLayoutOp? {
-        guard document.firstItem(with: ref) == nil else { return nil }
-        let item = LayoutItem(id: newItem, ref: ref, showsLabel: showsLabel)
-        let index = region == .top ? 0 : Int.max
-        if let section = document.sections.first(where: { $0.region == region && $0.room == nil && $0.content == .items }) {
-            return .itemAdd(item, section: section.id, index: index)
-        }
-        return .sectionAdd(LayoutSection(id: newSection, region: region, look: look, items: [item]), index: index)
+        var request = SidebarLayoutPlanRequest("add", document: document)
+        request.ref = ref
+        request.region = region
+        request.look = look
+        request.showsLabel = showsLabel
+        request.newItem = newItem
+        request.newSection = newSection
+        return SidebarLayoutReducer.plan(request)?.op
     }
 
     /// Removes every item with `ref` ("Remove Home from Sidebar"); nil
     /// when the layout holds none.
     public static func remove(_ ref: LayoutItemRef, in document: SidebarLayoutDocument) -> SidebarLayoutOp? {
-        document.firstItem(with: ref) == nil ? nil : .itemRemoveRef(ref)
+        var request = SidebarLayoutPlanRequest("remove", document: document)
+        request.ref = ref
+        return SidebarLayoutReducer.plan(request)?.op
     }
 }
 

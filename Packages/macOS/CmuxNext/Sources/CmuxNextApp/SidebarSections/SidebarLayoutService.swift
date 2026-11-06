@@ -185,7 +185,7 @@ final class SidebarLayoutService {
 
     /// A stored layout that still equals the window rail's default (Leo,
     /// 2026-10-03, removed by R52) moves back to the sections default
-    /// (`SidebarLayoutDocument.sectionsMigrationOps`) through
+    /// (`SidebarLayoutDocument.layoutMigrationOps`) through
     /// ordinary intents, so the owner applies and syncs it like any edit. A
     /// layout the user changed is never touched. Waits for a quiet log, so
     /// it reads the owner's layout rather than one with the user's edits in
@@ -200,7 +200,7 @@ final class SidebarLayoutService {
         guard !migrationSent else { return }
         // Recents is added once per Mac: a layout without it after that is one the user removed it from.
         let offered = recentsOffered.bool(forKey: Self.recentsOfferedKey)
-        let ops = mirror.layoutMigrationOps(offeringRecents: !offered)
+        let ops = mirror.layoutMigrationOps
         let addsRecents = ops.contains { op in
             if case .sectionAdd(let section, _) = op { section.id == SidebarLayoutDocument.recentsSectionID } else { false }
         }
