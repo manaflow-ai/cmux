@@ -87,6 +87,42 @@ struct AgentPaneCloudAsksTests {
         #expect(await waiting.value == nil)
     }
 
+    @Test func aReloadedPageMovesTheQuestionToItsDialog() async throws {
+        let asks = AgentPaneCloudAsks()
+        let stream = AsyncStream.makeStream(of: JSONValue.self)
+        let asked = AskedQuestions()
+        let dialog = AgentPaneCloudAsker { question in
+            asked.questions.append(question)
+            return "setUp"
+        }
+        let waiting = Task { await asks.ask(question(), start: key, fallback: dialog) { stream.continuation.yield($0) } }
+        _ = await shown(stream.stream.makeAsyncIterator())
+        asks.pageReloaded()
+        #expect(await waiting.value == "setUp")
+        #expect(asked.questions == [question()])
+        // The reloaded page's old card id answers nothing.
+        #expect(!asks.answer(try answer("setUp")))
+    }
+
+    @Test func aClosedPaneEndsAMovedQuestionUnanswered() async throws {
+        let asks = AgentPaneCloudAsks()
+        let stream = AsyncStream.makeStream(of: JSONValue.self)
+        let opened = AsyncStream.makeStream(of: Void.self)
+        // A dialog no one answers: it ends only when its wait is cancelled.
+        let dialog = AgentPaneCloudAsker { _ in
+            opened.continuation.yield()
+            var never = AsyncStream<String> { _ in }.makeAsyncIterator()
+            return await never.next()
+        }
+        let waiting = Task { await asks.ask(question(), start: key, fallback: dialog) { stream.continuation.yield($0) } }
+        _ = await shown(stream.stream.makeAsyncIterator())
+        asks.pageReloaded()
+        var openedIterator = opened.stream.makeAsyncIterator()
+        _ = await openedIterator.next()
+        asks.endAll()
+        #expect(await waiting.value == nil)
+    }
+
     @Test func aNewerQuestionOfTheSameStartEndsTheEarlierOne() async throws {
         let asks = AgentPaneCloudAsks()
         let first = AsyncStream.makeStream(of: JSONValue.self), second = AsyncStream.makeStream(of: JSONValue.self)
@@ -127,4 +163,9 @@ struct AgentPaneCloudAsksTests {
         #expect(json["kind"] == .string("loginCopy") && json["code"] == .string("ABCD-1234"))
         #expect(json["link"] == .object(["url": .string(link.absoluteString), "title": .string("Open sign-in")]))
     }
+}
+
+/// The questions a test's dialog was asked, in order.
+@MainActor private final class AskedQuestions {
+    var questions: [AgentPaneCloudAsk] = []
 }

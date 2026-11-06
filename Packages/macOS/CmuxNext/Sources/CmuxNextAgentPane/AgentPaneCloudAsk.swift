@@ -87,7 +87,8 @@ public nonisolated struct AgentPaneCloudAnswer: Equatable, Sendable {
 /// The asks a pane's Cloud starts wait on (``AgentPaneModel/cloudAsks``), each until the person
 /// answers in the card that shows it. A wait ends as no answer (nil) when its start is cancelled, when
 /// the pane closes (``endAll()``), or when the same start asks again: nothing hangs on a card no one
-/// can see. Each pane owns its own, so only the pane an ask went to can answer it.
+/// can see. A page that loads again has no card for it (``pageReloaded()``): the question moves to its
+/// cmux dialog. Each pane owns its own, so only the pane an ask went to can answer it.
 @MainActor public final class AgentPaneCloudAsks {
     private struct Waiting {
         let ask: AgentPaneCloudAsk
@@ -96,12 +97,18 @@ public nonisolated struct AgentPaneCloudAnswer: Equatable, Sendable {
 
     /// By start key: one ask at a time per start.
     private var waiting: [String: Waiting] = [:]
+    /// Ask ids whose card went with a page reload: their wait goes on in the fallback's dialog.
+    private var moved: Set<String> = []
+    /// By start key: a moved question's dialog, ended with the start's wait.
+    private var dialogs: [String: Task<String?, Never>] = [:]
 
     public init() {}
 
     /// Shows `ask` in start `key`'s card through `push` (the pane's `cloudStartProgress` delivery)
     /// and waits for the button the person clicks; nil when the wait ended with no answer.
-    public func ask(_ ask: AgentPaneCloudAsk, start key: String, push: @MainActor (JSONValue) -> Void) async -> String? {
+    /// `fallback` asks a question whose card a page reload took away (nil: that ends it unanswered).
+    public func ask(_ ask: AgentPaneCloudAsk, start key: String, fallback: AgentPaneCloudAsker? = nil,
+                    push: @MainActor (JSONValue) -> Void) async -> String? {
         guard !Task.isCancelled else { return nil }
         end(key) // an earlier ask of this start answers nothing now
         let (answers, answered) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(1))
@@ -110,6 +117,15 @@ public nonisolated struct AgentPaneCloudAnswer: Equatable, Sendable {
         // The stream's iterator ends with nil when the start's task is cancelled: no hop to end it.
         var iterator = answers.makeAsyncIterator()
         let answer = await iterator.next()
+        if moved.remove(ask.id) != nil {
+            guard let fallback, !Task.isCancelled else { return nil }
+            // Its own task, so the pane closing or the start asking again ends the dialog too.
+            let dialog = Task { await fallback.ask(ask) }
+            dialogs[key] = dialog
+            let shown = await withTaskCancellationHandler { await dialog.value } onCancel: { dialog.cancel() }
+            if dialogs[key] == dialog { dialogs[key] = nil }
+            return shown
+        }
         if waiting[key]?.ask.id == ask.id { waiting[key] = nil }
         // The card drops the question with the answer, unless the start already asks the next one.
         if waiting[key] == nil { push(.object(["key": .string(key), "ask": .null])) }
@@ -134,11 +150,22 @@ public nonisolated struct AgentPaneCloudAnswer: Equatable, Sendable {
     /// Ends start `key`'s wait with no answer.
     public func end(_ key: String) {
         waiting.removeValue(forKey: key)?.answered.finish()
+        dialogs.removeValue(forKey: key)?.cancel()
+    }
+
+    /// The pane's page loaded again: its cards are gone (the page keeps a start's card in its own
+    /// state), so every waiting question moves to its dialog, and a click from an old card answers nothing.
+    public func pageReloaded() {
+        for (key, found) in waiting {
+            moved.insert(found.ask.id)
+            waiting[key] = nil
+            found.answered.finish()
+        }
     }
 
     /// The pane closed: every ask it shows ends with no answer.
     public func endAll() {
-        for key in Array(waiting.keys) { end(key) }
+        for key in Set(waiting.keys).union(dialogs.keys) { end(key) }
     }
 
     /// The asks waiting now (tests).
@@ -160,7 +187,9 @@ public struct AgentPaneCloudAsker: Sendable {
     @MainActor public static func card(_ view: AgentPaneView, start key: String) -> AgentPaneCloudAsker {
         AgentPaneCloudAsker { [weak view] question in
             guard let asks = view?.model.cloudAsks else { return nil }
-            return await asks.ask(question, start: key) { [weak view] push in
+            // A reload takes the card away: the question then asks in a dialog over the pane's window.
+            let fallback = AgentPaneCloudAsker.dialog { [weak view] in view?.window.map(CmuxDialogScope.window) }
+            return await asks.ask(question, start: key, fallback: fallback) { [weak view] push in
                 view?.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
                               scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])
             }
