@@ -206,7 +206,7 @@ export function ComposerBox({
       },
       pastes: () => pastedChips.pastes.current,
     }),
-    [inline],
+    [inline, pastedChips.pastes],
   );
   const placed = new Set(inlineTokenIds(field.value, inline.known));
   const { onBeforeInput, onKeyDown } = field;
