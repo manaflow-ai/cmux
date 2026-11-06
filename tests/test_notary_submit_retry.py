@@ -76,6 +76,16 @@ class NotarySubmitRetryTests(unittest.TestCase):
         self.assertIn("rc=1", result.stdout, result.stderr)
         self.assertEqual(len(calls), 3)
 
+    def test_a_retry_that_reaches_apple_and_fails_is_not_submitted_again(self):
+        # Only the newest attempt decides: an earlier connectTimeout must not trigger a third submit, and the
+        # output the caller reads (timeout classifiers, notary_wait_recover) holds only the newest attempt.
+        refused = "Error: Unable to upload your app for notarization\n"
+        result, out, calls = run((1, CONNECT_TIMEOUT), [(1, refused), (0, ACCEPTED)])
+        self.assertIn("rc=1", result.stdout, result.stderr)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(out, refused)
+        self.assertIn("connectTimeout", result.stderr)
+
     def test_a_named_submission_is_left_to_the_wait_recovery(self):
         tls = ("Error: HTTPError(statusCode: nil, error: Error Domain=NSURLErrorDomain Code=-1005 \"The network "
                f"connection was lost.\" UserInfo={{NSErrorFailingURLStringKey=https://appstoreconnect.apple.com/notary/v2/submissions/{SUBMISSION}}})\n")
