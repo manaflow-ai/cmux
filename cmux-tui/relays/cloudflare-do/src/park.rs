@@ -47,9 +47,15 @@ pub(crate) fn connect_disposition(
     parked_on_other_sockets: usize,
     pending_circuits: usize,
 ) -> ConnectDisposition {
-    // Today's behavior: an offline slot answers at once.
-    let _ = (parked_on_other_sockets, pending_circuits, MAX_PENDING_CIRCUITS_PER_SLOT);
-    if daemon_registered { ConnectDisposition::Allocate } else { ConnectDisposition::Offline }
+    if daemon_registered {
+        ConnectDisposition::Allocate
+    } else if parked_on_other_sockets.saturating_add(pending_circuits)
+        < MAX_PENDING_CIRCUITS_PER_SLOT
+    {
+        ConnectDisposition::Park
+    } else {
+        ConnectDisposition::Offline
+    }
 }
 
 /// Whether this socket holds a Connect that a newly registered daemon on
