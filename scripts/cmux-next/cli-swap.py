@@ -30,6 +30,7 @@ import json
 import os
 import platform
 import re
+import secrets
 import shutil
 import sys
 import tempfile
@@ -97,9 +98,14 @@ def still_ours(record: dict) -> bool:
 
 
 def relink(link: Path, to: str) -> None:
-    staged = link.with_name(f".{link.name}.cli-swap")
-    staged.unlink(missing_ok=True)
-    staged.symlink_to(to)
+    # A fresh name each time: symlink_to fails rather than replace a file that is already there.
+    while True:
+        staged = link.with_name(f".{link.name}.cli-swap-{secrets.token_hex(8)}")
+        try:
+            staged.symlink_to(to)
+            break
+        except FileExistsError:
+            continue
     os.replace(staged, link)
 
 

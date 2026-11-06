@@ -179,6 +179,17 @@ class CliSwapTests(unittest.TestCase):
         self.assertEqual(self.run_cli("undo")[0], 0)
         self.assertEqual(os.readlink(link), str(installed / "cmux-upgraded"))
 
+    def test_a_file_beside_the_link_is_never_touched(self):
+        os.environ["PATH"] = f"{self.bundled.parent}:/usr/bin:/bin"
+        bin_dir = self.home / ".local/bin"
+        bin_dir.mkdir(parents=True)
+        theirs = bin_dir / ".cmux-mine.cli-swap"
+        theirs.write_text("a person's own file\n")
+        self.assertEqual(self.apply("--name", "mine")[0], 0)
+        self.assertEqual(self.run_cli("undo")[0], 0)
+        self.assertEqual(theirs.read_text(), "a person's own file\n")
+        self.assertEqual(sorted(p.name for p in bin_dir.iterdir()), [".cmux-mine.cli-swap"])
+
     def test_it_loads_on_python_3_9(self):
         # The system python3 of macOS: no `X | None` at runtime.
         source = (ROOT / "scripts/cmux-next/cli-swap.py").read_text()
