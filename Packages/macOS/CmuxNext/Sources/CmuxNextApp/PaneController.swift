@@ -248,7 +248,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // 2026-10-23: "home chief should have no tabbar"); a tab dragged in brings it back while it
         // is there (plans/cmux-next/home-chief-pane.md H1).
         let homeChief = (dock.map { LayoutMapping.dock($0).hidesTabBar(shownTabs: tabs.count + local.count) } ?? false)
-            // A window dock in the same no-tab-bar mode (Show or Hide Dock Tab Bar, user 2026-11-05).
+            // A window dock in the same no-tab-bar mode (Show/Hide Dock Tab Bar, user 2026-11-05).
             || (LayoutTunables.dockedWorkspaces.value && ownWorkspace.map { state?.docks.hidesTabBar(of: $0.id, shownTabs: tabs.count + local.count) ?? false } ?? false)
         return Snapshot(tabs: tabs, items: local, groups: groups,
                          defaultIndex: pane.defaultTabIndex, generation: store.generation?.rawValue,
