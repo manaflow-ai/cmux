@@ -319,8 +319,9 @@ import Testing
 
     /// The window closed in the hold: its scheduler lets the one-tick client go with no tick. The drop counts as the
     /// frame: the page attaches after that pass's commit with no focus ask (#37175 gap: it stayed detached until the
-    /// next ask or window change), and the hold's end grants.
-    @Test func aHoldWhoseFrameTickWasDroppedAttachesWithNoAsk() {
+    /// next ask or window change). The hold ends with no grant: a closed window's page must not take the keys (SetFocus
+    /// orders its window front); the tab keeps its ask for the next show.
+    @Test func aHoldWhoseFrameTickWasDroppedAttachesWithNoAskAndNoGrant() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless,
                               backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
@@ -344,8 +345,7 @@ import Testing
         FrameScheduler.forWindow(window).invalidate()
         commit()
         #expect(calls == ["4:detach", "4:attach"], "the drop attaches with no ask")
-        #expect(grants == 0, "the grant waits for the fork's order-in")
         commit()
-        #expect(grants == 1 && hosting.firstFrameHold == .none)
+        #expect(grants == 0 && hosting.firstFrameHold == .none, "no grant into a closed window")
     }
 }
