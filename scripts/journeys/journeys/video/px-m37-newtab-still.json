@@ -94,6 +94,23 @@
    "title": "set-up: focus p1 (cmux pane focus)"
   },
   {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (p2)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p1",
+   "title": "set-up: focus p1 (cmux pane focus)"
+  },
+  {
    "do": "wait",
    "seconds": 0.4,
    "title": "focus settles"
@@ -116,8 +133,8 @@
   },
   {
    "do": "rk_focus",
-   "pane": "p0",
-   "title": "set-up: focus p0 (cmux pane focus)"
+   "pane": "p2",
+   "title": "set-up: focus p2 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -134,7 +151,7 @@
    "count": 1,
    "gap_ms": 0,
    "mark": "cmd-shift-l",
-   "title": "Cmd-Shift-L in p0: a new Chromium tab (key.openBrowser; real HID key)"
+   "title": "Cmd-Shift-L in p2: a new Chromium tab (key.openBrowser; real HID key)"
   },
   {
    "do": "wait",

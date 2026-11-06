@@ -115,7 +115,7 @@ SPEEDS_LOWPROMPT = (("s1", 1.0), ("s025", 0.25))
 # The bar over the low prompt (a color no fixture uses): lowprompt_rows.py finds it on the scan column through the pane.
 LOW_PROMPT_BAR = "#FF8000"
 # Seconds, from the first rounds (cmux22, 2026-11-03: a pane's set-up took 1-3 s); MARGIN on top.
-EST_BASE, EST_PANE, EST_FOCUS, EST_FILM, EST_REBUILD, EST_AFTER = 12, {"tui": 4, "page": 12, "agent": 5, "shell": 4, "shellz": 4, "wrap": 4}, 1, 9, 7, 8
+EST_BASE, EST_PANE, EST_FOCUS, EST_FILM, EST_REBUILD, EST_AFTER = 12, {"tui": 4, "page": 12, "wkpage": 12, "agent": 5, "shell": 4, "shellz": 4, "wrap": 4}, 1, 9, 7, 8
 EST_TAB = 5  # one more terminal tab with its fixture (px_tab_new, the neutral prompt, the TUI)
 MARGIN, BUDGET_MIN = 1.2, 40
 H, J, K, L = (("h", ["control", "shift"]), ("j", ["control", "shift"]), ("k", ["control", "shift"]),
@@ -280,6 +280,10 @@ def make_kind(name, kind, fill):
         return start_wrap(name)
     if kind == "page":
         return [{"do": "px_page", "pane": name, "bg": fill, "label": name, "title": f"set-up: page.html in a browser tab of {name} ({fill})"}]
+    if kind == "wkpage":
+        # RESIZE OWNER (02:3xZ, #36590 WebKit per motion tick): the same fixture page in a WebKit tab; the judge reads it as a page
+        return [{"do": "px_page", "pane": name, "bg": fill, "label": name, "engine": "webkit",
+                 "title": f"set-up: page.html in a WebKit tab of {name} ({fill})"}]
     if kind == "agent":
         # Aimed at the pane (ext_pixel px_agent): a script's untargeted chat docks in a new left column instead.
         return [{"do": "px_agent", "pane": name, "title": f"set-up: an agent chat in {name}, in that pane (target pane:<id>)"}]
@@ -298,7 +302,8 @@ class Layout:
 
     @property
     def fixture(self):
-        return {name: dict({"kind": kind, "fill": fill}, **({"wrap": WRAP_NOTE} if kind == "wrap" else {}))
+        return {name: dict({"kind": "page" if kind == "wkpage" else kind, "fill": fill},
+                           **({"wrap": WRAP_NOTE} if kind == "wrap" else {}), **({"engine": "webkit"} if kind == "wkpage" else {}))
                 for name, kind, fill, _ in self.panes}
 
     def kinds(self):
@@ -340,6 +345,7 @@ T2 = Layout("2", "p0 T | p1 P", [("p0", "tui", YELLOW, None), ("p1", "page", GRE
 # T2 with p0 in 3 terminal tabs. p0's fill is blue: the tab outline is #FFFF00, and a yellow fill would make an outline next
 # to the strip's black and a title's white read as p0's own rings to the side judge.
 T2T = Layout("2", "p0 T in 3 tabs | p1 P", [("p0", "tui", BLUE, None), ("p1", "page", GREEN, ("splitRight", None))], tabs={"p0": 3})
+T2WK = Layout("2wk", "p0 T | p1 P (WebKit)", [("p0", "tui", YELLOW, None), ("p1", "wkpage", GREEN, ("splitRight", None))])
 # Strip columns (newColumn; p3 a row under p2, newRow), every pane a fixture pane, the window at the screen's full width.
 # As splits of one 1153 pt pane area, p1 and p2 get 191.5 pt each (cmux22, sweep c7cef08: the strip squeezes splits),
 # so no divider had 150 pt of room. As columns sharing 1304 pt (layout.newColumnWidth fitScreen) each is about 435 pt:
@@ -761,6 +767,13 @@ def cases():
     play, secs = col_drag_play(0)
     out.append(Case(f"px-col-drag-{W2.key}", f"divider 0 dragged 150 pt right slowly and back fast ({W2.text})", W2, play, None,
                     "drag", play_seconds=secs, lines=WRAP_SCAN_LINES))
+    # RESIZE OWNER (02:3xZ): #36590 sizes a WebKit page per motion tick. The column drag and the single key presses with p1's page
+    # in WebKit (engine "webkit"), the same fixture page and judge as the Chromium cases.
+    play, secs = col_drag_play(0)
+    out.append(Case(f"px-col-drag-{T2WK.key}", f"divider 0 dragged 150 pt right slowly and back fast ({T2WK.text})", T2WK, play, None,
+                    "drag", play_seconds=secs))
+    out.append(Case(f"px-keys-single-{T2WK.key}", f"Ctrl-Shift-L, H, J, K on p0 ({T2WK.text})", T2WK, keys_play, "move", "keys",
+                    before=[focus("p0")], play_seconds=lambda s: 4 * (0.1 + land(s))))
     # Stage S1B 1b (frame-owner-s1b): a tab closes while the held key resizes its pane; every tab outlined, so the judge can
     # read each tab cell against its strip. One tab back in p0 after each film, so the next starts with 3 tabs again.
     out.append(Case(f"px-keys-held-{T2T.key}-tabclose",

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """gen_m37.py [--out DIR]: cmux-ad m37 (the black Chromium New Tab, #36908; RESIZE OWNER 02:1xZ). One journey,
 px-m37-newtab-still: dark mode (theme Builtin Dark, app theme from the terminal), a window picture (appearance.background, a
-public-domain painting), two panes side by side: p1 shows the cmux New Tab (a real Cmd-T), p0 a new Chromium tab from a real
-Cmd-Shift-L (key.openBrowser; browser.defaultEngine chromium). With #36908 the Chromium New Tab's page area shows the window
+public-domain painting), three panes side by side: p0 a terminal (the kit's after check), p1 the cmux New Tab (a real Cmd-T), p2 a new
+Chromium tab from a real Cmd-Shift-L (key.openBrowser; browser.defaultEngine chromium). With #36908 the Chromium New Tab's page area shows the window
 picture through it, as the cmux New Tab beside it does; without it the page area is an opaque near-black box. A short whole-window
 recording at 120 Hz after both pages settle; the still is a frame of it (each pane's area is read in the gallery)."""
 import argparse
@@ -30,13 +30,15 @@ def settings():
 
 def steps():
     s = [settings()] + G.first_pane(JID, False)
+    # p0 stays a terminal for the kit's after check (its prompt); the two tabs open in p1 and p2 (a split of p1)
     s += P.new_pane("p1", "splitRight")
+    s += [P.focus("p1")] + P.new_pane("p2", "splitRight")
     s += [P.focus("p1"), P.rest(0.4, "focus settles"),
           {"do": "rk_press", "key": "t", "modifiers": ["command"], "count": 1, "gap_ms": 0, "mark": "cmd-t",
            "title": "Cmd-T in p1: the cmux New Tab (real HID key)"}, P.rest(1.5, "the cmux New Tab shows")]
-    s += [P.focus("p0"), P.rest(0.4, "focus settles"),
+    s += [P.focus("p2"), P.rest(0.4, "focus settles"),
           {"do": "rk_press", "key": "l", "modifiers": ["command", "shift"], "count": 1, "gap_ms": 0, "mark": "cmd-shift-l",
-           "title": "Cmd-Shift-L in p0: a new Chromium tab (key.openBrowser; real HID key)"}, P.rest(3.0, "the Chromium New Tab loads")]
+           "title": "Cmd-Shift-L in p2: a new Chromium tab (key.openBrowser; real HID key)"}, P.rest(3.0, "the Chromium New Tab loads")]
     name = f"{JID}-still"
     s += [G.kit_record_start(name, 4.0, require_hz=120), P.rest(1.5, "the still: nothing moves"), G.kit_record_stop(name, 0.2)]
     return s + P.after_check()

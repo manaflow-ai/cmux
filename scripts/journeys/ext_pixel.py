@@ -329,7 +329,7 @@ def step_px_page(j, step):
     while D.now() < end and not (_surface_row(j, rec["pane"]) or {}).get("focused"):
         time.sleep(0.05)  # orchestration poll of the app's own report
     # openBrowser takes url, engine and profile; the run's own `focus` (not an argument) lets it select the new tab.
-    opened = j.app.rpc("action.run", {"action": "openBrowser", "args": {"url": url, "engine": "cef"}, "focus": True})
+    opened = j.app.rpc("action.run", {"action": "openBrowser", "args": {"url": url, "engine": step.get("engine", "cef")}, "focus": True})
     timeout = float(step.get("timeout", 30))
     t0 = D.now()
     row, navigated, report, last = None, None, None, ""

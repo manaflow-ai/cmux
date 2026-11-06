@@ -1213,8 +1213,15 @@ class PixelCasesTests(unittest.TestCase):
             s1r = {s["id"]: s for s in specs if s["id"].endswith("-s1r")}
             # one per case (px-keys-held-2-tabclose the 12th, px-close-pane-3t the 13th, px-keys-held-2-tabclose-narrow the 14th,
             # px-keys-rk-3t the 15th, px-keys-held-2-dt and px-col-drag-2-dt the 16th and 17th: S5 m16 item 5, docked DevTools;
-            # px-keys-single-2w, px-keys-held-2w and px-col-drag-2w the 18th to 20th: cmux-ad m18, the text re-wrap fixture)
-            self.assertEqual(len(s1r), 20)
+            # px-keys-single-2w, px-keys-held-2w and px-col-drag-2w the 18th to 20th: cmux-ad m18, the text re-wrap fixture;
+            # px-col-drag-2wk and px-keys-single-2wk the 21st and 22nd: the RESIZE OWNER's WebKit page cases, #36590)
+            self.assertEqual(len(s1r), 22)
+            # The WebKit cases open p1's fixture page with engine "webkit"; the judge reads it as a page (the fixture note)
+            for jid in ("px-col-drag-2wk-s1r", "px-keys-single-2wk-s1r"):
+                pages = [st for st in s1r[jid]["steps"] if st["do"] == "px_page"]
+                self.assertEqual([st.get("engine") for st in pages], ["webkit"], jid)
+                start = next(st for f in s1r[jid]["steps"] if f["do"] == "px_film" for st in f["steps"] if st["do"] == "px_record_start")
+                self.assertEqual((start["fixture"]["p1"]["kind"], start["fixture"]["p1"].get("engine")), ("page", "webkit"), jid)
             # cmux-ad m18: the wrap cases' two panes are normal-screen shells that print wrapped solid-color lines (never the
             # alternate-screen border fixture, which Ghostty does not re-wrap), filmed with five scan rows per pane.
             for jid in ("px-keys-single-2w-s1r", "px-keys-held-2w-s1r", "px-col-drag-2w-s1r"):
