@@ -155,4 +155,25 @@ import Testing
         defer { relaunched.window.close() }
         #expect(relaunched.grid == order, "after a relaunch the grid is \(relaunched.grid), not \(order)")
     }
+
+    @Test func pinsSavedBeforeThisChangeStillLoad() throws {
+        let saved = Data(#"{"pinned":["conv_a","conv_b"],"unpinned":["conv_c"]}"#.utf8)
+        let pins = try JSONDecoder().decode(HomePins.self, from: saved)
+        #expect(pins.pinned == [CmuxHomeCore.ConversationID("conv_a"), CmuxHomeCore.ConversationID("conv_b")])
+        #expect(pins.unpinned == [CmuxHomeCore.ConversationID("conv_c")])
+        #expect(pins.positions.isEmpty)
+    }
+
+    @Test func withOnlyThisMacsPinsTheMainChiefLeadsUntilItIsDropped() {
+        let rows = HomeChiefRosterTests.rows
+        let roster = HomeChiefRosterTests.roster()
+        var pins = HomePins()
+        let first = HomeSidebarModel(rows: rows, pins: pins, me: HomeChiefRosterTests.me, chiefRoster: roster)
+        #expect(first.pinned.first?.id == HomeChiefRosterTests.hosted, "by default the main Chief leads")
+        let shown = first.pinned.map(\.id)
+        pins.place(HomeChiefRosterTests.hosted, at: shown.count - 1, shown: shown)
+        let dropped = HomeSidebarModel(rows: rows, pins: pins, me: HomeChiefRosterTests.me, chiefRoster: roster)
+        #expect(dropped.pinned.last?.id == HomeChiefRosterTests.hosted, "dropped last, the main Chief stays last")
+        #expect(dropped.pinned.first?.isMainChief == false)
+    }
 }
