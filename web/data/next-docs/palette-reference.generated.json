@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1314,
+    "entries": 1316,
     "shortcuts": 189
   },
   "sections": [
@@ -260,6 +260,12 @@
           "title": "Minimize",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.createChannel",
+          "title": "New Channel…",
+          "shortcut": null,
+          "command": "cmux chat channel create"
         },
         {
           "id": "home.newChief",
@@ -4454,6 +4460,12 @@
           "title": "Open Link in Incognito Window",
           "shortcut": null,
           "command": "cmux browser open-link-in-incognito-window"
+        },
+        {
+          "id": "browserProfile.openLinkInNew",
+          "title": "Open Link in New Browser Profile…",
+          "shortcut": null,
+          "command": "cmux browser-profile open-link-in-new"
         },
         {
           "id": "browser.link.openInNewSpace",

@@ -52,10 +52,11 @@ public final class JoinedMachineStore {
         scheduleAge()
     }
 
-    /// `owner`'s section hid or closed; the deadline stops when no section shows the rows.
+    /// `owner`'s section hid or closed; the deadline stops when no section left is on screen (none
+    /// left, or only covered ones), so a covered window never wakes for the one that went.
     public func stopAging(_ owner: AnyObject) {
         watchers[ObjectIdentifier(owner)] = nil
-        if watchers.isEmpty { ageTimer.cancel() }
+        if !watchers.values.contains(where: { $0() }) { ageTimer.cancel() }
     }
 
     /// Follows `account` (who is signed in and their team; nil signed out) for the store's life: each

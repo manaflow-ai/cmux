@@ -295,6 +295,8 @@ extension SettingsSchema {
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
         // under the user's Return.
         "palette.aliases": .userOnly, "palette.pins": .userOnly,
+        // Whether the palette records what the person runs.
+        "palette.searchHistory": .privacy,
         "history.terminalCommands": .privacy,
         "history.commandRetentionDays": .privacy,
         "history.closed.maxGroups": .privacy,
@@ -445,7 +447,7 @@ extension SettingsSchema {
         "mobile.terminalSizing": .userOnly,
         "mobile.terminalSizingOrder": .userOnly,
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on.
-        "macScreen.systemShortcuts": .userOnly, "remote.enabled": .userOnly, "remote.endSharingOnQuit": .userOnly, // cmux Remote: the person's call
+        "macScreen.systemShortcuts": .userOnly, "remote.endSharingOnQuit": .userOnly, // cmux Remote: the person's call
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.
