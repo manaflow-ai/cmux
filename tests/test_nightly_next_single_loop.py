@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """nightly-next is one latest-wins loop on the nightly mini.
 
-Leo, 2026-11-06: "when it finishes, it starts another one, like the latest one at that fucking
+Leo, 2026-11-06: "when it finishes, it starts another one, like the latest one at that
 present moment". One run at a time does the whole pipeline; the push group keeps one pending place,
 which the newest arrival takes. A failed run is retried at the newest commit by the loop itself
 (retry-nightly-next), in the same group, and main's feed watch resume builds nothing: run

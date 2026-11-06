@@ -131,7 +131,7 @@ on:
         default: ''
         type: string
       nightly_next_post_publish:
-        description: nightly-next only, sent by a run's dispatch-published-in once its feed is published. JSON {source_run, source_attempt, tail} naming that push run; the build's record is read only from that run's own artifact, after the API confirms it is a nightly.yml push on nightly-next (scripts/ci/nightly_published_build.py). This run builds and signs no app; it runs what follows the feed (GitHub release, deltas, dSYMs, release notes, reel, PR comments), so none of it holds the push group.
+        description: nightly-next only, sent by an older push run's dispatch-published-in once its feed was published (the tail now runs in the run that published). JSON {source_run, source_attempt, tail} naming that push run; the build's record is read only from that run's own artifact, after the API confirms it is a nightly.yml push on nightly-next (scripts/ci/nightly_published_build.py). This run builds and signs no app; it runs what follows the feed (GitHub release, deltas, dSYMs, release notes, reel, PR comments), so none of it holds the push group.
         required: false
         default: ''
         type: string
@@ -6324,7 +6324,7 @@ jobs:
   # track runs those jobs in the run that published, so a nightly-next run is the whole pipeline (build, sign,
   # publish, the GitHub release, deltas, notes, reel, PR comments) and the push group's next run starts only
   # after it: one nightly at a time on the nightly mini, the newest pushed head next (Leo, 2026-11-06: "when it
-  # finishes, it starts another one, like the latest one at that fucking present moment"). It passes this
+  # finishes, it starts another one, like the latest one at that present moment"). It passes this
   # run's own jobs through. A post-publication dispatch from an older push run still reads its record.
   published-build:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
@@ -6690,7 +6690,7 @@ jobs:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, verify-recovered-nightly-next, republish-nightly-next, publish-nightly, published-build, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
     # Once, after the whole run. An older push run's post-publication dispatch (cross_run) reports its own jobs;
     # one whose published-build fails has no record, so it reports under nightly-next's names.
-    if: always() && (needs.decide.outputs.should_publish == 'true' || needs.published-build.outputs.cross_run == 'true' || inputs.nightly_next_post_publish != '' && needs.published-build.result == 'failure') && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.feed_check == 'failure' || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.published-build.outputs.cross_run == 'true' && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
+    if: always() && (needs.decide.outputs.should_publish == 'true' || needs.published-build.outputs.cross_run == 'true' || inputs.nightly_next_post_publish != '' && needs.published-build.result == 'failure') && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.feed_check == 'failure' || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.published-build.result == 'success' && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     # The declared nightly-only mini is enabled after live admission is verified.
     # Keep the existing fallback; never reuse the stale builder-only placement.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
