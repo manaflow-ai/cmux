@@ -71,8 +71,13 @@ public final class GooMorphEngine: MotionAnimating {
     private var anchor: CGFloat?
     private var anchorSpeed: CGFloat = 0
 
-    /// Trace cost, for `debug.timings` (key `goo_trace`).
+    /// Trace cost, for `debug.timings` (key `goo_trace`): the loops' time off the main thread.
     public private(set) var costs = GooCosts()
+    /// The trace running off the main thread, and the newest one asked for meanwhile: only the newest runs next.
+    private var tracing: Task<Void, Never>?
+    private var queued: GooTrace?
+    /// Bumped when the look stops drawing, so a trace still in flight draws nothing.
+    private var generation = 0
 
     public init() {}
 
@@ -82,6 +87,8 @@ public final class GooMorphEngine: MotionAnimating {
     public func update() {
         guard let style, let scene = scene?() else {
             edges = [:]
+            generation += 1
+            queued = nil
             if lastDrawn != nil { lastDrawn = nil; draw?(nil) }
             return
         }
@@ -150,9 +157,8 @@ public final class GooMorphEngine: MotionAnimating {
         edges.values.allSatisfy(\.isSettled)
     }
 
-    // perf-hot: 1ms goo.morph trace per frame while a tab or the sidebar moves
+    // perf-hot: 1ms goo.morph scene per frame while a tab or the sidebar moves (the trace runs off the main thread)
     private func render(_ scene: GooScene, style: GooStyle) {
-        let start = DispatchTime.now().uptimeNanoseconds
         let reach = style.reach
         var shapes = scene.cards
         var windows: [CGRect] = []
@@ -179,10 +185,33 @@ public final class GooMorphEngine: MotionAnimating {
         // A card the cross blend reshapes (the sidebar's, budding or melting) is traced, not drawn as is.
         let plain = scene.crossBlend > 0 ? scene.cards.filter { card in !(scene.crossWindow?.contains(card.rect) ?? false) } : scene.cards
         // A slide traces the sidebar's whole height while it melts: a coarser grid there, in motion.
-        let path = field.surface(plain: plain, windows: windows, step: scene.crossBlend > 0 ? 3 : 2)
-        lastDrawn = path
-        draw?(path)
-        costs.record(nanoseconds: DispatchTime.now().uptimeNanoseconds - start)
+        trace(GooTrace(field: field, plain: plain, windows: windows, step: scene.crossBlend > 0 ? 3 : 2))
+    }
+
+    /// Traces off the main thread and draws the result on it, one trace at a time: a frame that asks while one runs
+    /// replaces the queued one, so the surface always catches up to the newest scene and the main thread never waits.
+    private func trace(_ job: GooTrace) {
+        guard tracing == nil else { queued = job; return }
+        let generation = generation
+        tracing = Task { [weak self] in
+            let (loops, nanoseconds) = await Task.detached(priority: .userInitiated) {
+                let start = DispatchTime.now().uptimeNanoseconds
+                let loops = job.loops()
+                return (loops, DispatchTime.now().uptimeNanoseconds - start)
+            }.value
+            guard let self else { return }
+            tracing = nil
+            costs.record(nanoseconds: nanoseconds)
+            if generation == self.generation {
+                let path = job.path(loops)
+                lastDrawn = path
+                draw?(path)
+            }
+            if let next = queued {
+                queued = nil
+                trace(next)
+            }
+        }
     }
 
     private static func smoothstep(_ x: CGFloat, from a: CGFloat, to b: CGFloat) -> CGFloat {

@@ -204,38 +204,51 @@ public nonisolated struct GooField: Sendable {
     }
 }
 
-public nonisolated extension GooField {
-    /// The surface: see `GooContour.surface`.
-    func surface(plain: [GooShape], windows: [CGRect], step: CGFloat = 2) -> CGPath {
-        GooContour.surface(self, plain: plain, windows: windows, step: step)
-    }
-}
+/// One trace of a `GooField`: the field and where to trace it. Its loops are the slow part and run off the main
+/// thread (`GooMorphEngine`); the path from them is cheap.
+public nonisolated struct GooTrace: Sendable {
+    public let field: GooField
+    /// Shapes whose outline the field leaves as is (no other shape within reach). They must not overlap.
+    public let plain: [GooShape]
+    /// Where shapes pull on each other: each must reach past every interaction it holds by the field's reach.
+    public let windows: [CGRect]
+    public let step: CGFloat
 
-/// Traces a `GooField`'s surface.
-nonisolated enum GooContour {
-    /// The surface: `plain` shapes, whose outline the field leaves as is (no other shape within reach), and the
-    /// field's region outside them inside each of `windows` (where shapes pull on each other). A window must reach
-    /// past every interaction it holds by the field's reach; `windows` that overlap are merged first. The plain
-    /// shapes must not overlap each other. Every piece is disjoint from the others (a traced region stops on a
-    /// plain outline, exactly), so the path needs no boolean op: even-odd or nonzero fill it the same.
-    static func surface(_ field: GooField, plain: [GooShape], windows: [CGRect], step: CGFloat = 2) -> CGPath {
-        let path = CGMutablePath()
-        var masks: [(CGFloat, CGFloat, CGFloat, CGFloat, CGFloat)] = []
-        for shape in plain where shape.rect.width > 0.5 && shape.rect.height > 0.5 && shape.weight >= 1 {
+    public init(field: GooField, plain: [GooShape], windows: [CGRect], step: CGFloat = 2) {
+        self.field = field
+        self.plain = plain.filter { $0.rect.width > 0.5 && $0.rect.height > 0.5 && $0.weight >= 1 }
+        self.windows = windows
+        self.step = step
+    }
+
+    /// The field's region outside the plain shapes inside each window, as closed loops. A loop stops on a plain
+    /// outline exactly, so the loops and the plain shapes never overlap.
+    public func loops() -> [[CGPoint]] {
+        let masks = plain.map { shape in
             let rect = shape.rect.standardized
-            let corner = min(shape.radius, rect.width / 2, rect.height / 2)
-            path.addRoundedRect(in: rect, cornerWidth: corner, cornerHeight: corner)
-            masks.append((rect.midX, rect.midY, rect.width / 2, rect.height / 2, corner))
+            return (rect.midX, rect.midY, rect.width / 2, rect.height / 2, min(shape.radius, rect.width / 2, rect.height / 2))
         }
-        for window in merged(windows) {
-            for loop in loops(field, masks: masks, in: window, step: step) where loop.count > 2 {
-                path.addLines(between: loop)
-                path.closeSubpath()
-            }
+        return GooContour.merged(windows).flatMap { GooContour.loops(field, masks: masks, in: $0, step: step) }
+    }
+
+    /// The surface: the plain shapes' outlines and `loops`. The pieces are disjoint, so the path needs no boolean
+    /// op: even-odd or nonzero fill it the same.
+    public func path(_ loops: [[CGPoint]]) -> CGPath {
+        let path = CGMutablePath()
+        for shape in plain {
+            let corner = min(shape.radius, shape.rect.width / 2, shape.rect.height / 2)
+            path.addRoundedRect(in: shape.rect.standardized, cornerWidth: corner, cornerHeight: corner)
+        }
+        for loop in loops where loop.count > 2 {
+            path.addLines(between: loop)
+            path.closeSubpath()
         }
         return path
     }
+}
 
+/// Traces a `GooField`'s surface (`GooTrace`).
+nonisolated enum GooContour {
     /// `rects` with every pair that overlaps replaced by their union, until none overlap.
     static func merged(_ rects: [CGRect]) -> [CGRect] {
         var out = rects.filter { !$0.isEmpty }
