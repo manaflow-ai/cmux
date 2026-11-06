@@ -32,12 +32,16 @@ use url::Url;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::daemon::{InboundLink, NetworkPeer, RemoteDaemon};
+
+#[path = "relay_liveness.rs"]
+mod liveness;
 use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
     SupportedClientAuthModes, TransportProvider, sanitized_route,
 };
+use liveness::{Backoff, CHECK_INTERVAL, Check, Liveness, random_unit};
 
 type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type RelayCircuitSink = SplitSink<RelaySocket, Message>;
@@ -1221,7 +1225,7 @@ async fn run_registration_loop(
     mut shutdown: watch::Receiver<bool>,
     mut first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
 ) {
-    let mut backoff = Duration::from_millis(100);
+    let mut backoff = Backoff::new();
     loop {
         if *shutdown.borrow() {
             return;
@@ -1229,6 +1233,7 @@ async fn run_registration_loop(
         if shutdown.has_changed().is_err() {
             return;
         }
+        let mut registered = false;
         let result = run_registration_once(
             daemon.clone(),
             &config,
@@ -1236,8 +1241,14 @@ async fn run_registration_loop(
             &credentials,
             &mut shutdown,
             &mut first_ready,
+            &mut registered,
         )
         .await;
+        // A registration that got ready and later died (a pause, a relay
+        // restart, an expired ticket) registers again from the first wait.
+        if registered {
+            backoff.reset();
+        }
         if let Err(error) = result
             && first_ready.is_some()
             && !error.is_retryable_carrier_failure()
@@ -1251,7 +1262,7 @@ async fn run_registration_loop(
             return;
         }
         tokio::select! {
-            _ = tokio::time::sleep(backoff) => {}
+            _ = tokio::time::sleep(backoff.next(random_unit())) => {}
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
                     return;
@@ -1259,7 +1270,6 @@ async fn run_registration_loop(
                 continue;
             },
         }
-        backoff = (backoff * 2).min(Duration::from_secs(5));
     }
 }
 
@@ -1270,6 +1280,7 @@ async fn run_registration_once(
     credentials: &RelayCredentialSource,
     shutdown: &mut watch::Receiver<bool>,
     first_ready: &mut Option<oneshot::Sender<Result<(), ProviderError>>>,
+    registered: &mut bool,
 ) -> Result<(), ProviderError> {
     let authentication = authenticate_daemon_control(config, credentials);
     tokio::pin!(authentication);
@@ -1283,10 +1294,15 @@ async fn run_registration_once(
         }
     };
     let heartbeat = Duration::from_secs(u64::from(lease_seconds).max(3) / 3);
+    *registered = true;
     if let Some(sender) = first_ready.take() {
         let _ = sender.send(Ok(()));
     }
-    let mut interval = tokio::time::interval(heartbeat);
+    // Checked every second (relay_liveness.rs): a ping unanswered for 3 s,
+    // or a resume's wall-clock jump, finds a dead registration in seconds.
+    let mut liveness = Liveness::new(heartbeat, Instant::now(), std::time::SystemTime::now());
+    let mut interval = tokio::time::interval(CHECK_INTERVAL);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut nonce = 0_u64;
     let mut incoming_tasks = IncomingCircuitTasks::new(MAX_RELAY_INCOMING_TASKS);
     let result = loop {
@@ -1296,11 +1312,21 @@ async fn run_registration_once(
                 if changed.is_err() || *shutdown.borrow() { break Ok(()) }
             }
             _ = interval.tick() => {
-                nonce = nonce.wrapping_add(1);
-                if let Err(error) =
-                    send_control(&mut socket, &RelayControl::Ping { nonce }).await
-                {
-                    break Err(error);
+                match liveness.check(Instant::now(), std::time::SystemTime::now()) {
+                    Check::Idle => {}
+                    Check::Ping => {
+                        nonce = nonce.wrapping_add(1);
+                        if let Err(error) =
+                            send_control(&mut socket, &RelayControl::Ping { nonce }).await
+                        {
+                            break Err(error);
+                        }
+                    }
+                    Check::Dead => {
+                        break Err(ProviderError::Transport(
+                            "relay registration stopped answering".into(),
+                        ));
+                    }
                 }
             }
             message = read_control(&mut socket) => {
@@ -1308,6 +1334,7 @@ async fn run_registration_once(
                     Ok(message) => message,
                     Err(error) => break Err(error),
                 };
+                liveness.on_inbound();
                 match message {
                     RelayControl::Incoming { circuit, lane, generation, join_ticket } => {
                         let daemon = daemon.clone();
@@ -2161,6 +2188,78 @@ mod tests {
         .expect("relay registration did not become ready")
         .expect("transient initial carrier failure stopped relay registration");
 
+        tokio::time::timeout(Duration::from_secs(1), registration.shutdown())
+            .await
+            .expect("relay registration shutdown did not complete");
+        server.await.unwrap();
+    }
+
+    /// A relay that stops answering (a machine resumed after the relay retired
+    /// its control) is registered with again within seconds, with a fresh
+    /// ticket from the credential source.
+    #[tokio::test]
+    async fn daemon_registers_again_when_the_relay_stops_answering_pings() {
+        use crate::identity::AuthDatabase;
+        use crate::session::SessionLimits;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut silent, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer ticket-1");
+            assert!(matches!(
+                receive_test_control(&mut silent).await,
+                RelayControl::Register { .. }
+            ));
+            // A 3 s lease pings every second; this relay never answers.
+            send_test_control(&mut silent, &RelayControl::Registered { lease_seconds: 3 }).await;
+            let (stream, _) = tokio::time::timeout(Duration::from_secs(8), listener.accept())
+                .await
+                .expect("the daemon did not register again after its pings went unanswered")
+                .unwrap();
+            let (mut second, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer ticket-2");
+            assert!(matches!(
+                receive_test_control(&mut second).await,
+                RelayControl::Register { .. }
+            ));
+            send_test_control(&mut second, &RelayControl::Registered { lease_seconds: 30 }).await;
+            drop(silent);
+            while second.next().await.is_some() {}
+        });
+        let calls = Arc::new(AtomicUsize::new(0));
+        let credentials = RelayCredentialSource::callback({
+            let calls = calls.clone();
+            move || {
+                let value = calls.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+                async move { Ok::<_, ()>(format!("ticket-{value}")) }
+            }
+        });
+        let directory = tempfile::tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "relay-silent", true).unwrap();
+        let (daemon, _clients) = RemoteDaemon::new(auth, SessionLimits::default());
+        let registration = register_relay_daemon_with_credentials(
+            daemon,
+            RelayDaemonConfig {
+                endpoint: Url::parse(&format!("relay+ws://{address}")).unwrap(),
+                slot: "silent-relay-slot".into(),
+                ticket: String::new(),
+                maximum_frame_bytes: 65_535,
+                control_timeout: Duration::from_secs(2),
+            },
+            credentials,
+        )
+        .await
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while calls.load(AtomicOrdering::SeqCst) < 2 {
+                tokio::task::yield_now().await;
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("no second ticket was asked for");
         tokio::time::timeout(Duration::from_secs(1), registration.shutdown())
             .await
             .expect("relay registration shutdown did not complete");
