@@ -325,8 +325,10 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path) 
 def restart_acpmux(app: Path, homes: list[str]) -> list[dict]:
     done = []
     for home in homes:
+        # ACPMUX_SOCKET wins over ACPMUX_HOME: an inherited one would restart another home's daemon.
+        env = {k: v for k, v in os.environ.items() if k != "ACPMUX_SOCKET"}
         result = subprocess.run([str(app / BIN / "acpmux"), "daemon", "restart"], capture_output=True, text=True,
-                                env=dict(os.environ, ACPMUX_HOME=home), timeout=60)
+                                env=dict(env, ACPMUX_HOME=home), timeout=60)
         if result.returncode != 0:
             raise RuntimeError(f"acpmux daemon restart ({home}): {(result.stderr or result.stdout).strip()[:300]}")
         done.append({"home": home, "restarted": True})

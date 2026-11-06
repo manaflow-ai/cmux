@@ -122,6 +122,20 @@ class HotApplyRust(unittest.TestCase):
         self.assertTrue(receipt["ok"])
         self.assertEqual(self.sha(), self.old)
 
+    def test_an_acpmux_home_restarts_its_own_daemon_not_an_inherited_socket_s(self):
+        log = self.tmp / "acpmux.log"
+        acpmux = self.app / "Contents/Resources/bin/acpmux"
+        acpmux.write_text(f'#!/bin/sh\necho "$ACPMUX_HOME|${{ACPMUX_SOCKET:-}}|$*" >> {log}\n')
+        acpmux.chmod(0o755)
+        self.env["ACPMUX_SOCKET"] = str(self.tmp / "other.sock")
+        code, _, err = self.hot("apply", FIX, "--app", str(self.app), "--acpmux-home", str(self.tmp / "home"))
+        self.assertEqual(code, 0, err)
+        code, receipt, err = self.hot("rollback")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["steps"]["rust"]["acpmux"], [{"home": str(self.tmp / "home"), "restarted": True}])
+        # Once for the apply, once for the rollback, each on the home and never on the inherited socket.
+        self.assertEqual(log.read_text().splitlines(), [f"{self.tmp / 'home'}||daemon restart"] * 2)
+
     def test_a_binary_that_does_not_hash_to_its_published_sha_changes_nothing(self):
         self.publish(b"#!/bin/sh\necho tampered\n", self.new)
         code, receipt, _ = self.hot("apply", FIX, "--app", str(self.app))
