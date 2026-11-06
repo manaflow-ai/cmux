@@ -81,3 +81,43 @@ fn check(header: &Path, generated: &[u8], abi_version_in: &str) {
          and commit it; bump ABI_VERSION in {abi_version_in} if a type or function changed.\n{diff}"
     );
 }
+
+/// Every header the app imports is valid C on its own (a type cbindgen
+/// leaves undeclared passes the drift check above but not a C compiler).
+/// The list is build-app-ffi.sh's `headers_in`; skipped on a host with no
+/// C compiler.
+#[test]
+fn every_app_header_compiles_as_c() {
+    let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let script =
+        std::fs::read_to_string(crate_dir.join("../../../scripts/cmux-next/build-app-ffi.sh"))
+            .expect("scripts/cmux-next/build-app-ffi.sh");
+    let headers: Vec<String> = script
+        .split('"')
+        .filter_map(|item| item.strip_prefix("$crates/"))
+        .filter_map(|item| item.split_once(':').map(|(path, _)| path.to_owned()))
+        .filter(|path| path.ends_with(".h"))
+        .collect();
+    assert!(
+        headers.iter().any(|h| h.ends_with("cmux_conversation_ffi.h")),
+        "build-app-ffi.sh ships the conversation header: {headers:?}"
+    );
+    let compiler = std::env::var("CC").unwrap_or_else(|_| "cc".to_owned());
+    if Command::new(&compiler).arg("--version").output().is_err() {
+        eprintln!("no C compiler ({compiler}); the header syntax check is skipped");
+        return;
+    }
+    let mut failures = Vec::new();
+    for header in &headers {
+        let path = crate_dir.join("..").join(header);
+        let output = Command::new(&compiler)
+            .args(["-x", "c", "-std=c11", "-fsyntax-only", "-Werror"])
+            .arg(&path)
+            .output()
+            .expect("run the C compiler");
+        if !output.status.success() {
+            failures.push(format!("{header}:\n{}", String::from_utf8_lossy(&output.stderr)));
+        }
+    }
+    assert!(failures.is_empty(), "headers that are not valid C:\n{}", failures.join("\n"));
+}

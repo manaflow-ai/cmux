@@ -65,4 +65,4 @@ line_length = 120
 tab_width = 4
 
 [export]
-item_types = ["structs", "functions"]
+item_types = ["structs", "opaque", "functions"]

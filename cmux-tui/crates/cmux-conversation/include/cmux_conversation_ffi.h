@@ -57,6 +57,11 @@
 #include <stdint.h>
 
 /*
+ The opaque session handle (`CmuxConversationSession *`).
+ */
+typedef struct CmuxConversationSession CmuxConversationSession;
+
+/*
  A reply buffer the caller frees with [`cmux_conversation_bytes_free`];
  `ptr` is null when `len` is 0.
  */
