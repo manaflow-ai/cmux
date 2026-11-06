@@ -194,7 +194,7 @@ final class ComputerUseSupervisor: Sendable {
                 break
             }
             guard snapshot.3, readyCondition.wait(until: deadline) else {
-                return ["state": "starting", "reason": "the Computer Use worker is starting"]
+                return ["state": "starting", "reason": snapshot.2 ?? "the Computer Use worker is starting"]
             }
         }
     }
