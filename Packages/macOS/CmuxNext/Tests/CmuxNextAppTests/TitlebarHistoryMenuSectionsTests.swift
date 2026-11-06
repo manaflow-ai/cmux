@@ -186,11 +186,13 @@ struct TitlebarHistoryMenuSectionsTests {
             TitlebarHistoryMenuSectionsTests.place("c", workspace: "one"),
         ])
         let before = trail.entries.map(\.location.key)
-        #expect(trail.retitle(.init(machine: "m", tab: "chat"), title: "Fix the build"))
+        let renamed = trail.retitle(.init(machine: "m", tab: "chat"), title: "Fix the build")
+        #expect(renamed)
         #expect(trail.entries.map(\.location.key) == before)
         #expect(trail.cursor == 3)
         #expect(trail.entries.map(\.location.title) == ["Fix the build", "b", "Fix the build", "c"])
-        #expect(!trail.retitle(.init(machine: "m", tab: "chat"), title: "Fix the build"))
+        let renamedAgain = trail.retitle(.init(machine: "m", tab: "chat"), title: "Fix the build")
+        #expect(!renamedAgain)
     }
 }
 
