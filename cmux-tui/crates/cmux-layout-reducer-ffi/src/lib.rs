@@ -1,7 +1,10 @@
 //! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
 //! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
-//! the group hover card's summary (`group_hover_summary`),
+//! the group hover card's summary (`group_hover_summary`), the store's
+//! optimistic overlay rules (`optimistic`: where a pending split, column,
+//! row or dock shows, what a hidden pane leaves, where a moved tab or
+//! workspace lands),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
 //! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_harness_login`,
@@ -169,6 +172,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: cmux_layout_reducer::group_hover_summary::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_layout_reducer::group_hover_summary::summarize(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"optimistic" => {
+                let request: cmux_layout_reducer::optimistic::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_layout_reducer::optimistic::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"tasks_preview" => {
