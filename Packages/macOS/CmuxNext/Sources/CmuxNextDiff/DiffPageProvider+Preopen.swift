@@ -63,8 +63,10 @@ extension DiffPageProvider {
         preopen = nil
         let opened = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         if Task.isCancelled || isClosed {
+            // The sidecar refuses a request from a cancelled task, so the close runs in its own.
             if case .success(let result) = opened.result, let id = Self.openedSession(result) {
-                await closeQuietly(id, grant: grant)
+                // task-owner: one sessionClose, awaited here; ends when the sidecar answers
+                await Task { [self] in await closeQuietly(id, grant: grant) }.value
             }
             throw CancellationError()
         }
