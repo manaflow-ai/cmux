@@ -1817,8 +1817,22 @@ function seedRoots(
 }
 
 export class AcpmuxDirectClient {
-  // A busy daemon may legitimately emit no frame for many seconds. This is only the cleanup bound
-  // for a peer that has gone silent while its socket remains open; a frame resets the grace window.
+  // A busy daemon may legitimately emit no frame for many seconds, so quiet alone never ends a
+  // socket. Once a request has waited this long, and the daemon proved itself no sooner, the pane
+  // asks the daemon one cheap question on it (`probeDaemon`): the daemon's own answer, even an
+  // error, says it is alive and only slow, and its socket and requests are kept. Timed from the
+  // request, never from the last frame: the app's bridge answers some requests itself
+  // (`_acpmux/status`, refusals), also with no daemon, and such frames prove nothing.
+  private static readonly DAEMON_PROBE_AFTER_MS = 5_000;
+  // No frame at all this long after that question: nothing behind the open socket answers (acpmux
+  // restarted under the app's bridge). The pane gives the socket up and asks its host for a fresh
+  // handshake, which finds the new daemon; before, it waited two minutes of silence and said
+  // "Waiting for the agent service" meanwhile (ask-34b8c4ef25). Under the line's 25 s deadline, so
+  // a dead socket is replaced before the line shows.
+  private static readonly DAEMON_PROBE_ANSWER_MS = 15_000;
+  // A wire that cannot carry the probe (a chat on another machine: `RemoteAcpmuxWire` serves no
+  // daemon-backed method that cheap and refuses `_acpmux/peers` as `remote.unsupported`) keeps the
+  // older bound: its socket is given up only after this long with no frame while a request waits.
   private static readonly DAEMON_LIVENESS_GRACE_MS = 120_000;
   /// Coalesces the snapshots of acpmux events that land within one display frame: a fast stream
   /// sends several deltas per frame, and each snapshot re-renders the transcript. The page that
@@ -1853,12 +1867,21 @@ export class AcpmuxDirectClient {
       send: () => void;
       /// Busy refusals it has had.
       busy: number;
+      /// When it was first sent: the liveness probe is timed from the oldest waiting one.
+      since: number;
     }
   >();
   /// A request crossed its progress threshold on an open socket. This is a UI state, never a
   /// failure: a busy daemon may answer later, while a close still rejects promptly.
   private daemonWaitingSince?: number;
   private daemonLastFrameAt = Date.now();
+  /// The liveness probe out on the current socket, by request id and when it went; none while no
+  /// request waits or once the daemon answered it.
+  private daemonProbe?: { at: number; id: number };
+  /// When the current socket's daemon last proved itself (its open, or its answer to the probe).
+  private daemonProvedAt = Date.now();
+  /// The host refused the probe on the current socket (a remote wire): `DAEMON_LIVENESS_GRACE_MS`.
+  private daemonProbeRefused = false;
   private daemonLivenessTimer?: ReturnType<typeof setTimeout>;
   /// The daemon's count of this connection's work requests: a page never sends past it
   /// (requestBudget.ts). Reset with the connection.
@@ -2619,6 +2642,9 @@ export class AcpmuxDirectClient {
       socket.onopen = () => {
         opened = true;
         this.daemonLastFrameAt = Date.now();
+        this.daemonProvedAt = this.daemonLastFrameAt;
+        this.daemonProbe = undefined;
+        this.daemonProbeRefused = false;
         this.wire.lifecycle("open");
         resolve(socket);
       };
@@ -2657,11 +2683,17 @@ export class AcpmuxDirectClient {
     const hold = this.holdSnapshots(OPEN_HOLD_MS);
     let early: EarlyAttach | undefined;
     try {
-      const initialized = await this.request("initialize", {
-        protocolVersion: 1,
-        clientInfo: { name: "cmux-react-agent-pane", version: "1" },
-        clientCapabilities: {},
-      });
+      // With a progress threshold, as the reads have: a socket that opened but whose daemon never
+      // answers is checked for life (`armDaemonLiveness`) instead of holding the handshake for good.
+      const initialized = await this.request(
+        "initialize",
+        {
+          protocolVersion: 1,
+          clientInfo: { name: "cmux-react-agent-pane", version: "1" },
+          clientCapabilities: {},
+        },
+        AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
+      );
       this.canFork = servesOperation(initialized, FORK_OP);
       const features = initialized?._meta?.acpmux?.features;
       this.features = new Set(
@@ -3571,6 +3603,10 @@ export class AcpmuxDirectClient {
     const message = parsed as Reply | Notification | null;
     if (!message) return;
     if ("id" in message && (typeof message.id === "number" || typeof message.id === "string")) {
+      if (!stale && this.daemonProbe?.id === message.id) {
+        this.probeAnswered(message);
+        return;
+      }
       const request = this.pending.get(message.id);
       const busy = (message.error?.data as { reason?: unknown } | undefined)?.reason === "connection.busy";
       if (request && busy && request.retryable) {
@@ -4555,6 +4591,7 @@ export class AcpmuxDirectClient {
         send: send ?? (() => {}),
         busy: send ? 0 : BUSY_TRIES,
         retryable: Boolean(send),
+        since: Date.now(),
       });
     });
   }
@@ -4564,31 +4601,120 @@ export class AcpmuxDirectClient {
     const request = this.pending.get(id);
     if (request) request.waiting = false;
     if (![...this.pending.values()].some((entry) => entry.waiting)) this.daemonWaitingSince = undefined;
-    if (this.daemonWaitingSince === undefined && this.daemonLivenessTimer !== undefined) {
-      clearTimeout(this.daemonLivenessTimer);
+    if (this.daemonWaitingSince === undefined) {
+      this.daemonProbe = undefined;
+      if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
       this.daemonLivenessTimer = undefined;
     }
     if (wasWaiting && this.daemonWaitingSince === undefined) this.emit("daemon resumed");
   }
 
+  /// While a request waits, checks on the socket's daemon (`DAEMON_PROBE_AFTER_MS`,
+  /// `DAEMON_PROBE_ANSWER_MS`, or `DAEMON_LIVENESS_GRACE_MS` where the probe cannot go). Stops when
+  /// no request waits, the socket is not open, or the client closed; one timer at a time.
   private armDaemonLiveness(): void {
     if (this.daemonLivenessTimer !== undefined || this.closed) return;
-    this.daemonLivenessTimer = setTimeout(() => {
-      this.daemonLivenessTimer = undefined;
-      if (this.daemonWaitingSince === undefined || this.socket?.readyState !== WebSocket.OPEN) return;
-      const quietFor = Date.now() - this.daemonLastFrameAt;
-      if (quietFor < AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS) {
-        this.daemonLivenessTimer = setTimeout(
-          () => this.armDaemonLiveness(),
-          AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS - quietFor,
-        );
-        return;
+    const probe = this.daemonProbe;
+    const due = this.daemonUnprobed()
+      ? this.daemonLastFrameAt + AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS
+      : probe
+        ? probe.at + AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS
+        : this.daemonProbeFrom() + AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS;
+    this.daemonLivenessTimer = setTimeout(
+      () => {
+        this.daemonLivenessTimer = undefined;
+        this.checkDaemonLiveness();
+      },
+      Math.max(0, due - Date.now()),
+    );
+  }
+
+  /// A chat on another machine (`origin: "remote"`) or a host that refused the probe: no probe.
+  private daemonUnprobed(): boolean {
+    return this.origin === "remote" || this.daemonProbeRefused;
+  }
+
+  /// Since when the daemon owes a sign of life: the oldest waiting request's send, or its last
+  /// proof if later.
+  private daemonProbeFrom(): number {
+    let oldest = Date.now();
+    for (const entry of this.pending.values()) if (entry.waiting && entry.since < oldest) oldest = entry.since;
+    return Math.max(oldest, this.daemonProvedAt);
+  }
+
+  private checkDaemonLiveness(): void {
+    const socket = this.socket;
+    if (this.closed || this.daemonWaitingSince === undefined || !socket || socket.readyState !== WebSocket.OPEN) {
+      this.daemonProbe = undefined;
+      return;
+    }
+    const now = Date.now();
+    const probe = this.daemonProbe;
+    if (this.daemonUnprobed()) {
+      // The older bound: no frame at all for two minutes while a request waits.
+      if (now - this.daemonLastFrameAt >= AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS) {
+        return this.daemonGone(socket, now);
       }
-      // The socket stayed open but the daemon stopped producing any frame: treat that peer as dead
-      // so pending requests fail through the normal close/reconnect path.
-      this.wire.lifecycle("liveness timeout", { quietForMs: quietFor });
-      this.socket.close();
-    }, AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS);
+    } else if (probe) {
+      // The socket stayed open but nothing behind it answered, not even the probe.
+      if (now - probe.at >= AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS) return this.daemonGone(socket, now);
+    } else if (now - this.daemonProbeFrom() >= AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS) {
+      this.probeDaemon(socket);
+    }
+    this.armDaemonLiveness();
+  }
+
+  /// Gives `socket` up now, as when it closes, so waiting requests fail through the lost path and
+  /// the pane asks its host for a fresh handshake. Not `socket.close()` alone: a WebSocket whose
+  /// peer is gone may report its close only much later.
+  private daemonGone(socket: WebSocket, now: number): void {
+    this.daemonProbe = undefined;
+    this.wire.lifecycle("liveness timeout", { quietForMs: now - this.daemonLastFrameAt });
+    this.connectionEnded(socket);
+    try {
+      socket.close();
+    } catch {
+      // Already closing: the pane has left it either way.
+    }
+  }
+
+  /// The reply to the liveness probe. A result or an error from acpmux itself (its busy refusal,
+  /// an older daemon's unknown method) says the daemon is alive. An error the host made proves
+  /// nothing: its refusal of the method (`remote.unsupported` from a remote wire, a relay
+  /// refusal) means this socket cannot be probed, so it keeps `DAEMON_LIVENESS_GRACE_MS`; any
+  /// other host error (`data.origin: "native"`, such as an unavailable daemon) leaves the probe
+  /// out, and its deadline gives the socket up.
+  private probeAnswered(message: Reply): void {
+    const data = message.error?.data as { code?: unknown; origin?: unknown } | undefined;
+    const refused = probeRefusals.has(String(data?.code));
+    if (message.error && !refused && data?.origin === "native") return;
+    this.daemonProbe = undefined;
+    if (refused) {
+      this.daemonProbeRefused = true;
+      this.wire.lifecycle("liveness probe refused", { code: String(data?.code) });
+    } else {
+      this.daemonProvedAt = Date.now();
+    }
+    if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
+    this.daemonLivenessTimer = undefined;
+    if (this.daemonWaitingSince !== undefined) this.armDaemonLiveness();
+  }
+
+  /// Asks the daemon on `socket` one cheap question, outside the request budget: its own answer,
+  /// even an error, proves it alive (`probeAnswered`). `_acpmux/peers`, which the app's bridge passes
+  /// to the daemon as it is; never `_acpmux/status`, which the bridge answers itself from the
+  /// daemon's Unix socket.
+  private probeDaemon(socket: WebSocket): void {
+    const id = this.nextRequest++;
+    const method = "_acpmux/peers";
+    const text = JSON.stringify({ jsonrpc: "2.0", id, method, params: {} });
+    this.daemonProbe = { at: Date.now(), id };
+    try {
+      this.wire.sent(text, method, id);
+      socket.send(text);
+    } catch {
+      // A send that throws leaves the probe unanswered: the answer bound gives the socket up.
+    }
   }
 
   /// The newest turn-opening prompt before `events` when they start mid-turn and older history
@@ -10793,6 +10919,7 @@ export class AcpmuxDirectClient {
     }
     this.pending.clear();
     this.daemonWaitingSince = undefined;
+    this.daemonProbe = undefined;
     if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
     this.daemonLivenessTimer = undefined;
   }
@@ -11137,6 +11264,9 @@ function warnIfNotAllowlisted(method: string, error: unknown): void {
   notAllowlisted.add(method);
   console.warn(`cmux: the host refused ${method}: it is not on the agent pane's relay allowlist`);
 }
+
+/// The host's refusals of the liveness probe's method itself (`probeAnswered`): no daemon saw it.
+const probeRefusals = new Set(["remote.unsupported", "transport.method_refused", "native.unsupported"]);
 
 /// Whether the pane's host refused to relay a request (`data.origin: "native"`): acpmux never saw it.
 function refusedByHost(error: AcpmuxRpcError): boolean {
