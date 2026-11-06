@@ -135,7 +135,18 @@ harness profile and asking-mode floor at dispatch, through the queue and for
 the active turn. The adapter cannot establish a Codex bridge profile from its
 mode name, or prevent a concurrent mode change by itself. No Mac approval
 signature or Full-access setting is transplanted to the VM. Approval answers, mode changes, file operations and other native
-commands are unsupported on this service. Hostd never opens a phone-supplied
+commands are unsupported on this service.
+
+Starting a chat (`session/new`) uses the rules a phone's Mac chat start already has
+(the `acpmux` lane's `session/new` under acpmux's remote guard), narrowed further.
+The phone names nothing but the request: hostd creates the tab in the machine's
+own store (`registry:` host, from the machine's `list-workspaces`) and starts
+Claude only, with no folder, model, MCP server, mode or policy from the phone.
+The machine's daemon starts every remote chat with policy `ask` and makes the
+chat's own folder. `vm_kind: "owner"` is sent because hostd opened this channel
+only on the app's single owner link for the machine. A Claude chat starts in
+its asking `default` mode, so the prompt preflight above still applies. A start
+the machine refuses closes the empty tab. Hostd never opens a phone-supplied
 path, accepts an arbitrary service, or treats the carrier as a local-owner
 connection. Sign-out stops the supervised hostd and its channels; each new
 channel needs a fresh app snapshot.

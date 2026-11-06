@@ -29,6 +29,7 @@ import { subagentStateText, subagentStatus, type SubagentStatus } from "../summa
 import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
 import "./SubagentsSection.css";
 import { SessionInfoFold } from "./SessionInfoSection";
+import { WindowedRows } from "./WindowedRows";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
@@ -231,7 +232,9 @@ export function SubagentsSection({
   return (
     <div className="acpmux-session-info-subagents">
       {runningLines.length > 0 && (
-        <ul className="acpmux-summary-list acpmux-session-info-subagents__running">{shown.map(line)}</ul>
+        <ul className="acpmux-summary-list acpmux-session-info-subagents__running">
+          <WindowedRows items={shown} render={line} />
+        </ul>
       )}
       {runningLines.length > SUBAGENTS_SHOWN && (
         <SessionInfoFold className="acpmux-session-info-subagents__more" open={more} onToggle={() => setMore(!more)}>
@@ -255,7 +258,7 @@ export function SubagentsSection({
               ref={endedEdges}
               className="acpmux-summary-list acpmux-session-info-scroll acpmux-session-info-subagents__list ui-scroll-edge-fade"
             >
-              {endedLines.map(line)}
+              <WindowedRows items={endedLines} render={line} />
             </ul>
           )}
         </>

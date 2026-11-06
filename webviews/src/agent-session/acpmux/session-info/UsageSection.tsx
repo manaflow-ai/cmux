@@ -25,6 +25,7 @@ import {
 import type { AcpmuxUsageLimits } from "../model";
 import { planLimitRows } from "../usageLimits";
 import "./UsageSection.css";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
 /// Rows the list shows before View all.
@@ -239,51 +240,54 @@ export const UsageSection = memo(function UsageSection({
             </fieldset>
           </div>
           <ul className="acpmux-session-info-list" data-sort={sort}>
-            {shown.map((entry) => {
-              const stats = entry.usageStats!;
-              const place = entry.peer ?? entry.host;
-              // A peer's chat is named `<peer>/<name>` (acpmux hub/peers.rs); the row names the peer
-              // after the title, so the title drops it.
-              const named = entry.displayTitle || entry.title || entry.name || entry.sessionId;
-              const title =
-                entry.peer && named.startsWith(`${entry.peer}/`) ? named.slice(entry.peer.length + 1) : named;
-              const mark = (
-                <span className="acpmux-lineage__icon">
-                  <SenderIcon
-                    harness={entry.harness}
-                    tone={agentTone(entry.sessionId)}
-                    size={ROW_ICON}
-                    fallback="agent.chat"
-                  />
-                </span>
-              );
-              const body = (
-                <>
-                  {mark}
-                  <span className="acpmux-session-info-row__name">{title}</span>
-                  {place && <span className="acpmux-session-info-row__detail">{place}</span>}
-                  <span className="acpmux-session-info-row__end acpmux-session-info-usage__value">
-                    {sortValue(stats, sort, locale)}
+            <WindowedRows
+              items={shown}
+              render={(entry) => {
+                const stats = entry.usageStats!;
+                const place = entry.peer ?? entry.host;
+                // A peer's chat is named `<peer>/<name>` (acpmux hub/peers.rs); the row names the peer
+                // after the title, so the title drops it.
+                const named = entry.displayTitle || entry.title || entry.name || entry.sessionId;
+                const title =
+                  entry.peer && named.startsWith(`${entry.peer}/`) ? named.slice(entry.peer.length + 1) : named;
+                const mark = (
+                  <span className="acpmux-lineage__icon">
+                    <SenderIcon
+                      harness={entry.harness}
+                      tone={agentTone(entry.sessionId)}
+                      size={ROW_ICON}
+                      fallback="agent.chat"
+                    />
                   </span>
-                </>
-              );
-              const current = entry.sessionId === chatId || undefined;
-              return (
-                <li key={entry.sessionId} data-current={current}>
-                  {onOpen && !current ? (
-                    <button
-                      type="button"
-                      className="acpmux-session-info-row acpmux-session-info-row--button"
-                      onClick={() => onOpen(entry.sessionId)}
-                    >
-                      {body}
-                    </button>
-                  ) : (
-                    <div className="acpmux-session-info-row">{body}</div>
-                  )}
-                </li>
-              );
-            })}
+                );
+                const body = (
+                  <>
+                    {mark}
+                    <span className="acpmux-session-info-row__name">{title}</span>
+                    {place && <span className="acpmux-session-info-row__detail">{place}</span>}
+                    <span className="acpmux-session-info-row__end acpmux-session-info-usage__value">
+                      {sortValue(stats, sort, locale)}
+                    </span>
+                  </>
+                );
+                const current = entry.sessionId === chatId || undefined;
+                return (
+                  <li key={entry.sessionId} data-current={current}>
+                    {onOpen && !current ? (
+                      <button
+                        type="button"
+                        className="acpmux-session-info-row acpmux-session-info-row--button"
+                        onClick={() => onOpen(entry.sessionId)}
+                      >
+                        {body}
+                      </button>
+                    ) : (
+                      <div className="acpmux-session-info-row">{body}</div>
+                    )}
+                  </li>
+                );
+              }}
+            />
           </ul>
           {folds && (
             <button
