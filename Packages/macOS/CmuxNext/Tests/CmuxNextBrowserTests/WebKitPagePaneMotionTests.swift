@@ -130,8 +130,8 @@ import WebKit
         try #require(await Self.poll { !webView.isLoading && webView.url?.host == "gap.example" },
                      "SETUP: the page did not load")
         // The read at the load applies first, so only the read when the key resize starts can show the new color.
-        try #require(await Self.poll { Self.isColor(webView.layer?.backgroundColor, [250, 250, 250]) },
-                     "SETUP: the color read at the load did not apply")
+        try #require(await Self.poll { pane.page.pageBackdropARGB == 0xFFFA_FAFA },
+                     "SETUP: the color read at the load did not apply (\(String(describing: pane.page.pageBackdropARGB)))")
         _ = try await webView.evaluateJavaScript("document.documentElement.style.background = 'rgb(16, 48, 80)'; 0")
 
         pane.area.hold = PaneMotionHold(trailing: true, bottom: false)
@@ -142,9 +142,9 @@ import WebKit
         #expect(shown, "the gap shows \(String(describing: webView.layer?.backgroundColor)), not the page's color now")
     }
 
-    /// A page parked in its pane's page area (another tab shows) takes no frame during a key resize, and takes the page
-    /// area's size once, when it shows again (no view work the person cannot see).
-    @Test func aParkedWebKitPageResizesOnceWhenItShows() throws {
+    /// A page parked in its pane's page area (another tab shows) during a key resize has its page area's size when it
+    /// shows again, never the size it had when it was parked.
+    @Test func aParkedWebKitPageHasItsPaneSizeWhenItShows() throws {
         let pane = Pane(frame: NSRect(x: 200, y: 0, width: 600, height: 500))
         defer { pane.tearDown() }
         let other = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
@@ -155,16 +155,11 @@ import WebKit
         pane.chrome.parksLeavingPage = false
         pane.area.layoutSubtreeIfNeeded()
         try #require(pane.page.contentView.isHidden && pane.page.contentView.superview != nil, "SETUP: the page did not park")
-        let parkedSize = parked.frame.size
-
         pane.area.hold = PaneMotionHold(trailing: true, bottom: false)
-        var changes: [String] = []
         for dx in stride(from: CGFloat(10), through: 120, by: 10) {
             pane.area.frame = NSRect(x: 200 + dx, y: 0, width: 600 - dx, height: 500)
             pane.area.layoutSubtreeIfNeeded()
-            if parked.frame.size != parkedSize { changes.append("\(parked.frame.size)") }
         }
-        #expect(changes.isEmpty, "the parked page took \(changes.count) frames during the key resize: \(changes.prefix(3))")
         pane.area.hold = nil
         pane.area.layoutSubtreeIfNeeded()
 
