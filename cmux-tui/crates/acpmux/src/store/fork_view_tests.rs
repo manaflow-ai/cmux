@@ -96,8 +96,69 @@ fn a_dropped_reference_stays_dropped() {
     let stale = view.load("fork").unwrap().unwrap();
     view.materialize("fork").unwrap();
     view.save(&stale).unwrap();
-    assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
+    let saved = view.load("fork").unwrap().unwrap();
+    assert!(saved.history_from.is_none());
+    // Its log skips the chat's seqs through 20, and says so (Edit and resend's proof reads it).
+    assert_eq!(saved.history_kept_through, Some(20));
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
+}
+
+/// A store whose save of a meta naming a reference takes a while, as a slow disk's may.
+struct SlowSave(LocalStore);
+
+impl Store for SlowSave {
+    fn list(&self) -> Result<Vec<SessionMeta>> {
+        self.0.list()
+    }
+    fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
+        self.0.load(id)
+    }
+    fn save(&self, meta: &SessionMeta) -> Result<()> {
+        if meta.history_from.is_some() {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        self.0.save(meta)
+    }
+    fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
+        self.0.append(id, record)
+    }
+    fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
+        self.0.events(id, after, limit)
+    }
+    fn delete(&self, id: &str) -> Result<()> {
+        self.0.delete(id)
+    }
+    fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        self.0.history_writer(id)
+    }
+}
+
+/// A save of the fork's meta that began before the history was written in, and ends after: the
+/// reference stays dropped on disk (review of #37020: the save wrote it back, and after a
+/// restart the fork named its deleted chat and showed none of its history).
+#[test]
+fn a_save_racing_the_history_write_does_not_bring_the_reference_back() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let view = std::sync::Arc::new(forked(
+        Box::new(SlowSave(LocalStore::new(dir.clone(), 1 << 20).unwrap())),
+        30,
+        20,
+        4,
+    ));
+    let stale = view.load("fork").unwrap().unwrap();
+    let saving = {
+        let view = view.clone();
+        std::thread::spawn(move || view.save(&stale).unwrap())
+    };
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    view.delete("chat").unwrap();
+    saving.join().unwrap();
+    // As after a restart: the meta on disk, read by a fresh view.
+    let fresh = ForkView::new(Box::new(LocalStore::new(dir, 1 << 20).unwrap()));
+    let on_disk = fresh.load("fork").unwrap().unwrap();
+    assert!(on_disk.history_from.is_none(), "the fork names its deleted chat again");
+    assert_eq!(on_disk.history_kept_through, Some(20));
+    assert_eq!(seqs(&fresh.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
 }
 
 /// A fork of a fork reads through the first fork's own view.

@@ -385,6 +385,7 @@ impl Hub {
                 session: session.id.clone(),
                 through_seq: fork_seq,
             }),
+            history_kept_through: None,
             fork_requests: Default::default(),
             fork_parent_verified: Some(true),
             agent_info: parent_meta.agent_info.clone(),

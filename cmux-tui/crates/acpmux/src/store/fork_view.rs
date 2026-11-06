@@ -54,6 +54,10 @@ pub struct ForkView {
     inner: Box<dyn Store>,
     /// Each referencing fork's reference, from its meta as the store saved or listed it.
     refs: RwLock<HashMap<String, HistoryRef>>,
+    /// Held by `materialize` while it drops a reference and by a save of a meta that names one,
+    /// from its check to its write: a save that read the reference first cannot write it back
+    /// after the drop (review of #37020: after a restart the fork named its deleted chat again).
+    dropping: std::sync::Mutex<()>,
 }
 
 fn is_history(kind: &str) -> bool {
@@ -62,7 +66,7 @@ fn is_history(kind: &str) -> bool {
 
 impl ForkView {
     pub fn new(inner: Box<dyn Store>) -> Self {
-        Self { inner, refs: RwLock::new(HashMap::new()) }
+        Self { inner, refs: RwLock::new(HashMap::new()), dropping: Default::default() }
     }
 
     fn reference(&self, id: &str) -> Option<HistoryRef> {
@@ -102,8 +106,10 @@ impl ForkView {
             return Err(e);
         }
         writer.commit()?;
+        let _dropping = self.dropping.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(mut meta) = self.inner.load(id)? {
             meta.history_from = None;
+            meta.history_kept_through = Some(reference.through_seq);
             self.inner.save(&meta)?;
         }
         self.refs.write().unwrap_or_else(|e| e.into_inner()).remove(id);
@@ -140,12 +146,19 @@ impl Store for ForkView {
     fn save(&self, meta: &SessionMeta) -> Result<()> {
         // A save that names no reference must not undo a materialize the hub's copy of the meta
         // has not heard of: once dropped, a reference never comes back.
+        if meta.history_from.is_none() {
+            self.inner.save(meta)?;
+            self.note(meta);
+            return Ok(());
+        }
+        let _dropping = self.dropping.lock().unwrap_or_else(|e| e.into_inner());
         let mut meta = meta.clone();
-        if meta.history_from.is_some()
-            && self.reference(&meta.id).is_none()
-            && self.inner.load(&meta.id)?.is_some_and(|stored| stored.history_from.is_none())
+        if self.reference(&meta.id).is_none()
+            && let Some(stored) = self.inner.load(&meta.id)?
+            && stored.history_from.is_none()
         {
             meta.history_from = None;
+            meta.history_kept_through = stored.history_kept_through;
         }
         self.inner.save(&meta)?;
         self.note(&meta);

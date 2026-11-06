@@ -69,5 +69,7 @@ async fn an_exported_fork_by_reference_keeps_its_history_on_the_other_machine() 
     let _ = std::fs::remove_dir_all(&dir);
     let imported = imported.unwrap();
     assert!(imported.meta().history_from.is_none());
+    // Its log keeps the chat's seqs through the fork's, and its meta says so (Edit and resend).
+    assert_eq!(imported.meta().history_kept_through, Some(through));
     assert_eq!(texts(&here, &imported.id), ["from the chat", "the fork's own"]);
 }

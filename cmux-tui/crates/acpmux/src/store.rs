@@ -209,6 +209,12 @@ pub struct SessionMeta {
     /// (`store/fork_view.rs`). None: its log holds all it shows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub history_from: Option<HistoryRef>,
+    /// The seq through which this log holds a chat's history under that chat's own seqs, so it
+    /// skips seqs there: a fork by reference whose history was written into it
+    /// (`store/fork_view.rs` `materialize`, `transfer.rs` `export`). Edit and resend's proof of
+    /// the log allows those skips (`hub/fork_before.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_kept_through: Option<u64>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub fork_requests: std::collections::BTreeMap<String, ForkRequest>,
     /// Whether this daemon verified the local parent link when the fork was made. Imported

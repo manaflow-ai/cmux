@@ -46,8 +46,10 @@ impl Hub {
         );
         let mut meta = session.meta();
         // A fork by reference names a chat the other machine does not have: the log below
-        // holds that history itself (`store/fork_view.rs` scans through it).
-        meta.history_from = None;
+        // holds that history itself (`store/fork_view.rs` scans through it), under its seqs.
+        if let Some(r) = meta.history_from.take() {
+            meta.history_kept_through = Some(r.through_seq);
+        }
         let dir = dest.join(&meta.id);
         std::fs::create_dir_all(dir.join("events"))?;
         std::fs::write(dir.join("session.json"), serde_json::to_string_pretty(&meta)?)?;
