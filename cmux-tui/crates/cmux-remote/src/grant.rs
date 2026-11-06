@@ -146,10 +146,10 @@ impl GrantVerifier for CarrierGrantVerifier {
             .filter_map(|name| service_from_name(name))
             .filter(|service| *service != Service::LocalSocket)
             .collect::<Vec<_>>();
+        services.extend(owner_services(grant.owner()));
         if services.is_empty() {
             return Err("carrier grant refused: no service this daemon serves".into());
         }
-        services.extend(owner_services(grant.owner()));
         Ok(GrantAdmission {
             device_id: grant_device_id(&grant.subject, presentation.noise_key),
             authority: ServiceAuthority::from_services(services),

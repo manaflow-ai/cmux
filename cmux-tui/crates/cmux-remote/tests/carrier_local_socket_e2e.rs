@@ -37,6 +37,9 @@ const ISSUER: &str = "cmux:cloud:test";
 const MACHINE: &str = "vm_00000000000000000001";
 const NOW: u64 = 1_800_000_000;
 const TEAM: &str = "team_00000000000000000001";
+/// The `svc` of most test grants: it names `local-socket` too, which only
+/// `vmk: "owner"` may honor.
+const SVC: &[&str] = &["mux-control", "local-socket"];
 
 struct Signer(Ed25519KeyPair);
 
@@ -54,15 +57,14 @@ impl Signer {
         }
     }
 
-    /// A grant for `noise_key`; `vmk` is left out when `None`. The `svc`
-    /// list names `local-socket` too, which only `vmk: "owner"` may honor.
-    fn grant(&self, noise_key: &[u8; 32], jti: u8, vmk: Option<&str>) -> String {
+    /// A grant for `noise_key` with `svc`; `vmk` is left out when `None`.
+    fn grant_for(&self, noise_key: &[u8; 32], jti: u8, vmk: Option<&str>, svc: &[&str]) -> String {
         let mut claims = json!({
             "iss": ISSUER,
             "aud": MACHINE,
             "team": TEAM,
             "sub": "user_00000000000000000001",
-            "svc": ["mux-control", "local-socket"],
+            "svc": svc,
             "nk": noise_key_digest(noise_key),
             "jti": URL_SAFE_NO_PAD.encode([jti; 16]),
             "iat": NOW - 5,
@@ -147,8 +149,23 @@ async fn open_local_socket(
     jti: u8,
     through_bridge: bool,
 ) -> (ServiceControl, Option<Vec<u8>>) {
+    open_local_socket_with(daemon, signer, vmk, SVC, allowlist, path, jti, through_bridge).await
+}
+
+/// [`open_local_socket`] with the grant's `svc` list.
+#[allow(clippy::too_many_arguments)]
+async fn open_local_socket_with(
+    daemon: &mut Daemon,
+    signer: &Signer,
+    vmk: Option<&str>,
+    svc: &[&str],
+    allowlist: Vec<PathBuf>,
+    path: &Path,
+    jti: u8,
+    through_bridge: bool,
+) -> (ServiceControl, Option<Vec<u8>>) {
     let identity = StaticIdentity::generate().unwrap();
-    let token = signer.grant(&identity.public_key(), jti, vmk);
+    let token = signer.grant_for(&identity.public_key(), jti, vmk, svc);
     let session = SessionId([jti; 16]);
     let endpoint =
         Url::parse(&format!("ws://127.0.0.1:{}/v1/link", daemon.server.local_addr().port()))
@@ -271,6 +288,32 @@ async fn an_owner_grant_reaches_the_allowlisted_socket() {
         vec![socket.clone()],
         &socket,
         1,
+        false,
+    )
+    .await;
+    assert_eq!(control, ServiceControl::Opened { service: Service::LocalSocket });
+    assert_eq!(echo.as_deref(), Some(b"DESKTOP".as_slice()));
+    daemon.server.shutdown().await.unwrap();
+}
+
+/// An owner grant whose `svc` names nothing but `local-socket` still admits
+/// the session: the owner's desktop needs no other service.
+#[tokio::test]
+async fn an_owner_grant_for_the_desktop_alone_is_admitted() {
+    let signer = Signer::generate();
+    let mut daemon = daemon(&signer).await;
+    let directory = tempdir().unwrap();
+    let socket = directory.path().join("desktop.sock");
+    let _echo = echo_socket(&socket);
+
+    let (control, echo) = open_local_socket_with(
+        &mut daemon,
+        &signer,
+        Some("owner"),
+        &["local-socket"],
+        vec![socket.clone()],
+        &socket,
+        9,
         false,
     )
     .await;
