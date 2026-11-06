@@ -13,37 +13,79 @@ import Testing
 struct CloudStartSessionFolderTests {
     static let home = "/Users/me"
 
+    /// The person's own run in this app (``ActionInvocation/isPersonsOwnRun``), the only one that copies.
     static func request(_ arguments: [String: ActionValue]) throws -> CloudStartSession.Request {
-        try CloudStartSession.request(CloudStartSessionTests.invocation(target: "vm-a", arguments.merging(["agent": .string("claude")]) { $1 }))
+        try CloudStartSession.request(CloudStartSessionTests.invocation(target: "vm-a", arguments.merging(["agent": .string("claude")]) { $1 }, origin: .user))
     }
 
     static func fromFolder(_ folder: String, cwd: String? = nil) throws -> String? {
-        try CloudStartSession.fromFolder(CloudStartSessionTests.invocation(["fromFolder": .string(folder)]), cwd: cwd, home: home)
+        try CloudStartSession.fromFolder(CloudStartSessionTests.invocation(["fromFolder": .string(folder)], origin: .user), cwd: cwd, home: home)
     }
 
-    @Test func anAgentsRunNeverCopiesAFolderFromThisMac() throws {
-        for invocation in [CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .mcp),
-                           CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], agent: "chat-1")] {
-            #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderAgent)) {
-                try CloudStartSession.fromFolder(invocation, cwd: nil, home: Self.home)
+    /// Every way a run reaches start-session: each origin, from the control socket or in this app, naming an agent
+    /// session, a terminal (`caller.terminal_id`) or neither.
+    static func runs(_ arguments: [String: ActionValue], target: String? = nil) -> [ActionInvocation] {
+        let callers: [(socket: Bool, agent: String?, terminal: String?)] = [(false, nil, nil), (true, nil, nil), (true, nil, "term_1"), (false, nil, "term_1"), (true, "chat-1", nil)]
+        return ActionOrigin.allCases.flatMap { origin in
+            callers.map { caller in
+                var invocation = CloudStartSessionTests.invocation(target: target, arguments, origin: origin, agent: caller.agent)
+                invocation.viaControlSocket = caller.socket
+                invocation.callerTerminal = caller.terminal
+                return invocation
             }
         }
-        // Without a folder an agent's start is asked as before.
+    }
+
+    static func label(_ invocation: ActionInvocation) -> Comment {
+        "\(invocation.origin) socket=\(invocation.viaControlSocket) agent=\(invocation.callerAgentSession ?? "-") terminal=\(invocation.callerTerminal ?? "-")"
+    }
+
+    /// A Mac folder goes to the machine for every run that may write a file there (`cloudFileWrite`, which takes every
+    /// origin, as `cloudExec` runs any command): refusing one of those runs a copy would guard nothing. This Mac's
+    /// CLI, a socket caller saying `cli` (with or without its terminal), a script and an agent all copy.
+    @Test func everyRunThatMayWriteToTheMachineCopiesAFolder() throws {
+        for invocation in Self.runs(["fromFolder": .string("/Users/me/code/app")]) {
+            #expect(try CloudStartSession.fromFolder(invocation, cwd: nil, home: Self.home) == "/Users/me/code/app", Self.label(invocation))
+        }
+        // Without a folder nothing is copied.
         #expect(try CloudStartSession.fromFolder(CloudStartSessionTests.invocation([:], origin: .mcp), cwd: nil, home: Self.home) == nil)
     }
 
-    /// Only this Mac's own CLI or the person's own run names a folder to copy: a socket caller claiming another
-    /// client (`remote`), a script or a page copies nothing, though no remote path reaches `action.run` today.
-    @Test func onlyThisMacsCLIOrThePersonCopiesAFolder() throws {
-        for origin in [ActionOrigin.remote, .script, .page] {
-            #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderAgent)) {
-                try CloudStartSession.fromFolder(CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: origin),
-                                                 cwd: nil, home: Self.home)
-            }
+    /// fromFolder's origin policy is cloudFileWrite's, so the two cannot drift: cloudFileWrite answers every run as it
+    /// answers the person's own run, and fromFolder copies for exactly the runs cloudFileWrite answers so.
+    @Test func theFoldersOriginPolicyIsCloudFileWrites() throws {
+        let f = CloudStartSessionTests.fixture()
+        let write = try #require(f.services.registry.action(for: "cloudFileWrite")?.invoke, "cloudFileWrite is not bound")
+        let file: [String: ActionValue] = ["path": .string("/home/cmux/notes.txt"), "contents": .string("x")]
+        func refusal(_ invocation: ActionInvocation) -> String? { f.services.registry.capturingRefusal { write(invocation) } }
+        func copies(_ invocation: ActionInvocation) -> Bool {
+            var folder = invocation
+            folder.arguments = ["fromFolder": .string("/Users/me/code/app")]
+            return (try? CloudStartSession.fromFolder(folder, cwd: nil, home: Self.home)) != nil
         }
-        for origin in [ActionOrigin.cli, .user] {
-            let invocation = CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: origin)
-            #expect(try CloudStartSession.fromFolder(invocation, cwd: nil, home: Self.home) == "/Users/me/code/app")
+        let person = CloudStartSessionTests.invocation(target: f.session.machineID, file, origin: .user)
+        let writesForPerson = refusal(person) == nil
+        #expect(copies(person))
+        for invocation in Self.runs(file, target: f.session.machineID) {
+            let writesAsForPerson = (refusal(invocation) == nil) == writesForPerson
+            #expect(writesAsForPerson, "cloudFileWrite: \(Self.label(invocation))")
+            #expect(copies(invocation) == writesAsForPerson, "fromFolder: \(Self.label(invocation))")
+        }
+    }
+
+    /// The copy goes only to a machine whose link said this account owns it, whoever asks: an owned one takes it, a
+    /// machine with no owner answer (a teammate's, or not linked yet) takes none.
+    @Test func aCLIRunCopiesToAnOwnedMachineAndNotToAnotherOne() async throws {
+        let services = MachineIconTests.services()
+        let owned = CloudTestLink.session(id: "vm-owned", name: "mine", owns: true, mainWork: services.mainWork)
+        let other = CloudTestLink.session(id: "vm-other", name: "teammate-box", owns: false, mainWork: services.mainWork)
+        for session in [owned, other] { _ = try await #require(session.appLink).connect(origin: .script) }
+        for invocation in Self.runs(["fromFolder": .string("/Users/me/code/app")]) where [.cli, .script].contains(invocation.origin) {
+            #expect(try CloudStartSession.fromFolder(invocation, cwd: nil, home: Self.home) == "/Users/me/code/app", Self.label(invocation))
+        }
+        try await CloudStartSession.requireOwned(owned)
+        await #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderNotOwned("teammate-box"))) {
+            try await CloudStartSession.requireOwned(other)
         }
     }
 
@@ -81,11 +123,19 @@ struct CloudStartSessionFolderTests {
         #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderTooBroad(written))) { try Self.fromFolder(folder) }
     }
 
-    /// The credential folders the composer's start never copies (#35019), and a folder holding one.
+    /// The credential folders the composer's start never copies (#35019), a folder under one, and a folder holding one:
+    /// gh's OAuth tokens (`~/.config/gh/hosts.yml`) and Cargo's registry token (`~/.cargo/credentials.toml`) too.
     @Test(arguments: [("/Users/me/.ssh", "~/.ssh"), ("/Users/me/.SSH/keys", "~/.ssh"), ("/Users/me/.config", "~/.config/gcloud"),
-                      ("/Users/me/Library/Keychains", "~/Library/Keychains")])
+                      ("/Users/me/Library/Keychains", "~/Library/Keychains"), ("/Users/me/.config/gh", "~/.config/gh"),
+                      ("/Users/me/.config/gh/extensions", "~/.config/gh"), ("/Users/me/.cargo", "~/.cargo"),
+                      ("/Users/me/.cargo/registry/src", "~/.cargo"), ("/Users/me/.kube", "~/.kube"), ("/Users/me/.gem", "~/.gem"),
+                      ("/Users/me/.terraform.d", "~/.terraform.d"), ("/Users/me/.password-store", "~/.password-store")])
     func aCredentialFolderIsRefused(folder: String, secret: String) {
-        #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderSecret(folder, secret: secret))) { try Self.fromFolder(folder) }
+        for invocation in Self.runs(["fromFolder": .string(folder)]) {
+            #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderSecret(folder, secret: secret)), Self.label(invocation)) {
+                try CloudStartSession.fromFolder(invocation, cwd: nil, home: Self.home)
+            }
+        }
     }
 
     @Test func aRefusalOnDiskSaysWhichOne() {
