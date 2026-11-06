@@ -19,12 +19,14 @@ public struct MobileTerminalSafeAreaExpansionPolicy {
     ///   - hasCompactVerticalSize: Whether the vertical size class is compact (landscape phone).
     ///   - cameraEdge: The horizontal edge the camera cutout occupies, or `.none` when there is none to protect.
     ///   - includesBottom: Whether bottom expansion is allowed. Defaults to `true`.
+    ///   - preservesHorizontalSafeArea: Whether system-managed side insets must remain intact.
     /// - Returns: The set of edges to expand, honoring the context's constraints.
     public static func edges(
         context: MobileTerminalSafeAreaContext,
         hasCompactVerticalSize: Bool,
         cameraEdge: MobileTerminalLandscapeCameraEdge,
-        includesBottom: Bool = true
+        includesBottom: Bool = true,
+        preservesHorizontalSafeArea: Bool = false
     ) -> MobileTerminalSafeAreaExpansionEdges {
         switch context {
         case .fullWidth:

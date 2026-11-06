@@ -4,6 +4,21 @@ import Testing
 @testable import CmuxMobileWorkspace
 
 @Suite struct MobileTerminalSafeAreaPolicyTests {
+    @Test func resizableWindowsPreserveBothSystemSideInsets() {
+        for context in [MobileTerminalSafeAreaContext.fullWidth, .splitSidebarVisible] {
+            for cameraEdge in [MobileTerminalLandscapeCameraEdge.leading, .trailing, .none] {
+                #expect(MobileTerminalSafeAreaExpansionPolicy.edges(
+                    context: context, hasCompactVerticalSize: true, cameraEdge: cameraEdge,
+                    preservesHorizontalSafeArea: true
+                ) == MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: true))
+                #expect(MobileTerminalSafeAreaExpansionPolicy.edges(
+                    context: context, hasCompactVerticalSize: true, cameraEdge: cameraEdge,
+                    includesBottom: false, preservesHorizontalSafeArea: true
+                ) == MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: false))
+            }
+        }
+    }
+
     @Test func compactLandscapeExpansionKeepsTheCameraEdgeProtected() {
         // A landscape phone puts the Dynamic Island / notch on one horizontal
         // edge; the terminal keeps that edge's safe-area inset and expands only
