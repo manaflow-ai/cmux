@@ -4,9 +4,18 @@
   "code": "lease.not_observable",
   "details": {
    "ms": 1000,
-   "observer": "cmux-platform#915"
+   "receiver_policy": {
+    "admission": [
+     "present"
+    ],
+    "journal_read": true,
+    "policy_read_ms": [
+     3,
+     4
+    ]
+   }
   },
-  "message": "no lease at the CLI level",
+  "message": "no lease at the CLI level: cmux-platform#915 GoldenPathProbe (91c6eb62) records stage `lease` value {machineId, connectionMachine, generation} from transport.resolveConnection",
   "retryable": false,
   "stage": "lease"
  },
@@ -35,16 +44,29 @@
    "startedAt": "2026-10-26T07:33:23.000Z",
    "value": {
     "exec": {
-     "echoed": true
+     "echoed": true,
+     "ms": 300,
+     "request_id": "start-matrix-golden-path:readiness"
     },
     "guest": {
+     "cmux_host": "active",
+     "compatibility": "full",
+     "daemon_commit": "a1b2c3d",
+     "daemon_machine_id": "vm_q7x2m9k4p1z8w3n6r5t0",
+     "daemon_version": "0.64.2",
+     "host_chars": 7,
      "identified": true,
-     "image_stamp": "2026-11-06"
+     "image_stamp_chars": 17,
+     "ms": 900,
+     "protocol": 3,
+     "vm_kind_chars": 5
     },
     "ms": 1000,
     "state": "running",
     "tunnel": {
      "connected": true,
+     "daemon": "connected",
+     "ms": 4200,
      "stage": "ready"
     }
    }
@@ -55,9 +77,18 @@
     "code": "lease.not_observable",
     "details": {
      "ms": 1000,
-     "observer": "cmux-platform#915"
+     "receiver_policy": {
+      "admission": [
+       "present"
+      ],
+      "journal_read": true,
+      "policy_read_ms": [
+       3,
+       4
+      ]
+     }
     },
-    "message": "no lease at the CLI level",
+    "message": "no lease at the CLI level: cmux-platform#915 GoldenPathProbe (91c6eb62) records stage `lease` value {machineId, connectionMachine, generation} from transport.resolveConnection",
     "retryable": false
    },
    "ok": false,
@@ -76,7 +107,7 @@
     "files": 1,
     "from_folder": true,
     "ms": 1000,
-    "reply_ms": 900
+    "reply_ms": 2100
    }
   },
   {
@@ -85,9 +116,13 @@
     "code": "auth.not_observable",
     "details": {
      "ms": 1000,
-     "observer": "cmux-platform#915"
+     "ownership": {
+      "listed": true,
+      "signed_in": true,
+      "status": "running"
+     }
     },
-    "message": "the account lists the machine",
+    "message": "the account lists the machine, but the chat grant is not visible to the CLI: cmux-platform#915 GoldenPathProbe (91c6eb62) records stage `auth` value {allowed} from transport.checkAuth",
     "retryable": false
    },
    "ok": false,
@@ -102,11 +137,12 @@
    "stage": "chat",
    "startedAt": "2026-10-26T07:33:31.000Z",
    "value": {
-    "discovery_ms": 40,
+    "discovery_ms": 400,
     "ms": 1000,
-    "reply_ms": 900,
+    "reply_ms": 1800,
     "session_discovered": true,
-    "session_id": "sess_acp_1"
+    "session_id_chars": 10,
+    "session_id_sha256": "8296e2f4500e"
    }
   },
   {
@@ -118,21 +154,21 @@
    "value": {
     "link": {
      "back": true,
-     "back_ms": 5,
+     "back_ms": 2500,
      "dropped_while_paused": true
     },
     "ms": 1000,
     "pause": {
-     "ms": 10,
+     "ms": 12000,
      "state": "paused"
     },
     "reconnected": true,
     "resume": {
-     "ms": 20,
+     "ms": 30000,
      "state": "running"
     },
     "second_reply": {
-     "ms": 30,
+     "ms": 1700,
      "ok": true
     }
    }
