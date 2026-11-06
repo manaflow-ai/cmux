@@ -2,8 +2,8 @@
 """cx-f58x: a nightly-next notary test of the build with the whole browser import in.
 
 Apple returned status 7000 for nightly-next with the browser-data import
-(2026-10-07) and accepted the same commit with it compiled out, so every
-published nightly-next compiles the import out. The bisect inputs each compile
+(2026-10-07) and accepted the same commit with it compiled out, so published
+nightly-next builds compiled the import out until run 42176643049. The bisect inputs each compile
 one part out; none submits the import as it would ship. `notary_test_import_part:
 full` is that one diagnostic: the import compiled in, the registry filled,
 one submission, nothing published. Its verdict says whether Apple still holds
