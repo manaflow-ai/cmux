@@ -397,6 +397,135 @@ class GoldenPathReceiptTests(unittest.TestCase):
         self.assertEqual(result["status"], "blocked")
         self.assertIn("missing_acpmux_session_discovery", result["blockers"])
 
+    # Review BLOCK at 78ff0902 (#37177).
+
+    def test_malformed_jsonl_returns_blocked_result(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "golden-path.jsonl"
+            path.write_text(json.dumps(cli_receipt()) + "\n{not json\n", encoding="utf-8")
+            output = Path(directory) / "normalized.json"
+            self.assertEqual(receipt.main(["--receipt", str(path), "--out", str(output), "--check"]), 2)
+            result = json.loads(output.read_text())
+            self.assertEqual(result["status"], "blocked")
+            self.assertIn("receipt_malformed", result["blockers"])
+            self.assertEqual(receipt.main(["--receipt", str(path), "--out", str(output)]), 0)
+            path.write_bytes(b"\xff\xfe not utf-8")
+            self.assertEqual(receipt.main(["--receipt", str(path), "--out", str(output), "--check"]), 2)
+            self.assertEqual(json.loads(output.read_text())["status"], "blocked")
+            self.assertEqual(receipt.main(["--receipt", str(Path(directory) / "absent.jsonl"), "--check"]), 2)
+
+    def test_only_exact_true_ok_or_passed_count_as_success(self) -> None:
+        for word in ("running", "ready", "success", "succeeded", "pass", "yes", 1):
+            result = receipt.normalize([cli_receipt(provider_verified=word), platform_receipt()])
+            self.assertNotEqual(result["status"], "pass", word)
+            self.assertIn("provider_proof_missing", result["blockers"], word)
+        for word in (True, "ok", "passed"):
+            result = receipt.normalize([cli_receipt(provider_verified=word), platform_receipt()])
+            self.assertEqual(result["status"], "pass", (word, result["blockers"]))
+        result = receipt.normalize([cli_receipt(discovery={"found": "running"}), platform_receipt()])
+        self.assertNotEqual(result["status"], "pass")
+        self.assertFalse(result["stages"]["acpmux_session_discovery"])
+
+    def test_legacy_running_status_is_not_success(self) -> None:
+        records = passing_records()
+        records[0]["steps"] = [
+            {"step": "cloud start-chat", "exit": 0, "reply": "ok"},
+            {"step": "ACP session discovered", "status": "running"},
+        ]
+        result = receipt.normalize(records)
+
+        self.assertNotEqual(result["status"], "pass")
+        self.assertFalse(result["stages"]["acpmux_session_discovery"])
+
+    def test_golden_stage_ok_true_with_failure_object_fails(self) -> None:
+        platform = platform_receipt()
+        platform["stages"][1]["failure"] = {"code": "auth.denied", "message": "no chat grant", "retryable": False}
+        result = receipt.normalize([cli_receipt(), platform])
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["golden_path_stages"]["auth"], "failed")
+        self.assertIn("stage_failed_auth", result["blockers"])
+
+    def test_provider_proof_for_another_machine_does_not_count(self) -> None:
+        other = "vm_zz99zz99zz99zz99zz99"
+        result = receipt.normalize([
+            cli_receipt(provider_verified=None),
+            platform_receipt(),
+            {"machineId": other, "provider_verified": True},
+        ])
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("provider_proof_missing", result["blockers"])
+
+        result = receipt.normalize([
+            cli_receipt(provider_verified=None), platform_receipt(), {"provider_verified": True},
+        ])
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("provider_proof_missing", result["blockers"])
+
+        result = receipt.normalize([
+            cli_receipt(provider_verified=None), platform_receipt(), {"machineId": MACHINE, "provider_verified": True},
+        ])
+        self.assertEqual(result["status"], "pass", result["blockers"])
+
+        result = receipt.normalize([
+            cli_receipt(provider={"machineId": other, "provider_verified": True}, provider_verified=None),
+            platform_receipt(),
+        ])
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("provider_proof_missing", result["blockers"])
+
+    def test_discovery_for_another_machine_does_not_count(self) -> None:
+        other = "vm_zz99zz99zz99zz99zz99"
+        result = receipt.normalize([
+            cli_receipt(discovery={"source": "acpmux sessions list", "found": True, "machineId": other}),
+            platform_receipt(),
+        ])
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("missing_acpmux_session_discovery", result["blockers"])
+
+    def test_receipt_without_machine_id_cannot_supply_evidence(self) -> None:
+        unbound_chat = golden_receipt("cli-2", [
+            stage("chat", 5, 450, probe="cli-2", value={
+                "session_id": "sess_acp_1",
+                "discovery": {"found": True},
+                "provider_verified": True,
+            }),
+        ], machine=None)
+        cli = cli_receipt(discovery=None, provider_verified=None)
+        result = receipt.normalize([cli, platform_receipt(), unbound_chat])
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("provider_proof_missing", result["blockers"])
+        self.assertIn("missing_acpmux_session_discovery", result["blockers"])
+        self.assertIn("receipt_machine_id_missing", result["blockers"])
+
+    def test_credentials_are_redacted_from_output(self) -> None:
+        secrets = [
+            "ghp_" + "A1b2" * 9,
+            "gho_" + "Z9y8" * 9,
+            "github_pat_11ABCDEFG0" + "x" * 40,
+            "sk-" + "proj" + "Q" * 30,
+            "sk-ant-api03-" + "k" * 30,
+            "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc",
+            "xoxb-123456789012-123456789012-" + "a" * 24,
+            "xoxp-123456789012-123456789012-" + "b" * 24,
+            "AKIA" + "IOSFODNN7EXAMPLE",
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+            "glpat-" + "x" * 20,
+            "AIza" + "S" * 35,
+        ]
+        message = "auth said Bearer abc.def.ghi and " + " ".join(secrets)
+        platform = platform_receipt(ok=False, failure={"code": "auth.denied", "message": message, "retryable": False})
+        platform["probeId"] = secrets[0]
+        cli = cli_receipt(session_id=secrets[5])
+        result = receipt.normalize([cli, platform])
+        rendered = json.dumps(result)
+
+        self.assertEqual(result["status"], "fail")
+        for secret in secrets + ["abc.def.ghi"]:
+            self.assertNotIn(secret, rendered)
+        self.assertIn("[withheld]", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()
