@@ -45,6 +45,8 @@ use windows_sys::Win32::System::RemoteDesktop::{
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
+use cmux_process::{Command, Stdio};
+
 use super::{Launcher, WORKER_MODE, WorkerProcess};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -206,13 +208,12 @@ impl NativeLauncher {
     }
 
     fn direct(&self, log: &Path) -> Result<WorkerProcess, String> {
-        use std::os::windows::process::CommandExt;
         let log_file = open_log(log)?;
-        let mut child = std::process::Command::new(&self.exe)
+        let mut child = Command::new(&self.exe)
             .arg(WORKER_MODE)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::from(log_file))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::from(log_file))
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|error| format!("the Computer Use worker did not start: {error}"))?;
@@ -283,10 +284,9 @@ fn open_log(log: &Path) -> Result<std::fs::File, String> {
 }
 
 fn schtasks(args: &[&str]) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    let output = std::process::Command::new("schtasks.exe")
+    let output = Command::new("schtasks.exe")
         .args(args)
-        .stdin(std::process::Stdio::null())
+        .stdin(Stdio::null())
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|error| format!("schtasks: {error}"))?;

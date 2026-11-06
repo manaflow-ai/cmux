@@ -118,7 +118,7 @@ pub(crate) fn trusted(path: &Path) -> Result<(), String> {
 
 #[cfg(windows)]
 pub(crate) fn trusted(path: &Path) -> Result<(), String> {
-    super::windows::owner_only_file(path)
+    super::platform::owner_only_file(path)
 }
 
 #[cfg(test)]

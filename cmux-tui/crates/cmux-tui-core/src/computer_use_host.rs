@@ -44,9 +44,7 @@ pub(crate) mod config;
 mod platform;
 #[cfg(windows)]
 #[path = "computer_use_host/windows.rs"]
-mod platform;
-#[cfg(windows)]
-pub(crate) use platform as windows;
+pub(crate) mod platform;
 
 /// Advertised by `identify` once the `computer-use-*` commands exist.
 pub(crate) const COMPUTER_USE_CAPABILITY: &str = "computer-use-v1";
