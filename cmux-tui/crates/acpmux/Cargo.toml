@@ -26,6 +26,9 @@ tailnet = ["dep:cmux-tailnet", "dep:tokio-rustls"]
 # The deterministic simulation's in-process agent seam (src/sim_agent.rs, tests/sim.rs). Never in
 # a shipped build: only `cargo test --features sim --test sim` turns it on.
 sim = []
+# Dev only: the sign-in output parser from a WebAssembly module that a debug daemon swaps live
+# when ACPMUX_HOT_MODULE's file changes (crates/acpmux-hot). Never in a shipped build.
+hot-modules = ["dep:acpmux-hot"]
 
 [target.'cfg(unix)'.dependencies]
 signal-hook-registry = "1.4"
@@ -34,6 +37,7 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 
 [dependencies]
 acpmux-build-id = { path = "../acpmux-build-id", optional = true }
+acpmux-hot = { workspace = true, optional = true, features = ["wasm"] }
 chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }

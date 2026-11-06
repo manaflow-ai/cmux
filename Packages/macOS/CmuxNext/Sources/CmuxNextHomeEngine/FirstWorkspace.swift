@@ -19,17 +19,14 @@ extension Array where Element == WorkspaceModel {
     }
 }
 
-/// Where a first launch lands (`FirstWorkspaceLaunch`): Home, the Chief's workspace, unless
-/// Debug Settings > Home > First launch opens Home is off (`HomeTunables.launchIntoHome`) or Home
+/// Where a first launch lands (`FirstWorkspaceLaunch`): Home, the Chief's workspace, unless Home
 /// is classic; then the launch makes a New Tab workspace.
 public struct FirstWorkspaceLanding: Sendable {
-    public let launchIntoHome: Bool
     public let classic: Bool
     /// How long `home(ensured:listed:)` waits for the store to list Home.
     public let deadline: Duration
 
-    public init(launchIntoHome: Bool, classic: Bool, deadline: Duration = .seconds(3)) {
-        self.launchIntoHome = launchIntoHome
+    public init(classic: Bool, deadline: Duration = .seconds(3)) {
         self.classic = classic
         self.deadline = deadline
     }
@@ -37,7 +34,7 @@ public struct FirstWorkspaceLanding: Sendable {
     /// The Home workspace to land on, or nil to make a New Tab workspace (also while Home has
     /// no workspace).
     public func home(_ listed: String?) -> String? {
-        launchIntoHome && !classic ? listed : nil
+        classic ? nil : listed
     }
 
     /// `home` once the store lists the Home workspace `ensure_home` named (`ensured`): a fresh
@@ -46,7 +43,7 @@ public struct FirstWorkspaceLanding: Sendable {
     /// `deadline`, then the launch makes a New Tab workspace as before.
     @MainActor
     public func home(ensured: Bool, listed: @escaping @MainActor @Sendable () -> String?) async -> String? {
-        guard launchIntoHome, !classic, ensured else { return nil }
+        guard !classic, ensured else { return nil }
         if let id = listed() { return id }
         let expired = DeadlineFlag()
         let timer = DemandTimer(owner: "first-workspace.home")

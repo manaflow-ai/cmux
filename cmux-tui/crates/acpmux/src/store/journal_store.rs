@@ -162,6 +162,12 @@ thread_local! {
     /// the LSN and the chats to sync.
     pub(crate) static HOLD_AFTER_START: log_sync::HoldSlot =
         const { std::cell::RefCell::new(None) };
+    /// Tests: the next log write on this thread stops right after the write
+    /// ([`pause_next_log_write_on_this_thread`]).
+    static PAUSE_AFTER_LOG_WRITE: log_sync::HoldSlot = const { std::cell::RefCell::new(None) };
+    /// Tests: a read on this thread says so, once, when it has read and waits for an append
+    /// under way (`Inner::fenced`).
+    pub(crate) static NOTE_AT_READ_FENCE: log_sync::Note = const { std::cell::RefCell::new(None) };
     /// Tests: the next `frozen` record a freeze on this thread appends is refused, as when the
     /// journal's writer stopped (`AppendError::Closed`).
     pub(crate) static FAIL_FROZEN_RECORD: std::cell::Cell<bool> =
@@ -196,31 +202,34 @@ fn hold_in_sync() {
     log_sync::hold(&HOLD_IN_SYNC);
 }
 
-/// Tests: the next append stops right after its log write, says so on the first channel and
-/// waits for the second (the appends' lock held, as at that point in a real append).
+/// Tests: the next log write made on this thread stops right after the write (the appends' lock
+/// held, as at that point in a real append), says so on `arrived` and waits for `release`. Only
+/// this thread's write: under `cargo test` a binary's tests are threads of one process, and a
+/// process-wide pause let one test's append take another test's (#36142).
 #[cfg(test)]
-pub(crate) static PAUSE_AFTER_LOG_WRITE: Mutex<
-    Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
-> = Mutex::new(None);
+pub(crate) fn pause_next_log_write_on_this_thread(
+    arrived: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+) {
+    PAUSE_AFTER_LOG_WRITE.with(|slot| *slot.borrow_mut() = Some((arrived, release)));
+}
 
 impl Inner {
     /// Runs `read`, then waits for an append under way to end (`order` taken and let go): every
     /// line `read` saw has its record appended by the time this returns.
     fn fenced<T>(&self, read: impl FnOnce() -> T) -> T {
         let out = read();
+        #[cfg(test)]
+        log_sync::note(&NOTE_AT_READ_FENCE, "waits at the read fence");
         drop(self.order.lock_or_recover());
         out
     }
 }
 
+/// Tests: the stop of [`PAUSE_AFTER_LOG_WRITE`].
 #[cfg(test)]
 fn pause_after_log_write() {
-    let pause =
-        PAUSE_AFTER_LOG_WRITE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
-    if let Some((arrived, release)) = pause {
-        let _ = arrived.send(());
-        let _ = release.recv();
-    }
+    log_sync::hold(&PAUSE_AFTER_LOG_WRITE);
 }
 
 pub struct JournalStore {

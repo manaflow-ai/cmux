@@ -67,28 +67,21 @@ enum WorkspaceBulkClose {
             let target = try context.workspace(invocation).model
             let owner = windows.registry.value.owner(of: target.id).flatMap(windows.controller(for:)) ?? context.activeWindow
             let order = owner?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? context.sidebarOrder.map(\.id)
-            guard order.contains(target.id) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
-            // A person's run on one of several selected rows keeps the whole selection, as Chrome's
-            // Close Other Tabs and Close Tabs Below do: the rows outside it, below its last, above its first.
-            let kept = try WindowMembershipHandlers.rowTargets(invocation, context).map(\.id)
-            closing = keeping(Set(kept), id: id, order: order)
+            if order.contains(target.id) {
+                // A person's run on one of several selected rows keeps the whole selection, as Chrome's
+                // Close Other Tabs and Close Tabs Below do: the rows outside it, below its last, above its first.
+                let kept = try WindowMembershipHandlers.rowTargets(invocation, context).map(\.id)
+                closing = WorkspaceClose.keeping(Set(kept), id: id, order: order)
+            } else if PinCommands(context: context).isWorkspacePinned(target) {
+                closing = WorkspaceClose.aroundPinned(id: id, order: order) // Pinned draws above the list
+            } else {
+                throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar)
+            }
         }
         // The store's home workspace never closes (`home_not_closable`, HomeRules), and a
         // workspace with no key cannot (WorkspaceClose): they neither count nor leave.
         let members = closing.compactMap { context.services.machines.workspace(id: $0) }.filter { $0.0.key != nil && !HomeRules.isHome($0.0) }
         return (members, survivor(closing: members.map(\.0.id), context))
-    }
-
-    /// What Close Other Workspaces, Close Workspaces Below and Close Workspaces Above (`id`)
-    /// close of `order` (a sidebar's rows) around the rows `kept`: every other row, the rows
-    /// below the last kept one, or the rows above the first.
-    nonisolated static func keeping(_ kept: Set<String>, id: ActionID, order: [String]) -> [String] {
-        guard let first = order.firstIndex(where: kept.contains), let last = order.lastIndex(where: kept.contains) else { return [] }
-        switch id {
-        case "palette.closeOtherWorkspaces": return order.filter { !kept.contains($0) }
-        case "palette.closeWorkspacesBelow": return Array(order[(last + 1)...])
-        default: return Array(order[..<first])
-        }
     }
 
     /// An open window that keeps a workspace after `closing` closes (the
@@ -105,6 +98,10 @@ enum WorkspaceBulkClose {
     static func close(_ id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let (members, window) = try plan(id, invocation, context)
         if members.isEmpty, let none = nothingToClose.first(where: { $0.0 == id })?.1 { throw ActionFailure.invalidTarget(none()) }
+        if id != "workspaceGroup.closeOthers", invocation.origin == .user, members.count > 1, let state = rowsWindow(members, context) {
+            // The selection close's path: rows stay closing until the daemon answers; the toast counts what closed.
+            return WorkspaceSelectionClose.close(members.map(\.0.id), in: state, context.services, asked: true)
+        }
         let services = context.services
         let names = members.map { $0.0.name }
         // The groups these closes may empty (Close Others in Group's whole groups go as `PersonalGroupPin` says).
@@ -127,6 +124,15 @@ enum WorkspaceBulkClose {
         guard invocation.origin == .user, members.count > 1, let window else { return }
         WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services,
                                       cleanups: cleanups)
+    }
+
+    /// The one window that lists every row of `members`, or nil when they span windows.
+    static func rowsWindow(_ members: [Member], _ context: AppActionContext) -> WindowState? {
+        let windows = context.services.windows, registry = windows.registry.value
+        let owners = Set(members.compactMap { registry.owner(of: $0.0.id) })
+        if owners.count > 1 { return nil }
+        let controller = owners.first.flatMap(windows.controller(for:)) ?? context.activeWindow
+        return controller?.state
     }
 
     /// The open workspaces a sidebar section lists: its workspace items (Pinned
@@ -172,23 +178,6 @@ enum WorkspaceBulkClose {
         guard let (members, window) = try? plan(id, invocation, context) else { return nil }
         let incognito = members.contains { context.services.windows.isIncognito(workspace: $0.0.id) }
         return await prompt(members, warn: warn, askWithoutUndo: window == nil, incognito: incognito)
-    }
-
-    /// Whether `prompt` will likely ask about `members`, read from the store without the daemon: two
-    /// or more close with nothing to undo it, or (`warn`) one has a live terminal on a connected
-    /// machine that is not known to sit at its shell prompt (OSC 133, `TabModel.promptSinceMs`).
-    /// True: the rows stay until the answer. False: they leave at the press, and the terminals are
-    /// still asked behind them (a prompt can show while ssh or a nested shell runs, `WorkspaceCloseFlow`).
-    static func mayAsk(_ members: [Member], warn: Bool, askWithoutUndo: Bool = false) -> Bool {
-        if askWithoutUndo, members.count > 1 { return true }
-        return warn && members.contains { workspace, daemon in
-            daemon.isLive && workspace.screens.flatMap(\.panes).flatMap(\.tabs).contains(where: mayRunProgram)
-        }
-    }
-
-    /// A live terminal whose shell may be running a program: a command runs, or no prompt was seen.
-    static func mayRunProgram(_ tab: TabModel) -> Bool {
-        tab.kind == .pty && !tab.dead && (tab.commandSinceMs != nil || tab.promptSinceMs == nil)
     }
 
     /// Asks when a terminal in `members` runs a program (`warn`), or when two

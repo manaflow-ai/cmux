@@ -109,6 +109,20 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+#[cfg(unix)]
+mod staged_update;
+// The staged swap probes builds through cmux-remote, a unix-only dependency:
+// elsewhere nothing is ever staged and no notice waits.
+#[cfg(not(unix))]
+mod staged_update {
+    pub(crate) fn promote_own_binary() -> Option<std::path::PathBuf> {
+        None
+    }
+
+    pub(crate) fn startup_notice() -> Option<&'static str> {
+        None
+    }
+}
 mod startup_env;
 #[cfg(all(test, unix))]
 mod test_exec;
@@ -3117,6 +3131,21 @@ fn start_detached_owner_session(
     let progress = local_owner::RestoreProgress::new(&report);
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline, &progress) {
         anyhow::bail!("{}", messages.ensure_failed(&error));
+    }
+    // The owner was started from a staged build this call installed: this
+    // client still runs the old image, so the new file attaches instead.
+    #[cfg(unix)]
+    if let Some(binary) = staged_update::promoted() {
+        match staged_update::run_installed(binary) {
+            Ok(code) => client_log::exit(code),
+            Err(error) => {
+                client_log::warn("staged-update", &format!("run the installed build: {error}"));
+            }
+        }
+    }
+    #[cfg(unix)]
+    if let Some(notice) = staged_update::notice_for_owner(&socket_path) {
+        staged_update::set_startup_notice(notice);
     }
     let remote = RemoteSession::connect_session(&socket_path, spec.socket_is_derived)
         .context("connect the interactive client to its detached session owner")?;

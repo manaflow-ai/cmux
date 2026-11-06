@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7. */
+/* cmux-tui mux protocol 12, IR e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1524,6 +1524,18 @@ export type TerminalKeyInput = {
   "shifted_codepoint"?: (string) | null;
   "unshifted_codepoint"?: (string) | null;
   "utf8": string;
+};
+
+export type TerminalLastCommand = {
+  "command": string;
+  "ended_at_ms": string;
+  "exit_code": (number) | null;
+  "started_at_ms": string;
+};
+
+export type TerminalLastCommandResult = {
+  "last_command": (TerminalLastCommand) | null;
+  "terminal_id": string;
 };
 
 export type TerminalLifecycle = "launching" | "adopting" | "running" | "exited" | "tombstoned";

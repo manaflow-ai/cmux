@@ -760,6 +760,23 @@ fn caller_sends_no_files(
 /// or answers itself for a peer's session (`peer_forward.rs`) keeps its params as they are, and
 /// so does `keep`, whose `sessionId` is an exact id this connection owns (`ephemeral.rs`).
 fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), RpcError> {
+    // A machine named in another case or by a prefix (`new --host`, `dispatch --host`) reads as
+    // the one peer it names, by the same rule (`Hub::host_route`).
+    let host = match m {
+        method::SESSION_NEW | method::MUX_HARNESSES | method::MUX_HARNESS_HEALTH => {
+            params.pointer_mut("/_meta/acpmux/peer")
+        }
+        method::MUX_DISPATCH => {
+            let field = ["host", "target"].into_iter().find(|f| params[*f].is_string());
+            field.and_then(|f| params.get_mut(f))
+        }
+        _ => None,
+    };
+    if let Some(slot) = host
+        && let Some(peer) = slot.as_str().map(|h| hub.host_route(h)).transpose()?.flatten()
+    {
+        *slot = Value::String(peer);
+    }
     let slot = if m == method::MUX_SEND_QUEUE {
         params.pointer_mut("/request/sessionId")
     } else if m != method::MUX_KEEP && super::peer_forward::names_a_session(m) {
@@ -1022,6 +1039,14 @@ async fn dispatch_request_with_identity(
     if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
         return reply;
     }
+    // A session on a machine only the mesh hub reaches (`mesh_read.rs`).
+    if let Some(reply) = super::mesh_relay::read::forward(hub, conn, m, &params).await {
+        return reply;
+    }
+    // The app's prompt to a chat on a machine only the hub reaches (`mesh_read.rs`).
+    if let Some(reply) = super::mesh_relay::read::prompt(hub, conn, m, &params).await {
+        return reply;
+    }
     if matches!(
         m,
         method::MUX_FILE_PUT_BEGIN
@@ -1044,6 +1069,9 @@ async fn dispatch_request_with_identity(
         method::MUX_REPORT => briefs::report(hub, conn, params).await,
         method::MUX_TASK_NEW => briefs::task_new(hub, conn, params).await,
         method::MUX_TASKS => briefs::tasks(hub, conn, params).await,
+        method::MUX_WHO_ELSE => {
+            hub.who_else(&params, conn.origin == Origin::Local, conn.origin == Origin::Peer).await
+        }
         method::MUX_RESOLVE => {
             let names_hosts = conn.auth != ConnAuth::ReadOnlyDevice && conn.origin != Origin::Peer;
             if params.get("exactSessionId").and_then(Value::as_bool) == Some(true) {
@@ -1090,7 +1118,7 @@ async fn dispatch_request_with_identity(
                 method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT,
                 method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
-                method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
+                method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
             ];
             #[allow(unused_mut)]
             let mut reply = json!({
@@ -1271,6 +1299,9 @@ async fn dispatch_request_with_identity(
                     return Err(RpcError::new(-32000, "the peer's audit token is unknown")
                         .with_data(json!({"reason": crate::hub::person::ENROLL_REFUSED})));
                 }
+                // The VM provisioning exec (root) gives an unsigned daemon its key
+                // (`daemon/provision.rs`); an agent, the daemon's own user, never can.
+                (false, _) if conn.provisioner => return hub.person.provision(key),
                 (false, _) => false,
             };
             hub.person.enroll(key, verified)
@@ -1845,11 +1876,19 @@ async fn dispatch_request_with_identity(
                     .unwrap_or_default();
                 Box::pin(hub.fork_before(&s, prompt, request, ask(conn, &params, &who))).await?
             } else {
-                let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
-                let new = admitted
-                    .run(hub.fork(&s, name, cwd, env, workspace_id, through, start_later))
-                    .await?;
-                (new, admitted.warning.clone())
+                // Fork Conversation's Cancel names the fork by this token (`hub/fork_cancel.rs`),
+                // from before its admission: a Cancel while it is admitted stops it too.
+                let token = params.pointer("/_meta/acpmux/cancelToken").and_then(Value::as_str);
+                let fork = async {
+                    let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
+                    if crate::hub::fork_cancel::cancelled() {
+                        return Err(crate::hub::fork_cancel::cancelled_refusal());
+                    }
+                    let fork = hub.fork(&s, name, cwd, env, workspace_id, through, start_later);
+                    let new = admitted.run(fork).await?;
+                    Ok((new, admitted.warning.clone()))
+                };
+                hub.fork_cancellable(token, fork).await?
             };
             attach(hub, conn, &new.id);
             let meta = new.meta();
@@ -2346,7 +2385,7 @@ async fn dispatch_request_with_identity(
         | method::MUX_CHAT_ROUTE_SET => {
             heap(|| super::routes::handle(hub, conn.origin, m, &params)).await
         }
-        method::MUX_ACCOUNTS | method::MUX_ACCOUNT_SET => {
+        method::MUX_ACCOUNTS | method::MUX_ACCOUNT_SET | method::MUX_ACCOUNT_USAGE => {
             heap(|| super::accounts::handle(hub, conn.origin, m, &params)).await
         }
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
@@ -2669,7 +2708,19 @@ async fn dispatch_request_with_identity(
             Ok(json!({"sessionId": id, "ephemeral": false}))
         }
         method::MUX_KILL => {
+            // Cancel on a fork still being made, or made and not yet answered: its request's
+            // token names it (`hub/fork_cancel.rs`).
+            if params.get("cancelFork").and_then(Value::as_bool) == Some(true)
+                && let Some(token) = params.get("cancelToken").and_then(Value::as_str)
+            {
+                return Ok(json!({"cancelled": hub.cancel_pending_fork(token).await}));
+            }
             let s = hub.resolve(session_key(&params)?)?;
+            // A Fork Conversation the person cancelled before using it (`hub/fork_cancel.rs`).
+            if params.get("cancelFork").and_then(Value::as_bool) == Some(true) {
+                heap(|| hub.cancel_fork(&s)).await?;
+                return Ok(json!({"sessionId": s.id, "purged": true}));
+            }
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             // `ifIdle`: refused unless idle, checked under the turn lock (`stop_if_idle.rs`).
             let condition = crate::hub::stop_if_idle::StopCondition::from_params(&params)?;

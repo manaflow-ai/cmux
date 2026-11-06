@@ -1408,8 +1408,8 @@ fi
 if [[ -z "${CMUX_DEV_BACKEND_MODE:-}" && -z "${CMUX_DEV_BACKEND_URL:-}" ]]; then
   export CMUX_DEV_BACKEND_MODE=local
 fi
-# The cmuxterm-hq local build guard refuses xcodebuild/cargo below 500 GiB
-# free on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
+# The cmuxterm-hq local build guard refuses xcodebuild/cargo below its own floor
+# (CMUX_BUILD_MIN_FREE_GIB) of free space on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
 # sized for the legacy app and many agents at once. A cold cmux-next tagged
 # build (2026-09-29, tag nxpipe) left 5.8 GiB of DerivedData and lowered
 # free space by at most 10.6 GiB while it ran, so cmux-next reloads use their
@@ -1417,6 +1417,10 @@ fi
 # build. Its default (40 GiB, about 4x that peak) is the one number in
 # cmux-next/tour-requirements.json, so the runners that take tours read the
 # same floor instead of copying it.
+# The floor warns and the build runs anyway: a busy machine makes things
+# slower, never makes them fail (2026-11-06: a fleet try-pr --live-code run
+# with 33 GiB free was refused here). Under the floor it says the free space,
+# the floor and the host, and still lifts the guard's floor for this build.
 cmux_next_requirements="$SCRIPT_DIR/cmux-next/tour-requirements.json"
 cmux_next_default_min_free_gib="$(python3 -c '
 import json, sys
@@ -1428,14 +1432,18 @@ print(value)' "$cmux_next_requirements" 2>/dev/null)" \
 cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-$cmux_next_default_min_free_gib}"
 [[ "$cmux_next_min_free_gib" =~ ^[0-9]+$ ]] \
   || { echo "error: CMUX_NEXT_MIN_FREE_GIB must be a whole number of GiB" >&2; exit 1; }
-cmux_next_free_gib="$(df -Pk "$HOME" | awk 'NR==2{print int($4/1048576)}')"
-if (( cmux_next_free_gib < cmux_next_min_free_gib )); then
-  echo "error: cmux-next build needs ${cmux_next_min_free_gib} GiB free on the home volume; ${cmux_next_free_gib} GiB free." >&2
-  echo "       Free space (skills/build-release/cleanup-dev-builds in cmuxterm-hq) or build on the fleet with cmux-ci." >&2
-  exit 1
+cmux_next_free_gib="$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2{print int($4/1048576)}')" || cmux_next_free_gib=""
+cmux_next_host="$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)"
+if ! [[ "$cmux_next_free_gib" =~ ^[0-9]+$ ]]; then
+  echo "warning: cmux-next floor: cannot read the home volume's free space on ${cmux_next_host} (floor ${cmux_next_min_free_gib} GiB); building anyway" >&2
+elif (( cmux_next_free_gib < cmux_next_min_free_gib )); then
+  echo "warning: cmux-next floor: ${cmux_next_free_gib} GiB free on the home volume of ${cmux_next_host}, under the ${cmux_next_min_free_gib} GiB floor; building anyway" >&2
+  echo "         If the build runs out of space: skills/build-release/cleanup-dev-builds in cmuxterm-hq, or build on the fleet with cmux-ci." >&2
+else
+  echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB on ${cmux_next_host}"
 fi
 if [[ "${CMUX_ALLOW_LOW_SPACE_BUILD:-}" != "1" ]]; then
-  echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB; lifting the local build guard's 500 GiB floor for this build"
+  echo "==> cmux-next: lifting the local build guard's floor for this build"
   export CMUX_ALLOW_LOW_SPACE_BUILD=1
 fi
 if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
@@ -1800,39 +1808,14 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   echo "==> bench configuration: Release optimization with $CMUX_BENCH_SWIFT_DEFINES (no DEBUG)"
 fi
 if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
-  # Live code (Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode/LiveCode.swift): a patch replaces
-  # CmuxNextApp's functions, so that module is compiled unoptimized and testable (every function
-  # stays a real call with an exported symbol), and the app is linked with classic binds, its
-  # symbols exported and none stripped as unused. Every other module keeps the configuration's
-  # optimization. The log keeps each module's frontend command, which a patch is compiled with
-  # (scripts/live-code/patch.py).
-  # Interposable are only the symbols CMUX_LIVE_CODE_INTERPOSABLE_LIST names (the app's exported
-  # CmuxNextApp symbols, listed from a first link: scripts/measure/live-code-app.sh). A blanket
-  # `-interposable` also routes a whole-module build's hidden symbols (a file's private types,
-  # global across the module's object files but never exported) through dyld, which cannot find
-  # them, and the app does not launch. CmuxNextApp itself is compiled a file at a time for the same
-  # reason: whole-module, a private type's deinit or a value witness is a hidden global, and the
-  # app's binds to it stop the launch even with the list; a file at a time it stays file-local.
-  live_mode=wholemodule
-  [[ "$BUILD_CONFIGURATION" == "Debug" ]] && live_mode=singlefile
-  live_ldflags='$(inherited) -Xlinker -no_fixup_chains'
-  if [[ -n "${CMUX_LIVE_CODE_INTERPOSABLE_LIST:-}" ]]; then
-    live_ldflags+=" -Xlinker -interposable_list -Xlinker $CMUX_LIVE_CODE_INTERPOSABLE_LIST"
-  fi
-  # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
-  XCODEBUILD_ARGS+=(
-    EMIT_FRONTEND_COMMAND_LINES=YES
-    'SWIFT_OPTIMIZATION_LEVEL=$(CMUX_LIVE_CODE_OPT_$(TARGET_NAME):default=-O)'
-    CMUX_LIVE_CODE_OPT_CmuxNextApp=-Onone
-    'ENABLE_TESTABILITY=$(CMUX_LIVE_CODE_TESTABLE_$(TARGET_NAME):default=NO)'
-    CMUX_LIVE_CODE_TESTABLE_CmuxNextApp=YES
-    "SWIFT_COMPILATION_MODE=\$(CMUX_LIVE_CODE_MODE_\$(TARGET_NAME):default=$live_mode)"
-    CMUX_LIVE_CODE_MODE_CmuxNextApp=singlefile
-    LD_EXPORT_SYMBOLS=YES
-    DEAD_CODE_STRIPPING=NO
-    "OTHER_LDFLAGS=$live_ldflags"
-  )
-  echo "==> live code build: CmuxNextApp at -Onone, testable and a file at a time${CMUX_LIVE_CODE_INTERPOSABLE_LIST:+, interposable as listed in $CMUX_LIVE_CODE_INTERPOSABLE_LIST}"
+  # Live code: every CmuxNext target unoptimized, testable and a file at a time, linked so a patch
+  # can repoint it (scripts/live-code/lib/xcodebuild-args.sh, shared with the NIGHTLY variant).
+  # shellcheck source=scripts/live-code/lib/xcodebuild-args.sh
+  source "$SCRIPT_DIR/live-code/lib/xcodebuild-args.sh"
+  while IFS= read -r arg; do XCODEBUILD_ARGS+=("$arg"); done < <(
+    live_code_xcodebuild_args "$BUILD_CONFIGURATION" "${CMUX_LIVE_CODE_INTERPOSABLE_LIST:-}")
+  SWIFT_OTHER_FLAGS+=" $(live_code_swift_flags)"
+  echo "==> live code build: $(live_code_targets | wc -l | tr -d ' ') CmuxNext targets at -Onone, testable and a file at a time${CMUX_LIVE_CODE_INTERPOSABLE_LIST:+, interposable as listed in $CMUX_LIVE_CODE_INTERPOSABLE_LIST}"
 fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
@@ -1909,6 +1892,11 @@ if ! is_positive_integer "$XCODEBUILD_LOCK_WAIT_SECONDS"; then
   echo "error: xcodebuild lock wait timeout must be a positive integer" >&2
   exit 1
 fi
+# The commit and dirty state the build is made from, read before it starts: a checkout that moves
+# during the build must not stamp the app with a commit it was not built from (Info.plist below).
+build_commit="$(git rev-parse --verify -q HEAD 2>/dev/null || true)"
+build_dirty=false
+[[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]] && build_dirty=true
 # Xcode 26's SWBBuildService is a per-user singleton. Too many concurrent
 # xcodebuild invocations can trample that daemon, so cap reload.sh builds at
 # five per user while still allowing useful parallel tagged builds.
@@ -2139,6 +2127,15 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" "$INFO_PLIST"
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
       || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
+    # The commit the build was made from, as the nightly stamps it, plus whether tracked files had
+    # local changes then. try-pr sorts a PR against it (scripts/cmux-next/try-pr.sh), and crash
+    # reports name it (CrashReportIdentity).
+    /usr/libexec/PlistBuddy -c 'Delete :CMUXCommit' "$INFO_PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c 'Delete :CMUXCommitDirty' "$INFO_PLIST" 2>/dev/null || true
+    if [[ -n "$build_commit" ]]; then
+      /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $build_commit" "$INFO_PLIST"
+      /usr/libexec/PlistBuddy -c "Add :CMUXCommitDirty bool $build_dirty" "$INFO_PLIST"
+    fi
     if [[ -n "${TAG_SLUG:-}" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"

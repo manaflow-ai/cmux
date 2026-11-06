@@ -73,6 +73,7 @@ extension AgentTabStore {
         }
         model.header?.shown = { watch.current } // the palette's switches: the page's last state, no watch armed
         model.chatMenuItems = actions.menuItems
+        model.sessionMenuItems = actions.sessionMenuItems
         model.onSearchWeb = actions.searchWeb
     }
 
@@ -158,7 +159,7 @@ extension AgentTabStore {
             guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: locate) else { finished?(false); return }; created?(tab.key)
             // An unfocused (script) tab open, a subagent's in the right column's lower pane, leaves focus where it is.
             guard split else { if origin == .user { _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), origin: origin)) }; finished?(false); return }
-            _ = actionRegistry?.perform("tab.moveToNewSplit", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), arguments: ["direction": .string(direction), "keep_focus": .bool(origin == .script)], origin: origin)) // script: an unfocused subagent open
+            _ = actionRegistry?.perform("tab.moveToNewSplit", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), arguments: ["direction": .string(direction), "keepFocus": .bool(origin == .script)], origin: origin)) // script: an unfocused subagent open
             if let finished { finished(await TabMirror.reaches(tab.key, in: { [weak self] in self?.locate($0).flatMap { $0.pane != pane ? $0 : nil } })) } // stacking waits for the move
         }
         return true

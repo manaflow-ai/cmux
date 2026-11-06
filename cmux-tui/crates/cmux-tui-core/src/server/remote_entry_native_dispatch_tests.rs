@@ -138,6 +138,25 @@ fn native_owner_start_preserves_folder_trust() {
     );
 }
 
+/// `cmux cloud start-chat --prompt hi` with no `--cwd` on the owner's new machine (2026-11-06):
+/// the app reads `agent-session-start-no-cwd-v1` from identify on the Native owner link before it
+/// sends a start with no folder, so the machine makes `~/chats/<id>`. Identify on that link dropped
+/// it, and the app refused the start as "it needs a folder" without sending it (Leo, 2026-11-05:
+/// "it should be allowed to not pick a folder").
+#[test]
+fn native_owner_identify_lists_the_no_folder_start() {
+    assert!(native_owner::carries(AGENT_SESSION_START_NO_CWD_CAPABILITY));
+    let fake = FakeAcpmux::start("native-no-cwd");
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
+    let capabilities = identity["capabilities"].as_array().unwrap();
+    assert!(capabilities.contains(&json!(AGENT_SESSION_START_NO_CWD_CAPABILITY)), "{identity}");
+}
+
 #[test]
 fn team_missing_role_and_legacy_stamps_cannot_enter_native_owner_dispatch() {
     let issued_at_ms =
@@ -329,6 +348,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-run",
     "apps-set",
     "apps-store",
+    "apps-team-event",
     "apps-terminal-links",
     "apps-unmount",
     "browser-host-provider",
@@ -425,6 +445,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "set-terminal-keep",
     "set-workspace-metadata",
     "shutdown-daemon",
+    "terminal-last-command",
     "terminal-resources",
     "terminal-resume-command",
     "ungroup-screen-group",
