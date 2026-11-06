@@ -238,13 +238,11 @@ impl MachineSecrets {
         files::declared_names(&bytes).map(|names| names.into_iter().collect())
     }
 
-    /// Install one harness login (`claude` or `codex`).
-    pub fn install_harness_login(
-        &self,
-        item: &SealedSecret,
-        allow_team_guest: bool,
-    ) -> Result<String, RpcError> {
-        let result = self.install_inner(item, allow_team_guest);
+    /// Install one harness login (`claude` or `codex`), on an owner guest
+    /// only: a team guest's Unix user is every member's, and the daemon can't
+    /// tell the guest's creator from a teammate.
+    pub fn install_harness_login(&self, item: &SealedSecret) -> Result<String, RpcError> {
+        let result = self.install_inner(item);
         match &result {
             Ok(name) => self.log(&format!("secrets-v1: installed the {name} login")),
             Err(error) => self.log(&format!("secrets-v1: harness login refused ({error})")),
@@ -252,20 +250,12 @@ impl MachineSecrets {
         result
     }
 
-    fn install_inner(
-        &self,
-        item: &SealedSecret,
-        allow_team_guest: bool,
-    ) -> Result<String, RpcError> {
+    fn install_inner(&self, item: &SealedSecret) -> Result<String, RpcError> {
         let login =
             HarnessLogin::from_name(&item.name).ok_or_else(|| refused("bad-name", &item.name))?;
         let value = self.open(Purpose::HarnessLogin, item)?;
         login.validate(&value).map_err(|error| refused(error.code(), &item.name))?;
-        // A team guest's Unix user is every member's, and the daemon can't
-        // tell its creator from a teammate: only a DEV daemon build honors
-        // the DEV creator allowance. Every other build takes owner guests only.
-        let allow_team_guest = allow_team_guest && cfg!(debug_assertions);
-        harness::check_guest(&self.etc, login, allow_team_guest)
+        harness::check_guest(&self.etc, login)
             .map_err(|error| refused(error.code(), &item.name))?;
         let reservation = self.reserve(std::slice::from_ref(item))?;
         harness::install(&self.home, login, &value)

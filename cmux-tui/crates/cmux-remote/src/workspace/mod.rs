@@ -660,13 +660,11 @@ impl WorkspaceService {
                     .await
                     .map(|count| WorkspaceResponse::MachineSecretsReplaced { count })
             }
-            WorkspaceRequest::InstallHarnessLogin { item, allow_team_guest } => {
+            WorkspaceRequest::InstallHarnessLogin { item } => {
                 let secrets = self.secrets()?;
                 self.inner
                     .blocking
-                    .run("secrets-v1", move || {
-                        secrets.install_harness_login(&item, allow_team_guest)
-                    })
+                    .run("secrets-v1", move || secrets.install_harness_login(&item))
                     .await
                     .map(|name| WorkspaceResponse::HarnessLoginInstalled { name })
             }

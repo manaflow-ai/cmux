@@ -406,13 +406,10 @@ pub enum WorkspaceRequest {
         items: Vec<SealedSecret>,
     },
     /// `secrets-v1`: install one harness login (`claude` or `codex`) where the
-    /// harness reads it. Purpose `harness-login`.
+    /// harness reads it. Purpose `harness-login`. Owner guests only: a team
+    /// guest's Unix user is every member's.
     InstallHarnessLogin {
         item: SealedSecret,
-        /// DEV and dogfood builds only: a team guest whose creator is the
-        /// caller may take the login too. Off everywhere else.
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        allow_team_guest: bool,
     },
 }
 

@@ -35,8 +35,7 @@ pub enum LoginRefusal {
     /// `/etc/cmux/vm-kind` once it binds, which can land after the daemon
     /// starts. Retryable.
     NotReady,
-    /// The guest is not an owner guest (or a team guest when allowed), or the
-    /// image has no `agent-auth.sh`.
+    /// The guest is not an owner guest, or the image has no `agent-auth.sh`.
     NotOwnerGuest,
     /// A custom endpoint or key would receive the login.
     Conflict,
@@ -112,23 +111,18 @@ impl HarnessLogin {
     }
 }
 
-/// The guest's policy, read from its `/etc/cmux` folder: an owner guest (or
-/// a team guest when `allow_team_guest`), with the image's `agent-auth.sh`,
+/// The guest's policy, read from its `/etc/cmux` folder: an owner guest,
+/// with the image's `agent-auth.sh`,
 /// whose launch environment names no conflicting key or endpoint and doesn't
 /// pin this harness to the team's login.
-pub fn check_guest(
-    etc: &Path,
-    login: HarnessLogin,
-    allow_team_guest: bool,
-) -> Result<(), LoginRefusal> {
+pub fn check_guest(etc: &Path, login: HarnessLogin) -> Result<(), LoginRefusal> {
     let kind = std::fs::read_to_string(etc.join("vm-kind")).unwrap_or_default();
     let kind = kind.trim();
     if kind.is_empty() {
         return Err(LoginRefusal::NotReady);
     }
-    let kind_allowed = kind == "owner" || (allow_team_guest && kind == "team");
     let agent_auth = etc.join("agent-auth.sh");
-    if !kind_allowed || !agent_auth.is_file() {
+    if kind != "owner" || !agent_auth.is_file() {
         return Err(LoginRefusal::NotOwnerGuest);
     }
     // The launcher's own normalization (it drops cmux's model-plane values),

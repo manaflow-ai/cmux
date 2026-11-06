@@ -199,7 +199,7 @@ fn a_disallowed_name_is_refused() {
     }
     let error = fixture
         .secrets
-        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "bash", &value), false)
+        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "bash", &value))
         .unwrap_err();
     assert!(error.message.starts_with("bad-name"), "{error}");
     assert!(!fixture.home.join(files::MACHINE_SECRETS_FILE).exists());
@@ -283,7 +283,7 @@ fn a_claude_login_is_installed_0600_where_claude_reads_it() {
     std::fs::write(fixture.home.join(".claude/settings.json"), r#"{"theme":"dark"}"#).unwrap();
     let token = format!("sk-ant-oat01-{}", random_hex(24));
     let item = fixture.seal(Purpose::HarnessLogin, "claude", &token);
-    assert_eq!(fixture.secrets.install_harness_login(&item, false).unwrap(), "claude");
+    assert_eq!(fixture.secrets.install_harness_login(&item).unwrap(), "claude");
     let settings: serde_json::Value =
         serde_json::from_slice(&std::fs::read(fixture.home.join(".claude/settings.json")).unwrap())
             .unwrap();
@@ -303,7 +303,7 @@ fn a_claude_login_is_installed_0600_where_claude_reads_it() {
         "own\n"
     );
     // The same sealed login again is a replay.
-    let error = fixture.secrets.install_harness_login(&item, false).unwrap_err();
+    let error = fixture.secrets.install_harness_login(&item).unwrap_err();
     assert!(error.message.starts_with("replay"), "{error}");
     assert_no_value(&[&token], &fixture.logs());
 }
@@ -321,7 +321,7 @@ fn a_codex_login_is_installed_0600() {
     })
     .to_string();
     let item = fixture.seal(Purpose::HarnessLogin, "codex", &auth);
-    assert_eq!(fixture.secrets.install_harness_login(&item, false).unwrap(), "codex");
+    assert_eq!(fixture.secrets.install_harness_login(&item).unwrap(), "codex");
     let path = fixture.home.join(".codex/auth.json");
     assert_eq!(mode(&path), 0o600);
     let written: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
@@ -335,7 +335,7 @@ fn a_login_is_refused_off_an_owner_guest_or_next_to_a_custom_endpoint() {
     std::fs::write(fixture.etc.join("vm-kind"), "team\n").unwrap();
     let error = fixture
         .secrets
-        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "claude", &token()), false)
+        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "claude", &token()))
         .unwrap_err();
     assert!(error.message.starts_with("not-owner-guest"), "{error}");
     assert!(!error.retryable);
@@ -343,15 +343,22 @@ fn a_login_is_refused_off_an_owner_guest_or_next_to_a_custom_endpoint() {
     std::fs::remove_file(fixture.etc.join("vm-kind")).unwrap();
     let error = fixture
         .secrets
-        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "claude", &token()), false)
+        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "claude", &token()))
         .unwrap_err();
     assert!(error.message.starts_with("not-ready") && error.retryable, "{error}");
+    // A team guest never takes a login, whatever an older client asks.
     std::fs::write(fixture.etc.join("vm-kind"), "team\n").unwrap();
-    // The DEV creator allowance lets a team guest through (test builds are DEV builds).
-    fixture
-        .secrets
-        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "claude", &token()), true)
-        .unwrap();
+    let team: cmux_remote_protocol::WorkspaceRequest = serde_json::from_value(serde_json::json!({
+        "type": "install-harness-login",
+        "item": fixture.seal(Purpose::HarnessLogin, "claude", &token()),
+        "allow_team_guest": true,
+    }))
+    .unwrap();
+    let cmux_remote_protocol::WorkspaceRequest::InstallHarnessLogin { item } = team else {
+        panic!("not a login request");
+    };
+    let error = fixture.secrets.install_harness_login(&item).unwrap_err();
+    assert!(error.message.starts_with("not-owner-guest"), "{error}");
     std::fs::write(fixture.etc.join("vm-kind"), "owner\n").unwrap();
     std::fs::write(
         fixture.home.join(".claude/settings.json"),
@@ -360,15 +367,12 @@ fn a_login_is_refused_off_an_owner_guest_or_next_to_a_custom_endpoint() {
     .unwrap();
     let error = fixture
         .secrets
-        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "claude", &token()), false)
+        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "claude", &token()))
         .unwrap_err();
     assert!(error.message.starts_with("conflict"), "{error}");
     let error = fixture
         .secrets
-        .install_harness_login(
-            &fixture.seal(Purpose::HarnessLogin, "claude", "not-a-token-at-all"),
-            false,
-        )
+        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "claude", "not-a-token-at-all"))
         .unwrap_err();
     assert!(error.message.starts_with("invalid-credential"), "{error}");
 }
@@ -381,7 +385,7 @@ fn no_value_reaches_a_log_line_or_an_error() {
     let mut texts = Vec::new();
     let ok = fixture.seal(Purpose::Secret, "DEMO_KEY", &value);
     texts.push(format!("{ok:?}"));
-    fixture.secrets.replace_machine_secrets(&[ok.clone()]).unwrap();
+    fixture.secrets.replace_machine_secrets(std::slice::from_ref(&ok)).unwrap();
     for result in [
         fixture.secrets.replace_machine_secrets(&[ok]),
         fixture.secrets.replace_machine_secrets(&[fixture.seal(Purpose::Secret, "PATH", &value)]),
@@ -399,7 +403,7 @@ fn no_value_reaches_a_log_line_or_an_error() {
     std::fs::write(fixture.etc.join("vm-kind"), "team\n").unwrap();
     let error = fixture
         .secrets
-        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "claude", &token), false)
+        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "claude", &token))
         .unwrap_err();
     texts.push(format!("{error:?}"));
     texts.push(format!("{:?}", fixture.secrets));
@@ -429,20 +433,16 @@ fn requests_built_on_the_device_open_on_the_machine() {
         MACHINE,
         "claude",
         token.as_bytes(),
-        false,
     )
     .unwrap();
-    let cmux_remote_protocol::WorkspaceRequest::InstallHarnessLogin { item, allow_team_guest } =
-        request
-    else {
+    let cmux_remote_protocol::WorkspaceRequest::InstallHarnessLogin { item } = request else {
         panic!("not a login request");
     };
-    assert_eq!(fixture.secrets.install_harness_login(&item, allow_team_guest).unwrap(), "claude");
+    assert_eq!(fixture.secrets.install_harness_login(&item).unwrap(), "claude");
     // The serialized request carries no value.
     let wire =
         serde_json::to_string(&cmux_remote_protocol::WorkspaceRequest::InstallHarnessLogin {
             item,
-            allow_team_guest,
         })
         .unwrap();
     assert!(!wire.contains(&token) && !wire.contains(&value));
@@ -501,7 +501,7 @@ fn a_codex_config_that_can_reach_another_provider_refuses_the_login() {
         std::fs::write(fixture.home.join(".codex/config.toml"), config).unwrap();
         let error = fixture
             .secrets
-            .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "codex", &auth), false)
+            .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "codex", &auth))
             .unwrap_err();
         assert!(error.message.starts_with("conflict"), "{config}: {error}");
     }
@@ -513,7 +513,7 @@ fn a_codex_config_that_can_reach_another_provider_refuses_the_login() {
     .unwrap();
     fixture
         .secrets
-        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "codex", &auth), false)
+        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "codex", &auth))
         .unwrap();
     // What the devbox image writes (agent-config.sh): its own provider, which
     // never takes the OpenAI login.
@@ -528,6 +528,6 @@ fn a_codex_config_that_can_reach_another_provider_refuses_the_login() {
     .unwrap();
     fixture
         .secrets
-        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "codex", &auth), false)
+        .install_harness_login(&fixture.seal(Purpose::HarnessLogin, "codex", &auth))
         .unwrap();
 }

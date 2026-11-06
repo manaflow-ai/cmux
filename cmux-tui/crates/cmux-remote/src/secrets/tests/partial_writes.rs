@@ -60,12 +60,12 @@ fn a_login_that_fails_on_any_write_changes_nothing_and_can_be_sent_again() {
     // Three files: three staged writes, then three renames.
     for step in 0..6 {
         let _fail = FailAt::set(Some(step));
-        let error = fixture.secrets.install_harness_login(&item, false).unwrap_err();
+        let error = fixture.secrets.install_harness_login(&item).unwrap_err();
         assert!(error.message.starts_with("write"), "step {step}: {error}");
         assert_eq!(snapshot(&fixture.home), before, "step {step} changed a live file");
     }
     // The same sealed login, sent again, installs.
-    assert_eq!(fixture.secrets.install_harness_login(&item, false).unwrap(), "claude");
+    assert_eq!(fixture.secrets.install_harness_login(&item).unwrap(), "claude");
     let after = snapshot(&fixture.home);
     assert_eq!(after.len(), before.len(), "a temporary or backup was left: {:?}", after.keys());
     let credentials: serde_json::Value =
@@ -73,7 +73,7 @@ fn a_login_that_fails_on_any_write_changes_nothing_and_can_be_sent_again() {
     assert_eq!(credentials["claudeAiOauth"]["accessToken"], token.as_str());
     assert_eq!(after[".config/cmux/agent-auth/claude"], b"own\n");
     // A second success is still a replay.
-    let error = fixture.secrets.install_harness_login(&item, false).unwrap_err();
+    let error = fixture.secrets.install_harness_login(&item).unwrap_err();
     assert!(error.message.starts_with("replay"), "{error}");
 }
 
@@ -94,11 +94,11 @@ fn a_first_login_that_fails_partway_leaves_no_new_file() {
     // Two files: two staged writes, then two renames.
     for step in 0..4 {
         let _fail = FailAt::set(Some(step));
-        let error = fixture.secrets.install_harness_login(&item, false).unwrap_err();
+        let error = fixture.secrets.install_harness_login(&item).unwrap_err();
         assert!(error.message.starts_with("write"), "step {step}: {error}");
         assert_eq!(snapshot(&fixture.home), before, "step {step} left a file");
     }
-    assert_eq!(fixture.secrets.install_harness_login(&item, false).unwrap(), "codex");
+    assert_eq!(fixture.secrets.install_harness_login(&item).unwrap(), "codex");
     assert!(fixture.home.join(".codex/auth.json").is_file());
 }
 
