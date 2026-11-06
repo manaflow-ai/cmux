@@ -1635,7 +1635,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextLayout",
-            // CCmuxAppFFI: the keyboard resize rules (cmux-layout-reducer shown_resize).
+            // CCmuxAppFFI: the springing-close rules (cmux-layout-reducer closing_panes) and the keyboard
+            // resize rules (cmux-layout-reducer shown_resize).
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CCmuxAppFFI"],
             resources: [
                 .process("Resources"),

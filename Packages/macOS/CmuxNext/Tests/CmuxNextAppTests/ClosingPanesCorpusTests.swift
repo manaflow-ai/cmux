@@ -3,7 +3,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-/// The rules of a springing close (`ClosingPanesRules`: which panes border a closing pane, the gaps it keeps, where each
+/// The rules of a springing close (`ClosingPanesRules`, now the C calls `cmux_closing_panes_*`: which panes border a closing pane, the gaps it keeps, where each
 /// side shows per frame, the camera carries, the panes nothing moves over and a taken-back close's velocities) over
 /// seeded scripts of closes, against the answers recorded in
 /// `cmux-tui/crates/cmux-layout-reducer/tests/data/closing_panes_corpus.txt`. The Rust port (cmux-layout-reducer
@@ -30,9 +30,9 @@ struct ClosingPanesCorpusTests {
                      "# (exact), answers and state are f64 bit patterns in hex, - is none. See ClosingPanesCorpusTests.swift."]
         var random = ClosingPanesRandom(seed: 0xC105_E2026_1104)
         for _ in 0 ..< 160 {
-            var rules = ClosingPanesRules()
+            let rules = ClosingPanesRules()
             lines.append("S")
-            for op in Self.script(&random) { lines.append(Self.line(op, &rules)) }
+            for op in Self.script(&random) { lines.append(Self.line(op, rules)) }
         }
         try FileManager.default.createDirectory(at: Self.fixture.deletingLastPathComponent(), withIntermediateDirectories: true)
         try (lines.joined(separator: "\n") + "\n").write(to: Self.fixture, atomically: true, encoding: .utf8)
@@ -53,7 +53,7 @@ struct ClosingPanesCorpusTests {
             try #require(parts.count == 2, "bad line: \(raw)")
             var fields = Fields(parts[0])
             let op = try Self.read(&fields)
-            let got = Self.line(op, &rules).components(separatedBy: " => ")[1]
+            let got = Self.line(op, rules).components(separatedBy: " => ")[1]
             #expect(got == parts[1], "\(parts[0].prefix(120))")
             let kind = String(parts[0].prefix(1))
             calls[kind, default: 0] += 1
@@ -83,7 +83,7 @@ struct ClosingPanesCorpusTests {
     }
 
     /// `op`'s inputs, the answer `rules` gives and the hash of its state after the call.
-    static func line(_ op: Op, _ rules: inout ClosingPanesRules) -> String {
+    static func line(_ op: Op, _ rules: ClosingPanesRules) -> String {
         let inputs: [String], answer: String
         switch op {
         case let .begin(pane, shown, maxGap, viewShift, panes, handles):
@@ -129,31 +129,10 @@ struct ClosingPanesCorpusTests {
         return inputs.joined(separator: " ") + " => " + answer + " " + state(rules)
     }
 
-    /// The whole state of `rules` as one string (every entry by pane, each side's neighbours, gap, place, travel start and
-    /// end, the carry and the row travel; the close order and the panes awaiting the cameras), hashed (FNV-1a, 64 bits).
-    /// `closing_panes_corpus` builds the same string.
-    static func state(_ rules: ClosingPanesRules) -> String {
-        func side(_ side: ClosingPanesRules.Side) -> String {
-            [side.neighbours.map(String.init).joined(separator: ","), hex(side.gap), hex(side.fixed), side.start.map(hex) ?? "-",
-             side.end.map(hex) ?? "-"].joined(separator: ";")
-        }
-        var text = ""
-        for pane in rules.entries.keys.sorted() {
-            guard let entry = rules.entries[pane] else { continue }
-            let carried = entry.carriedShown.map { hex($0.minX) + "," + hex($0.maxX) } ?? "-"
-            let travel = entry.rowTravel.map { hex($0.start) + "," + hex($0.target) } ?? "-"
-            text += ["\(pane)", side(entry.minX), side(entry.maxX), side(entry.minY), side(entry.maxY), flag(entry.scrolls),
-                     "\(entry.rowColumn)", carried, travel].joined(separator: "|") + "\n"
-        }
-        text += "order:" + rules.order.map(String.init).joined(separator: ",") + "\n"
-        text += "await:" + rules.awaiting.sorted().map(String.init).joined(separator: ",") + "\n"
-        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
-        for byte in text.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x0000_0100_0000_01B3
-        }
-        return String(hash, radix: 16)
-    }
+    /// The hash of the whole state of `rules` after a call (cmux-layout-reducer `ClosingPanes::state_hash`: every side,
+    /// travel and carry, the close order and the panes awaiting the cameras), as the Swift rules hashed it when they
+    /// recorded the corpus.
+    static func state(_ rules: ClosingPanesRules) -> String { String(rules.stateHash, radix: 16) }
 
     // MARK: Reading a line
 
