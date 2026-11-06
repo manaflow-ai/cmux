@@ -541,26 +541,26 @@ fn machine_help_names_every_new_verb_and_the_old_spellings() {
     assert!(text.contains("cmux vm"), "{text}");
 }
 
-fn route(words: &[&str], credential: bool, app: bool) -> NewRoute {
+fn route(words: &[&str], app: bool) -> NewRoute {
     let all = args(words);
     let (scope, rest) = split(&all).expect("a machine command");
-    new_route(scope, &rest[1..], || credential, app)
+    new_route(scope, &rest[1..], app)
 }
 
-/// `cmux machine new` makes the app's Cloud machine when the app is here
-/// and the caller has no VM API key; a key, a VM-API-only flag, no app, or
-/// the old `vm new` keeps the VM API, as it ran before.
+/// `cmux machine new` makes the app's Cloud machine when the app is here, a
+/// stored VM API key or not: Leo's nightly died on an expired one (2026-11-06,
+/// "`cmux machine new` ignores the signed-in app"). A VM-API-only flag, no app,
+/// or the old `vm new` keeps the VM API.
 #[test]
 fn machine_new_goes_to_the_app_unless_the_vm_api_is_asked_for() {
-    assert_eq!(route(&["machine", "new"], false, true), NewRoute::App);
-    assert_eq!(route(&["machine", "create", "--name", "a"], false, true), NewRoute::App);
-    assert_eq!(route(&["machine", "new", "--size=medium"], true, false), NewRoute::App);
-    assert_eq!(route(&["machine", "new", "--persistent"], true, true), NewRoute::App);
-    assert_eq!(route(&["machine", "new"], true, true), NewRoute::VmApi);
-    assert_eq!(route(&["machine", "new"], false, false), NewRoute::VmApi);
-    assert_eq!(route(&["machine", "new", "--snapshot", "snap_1"], false, true), NewRoute::VmApi);
-    assert_eq!(route(&["machine", "new", "--team=t"], false, true), NewRoute::VmApi);
-    assert_eq!(route(&["vm", "new", "--size", "small"], false, true), NewRoute::VmApi);
+    assert_eq!(route(&["machine", "new"], true), NewRoute::App);
+    assert_eq!(route(&["machine", "create", "--name", "a"], true), NewRoute::App);
+    assert_eq!(route(&["machine", "new", "--size=medium"], false), NewRoute::App);
+    assert_eq!(route(&["machine", "new", "--persistent"], true), NewRoute::App);
+    assert_eq!(route(&["machine", "new"], false), NewRoute::VmApi);
+    assert_eq!(route(&["machine", "new", "--snapshot", "snap_1"], true), NewRoute::VmApi);
+    assert_eq!(route(&["machine", "new", "--team=t"], true), NewRoute::VmApi);
+    assert_eq!(route(&["vm", "new", "--size", "small"], true), NewRoute::VmApi);
 }
 
 #[test]
@@ -656,4 +656,15 @@ fn machine_new_help_with_other_options_prints_help() {
 fn machine_new_help_does_not_say_a_default_machine_pauses() {
     assert!(!NEW_HELP.contains("pauses when idle"), "{NEW_HELP}");
     assert!(NEW_HELP.contains("keeps running when idle"), "{NEW_HELP}");
+}
+
+/// A `--socket` that is a daemon's, not the app's, is no app for `machine new`: it takes the VM API
+/// instead of failing on the app action (review of #37024).
+#[test]
+fn a_daemon_socket_is_no_app_for_machine_new() {
+    assert!(app_present(true, false, || false, || false));
+    assert!(app_present(false, true, || true, || false));
+    assert!(!app_present(false, true, || false, || true), "a daemon socket, though the app runs");
+    assert!(app_present(false, false, || false, || true));
+    assert!(!app_present(false, false, || false, || false));
 }

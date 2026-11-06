@@ -54,7 +54,7 @@ import Testing
         }
 
         func sections(_ rows: SidebarMapping.RowSource? = nil,
-                      workspaceFilter: (WorkspaceModel) -> Bool = { _ in true }) -> [SidebarRowSection] {
+                      workspaceFilter: @escaping (WorkspaceModel) -> Bool = { _ in true }) -> [SidebarRowSection] {
             SidebarMapping.shared.sections(store.sidebarSections, machine: SidebarMachine(id: .local, name: "This Mac", kind: .local),
                                            rowSource: SidebarLaneStatus.applying(rows, lanes: lanes, turns: turns),
                                            workspaceFilter: workspaceFilter)

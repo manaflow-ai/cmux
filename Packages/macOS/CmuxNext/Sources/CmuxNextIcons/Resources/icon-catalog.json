@@ -1984,6 +1984,12 @@
    "family": "tool"
   },
   {
+   "name": "tool.thought",
+   "meaning": "A thought (the agent's reasoning)",
+   "sf": "questionmark.square.dashed",
+   "family": "tool"
+  },
+  {
    "name": "tool.web",
    "meaning": "Transcript tool row: web fetch / browser.",
    "sf": "questionmark.square.dashed",

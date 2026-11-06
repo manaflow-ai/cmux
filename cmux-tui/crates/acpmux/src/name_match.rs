@@ -25,7 +25,10 @@ pub fn step(name: &str, key: &str) -> Option<Step> {
     } else if name.eq_ignore_ascii_case(key) {
         Some(Step::Case)
     } else if name.len() > key.len()
-        && name.as_bytes()[..key.len()].eq_ignore_ascii_case(key.as_bytes())
+        && name
+            .as_bytes()
+            .get(..key.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(key.as_bytes()))
     {
         Some(Step::Prefix)
     } else if folded(key).next().is_some() && folded(name).eq(folded(key)) {

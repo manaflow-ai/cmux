@@ -28,6 +28,7 @@ import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
 import type { NextStepAsk } from "./conversation/nextStepAsk";
+import { webSources } from "./conversation/webSourceList";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
@@ -399,6 +400,12 @@ export type AcpmuxRow = {
   items?: AcpmuxActivity[];
   /// A plan row's todo list (cx-ncc.80): the agent's latest `plan` update in its turn.
   plan?: AcpmuxPlanEntry[];
+  /// A plan row that stands for an earlier turn's list under the running turn (turns.ts
+  /// `earlierTurnPlan`): it reads as from before the person's last message, and nothing spins.
+  planEarlier?: boolean;
+  /// A plan row whose list a later turn cleared before writing one of its own (an empty `plan`,
+  /// direct.ts): it stays folded in its own turn but no longer carries over (turns.ts `earlierTurnPlan`).
+  planCleared?: boolean;
   /// A background task row's shell, which ended where the row sits (cx-ncc.84).
   backgroundTask?: AcpmuxBackgroundTask;
   /// A compaction row's compaction, noted where it happened.
@@ -988,6 +995,9 @@ export type AcpmuxSnapshot = {
   sessions: AcpmuxSessionEntry[];
   /// Who else has a shared chat open and who of them types (multiplayer/participants.ts).
   presence?: ChatPresence;
+  /// A Fork Conversation acpmux has not answered yet, since when (Unix ms): the line above the
+  /// composer with its Cancel (ForkPendingLine.tsx).
+  forkPending?: { since: number };
   /// Present only when an acpmux workflow event is available; the Labs surface stays hidden otherwise.
   workflow?: AcpmuxWorkflowWire;
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
@@ -1360,6 +1370,8 @@ const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
 const TOOL_ROW_PT = 22;
+/// The gap under "Worked for"'s rule (Lucas, 2026-11-06), conversation.css `.cv-worked.has-divider.is-toggle`.
+const WORKED_GAP_PT = gridLength("gap");
 const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
@@ -1446,8 +1458,10 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
     case "move":
     case "fileChange":
     case "search":
-    case "fetch":
       return toolRowHeight();
+    // A web call's sources chip draws one 24px line under it, 4px below (WebSources.tsx).
+    case "fetch":
+      return toolRowHeight() + (webSources(tool).length ? 28 : 0);
     default:
       return 26;
   }
@@ -1694,7 +1708,6 @@ const isStatusKind = (row: AcpmuxRow) =>
   row.kind === "failover" ||
   row.kind === "policyUnenforced" ||
   row.kind === "agentPair" ||
-  row.kind === "sessionStart" ||
   row.kind === BACKGROUND_TURN ||
   row.kind === TASK_LINE ||
   row.kind === MESSAGE_RUN ||
@@ -1789,8 +1802,9 @@ export const isLineRow = (row: AcpmuxRow) =>
   row.kind === PENDING_MESSAGES ||
   (row.kind === "user" && !row.received && isIncomingRunLine(row.incoming?.kind));
 const isIncomingRunLine = (kind: string | undefined) => isIncomingLine(kind) || kind === "inbox";
-/// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
-const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
+/// A row that draws nothing: a turn's bookkeeping (conversation/turns.ts), or a session start
+/// (rows/SessionStartRow.tsx), which the transcript no longer draws.
+const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden" || row.kind === "sessionStart";
 /// The row after `index` that draws something.
 export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
   for (let next = index + 1; next < rows.length; next += 1) if (!drawsNothing(rows[next]!)) return rows[next];
@@ -1948,7 +1962,8 @@ function fallbackRowHeight(
   if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(footerRow());
   // A finished work disclosure is one activity line, including when opened. Its estimate and
   // MARK_STEP use the same 22px rhythm as the calls it reveals (transcript-spacing.md rule 3).
-  if (row.kind === WORKED) return finish(toolRowHeight());
+  // Plus the grid gap under its rule before the fold's rows (conversation.css `.cv-worked.has-divider`).
+  if (row.kind === WORKED) return finish(toolRowHeight() + WORKED_GAP_PT * chromeScale);
   if (row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
   // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.
@@ -1999,13 +2014,14 @@ function fallbackRowHeight(
         Math.max(1, Math.ceil((row.recap?.text.length ?? 0) / Math.max(24, Math.floor(width / 8) - 6))) *
           metrics().lineHeight,
     );
-  // A session start: its facts line (conversation/SessionStartNote.tsx); the full facts open
-  // below when asked.
-  if (row.kind === "sessionStart") return finish(toolRowHeight());
+  // A session start draws nothing (rows/SessionStartRow.tsx): no height, no gap.
+  if (row.kind === "sessionStart") return finish(0);
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   // Ended, it folds to its one 24px progress line unless the reader opened it, which adds the items.
   if (row.kind === "plan" && row.plan) {
     const items = row.plan.length * 24;
+    // An earlier turn's list adds its one "from before your last message" line.
+    if (row.planEarlier) return finish(40 + 24 + items);
     return finish(40 + (row.turnEnded ? 24 + (planOpen(row.id) ? items : 0) : items));
   }
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover

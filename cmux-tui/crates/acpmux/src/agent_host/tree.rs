@@ -99,6 +99,28 @@ pub fn kill_still_running(procs: &[Started]) {
     }
 }
 
+/// SIGTERM each of `procs` whose argv `pick` takes, if it still runs as the same process (pid
+/// and start time); returns the pid and argv of each one signalled (`hub/silent_listing.rs`).
+pub fn terminate_picked(
+    procs: &[Started],
+    pick: impl Fn(&[String]) -> bool,
+) -> Vec<(u32, Vec<String>)> {
+    let mut ended = Vec::new();
+    for p in procs {
+        let Some(args) = argv(p.pid).filter(|a| pick(a)) else { continue };
+        let table = process_table();
+        if !table.iter().any(|now| now.pid == p.pid && now.start == p.start) {
+            continue;
+        }
+        let Ok(pid) = i32::try_from(p.pid) else { continue };
+        // SAFETY: the pid runs with the start time it had when `procs` was read.
+        if unsafe { libc::kill(pid, libc::SIGTERM) } == 0 {
+            ended.push((p.pid, args));
+        }
+    }
+    ended
+}
+
 /// A live process running under a harness, for the idle census (`hub/idle_census.rs`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Under {

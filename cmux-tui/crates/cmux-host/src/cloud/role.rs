@@ -676,7 +676,14 @@ impl Worker {
         let words: Vec<String> = take_lines(&mut self.control_buf);
         for word in words {
             match word.as_str() {
-                "stop" => return Ok(true),
+                "stop" => {
+                    // cmux-host is stopping (a restart, an update): the relay's chats keep their turns in acpmux,
+                    // and the next cmux-host reattaches. Dropping the Relay instead (a rebind) cancels them.
+                    if let Some(relay) = self.relay.take() {
+                        relay.detach();
+                    }
+                    return Ok(true);
+                }
                 "resume" => {
                     // Connections from before a pause are stale, and the guest's clock did not count the pause, so
                     // nothing here would notice for a minute: the relay dials again before a chat can go down its
