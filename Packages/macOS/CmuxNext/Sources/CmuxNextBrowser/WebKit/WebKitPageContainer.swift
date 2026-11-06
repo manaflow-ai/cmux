@@ -78,12 +78,33 @@ final class WebKitPageContainer: NSView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        if emulation != nil { placeEmulatedPage() }
+        if emulation != nil, !isHidden { placeEmulatedPage() }
     }
 
     override func resizeSubviews(withOldSize oldSize: NSSize) {
+        // A parked page (hidden in its pane's page area, `BrowserPageArea`) does no view work the person cannot see: only
+        // its container follows the page area; the web view (and an attached inspector) take the container's size once,
+        // when it shows again (`isHidden`), not once per frame of every resize meanwhile.
+        if isHidden {
+            if parkedFromSize == nil { parkedFromSize = oldSize }
+            return
+        }
         guard emulation != nil, pageAlone else { return super.resizeSubviews(withOldSize: oldSize) }
         placeEmulatedPage()
+    }
+
+    /// The container's size when a resize first reached it while parked; nil when its subviews have its size.
+    private var parkedFromSize: NSSize?
+
+    /// Shown again: the one resize it left alone while parked runs now, in the same turn as the show, so the page is at
+    /// its page area's size in the frame it shows in. (`viewDidUnhide` is not used: the catch-up must not depend on when
+    /// AppKit sends it.)
+    override var isHidden: Bool {
+        didSet {
+            guard !isHidden, oldValue, let size = parkedFromSize else { return }
+            parkedFromSize = nil
+            resizeSubviews(withOldSize: size)
+        }
     }
 
     private var isScaledForEmulation = false
