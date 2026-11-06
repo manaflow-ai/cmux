@@ -163,6 +163,10 @@ final class CEFPaneHost {
             // it in the opener's pane. It moves into this host's window.
             ensureOwnWindow(for: tab)
         } else {
+            // Shown in this turn with its input window out of the window: that window comes in after this turn's frame.
+            if tab.appearedThisTurn, !hostView.isHidden {
+                hostView.layerHosting.pageAppeared(windowInWindow: tab.pageWindow != nil) { [weak tab] in tab?.grantPendingFocusIfShown() }
+            }
             showBrowser(of: tab)
             tab.grantPendingFocusIfShown()
         }

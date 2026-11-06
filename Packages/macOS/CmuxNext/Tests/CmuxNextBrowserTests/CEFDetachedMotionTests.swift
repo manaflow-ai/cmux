@@ -181,4 +181,73 @@ import Testing
         hosting.resizeMotion(active: false)
         #expect(!hosting.isDetached)
     }
+
+    // MARK: The frame a page shows in (SWITCH STALL 5)
+
+    /// A hosted page whose blocks after the commit the test runs (``CEFLayerHosting/pageAppeared(windowInWindow:then:)``).
+    func shownPage() -> (CEFLayerHosting, commit: @MainActor () -> Void) {
+        var blocks: [@MainActor @Sendable () -> Void] = []
+        var committed: [@MainActor @Sendable () -> Void] = []
+        let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { blocks.append($0) },
+                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
+                                      holdsFocus: { false }, afterCommit: { committed.append($0) })
+        hosting.view = view
+        hosting.pageWindowCreated(browser: 4, fork: fake.fork)
+        for block in blocks { block() }
+        #expect(hosting.page != nil)
+        return (hosting, {
+            let pass = committed
+            committed.removeAll()
+            for block in pass { block() }
+        })
+    }
+
+    /// Cmd-N's page shows in the key's turn with its window out of the window: detached in that turn (no window order
+    /// before the first frame), attached after its commit, and the focus grant comes one pass later, after the fork's
+    /// order-in. A grant asked meanwhile waits.
+    @Test func aPageShownWithItsWindowOutAttachesAfterTheCommitAndGrantsAfterTheAttach() {
+        let (hosting, commit) = shownPage()
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: false) { grants += 1 }
+        #expect(calls == ["4:detach"])
+        #expect(hosting.pageTakesFocus(), "no window to make key in the turn it showed")
+        commit()
+        #expect(calls == ["4:detach", "4:attach"])
+        #expect(grants == 0, "the fork orders the window in at its next observer")
+        #expect(hosting.pageTakesFocus())
+        commit()
+        #expect(grants == 1)
+        #expect(!hosting.pageTakesFocus() && !hosting.isDetached && hosting.firstFrameHold == .none)
+    }
+
+    /// A page whose window is already in the window (a tab switch inside its pane) is left alone.
+    @Test func aPageShownWithItsWindowInIsLeftAlone() {
+        let (hosting, commit) = shownPage()
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: true) { grants += 1 }
+        commit()
+        #expect(calls.isEmpty && grants == 0 && hosting.firstFrameHold == .none)
+    }
+
+    /// A motion that began before the commit owns the detached page: no attach at the commit, one at the landing.
+    @Test func aMotionStartedInTheShowTurnAttachesOnlyAtItsLanding() {
+        let (hosting, commit) = shownPage()
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: false) { grants += 1 }
+        hosting.resizeMotion(active: true)
+        commit()
+        #expect(calls == ["4:detach"] && grants == 1 && hosting.isDetached)
+        hosting.resizeMotion(active: false)
+        #expect(calls == ["4:detach", "4:attach"])
+    }
+
+    /// The page window closed before the commit: nothing reaches the fork for it after.
+    @Test func aPageWindowClosedBeforeTheCommitIsNotAttached() {
+        let (hosting, commit) = shownPage()
+        hosting.pageAppeared(windowInWindow: false) {}
+        hosting.stop()
+        commit()
+        commit()
+        #expect(calls == ["4:detach"] && hosting.firstFrameHold == .none)
+    }
 }
