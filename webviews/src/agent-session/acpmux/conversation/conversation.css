@@ -5869,12 +5869,15 @@ a.cv-sha:focus-visible {
 }
 .acpmux-scroll[data-fade-top],
 .acpmux-scroll[data-fade-bottom],
-.acpmux-scroll[data-docked] {
+.acpmux-scroll[data-docked],
+.acpmux-scroll[data-pinned-top] {
   --acpmux-view-foot: calc(100% - var(--acpmux-dock-space, 0px));
+  /* --acpmux-view-top: a pinned line over the top (a subagent's "Subagent of" pill, App.tsx
+     VirtualTranscript): rows are out of sight under it, and the soft edge starts below it. */
   --acpmux-view-mask: linear-gradient(
     to bottom,
-    transparent,
-    #000 var(--acpmux-fade-top, 0px),
+    transparent var(--acpmux-view-top, 0px),
+    #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px)),
     #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
     transparent var(--acpmux-view-foot)
   );

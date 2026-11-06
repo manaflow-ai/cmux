@@ -255944,7 +255944,140 @@
           }
         }
       }
-    }
+    },
+    "sessionInfo.list.showMore": {
+      "comment": "Agent pane Session Info, Sources and Outputs: under the first rows of a list, opens the {n} more rows it holds back",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض {n} أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži još {n}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis {n} mere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} weitere anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show {n} more"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar {n} más"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher {n} de plus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra altri {n}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "さらに {n} 件を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ {n} ទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n}개 더 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis {n} til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż jeszcze {n}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar mais {n}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать ещё {n}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงอีก {n} รายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} tane daha göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати ще {n}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện thêm {n}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再显示 {n} 个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再顯示 {n} 個"
+          }
+        }
+      }
+    },
+    "sessionInfo.none": {"comment":"Agent pane Session Info: a section's value when it has nothing to list yet (Usage before the chat's spend is read, Connectors with none)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"None"}},"ar":{"stringUnit":{"state":"translated","value":"لا شيء"}},"bs":{"stringUnit":{"state":"translated","value":"Nema"}},"da":{"stringUnit":{"state":"translated","value":"Ingen"}},"de":{"stringUnit":{"state":"translated","value":"Keine"}},"es":{"stringUnit":{"state":"translated","value":"Ninguno"}},"fr":{"stringUnit":{"state":"translated","value":"Aucun"}},"it":{"stringUnit":{"state":"translated","value":"Nessuno"}},"ja":{"stringUnit":{"state":"translated","value":"なし"}},"km":{"stringUnit":{"state":"translated","value":"គ្មាន"}},"ko":{"stringUnit":{"state":"translated","value":"없음"}},"nb":{"stringUnit":{"state":"translated","value":"Ingen"}},"pl":{"stringUnit":{"state":"translated","value":"Brak"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Nenhum"}},"ru":{"stringUnit":{"state":"translated","value":"Нет"}},"th":{"stringUnit":{"state":"translated","value":"ไม่มี"}},"tr":{"stringUnit":{"state":"translated","value":"Yok"}},"uk":{"stringUnit":{"state":"translated","value":"Немає"}},"vi":{"stringUnit":{"state":"translated","value":"Không có"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"無"}}}}
   },
   "version": "1.0"
 }
