@@ -65,7 +65,9 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
     });
   }
   const react = createRoot(root);
-  const spans = kind === "updated" && client ? new SpanNotes(client, () => render(latest)) : null;
+  // Both surfaces read the notes of every build the update spans: the card sums them up, the
+  // popover lists every change (Leo 2026-11-05: "i can't even scroll through the changes").
+  const spans = client ? new SpanNotes(client, () => render(latest)) : null;
   let latest: UpdateHighlights | null = null;
   const render = (data: UpdateHighlights | null) => {
     latest = data;
@@ -76,7 +78,12 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
       react.render(
         <UiProvider container={root} dir={languageDirection(strings.language)} overlayPosition="fixed">
           {data === null ? null : kind === "ready" ? (
-            <UpdateReadyHighlights data={data} strings={strings} actions={actions} />
+            <UpdateReadyHighlights
+              data={data}
+              span={spans?.notes(data.changelog)}
+              strings={strings}
+              actions={actions}
+            />
           ) : (
             <UpdatedCard
               data={data}
@@ -94,20 +101,27 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
     report();
   };
   // The host sizes the popover or the card slot to the content; 0 while there is nothing.
-  // A scrolling card (the popover) reports its whole content, not the part the page view shows.
+  // A scrolling card (the popover) reports its whole content, not the part the page view shows, up
+  // to its hover-card cap (--wn-pop-max): a long update never makes it taller than that.
   // A short popover (`.wn-pop-brief`, no change list) also reports its own width, so the host is as
   // wide as its lines (Leo 2026-11-03: "stretched out wasted space"); 0 fills the host's width.
   // The Updated card reports its height once its words are final (the notes of the update's span
   // loaded, or none will): the host lays the card out at the first height it hears, so a first
   // report from the host's items, then the span's summary, moved the sidebar's list twice on a
   // relaunch (Leo 2026-11-04: "the restarted after nightly update does too many layout shifts").
-  const settled = () => spans === null || spans.settled;
+  // The popover waits for nothing: it opens on a hover with the host's items, and its list grows
+  // under the cap when the span's notes come (they load as the update stages, before any hover).
+  const settled = () => kind === "ready" || spans === null || spans.settled;
   let reported = "";
   const report = () => {
     if (!settled()) return;
-    const card = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
-    const height = Math.ceil(Math.max(root.getBoundingClientRect().height, card?.scrollHeight ?? 0));
-    const width = card?.classList.contains("wn-pop-brief") ? Math.ceil(card.getBoundingClientRect().width) : 0;
+    const scroller = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
+    const pop = root.querySelector<HTMLElement>(".wn-pop");
+    // The whole content: what shows, plus what the scroller hides past its edge.
+    const whole = root.getBoundingClientRect().height + (scroller ? scroller.scrollHeight - scroller.clientHeight : 0);
+    const cap = pop ? Number.parseFloat(getComputedStyle(pop).getPropertyValue("--wn-pop-max")) : Number.NaN;
+    const height = Math.ceil(Number.isFinite(cap) ? Math.min(whole, cap) : whole);
+    const width = pop?.classList.contains("wn-pop-brief") ? Math.ceil(pop.getBoundingClientRect().width) : 0;
     const key = `${height}x${width}`;
     if (key === reported) return;
     reported = key;
