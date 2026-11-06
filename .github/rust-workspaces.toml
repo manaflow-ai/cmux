@@ -167,3 +167,7 @@ skip = "experiment, unchanged since 2026-06"
 [[workspace]]
 root = "experiments/remote-desktop/rdhost"
 skip = "prototype superseded by cmux-tui/crates/cmux-rd-host"
+
+[[workspace]]
+root = "scripts/cmux-next/rust-change-class"
+run = true
