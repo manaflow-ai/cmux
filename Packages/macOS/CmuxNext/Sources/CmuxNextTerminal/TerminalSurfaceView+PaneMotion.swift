@@ -103,7 +103,8 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         let moved: Int
         if finalRows > rows {
             guard cursor >= rows - 1 else { return .top }
-            let history = session?.model.scrollbar.map { Int(clamping: $0.totalRows) - Int(clamping: $0.visibleRows) } ?? 0
+            // No scrollbar report yet (a renderer that has not drawn): Ghostty pulls what history it has, taken as enough.
+            let history = session?.model.scrollbar.map { Int(clamping: $0.totalRows) - Int(clamping: $0.visibleRows) } ?? change
             moved = min(max(0, history), change)
         } else {
             moved = max(0, change - max(0, rows - 1 - cursor))
