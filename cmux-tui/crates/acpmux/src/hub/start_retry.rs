@@ -16,8 +16,9 @@
 //!   waiting turn, no timer per session.
 //! - What ends the wait before its next try: a Stop of the turn (it ends cancelled), a stop,
 //!   close or delete of the chat, its move to another daemon, or the daemon's shutdown (a turn
-//!   whose start had not begun is queued again by the next daemon, `unstarted_prompt.rs`). Stop
-//!   and the chat's stop wake the wait at once (`Session::start_retry_wake`).
+//!   whose start had not begun is queued again by the next daemon, `unstarted_prompt.rs`). Stop,
+//!   the chat's stop and the shutdown wake the wait at once (`Session::start_retry_wake`). A turn
+//!   the shutdown ended writes no failed end: the shutdown settles it (`Hub::shutdown_settles`).
 //! - The log says so: `agent_start_retrying` `{turnId, promptId, attempt, of, delayMs, error}`
 //!   before each wait. While it waits the row reads `starting`. When the tries run out the turn
 //!   ends failed with the last deadline error, which names how many tries it took.
@@ -135,13 +136,41 @@ impl Hub {
         {
             return Some(Some(super::lifecycle::stopped_while_starting()));
         }
+        // The shutdown owns the turn from here (`shutdown.rs`): it hands it to the next daemon,
+        // or Quit Everything ends it cancelled. The turn writes no end of its own.
         if self.shutting_down() {
-            return Some(Some(super::shutdown::shutting_down_error()));
+            return Some(Some(shutdown_owns()));
         }
         if session.moving().is_some() || session.replaced.load(Ordering::SeqCst) {
             return Some(None);
         }
         None
+    }
+}
+
+/// A waiting start the daemon's shutdown ended: its turn is the shutdown's to settle.
+fn shutdown_owns() -> RpcError {
+    super::shutdown::shutting_down_error().with_data(json!({"reason": SHUTDOWN_OWNS}))
+}
+
+const SHUTDOWN_OWNS: &str = "start_retry.shutdown";
+
+impl Hub {
+    /// Whether a turn whose agent did not start ended under the shutdown, which settles it: the
+    /// shutdown took it (`settled_by_shutdown`), or ended its waiting start ([`shutdown_owns`]).
+    /// Such a turn writes no failed end, so the next daemon still finds its prompt unstarted and
+    /// queues it again (`unstarted_prompt.rs`).
+    pub(super) fn shutdown_settles(&self, turn_id: &str, e: &RpcError) -> bool {
+        let field = e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str);
+        field == Some(SHUTDOWN_OWNS)
+            || self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner()).contains(turn_id)
+    }
+
+    /// The shutdown began: every start that waits to be tried again ends its wait now.
+    pub(super) fn wake_start_retries(&self) {
+        for s in self.sessions() {
+            s.start_retry_wake.notify_waiters();
+        }
     }
 }
 
@@ -174,5 +203,58 @@ mod tests {
         let gave_up = gave_up(late, 4);
         assert!(gave_up.message.contains("agent_start did not finish within"), "{gave_up:?}");
         assert!(gave_up.message.ends_with("tried 4 times"), "{gave_up:?}");
+    }
+
+    /// A shutdown while a prompt's start waits to be tried again ends the wait, and the turn
+    /// writes no failed end: the shutdown settles it, and the next daemon finds the prompt
+    /// unstarted and queues it again (`unstarted_prompt.rs`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_shutdown_during_the_wait_leaves_the_turn_to_the_shutdown() {
+        use crate::config::{Config, StoreMode};
+        const WAIT: Duration = Duration::from_secs(30);
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let gate = std::env::temp_dir().join(format!("acpmux-retry-down-{}", uuid::Uuid::now_v7()));
+        std::fs::write(&gate, b"").unwrap();
+        let env = format!("FAKE_START_GATE={}", gate.display());
+        let cfg = json!({"harnesses": {"fake": {"argv": ["/usr/bin/env", env, "python3", fake]}},
+            "defaultHarness": "fake"});
+        let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+        cfg.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let s = hub.new_session(req).await.unwrap();
+        hub.kill(&s, false).await.unwrap();
+        std::fs::remove_file(&gate).unwrap();
+        // A 900 ms budget waits 100 ms before its first retry.
+        hub.config.write().await.agent_start_timeout_ms = Some(900);
+        let run = {
+            let (hub, s) = (hub.clone(), s.clone());
+            let blocks = vec![json!({"type": "text", "text": "hello"})];
+            tokio::spawn(async move { hub.prompt(&s, blocks, "test", false).await })
+        };
+        let kinds = |kind: &str| -> Vec<Value> {
+            let events = hub.events(&s.id, 0, 100_000).unwrap();
+            events.into_iter().filter(|e| e.kind == kind).map(|e| e.msg).collect()
+        };
+        let retrying = async {
+            while kinds("agent_start_retrying").is_empty() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        tokio::time::timeout(WAIT, retrying).await.expect("the start was never tried again");
+        hub.begin_shutdown();
+        let answer =
+            tokio::time::timeout(WAIT, run).await.expect("the prompt never ended").unwrap();
+        assert!(answer.is_err(), "{answer:?}");
+        let turn = kinds("agent_start_retrying")[0]["turnId"].clone();
+        let ended: Vec<_> =
+            kinds("turn_result").into_iter().filter(|m| m["turnId"] == turn).collect();
+        assert!(ended.is_empty(), "the turn wrote its own end under the shutdown: {ended:?}");
+        assert!(kinds("turn_started").iter().all(|m| m["turnId"] != turn));
+        // Still open for the shutdown to hand on or end.
+        assert_eq!(s.turn().map(|t| json!(t.turn_id)), Some(turn));
+        assert_eq!(kinds("agent_start_retrying").len(), 1, "a start ran after the shutdown");
+        let _ = std::fs::remove_file(&gate);
     }
 }

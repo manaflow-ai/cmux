@@ -61,6 +61,7 @@ impl Hub {
     /// Fences new turns and automatic continuations before transports begin draining.
     pub(crate) fn begin_shutdown(&self) {
         self.shutdown_plan.lock().unwrap().started = true;
+        self.wake_start_retries();
     }
 
     /// Stop every agent at once and save. Each agent's process group gets
@@ -112,6 +113,8 @@ impl Hub {
             plan.started = true;
             (plan.end_agents, plan.keep.clone())
         };
+        // A start that waits to be tried again ends its wait (`start_retry.rs`).
+        self.wake_start_retries();
         // The log retention worker sees the shutdown begun and ends (`retention.rs`).
         self.retention_wake.notify_one();
         let sessions = self.sessions();

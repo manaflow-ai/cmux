@@ -893,7 +893,12 @@ impl Hub {
         let (mut child, agent_sid) = match started {
             Ok(started) => started,
             Err(e) => {
-                self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
+                // A turn the shutdown settles writes no end of its own (`start_retry.rs`).
+                if !self.shutdown_settles(&turn_id, &e) {
+                    self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
+                } else if self.hands_off(session) {
+                    super::digest::forget_joined(Some(joined));
+                }
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
