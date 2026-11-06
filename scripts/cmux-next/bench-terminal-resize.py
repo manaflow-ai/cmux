@@ -93,6 +93,7 @@ parser.add_argument("--probe-pt", type=float, default=40.0, help="how far the dr
 parser.add_argument("--key-repeat", type=int, default=1, help="presses of each key per round (keys layouts)")
 parser.add_argument("--key-gap-ms", type=float, default=33.0, help="between repeated presses of one key")
 parser.add_argument("--key-settle-s", type=float, default=0.6, help="after the last press of a key")
+parser.add_argument("--sample-delays-ms", default="", help="probe: per round, ms after each key press to start `sample` of the app (1 s, 1 ms)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = (opts.app or "").rstrip("/")
@@ -409,13 +410,30 @@ def measure_keys(name):
                 if not traced.get("started"):
                     entry["error"] = f"the grid trace did not start: {json.dumps(traced)[:200]}"
                     break
+                pressed_at = time.monotonic()
                 reply = rpc("action.run", {"action": action, "focus": True})
+                sampler = None
+                delays = [d for d in opts.sample_delays_ms.split(",") if d]
+                if delays and sys.platform == "darwin":
+                    delay = float(delays[index % len(delays)]) / 1000
+                    time.sleep(max(0.0, delay - (time.monotonic() - pressed_at)))  # bench script: the probe's start
+                    path = os.path.join(opts.out, f"sample-r{index}-p{number}.txt")
+                    sampler = (subprocess.Popen(["/usr/bin/sample", str(APP_PID[0]), "1", "1", "-mayDie", "-file", path],
+                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), path,
+                               round((time.monotonic() - pressed_at) * 1000, 1))
                 # bench script: a held key's repeat gap, or the spring lands before the other key
-                time.sleep(opts.key_settle_s if last else opts.key_gap_ms / 1000)
+                time.sleep(max(0.0, (opts.key_settle_s if last else opts.key_gap_ms / 1000) - (time.monotonic() - pressed_at)))
                 traced = (rpc("debug.terminal_final_grid", {"action": "stop"}) or {}).get("terminals") or {}
                 sends = [len(t.get("sends") or []) for t in traced.values()]
                 press = {"action": action, "terminals_sent": sum(1 for n in sends if n), "max_grids_per_terminal": max(sends, default=0),
                          "pty_ms": pty_latency(traced)}
+                press["marks"] = traced
+                if sampler:
+                    sampler[0].wait(30)
+                    try:
+                        press["sample"] = {"started_ms": sampler[2], "text": open(sampler[1], errors="replace").read()}
+                    except OSError as error:
+                        press["sample"] = {"started_ms": sampler[2], "error": str(error)}
                 if isinstance(reply, dict) and (reply.get("error") or reply.get("refused")):
                     press["refused"] = json.dumps(reply)[:200]
                 presses.append(press)
@@ -669,6 +687,7 @@ teardown = TagTeardown(APP)
 teardown.install()
 log = open(os.path.join(opts.out, "app.log"), "a")
 app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+APP_PID = [app.pid]
 report = {"pid": app.pid, "app": APP, "layouts": []}
 unmeasured = []
 try:
