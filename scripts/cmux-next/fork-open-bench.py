@@ -29,7 +29,8 @@ fresh ids into the app's store. The app's acpmux runs the same test agent for th
 forks by its own `session/fork`). `--warm` (default) starts the chat's agent before the fork with one more
 turn, as a chat a person just used has it; `--no-warm` forks a chat whose agent is not running.
 
-Runs on a fleet mini through scripts/measure/fork-open.sh, never on an interactive Mac:
+Runs on a fleet mini through scripts/measure/fork-open.sh (or, at a commit not on feat-cmux-next,
+scripts/measure/chat-open.sh --arg=--fork-open), never on an interactive Mac:
   fork-open-bench.py --app BUNDLE [--runs 10] [--placements right,tab,workspace] [--sizes small,big]
                      [--small-turns 40] [--big-turns 1000] [--json FILE] [--md FILE]
 Kills only the processes it started (the app it launched through bench_memory and the seeding daemon).
