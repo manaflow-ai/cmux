@@ -59,25 +59,27 @@ public nonisolated struct ConductorImportStrings: Sendable {
         String(localized: "conductorImport.toast.failed", defaultValue: "Couldn’t import from Conductor.", table: "ImportSuggestions", bundle: .module)
     }
     /// The sidebar's one-time note (``ImportSuggestionState/showsConductorNote(findings:jobs:now:)``).
+    /// It names no other app and no date: the source is named only inside Settings › Import.
     public static var noteTitle: String {
-        String(localized: "conductorImport.note.title", defaultValue: "Bring your Conductor workspaces", table: "ImportSuggestions", bundle: .module)
+        String(localized: "conductorImport.note.title", defaultValue: "Import your workspaces", table: "ImportSuggestions", bundle: .module)
     }
     public static var noteDetail: String {
         String(localized: "conductorImport.note.detail",
-               defaultValue: "Conductor Cloud shuts down on November 20. Settings › Import opens your workspaces here, in place.",
+               defaultValue: "Bring sessions from other apps into cmux, in place.",
                table: "ImportSuggestions", bundle: .module)
     }
     public static var noteOpen: String {
-        String(localized: "conductorImport.note.open", defaultValue: "Open Import", table: "ImportSuggestions", bundle: .module)
+        String(localized: "conductorImport.note.open", defaultValue: "Import…", table: "ImportSuggestions", bundle: .module)
     }
     /// The note's x: it never shows again.
     public static var noteClose: String {
         String(localized: "conductorImport.note.close", defaultValue: "Don’t Show Again", table: "ImportSuggestions", bundle: .module)
     }
-    /// The first-run history page's line (``ImportScanner/conductorOnboardingLine(now:)``).
+    /// The first-run history page's line (``ImportScanner/conductorOnboardingLine(now:)``), which
+    /// names no other app and no date either.
     public static var onboardingLine: String {
         String(localized: "conductorImport.onboarding.line",
-               defaultValue: "Conductor workspaces: import them from Settings › Import before Conductor Cloud shuts down on November 20.",
+               defaultValue: "Workspaces from other apps: import them in place from Settings › Import.",
                table: "ImportSuggestions", bundle: .module)
     }
 
