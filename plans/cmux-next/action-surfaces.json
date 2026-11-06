@@ -34629,6 +34629,11 @@
         },
         {
           "kind" : "string",
+          "name" : "fromFolder",
+          "required" : false
+        },
+        {
+          "kind" : "string",
           "name" : "login",
           "required" : false
         }
