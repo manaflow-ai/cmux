@@ -84,7 +84,8 @@ import Testing
         #expect(snapshot["style"]?.stringValue == "grouped")
         #expect(snapshot["openMenu"]?.stringValue == "m_1")
         guard case .array(let rows)? = snapshot["rows"] else { Issue.record("no rows"); return }
-        #expect(rows.map { $0["id"]?.stringValue } == ["local", "joined:m_1", "c3"])
+        let ids = rows.map { $0["id"]?.stringValue }
+        #expect(ids == ["local", "joined:m_1", "c3"])
         #expect(rows[0]["kind"]?.stringValue == "local" && rows[0]["isLocal"]?.boolValue == true)
         #expect(rows[1]["joined"]?["mintedBy"]?.stringValue == "you@example.com")
         #expect(rows[1]["kind"]?.stringValue == "joined")
