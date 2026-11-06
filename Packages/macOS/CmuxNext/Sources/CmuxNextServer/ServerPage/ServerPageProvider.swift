@@ -1,6 +1,6 @@
 import CmuxNextCompat
-import CmuxNextPages
-import CmuxNextSettings
+public import CmuxNextPages
+public import CmuxNextSettings
 import Foundation
 
 /// The Mac server's surfaces on the server card page (webviews/src/pages/server-cards/server): the
