@@ -207,7 +207,7 @@ struct NewTabRapidPairTests {
             // Past the quiet-input warm (750 ms) with no input: still one page.
             try await Task.sleep(for: .seconds(2))
             // Cmd-N's reserved workspace (idle work, #36962) may take the launch's spare: the pool makes one more, not two.
-            let reserved = services.daemon.store.reservedWorkspace.flatMap { services.agentTabs.existingView($0.tabKey) }
+            let reserved = services.daemon.store.reservedWorkspace?.tabKey.flatMap { services.agentTabs.existingView($0) }
             let reservedOne = rig.made.contains { $0 === reserved } ? 1 : 0
             #expect(rig.made.count == 1 + reservedOne && pool.spares.count == 1,
                     "the launch made \(rig.made.count) spares before any open (\(reservedOne) to the reservation); \(Self.poolState(services, rig))")
