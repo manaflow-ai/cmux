@@ -90,8 +90,7 @@ CREATE = re.compile(r"signing-keychain\.sh\s+create\b|\bsecurity\s+create-keycha
 DELETE = re.compile(
     r"signing-keychain\.sh\s+delete\b|\bsecurity\s+delete-keychain\b"
     # These scripts sign and then delete the keychain themselves (rule 5).
-    r"|scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-helper-notarization\.sh"
-    r"|scripts/ci/resume-stapled-app-notarization\.sh"
+    r"|scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-stapled-app-notarization\.sh"
 )
 BUNDLE_CODE = [
     re.compile(r"smoke-launch-macos-app\.sh"),
@@ -154,7 +153,7 @@ STEP_LEVEL_ONLY = {
 }
 # Scripts that launch the app unless their launch smokes are deferred.
 SMOKING_SCRIPTS = re.compile(
-    r"scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-nightly-notarization\.sh|scripts/ci/resume-helper-notarization\.sh"
+    r"scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-nightly-notarization\.sh"
     r"|scripts/ci/resume-stapled-app-notarization\.sh|scripts/ci/finish-stapled-app-dmgs\.sh"
 )
 # secrets.NAME, secrets['NAME'] and secrets[format('NAME...', ...)], as RELEASE_SECRET_REFERENCE reads them.
@@ -461,12 +460,6 @@ def check_scripts(failures: list[str]) -> None:
                 "scripts/ci/notarize-nightly-dmg.sh: delete the keychain it creates for the stapled-app DMG "
                 f"before the first smoke (create={create} delete={later_delete} smoke={first_smoke})"
             )
-
-    resume = read_lines("scripts/ci/resume-helper-notarization.sh", failures)
-    delete = index_of(resume, '"$SIGNING_KEYCHAIN_TOOL" delete')
-    continuation = index_of(resume, '"$STAPLED_TOOL"')
-    if not (0 <= delete < continuation):
-        failures.append("scripts/ci/resume-helper-notarization.sh: delete the signing keychain before the continuation runs the app")
 
     stapled = read_lines("scripts/ci/resume-stapled-app-notarization.sh", failures)
     # The package tool makes the keychain just before its signature

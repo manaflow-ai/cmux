@@ -2,13 +2,11 @@
 """Stage an outer DMG submission as an exact recovery artifact.
 
 An outer submission is a DMG that a continuation job submitted and could not
-finish within its bounded wait: the outer DMG around a helper-finished app
-(resume-helper-notarization.sh, state <outer-state>.first) or the DMG around
-the stapled app (resume-stapled-app-notarization.sh, state with
-stapled_app=true). The artifact has the canonical schema 1 manifest that
+finish within its bounded wait: the DMG around the stapled app
+(resume-stapled-app-notarization.sh, state with stapled_app=true). The artifact has the canonical schema 1 manifest that
 resolve-notarization-recovery.py reads, the state and log under their
 canonical names, the DMG the state names under the release name, and an
-archive of the app as it is now (helper finished, stapled). For a stapled-app
+archive of the app as it is now (stapled). For a stapled-app
 state it also keeps the accepted first DMG (<state DMG>.first.dmg, checked
 against first_dmg_sha256) as <release>.first.dmg, for the 6 h fallback, and
 requires the recorded submit time (stapled_submitted_at).
@@ -126,8 +124,8 @@ def main() -> int:
     if stapled_app:
         # The accepted, stapled first DMG: it ships at the 6 h fallback.
         shutil.copyfile(first, args.recovery_dir / f"{dmg.name}.first.dmg")
-    # The app as it is now: a helper-finished app has a new seal, and the
-    # archive in the source artifact is the app from before that.
+    # The app as it is now: the archive in the source artifact is the app
+    # from before it was stapled.
     archive = args.recovery_dir / original["app_archive_path"]
     subprocess.run([str(Path(__file__).resolve().parent / "archive-recovery-app.sh"), str(args.app), str(archive)],
                    check=True)

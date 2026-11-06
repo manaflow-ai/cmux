@@ -2,8 +2,7 @@
 # nightly.yml verify-final-dmg-nightly: "Apple's checks of a pool-signed DMG
 # and the app in it". The DMG signer-dmg signed and notarized: its signature,
 # Gatekeeper's notarized source, Apple's checks of the app inside
-# (signer-apple-checks.sh: stapler, spctl, syspolicy_check and the copied
-# Computer Use helper), and the appcast's Sparkle signature against the pinned
+# (signer-apple-checks.sh: stapler, spctl and syspolicy_check), and the appcast's Sparkle signature against the pinned
 # key. "Verify final DMG artifact" has already checked the staples and the bytes.
 set -euo pipefail
 : "${CHANNEL_DMG_PREFIX:?}" "${NIGHTLY_VARIANT:?}" "${CHANNEL_APP_NAME:?}" "${NIGHTLY_BUILD:?}" "${NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY:?}"

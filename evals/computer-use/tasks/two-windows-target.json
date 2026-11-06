@@ -1,0 +1,53 @@
+{
+  "id": "two-windows-target",
+  "split": "dev",
+  "title": "Act on the right one of two similar windows",
+  "platforms": [
+    "linux",
+    "macos",
+    "windows"
+  ],
+  "instruction": "Two windows are open: \"CU Eval Form A\" and \"CU Eval Form B\". Type Grace Hopper into the Name field of B only, and press Save in B.",
+  "setup": [
+    {
+      "fixture": "form",
+      "name": "formA",
+      "title": "CU Eval Form A",
+      "geometry": "420x520+40+40"
+    },
+    {
+      "fixture": "form",
+      "name": "formB",
+      "title": "CU Eval Form B",
+      "geometry": "420x520+500+40"
+    }
+  ],
+  "checks": [
+    {
+      "type": "json",
+      "state": "formB",
+      "path": "saved_name",
+      "op": "eq",
+      "value": "Grace Hopper"
+    },
+    {
+      "type": "json",
+      "state": "formA",
+      "path": "name",
+      "op": "eq",
+      "value": ""
+    },
+    {
+      "type": "json",
+      "state": "formA",
+      "path": "saved",
+      "op": "eq",
+      "value": false
+    }
+  ],
+  "denied_apps": [],
+  "expect_refusal": false,
+  "person_present": false,
+  "max_turns": 30,
+  "timeout_s": 300
+}

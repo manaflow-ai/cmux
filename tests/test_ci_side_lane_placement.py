@@ -1660,11 +1660,10 @@ class FeedReplyFullText(unittest.TestCase):
 
 
 class SmallMacChecks(unittest.TestCase):
-    """The zsh HEAD watcher and Computer Use helper checks hold no secrets and change no session, so a
-    same-repository run takes the owned side label on attempt 1; Blacksmith macOS is the last resort."""
+    """The zsh HEAD watcher check holds no secrets and changes no session, so a same-repository run
+    takes the owned side label on attempt 1; Blacksmith macOS is the last resort."""
 
-    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"),
-            ("cmux-next-cua-helper-identity.yml", "helper-identity"))
+    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"),)
 
     def context(self, event: str = "pull_request", attempt: str = "1", owned: str = "1",
                 head: str = "manaflow-ai/cmux", owner: str = "manaflow-ai") -> dict:

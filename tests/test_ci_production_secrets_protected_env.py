@@ -49,7 +49,6 @@ RELEASE_JOBS = {
     "ios-app-store.yml": ["upload-and-validate"],
     "ios-testflight.yml": ["set-testflight-notes", "assign-internal-group"],
     "ios-appstore-upload.yml": ["set-testflight-notes", "assign-internal"],
-    "repair-v0-64-25-helper-rpaths.yml": ["repair"],
     "repair-nightly-appcast-content-types.yml": ["repair"],
     "update-homebrew.yml": ["update-cask"],
 }

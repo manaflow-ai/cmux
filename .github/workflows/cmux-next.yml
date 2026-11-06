@@ -116,7 +116,6 @@ on:
       - tests/test_web_ota_pointer.sh
       - tests/test_web_ota_publication_contract.py
       - scripts/cmux-next/web-ota-pointer.py
-      - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/swiftpm_build_metrics.py
@@ -402,7 +401,6 @@ on:
       - tests/test_web_ota_pointer.sh
       - tests/test_web_ota_publication_contract.py
       - scripts/cmux-next/web-ota-pointer.py
-      - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/swiftpm_build_metrics.py

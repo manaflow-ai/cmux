@@ -147,7 +147,6 @@ PICKS: dict[str, int] = {
     "release-rails.yml": 2,
     "release.yml": 2,
     "remote-daemon.yml": 1,
-    "repair-v0-64-25-helper-rpaths.yml": 1,
     "resolve-dispatch-ref.yml": 1,
     "rust-workspaces.yml": 3,
     "sdk-bootstrap-crates.yml": 6,

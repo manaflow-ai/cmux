@@ -468,10 +468,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_ci_process_tree_reaping.py
 
-      - name: Test Computer Use drag regression harness
-        if: ${{ !cancelled() && matrix.group == 'preflight' }}
-        run: python3 tests/test_cmux_cua_drag_cursor_harness.py
-
       - name: Validate Python test execution registry
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         env:
@@ -1593,7 +1589,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: |
           python3 tests/test_update_release_tag.py
-          python3 tests/test_nightly_next_computer_use_helper.py
           python3 tests/test_nightly_next_post_publish.py
           python3 tests/test_nightly_publication_marker.py
           python3 tests/test_nightly_republish_delta_guard.py
@@ -1900,10 +1895,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: ./tests/test_fetch_previous_nightly_dmgs.sh
 
-      - name: Validate Computer Use helper notarization behavior
-        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
-        run: ./tests/test_notarize_computer_use_helper.sh
-
       - name: Validate the release signer scripts
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: |
@@ -2052,7 +2043,6 @@ jobs:
           python3 tests/test_issue_1138_sidebar_pr_polling.py
           # These use fake sockets/helpers and need no app or compile artifact.
           python3 tests/test_stress_cli_socket_api.py
-          python3 tests/test_cmux_cua_helper_identity.py
           python3 tests/test_issue_7028_claude_shim_persistence.py
           python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
           python3 tests/test_issue_6714_zsh_shim_noclobber.py
