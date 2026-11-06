@@ -12,7 +12,7 @@ import CmuxNextWakeups
 /// (WebKit draws only what is in a window and not hidden). An open pushes the group to the page, which
 /// paints it and answers ready with its height; the card is then placed at that height and shown in
 /// one step, with no fade or grow in. A page that has not answered after ``readyDeadline`` is shown
-/// as it is. Closing fades like every popup.
+/// as it is. Closing fades like every popup, and the card stays transparent in its window for the next open.
 @MainActor
 public final class GroupEditorService: SidebarGroupEditorSurface {
     /// How long an open waits for the page to paint the group before it shows anyway.
@@ -52,7 +52,6 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
     private var warm: Warm?
     private(set) var open: Open?
     private let icons = GroupEditorIcons()
-    private let fade = PopupFade()
     private var height = firstHeight
     private var sessions = 0
     private let deadline = DemandTimer(owner: "GroupEditorService.ready")
@@ -119,7 +118,7 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
         warm?.provider.openSession = nil
         if let name = open.typedName { open.events.rename(name) }
         if let panel = warm?.panel {
-            if open.shown { fade.close(panel, toward: open.anchor.rect) } else { panel.park() }
+            if open.shown { panel.close(toward: open.anchor.rect) } else { panel.veil() }
         }
         open.events.close()
     }
@@ -174,8 +173,7 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
         open.shown = true
         self.open = open
         warm.panel.place(frame(anchor: open.anchor, parent: parent))
-        fade.open(warm.panel, over: parent, toward: open.anchor.rect)
-        warm.panel.reveal()
+        warm.panel.reveal(over: parent)
         warm.page.focusPage()
     }
 
@@ -193,6 +191,8 @@ final class GroupEditorPanel: ActiveAppKeyPanel {
     /// Closes the editor: the panel lost the keys, or Escape.
     var onDismiss: (() -> Void)?
     private let card: NSView
+    /// Bumped by every open, close and veil, so a close whose fade ends after a reopen leaves the card shown.
+    private var generation = 0
 
     init(content: NSView, width: CGFloat) {
         let size = NSSize(width: width, height: GroupEditorService.firstHeight)
@@ -215,14 +215,9 @@ final class GroupEditorPanel: ActiveAppKeyPanel {
 
     /// Orders the panel in over `parent` at `frame` with its card transparent, so the page paints there.
     func ready(over parent: NSWindow, frame: NSRect) {
-        card.alphaValue = 0
-        ignoresMouseEvents = true
+        veil()
         setFrame(frame, display: false)
-        if self.parent !== parent {
-            self.parent?.removeChildWindow(self)
-            parent.addChildWindow(self, ordered: .above)
-        }
-        if !isVisible { orderFront(nil) }
+        attach(to: parent)
     }
 
     func place(_ frame: NSRect) {
@@ -230,19 +225,47 @@ final class GroupEditorPanel: ActiveAppKeyPanel {
         setFrame(frame, display: true)
     }
 
-    /// Shows the card and takes the keys.
-    func reveal() {
+    /// Shows the card over `parent` in one step (no fade or grow in), also during a closing fade, and takes the keys.
+    func reveal(over parent: NSWindow) {
+        generation += 1
+        attach(to: parent)
+        showPopupAtOnce()
         card.alphaValue = 1
         ignoresMouseEvents = false
         makeKey()
     }
 
-    /// An open that never showed: back to transparent, off its window.
-    func park() {
-        card.alphaValue = 0
+    /// Fades the card out toward `anchor` (screen coordinates) like every popup, then leaves it transparent and
+    /// click-through in its window, where the page keeps painting for the next open. The keys go back to the
+    /// window under it now, not when the fade ends.
+    func close(toward anchor: CGRect) {
+        generation += 1
+        let closing = generation
         ignoresMouseEvents = true
-        parent?.removeChildWindow(self)
-        orderOut(nil)
+        makeFirstResponder(nil)
+        if isKeyWindow, let parent, parent.isVisible { parent.makeKey() }
+        closePopup(pivot: popupPivot(toward: anchor)) { [weak self] in
+            // A reopen during the fade keeps its card.
+            guard let self, self.generation == closing else { return }
+            self.veil()
+        }
+    }
+
+    /// The card transparent and click-through; the panel stays where it is.
+    func veil() {
+        generation += 1
+        card.alphaValue = 0
+        resetPopupScale()
+        alphaValue = 1
+        ignoresMouseEvents = true
+    }
+
+    private func attach(to parent: NSWindow) {
+        if self.parent !== parent {
+            self.parent?.removeChildWindow(self)
+            parent.addChildWindow(self, ordered: .above)
+        }
+        if !isVisible { orderFront(nil) }
     }
 
     override func resignKey() {

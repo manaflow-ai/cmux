@@ -9,6 +9,8 @@ import Foundation
 @MainActor
 final class GroupEditorProvider: PageProvider {
     static let sessionStream = "cmux.groupEditor.session"
+    /// The event for no open editor: the page draws nothing.
+    static let noSession: JSONValue = .object(["id": .string(""), "revision": .number(0)])
 
     /// One thing the person did, for the open session.
     enum Call: Equatable {
@@ -61,8 +63,9 @@ final class GroupEditorProvider: PageProvider {
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == Self.sessionStream else { throw PageError.unknownOp(stream) }
         listener = onEvent
-        // The page subscribes once per load (a reload after a crash too): the open session, else none.
-        onEvent(event ?? .object(["id": .string(""), "revision": .number(0)]))
+        // The page subscribes once per load (a reload after a crash too): the open session, else none (a
+        // closed editor's last session stays on screen only while its card fades out).
+        onEvent(openSession == nil ? Self.noSession : event ?? Self.noSession)
         return PageSubscription { [weak self] in self?.listener = nil }
     }
 }
