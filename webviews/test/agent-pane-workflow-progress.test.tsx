@@ -419,6 +419,11 @@ for (const surface of ["tray", "inspector"] as const)
             }
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
         });
+      // A new chat starts with Session Info closed (https://github.com/manaflow-ai/cmux/issues/26692): open it from the header's toggle.
+      if (surface === "inspector" && !container())
+        await act(async () => {
+          dom.window.document.querySelector<HTMLButtonElement>("button.acpmux-session-info-toggle")!.click();
+        });
       expect(container()?.textContent).toContain("Owning chat");
       const version = fold.progressSource.structureVersion;
       const workerProgress = fold.progressSource.get("worker");

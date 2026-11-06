@@ -221,6 +221,7 @@ import {
   setSessionInfoOpen as setSessionInfoPanelOpen,
   setSessionInfoSection,
   setSessionInfoTab,
+  startNewSessionInfoChat,
   useSessionInfoOpen,
   sessionInfoPaneKey,
 } from "./session-info/sessionInfoState";
@@ -6372,7 +6373,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (
           (host.newSession && !host.sessionId) ||
           (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)
-        )
+        ) {
+          // Another chat in this tab: Session Info does not carry over open from the last (#26692). A
+          // reconnect of a new chat with no session yet is the same chat: the viewer's open stays.
+          if (!reconnect || snapshotRef.current?.sessionId) startNewSessionInfoChat();
           // The chats list and peers stay (the New Tab page, the hero's projects and Recents draw from
           // them); the client's first frame replaces them.
           setSnapshot((previous) => ({
@@ -6380,6 +6384,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             sessions: previous.sessions,
             peers: previous.peers,
           }));
+        }
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
         setLocalMachineName(

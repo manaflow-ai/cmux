@@ -8,6 +8,7 @@ import type { Play } from "../../gallery/play";
 import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "./model";
 import { chatSwitchMotion } from "./chatSwitch.experiment";
+import { SESSION_INFO_PANE_PREFIX } from "./session-info/sessionInfoState";
 
 const first = chat(
   [
@@ -61,6 +62,13 @@ const openSessionInfo: Play = async (ctx) => {
   const { setSessionInfoOpen } = await import("./session-info/sessionInfoState");
   setHeaderState({ inspector: true });
   setSessionInfoOpen(true);
+  // A chat with nothing saved shows Session Info closed after a switch
+  // (https://github.com/manaflow-ai/cmux/issues/26692); save the second chat open so the switch
+  // carries the panel across.
+  ctx.document.defaultView?.localStorage.setItem(
+    `${SESSION_INFO_PANE_PREFIX}${SECOND}`,
+    JSON.stringify({ open: true, at: Date.now(), v: 2 }),
+  );
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info[data-presence='shown']"));
 };
 

@@ -68,6 +68,11 @@ export default agentPaneEntry({
       snapshot: chat(rows, { title: "Prompt rail beside Session Info, hovered" }),
       native: { "pane.tabState": { inspector: true } },
       play: async (ctx) => {
+        // A new chat starts with Session Info closed (https://github.com/manaflow-ai/cmux/issues/26692): open it from the header's toggle.
+        const shown = () => ctx.document.querySelector(".acpmux-session-info[data-presence=shown]");
+        await ctx.waitFor(() => shown() ?? ctx.document.querySelector('[aria-label="Session Info"]'), { capMs: 5000 });
+        if (!shown()) await ctx.click({ role: "button", name: "Session Info" });
+        await ctx.waitFor(shown, { capMs: 5000 });
         await ctx.hover({ selector: ".acpmux-minimap__strip" });
         await ctx.hover({ selector: '[data-tick="0"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
