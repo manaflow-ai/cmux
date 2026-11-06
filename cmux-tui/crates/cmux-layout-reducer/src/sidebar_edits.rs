@@ -212,8 +212,9 @@ fn default_true() -> bool {
     true
 }
 
-/// The edit's result. `changed`: the intent had a structural effect (false
-/// for a refused one). `sections`: the new tree, or None when it is the
+/// The edit's result. `changed`: the intent was accepted and changed the
+/// tree (false for a refused one or one that leaves the tree as it was, as a
+/// flag set to its own value; `changed` implies `sections`). `sections`: the new tree, or None when it is the
 /// request's (a refused edit may still have changed it, as a pin that added
 /// an empty Pinned section).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -225,9 +226,10 @@ pub struct EditReply {
 /// Runs one edit (`EditRequest`).
 pub fn edit(request: &EditRequest) -> EditReply {
     let mut sections = request.sections.clone();
-    let changed = apply_with(&request.intent, &mut sections, request.prunes);
+    let applied = apply_with(&request.intent, &mut sections, request.prunes);
     let sections = (sections != request.sections).then_some(sections);
-    EditReply { changed, sections }
+    // An accepted intent that leaves the tree as it was (a flag set to its own value) changed nothing.
+    EditReply { changed: applied && sections.is_some(), sections }
 }
 
 /// Applies an intent. False when it was refused or had no structural effect.

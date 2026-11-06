@@ -747,3 +747,21 @@ fn a_closed_or_pruned_parent_leaves_its_subgroups_at_the_top_level() {
     assert!(apply(&Intent::Ungroup { group: "g".into() }, &mut ungrouped));
     assert_eq!(parents(&ungrouped[0]), vec![("s".into(), None), ("t".into(), Some("s".into()))]);
 }
+
+#[test]
+fn an_edit_that_leaves_the_tree_as_it_was_changed_nothing() {
+    let base = vec![section(vec![node(group("g", &["a"]))])];
+    let same = |intent: Intent| edit(&EditRequest { sections: base.clone(), intent, prunes: true });
+    assert_eq!(
+        same(Intent::SetGroupPinned { group: "g".into(), pinned: false }),
+        EditReply { changed: false, sections: None },
+        "a flag set to its own value"
+    );
+    assert_eq!(
+        same(Intent::Reorder { ids: ids(&["a"]), position: at(Some("g"), 0) }),
+        EditReply { changed: false, sections: None },
+        "a drop where the row is"
+    );
+    let pinned = same(Intent::SetGroupPinned { group: "g".into(), pinned: true });
+    assert!(pinned.changed && pinned.sections.is_some());
+}
