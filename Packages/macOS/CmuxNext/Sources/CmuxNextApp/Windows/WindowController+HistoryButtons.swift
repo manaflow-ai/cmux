@@ -26,9 +26,9 @@ extension WindowController {
             let closed = TitlebarHistoryClosedSection(services.history.closedEntries(limit: TitlebarHistoryMenu.closedLimit),
                                                       served: DaemonClosedHistory.isServed(in: services))
             return TitlebarHistoryMenu.make(sections, closed: closed, style: TitlebarHistoryTunables.menuStyle.value,
-                                            choose: { Self.goTo(registry, $0) }, reopen: { id in
+                                            choose: { Self.goTo(registry, $0) }, reopenRow: { id, title in
                 // The row's own item by id, never the "newest closed" of an empty id.
-                _ = registry?.perform("history.reopen", invocation: ActionInvocation(arguments: ["id": .string(id)], origin: .user))
+                registry?.makeArgumentMenuItem(for: "history.reopen", arguments: ["id": .string(id)], title: title)
             }, showAll: registry?.makeMenuItem(for: "history.show"))
         }
         // The sidebar toggle's right-click (cx-2lm4): the menu of the sidebar's empty space.

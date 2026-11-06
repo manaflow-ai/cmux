@@ -105,6 +105,9 @@ struct TitlebarHistoryMenuSectionsTests {
 @MainActor struct TitlebarHistoryMenuContentTests {
     static let now = Date(timeIntervalSince1970: 10_000)
 
+    /// Stands in for the registry's `history.reopen` row.
+    static func reopenRow(_ id: String, _ title: String) -> NSMenuItem? { NSMenuItem(title: title, action: nil, keyEquivalent: "") }
+
     static func closedRow(_ id: String, _ title: String, kind: CmuxNextHistory.ClosedItem.Kind = .terminalTab) -> TitlebarHistoryClosedRow {
         TitlebarHistoryClosedRow(id: id, kind: kind, title: title, detail: "~/src")
     }
@@ -120,27 +123,32 @@ struct TitlebarHistoryMenuSectionsTests {
     @Test func recentlyClosedSitsBetweenTheTrailAndShowFullHistory() {
         let footer = NSMenuItem(title: "Show History", action: nil, keyEquivalent: "")
         let menu = TitlebarHistoryMenu.make(Self.sections(), closed: .rows([Self.closedRow("daemon:closed_1", "build")]),
-                                            choose: { _ in }, showAll: footer)
+                                            choose: { _ in }, reopenRow: TitlebarHistoryMenuContentTests.reopenRow, showAll: footer)
         let titles = menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
         #expect(titles == ["a", "—", "Recently Closed", "build — ~/src", "—", "Show Full History"])
         #expect(menu.items.last === footer)
     }
 
+    /// Each closed row is the registry's `history.reopen` row for its own item's id (asked newest first), never
+    /// an inline selector beside the action the palette and Cmd-Shift-T run.
     @Test func aClosedRowReopensItsOwnItem() throws {
-        var reopened: [String] = []
+        var asked: [String] = []
         let menu = TitlebarHistoryMenu.make([], closed: .rows([Self.closedRow("daemon:closed_new", "new"),
                                                                Self.closedRow("daemon:closed_old", "old")]),
-                                            choose: { _ in }, reopen: { reopened.append($0) }, showAll: nil)
+                                            choose: { _ in }, reopenRow: { id, title in
+                                                asked.append(id)
+                                                return TitlebarHistoryMenuContentTests.reopenRow(id, title)
+                                            }, showAll: nil)
+        #expect(asked == ["daemon:closed_new", "daemon:closed_old"])
         let old = try #require(menu.items.first { $0.title.hasPrefix("old") })
-        let action = try #require(old.action)
-        _ = (old.target as? NSObject)?.perform(action, with: old)
-        #expect(reopened == ["daemon:closed_old"])
+        #expect(old.identifier?.rawValue == "daemon:closed_old")
+        #expect(old.action == nil)
     }
 
     @Test func anEmptyOrUnservedClosedHistorySaysSo() {
         for (state, text) in [(TitlebarHistoryClosedSection.empty, "Nothing closed yet"),
                               (.unavailable, "Closed items appear once cmux connects")] {
-            let menu = TitlebarHistoryMenu.make([], closed: state, choose: { _ in }, showAll: nil)
+            let menu = TitlebarHistoryMenu.make([], closed: state, choose: { _ in }, reopenRow: TitlebarHistoryMenuContentTests.reopenRow, showAll: nil)
             #expect(menu.items.map(\.title) == ["Recently Closed", text])
             #expect(menu.items.last?.isEnabled == false)
         }
@@ -148,7 +156,7 @@ struct TitlebarHistoryMenuSectionsTests {
 
     @Test func closedRowsAreCapped() {
         let rows = (0..<20).map { Self.closedRow("daemon:closed_\($0)", "t\($0)") }
-        let menu = TitlebarHistoryMenu.make([], closed: .rows(rows), choose: { _ in }, showAll: nil)
+        let menu = TitlebarHistoryMenu.make([], closed: .rows(rows), choose: { _ in }, reopenRow: TitlebarHistoryMenuContentTests.reopenRow, showAll: nil)
         #expect(menu.items.count == 1 + TitlebarHistoryMenu.closedLimit)
     }
 
@@ -157,11 +165,11 @@ struct TitlebarHistoryMenuSectionsTests {
     /// a bounded Recently Closed, and sets no width of its own.
     @Test func recentlyClosedKeepsTheListsSize() {
         let footer = { NSMenuItem(title: "Show History", action: nil, keyEquivalent: "") }
-        let today = TitlebarHistoryMenu.make(Self.sections(), choose: { _ in }, showAll: footer())
+        let today = TitlebarHistoryMenu.make(Self.sections(), choose: { _ in }, reopenRow: TitlebarHistoryMenuContentTests.reopenRow, showAll: footer())
         let many = (0..<20).map { Self.closedRow("daemon:closed_\($0)", "t\($0)") }
         let todayRows = today.items.filter { $0.action == #selector(TitlebarHistoryMenuTarget.pick(_:)) }.map(\.title)
         for style in TitlebarHistoryMenuStyle.allCases {
-            let menu = TitlebarHistoryMenu.make(Self.sections(), closed: .rows(many), style: style, choose: { _ in }, showAll: footer())
+            let menu = TitlebarHistoryMenu.make(Self.sections(), closed: .rows(many), style: style, choose: { _ in }, reopenRow: TitlebarHistoryMenuContentTests.reopenRow, showAll: footer())
             #expect(menu.items.filter { $0.action == #selector(TitlebarHistoryMenuTarget.pick(_:)) }.map(\.title) == todayRows)
             let added = menu.items.count - today.items.count
             #expect(added == (style == .submenu ? 2 : 2 + TitlebarHistoryMenu.closedLimit))
@@ -176,8 +184,8 @@ struct TitlebarHistoryMenuSectionsTests {
         let url = "https://example.com/" + String(repeating: "deep/", count: 40) + "page.html"
         let row = TitlebarHistoryClosedRow(id: "daemon:closed_1", kind: .browserTab, title: "Docs", detail: url)
         for style in TitlebarHistoryMenuStyle.allCases {
-            let today = TitlebarHistoryMenu.make(Self.sections(), choose: { _ in }, showAll: nil)
-            let menu = TitlebarHistoryMenu.make(Self.sections(), closed: .rows([row]), style: style, choose: { _ in }, showAll: nil)
+            let today = TitlebarHistoryMenu.make(Self.sections(), choose: { _ in }, reopenRow: TitlebarHistoryMenuContentTests.reopenRow, showAll: nil)
+            let menu = TitlebarHistoryMenu.make(Self.sections(), closed: .rows([row]), style: style, choose: { _ in }, reopenRow: TitlebarHistoryMenuContentTests.reopenRow, showAll: nil)
             let items = menu.items + menu.items.flatMap { $0.submenu?.items ?? [] }
             let closed = try #require(items.first { $0.identifier?.rawValue == "daemon:closed_1" })
             let todayWidth = today.items.map { TitlebarHistoryMenu.titleWidth($0.title) }.max() ?? 0
@@ -191,7 +199,7 @@ struct TitlebarHistoryMenuSectionsTests {
 
     @Test func theSubmenuStyleHoldsTheClosedRows() throws {
         let menu = TitlebarHistoryMenu.make([], closed: .rows([Self.closedRow("daemon:closed_1", "build")]), style: .submenu,
-                                            choose: { _ in }, showAll: nil)
+                                            choose: { _ in }, reopenRow: TitlebarHistoryMenuContentTests.reopenRow, showAll: nil)
         let item = try #require(menu.items.first)
         #expect(item.title == "Recently Closed")
         #expect(item.submenu?.items.map(\.title) == ["build — ~/src"])

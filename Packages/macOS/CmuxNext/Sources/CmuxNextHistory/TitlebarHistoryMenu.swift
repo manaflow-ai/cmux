@@ -1,20 +1,13 @@
 public import AppKit
 public import CmuxNextDesign
 
-/// The rows' action target: a trail row's tag is its trail index, a closed row's represented id
-/// is its closed item's history id.
+/// The trail rows' action target: a row's tag is its trail index.
 final class TitlebarHistoryMenuTarget: NSObject {
     let choose: (Int) -> Void
-    let reopen: (String) -> Void
-    init(choose: @escaping (Int) -> Void, reopen: @escaping (String) -> Void) {
+    init(choose: @escaping (Int) -> Void) {
         self.choose = choose
-        self.reopen = reopen
     }
     @objc func pick(_ item: NSMenuItem) { choose(item.tag) }
-    @objc func pickClosed(_ item: NSMenuItem) {
-        guard let id = item.identifier?.rawValue, !id.isEmpty else { return }
-        reopen(id)
-    }
 }
 
 /// One row of the Recently Closed section: a closed tab, screen or workspace by its history id
@@ -87,13 +80,15 @@ public struct TitlebarHistoryMenu {
 
     /// `showAll` is the registry's `history.show` row (it runs the registered action, as the
     /// palette does), retitled Show Full History; nil: no footer. `closed` nil leaves the Recently
-    /// Closed section out.
+    /// Closed section out. `reopenRow(id, title)` is the registry's `history.reopen {id}` row for one
+    /// closed item, so the row runs the action the palette, Cmd-Shift-T and the CLI run (nil: no row).
     public static func make(_ sections: [LocationTrailMenuSection], closed: TitlebarHistoryClosedSection? = nil,
                             style: TitlebarHistoryMenuStyle = .inline,
-                            choose: @escaping (Int) -> Void, reopen: @escaping (String) -> Void = { _ in },
+                            choose: @escaping (Int) -> Void,
+                            reopenRow: (_ id: String, _ title: String) -> NSMenuItem? = { _, _ in nil },
                             showAll: NSMenuItem?) -> NSMenu {
         let menu = NSMenu()
-        let target = TitlebarHistoryMenuTarget(choose: choose, reopen: reopen)
+        let target = TitlebarHistoryMenuTarget(choose: choose)
         for section in sections where !section.items.isEmpty {
             if let header = HistoryStrings.menuHeader(section.kind) {
                 if !menu.items.isEmpty { menu.addItem(.separator()) }
@@ -115,7 +110,7 @@ public struct TitlebarHistoryMenu {
             // (Leo 2026-11-06: "don't increase any size ... don't baloon it").
             let others = menu.items.map(\.title) + [HistoryStrings.menuRecentlyClosed, showAll == nil ? "" : HistoryStrings.menuShowAll]
             let width = max(closedMinWidth, others.map(titleWidth).max() ?? 0)
-            let rows = closedRows(closed, icons: style == .inlineIcons, width: width, target: target)
+            let rows = closedRows(closed, icons: style == .inlineIcons, width: width, reopenRow: reopenRow)
             if style == .submenu {
                 let item = NSMenuItem(title: HistoryStrings.menuRecentlyClosed, action: nil, keyEquivalent: "")
                 let submenu = NSMenu(title: HistoryStrings.menuRecentlyClosed)
@@ -138,22 +133,20 @@ public struct TitlebarHistoryMenu {
     /// The Recently Closed rows, newest first and at most ``closedLimit``, or the one disabled line
     /// that says why there are none.
     static func closedRows(_ closed: TitlebarHistoryClosedSection, icons: Bool, width: CGFloat,
-                           target: TitlebarHistoryMenuTarget) -> [NSMenuItem] {
+                           reopenRow: (String, String) -> NSMenuItem?) -> [NSMenuItem] {
         switch closed {
         // The notes are our own short copy, shown whole: cut, they would say nothing. Their width is the
         // string's, never a person's data.
         case .empty: return [note(HistoryStrings.menuNothingClosed)]
         case .unavailable: return [note(HistoryStrings.menuClosedUnavailable)]
         case .rows(let rows):
-            return rows.prefix(closedLimit).map { closedRow in
-                let row = NSMenuItem(title: closedTitle(closedRow, fitting: width), action: #selector(TitlebarHistoryMenuTarget.pickClosed(_:)), keyEquivalent: "")
+            return rows.prefix(closedLimit).compactMap { closedRow in
+                guard let row = reopenRow(closedRow.id, closedTitle(closedRow, fitting: width)) else { return nil }
                 if icons {
                     row.image = NSImage(systemSymbolName: symbol(closedRow.kind), accessibilityDescription: nil)?
                         .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: TypeScale.body, weight: .regular))
                 }
                 row.identifier = NSUserInterfaceItemIdentifier(closedRow.id)
-                row.target = target
-                row.representedObject = target
                 return row
             }
         }

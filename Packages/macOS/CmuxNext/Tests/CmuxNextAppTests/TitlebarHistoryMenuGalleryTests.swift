@@ -49,6 +49,7 @@ import Testing
         }
         let sections = trail.menuSections(.back, scope: .workspace, layout: .scopeThenWindow)
         return TitlebarHistoryMenu.make(sections, closed: style.map { _ in .rows(closed) }, style: style ?? .inline, choose: { _ in },
+                                        reopenRow: TitlebarHistoryMenuContentTests.reopenRow,
                                         showAll: NSMenuItem(title: "", action: nil, keyEquivalent: ""))
     }
 
@@ -62,7 +63,7 @@ import Testing
 
     static func measure(_ menu: NSMenu) -> Measure {
         let history = menu.items.filter { $0.action == #selector(TitlebarHistoryMenuTarget.pick(_:)) }.count
-        let closed = menu.items.filter { $0.action == #selector(TitlebarHistoryMenuTarget.pickClosed(_:)) }.count
+        let closed = menu.items.filter { $0.identifier?.rawValue.hasPrefix("daemon:") == true }.count
         let height = menu.items.reduce(CGFloat(10)) { $0 + ($1.isSeparatorItem ? separatorHeight : rowHeight) }
         let items = menu.items + menu.items.flatMap { $0.submenu?.items ?? [] }
         let imageColumn: CGFloat = menu.items.contains { $0.image != nil } ? 22 : 0
