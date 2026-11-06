@@ -128,11 +128,18 @@ struct ClaudeAccountSwitchMenuModelTests {
 
     @Test
     func everyPaletteCommandHasAHandlerFromTheSameTargetList() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
         let targetNames = ["default", "alt"]
         var registry = CommandPaletteHandlerRegistry()
         var switchedTo: [String] = []
-        ContentView.registerClaudeAccountSwitchHandlers(&registry, targetNames: targetNames) {
-            switchedTo.append($0)
+        ContentView.registerClaudeAccountSwitchHandlers(
+            &registry,
+            targetNames: targetNames,
+            pane: (workspace, panelId)
+        ) { _, _, accountName in
+            switchedTo.append(accountName)
         }
 
         let contributions = ContentView.claudeAccountSwitchCommandContributions(
@@ -146,6 +153,36 @@ struct ClaudeAccountSwitchMenuModelTests {
             handler()
         }
         #expect(switchedTo == targetNames)
+    }
+
+    /// The rows name the accounts of the pane focused when the palette was built. If focus moves
+    /// before a row runs, the row still switches that pane, never the newly focused one, and once
+    /// that pane is gone it switches nothing.
+    @Test
+    func aPaletteRowSwitchesThePaneItWasBuiltFor() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let built = try #require(workspace.focusedTerminalPanel)
+        var registry = CommandPaletteHandlerRegistry()
+        var switched: [UUID] = []
+        ContentView.registerClaudeAccountSwitchHandlers(
+            &registry,
+            targetNames: ["alt"],
+            pane: (workspace, built.id)
+        ) { _, panelId, _ in
+            switched.append(panelId)
+        }
+        let handler = try #require(registry.handler(for: ContentView.claudeAccountSwitchCommandId(accountName: "alt")))
+
+        let other = try #require(workspace.newTerminalSplit(from: built.id, orientation: .horizontal, focus: true))
+        try #require(workspace.focusedPanelId == other.id)
+        handler()
+        #expect(switched == [built.id])
+
+        #expect(workspace.closePanel(built.id, force: true))
+        try #require(workspace.terminalPanel(for: built.id) == nil)
+        handler()
+        #expect(switched == [built.id])
     }
 
     @Test
