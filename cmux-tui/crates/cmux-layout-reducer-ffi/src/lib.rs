@@ -14,6 +14,8 @@
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer),
+//! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
+//! and whether it earns an undo toast),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -46,6 +48,7 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 pub mod tab_drag;
 pub mod typed;
+mod window_rules;
 use sidebar_mirror::Mirror;
 
 pub const ABI_VERSION: u32 = 1;
@@ -366,6 +369,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
+            }
+            operation if window_rules::handles(operation) => {
+                window_rules::respond(operation, request)?
             }
             _ => return Err(ERR_INVALID),
         };
