@@ -6503,7 +6503,8 @@ export class AcpmuxDirectClient {
         // which chat (Leo, 2026-11-06: "where did the forked chat even go??? what does it even
         // have???"). One quiet line at the cut; the rows above it are the chat's, through the
         // turn it was forked at.
-        const parent = typeof msg.parentId === "string" ? this.sessions.find((s) => s.sessionId === msg.parentId) : undefined;
+        const parent =
+          typeof msg.parentId === "string" ? this.sessions.find((s) => s.sessionId === msg.parentId) : undefined;
         this.rows.set(`forked-from-${event.seq}`, {
           id: `forked-from-${event.seq}`,
           version: 1,
@@ -6536,9 +6537,7 @@ export class AcpmuxDirectClient {
           version: 1,
           at: event.at,
           kind: "notice",
-          text: reason
-            ? translate("notice.forkStartFailedReason", { reason })
-            : translate("notice.forkStartFailed"),
+          text: reason ? translate("notice.forkStartFailedReason", { reason }) : translate("notice.forkStartFailed"),
         });
       } else if (event.kind === "failover") {
         // acpmux moved the chat to its fallback harness (`hub/turns.rs`); the turn goes on there.
