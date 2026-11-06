@@ -38,7 +38,11 @@ function Sources() {
   const [expanded, setExpanded] = useState(false);
   return (
     <SourcesSection
-      sources={range.map((index) => ({ url: `https://example.com/page/${index}`, label: `example.com/page/${index}`, kind: "url" }))}
+      sources={range.map((index) => ({
+        url: `https://example.com/page/${index}`,
+        label: `example.com/page/${index}`,
+        kind: "url",
+      }))}
       expanded={expanded}
       onExpandedChange={setExpanded}
     />
@@ -117,7 +121,12 @@ function Section() {
           sessions={range.map((index) => ({
             sessionId: `chat-${index}`,
             title: `Chat ${index}`,
-            usageStats: { autocompact: "capped" as const, contextTokens: 1000 + index, costUsd24h: index, updatedAt: at },
+            usageStats: {
+              autocompact: "capped" as const,
+              contextTokens: 1000 + index,
+              costUsd24h: index,
+              updatedAt: at,
+            },
           }))}
         />
       );

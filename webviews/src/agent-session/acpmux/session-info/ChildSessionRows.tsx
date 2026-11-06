@@ -69,40 +69,40 @@ export function ChildSessionRows({
       <WindowedRows
         items={orderedSessions(sessions)}
         render={(child) => {
-        const status = sessionStatus(child);
-        const label = sessionStateText(t, child);
-        return (
-          <li key={child.sessionId}>
-            <button
-              type="button"
-              className="acpmux-summary-row acpmux-summary-link acpmux-summary-agent acpmux-summary-session"
-              data-status={status}
-              disabled={!onOpen}
-              onClick={() => onOpen?.(child.sessionId)}
-            >
-              {/* Its harness's mark, else the chat icon in its own stable tone (Leo, 2026-10-29: "all of
+          const status = sessionStatus(child);
+          const label = sessionStateText(t, child);
+          return (
+            <li key={child.sessionId}>
+              <button
+                type="button"
+                className="acpmux-summary-row acpmux-summary-link acpmux-summary-agent acpmux-summary-session"
+                data-status={status}
+                disabled={!onOpen}
+                onClick={() => onOpen?.(child.sessionId)}
+              >
+                {/* Its harness's mark, else the chat icon in its own stable tone (Leo, 2026-10-29: "all of
                   these icons that are literally all the same icon, that's terrible"). */}
-              <span className="acpmux-lineage__icon" data-state={status}>
-                {child.harness ? (
-                  <AgentMark
-                    agent={child.harness}
-                    size={ROW_ICON}
-                    fallback={<TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(child.sessionId)} row />}
-                  />
-                ) : (
-                  <TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(child.sessionId)} row />
-                )}
-              </span>
-              <span className="acpmux-summary-text">
-                <span className="acpmux-summary-agent__name">{child.title}</span>
-              </span>
-              <span className="acpmux-summary-meta acpmux-summary-agent__state">
-                {label.working && <Spinner size={ROW_ICON} loading />}
-                {label.text}
-              </span>
-            </button>
-          </li>
-        );
+                <span className="acpmux-lineage__icon" data-state={status}>
+                  {child.harness ? (
+                    <AgentMark
+                      agent={child.harness}
+                      size={ROW_ICON}
+                      fallback={<TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(child.sessionId)} row />}
+                    />
+                  ) : (
+                    <TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(child.sessionId)} row />
+                  )}
+                </span>
+                <span className="acpmux-summary-text">
+                  <span className="acpmux-summary-agent__name">{child.title}</span>
+                </span>
+                <span className="acpmux-summary-meta acpmux-summary-agent__state">
+                  {label.working && <Spinner size={ROW_ICON} loading />}
+                  {label.text}
+                </span>
+              </button>
+            </li>
+          );
         }}
       />
     </>
