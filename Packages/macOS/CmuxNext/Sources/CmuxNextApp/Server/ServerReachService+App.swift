@@ -90,8 +90,7 @@ extension WebCardPanel {
             copy: { SystemPasswordPasteboard().write($0, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType]) },
             qr: { qrCode.pngDataURL(for: $0) })
         guard let panel = WebCardPanel(descriptor: .serverCards, cards: [invite]) else { return nil }
-        let person = PersonInputCheck(sources: services.personInput.sources)
-        panel.isPersonEvent = { person.isPerson($0) }
+        panel.isPersonEvent = { [person = PersonInputCheck(sources: services.personInput.sources)] in person.isPerson($0) }
         return panel
     }
 }

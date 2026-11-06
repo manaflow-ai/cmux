@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextPages
+import CmuxNextServer
 import Foundation
 
 /// The cmux-page:// pages the app ships, which Chromium serves. A reserved host
