@@ -1070,6 +1070,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .map(|why| format!("  (respawn pending: {why})"))
                 .unwrap_or_default();
             println!("status:    {}{respawn}", g("status"));
+            if let Some(line) = crate::hub::views::outdated_host_line(&v) {
+                println!("{line}");
+            }
             println!("mode:      {}", g("currentModeId"));
             println!("model:     {}", g("model"));
             println!("policy:    {}", g("policy"));
