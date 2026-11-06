@@ -374,6 +374,14 @@ pub use level::{LOAD_RELEASE_FRACTION, LOAD_WARN_FRACTION, Level, Reading, Track
 mod rejudge;
 pub use rejudge::with_pressure;
 
+// The shadow admission verdict (cmuxterm-hq#7342): logged beside a pick, never acted on.
+mod shadow;
+pub use shadow::{
+    Cost, CpuView, Fits, MAX_HEALTH_AGE_MS, MemView, NEW_SESSION_PRIOR, SHADOW_FORMULA_VERSION,
+    SessionCost, SessionLoad, ShadowInputs, ShadowState, ShadowVerdict, SignalState, Track,
+    inputs_digest, shadow_verdict,
+};
+
 // The JSON calls the app's C ABI makes, and that C ABI (`include/cmux_host_budget_ffi.h`).
 pub mod ffi;
 pub mod json;
