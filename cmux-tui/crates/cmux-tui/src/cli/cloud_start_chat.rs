@@ -548,12 +548,58 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
     }
 }
 
+/// `--timeout` as one deadline from the command's start, for a `--wait` with a prompt (none otherwise: without a
+/// turn to wait on, `--timeout` bounds nothing). Every step that does I/O or pauses checks it first and gets at
+/// most what is left of it; a step that answers after it is a timeout, never a success.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Deadline(Option<Instant>);
+
+impl Deadline {
+    pub(super) fn of(request: &Request, began: Instant) -> Self {
+        let bounded = request.wait && request.prompt.is_some();
+        Self(bounded.then(|| began.checked_add(request.timeout).unwrap_or(began)))
+    }
+
+    /// What is left of it; `None` with no deadline.
+    pub(super) fn left(self, runner: &mut dyn Runner) -> Option<Duration> {
+        self.0.map(|end| end.saturating_duration_since(runner.now()))
+    }
+
+    pub(super) fn passed(self, runner: &mut dyn Runner) -> bool {
+        self.left(runner).is_some_and(|left| left.is_zero())
+    }
+
+    /// `own`, or what is left when that is less.
+    pub(super) fn bound(self, runner: &mut dyn Runner, own: Duration) -> Duration {
+        self.left(runner).map_or(own, |left| left.min(own))
+    }
+}
+
+/// The code an upload past the deadline fails with (`upload_prompt`): the caller answers it as a start out of time.
+const OUT_OF_TIME: &str = "cloud.start_pending";
+
+/// The deadline passed before the prompt was sent: nothing more starts or is sent, and `machine` (one made so far,
+/// or the chat's) is there for the same ask again. `answer` holds the chat's ids once it started.
+fn out_of_time(request: &Request, machine: &Machine, answer: Value) -> Outcome {
+    let again = again_command(request, machine);
+    let machine_id = if let Machine::Target(id) = machine { json!(id) } else { Value::Null };
+    failed(
+        OUT_OF_TIME,
+        format!(
+            "--timeout ({}s) ran out before the prompt was sent, so nothing was sent. Run it again: {again}",
+            request.timeout.as_secs()
+        ),
+        json!({"again": again, "machine_id": machine_id, "answer": answer}),
+        75,
+    )
+}
+
 /// Runs the steps (module docs) and answers the outcome.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let began = runner.now();
-    // `--timeout` is one deadline from here: the list, a new machine, the start, the relay and
-    // the wait each get what is left of it, never a `--timeout` of their own.
-    let deadline = began.checked_add(request.timeout).unwrap_or(began);
+    // `--timeout` is one deadline from here: the list, a new machine, the start, the relay, the upload, the send
+    // and the wait each get what is left of it, never a `--timeout` of their own.
+    let deadline = Deadline::of(request, began);
     // 1. Signed in, and the machine names in use.
     let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
         Ok(listed) => listed,
@@ -571,6 +617,9 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // holds from boot, with no link to the machine. Whatever kept it from the machine (an app or a machine
     // without the relay) leaves the link path below, on the machine it found or made.
     let mut wanted = request.machine.clone();
+    if request.environment.is_some() && deadline.passed(runner) {
+        return out_of_time(request, &request.machine, Value::Null);
+    }
     if let Some(environment) = &request.environment {
         match in_environment(runner, &request.machine, environment, &listed) {
             Ok(id) => wanted = Machine::Target(id),
@@ -607,18 +656,8 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     };
     // A turn to wait on and no time left for it: nothing starts, and a machine made so far
     // is there for the same ask again.
-    if request.wait && request.prompt.is_some() && runner.now() >= deadline {
-        let again = again_command(request, &machine);
-        let machine_id = if let Machine::Target(id) = &machine { json!(id) } else { Value::Null };
-        return failed(
-            "cloud.start_pending",
-            format!(
-                "--timeout ({}s) ran out before the chat started, so nothing was sent. Run it again: {again}",
-                request.timeout.as_secs()
-            ),
-            json!({"again": again, "machine_id": machine_id}),
-            75,
-        );
+    if deadline.passed(runner) {
+        return out_of_time(request, &machine, Value::Null);
     }
 
     // 3. The machine and the chat, over the link.
@@ -643,7 +682,17 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     };
     if at(&started, "pending").as_bool() == Some(true) {
         let again = again_command(request, &machine);
-        let stage = start_stage(runner, &started);
+        // Past the deadline the machine list is not read for the stage.
+        let stage = if deadline.passed(runner) {
+            StartStage {
+                machine_id: at(&started, "machine_id").as_str().map(str::to_owned),
+                unread: true,
+                reason: Some("--timeout ran out before it was read".to_owned()),
+                ..StartStage::default()
+            }
+        } else {
+            start_stage(runner, &started)
+        };
         if stage.is_final() {
             return failed(
                 "cloud.start_failed",
@@ -701,6 +750,11 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         answer.set("ready_ms", json!(u64::try_from(ready_ms).unwrap_or(u64::MAX)));
         return Outcome::Done(answer);
     };
+    // start-session answered after the deadline: the chat is there, and nothing is sent to it.
+    let chat = Machine::Target(machine_id.to_owned());
+    if deadline.passed(runner) {
+        return out_of_time(request, &chat, answer);
+    }
     // 4. The prompt: inside the command when it fits there, else from a file on the machine.
     let quoted = shell_quote(prompt);
     // The uploaded prompt's file words, when the prompt went to a file.
@@ -712,8 +766,11 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
             sid = shell_quote(session),
         )
     } else {
-        let file = match upload_prompt(runner, machine_id, session, prompt.as_bytes()) {
+        let file = match upload_prompt(runner, machine_id, session, prompt.as_bytes(), deadline) {
             Ok(file) => file,
+            Err(error) if at(&error, "code").as_str() == Some(OUT_OF_TIME) => {
+                return out_of_time(request, &chat, answer);
+            }
             Err(error) => {
                 return failed(
                     "chat.send_failed",
@@ -726,6 +783,10 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
                 );
             }
         };
+        // The last piece answered after the deadline: the file stays unsent (it is this run's own, mode 0600).
+        if deadline.passed(runner) {
+            return out_of_time(request, &chat, answer);
+        }
         uploaded = Some(file.clone());
         format!(
             "{GUEST_PRELUDE}{file}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
@@ -774,16 +835,15 @@ fn wait_turn(
     session: &str,
     baseline: u64,
     mut answer: Value,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Outcome {
     loop {
-        // The steps before this wait spent the time: no wait past the deadline.
-        if runner.now() >= deadline {
+        // Each wait is bounded by exec's own limit and by what is left of `--timeout`, in whole seconds: with
+        // less than one left (the steps before spent it), no wait past the deadline.
+        let slice = deadline.bound(runner, Duration::from_secs(WAIT_SLICE_SECONDS)).as_secs();
+        if slice == 0 {
             return wait_timeout(request, machine_id, session, answer);
         }
-        // Each wait is bounded by exec's own limit and by what is left of `--timeout`.
-        let left = deadline.saturating_duration_since(runner.now()).as_secs();
-        let slice = left.clamp(1, WAIT_SLICE_SECONDS);
         let poll = format!(
             "{GUEST_PRELUDE}\"$c\" acp wait {sid} --timeout {slice} >/dev/null 2>&1; \
              echo \"@@wait $?\"; echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
@@ -844,11 +904,12 @@ fn wait_turn(
                 2,
             );
         }
-        if runner.now() >= deadline {
+        if deadline.passed(runner) {
             return wait_timeout(request, machine_id, session, answer);
         }
         if turn.is_none() {
-            runner.pause(NOT_STARTED_PAUSE);
+            let pause = deadline.bound(runner, NOT_STARTED_PAUSE);
+            runner.pause(pause);
         }
     }
 }
@@ -884,7 +945,7 @@ fn relay_chat(
     request: &Request,
     machine: &Machine,
     listed: &Value,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Relayed {
     let Some(prompt) = request.prompt.as_deref().filter(|p| p.len() <= RELAY_PROMPT_BYTES) else {
         return Relayed::Fallback(None);
@@ -903,6 +964,8 @@ fn relay_chat(
                 None => return Relayed::Fallback(None),
             }
         }
+        // No time left to make one: the start below says so.
+        Machine::New if deadline.passed(runner) => return Relayed::Fallback(None),
         Machine::New => match new_machine(runner, &[]) {
             Ok(id) => id,
             Err(outcome) => return Relayed::Answered(outcome),
@@ -921,7 +984,7 @@ fn relay_chat(
     args.extend(["--prompt-id".to_owned(), runner.prompt_id()]);
     args.push("--json".to_owned());
     // The app may take its whole answer window: with less of `--timeout` left, the link path keeps to it.
-    if deadline.saturating_duration_since(runner.now()) < RELAY_ANSWER_WINDOW {
+    if deadline.bound(runner, RELAY_ANSWER_WINDOW) < RELAY_ANSWER_WINDOW {
         return Relayed::Fallback(Some(machine_id));
     }
     let relayed = match step_result(&runner.cmux(&args)) {
@@ -1005,6 +1068,10 @@ fn relay_chat(
         "follow_up": follow_ups(&machine_id, session),
         "sent": true,
     });
+    // The relay answered after the deadline: the turn is on the machine, and its answer is a timeout, not a reply.
+    if deadline.passed(runner) {
+        return Relayed::Answered(wait_timeout(request, &machine_id, session, answer));
+    }
     if at(&relayed, "ended").as_bool() != Some(true) {
         // Still running after the app's answer: the link path waits on the session (a new one, so no turn before).
         return Relayed::Answered(wait_turn(
@@ -1228,6 +1295,7 @@ pub(super) fn upload_prompt(
     machine: &str,
     session: &str,
     prompt: &[u8],
+    deadline: Deadline,
 ) -> Result<String, Value> {
     use base64::Engine as _;
     // A file of this upload's own: two starts can share a session id, and neither may send the other's text.
@@ -1235,6 +1303,12 @@ pub(super) fn upload_prompt(
     let mut piece = PROMPT_PIECE_BYTES;
     let mut sent = 0;
     while sent < prompt.len() {
+        // No piece past the deadline; the pieces so far stay in this run's own file (mode 0600), never sent.
+        if deadline.passed(runner) {
+            return Err(
+                json!({"code": OUT_OF_TIME, "message": "--timeout ran out during the prompt's upload"}),
+            );
+        }
         let end = sent.saturating_add(piece).min(prompt.len());
         let chunk = prompt.get(sent..end).unwrap_or_default();
         let encoded = base64::engine::general_purpose::STANDARD.encode(chunk);
