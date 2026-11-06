@@ -74,10 +74,10 @@ extension WindowManager {
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
             let catchingUp = bridge.rows.layoutCatchingUp
-            // Waits for a current row this window's cold rows omit. One closed or pinned since the press (it shows in
-            // the band, not the list), or one this window does not list (another window's, another space's), has no
-            // row to wait for: the rule resolves as if it never had one. So does a wait past its limit.
             var byDefault = pending.byDefault
+            // A current row still being made (rapid Cmd-N) is placed first; this one then resolves below its slot.
+            if pending.slot == nil, let current = byDefault?.current, current != id, pendingPlacements[current] != nil { continue }
+            // Waits for a current row cold rows omit (not one closed, pinned or not listed here; nor past the limit).
             if pending.slot == nil, byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) == true, let current = byDefault?.current {
                 let since = pending.anchorWaitSince ?? .now
                 if services.machines.workspace(id: current) != nil,
