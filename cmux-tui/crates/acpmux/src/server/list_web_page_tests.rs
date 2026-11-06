@@ -103,7 +103,12 @@ impl Client {
     /// The whole watch list as a paging client reads it (`_acpmux/watch`, then
     /// `_acpmux/sessions {cursor}`): every id, and each reply line's size.
     async fn whole_watch(&mut self) -> (Vec<String>, Vec<usize>) {
-        let (mut page, size, _) = self.call(method::MUX_WATCH, json!({"enabled": true})).await;
+        self.whole(method::MUX_WATCH, json!({"enabled": true})).await
+    }
+
+    /// The whole list read from `m {params}` on, then by `_acpmux/sessions {cursor}`.
+    async fn whole(&mut self, m: &str, params: Value) -> (Vec<String>, Vec<usize>) {
+        let (mut page, size, _) = self.call(m, params).await;
         let (mut ids, mut sizes, mut seen) = (Vec::new(), vec![size], HashSet::new());
         loop {
             for row in page["sessions"].as_array().expect("a page lists sessions") {
@@ -127,6 +132,11 @@ fn own_ids() -> Vec<String> {
     sorted((0..OWN).map(|i| format!("own-{i}")).collect())
 }
 
+/// This daemon's own chats and the one mirrored from `box`.
+fn every_id() -> Vec<String> {
+    sorted([own_ids(), vec![MIRRORED.to_owned()]].concat())
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_web_connection_reads_a_large_whole_list_in_bounded_pages() {
     let hub = hub().await;
@@ -135,9 +145,7 @@ async fn a_web_connection_reads_a_large_whole_list_in_bounded_pages() {
     assert!(sizes.len() > 1, "a list past one page goes in pages: {sizes:?}");
     assert!(sizes.iter().all(|s| *s <= WEB_LIST_PAGE_BYTES + FRAME), "{sizes:?}");
     // Every row once: the pages neither skip nor repeat one.
-    let mut expected = own_ids();
-    expected.push(MIRRORED.to_owned());
-    assert_eq!(sorted(ids), sorted(expected));
+    assert_eq!(sorted(ids), every_id());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -147,9 +155,19 @@ async fn a_peer_link_reads_its_own_rows_in_bounded_pages() {
     let (ids, sizes) = link.whole_watch().await;
     assert!(sizes.len() > 1, "{sizes:?}");
     assert!(sizes.iter().all(|s| *s <= WEB_LIST_PAGE_BYTES + FRAME), "{sizes:?}");
-    // Every row of its own; the link drops the mirrored ones on each page (`watch_sessions`).
-    let own: HashSet<String> = ids.into_iter().filter(|id| id != MIRRORED).collect();
-    assert_eq!(sorted(own.into_iter().collect()), own_ids());
+    // Every row once, the mirrored one too: each page has the same rows as the first
+    // (the link drops the mirrored ones on each page itself, `watch_sessions`).
+    assert_eq!(sorted(ids), every_id());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages() {
+    let hub = hub().await;
+    let mut link = Client::on(&hub, Origin::Peer).await;
+    let (ids, sizes) = link.whole(method::MUX_SESSIONS, json!({})).await;
+    assert!(sizes.len() > 1, "{sizes:?}");
+    assert!(sizes.iter().all(|s| *s <= WEB_LIST_PAGE_BYTES + FRAME), "{sizes:?}");
+    assert_eq!(sorted(ids), every_id());
 }
 
 #[tokio::test(flavor = "multi_thread")]
