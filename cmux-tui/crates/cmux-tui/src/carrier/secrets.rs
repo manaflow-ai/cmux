@@ -114,11 +114,14 @@ struct Request {
 
 /// The one answer line.
 fn failure(code: &str, refusal: Option<&str>, retryable: bool) -> Value {
-    let mut line = json!({ "ok": false, "error_code": code, "retryable": retryable });
+    let mut line = serde_json::Map::new();
+    line.insert("ok".into(), json!(false));
+    line.insert("error_code".into(), json!(code));
     if let Some(refusal) = refusal {
-        line["refusal"] = json!(refusal);
+        line.insert("refusal".into(), json!(refusal));
     }
-    line
+    line.insert("retryable".into(), json!(retryable));
+    Value::Object(line)
 }
 
 /// The daemon's refusal (`secret-refused`, message `"<code>: <name>"`) as its
