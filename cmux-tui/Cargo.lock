@@ -1123,8 +1123,10 @@ dependencies = [
 name = "cmux-cloud-config"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
