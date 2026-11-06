@@ -605,6 +605,11 @@ pub struct Hub {
     pub(super) cache_test_write_started: AtomicBool,
     #[cfg(test)]
     pub(super) cache_test_delay_peer: StdMutex<Option<String>>,
+    #[cfg(test)]
+    pub(super) cache_test_flush_pause:
+        StdMutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    #[cfg(test)]
+    pub(super) peer_notice_projection_hook: StdMutex<Option<Arc<peers::PeerNoticeProjectionHook>>>,
     /// Moves on with each `peer_add` (under the config lock): a reload whose file read began
     /// before one leaves the saved peers' boundaries and GitHub lending as that add left them.
     pub(super) peer_config_gen: std::sync::atomic::AtomicU64,
@@ -953,6 +958,10 @@ impl Hub {
             cache_test_write_started: AtomicBool::new(false),
             #[cfg(test)]
             cache_test_delay_peer: StdMutex::new(None),
+            #[cfg(test)]
+            cache_test_flush_pause: StdMutex::new(None),
+            #[cfg(test)]
+            peer_notice_projection_hook: StdMutex::new(None),
             peer_config_gen: std::sync::atomic::AtomicU64::new(0),
             github_owners: Default::default(),
             github_app: Default::default(),

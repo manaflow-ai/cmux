@@ -104,7 +104,7 @@ impl Hub {
                 _ = cache_tick.tick() => {
                     let dirty: Vec<_> = self.peers.lock().unwrap_or_else(|e| e.into_inner())
                         .values()
-                        .filter(|p| p.cache_dirty.load(Ordering::SeqCst))
+                        .filter(|p| p.cache_is_dirty())
                         .map(|p| (p.name.clone(), p.generation))
                         .collect();
                     for (peer, generation) in dirty {
@@ -165,7 +165,7 @@ impl Hub {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .values()
-            .filter(|p| p.cache_dirty.load(Ordering::SeqCst))
+            .filter(|p| p.cache_is_dirty())
             .map(|p| (p.name.clone(), p.generation))
             .collect();
         for (peer, generation) in dirty {

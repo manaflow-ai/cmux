@@ -4,6 +4,43 @@ use super::*;
 use crate::session_identity::SessionReceipt;
 use cmux_json::JsonSet as _;
 
+#[cfg(test)]
+pub(crate) struct PeerNoticeProjectionHook {
+    reached: (StdMutex<bool>, std::sync::Condvar),
+    released: (StdMutex<bool>, std::sync::Condvar),
+}
+
+#[cfg(test)]
+impl PeerNoticeProjectionHook {
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new(Self {
+            reached: (StdMutex::new(false), std::sync::Condvar::new()),
+            released: (StdMutex::new(false), std::sync::Condvar::new()),
+        })
+    }
+
+    pub(crate) fn wait_reached(&self) {
+        let mut reached = self.reached.0.lock().unwrap_or_else(|e| e.into_inner());
+        while !*reached {
+            reached = self.reached.1.wait(reached).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+
+    pub(crate) fn release(&self) {
+        *self.released.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.released.1.notify_all();
+    }
+
+    fn pause(&self) {
+        *self.reached.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.reached.1.notify_all();
+        let mut released = self.released.0.lock().unwrap_or_else(|e| e.into_inner());
+        while !*released {
+            released = self.released.1.wait(released).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+}
+
 pub(super) fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
     summary.get("sessionReceipt").and_then(|value| serde_json::from_value(value.clone()).ok())
 }
@@ -42,6 +79,15 @@ fn take_peer_rows(map: &mut super::remote_rows::RemoteRows, name: &str) -> Vec<V
 }
 
 impl Hub {
+    #[cfg(test)]
+    fn pause_after_peer_session_projection_for_test(&self) {
+        let hook =
+            self.peer_notice_projection_hook.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(hook) = hook {
+            hook.pause();
+        }
+    }
+
     // ------------------------------------------------------------- peers
 
     pub(super) fn start_peer(
@@ -575,7 +621,13 @@ impl Hub {
                 return;
             }
             let last_seen = self.peer(peer).and_then(|p| p.link().last_seen);
-            map.mark_peer_stale(peer, last_seen)
+            let changed = map.mark_peer_stale(peer, last_seen);
+            if !changed.is_empty()
+                && let Some(current) = self.peer(peer).filter(|p| p.generation == generation)
+            {
+                current.remote_rows_epoch.fetch_add(1, std::sync::atomic::Ordering::Release);
+            }
+            changed
         };
         if !changed.is_empty() {
             self.save_peer_cache(peer, generation, true);
@@ -648,58 +700,86 @@ impl Hub {
                     // Read the old summaries under the rows lock, then do all JSON projection and
                     // comparison work without it. The single-consumer notice loop keeps another
                     // notice for this peer from changing the baseline while this one is built.
-                    let mut old: HashMap<String, Value> = {
-                        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-                        if !self.is_current(&peer, generation) {
-                            return;
-                        }
-                        map.of_peer(&peer).map(|(id, r)| (id.clone(), r.summary.clone())).collect()
-                    };
-                    // Read before a purge this link already brought (`purge_tombstones.rs`).
-                    let purged = self.with_tombstones(&peer, generation, |t| t.take());
-                    let purged = purged.unwrap_or_default();
-                    let mut listed_rows = Vec::new();
-                    let mut updates = Vec::new();
-                    let mut changed = Vec::new();
-                    for s in list {
-                        let summary = Self::remote_summary(&peer, s);
-                        let Some(receipt) = session_receipt(&summary) else { continue };
-                        if purged.contains(&receipt.mux_session_id) {
-                            continue;
-                        }
-                        let id = receipt.qualified_id();
-                        let previous = old.remove(&id);
-                        let summary = Self::retain_summary_tools(summary, previous.as_ref());
-                        if previous.as_ref() != Some(&summary) {
-                            changed.push(summary.clone());
-                            updates.push((
-                                id.clone(),
-                                RemoteSession {
-                                    peer: peer.clone(),
-                                    summary: summary.clone(),
-                                    receipt: receipt.clone(),
-                                },
-                            ));
-                        }
-                        listed_rows
-                            .push((id, RemoteSession { peer: peer.clone(), summary, receipt }));
-                    }
-                    let gone_ids = old.keys().cloned().collect::<Vec<_>>();
-                    let gone = old.into_values().collect::<Vec<_>>();
-                    let listed = listed_rows
-                        .iter()
-                        .map(|(_, r)| {
+                    let (changed, gone) = loop {
+                        let (mut old, epoch, purged) = {
+                            let map =
+                                self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+                            let Some(current) =
+                                self.peer(&peer).filter(|p| p.generation == generation)
+                            else {
+                                return;
+                            };
+                            let epoch = current
+                                .remote_rows_epoch
+                                .load(std::sync::atomic::Ordering::Acquire);
+                            let mut purged = self
+                                .with_tombstones(&peer, generation, |t| t.peek())
+                                .unwrap_or_default();
+                            purged.extend(
+                                current
+                                    .remote_purge_fences
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner())
+                                    .iter()
+                                    .cloned(),
+                            );
                             (
-                                r.receipt.mux_session_id.clone(),
-                                r.summary.get("createdAt").and_then(Value::as_u64),
+                                map.of_peer(&peer)
+                                    .map(|(id, r)| (id.clone(), r.summary.clone()))
+                                    .collect::<HashMap<_, _>>(),
+                                epoch,
+                                purged,
                             )
-                        })
-                        .collect::<Vec<_>>();
-                    {
+                        };
+                        let mut listed_rows = Vec::new();
+                        let mut updates = Vec::new();
+                        let mut changed = Vec::new();
+                        for s in &list {
+                            let summary = Self::remote_summary(&peer, s.clone());
+                            let Some(receipt) = session_receipt(&summary) else { continue };
+                            if purged.contains(&receipt.mux_session_id) {
+                                continue;
+                            }
+                            let id = receipt.qualified_id();
+                            let previous = old.remove(&id);
+                            let summary = Self::retain_summary_tools(summary, previous.as_ref());
+                            if previous.as_ref() != Some(&summary) {
+                                changed.push(summary.clone());
+                                updates.push((
+                                    id.clone(),
+                                    RemoteSession {
+                                        peer: peer.clone(),
+                                        summary: summary.clone(),
+                                        receipt: receipt.clone(),
+                                    },
+                                ));
+                            }
+                            listed_rows
+                                .push((id, RemoteSession { peer: peer.clone(), summary, receipt }));
+                        }
+                        let gone_ids = old.keys().cloned().collect::<Vec<_>>();
+                        let gone = old.into_values().collect::<Vec<_>>();
+                        let listed = listed_rows
+                            .iter()
+                            .map(|(_, r)| {
+                                (
+                                    r.receipt.mux_session_id.clone(),
+                                    r.summary.get("createdAt").and_then(Value::as_u64),
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        #[cfg(test)]
+                        self.pause_after_peer_session_projection_for_test();
                         let mut map =
                             self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-                        if !self.is_current(&peer, generation) {
+                        let Some(current) = self.peer(&peer).filter(|p| p.generation == generation)
+                        else {
                             return;
+                        };
+                        if current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire)
+                            != epoch
+                        {
+                            continue;
                         }
                         for id in gone_ids {
                             map.remove(&id);
@@ -707,13 +787,33 @@ impl Hub {
                         for (id, row) in updates {
                             map.insert(id, row);
                         }
+                        if !changed.is_empty() || !gone.is_empty() {
+                            if let Some(current) =
+                                self.peer(&peer).filter(|p| p.generation == generation)
+                            {
+                                current
+                                    .remote_rows_epoch
+                                    .fetch_add(1, std::sync::atomic::Ordering::Release);
+                            }
+                        }
                         // Which generation of each session is current (`peer_snapshot.rs`), sent
                         // while the row swap is still held, so a page cannot observe a row before
                         // its listing record.
                         if self.peer_snapshots.allows(generation) {
                             self.peer_snapshots.listed(&peer, listed, true);
                         }
-                    }
+                        // The tombstones are consumed only after the version fence wins, so a
+                        // retry cannot accidentally revive a purge seen during projection.
+                        self.with_tombstones(&peer, generation, |t| {
+                            let _ = t.take();
+                        });
+                        current
+                            .remote_purge_fences
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .clear();
+                        break (changed, gone);
+                    };
                     // A burst of lists is dirty state, not an immediate disk write for every
                     // notice. The throttle admits one snapshot per interval; disconnect/drop
                     // paths still call with `now = true` for the final state.
@@ -748,6 +848,13 @@ impl Hub {
                             let created = |s: &Value| s.get("createdAt").and_then(Value::as_u64);
                             let purged = created(&session).or(removed.as_ref().and_then(created));
                             self.peer_snapshots.gone(&peer, &mux_id, purged);
+                            if let Some(current) =
+                                self.peer(&peer).filter(|p| p.generation == generation)
+                            {
+                                current
+                                    .remote_rows_epoch
+                                    .fetch_add(1, std::sync::atomic::Ordering::Release);
+                            }
                             removed
                         };
                         self.save_peer_cache(&peer, generation, false);
@@ -795,6 +902,18 @@ impl Hub {
                                 vec![(mux_id.clone(), created)],
                                 false,
                             );
+                        }
+                        if let Some(current) =
+                            self.peer(&peer).filter(|p| p.generation == generation)
+                        {
+                            current
+                                .remote_purge_fences
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .remove(&mux_id);
+                            current
+                                .remote_rows_epoch
+                                .fetch_add(1, std::sync::atomic::Ordering::Release);
                         }
                     }
                     // An ask decided there before the session was listed here never comes back.
@@ -1217,6 +1336,16 @@ impl Hub {
             .filter(|(_, r)| created(r) == generation)
             .map(|(key, _)| key.clone());
         let removed = key.and_then(|key| map.take(&key));
+        if removed.is_some()
+            && let Some(current) = self.peer(peer).filter(|p| p.generation == instance)
+        {
+            current
+                .remote_purge_fences
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(mux.to_owned());
+            current.remote_rows_epoch.fetch_add(1, std::sync::atomic::Ordering::Release);
+        }
         // Its event snapshot goes with it (`peer_snapshot.rs`), before the lock does. A purge that
         // names no generation and found no such row removes no copy of another.
         if generation.is_some() || removed.is_some() {
@@ -1705,6 +1834,45 @@ mod tests {
         assert_eq!(some["y"]["peer"], "other", "the newer of two peer rows");
         assert!(some["solo"].get("peer").is_none(), "{:?}", some["solo"]);
         assert_eq!(some.len(), 3, "{some:?}");
+    }
+
+    #[test]
+    fn a_purge_between_session_projection_and_swap_stays_gone() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("builder".into(), peer.clone());
+        let row = |status: &str| {
+            json!({"sessionId": "x", "name": "lane-x", "status": status,
+                "createdAt": 1, "updatedAt": 2})
+        };
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            crate::peer::PeerNotice::Sessions(vec![row("idle")]),
+        );
+
+        let hook = PeerNoticeProjectionHook::new();
+        *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
+        let applying = {
+            let hub = hub.clone();
+            let generation = peer.generation;
+            std::thread::spawn(move || {
+                hub.apply_peer_notice(
+                    "builder",
+                    generation,
+                    crate::peer::PeerNotice::Sessions(vec![row("running")]),
+                );
+            })
+        };
+        hook.wait_reached();
+        hub.forget_remote(("builder", peer.generation), "x", Some(1));
+        hook.release();
+        applying.join().unwrap();
+        assert!(hub.remote_sessions().is_empty(), "the purged row was reinserted");
     }
 }
 

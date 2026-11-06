@@ -263,12 +263,17 @@ pub struct Peer {
     pub(crate) cache_saved_at: AtomicU64,
     /// The last successful cache write still records an outage that Connected must clear.
     pub(crate) cache_saved_outage: AtomicBool,
-    /// A throttled row notice still needs one trailing cache write.
-    pub(crate) cache_dirty: AtomicBool,
     /// At most one non-final cache writer may be queued for this peer.
     pub(crate) cache_write_pending: AtomicBool,
-    /// Monotonic notice sequence used to avoid clearing dirty state for a newer snapshot.
+    /// Monotonic notice sequence; a cache is dirty until this reaches the flushed sequence.
     pub(crate) cache_dirty_seq: AtomicU64,
+    /// The notice sequence included in the most recent successful cache write.
+    pub(crate) cache_flushed_seq: AtomicU64,
+    /// Version of this peer's remote rows, bumped by every row mutation or purge.
+    pub(crate) remote_rows_epoch: AtomicU64,
+    /// Local purges that are fenced against an in-flight full-list projection. Cleared when the
+    /// next list wins its swap; a later list may then reflect a peer-side recreation.
+    pub(crate) remote_purge_fences: StdMutex<HashSet<String>>,
     /// This instance's outage outlived its grace and its rows went unreachable
     /// (`hub/peer_grace.rs`). Kept here, not in the notice loop, so it goes with the instance.
     pub(crate) outage_ended: AtomicBool,
@@ -320,6 +325,11 @@ impl ReceivedBytes {
 }
 
 impl Peer {
+    pub(crate) fn cache_is_dirty(&self) -> bool {
+        self.cache_dirty_seq.load(Ordering::Acquire)
+            != self.cache_flushed_seq.load(Ordering::Acquire)
+    }
+
     pub fn new(
         name: &str,
         url: &str,
@@ -388,9 +398,11 @@ impl Peer {
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
             cache_saved_outage: AtomicBool::new(false),
-            cache_dirty: AtomicBool::new(false),
             cache_write_pending: AtomicBool::new(false),
             cache_dirty_seq: AtomicU64::new(0),
+            cache_flushed_seq: AtomicU64::new(0),
+            remote_rows_epoch: AtomicU64::new(0),
+            remote_purge_fences: StdMutex::new(HashSet::new()),
             outage_ended: AtomicBool::new(false),
             purge_tombstones: Default::default(),
             health: StdMutex::new(None),
