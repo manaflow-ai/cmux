@@ -249,12 +249,12 @@ fn kept_records_are_synced_once_the_journal_is_quiet() {
     assert_eq!(stats.barrier_syncs + stats.full_syncs, 0, "{stats:?}");
     // Quiet now: synced on their own, with no acked record and well before the 60 s delay.
     assert!(eventually(|| journal.durable_lsn() >= last), "{:?}", journal.stats());
-    // The next acked record's sync carries only itself.
+    // Nothing is left unsynced, so the next acked record's sync carries only itself.
     let before = journal.stats();
+    assert_eq!(before.durable_lsn, last, "{before:?}");
+    assert_eq!(before.written_lsn, last, "{before:?}");
     let ack = journal.append(1, Class::Ack, b"prompt").unwrap_or_else(|e| panic!("{e}"));
     journal.wait_durable(ack, WAIT).unwrap_or_else(|e| panic!("{e}"));
-    let after = journal.stats();
-    assert_eq!(after.records - before.records, 1, "{before:?} -> {after:?}");
     // A plain `Stream` record keeps the stream sync delay.
     let stream = journal.append(9, Class::Stream, b"output").unwrap_or_else(|e| panic!("{e}"));
     assert!(eventually(|| journal.stats().written_lsn >= stream), "{:?}", journal.stats());

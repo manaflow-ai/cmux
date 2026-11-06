@@ -22,19 +22,22 @@ const SYNC: Duration = Duration::from_millis(400);
 
 /// A hub on a journal store with two chats.
 fn hub(home: &Path, journal: &SimStorage) -> Arc<crate::hub::Hub> {
-    hub_and_durability(home, journal).0
+    hub_and_durability(home, journal, cmux_journal::Config::default().kept_sync_quiet).0
 }
 
-/// [`hub`], and the store's durability as the outbound gate reads it.
+/// [`hub`] whose journal syncs kept records after `kept_sync_quiet` of idle time, and the store's
+/// durability as the outbound gate reads it.
 fn hub_and_durability(
     home: &Path,
     journal: &SimStorage,
+    kept_sync_quiet: Duration,
 ) -> (Arc<crate::hub::Hub>, crate::store::Durability) {
     let mut config = Config::default();
     config.store.mode = StoreMode::Local;
     let journal_config = cmux_journal::Config {
         retry_min: Duration::from_millis(1),
         retry_max: Duration::from_millis(5),
+        kept_sync_quiet,
         ..cmux_journal::Config::default()
     };
     let store = crate::store::open_with_journal(
@@ -118,7 +121,10 @@ async fn an_acked_change_is_answered_once_its_record_is_durable() {
 async fn a_draft_and_a_name_are_answered_before_their_sync_and_survive_a_kill() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(63);
-    let hub = hub(home.path(), &journal);
+    // No idle-time sync of the draft's record between the two requests: on a loaded machine the
+    // pause between them can pass the 10 ms quiet time, and the rename's write would then wait
+    // behind that (simulated 400 ms) sync. Review of #37174, finding 1.
+    let (hub, _) = hub_and_durability(home.path(), &journal, Duration::from_secs(60));
     let (input, mut outgoing) = connect(&hub).await;
     // The full sync that follows the chats' saves within the journal's 1 s interval is over: no
     // sync of the setup is under way when the slow syncs start.
@@ -173,7 +179,8 @@ async fn a_draft_and_a_name_are_answered_before_their_sync_and_survive_a_kill() 
 async fn kept_changes_are_synced_in_idle_time_before_the_next_acked_change() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(64);
-    let (hub, durability) = hub_and_durability(home.path(), &journal);
+    let quiet = cmux_journal::Config::default().kept_sync_quiet;
+    let (hub, durability) = hub_and_durability(home.path(), &journal, quiet);
     let (input, mut outgoing) = connect(&hub).await;
     // The setup's syncs (and the full sync that follows them within 1 s) are over.
     tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -276,7 +283,10 @@ async fn a_replay_never_sends_a_line_before_its_record() {
     use crate::store::pause_next_log_write_on_this_thread;
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(63);
-    let hub = hub(home.path(), &journal);
+    // No idle-time sync of the draft's record between the two requests: on a loaded machine the
+    // pause between them can pass the 10 ms quiet time, and the rename's write would then wait
+    // behind that (simulated 400 ms) sync. Review of #37174, finding 1.
+    let (hub, _) = hub_and_durability(home.path(), &journal, Duration::from_secs(60));
     let session = hub.resolve(CHAT).unwrap_or_else(|e| panic!("{e:?}"));
     let first = hub.append(&session, "mux", "note", json!({"n": 1}));
     let (arrived_tx, arrived) = std::sync::mpsc::channel();
