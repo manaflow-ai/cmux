@@ -483,6 +483,15 @@ impl Hub {
             let mut msg = json!({"held": held, "requeued": true});
             if by_stop {
                 msg.set("reason", json!("stop"));
+            } else {
+                // Agent messages go in again by themselves (`queue.rs` `pause_queue`'s field): a
+                // client reads no pause from them.
+                let retrying: Vec<&String> = taken
+                    .iter()
+                    .filter(|q| held.contains(&&q.prompt_id) && !q.waits_for_resume(false))
+                    .map(|q| &q.prompt_id)
+                    .collect();
+                msg.set("retrying", json!(retrying));
             }
             self.append(session, "mux", "queue_paused", msg);
         }

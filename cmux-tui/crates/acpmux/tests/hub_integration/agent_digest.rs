@@ -320,6 +320,17 @@ async fn a_message_a_failed_turn_put_back_keeps_its_pasted_ranges() {
     assert_eq!(requeued["text"], "🦀 from c\na log", "{requeued}");
     // 🦀 is two UTF-16 units: "🦀 from c" is 9, and the paste starts after its "\n".
     assert_eq!(requeued["pasted"], json!([{"start": 10, "end": 15}]), "{requeued}");
+    // Their hold says they go in again by themselves: a client reads no pause from it.
+    let page = c
+        .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": 0, "limit": 5000}))
+        .await
+        .unwrap();
+    let paused = page["events"].as_array().unwrap().iter().find(|e| {
+        e["kind"] == "queue_paused" && e["msg"]["requeued"] == true
+    });
+    if let Some(paused) = paused {
+        assert_eq!(paused["msg"]["retrying"], paused["msg"]["held"], "{paused}");
+    }
 }
 
 /// Another agent's message after a failed turn of agent messages put some back waits behind
