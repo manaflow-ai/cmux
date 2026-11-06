@@ -288,7 +288,9 @@ class AutoResumeTests(unittest.TestCase):
             self.assertLess(install, publisher, name)
             # No step timeout shorter than the publisher's 30 minutes plus the wrapper's hour.
             self.assertGreaterEqual(int(steps[publisher].get("timeout-minutes", 360)), 30, name)
-            self.assertGreaterEqual(int(job.get("timeout-minutes", 360)), 120, name)
+            # A fixed limit, or the one-mini mode's `${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && N+120 || N }}`.
+            limits = [int(value) for value in re.findall(r"\d+", str(job.get("timeout-minutes", 360)))]
+            self.assertGreaterEqual(min(limits), 120, name)
 
 
 if __name__ == "__main__":
