@@ -584,12 +584,19 @@ mod tests {
         entered_rx
             .recv_timeout(std::time::Duration::from_secs(2))
             .expect("cache worker never reached the flush publication");
-        hub.apply_peer_notice(
-            "builder",
-            peer.generation,
-            PeerNotice::Sessions(vec![remote("new", "lane")]),
-        );
+        let notice = {
+            let hub = hub.clone();
+            let generation = peer.generation;
+            std::thread::spawn(move || {
+                hub.apply_peer_notice(
+                    "builder",
+                    generation,
+                    PeerNotice::Sessions(vec![remote("new", "lane")]),
+                );
+            })
+        };
         release_tx.send(()).unwrap();
+        notice.join().unwrap();
         for _ in 0..100_000 {
             if !peer.cache_write_pending.load(std::sync::atomic::Ordering::Acquire) {
                 break;
