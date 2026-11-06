@@ -24,10 +24,7 @@ extension CloudStartSession {
         var loginWithin: Duration = CloudStartSession.loginWithin
         /// The app link up before the login, as start-session connects first, so the login reads its owner answer (false: none came up).
         var link: @MainActor (CloudMachineSession) async -> Bool = { $0.appLink == nil ? true : await $0.linkHop(origin: .script) }
-
-        static func live(_ services: AppServices) -> RelaySteps {
-            RelaySteps(login: { try await CloudStartSession(services: services).passHarnessLogin($0, agent: $1.agent, login: $1.login, still: $2) }, relay: { services.cloud.relayChat })
-        }
+        static func live(_ services: AppServices) -> RelaySteps { RelaySteps(login: { try await CloudStartSession(services: services).passHarnessLogin($0, agent: $1.agent, login: $1.login, still: $2) }, relay: { services.cloud.relayChat }) }
     }
 
     static func bindRelayChat(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?,
