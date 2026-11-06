@@ -80,3 +80,97 @@ fn unknown_window_ops_and_bad_json_are_refused() {
     assert_eq!(call(c"window_nope", b"{}").0, ERR_INVALID);
     assert_eq!(call(c"window_close_toast", b"not json").0, ERR_INVALID);
 }
+
+#[test]
+fn tabs_new_tab_kind_gives_a_person_the_page() {
+    let (code, body) = call_json(
+        c"window_tabs_new_tab_kind",
+        &json!({"selectedKind": "browser", "engine": "cef", "user": true, "followsSetting": true, "canHostAgent": true}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        body,
+        json!({"kind": {"kind": "page"}, "sameKind": {"kind": "browser", "engine": "cef"}})
+    );
+}
+
+#[test]
+fn tabs_browser_open_routes_a_chromium_page_to_chromium() {
+    let (code, body) = call_json(
+        c"window_tabs_browser_open",
+        &json!({"hasText": true, "chromiumInternal": true,
+                "chromium": {"url": "chrome://extensions/", "route": "chromium"}}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"plan": "open", "url": "chrome://extensions/", "engine": "cef"}));
+    let (_, body) = call_json(c"window_tabs_browser_open", &json!({"hasText": true}));
+    assert_eq!(body, json!({"plan": "refuse", "reason": "invalidUrl"}));
+}
+
+#[test]
+fn tabs_small_rules_answer_over_the_channel() {
+    let (_, body) =
+        call_json(c"window_tabs_reopen", &json!({"isBrowser": true, "target": "webkit"}));
+    assert_eq!(body, json!({"decision": "same"}));
+    let (_, body) =
+        call_json(c"window_tabs_terminal_chat", &json!({"agent": "codex", "session": "s"}));
+    assert_eq!(
+        body,
+        json!({"chat": {"route": "adopt", "harness": "codex", "session": "s"}, "harness": "codex"})
+    );
+    let (_, body) = call_json(c"window_tabs_duplicate", &json!({"tabs": [{"localPage": true}]}));
+    assert_eq!(body, json!({"actions": null}));
+    let (_, body) = call_json(c"window_tabs_by_number", &json!({"number": 9, "count": 4}));
+    assert_eq!(body, json!({"index": 3}));
+    let (_, body) = call_json(c"window_panes_by_number", &json!({"number": 5, "count": 4}));
+    assert_eq!(body, json!({"index": null}));
+    let (_, body) = call_json(c"window_tabs_move_to_split", &json!({"direction": "down"}));
+    assert_eq!(body, json!({"decision": "split", "edge": "bottom"}));
+    let (_, body) = call_json(c"window_tabs_group_collapse", &json!({"current": true}));
+    assert_eq!(body, json!({"collapsed": false}));
+    let (_, body) = call_json(c"window_tabs_restart", &json!({"pty": true}));
+    assert_eq!(body, json!({"refusal": "tabNotDead"}));
+    let (_, body) = call_json(c"window_tabs_icon_undo", &json!({"user": true, "previous": "a"}));
+    assert_eq!(body, json!({"undo": "remove"}));
+    let (_, body) = call_json(c"window_tabs_identifiers", &json!({"pane": "p", "surface": "t"}));
+    assert_eq!(body, json!({"text": "pane_id=p\nsurface_id=t"}));
+    let (_, body) = call_json(
+        c"window_tabs_browser_placement",
+        &json!({"scripted": true, "focusedHere": true}),
+    );
+    assert_eq!(body, json!({"background": true, "agentDriven": true}));
+}
+
+#[test]
+fn panes_split_plans_a_left_split() {
+    let (code, body) = call_json(
+        c"window_panes_split",
+        &json!({"direction": "left", "folders": {"inherited": "/w"}, "tool": "split"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        body,
+        json!({"do": "split", "edge": "left", "horizontal": true, "daemonDirection": "right",
+               "swapTowards": "right", "splitAction": "splitLeft", "cwd": "/w", "tabCwd": "/w"})
+    );
+    let (_, body) = call_json(
+        c"window_panes_auto_direction",
+        &json!({"width": 100.0, "height": 300.0, "roomRight": true}),
+    );
+    assert_eq!(body, json!({"preferred": "down", "fitting": "right"}));
+    let (_, body) = call_json(c"window_panes_tab_bar", &json!({"pinnedDock": true}));
+    assert_eq!(body, json!({"toggle": null, "newTab": "chiefPaneHasNoTabBar"}));
+}
+
+#[test]
+fn panes_terminal_tables_answer_over_the_channel() {
+    let (_, body) = call_json(c"window_panes_terminal_bindings", &json!({}));
+    assert_eq!(body["bindings"][0], json!(["resetTerminal", "reset"]));
+    let (_, body) =
+        call_json(c"window_panes_clear_failure", &json!({"text": "timed out after 2s"}));
+    assert_eq!(body, json!({"kind": "timed out"}));
+    let (_, body) = call_json(c"window_panes_shell_quote", &json!({"text": "it's"}));
+    assert_eq!(body, json!({"text": "'it'\\''s'"}));
+    assert_eq!(call(c"window_tabs_nope", b"{}").0, ERR_INVALID);
+    assert_eq!(call(c"window_panes_split", b"[").0, ERR_INVALID);
+}
