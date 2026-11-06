@@ -11,6 +11,10 @@ pub(super) fn hide_peers_from_peer(reply: &mut Value) {
     if let Some(peers) = reply.get_mut("peers").filter(|p| p.is_array()) {
         *peers = Value::Array(Vec::new());
     }
+    // `status`'s shadow verdicts name this host's peers (`shadow_admission.rs`).
+    if let Some(obj) = reply.as_object_mut() {
+        obj.remove("shadowAdmission");
+    }
     // Nor the peer a `peer_add`/`peer_reconnect`/`peer_lease` wait saw (`Hub::wait_for_peer`):
     // the wait says whether it settled and how long it took, not that peer's row.
     if let Some(wait) = reply.get_mut("wait").and_then(Value::as_object_mut) {
@@ -41,6 +45,9 @@ pub(super) fn hide_unreachable_peer(e: crate::rpc::RpcError) -> crate::rpc::RpcE
 pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
     if let Some(obj) = reply.as_object_mut() {
         obj.remove("webUrl");
+        // Every host's load, as the shadow verdict read it: the peers' resources stay on the
+        // unix socket, as `redact_peer_row` keeps them.
+        obj.remove("shadowAdmission");
     }
     if method == "_acpmux/harnesses" {
         hide_harness_contents(reply);
@@ -98,8 +105,18 @@ fn redact_peer_row(peer: &mut Value) {
 
 /// The `_acpmux/host_health` fields a peer's `peer_status` row copies that
 /// are its resources, and what its health loop found wrong (`problems`).
-const PEER_RESOURCES: [&str; 9] =
-    ["cpus", "load", "ram", "swap", "disk", "pressure", "liveSessions", "uptimeSecs", "problems"];
+const PEER_RESOURCES: [&str; 10] = [
+    "cpus",
+    "load",
+    "ram",
+    "swap",
+    "disk",
+    "pressure",
+    "pressureAgeMs",
+    "liveSessions",
+    "uptimeSecs",
+    "problems",
+];
 
 /// A harness catalog without values that shape its process. The app and Web
 /// clients need the picker metadata, not literal argv or environment values.
