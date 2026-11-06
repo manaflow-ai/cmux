@@ -27,6 +27,8 @@ final class HandsEngine {
     private var outbox: [Data] = []
     private var waiting: [UInt64: CheckedContinuation<Result<Data, Refusal>, Never>] = [:]
     private var nextID: UInt64 = 0
+    /// The most stdout lines that wait for the main actor.
+    private static let lineBuffer = 4096
     private var reader: Task<Void, Never>?
     /// Writes off the main thread: a child that stalls never blocks it.
     private let writes = DispatchQueue(label: "cmux.cloud.hands.stdin", qos: .userInitiated)
@@ -100,12 +102,21 @@ final class HandsEngine {
         process.standardInput = reader
         process.standardOutput = stdout
         process.standardError = FileHandle.nullDevice
-        let (lines, continuation) = AsyncStream.makeStream(of: String.self)
+        // Overflow: a main actor that fell this far behind ends the stream, so the engine ends and
+        // starts again with a fresh read, never with a dropped event.
+        let (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingOldest(Self.lineBuffer))
         let splitter = LineSplitter()
         stdout.fileHandleForReading.readabilityHandler = { handle in
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
             switch handle.readReady() {
-            case .bytes(let data): for line in splitter.append(data) { continuation.yield(line) }
+            case .bytes(let data):
+                for line in splitter.append(data) {
+                    if case .dropped = continuation.yield(line) {
+                        handle.readabilityHandler = nil
+                        continuation.finish()
+                        return
+                    }
+                }
             case .retry: return
             case .end: handle.readabilityHandler = nil; continuation.finish()
             }
