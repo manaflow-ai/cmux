@@ -192,6 +192,8 @@ public extension PageDescriptor {
                   "device.add",
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart",
+                  // Settings › Computer Use › Saved Approvals (the person's own forget / always / never).
+                  "computerUse.approval.forget", "computerUse.approval.set",
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
                   "import.card", "importFromBrowser"])
             .union(settingsSectionActions),

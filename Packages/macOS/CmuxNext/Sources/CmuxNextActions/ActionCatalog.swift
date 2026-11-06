@@ -184,6 +184,7 @@ public nonisolated enum ActionCatalog {
         ListActionCatalog.self,
         PaletteKeyActionCatalog.self,
         ImportActionCatalog.self,
+        ComputerUseApprovalActionCatalog.self,
         HangReportsActionCatalog.self,
     ]
 

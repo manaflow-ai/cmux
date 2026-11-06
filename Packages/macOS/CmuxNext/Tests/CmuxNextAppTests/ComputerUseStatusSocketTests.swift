@@ -21,7 +21,7 @@ import Testing
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
-        #expect(settings.snapshot.computerUse.enabled)
+        #expect(settings.snapshot.computerUse.mode != .off)
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.settings = settings

@@ -19,6 +19,11 @@ public final class CmuxRemoteComputerUseState {
     public internal(set) var computerUseFailed = false
     /// Why, when it says.
     public internal(set) var failure: String?
+    /// The worker's state as cmux Remote reports it (`off`, `starting`, `ready`, `unavailable`), and its pid.
+    public internal(set) var workerState: String?
+    public internal(set) var workerPID: pid_t?
+    /// The saved approvals (`computer-use-approvals list`): app id to "always" or "never", sorted by id.
+    public internal(set) var approvals: [(appID: String, decision: String)] = []
 
     nonisolated init() {}
 
@@ -31,6 +36,26 @@ public final class CmuxRemoteComputerUseState {
         if computerUseFailed != failed { computerUseFailed = failed }
         let reason = failed ? worker?["reason"] as? String : nil
         if failure != reason { failure = reason }
+        let state = worker?["state"] as? String
+        if workerState != state { workerState = state }
+        let workerPID = (worker?["pid"] as? Int).map { pid_t($0) }
+        if self.workerPID != workerPID { self.workerPID = workerPID }
+    }
+
+    /// Takes a `list` answer: `{"saved":{"always":[...],"never":[...]}}` (ids, or `{"app_id"|"id"}` objects).
+    func take(approvals answer: [String: Any]?) {
+        let saved = answer?["saved"] as? [String: Any] ?? answer ?? [:]
+        func ids(_ key: String) -> [String] {
+            (saved[key] as? [Any] ?? []).compactMap { entry in
+                if let id = entry as? String { return id }
+                let object = entry as? [String: Any]
+                return (object?["app_id"] ?? object?["id"]) as? String
+            }
+        }
+        let next = (ids("always").map { ($0, "always") } + ids("never").map { ($0, "never") }).sorted { $0.0 < $1.0 }
+        if next.map(\.0) != approvals.map(\.appID) || next.map(\.1) != approvals.map(\.decision) {
+            approvals = next.map { (appID: $0.0, decision: $0.1) }
+        }
     }
 }
 
@@ -91,6 +116,7 @@ extension CmuxRemoteService {
         guard started, let answer = try? await call("refresh") else { return nil }
         let host = Self.object(answer)
         computerUse.take(host: host)
+        if computerUse.workerState == "ready" { await refreshComputerUseApprovals() }
         return host
     }
 
@@ -98,6 +124,18 @@ extension CmuxRemoteService {
     public func restartComputerUse() async {
         _ = try? await call("restart", .object(["worker": .string("computer-use")]))
         _ = await computerUseStatus()
+    }
+
+    /// Reads the saved approvals into ``computerUse`` (nothing when the worker does not run).
+    public func refreshComputerUseApprovals() async {
+        guard started, let answer = try? await daemonRequest(ComputerUseApprovalsRequest(action: "list")) else { return }
+        computerUse.take(approvals: Self.object(answer))
+    }
+
+    /// Forgets `appID`'s saved answer, or saves `decision` ("always" or "never") for it, then reads the list again.
+    public func editComputerUseApproval(appID: String, decision: String?) async throws {
+        _ = try await daemonRequest(ComputerUseApprovalsRequest(action: decision ?? "forget", appID: appID))
+        await refreshComputerUseApprovals()
     }
 
     /// Ends every agent session of the Computer Use worker (`revoke_sessions`): their grants end.

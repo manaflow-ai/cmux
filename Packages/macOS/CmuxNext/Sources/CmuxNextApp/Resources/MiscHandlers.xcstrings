@@ -19673,6 +19673,40 @@
           }
         }
       }
+    },
+    "handlers.computerUse.noApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the app (app_id)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリを指定してください (app_id)。"
+          }
+        }
+      }
+    },
+    "handlers.computerUse.noDecision": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The decision must be always or never."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "always または never を指定してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -79,6 +79,8 @@ final class ComputerUseSetup {
     /// Nil when this build has none.
     private(set) var helperAppURL: URL?
 
+    /// cmux Remote's Computer Use worker (the App's setup only): the card's engine, worker and saved approvals.
+    @ObservationIgnored var remote: CmuxRemoteComputerUseState?
     @ObservationIgnored private let inputs: @MainActor () -> Inputs
     @ObservationIgnored private let read: @Sendable () async -> Read
     @ObservationIgnored private let resolveHelper: @Sendable (URL?) async -> URL?
@@ -372,6 +374,7 @@ extension ComputerUseSetup {
                     }
                 }
             })
+        setup.remote = remoteState
         setup.start()
         return setup
     }
@@ -385,11 +388,33 @@ extension ComputerUseSetup {
     /// app that holds them (cmux Remote).
     var pageJSON: CmuxNextSettings.JSONValue {
         let known = phase == .ready
-        return [
+        var fields: [String: CmuxNextSettings.JSONValue] = [
             "phase": .string(phase.rawValue),
             "accessibility": known ? .bool(permissions.accessibility) : .null,
             "screen_recording": known ? .bool(permissions.screenRecording) : .null,
             "helper": helperAppURL.map { .string($0.deletingPathExtension().lastPathComponent) } ?? .null,
         ]
+        guard let remote, remote.embedded else { return .object(fields) }
+        fields["engine"] = .string(Self.engineName)
+        let state: String = switch remote.workerState {
+        case "ready": "running"
+        case "starting": "starting"
+        case "unavailable": "failed"
+        default: "stopped"
+        }
+        fields["worker"] = ["state": .string(state), "pid": remote.workerPID.map { .number(Double($0)) } ?? .null]
+        fields["approvals"] = .array(remote.approvals.map { approval in
+            ["app_id": .string(approval.appID), "name": .string(Self.appName(approval.appID)), "decision": .string(approval.decision)]
+        })
+        return .object(fields)
+    }
+
+    /// The engine's name on the card (a product name, not translated).
+    nonisolated static let engineName = "cmux Computer Use"
+
+    /// An app id's display name from Launch Services, else the id.
+    static func appName(_ appID: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appID) else { return appID }
+        return FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
     }
 }

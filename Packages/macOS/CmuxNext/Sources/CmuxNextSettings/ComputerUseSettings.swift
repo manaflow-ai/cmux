@@ -15,14 +15,6 @@ public nonisolated enum ComputerUseMode: String, Sendable, Hashable, CaseIterabl
     case fullAccess
 }
 
-/// Which Computer Use driver ran before cmux Computer Use (`computerUse.driver`, retired).
-/// Kept only so the old helper paths still compile until they are removed; nothing reads it
-/// from cmux.json any more.
-public nonisolated enum ComputerUseDriver: String, Sendable, Hashable, CaseIterable {
-    case legacy
-    case upstream
-}
-
 /// `computerUse.*` in cmux.json: what agents may do with the apps on this Mac through cmux
 /// Computer Use, which is built in (no helper to install).
 ///
@@ -79,18 +71,6 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     public var allowForeground = false
     public var showCursor = true
     public var livePreview = true
-    /// Transitional, for the old helper paths only: always `.upstream`, never read from cmux.json.
-    public var driver: ComputerUseDriver = .upstream
-    /// Transitional: the retired driver key is never the person's choice now.
-    public var driverIsSet: Bool { false }
-
-    /// Transitional view of the retired `computerUse.enabled`: on unless the mode is off.
-    /// Setting it on keeps a non-off mode, or picks the default (Full access).
-    public var enabled: Bool {
-        get { mode != .off }
-        set { mode = newValue ? (mode == .off ? .fullAccess : mode) : .off }
-    }
-
     public init() {}
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
