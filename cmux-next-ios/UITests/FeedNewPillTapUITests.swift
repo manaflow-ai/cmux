@@ -96,6 +96,13 @@ final class FeedNewPillTapUITests: XCTestCase {
         let trace = app.tables["feed.list"].value as? String ?? ""
         attachText("\(what)-jump-trace", trace)
         XCTAssertEqual(result, .completed, "\(what): chips at \(all.exists ? "\(all.frame)" : "gone"), expected \(topFrame)\n\(trace)")
+        // It stays there while new events keep arriving (a few seconds of live traffic): before the
+        // fix the list could still think it was mid-list and pushed itself down by each new event.
+        let live = XCTestExpectation(description: "live events arrive")
+        live.isInverted = true
+        _ = XCTWaiter.wait(for: [live], timeout: 4)
+        XCTAssertEqual(all.frame.minY, topFrame.minY, accuracy: 1,
+                       "\(what): pushed off the top by new events\n\(app.tables["feed.list"].value as? String ?? "")")
         XCTAssertTrue(app.navigationBars["Feed"].exists, "\(what): a row opened instead of the Feed staying shown")
         // Back to the Feed for the next round when a row opened.
         let back = app.navigationBars.buttons.firstMatch
