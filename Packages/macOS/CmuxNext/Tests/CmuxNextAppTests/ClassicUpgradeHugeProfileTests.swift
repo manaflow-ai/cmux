@@ -14,24 +14,41 @@ import Testing
 struct ClassicUpgradeHugeProfileTests {
     static let window = 20
 
-    @Test func earlyAndLateImportProfiles() async throws {
-        let mac = try ClassicUpgradeSimulator.Mac()
-        try mac.save(ClassicUpgradeProfile.huge)
-        let sim = try ClassicUpgradeSimulator(mac: mac)
-        let launch = await sim.launch(deadline: .seconds(25))
-        guard let task = sim.services.onboarding.classicMigrationRun else {
-            Issue.record("no migration run: \(String(describing: launch.failure))")
-            return
+    /// The simulation the phases share.
+    private static var sim: ClassicUpgradeSimulator?
+    private static var daemon: pid_t?
+
+    /// Phases, each under the suite watchdog's 180 s: 0 launches and profiles early, 1 waits
+    /// (up to 150 s) for 250 workspaces made, 2 profiles late and ends the run.
+    @Test(arguments: [0, 1, 2])
+    func earlyAndLateImportProfiles(_ phase: Int) async throws {
+        switch phase {
+        case 0:
+            let mac = try ClassicUpgradeSimulator.Mac()
+            try mac.save(ClassicUpgradeProfile.huge)
+            let sim = try ClassicUpgradeSimulator(mac: mac)
+            Self.sim = sim
+            let launch = await sim.launch(deadline: .seconds(25))
+            guard sim.services.onboarding.classicMigrationRun != nil else {
+                Issue.record("no migration run: \(String(describing: launch.failure))")
+                return
+            }
+            Self.daemon = Self.daemonPID(under: mac.root.path)
+            print("CLASSIC-PROFILE daemon_pid=\(Self.daemon.map(String.init) ?? "none")")
+            await Self.profile("early", sim: sim, daemon: Self.daemon)
+        case 1:
+            let sim = try #require(Self.sim)
+            let clock = ContinuousClock()
+            let until = clock.now + .seconds(150)
+            while clock.now < until, sim.made().count < 250 { try? await Task.sleep(for: .seconds(1)) }
+            print("CLASSIC-PROFILE waited made=\(sim.made().count)")
+        default:
+            let sim = try #require(Self.sim)
+            defer { Self.sim = nil }
+            await Self.profile("late", sim: sim, daemon: Self.daemon)
+            sim.services.onboarding.classicMigrationRun?.cancel()
+            await sim.shutdown()
         }
-        let daemon = Self.daemonPID(under: mac.root.path)
-        print("CLASSIC-PROFILE daemon_pid=\(daemon.map(String.init) ?? "none")")
-        await Self.profile("early", sim: sim, daemon: daemon)
-        let clock = ContinuousClock()
-        let until = clock.now + .seconds(400)
-        while clock.now < until, sim.made().count < 300 { try? await Task.sleep(for: .seconds(1)) }
-        await Self.profile("late", sim: sim, daemon: daemon)
-        task.cancel()
-        await sim.shutdown()
     }
 
     /// Samples this process and the daemon for ``window`` seconds, then prints the
