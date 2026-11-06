@@ -474,29 +474,7 @@ fn caller_path(value: Value) -> Value {
 /// `cli` when a person runs the command at a terminal, else `script`.
 pub(super) fn action_origin() -> &'static str {
     use std::io::IsTerminal;
-    origin_of(
-        std::io::stdin().is_terminal(),
-        std::io::stdout().is_terminal(),
-        std::env::var_os(STDOUT_CAPTURED_ENV).is_some_and(|value| value == "1"),
-    )
-}
-
-/// Set to `1` by a command run at a terminal (`cloud start-chat`) on the
-/// child it runs with its terminal as stdin and its stdout captured: the
-/// child is still the person's run at that terminal.
-pub(super) const STDOUT_CAPTURED_ENV: &str = "CMUX_CLI_STDOUT_CAPTURED";
-
-/// The origin of a run whose stdin and stdout are (or are not) a terminal,
-/// `captured` when its parent at a terminal captures its stdout
-/// ([`STDOUT_CAPTURED_ENV`]). Without a terminal on stdin it is always a
-/// script's: the variable gives nothing a process holding the terminal
-/// lacks (it could point its stdout at that terminal itself).
-pub(super) fn origin_of(
-    stdin_terminal: bool,
-    stdout_terminal: bool,
-    captured: bool,
-) -> &'static str {
-    if stdin_terminal && (stdout_terminal || captured) { "cli" } else { "script" }
+    if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() { "cli" } else { "script" }
 }
 
 /// An action argument's name from its flag: the catalog names arguments in

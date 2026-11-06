@@ -90,7 +90,7 @@ public struct CloudStartSessionStrings {
     }
 
     public static var fromFolderAgent: String {
-        String(localized: "cloud.startSession.fromFolderAgent", defaultValue: "An agent cannot copy a folder from this Mac to a Cloud machine. The person starts that themselves: the composer's Cloud start, or `cmux cloud start-chat --from-folder` in their own terminal.", table: "CloudSessions", bundle: .module)
+        String(localized: "cloud.startSession.fromFolderAgent", defaultValue: "Only the person copies a folder from this Mac to a Cloud machine, with the composer's Cloud start. A command (an agent's, a script's or one typed in a terminal) cannot show it is theirs, so cmux refuses it.", table: "CloudSessions", bundle: .module)
     }
 
     public static func fromFolderNotOwned(_ machine: String) -> String {

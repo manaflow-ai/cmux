@@ -1088,22 +1088,3 @@ fn a_relay_turn_error_keeps_the_machines_type() {
     // An older app's answer has none: nothing is made up.
     assert_eq!(typed_error(&json!({"error_code": "chat.failed"})), json!({}));
 }
-
-/// `--from-folder` copies only for the person's run at a terminal (`cli`): `start-chat` at a terminal runs
-/// its `start-session` with that terminal as stdin and its stdout captured, which stays `cli`; a script's
-/// `start-chat`, any other step, and a run with no terminal on stdin stay `script`.
-#[test]
-fn start_session_from_a_terminal_stays_the_persons_cli_run() {
-    let start =
-        strings(&["cloud", "start-session", "--name", "m", "--from-folder", "/a", "--json"]);
-    assert!(at_terminal(&start, "cli"));
-    assert!(!at_terminal(&start, "script"));
-    assert!(!at_terminal(&strings(&["cloud", "exec", "m", "--", "bash"]), "cli"));
-    use crate::cli::app::origin_of;
-    assert_eq!(origin_of(true, true, false), "cli");
-    assert_eq!(origin_of(true, false, true), "cli");
-    assert_eq!(origin_of(true, false, false), "script");
-    // The variable never makes a run without the terminal on stdin the person's.
-    assert_eq!(origin_of(false, false, true), "script");
-    assert_eq!(origin_of(false, true, true), "script");
-}
