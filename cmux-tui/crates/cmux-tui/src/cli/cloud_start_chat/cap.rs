@@ -59,7 +59,7 @@ pub(super) fn at_cap(
                 "machine_id": id, "name": name, "status": status,
                 "chat": chat(id),
                 "pause": format!("cmux cloud pause-machine --target {target}"),
-                "delete": format!("cmux cloud kill-machine --target {target}"),
+                "delete": format!("cmux cloud kill-machine --target {target} --confirm"),
             }))
         })
         .collect();

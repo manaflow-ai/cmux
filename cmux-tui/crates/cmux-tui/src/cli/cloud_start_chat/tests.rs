@@ -1021,7 +1021,7 @@ fn a_start_the_plans_running_cap_refuses_names_the_machines_and_how_to_make_room
     // A failed machine is no room: never named.
     assert!(!message.contains("broken"), "{message}");
     assert_eq!(error["details"]["cap"], "running");
-    assert_eq!(error["details"]["machines"][1]["delete"], "cmux cloud kill-machine --target machine:vm-b");
+    assert_eq!(error["details"]["machines"][1]["delete"], "cmux cloud kill-machine --target machine:vm-b --confirm");
 }
 
 #[test]
@@ -1043,7 +1043,7 @@ fn a_new_machine_the_vm_apis_cap_failed_names_the_machines_and_how_to_delete_one
     let message = error["message"].as_str().unwrap();
     assert!(message.starts_with(cap), "{message}");
     assert!(
-        message.contains("web (paused): `cmux cloud start-chat --target machine:vm-b --prompt hi --json` or `cmux cloud kill-machine --target machine:vm-b`"),
+        message.contains("web (paused): `cmux cloud start-chat --target machine:vm-b --prompt hi --json` or `cmux cloud kill-machine --target machine:vm-b --confirm`"),
         "{message}"
     );
     assert_eq!(error["details"]["cap"], "held");
