@@ -10,7 +10,7 @@ final class FakeSurfaceIconControlCommandContext: ControlCommandContext {
             "workspace_id": .string(inputs.workspaceID.uuidString),
             "surface_id": .string(inputs.surfaceID.uuidString),
             "owner_id": .string(inputs.ownerID),
-            "ttl_seconds": .int(Int64(inputs.ttlSeconds)),
+            "ttl_seconds": inputs.ttlSeconds.map { .int(Int64($0)) } ?? .null,
             "frame_count": .int(Int64(inputs.asset?.frames.count ?? 0)),
             "is_main_thread": .bool(Thread.isMainThread),
         ]))

@@ -101,6 +101,24 @@ def main():
             assert renewed["revision"] == second["revision"] + 1
             assert call(target, "surface.current")["surface_id"] == focus
             print("PASS clearing tab A leaves tab B renewable and preserves focus")
+            assert renewed["persistent"] is False and renewed["ttl_seconds"] == 30
+            timed_params = {"workspace_id": workspace, "surface_id": rows[0]["surface"], "owner_id": "timed-tab", "expected_agent_pid": rows[0]["pid"], "expected_process_start": rows[0]["start"]}
+            timed = call(target, "surface.icon.set", {**timed_params, "asset": asset, "ttl_seconds": 3})
+            assert timed["persistent"] is False and timed["ttl_seconds"] == 3
+            time.sleep(1)
+            timed = call(target, "surface.icon.set", {**timed_params, "lease_token": timed["lease_token"], "expected_revision": timed["revision"]})
+            time.sleep(2.2)  # Past the original deadline, before the renewed deadline.
+            timed = call(target, "surface.icon.set", {**timed_params, "lease_token": timed["lease_token"], "expected_revision": timed["revision"]})
+            assert timed["ttl_seconds"] == 3
+            time.sleep(3.2)
+            expired = request(target, "surface.icon.set", {**timed_params, "lease_token": timed["lease_token"], "expected_revision": timed["revision"]})
+            assert not expired.get("ok") and expired["error"]["code"] == "stale_lease", expired
+            permanent = call(target, "surface.icon.set", {**timed_params, "asset": asset})
+            assert permanent["persistent"] is True and "ttl_seconds" not in permanent
+            # The other terminal remains independently renewable throughout.
+            call(target, "surface.icon.set", {"workspace_id": workspace, "surface_id": rows[1]["surface"], "owner_id": "multi-tab-1", "expected_agent_pid": rows[1]["pid"], "expected_process_start": rows[1]["start"], "lease_token": renewed["lease_token"], "expected_revision": renewed["revision"]})
+            assert call(target, "surface.current")["surface_id"] == focus
+            print("PASS explicit TTL renews, expires, and defaults back to indefinite without changing focus")
         finally:
             if workspace:
                 call(target, "workspace.close", {"workspace_id": workspace, "force": True})

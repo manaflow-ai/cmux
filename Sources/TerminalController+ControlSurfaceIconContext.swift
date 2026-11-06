@@ -57,13 +57,19 @@ extension TerminalController {
                 let entry = try workspace.surfaceIconLeases.set(
                     panelID: inputs.surfaceID, ownerID: inputs.ownerID,
                     token: inputs.leaseToken, expectedRevision: inputs.expectedRevision,
-                    animation: animation
+                    animation: animation, ttlSeconds: inputs.ttlSeconds
                 )
-                return .ok(.object([
+                var response: [String: JSONValue] = [
                     "lease_token": .string(entry.token.uuidString),
                     "revision": .int(Int64(entry.revision)),
-                    "persistent": .bool(true),
-                ]))
+                    "persistent": .bool(entry.ttlSeconds == nil),
+                ]
+                if let ttlSeconds = entry.ttlSeconds {
+                    response["ttl_seconds"] = .int(Int64(ttlSeconds))
+                }
+                return .ok(.object(response))
+            } catch SurfaceIconLeaseStore.LeaseError.invalidTTL {
+                return .err(code: "invalid_params", message: "Surface icon TTL must be positive", data: nil)
             } catch SurfaceIconLeaseStore.LeaseError.ownershipConflict {
                 return .err(code: "conflict", message: "Surface icon already has an owner", data: nil)
             } catch {

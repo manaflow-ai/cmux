@@ -132,6 +132,36 @@ struct TerminalTabIconRegressionTests {
     }
 
     @MainActor
+    @Test(.timeLimit(.minutes(1))) func expiringAnimationRevealsLatestBrandWithoutChangingFocus() async throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let focusedPanel = workspace.focusedPanelId
+        let clock = CloudReadManualClock()
+        let (events, continuation) = AsyncStream<UUID>.makeStream()
+        workspace.surfaceIconLeases = SurfaceIconLeaseStore(clock: clock) { [weak workspace] panelID, animation in
+            guard let workspace, let tabID = workspace.surfaceIdFromPanelId(panelID) else { return }
+            workspace.bonsplitController.updateTab(tabID, iconAnimation: .some(animation))
+            if animation == nil { continuation.yield(panelID) }
+        }
+        let animation = TabIconAnimation(id: "expiring-test", frames: [Data([1])], durations: [0.1], loops: false)
+        try workspace.surfaceIconLeases.set(
+            panelID: panel.id, ownerID: "test", animation: animation, ttlSeconds: 600
+        )
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
+        workspace.recordAgentPID(key: "claude_code", pid: pid_t(ProcessInfo.processInfo.processIdentifier), panelId: panel.id, refreshPorts: false)
+        workspace.syncTerminalTabAgentIconAsset(forPanelId: panel.id)
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAnimation == animation)
+        clock.advance(by: .seconds(600))
+        var iterator = events.makeAsyncIterator()
+        #expect(await iterator.next() == panel.id)
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAnimation == nil)
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAsset == "AgentIcons/Claude")
+        #expect(workspace.focusedPanelId == focusedPanel)
+        continuation.finish()
+    }
+
+    @MainActor
     private func expectNoAgentMark(
         workspace: Workspace,
         panel: TerminalPanel,

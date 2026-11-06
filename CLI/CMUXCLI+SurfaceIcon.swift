@@ -3,10 +3,10 @@ import CmuxControlSocket
 
 extension CMUXCLI {
     static let surfaceIconUsage = String(localized: "cli.surface.icon.usage", defaultValue: """
-    Usage: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>]
+    Usage: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>] [--ttl <SECONDS>]
            cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>
     Asset JSON: {"frames":[{"svg":"<svg/>","duration_ms":100}],"loop":true,"static_frame":0}
-    Icons remain until replaced or cleared. Omit --asset-file only with the current token and revision. Targets must be UUIDs; focus and handle fallback are not supported.
+    Icons have an infinite lifetime by default. --ttl accepts positive integer seconds. Omit --asset-file only with the current token and revision to send a heartbeat; omitted --ttl inherits the current lifetime interval. Targets must be UUIDs; focus and handle fallback are not supported.
     """,
     bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
     )
@@ -65,7 +65,7 @@ extension CMUXCLI {
         if !clear {
             params["expected_agent_pid"] = try integer("--pid", range: 1...Int.max)
             params["expected_process_start"] = try text("--process-start", limit: 80)
-            if options["--ttl"] != nil { params["ttl_seconds"] = try integer("--ttl", range: 5...120) }
+            if options["--ttl"] != nil { params["ttl_seconds"] = try integer("--ttl", range: 1...Int.max) }
             if let path = options["--asset-file"] {
                 // A bounded read also caps escaped JSON overhead, not just decoded SVG bytes.
                 let url = URL(fileURLWithPath: path)

@@ -38,9 +38,10 @@ public struct ControlSurfaceIconInputs: Sendable, Equatable {
     public let expectedAgentPID: Int?
     /// The process-generation string, required for set and bounded to 80 UTF-8 bytes.
     public let expectedProcessStart: String?
-    /// Deprecated compatibility input, from 5 through 120; ignored for icon lifetime.
-    public let ttlSeconds: Int
-    /// The raw replacement asset, or nil for conditional no-op updates and clear.
+    /// Optional positive lifetime in seconds; nil keeps full replacements indefinitely
+    /// and inherits the current interval for asset-free heartbeats. Ignored by clear.
+    public let ttlSeconds: Int?
+    /// The raw replacement asset, or nil for conditional heartbeats and clear.
     public let asset: ControlSurfaceIconAsset?
 
     /// Creates transport inputs without resolving a target or rendering an asset.
@@ -54,8 +55,8 @@ public struct ControlSurfaceIconInputs: Sendable, Equatable {
     ///   - expectedRevision: An optional positive revision guard.
     ///   - expectedAgentPID: The process ID, mandatory on parsed set requests.
     ///   - expectedProcessStart: The process generation, mandatory on parsed set requests.
-    ///   - ttlSeconds: Deprecated compatibility input; ignored for icon lifetime.
-    ///   - asset: The replacement asset, absent only for conditional no-op updates or clear.
+    ///   - ttlSeconds: Positive lifetime; nil means indefinite replacement or inherited heartbeat interval.
+    ///   - asset: The replacement asset, absent only for conditional heartbeats or clear.
     public init(
         operation: Operation,
         workspaceID: UUID,
@@ -65,7 +66,7 @@ public struct ControlSurfaceIconInputs: Sendable, Equatable {
         expectedRevision: Int? = nil,
         expectedAgentPID: Int? = nil,
         expectedProcessStart: String? = nil,
-        ttlSeconds: Int = 30,
+        ttlSeconds: Int? = nil,
         asset: ControlSurfaceIconAsset? = nil
     ) {
         self.operation = operation

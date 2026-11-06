@@ -24,10 +24,9 @@ struct ControlSurfaceIconParser {
         let processStart = try params["expected_process_start"].map {
             try string($0, name: "expected_process_start", maxBytes: 80)
         }
-        // Deprecated compatibility input: validate its old shape, but icons no longer expire.
-        let ttl = try params["ttl_seconds"].map {
-            try integer($0, name: "ttl_seconds", range: 5...120)
-        } ?? 30
+        // Preserve omission for indefinite replacements and inherited heartbeat intervals.
+        // Clear accepts and validates this compatibility field without applying it.
+        let ttl = try params["ttl_seconds"].map { try ttlInteger($0) }
         let asset: ControlSurfaceIconAsset?
         if clear {
             guard params["asset"] == nil else { throw invalid("asset is not valid for clear") }
@@ -115,6 +114,18 @@ struct ControlSurfaceIconParser {
             throw invalid("\(name) must be an integer from \(range.lowerBound) through \(range.upperBound)")
         }
         return parsed
+    }
+
+    /// Foundation may decode Int.max as a decimal. Normalize only TTL's canonical
+    /// decimal spelling, never via Double (which could round fractions or overflow).
+    private func ttlInteger(_ value: JSONValue) throws -> Int {
+        if case .decimal(let text) = value {
+            guard let parsed = Int(text), parsed > 0 else {
+                throw invalid("ttl_seconds must be an integer from 1 through \(Int.max)")
+            }
+            return parsed
+        }
+        return try integer(value, name: "ttl_seconds", range: 1...Int.max)
     }
 
     private func invalid(_ message: String) -> Invalid { Invalid(message: message) }
