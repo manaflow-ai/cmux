@@ -474,6 +474,9 @@ pub struct PromptOptions {
     pub interrupt_turn: Option<String>,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
+    /// Connection proof that a person authored this prompt. A `person_message` kind alone is not
+    /// enough: local clients may supply that shape without the authenticated person handshake.
+    pub human_authenticated: bool,
     /// Sender identity carried across a peer link. Provenance is intentionally removed at that
     /// boundary, but the additive message event still needs the sender's stable identity.
     pub message_sender: Option<Value>,
@@ -753,6 +756,10 @@ pub struct Hub {
     /// Tests only: pause a retry's task before it sets its wait (`auto_resume.rs`).
     #[cfg(test)]
     pub(super) retry_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause an unstarted turn's end between its shutdown check and its write
+    /// (`start_retry.rs` `fail_unless_shutdown_settles`); it blocks its thread.
+    #[cfg(test)]
+    pub(super) settle_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
@@ -788,6 +795,9 @@ pub struct Hub {
     pub(super) auto_background_after: StdMutex<Option<std::time::Duration>>,
     /// The `<session>/<tool call>` shells a timer of `auto_background.rs` watches.
     pub(super) auto_background_armed: StdMutex<std::collections::HashSet<String>>,
+    /// How long a foreground call runs before the person's message waiting behind it moves it to
+    /// the background, None: never (`auto_background.rs`).
+    pub(super) message_background_after: StdMutex<Option<std::time::Duration>>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
     /// Which session each lane reports its turns to (`lane_reports.rs`).
@@ -1017,6 +1027,8 @@ impl Hub {
             purge_seam: Default::default(),
             #[cfg(test)]
             retry_seam: Default::default(),
+            #[cfg(test)]
+            settle_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
@@ -1031,6 +1043,9 @@ impl Hub {
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             auto_background_after: StdMutex::new(auto_background::auto_background_from_env()),
             auto_background_armed: Default::default(),
+            message_background_after: StdMutex::new(Some(
+                auto_background::MESSAGE_BACKGROUND_AFTER,
+            )),
             offers: Default::default(),
             lane_reports: Default::default(),
             lane_report_reads: Default::default(),
@@ -2141,8 +2156,9 @@ impl Hub {
             "composer_draft",
             session.status() == SessionStatus::Closed,
         );
-        // Answered only once the draft is in `session.json`: "the one durable shared draft".
-        self.save_meta_answered(session)?;
+        // Answered once the draft is saved: "the one durable shared draft". A kept change: saved
+        // when written, synced with the next acked change or within a second (`meta_save.rs`).
+        self.save_meta_kept(session)?;
         Ok(draft)
     }
 

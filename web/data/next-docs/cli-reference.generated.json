@@ -1597,13 +1597,6 @@
           "mcpTool": "app_cloud_setup_github"
         },
         {
-          "command": "cmux cloud share-machine",
-          "title": "Share Machine…",
-          "id": "cloudShareMachine",
-          "mcp": true,
-          "mcpTool": "app_cloud_share_machine"
-        },
-        {
           "command": "cmux cloud sign-in",
           "title": "Sign In",
           "id": "palette.auth.signIn",
@@ -4979,6 +4972,13 @@
           "mcpTool": "app_terminal_reset"
         },
         {
+          "command": "cmux terminal run-last-command-again",
+          "title": "Run Last Command Again",
+          "id": "terminal.runLastCommandAgain",
+          "mcp": true,
+          "mcpTool": "app_terminal_run_last_command_again"
+        },
+        {
           "command": "cmux terminal send-text",
           "title": "Send Text…",
           "id": "terminal.sendText",
@@ -5055,7 +5055,7 @@
         },
         {
           "command": "cmux window toggle-dock",
-          "title": "Show or Hide Dock",
+          "title": "Show/Hide Dock",
           "id": "window.toggleDock",
           "mcp": true,
           "mcpTool": "app_window_toggle_dock"
@@ -5090,7 +5090,7 @@
         },
         {
           "command": "cmux window toggle-dock-tab-bar",
-          "title": "Show or Hide Dock Tab Bar",
+          "title": "Show/Hide Dock Tab Bar",
           "id": "window.toggleDockTabBar",
           "mcp": true,
           "mcpTool": "app_window_toggle_dock_tab_bar"

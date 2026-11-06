@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 596,
+  "count": 597,
   "sections": [
     {
       "id": "general",
@@ -5517,6 +5517,14 @@
           "kind": "toggle",
           "default": false,
           "group": "Passwords"
+        },
+        {
+          "key": "browser.wakeTabsOnHover",
+          "title": "Wake Tabs on Hover",
+          "help": "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Memory"
         },
         {
           "key": "media.pictureInPicture.enabled",

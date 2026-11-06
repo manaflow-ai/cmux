@@ -121,6 +121,7 @@ import { tryChipHost } from "../chips/host";
 import { useMissingPaths } from "../chips/linkStore";
 import { TasksSection } from "./TasksSection";
 import { currentPlan, planDone, ProgressSection, type SessionInfoPlan } from "./ProgressSection";
+import { attributeCommands } from "../summary/workflowView";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import { UsageSection, usageMeta, type UsageOwnRowLayout } from "./UsageSection";
 import { AppPanelSection, useAppPanelSections } from "../../../apps/scene/panels";
@@ -1329,9 +1330,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const onStopWorkflow = useStableCallback(workflows?.onStop);
   const setRunningLimit = useStableCallback(onSetRunningLimit);
   // The tool calls the loaded transcript holds, for a task row's Show call in a chat whose terminal
-  // cannot open here: read here, so a call added to an existing row reaches the sections, and kept while
-  // it is the same set. A chat on this Mac opens the terminal instead and reads none.
-  const readsCalls = !!onShowCall && !opensProcessTerminal(summary);
+  // cannot open here, and for a wakeup or cron job, which shows the call that made it on any chat:
+  // read here, so a call added to an existing row reaches the sections, and kept while it is the same
+  // set. A chat on this Mac with nothing scheduled opens its terminals instead and reads none.
+  const readsCalls = !!onShowCall && (!opensProcessTerminal(summary) || (made?.scheduled?.length ?? 0) > 0);
   const toolCalls = useSameValue(
     useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
   );
@@ -1963,9 +1965,12 @@ export function SessionInfo({
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
   const { servers, tasks: commands } = sessionInfoLists(processes, transcriptTasks, listed);
   // A chat on this Mac opens a task's terminal; elsewhere a row shows the call that started it,
-  // when the loaded transcript holds it. Read only then, so a local chat adds no pass over its rows.
+  // when the loaded transcript holds it. A wakeup or cron job shows the call that made it on any
+  // chat (TasksSection `scheduledRow`). Read only then, so a local chat with nothing scheduled adds
+  // no pass over its rows.
   const local = opensProcessTerminal(summary);
-  const showsCalls = !local && !!onShowCall && commands.some((command) => command.toolCallId);
+  const showsCalls =
+    !!onShowCall && ((!local && commands.some((command) => command.toolCallId)) || (made?.scheduled?.length ?? 0) > 0);
   const calls = useMemo(
     () => (showsCalls ? (toolCalls ?? toolCallIds(rows)) : undefined),
     [showsCalls, toolCalls, rows],
@@ -2265,6 +2270,8 @@ export function SessionInfo({
   // The dev servers are background commands too: their rows head the one Background tasks section
   // (they were a card of their own, most often one row). Every server runs.
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
+  // A command a workflow's agent started is listed under that agent, not as the chat's own.
+  const { own: ownCommands, workflows: workflowCommands } = attributeCommands(commands, workflows);
   // The other chats in this chat's worktree or on its branch (alsoHere.ts), shown only when there are.
   // A chat that goes a day idle leaves the list while Session Info stays open (useAlsoHere).
   const alsoHereRows = useAlsoHere(chatId, allSessions);
@@ -2290,15 +2297,17 @@ export function SessionInfo({
       {workflows.length > 0 && (
         <WorkflowTasks
           workflows={workflows}
+          commands={workflowCommands}
+          onStopCommand={onStopProcess}
           onStop={onStopWorkflow}
           onOpenWorkflowAgent={onOpenWorkflowAgent}
           agentRowVariant={workflowAgentRowVariant}
         />
       )}
       {servers.length > 0 && <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />}
-      {commands.length + scheduled.length > 0 && (
+      {ownCommands.length + scheduled.length > 0 && (
         <TasksSection
-          commands={commands}
+          commands={ownCommands}
           scheduled={scheduled}
           onStop={onStopProcess}
           local={local}

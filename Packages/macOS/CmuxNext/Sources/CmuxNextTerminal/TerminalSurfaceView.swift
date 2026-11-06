@@ -73,7 +73,7 @@ public final class TerminalSurfaceView: NSView {
     func reportFinalGrid(_ grid: TerminalGridSize) {
         defer { updateReflowPreview() }
         guard surface != nil, let report = geometry.finalSized(grid) else { return }
-        gridReports.now(report, final: true)
+        gridReports.now(report)
     }
 
     /// The pane's layout spring landed: the final grid no longer stands in for the view's, and the surface
