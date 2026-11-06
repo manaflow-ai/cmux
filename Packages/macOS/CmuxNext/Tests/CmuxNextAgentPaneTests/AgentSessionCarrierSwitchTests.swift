@@ -350,6 +350,38 @@ struct AgentSessionCarrierSwitchTests {
         #expect(page.seqs == [4])
     }
 
+    /// Codex re-review at 7343a24b, F1: a forward read narrower than the attachment (a transcript-only
+    /// page) covers only its own kinds, so a move still replays the records it left out.
+    @Test func aNarrowerForwardReadDoesNotMoveTheCursor() async throws {
+        let relay = Carrier()
+        let direct = Carrier(log: [1, 2, 3, 4])
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        let page = Page()
+        _ = try await chat.attach(AgentSessionPage(afterSeq: 0), events: page.handler)
+        relay.state.withLock { $0.log = [1, 2, 3] }
+        _ = try await chat.events(AgentSessionPage(afterSeq: 0, kinds: ["transcript"]))
+        #expect(await chat.move(to: direct))
+        #expect(direct.state.withLock { $0.attaches.first?.afterSeq } == 0)
+        #expect(page.seqs == [1, 2, 3, 4])
+    }
+
+    /// Codex re-review at 7343a24b, F3: closing the chat while a move still attaches the direct
+    /// link closes that client too, so its attachment does not outlive the chat.
+    @Test func closingDuringAMoveClosesTheDirectClient() async throws {
+        let relay = Carrier()
+        let direct = Carrier()
+        direct.state.withLock { $0.holdAttach = true }
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        _ = try await chat.attach(AgentSessionPage(), events: Page().handler)
+        let move = Task { await chat.move(to: direct) }
+        await Self.until { direct.attachHeld }
+        await chat.close()
+        #expect(direct.state.withLock { $0.closed })
+        #expect(relay.state.withLock { $0.closed })
+        direct.releaseAttach()
+        #expect(await move.value == false)
+    }
+
     /// Codex review F3: no move starts while the chat is on its way back to the relay.
     @Test func noMoveStartsDuringAFallBack() async throws {
         let relay = Carrier()
