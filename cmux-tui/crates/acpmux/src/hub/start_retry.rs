@@ -21,7 +21,8 @@
 //!   close or delete of the chat, its move to another daemon, or the daemon's shutdown (a turn
 //!   whose start had not begun is queued again by the next daemon, `unstarted_prompt.rs`). Stop,
 //!   the chat's stop and the shutdown wake the wait at once (`Session::start_retry_wake`). A turn
-//!   the shutdown ended writes no failed end: the shutdown settles it (`Hub::shutdown_settles`).
+//!   the shutdown ended writes no failed end: the shutdown settles it
+//!   (`Hub::fail_unless_shutdown_settles`), decided under the lock its sweep takes the turn under.
 //! - The log says so: `agent_start_retrying` `{turnId, promptId, attempt, of, delayMs, error}`
 //!   before each wait. While it waits the row reads `starting`. When the tries run out the turn
 //!   ends failed with the last deadline error, which names how many tries it took.
@@ -226,14 +227,31 @@ fn shutdown_owns() -> RpcError {
 const SHUTDOWN_OWNS: &str = "start_retry.shutdown";
 
 impl Hub {
-    /// Whether a turn whose agent did not start ended under the shutdown, which settles it: the
-    /// shutdown took it (`settled_by_shutdown`), or ended its waiting start ([`shutdown_owns`]).
-    /// Such a turn writes no failed end, so the next daemon still finds its prompt unstarted and
-    /// queues it again (`unstarted_prompt.rs`).
-    pub(super) fn shutdown_settles(&self, turn_id: &str, e: &RpcError) -> bool {
+    /// Ends turn `turn_id`, whose agent did not start with `e`, failed (`fail_unstarted_turn`),
+    /// unless the shutdown settles it: the shutdown took it (`settled_by_shutdown`), ended its
+    /// waiting start ([`shutdown_owns`]), or began before this end. Such a turn writes no failed
+    /// end, so the next daemon still finds its prompt unstarted and queues it again
+    /// (`unstarted_prompt.rs`). Decided and written under the shutdown's lock, which its sweep
+    /// takes each turn under (`shutdown_sessions`): the sweep finds the turn either ended here or
+    /// still to settle, never failed after the shutdown began. True when it failed the turn.
+    pub(super) fn fail_unless_shutdown_settles(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        turn_id: &str,
+        e: &RpcError,
+        joined: &super::digest::DigestTurn,
+    ) -> bool {
+        let ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
         let field = e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str);
-        field == Some(SHUTDOWN_OWNS)
-            || self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner()).contains(turn_id)
+        // A Stop's own end (`stopped_before_prompt`) is written as ever: the Stop settled it.
+        let began = self.shutting_down() && field != Some("stopped");
+        if field == Some(SHUTDOWN_OWNS) || ends.contains(turn_id) || began {
+            return false;
+        }
+        self.fail_unstarted_turn(session, prompt_id, turn_id, e, joined);
+        drop(ends);
+        true
     }
 
     /// The shutdown began: every start that waits to be tried again ends its wait now.
@@ -355,6 +373,57 @@ mod tests {
         let _ = std::fs::remove_file(&gate);
     }
 
+    /// Review finding: a shutdown that began after the give-up's own check, before its turn
+    /// was ended, still got a failed end, which kept the next daemon from queueing the prompt
+    /// again. The end is decided under the shutdown's lock, and a shutdown that began settles it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_shutdown_after_the_give_up_check_still_settles_the_turn() {
+        let (hub, s, gate) = gated(900).await;
+        let late = RpcError::deadline_exceeded("agent_start", Duration::from_millis(900));
+        // The give-up passed its checks (no shutdown yet), then the shutdown began.
+        let e = gave_up(late, 4);
+        hub.begin_shutdown();
+        let joined = super::super::digest::DigestTurn::default();
+        let failed = hub.fail_unless_shutdown_settles(&s, "p", "t", &e, &joined);
+        assert!(!failed, "the turn was failed under the shutdown");
+        let ended = kinds(&hub, &s, "turn_result");
+        assert!(ended.iter().all(|m| m["turnId"] != "t"), "{ended:?}");
+        // A Stop's end is still the Stop's.
+        let stopped = super::super::turns::stopped_before_prompt();
+        assert!(hub.fail_unless_shutdown_settles(&s, "p2", "t2", &stopped, &joined));
+        let _ = std::fs::remove_file(&gate);
+    }
+
+    /// Review finding: a person's prompt while a lane's retry waited made the retry's start
+    /// wait on its harness with no deadline, and that wait did not race the Stop: the Stop
+    /// could not end the start, and its agent stayed up. The Stop ends it however it waits.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_stop_ends_a_retrys_start_after_the_person_took_the_chat() {
+        let (hub, s, gate) = gated(9_000).await;
+        let run = send(&hub, &s);
+        until("the start was never tried again", || {
+            !kinds(&hub, &s, "agent_start_retrying").is_empty()
+        })
+        .await;
+        // The person writes in the chat: its next start waits on its harness.
+        s.person.store(true, Ordering::SeqCst);
+        until("the retry's start never began", || {
+            s.start_retry_cancels.load(Ordering::SeqCst) != NO_RETRY
+                && s.spawn_lock.try_lock().is_err()
+        })
+        .await;
+        let stopped_at = std::time::Instant::now();
+        let _ = hub.cancel(&s).await;
+        let answer = tokio::time::timeout(WAIT, run).await.expect("the Stop did not end the start");
+        let took = stopped_at.elapsed();
+        let e = answer.unwrap().expect_err("a stopped prompt was answered");
+        assert_eq!(e.data.as_ref().map(|d| d["reason"].clone()), Some(json!("stopped")), "{e:?}");
+        assert!(took < Duration::from_secs(5), "the start ran on for {took:?} after the Stop");
+        assert_eq!(kinds(&hub, &s, "agent_start_stopped").len(), 1);
+        assert!(s.child.lock().await.is_none(), "the stopped start's agent was left up");
+        let _ = std::fs::remove_file(&gate);
+    }
+
     /// Review finding: the last try missing its deadline as a shutdown begins gave up with a
     /// failed end, which the turn wrote before the shutdown took it, so the next daemon did not
     /// queue the prompt again. The shutdown settles it instead.
@@ -368,7 +437,9 @@ mod tests {
         let (stops, cancels) = (s.stops.load(Ordering::SeqCst), s.cancels.load(Ordering::SeqCst));
         let ended = hub.retry_late_start_with(&s, stops, cancels, "p", "t", Err(late), 0).await;
         let Err(e) = ended else { panic!("a start ran under the shutdown") };
-        assert!(hub.shutdown_settles("t", &e), "the turn would write a failed end: {e:?}");
+        let joined = super::super::digest::DigestTurn::default();
+        let failed = hub.fail_unless_shutdown_settles(&s, "p", "t", &e, &joined);
+        assert!(!failed, "the turn wrote a failed end: {e:?}");
         let _ = std::fs::remove_file(&gate);
     }
 
