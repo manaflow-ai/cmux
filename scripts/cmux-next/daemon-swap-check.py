@@ -149,15 +149,33 @@ def recorded_at(path: Path) -> float:
     return path.stat().st_mtime - (time.time() - clock_now())
 
 
+def start_resolution() -> float:
+    """How coarse process_start is: one clock tick on Linux, a whole second from `ps`."""
+    return 1 / os.sysconf("SC_CLK_TCK") if LINUX_PROC else 1.0
+
+
+# Recorded pids not claimed (yet), with why: kill_owned reports those still unclaimed at cleanup.
+UNCLAIMED: dict[int, str] = {}
+
+
 def claim(owned: dict[int, float], pid: int | None, written: float) -> None:
     """Remember a recorded host process with its start time. A process that
-    started after its record was written holds a reused pid, not ours. Both
-    clocks round a start down, so a host never looks later than it was."""
+    started after its record was written holds a reused pid, not ours. A start
+    is rounded down to process_start's resolution, so a process that started
+    within that much after the write could look earlier than it was: a pid is
+    claimed only when its start is a whole resolution before the write. A host
+    that wrote its record sooner is claimed at a later pass, once its record
+    is rewritten (the new daemon adopts it), or is reported, never signalled."""
     if not pid or pid in owned:
         return
     start = process_start(pid)
-    if start is not None and start <= written:
+    if start is None:
+        UNCLAIMED[pid] = "gone or unreadable"
+    elif start + start_resolution() > written:
+        UNCLAIMED[pid] = "not started clearly before its record was written"
+    else:
         owned[pid] = start
+        UNCLAIMED.pop(pid, None)
 
 
 def kill_owned(owned: dict[int, float]) -> None:
@@ -165,7 +183,12 @@ def kill_owned(owned: dict[int, float]) -> None:
     pidfd, which pins it (its pid can't be reused while the fd is open), and
     only while its start time is unchanged. Without pidfds (macOS) nothing is
     signalled: a check and a kill by pid could race a reuse, so a host still
-    alive here is reported instead (the graceful shutdowns end them)."""
+    alive here is reported instead (the graceful shutdowns end them). Every
+    recorded pid left unclaimed is reported too."""
+    for pid, why in sorted(UNCLAIMED.items()):
+        if pid not in owned:
+            print(f"daemon-swap-check: left pid {pid}: {why}", file=sys.stderr)
+    UNCLAIMED.clear()
     for pid, start in owned.items():
         if not hasattr(os, "pidfd_open"):
             if process_start(pid) == start:
