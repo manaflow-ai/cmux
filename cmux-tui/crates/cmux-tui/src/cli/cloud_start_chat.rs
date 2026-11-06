@@ -12,7 +12,8 @@
 //!    machine (or creates it) and opens the chat's tab in the machine's workspace, a real chat in the
 //!    app. With `--from-folder` (an existing folder on this Mac) the app copies that folder to the
 //!    machine the way the agent pane composer's Cloud start copies one, and the chat starts in the
-//!    copy; a retry on the same machine reuses the finished copy. It skips the relay-first chat.
+//!    copy; a retry on the same machine reuses the finished copy. It copies only for the person at
+//!    a terminal (never a script's run: see [`at_terminal`]). It skips the relay-first chat.
 //!    Without `--name` or `--target` it creates a new small machine with a new name, so the chat
 //!    never lands on a machine another workspace uses (leo-workspace `design/cloud.md`, "One
 //!    workspace per small machine").
@@ -287,6 +288,14 @@ pub(super) trait Runner {
     fn prompt_id(&mut self) -> String;
 }
 
+/// Whether the step `args` runs as the person's run at their terminal: only
+/// `cloud start-session` (whose `--from-folder` copies only for one), and only
+/// when this run is at a terminal (`cli`). It keeps the terminal as stdin and
+/// says its stdout is captured ([`super::app::STDOUT_CAPTURED_ENV`]).
+fn at_terminal(args: &[String], origin: &str) -> bool {
+    origin == "cli" && args.get(..2).is_some_and(|step| step == ["cloud", "start-session"])
+}
+
 struct SelfRunner {
     globals: Vec<String>,
 }
@@ -299,7 +308,12 @@ impl Runner for SelfRunner {
                 return Ran { code: 127, stdout: String::new(), stderr: error.to_string() };
             }
         };
-        match cmux_process::Command::new(exe).args(&self.globals).args(args).output() {
+        let mut command = cmux_process::Command::new(exe);
+        command.args(&self.globals).args(args);
+        if at_terminal(args, super::app::action_origin()) {
+            command.stdin(cmux_process::Stdio::inherit()).env(super::app::STDOUT_CAPTURED_ENV, "1");
+        }
+        match command.output() {
             Ok(output) => Ran {
                 code: output.status.code().unwrap_or(1),
                 stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
