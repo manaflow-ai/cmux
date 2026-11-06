@@ -597,6 +597,34 @@ jobs:
             exit 1
           fi
 
+      # Git seed's file/refs invariants must execute, not only compile under
+      # clippy --all-targets. The core state checks and both CLI transport
+      # journeys cover lost-work retries, stash, commits, and three-way pulls.
+      # Reuse this job's Rust setup, Git fixtures and warm build directory.
+      - name: Git seed handoff state tests
+        if: ${{ !cancelled() }}
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          set -o pipefail
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            && changed=$(git diff --no-renames --name-only "$BASE_SHA" HEAD); then
+            if ! grep -Eq '^cmux-tui/crates/(cmux-tui-core/src/git_seed|cmux-tui/src/link/(seed|sync_cli/seed_pull))' <<<"$changed"; then
+              echo "No Git seed test input changed; skipping portability tests." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+          cd cmux-tui
+          log="$RUNNER_TEMP/cmux-git-seed-handoff-tests.log"
+          cargo test --locked -p cmux-tui-core --lib git_seed::tests:: -- --test-threads=1 2>&1 | tee "$log"
+          cargo test --locked -p cmux-tui --test link_seed -- --test-threads=1 2>&1 | tee -a "$log"
+          cargo test --locked -p cmux-tui --test seed_pull_journey -- --test-threads=1 2>&1 | tee -a "$log"
+          passed=$(grep -Ec 'test result: ok\. [1-9][0-9]* passed' "$log" || true)
+          if [[ "$passed" -lt 3 ]]; then
+            echo "::error title=Git seed handoff state tests::one or more suites selected zero tests"
+            exit 1
+          fi
+
       # The panic ratchet (plans/cmux-next/rust-panic-free.md) on the same packages:
       # their production targets with the ratchet's lints, judged against the baseline
       # at HEAD. Only cmux-tui.yml's dispatch run checked it before, so #27935 landed two
