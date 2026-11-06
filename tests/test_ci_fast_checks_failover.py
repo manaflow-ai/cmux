@@ -353,6 +353,24 @@ class HostedLightJobsGuardTests(unittest.TestCase):
                 result = self.run_guard(self.workflow(), {"runner": "ubuntu-24.04", "why": why})
                 self.assertNotEqual(result.returncode, 0, result.stdout)
 
+    def test_a_declared_job_that_releases_through_an_action_fails(self) -> None:
+        # docker/build-push-action builds and pushes through its inputs, with no run line (review of #36918).
+        for step in ("uses: docker/build-push-action@v6\n        with:\n          push: true",
+                     "uses: softprops/action-gh-release@v2",
+                     "uses: pypa/gh-action-pypi-publish@release/v1",
+                     "uses: actions/github-script@v7\n        with:\n          script: exec('xcodebuild build')",
+                     "uses: some/tool@v1\n        env:\n          CMD: cargo build --release"):
+            with self.subTest(step=step.split("\n")[0]):
+                text = self.workflow().replace("- run: echo ok", "- " + step, 1)
+                result = self.run_guard(text, {"runner": "ubuntu-24.04", "why": "x"})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("FAIL: hosted light job", result.stdout)
+
+    def test_a_declared_light_job_may_check_out_and_read(self) -> None:
+        text = self.workflow().replace("- run: echo ok", "- uses: actions/checkout@v6\n        with:\n          sparse-checkout: x", 1)
+        result = self.run_guard(text, {"runner": "ubuntu-24.04", "why": "x"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_a_copied_declared_line_on_another_job_fails(self) -> None:
         text = self.workflow() + "  other:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo hi\n"
         result = self.run_guard(text, {"runner": "ubuntu-24.04", "why": "x"})

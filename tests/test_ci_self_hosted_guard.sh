@@ -1308,6 +1308,11 @@ WORK = re.compile(
     r"\bxcodebuild\b|\bswift\s+(build|test)\b|\bcargo\s+(build|publish)\b|\bcodesign\b|\bnotarytool\b|\bstapler\b"
     r"|\bnpm\s+publish\b|\bgh\s+release\b|\btwine\b|\bdocker\s+push\b|scripts/\S*(release|sign|notar|publish)\S*",
     re.IGNORECASE)
+# Actions whose job is to build, sign, push, publish or release (owner/name, before the @ref).
+ACTION = re.compile(
+    r"(^|/)[^/]*(build|push|publish|release|sign|notar|deploy|upload-release|attest)[^/]*$"
+    r"|^docker/|^softprops/action-gh-release$|^ncipollo/release-action$|^pypa/gh-action-pypi-publish$",
+    re.IGNORECASE)
 def fail(message):
     print(f"FAIL: hosted light job {message}")
     raise SystemExit(1)
@@ -1356,8 +1361,18 @@ for key, entry in declared.items():
         fail(f"{key}: a job with an environment never runs on a hosted runner")
     if not read_only(job["permissions"] if "permissions" in job else workflow.get("permissions")):
         fail(f"{key}: a hosted light job declares read-only permissions (job or workflow level)")
+    if job.get("uses"):
+        fail(f"{key}: a reusable-workflow call picks its own runners; declare the called job instead")
     for step in job.get("steps") or []:
-        text = " ".join(str(step.get(field, "")) for field in ("name", "run", "uses")) if isinstance(step, dict) else str(step)
+        if not isinstance(step, dict):
+            fail(f"{key}: a step must be a mapping")
+        # An action works through its inputs too (docker/build-push-action's push: true), so its with and env
+        # count, and an action whose own name says it builds, signs or publishes never runs here.
+        uses = str(step.get("uses", ""))
+        if ACTION.search(uses.split("@", 1)[0]):
+            fail(f"{key}: the action {uses.split('@', 1)[0]} builds, signs, publishes or releases")
+        text = " ".join([str(step.get(field, "")) for field in ("name", "run", "uses")]
+                        + [f"{k} {v}" for field in ("with", "env") for k, v in (step.get(field) or {}).items()])
         if WORK.search(text):
             fail(f"{key}: it builds, signs, notarizes, publishes or releases ({WORK.search(text).group(0)})")
     exact = [line for line in source.splitlines() if line.strip().startswith("runs-on:") and runs_on in line]
