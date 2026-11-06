@@ -31,6 +31,10 @@ pub(super) enum Step {
     Parked,
     /// The Noise handshake and the daemon's admission of the grant.
     Handshake,
+    /// The daemon refused the service the dial asked for (`--service
+    /// desktop` on a session that is not the machine owner's, or a machine
+    /// that serves no desktop).
+    Service,
 }
 
 impl Step {
@@ -40,6 +44,7 @@ impl Step {
             Self::Relay => "relay",
             Self::Parked => "parked_timeout",
             Self::Handshake => "handshake",
+            Self::Service => "service_refused",
         }
     }
 
@@ -49,6 +54,7 @@ impl Step {
             Self::Relay => 3,
             Self::Parked => 4,
             Self::Handshake => 5,
+            Self::Service => 6,
         }
     }
 }

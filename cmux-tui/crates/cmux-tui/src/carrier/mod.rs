@@ -15,7 +15,13 @@
 //! - Every connect attempt, and every resume attempt of the session after it,
 //!   writes one route line on stderr after the reply line:
 //!   `cloud.connect route=carrier machine=<vm_id> phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>`.
-//! - Exit codes: 0 ok, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake, 64 bad usage.
+//! - `--service desktop` carries the machine's desktop instead: raw
+//!   `cmux.rd/1` bytes on stdin and stdout, through cmux-remote's
+//!   `local-socket` to `/run/cmux-rd/desktop.sock`. The daemon opens it only
+//!   for the machine owner's grant (`vmk: "owner"`); a refusal is
+//!   `error_code` `service_refused`.
+//! - Exit codes: 0 ok, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake,
+//!   6 service_refused, 64 bad usage.
 //!
 //! One deadline (default 180 s) covers the ticket, the relay, the park and
 //! the handshake. The ticket and grant come from cmux-platform
@@ -46,24 +52,38 @@ const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DialArgs {
     pub machine: String,
+    pub service: DialService,
     pub deadline: Duration,
     pub api: Option<String>,
     pub token_file: Option<PathBuf>,
 }
 
-/// `dial --machine vm_… [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH]`,
-/// each once, nothing else.
+/// What the dial's stdio carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DialService {
+    /// `cmux.protocol/2` lines on the session's mux control service.
+    Mux,
+    /// The machine's desktop (`cmux.rd/1` bytes): cmux-remote's
+    /// `local-socket` to [`cmux_remote::bridge::CLOUD_DESKTOP_SOCKET`],
+    /// which the daemon opens only for the machine owner's grant.
+    Desktop,
+}
+
+/// `dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL]
+/// [--cloud-token-file PATH]`, each once, nothing else.
 pub(crate) fn parse(args: &[String]) -> Option<DialArgs> {
     let (verb, rest) = args.split_first()?;
     if verb != "dial" {
         return None;
     }
-    let (mut machine, mut deadline, mut api, mut token_file) = (None, None, None, None);
+    let (mut machine, mut service, mut deadline, mut api, mut token_file) =
+        (None, None, None, None, None);
     let mut words = rest.iter();
     while let Some(flag) = words.next() {
         let value = words.next()?.clone();
         let slot = match flag.as_str() {
             "--machine" => &mut machine,
+            "--service" => &mut service,
             "--deadline-ms" => &mut deadline,
             "--cloud-api" => &mut api,
             "--cloud-token-file" => &mut token_file,
@@ -74,11 +94,16 @@ pub(crate) fn parse(args: &[String]) -> Option<DialArgs> {
         }
     }
     let machine = machine.filter(|m| contract::valid_machine(m))?;
+    let service = match service.as_deref() {
+        None | Some("mux") => DialService::Mux,
+        Some("desktop") => DialService::Desktop,
+        Some(_) => return None,
+    };
     let deadline = match deadline {
         Some(text) => contract::parse_deadline(&text)?,
         None => DEFAULT_DEADLINE,
     };
-    Some(DialArgs { machine, deadline, api, token_file: token_file.map(PathBuf::from) })
+    Some(DialArgs { machine, service, deadline, api, token_file: token_file.map(PathBuf::from) })
 }
 
 fn reply(line: &str) {
@@ -123,7 +148,7 @@ fn source(args: &DialArgs) -> Result<answer::HttpSource, Failure> {
 pub(crate) fn run(args: &[String]) -> i32 {
     let Some(args) = parse(args) else {
         return usage(
-            "usage: cmux carrier dial --machine vm_… [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH]",
+            "usage: cmux carrier dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH]",
         );
     };
     let source = match source(&args) {
@@ -153,6 +178,25 @@ pub(crate) fn run(args: &[String]) -> i32 {
             cmux_remote::connection::ReconnectPolicy::default().retry_delay(ceiling)
         })
         .await;
+        // The desktop opens its stream before the reply, so a refusal (not
+        // the owner, no desktop on the machine) is the dial's answer.
+        let (dialed, desktop) =
+            match (dialed, args.service) {
+                (Ok(dialed), DialService::Desktop) => match cmux_remote::bridge::open_local_socket(
+                    &dialed.multiplexer,
+                    cmux_remote::bridge::CLOUD_DESKTOP_SOCKET,
+                )
+                .await
+                {
+                    Ok(stream) => (Ok(dialed), Some(stream)),
+                    Err(error) => {
+                        dialed.multiplexer.shutdown().await;
+                        let _ = dialed.connection.close().await;
+                        (Err(Failure::fatal(contract::Step::Service, error.to_string())), None)
+                    }
+                },
+                (dialed, _) => (dialed, None),
+            };
         let code = match &dialed {
             Ok(_) => {
                 reply(&contract::connected_line());
@@ -170,12 +214,24 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 reply(&line);
             }
         });
-        let _ = cmux_remote::bridge::bridge_mux_control(
-            &dialed.multiplexer,
-            tokio::io::stdin(),
-            tokio::io::stdout(),
-        )
-        .await;
+        let _ = match desktop {
+            Some(stream) => {
+                cmux_remote::bridge::bridge_raw_stream(
+                    stream,
+                    tokio::io::stdin(),
+                    tokio::io::stdout(),
+                )
+                .await
+            }
+            None => {
+                cmux_remote::bridge::bridge_mux_control(
+                    &dialed.multiplexer,
+                    tokio::io::stdin(),
+                    tokio::io::stdout(),
+                )
+                .await
+            }
+        };
         dialed.multiplexer.shutdown().await;
         let _ = dialed.connection.close().await;
         writer.abort();

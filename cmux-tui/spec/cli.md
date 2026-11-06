@@ -18,7 +18,7 @@ cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file | -> --socket <unix socket> [--client-token-stdin]
 cmux wg dial --hub <unix socket> <host> <port>
-cmux carrier dial --machine <vm_id> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH]
+cmux carrier dial --machine <vm_id> [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH]
 cmux link dial --host <install or host id> [--service daemon|ssh|owner_session|desktop] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--cloud-token-file PATH] [--handoff]
 cmux link stop --state-dir <dir>
@@ -63,11 +63,15 @@ again, and a resume of the session presents none. stderr gets one JSON line firs
 `parked_timeout` (the relay held the connect until the deadline: the machine's
 daemon never registered) or `handshake` (`bad_request` for bad usage). On `ok`,
 stdin and stdout carry `cmux.protocol/2` lines on the session's mux control service.
+With `--service desktop` they carry the machine's desktop instead (raw `cmux.rd/1`
+bytes, cmux-remote's `local-socket` to `/run/cmux-rd/desktop.sock`), which the daemon
+opens only for the machine owner's grant; a refusal is `error_code` `service_refused`
+(exit 6).
 Each attempt then writes `cloud.connect route=carrier machine=<vm_id>
 phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>` on stderr. One
 deadline (`--deadline-ms`, default 180000) covers every step, with full-jitter
 retries inside it. Exit codes: 0, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake,
-64 usage. On a Mac the Noise key is a login Keychain item (accessible after first
+6 service_refused, 64 usage. On a Mac the Noise key is a login Keychain item (accessible after first
 unlock, this device only); elsewhere each dial makes its own.
 
 `link dial` bridges standard I/O to a service of a paired install or a Cloud

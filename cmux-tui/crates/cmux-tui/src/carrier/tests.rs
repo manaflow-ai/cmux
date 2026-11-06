@@ -12,7 +12,7 @@ use super::contract::{
     Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, Step, connected_line, failure_line,
     parse_deadline, route_line,
 };
-use super::{DialArgs, parse};
+use super::{DialArgs, DialService, parse};
 
 fn words(text: &str) -> Vec<String> {
     text.split_whitespace().map(str::to_owned).collect()
@@ -48,6 +48,7 @@ fn each_step_has_its_own_code_and_exit() {
         .map(|s| (s.error_code(), s.exit_code()))
         .collect();
     assert_eq!(codes, [("ticket", 2), ("relay", 3), ("parked_timeout", 4), ("handshake", 5)]);
+    assert_eq!((Step::Service.error_code(), Step::Service.exit_code()), ("service_refused", 6));
 }
 
 #[test]
@@ -75,6 +76,7 @@ fn arguments_are_the_machine_and_one_deadline() {
         parse(&words(&format!("dial --machine {VM}"))),
         Some(DialArgs {
             machine: VM.into(),
+            service: DialService::Mux,
             deadline: Duration::from_secs(180),
             api: None,
             token_file: None,
@@ -86,6 +88,14 @@ fn arguments_are_the_machine_and_one_deadline() {
     .unwrap();
     assert_eq!(full.deadline, Duration::from_millis(5000));
     assert_eq!(full.api.as_deref(), Some("https://api.example"));
+    assert_eq!(
+        parse(&words(&format!("dial --machine {VM} --service desktop"))).unwrap().service,
+        DialService::Desktop
+    );
+    assert_eq!(
+        parse(&words(&format!("dial --service mux --machine {VM}"))).unwrap().service,
+        DialService::Mux
+    );
     for bad in [
         "dial".to_owned(),
         "connect --machine vm_0123456789abcdefghij".to_owned(),
@@ -96,6 +106,8 @@ fn arguments_are_the_machine_and_one_deadline() {
         format!("dial --machine {VM} --deadline-ms 600001"),
         format!("dial --machine {VM} --deadline-ms"),
         format!("dial --machine {VM} --host x"),
+        format!("dial --machine {VM} --service ssh"),
+        format!("dial --machine {VM} --service desktop --service desktop"),
     ] {
         assert_eq!(parse(&words(&bad)), None, "{bad}");
     }
