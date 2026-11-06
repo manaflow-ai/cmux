@@ -16,6 +16,7 @@ import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
   type BrowserProfile,
+  type ComputerUseApproval,
   type HostLists,
   type AccountsCmux,
   type AccountsRow,
@@ -1097,7 +1098,23 @@ export class MockSettingsProvider {
     },
     terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: "zsh" },
     ghostty_diagnostics: [],
-    computer_use: { phase: "ready", accessibility: true, screen_recording: false, helper: "cmux Computer Use" },
+    computer_use: {
+      phase: "ready",
+      accessibility: true,
+      screen_recording: false,
+      helper: "cmux Computer Use",
+      engine: "cmux Computer Use 1.0",
+      worker: { state: "running", pid: 4242 },
+      approvals: [
+        { app_id: "com.apple.Safari", name: "Safari", decision: "always" },
+        { app_id: "com.apple.MobileSMS", name: "Messages", decision: "never" },
+      ],
+      running_apps: [
+        { id: "com.apple.Safari", name: "Safari" },
+        { id: "com.apple.Notes", name: "Notes" },
+        { id: "com.figma.Desktop", name: "Figma" },
+      ],
+    },
     settings_file: "/Users/me/.config/cmux/cmux-next.json",
     backdrops: [
       { id: "starryNight", title: "The Starry Night", attribution: "Van Gogh, 1889" },
@@ -1271,6 +1288,22 @@ export class MockSettingsProvider {
     return { name: theme.name };
   }
 
+  /** What the app's `computerUse.approval.*` actions do to the saved approvals. */
+  private runApprovalAction(action: string, args: Params): void {
+    const computerUse = this.host.computer_use;
+    if (!computerUse) return;
+    const approvals = computerUse.approvals ?? [];
+    const next: ComputerUseApproval[] =
+      action === "computerUse.approval.forget"
+        ? approvals.filter((approval) => approval.app_id !== args.app_id)
+        : approvals.map((approval) =>
+            approval.app_id === args.app_id && (args.decision === "always" || args.decision === "never")
+              ? { ...approval, decision: args.decision }
+              : approval,
+          );
+    this.setHost({ ...this.host, computer_use: { ...computerUse, approvals: next } });
+  }
+
   setHost(host: HostLists): void {
     this.host = host;
     for (const ctx of this.hostChanged) ctx.emit(host);
@@ -1278,6 +1311,10 @@ export class MockSettingsProvider {
 
   /** What the app's `browserProfile.*` actions do to the lists (enough for the page's tests). */
   private runProfileAction(action: string, args: Params, target: string | undefined): void {
+    if (action === "computerUse.approval.forget" || action === "computerUse.approval.set") {
+      this.runApprovalAction(action, args);
+      return;
+    }
     const id = target?.startsWith("browser-profile:") ? target.slice("browser-profile:".length) : null;
     const profiles = this.host.browser_profiles;
     const edit = (patch: Partial<BrowserProfile>) =>

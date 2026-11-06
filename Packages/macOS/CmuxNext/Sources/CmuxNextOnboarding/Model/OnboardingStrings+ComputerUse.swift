@@ -65,3 +65,27 @@ extension OnboardingStrings {
         String(localized: "onboarding.computerUse.restart", defaultValue: "Restart", bundle: .module)
     }
 }
+
+/// The first-run Computer Use page (`OnboardingModel.Step.computerUseWelcome`).
+extension OnboardingStrings {
+    static var computerUseWelcomeTitle: String {
+        String(localized: "onboarding.computerUseWelcome.title", defaultValue: "Agents Can Use Your Apps", bundle: .module)
+    }
+    static var computerUseWelcomeBody: String {
+        String(localized: "onboarding.computerUseWelcome.body",
+               defaultValue: "Computer Use is built into cmux. Claude, Codex and other agents in cmux can see and use the apps on this Mac, with nothing else to install.",
+               bundle: .module)
+    }
+    static var computerUseWelcomeDetail: String {
+        String(localized: "onboarding.computerUseWelcome.detail",
+               defaultValue: "A blue cursor shows wherever an agent acts. It starts with Full Access; change it anytime in Settings > Computer Use.",
+               bundle: .module)
+    }
+    static var computerUseWelcomeAllow: String {
+        String(localized: "onboarding.computerUseWelcome.allow", defaultValue: "Allow Access", bundle: .module)
+    }
+    static var computerUseWelcomeIllustration: String {
+        String(localized: "onboarding.computerUseWelcome.illustration",
+               defaultValue: "A blue agent cursor clicking controls in an app window", bundle: .module)
+    }
+}
