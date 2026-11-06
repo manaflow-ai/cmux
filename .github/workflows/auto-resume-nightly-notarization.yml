@@ -1145,7 +1145,9 @@ jobs:
             immutable="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["immutable_path"].split("/")[-1])' "$manifest")"
             expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["final_dmg_sha256"])' "$manifest")"
             actual="$(shasum -a 256 "$dir/$immutable" | awk '{print $1}')"
-            [ "${actual,,}" = "${expected,,}" ] || { echo "$variant stapled DMG SHA-256 mismatch" >&2; exit 1; }
+            # tr, not ${x,,}: a Mac mini's /bin/bash is 3.2.
+            [ "$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')" ] \
+              || { echo "$variant stapled DMG SHA-256 mismatch" >&2; exit 1; }
             tested="$(find tested -type f -name "tested-${variant}.sha256" -print -quit)"
             if [ -z "$tested" ] || ! grep -Fxq "$actual  $immutable" "$tested"; then
               echo "$variant DMG is not the one verify-stapled launched" >&2
