@@ -13,7 +13,6 @@ public final class CloudProgressHost: NSView {
     public let source: any CloudProgressSource
     public let provider: CloudProgressPageProvider
     private let page: PageWebView?
-
     public init(source: any CloudProgressSource, actions: CloudProgressPageProvider.Actions) {
         self.source = source
         provider = CloudProgressPageProvider(source: source, actions: actions)
@@ -33,6 +32,12 @@ public final class CloudProgressHost: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override public var acceptsFirstResponder: Bool { true }
+
+    /// A page that leaves its window (the workspace opened, the window closed) answers its open question no.
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { provider.answer(nil, accept: false) }
+    }
 
     override public func becomeFirstResponder() -> Bool {
         guard let page else { return true }

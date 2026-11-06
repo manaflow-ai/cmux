@@ -3,9 +3,37 @@
 // answers `state`, and with `walk` moves through the stages two seconds apart. Retry starts it over;
 // Dismiss and Copy Error do nothing here.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { CloudProgressOps, type CloudProgressState, type CloudStage } from "./types";
+import { CloudProgressOps, type CloudProgressAsk, type CloudProgressState, type CloudStage } from "./types";
 
 export const CLOUD_STEPS: CloudStage[] = ["requesting", "creating", "booting", "connecting", "ready"];
+
+/** The host's questions, in its words (CloudPresenter.createAsk, offerPro). */
+export const SAMPLE_ASKS = {
+  createRequest: {
+    id: "ask-create",
+    kind: "createRequest",
+    title: "Create a Cloud machine?",
+    body: "An agent asked for a new Cloud machine.\nName: paint-dev\nSize: 2 CPU · 4 GB memory · 16 GB disk",
+    button: "Create",
+    cancel: "Cancel",
+  },
+  approval: {
+    id: "ask-approval",
+    kind: "approval",
+    title: "Create a Cloud machine?",
+    body: "cmux Cloud needs your approval for this machine.\nName: paint-dev",
+    button: "Create",
+    cancel: "Cancel",
+  },
+  upgrade: {
+    id: "ask-upgrade",
+    kind: "upgrade",
+    title: "cmux Pro required",
+    body: "Your plan allows no more running machines. cmux Pro runs more at once.",
+    button: "Upgrade",
+    cancel: "Cancel",
+  },
+} as const satisfies Record<string, CloudProgressAsk>;
 
 /** A state for `stage`, the step it is at, and the rest made up. */
 export function sampleState(stage: CloudStage, change: Partial<CloudProgressState> = {}): CloudProgressState {
@@ -20,6 +48,7 @@ export function sampleState(stage: CloudStage, change: Partial<CloudProgressStat
     machine: index >= 2 || index < 0 ? "paint-dev" : null,
     elapsedMs: 4_000 + step * 9_000,
     finished: stage === "ready" || stage === "paused" || stage === "failed",
+    ask: null,
     ...change,
   };
 }
@@ -34,13 +63,16 @@ export class MockCloudProgressProvider implements PageClient {
     if (options.walk) this.walk();
   }
 
-  async call<R>(op: string): Promise<R> {
+  async call<R>(op: string, _params?: unknown): Promise<R> {
     switch (op) {
       case CloudProgressOps.state:
         return this.state as R;
       case CloudProgressOps.retry:
         this.update(sampleState("requesting", { elapsedMs: 0 }));
         this.walk();
+        return {} as R;
+      case CloudProgressOps.answer:
+        this.update({ ...this.state, ask: null });
         return {} as R;
       case CloudProgressOps.dismiss:
       case CloudProgressOps.copyError:

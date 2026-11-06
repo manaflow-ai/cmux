@@ -26,7 +26,14 @@ import type { CloudProgressState } from "./types";
 
 export function CloudProgressPage({ store, strings }: { store: CloudProgressStore; strings: Strings }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  return <CloudProgressView snapshot={snapshot} strings={strings} onAction={(action) => void store.run(action)} />;
+  return (
+    <CloudProgressView
+      snapshot={snapshot}
+      strings={strings}
+      onAction={(action) => void store.run(action)}
+      onAnswer={(id, accept) => void store.answer(id, accept)}
+    />
+  );
 }
 
 /** The status line's glyph: a paused machine is quiet grey (idle), never danger, accent or offline. */
@@ -48,15 +55,18 @@ export function CloudProgressView({
   snapshot,
   strings,
   onAction,
+  onAnswer,
 }: {
   snapshot: CloudProgressSnapshot;
   strings: Strings;
   onAction: (action: CloudProgressAction) => void;
+  /** Answers the open question (`state.ask`). */
+  onAnswer: (id: string, accept: boolean) => void;
 }) {
   const arm = experimentArm(cloudProgressLook);
   const state = snapshot.state;
   const elapsed = useElapsed(state, snapshot.receivedAt);
-  const typed = useTypedNote(state, onAction);
+  const typed = useTypedNote(state, onAction, onAnswer);
   if (!state) return <div className="cloud-progress" data-look={arm} />;
 
   const { t, format } = strings;
@@ -65,9 +75,19 @@ export function CloudProgressView({
   const marks = stepMarks(state);
   const title = state.machine ? format("cloudProgress.title.machine", state.machine) : t("cloudProgress.title.new");
   const stageWord = t(`cloudProgress.stage.${stageKey(state)}`);
-  const detail = state.failure
-    ? format("cloudProgress.failed", state.failure)
-    : t(`cloudProgress.next.${state.stage === "ready" ? "ready" : stageKey(state)}`);
+  const ask = state.ask;
+  // A question takes the detail's and the buttons' places: the page's blocks stay where they are.
+  const detail = ask ? (
+    <>
+      <strong className="cloud-progress__ask-title">{ask.title}</strong>
+      {"\n"}
+      {ask.body}
+    </>
+  ) : state.failure ? (
+    format("cloudProgress.failed", state.failure)
+  ) : (
+    t(`cloudProgress.next.${state.stage === "ready" ? "ready" : stageKey(state)}`)
+  );
   const elapsedText = format("cloudProgress.elapsed", elapsedClock(elapsed));
   const stepLabels = state.steps.map((step) => t(`cloudProgress.stage.${step}`));
 
@@ -88,15 +108,32 @@ export function CloudProgressView({
       <span className="cloud-progress__elapsed">{elapsedText}</span>
     </span>
   );
-  const shown = failed || paused;
+  const shown = !!ask || failed || paused;
   const actions = (
-    // Always laid out, hidden while there is nothing to do, so a failure shifts nothing.
-    <div className="cloud-progress__actions" data-shown={shown || undefined} aria-hidden={!shown} inert={!shown}>
-      <Button variant="solid" onClick={() => onAction("retry")}>
-        {t(paused ? "cloudProgress.button.resume" : "cloudProgress.button.retry")}
-      </Button>
-      {!paused && <Button onClick={() => onAction("copyError")}>{t("cloudProgress.button.copyError")}</Button>}
-      <Button onClick={() => onAction("dismiss")}>{t("cloudProgress.button.dismiss")}</Button>
+    // Always laid out, hidden while there is nothing to do, so a failure or a question shifts nothing.
+    <div
+      className="cloud-progress__actions"
+      data-shown={shown || undefined}
+      data-ask={ask?.kind}
+      aria-hidden={!shown}
+      inert={!shown}
+    >
+      {ask ? (
+        <>
+          <Button variant="solid" onClick={() => onAnswer(ask.id, true)}>
+            {ask.button}
+          </Button>
+          <Button onClick={() => onAnswer(ask.id, false)}>{ask.cancel}</Button>
+        </>
+      ) : (
+        <>
+          <Button variant="solid" onClick={() => onAction("retry")}>
+            {t(paused ? "cloudProgress.button.resume" : "cloudProgress.button.retry")}
+          </Button>
+          {!paused && <Button onClick={() => onAction("copyError")}>{t("cloudProgress.button.copyError")}</Button>}
+          <Button onClick={() => onAction("dismiss")}>{t("cloudProgress.button.dismiss")}</Button>
+        </>
+      )}
     </div>
   );
   const note = (
@@ -114,7 +151,9 @@ export function CloudProgressView({
         <LineSteps failed={failed} status={status}>
           {steps}
         </LineSteps>
-        <p className="cloud-progress__detail selectable">{detail}</p>
+        <p className="cloud-progress__detail selectable" data-ask={ask?.kind}>
+          {detail}
+        </p>
         {actions}
         {note}
       </div>
@@ -131,7 +170,9 @@ export function CloudProgressView({
               <span key={state.steps[index]} data-mark={mark} title={stepLabels[index]} />
             ))}
           </div>
-          <p className="cloud-progress__detail selectable">{detail}</p>
+          <p className="cloud-progress__detail selectable" data-ask={ask?.kind}>
+            {detail}
+          </p>
           {actions}
         </div>
         {note}
@@ -143,7 +184,9 @@ export function CloudProgressView({
       <h1 className="cloud-progress__title">{title}</h1>
       <p className="cloud-progress__elapsed">{elapsedText}</p>
       {steps}
-      <p className="cloud-progress__detail selectable">{detail}</p>
+      <p className="cloud-progress__detail selectable" data-ask={ask?.kind}>
+        {detail}
+      </p>
       {actions}
       {note}
     </div>
@@ -194,22 +237,34 @@ function useElapsed(state: CloudProgressState | undefined, receivedAt: number): 
 
 /**
  * Keys typed before the terminal exists go nowhere: the note under the steps says so and turns to
- * the primary text color on the first key. Return is Retry (Resume) while the buttons show.
+ * the primary text color on the first key. While a question is open Return answers yes and Escape
+ * no; while the buttons show Return is Retry (Resume).
  */
-function useTypedNote(state: CloudProgressState | undefined, onAction: (action: CloudProgressAction) => void) {
+function useTypedNote(
+  state: CloudProgressState | undefined,
+  onAction: (action: CloudProgressAction) => void,
+  onAnswer: (id: string, accept: boolean) => void,
+) {
   const [typed, setTyped] = useState(false);
+  const askID = state?.ask?.id;
   const shown = state?.stage === "failed" || state?.stage === "paused";
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.isComposing) return;
+      const onButton = event.target instanceof HTMLButtonElement;
+      if (askID) {
+        if (event.key === "Enter" && !onButton) onAnswer(askID, true);
+        else if (event.key === "Escape") onAnswer(askID, false);
+        return;
+      }
       if (shown) {
-        if (event.key === "Enter" && !(event.target instanceof HTMLButtonElement)) onAction("retry");
+        if (event.key === "Enter" && !onButton) onAction("retry");
         return;
       }
       if (event.key.length === 1 || event.key === "Enter" || event.key === "Backspace") setTyped(true);
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [shown, onAction]);
+  }, [askID, shown, onAction, onAnswer]);
   return typed;
 }

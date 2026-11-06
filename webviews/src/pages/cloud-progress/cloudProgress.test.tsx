@@ -3,7 +3,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
-import { MockCloudProgressProvider, sampleState } from "./mockProvider";
+import { MockCloudProgressProvider, SAMPLE_ASKS, sampleState } from "./mockProvider";
 import { CloudProgressStore, elapsedClock, stageKey, stepMarks } from "./store";
 import { CloudProgressOps } from "./types";
 
@@ -123,6 +123,45 @@ test("a paused machine offers Resume and no Copy Error", async () => {
   const labels = [...host.querySelectorAll(".cloud-progress__actions button")].map((button) => button.textContent);
   expect(labels).toEqual(["Resume", "Dismiss"]);
   expect(host.querySelector(".cloud-progress__detail")!.textContent).toContain("idle");
+  await act(async () => root.unmount());
+  store.stop();
+});
+
+test("a question takes the buttons' place, and its answer carries its id", async () => {
+  const calls: { op: string; params: unknown }[] = [];
+  const provider = new MockCloudProgressProvider({
+    state: sampleState("requesting", { ask: SAMPLE_ASKS.createRequest }),
+  });
+  const original = provider.call.bind(provider);
+  provider.call = async <R,>(op: string, params?: unknown) => {
+    calls.push({ op, params });
+    return original<R>(op, params);
+  };
+  const store = new CloudProgressStore(provider);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(<CloudProgressPage store={store} strings={strings} />);
+    await store.start();
+  });
+  const actions = host.querySelector(".cloud-progress__actions")!;
+  expect(actions.getAttribute("data-ask")).toBe("createRequest");
+  expect([...actions.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Create", "Cancel"]);
+  expect(host.querySelector(".cloud-progress__detail")!.textContent).toContain("An agent asked");
+  expect(host.querySelector(".cloud-progress__note")!.hasAttribute("data-hidden")).toBe(true);
+
+  await act(async () => {
+    actions.querySelectorAll("button")[1]!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    await settle();
+  });
+  expect(calls.find((call) => call.op === CloudProgressOps.answer)?.params).toEqual({
+    id: "ask-create",
+    accept: false,
+  });
+  // Answered: the same buttons element goes back to hidden, nothing moved.
+  expect(host.querySelector(".cloud-progress__actions")).toBe(actions);
+  expect(actions.hasAttribute("data-shown")).toBe(false);
   await act(async () => root.unmount());
   store.stop();
 });

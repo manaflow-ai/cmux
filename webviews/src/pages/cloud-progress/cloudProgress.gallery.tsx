@@ -8,14 +8,21 @@ import { createStrings } from "../shared/i18n";
 import { cloudProgressLook } from "./cloudProgress.experiment";
 import table from "./generated/strings.json";
 import { CloudProgressView } from "./CloudProgressPage";
-import { sampleState } from "./mockProvider";
+import { SAMPLE_ASKS, sampleState } from "./mockProvider";
 import type { CloudProgressState } from "./types";
 
 type Props = { state: CloudProgressState };
 
 function CloudProgressGallery({ state }: Props) {
   const [strings] = useState(() => createStrings(table));
-  return <CloudProgressView snapshot={{ state, receivedAt: Date.now() }} strings={strings} onAction={() => {}} />;
+  return (
+    <CloudProgressView
+      snapshot={{ state, receivedAt: Date.now() }}
+      strings={strings}
+      onAction={() => {}}
+      onAnswer={() => {}}
+    />
+  );
 }
 
 const showProgress: Play = async (ctx) => {
@@ -65,6 +72,24 @@ export default componentEntry<Props>({
     "paused-idle": {
       note: "Paused by the idle auto-pause: its own words, the same Resume.",
       props: { state: sampleState("paused", { step: 3, idle: true }) },
+    },
+    "ask-agent-request": {
+      note: "An agent asked for the machine: Create or Cancel on the page, where the sheet used to ask.",
+      props: { state: sampleState("requesting", { ask: SAMPLE_ASKS.createRequest }) },
+    },
+    "ask-approval": {
+      note: "cmux Cloud holds the create for the person's approval: the same question in the same place.",
+      props: { state: sampleState("creating", { ask: SAMPLE_ASKS.approval }) },
+    },
+    "ask-upgrade": {
+      note: "The plan refused the machine: Upgrade or Cancel on the failed page, no second sheet.",
+      props: {
+        state: sampleState("failed", {
+          step: 1,
+          failure: "Your plan allows no more running machines.",
+          ask: SAMPLE_ASKS.upgrade,
+        }),
+      },
     },
     resuming: {
       note: "Resume pressed: cmux Cloud is starting the machine again.",

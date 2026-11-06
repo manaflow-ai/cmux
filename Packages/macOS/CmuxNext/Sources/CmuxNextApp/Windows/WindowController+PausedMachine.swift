@@ -9,8 +9,11 @@ extension WindowController {
         guard session.machine.status == .paused || shown && !session.daemon.store.isLoaded else { return false }
         if shown { return true }
         parkContentForPage()
-        root.show(CloudProgressHost(source: CloudMachineCreation(windowID: state.id, session: session), actions: .progress(
-            retry: { [weak session] in session?.attach(origin: .user) }, dismiss: { [weak self] in self?.state.workspaceID = nil })))
+        let creation = CloudMachineCreation(windowID: state.id, session: session)
+        let view = CloudProgressHost(source: creation, actions: .progress(
+            retry: { [weak session] in session?.attach(origin: .user) }, dismiss: { [weak self] in self?.state.workspaceID = nil }))
+        creation.progressHost = view
+        root.show(view)
         themeScope.show(nil)
         root.titlebar.title = session.machine.title
         session.attach(origin: .user)

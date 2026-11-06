@@ -38,6 +38,7 @@ extension WindowController {
                 guard let self, let creation else { return }
                 CloudHandlers.creationFlow(AppActionContext(services: self.services)).dismiss(creation, in: self.state)
             }))
+        creation.progressHost = view
         root.show(view)
         // Keys typed before the terminal exists land on the page (it says so), not on a hidden pane.
         window?.makeFirstResponder(view)

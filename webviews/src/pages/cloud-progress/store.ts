@@ -74,6 +74,16 @@ export class CloudProgressStore {
     }
   }
 
+  /** Answers the open question; the host takes it only from the person's own click or key. */
+  async answer(id: string, accept: boolean): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.call(CloudProgressOps.answer, { id, accept });
+    } catch {
+      // A refused answer leaves the question open; the next change event shows where it stands.
+    }
+  }
+
   private set(next: CloudProgressSnapshot) {
     this.snapshot = next;
     for (const listener of this.listeners) listener();

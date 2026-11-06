@@ -45,4 +45,43 @@ struct CloudProgressPageProviderTests {
         }
         #expect(ran == ["retry", "dismiss", "copy:link closed"])
     }
+
+    @Test func aQuestionOnThePageIsAnsweredOnceByThePerson() async throws {
+        let provider = CloudProgressPageProvider(source: Source(), actions: .init(retry: {}, dismiss: {}, copy: { _ in }, personOnlyMessage: "no"))
+        var answers: [Bool] = []
+        let ask = CloudProgressAsk(id: "a1", kind: .createRequest, title: "Create?", body: "An agent asked.", button: "Create", cancel: "Cancel")
+        provider.ask(ask) { answers.append($0) }
+        #expect(provider.state()["ask"]?["id"] == .string("a1"))
+        let answer: JSONValue = .object(["id": .string("a1"), "accept": .bool(true)])
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call(CloudProgressPageProvider.answerOp, params: answer, context: PageCallContext(page: "cmux.cloud-progress"))
+        }
+        // Another question's id answers nothing.
+        _ = try await provider.call(CloudProgressPageProvider.answerOp, params: .object(["id": .string("other"), "accept": .bool(true)]),
+                                    context: PageCallContext(page: "cmux.cloud-progress", userGesture: true))
+        #expect(answers.isEmpty)
+        _ = try await provider.call(CloudProgressPageProvider.answerOp, params: answer, context: PageCallContext(page: "cmux.cloud-progress", userGesture: true))
+        #expect(answers == [true])
+        #expect(provider.state()["ask"] == .null)
+    }
+
+    @Test func dismissAndANewerQuestionAnswerTheOpenOneNo() async throws {
+        var dismissed = 0
+        let provider = CloudProgressPageProvider(source: Source(), actions: .init(retry: {}, dismiss: { dismissed += 1 }, copy: { _ in }, personOnlyMessage: "no"))
+        var answers: [String] = []
+        provider.ask(CloudProgressAsk(id: "a1", kind: .approval, title: "t", body: "b", button: "Create", cancel: "Cancel")) { answers.append("a1:\($0)") }
+        provider.ask(CloudProgressAsk(id: "a2", kind: .upgrade, title: "t", body: "b", button: "Upgrade", cancel: "Cancel")) { answers.append("a2:\($0)") }
+        _ = try await provider.call(CloudProgressPageProvider.dismissOp, params: .object([:]), context: PageCallContext(page: "cmux.cloud-progress", userGesture: true))
+        #expect(answers == ["a1:false", "a2:false"])
+        #expect(dismissed == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aCancelledWaitTakesTheQuestionOffThePage() async {
+        let provider = CloudProgressPageProvider(source: Source(), actions: .init(retry: {}, dismiss: {}, copy: { _ in }, personOnlyMessage: "no"))
+        let wait = Task { await provider.ask(CloudProgressAsk(id: "a1", kind: .approval, title: "t", body: "b", button: "Create", cancel: "Cancel")) }
+        while provider.shownAsk == nil { await Task.yield() }
+        wait.cancel()
+        #expect(await wait.value == false)
+        #expect(provider.shownAsk == nil)
+    }
 }

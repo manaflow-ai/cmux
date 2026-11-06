@@ -84,7 +84,14 @@
   /* Three lines' room: the next line and a failure's reason take the same place. */
   min-height: calc(3 * var(--text-body--line-height, 1.4em));
   color: var(--page-text-2);
+  white-space: pre-line;
   user-select: text;
+}
+
+/* A question in the detail's place: its title in the primary tone, its lines (who asks, the machine) under it. */
+.cloud-progress__ask-title {
+  color: var(--page-text);
+  font-weight: 600;
 }
 
 .cloud-progress__actions {

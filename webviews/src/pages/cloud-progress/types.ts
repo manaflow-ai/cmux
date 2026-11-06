@@ -13,6 +13,8 @@ export const CloudProgressOps = {
   dismiss: "cmux.cloudProgress.dismiss",
   /** `{}` → `{}`: copies the failure. Only after the person's own click or key. */
   copyError: "cmux.cloudProgress.copyError",
+  /** `{id, accept}` → `{}`: answers the open `ask`. Only after the person's own click or key. */
+  answer: "cmux.cloudProgress.answer",
 } as const;
 
 /** `CloudMachineStage.name`: where the machine is on its way to an open terminal. */
@@ -27,6 +29,22 @@ export type CloudStage =
   | "resuming"
   | "deleting"
   | "failed";
+
+/**
+ * A question the creation asks on its page instead of a sheet (CloudProgressAsk): an agent's or a
+ * script's create asks first, the backend holds the create for approval, or a plan refusal offers
+ * the upgrade. The host has the words.
+ */
+export interface CloudProgressAsk {
+  id: string;
+  kind: "createRequest" | "approval" | "upgrade";
+  title: string;
+  body: string;
+  /** The yes button (Create, Upgrade). */
+  button: string;
+  /** The no button. */
+  cancel: string;
+}
 
 export interface CloudProgressState {
   stage: CloudStage;
@@ -44,4 +62,6 @@ export interface CloudProgressState {
   elapsedMs: number;
   /** Ready, paused or failed: the elapsed line stops. */
   finished: boolean;
+  /** The open question, if one is. */
+  ask: CloudProgressAsk | null;
 }

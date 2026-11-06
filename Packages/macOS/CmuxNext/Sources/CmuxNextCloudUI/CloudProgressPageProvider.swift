@@ -33,6 +33,30 @@ public protocol CloudProgressSource: AnyObject {
     var progressChangeKey: String { get }
 }
 
+/// A question the creation asks the person on its own page instead of a sheet: an agent's or a
+/// script's create asks first, the backend holds the create for approval, or a plan refusal offers
+/// the upgrade. The App has the words.
+public struct CloudProgressAsk: Equatable, Sendable {
+    public enum Kind: String, Sendable { case createRequest, approval, upgrade }
+    public var id: String
+    public var kind: Kind
+    public var title: String
+    public var body: String
+    /// The yes button (Create, Upgrade).
+    public var button: String
+    /// The no button.
+    public var cancel: String
+
+    public init(id: String = UUID().uuidString, kind: Kind, title: String, body: String, button: String, cancel: String) {
+        (self.id, self.kind, self.title, self.body, self.button, self.cancel) = (id, kind, title, body, button, cancel)
+    }
+
+    var json: JSONValue {
+        .object(["id": .string(id), "kind": .string(kind.rawValue), "title": .string(title), "body": .string(body),
+                 "button": .string(button), "cancel": .string(cancel)])
+    }
+}
+
 /// Serves the progress page's `cmux.cloudProgress.` namespace from one ``CloudProgressSource``.
 ///
 /// - `cmux.cloudProgress.state` → ``state()``: the stage by name, the step reached, the failure,
@@ -40,6 +64,9 @@ public protocol CloudProgressSource: AnyObject {
 /// - stream `cmux.cloudProgress.changes`: one empty event per change of ``CloudProgressSource/progressChangeKey``,
 ///   from an observation (no timer). The page ticks its own elapsed line.
 /// - `retry`, `dismiss`, `copyError`: the person's own click or key only.
+/// - ``ask(_:done:)`` puts a question on the page (`state`'s `ask`); `cmux.cloudProgress.answer {id, accept}`,
+///   the person's own click or key only, answers it. Dismiss, the page leaving its window and a newer
+///   question each answer the open one no.
 @MainActor
 public final class CloudProgressPageProvider: PageProvider {
     public struct Actions {
@@ -61,11 +88,19 @@ public final class CloudProgressPageProvider: PageProvider {
     public static let retryOp = "cmux.cloudProgress.retry"
     public static let dismissOp = "cmux.cloudProgress.dismiss"
     public static let copyErrorOp = "cmux.cloudProgress.copyError"
+    public static let answerOp = "cmux.cloudProgress.answer"
 
     public let source: any CloudProgressSource
     private let actions: Actions
     /// The step a failure or a pause stopped at: the last one reached before it.
     private var lastReached = 0
+    /// The open question and who waits on its answer.
+    private var openAsk: (ask: CloudProgressAsk, done: @MainActor (Bool) -> Void)?
+    /// The pages' change streams, told when a question opens or closes (the source's key does not change then).
+    private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
+
+    /// The question the page shows now.
+    public var shownAsk: CloudProgressAsk? { openAsk?.ask }
 
     public init(source: any CloudProgressSource, actions: Actions) {
         self.source = source
@@ -76,13 +111,23 @@ public final class CloudProgressPageProvider: PageProvider {
         switch op {
         case Self.stateOp:
             return state()
-        case Self.retryOp, Self.dismissOp, Self.copyErrorOp:
+        case Self.retryOp, Self.dismissOp, Self.copyErrorOp, Self.answerOp:
             guard context.userGesture || context.isConfirmedUser else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: actions.personOnlyMessage)
             }
-            if op == Self.retryOp { actions.retry() }
-            else if op == Self.dismissOp { actions.dismiss() }
-            else if let failure = source.progressFailure { actions.copy(failure) }
+            switch op {
+            case Self.retryOp: actions.retry()
+            case Self.dismissOp:
+                answer(nil, accept: false)
+                actions.dismiss()
+            case Self.answerOp:
+                guard let id = params["id"]?.stringValue, case .bool(let accept)? = params["accept"] else {
+                    throw PageError.invalidParams("id and accept are required")
+                }
+                answer(id, accept: accept)
+            default:
+                if let failure = source.progressFailure { actions.copy(failure) }
+            }
             return .object([:])
         default:
             throw PageError.unknownOp(op)
@@ -93,6 +138,8 @@ public final class CloudProgressPageProvider: PageProvider {
                           onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == Self.changesStream else { throw PageError.unknownOp(stream) }
         let source = source
+        let listener = UUID()
+        listeners[listener] = onEvent
         // task-owner: lives as long as the page's subscription; event-driven (Observation)
         // main-hop-allow: a subscription's observation loop, not an action's work: each wake reads one key and
         // sends at most one empty event; it ends with the subscription (the page closes or the window moves on).
@@ -106,7 +153,10 @@ public final class CloudProgressPageProvider: PageProvider {
                 last = key
             }
         }
-        return PageSubscription { task.cancel() }
+        return PageSubscription { [weak self] in
+            task.cancel()
+            self?.listeners[listener] = nil
+        }
     }
 
     /// What the page draws now. `step` is the stage's place in the list, or the last one reached
@@ -125,6 +175,39 @@ public final class CloudProgressPageProvider: PageProvider {
             "machine": source.progressMachine.map(JSONValue.string) ?? .null,
             "elapsedMs": .number(elapsedMs),
             "finished": .bool(source.progressFinished),
+            "ask": openAsk?.ask.json ?? .null,
         ])
+    }
+
+    /// Shows `ask` on the page; `done` runs once with the person's answer (false for no, Dismiss, the
+    /// page leaving its window, or a newer question).
+    public func ask(_ ask: CloudProgressAsk, done: @escaping @MainActor (Bool) -> Void) {
+        answer(nil, accept: false)
+        openAsk = (ask, done)
+        changed()
+    }
+
+    /// ``ask(_:done:)`` as a wait. A cancelled wait answers no and takes the question off the page.
+    public func ask(_ ask: CloudProgressAsk) async -> Bool {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                self.ask(ask) { continuation.resume(returning: $0) }
+            }
+        } onCancel: {
+            // main-hop-allow: a cancelled wait's one answer: it closes one question on the main actor and sends one event.
+            Task { @MainActor [weak self] in self?.answer(ask.id, accept: false) }
+        }
+    }
+
+    /// Answers the open question (`id` nil: whichever is open); nothing when another one is open.
+    public func answer(_ id: String?, accept: Bool) {
+        guard let open = openAsk, id == nil || open.ask.id == id else { return }
+        openAsk = nil
+        changed()
+        open.done(accept)
+    }
+
+    private func changed() {
+        for onEvent in listeners.values { onEvent(.object([:])) }
     }
 }
