@@ -69,7 +69,8 @@ pub async fn install(id: &str, mut step: impl FnMut(&str, &str, &str)) -> Result
             step("install", "done", ready.get("path").and_then(Value::as_str).unwrap_or_default());
             result_line(id, &crate::managed_codex::managed_path())
         }
-        _ => unreachable!("agent() admits only AGENTS"),
+        // agent() admits only AGENTS, so no other id gets here.
+        other => bail!("acpmux harness install has no installer for `{other}`"),
     };
     Ok(result)
 }
