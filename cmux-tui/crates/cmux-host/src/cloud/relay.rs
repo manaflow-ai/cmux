@@ -224,6 +224,12 @@ pub fn last_reply(stdout: &str) -> Option<String> {
     v.get("replies")?.as_array()?.last()?.as_str().map(str::to_owned)
 }
 
+/// Whether `acp --json new --reuse` found the session there already (`reused: true`).
+pub fn reused_session(stdout: &str) -> bool {
+    serde_json::from_str::<Value>(stdout.trim())
+        .is_ok_and(|v| v.get("reused").and_then(Value::as_bool) == Some(true))
+}
+
 /// The acpmux session id `acp --json new` printed, else `None`.
 pub fn created_session(stdout: &str) -> Option<String> {
     let v: Value = serde_json::from_str(stdout.trim()).ok()?;
@@ -830,14 +836,17 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::Sender<String>, detached
         let _ = tx.send(up(&chat.id, event)).await;
     };
     let home = runner.home.to_string_lossy().into_owned();
-    let session = match &chat.session {
-        Some(s) => s.clone(),
+    // `reattached`: the chat's own session was there already (`new --reuse` said `reused`), so this chat came again
+    // after a drop or a restart, and its prompt id names the turn that ran.
+    let (session, reattached) = match &chat.session {
+        Some(s) => (s.clone(), false),
         None => {
             let out = runner.command(&new_args(&chat, &home)).stdin(Stdio::null()).output().await;
             match out {
                 Ok(out) if out.status.success() => {
-                    created_session(&String::from_utf8_lossy(&out.stdout))
-                        .unwrap_or_else(|| session_name(&chat))
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    let session = created_session(&stdout).unwrap_or_else(|| session_name(&chat));
+                    (session, reused_session(&stdout))
                 }
                 Ok(out) => {
                     // The create's own exit: a `no_session` or a refused permission keeps its code.
@@ -913,9 +922,10 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::Sender<String>, detached
         let _ = tail.kill().await;
     }
     let mut done = final_event_of(exit, &out, cut, &err);
-    // A chat sent again after a drop or a restart: `send` answered the first run's outcome, and that run's reply went
-    // to its own client, so the turn's last reply comes from the session.
-    if done["kind"] == "done"
+    // A reattached chat: `send` answered the first run's outcome, and that run's reply went to its own client, so the
+    // turn's reply comes from the session, which holds only this chat. A new turn with no reply stays empty.
+    if reattached
+        && done["kind"] == "done"
         && done.get("reply_cut").is_none()
         && done.get("reply").and_then(Value::as_str).is_none_or(str::is_empty)
     {
