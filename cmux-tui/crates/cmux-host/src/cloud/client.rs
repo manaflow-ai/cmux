@@ -208,12 +208,16 @@ impl BindResult {
 
 /// Spends `bind.json`'s one-time token: `POST {api_origin}/v1/cloud/bind`
 /// with no bearer. `bound.json` (0600) is written before `bind.json` goes.
+/// `daemon_noise_key` (the session host's Noise static public key,
+/// `daemon_noise_key.rs`) is sent only when given: a machine with the relay
+/// carrier configured.
 pub fn bind_machine(
     store: &mut dyn Store,
     http: &dyn Http,
     key: &InstallKey,
     wg_public_key: &str,
     daemon: &DaemonInfo,
+    daemon_noise_key: Option<&str>,
     now_wall_ms: u64,
 ) -> BindResult {
     let Some(text) = store.read(BIND_FILE) else { return BindResult::None };
@@ -224,7 +228,7 @@ pub fn bind_machine(
             return BindResult::Invalid(why);
         }
     };
-    let body = json!({
+    let mut body = json!({
         "team": file.team,
         "machine": file.machine,
         "bind_token": file.bind_token,
@@ -232,6 +236,9 @@ pub fn bind_machine(
         "daemon": daemon.to_json(),
         "install_public_jwk": key.public_jwk(),
     });
+    if let (Some(noise_key), Some(fields)) = (daemon_noise_key, body.as_object_mut()) {
+        fields.insert("daemon_noise_key".to_owned(), json!(noise_key));
+    }
     let (status, answer) =
         match http.post(&format!("{}/v1/cloud/bind", file.api_origin), &body, None) {
             Ok(answer) => answer,
@@ -510,6 +517,14 @@ impl<H: Http> CloudClient<H> {
 
     /// The person's connected GitHub account (`GET /v1/me/github` as this
     /// machine), checked so the reply never holds a token.
+    /// A relay Register ticket for this machine's carrier slot
+    /// (`carrier_ticket.rs`): the machine names itself; the caller nothing.
+    pub fn carrier_ticket(&mut self, now_wall_ms: u64) -> Value {
+        let path = super::carrier_ticket::path(&self.bound.machine);
+        let answer = self.post_with_token(&path, &json!({}), now_wall_ms);
+        super::carrier_ticket::reply_for(&answer)
+    }
+
     pub fn github_status(&mut self, now_wall_ms: u64) -> Value {
         let answer = self.github_repos_get(super::github_status::STATUS_PATH, now_wall_ms);
         super::github_status::reply_for(&answer)

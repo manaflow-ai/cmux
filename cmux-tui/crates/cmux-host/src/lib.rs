@@ -42,6 +42,7 @@
 
 pub mod agent;
 pub mod announce;
+pub mod carrier_entry;
 pub mod cli;
 pub mod cloud;
 pub mod config;

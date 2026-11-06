@@ -918,7 +918,22 @@ impl Worker {
             Ok(poster) => PosterHttp(poster),
             Err(e) => return log(&e),
         };
-        let result = bind_machine(&mut self.store, &http, &key, &wg, &daemon, wall_ms());
+        // Only a machine with the relay carrier sends its daemon's Noise key.
+        let noise_key = crate::linux::carrier_route(&self.paths).and_then(|_| {
+            let home = relay_runner().ok()?.home;
+            let file = super::daemon_noise_key::identity_path(&home, crate::daemon_spec::SESSION);
+            let file = self.paths.at(&file.to_string_lossy());
+            super::daemon_noise_key::read(&file)
+        });
+        let result = bind_machine(
+            &mut self.store,
+            &http,
+            &key,
+            &wg,
+            &daemon,
+            noise_key.as_deref(),
+            wall_ms(),
+        );
         log(&format!("bind: {}", result.describe()));
         match result {
             BindResult::Bound(bound) => {
@@ -1265,6 +1280,9 @@ fn agent_ask(line: &str) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::github_status::REQUEST_KEY) {
         return Some(Ask::GithubStatus(super::github_status::check_ask(ask)));
+    }
+    if let Some(ask) = msg.get(super::carrier_ticket::REQUEST_KEY) {
+        return Some(Ask::CarrierTicket(super::carrier_ticket::check_ask(ask)));
     }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())

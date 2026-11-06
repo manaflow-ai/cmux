@@ -255,6 +255,9 @@ impl LinuxPlatform {
         let version =
             ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
         let mut spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
+        if let Some(carrier) = carrier_route(&paths) {
+            spec.args.extend(carrier.args(&layout.bin));
+        }
         spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
         let child = spawn::spawn_daemon_supervised(&spec, self.bootstrap.as_deref())?;
@@ -752,6 +755,20 @@ fn remote_entry(paths: &crate::config::Paths) -> crate::remote_entry::RemoteEntr
         eprintln!("{warning}");
     }
     entry
+}
+
+/// The machine's relay carrier route from `/etc/cmux/host.json`'s
+/// `carrier` section (`carrier_entry.rs`), under the same trust check as the
+/// remote entry. Off when absent; a refused section is logged and stays off.
+pub(crate) fn carrier_route(
+    paths: &crate::config::Paths,
+) -> Option<crate::carrier_entry::CarrierRoute> {
+    use crate::remote_entry::HOST_CONFIG_FILE;
+    let text = host_config_text(&paths.at(HOST_CONFIG_FILE)).ok()?;
+    crate::carrier_entry::parse(text.as_deref())
+        .inspect_err(|why| eprintln!("cmux-host: host.json carrier refused ({why}); carrier off"))
+        .ok()
+        .flatten()
 }
 
 /// The host config's text: `None` when absent, an error when the file may

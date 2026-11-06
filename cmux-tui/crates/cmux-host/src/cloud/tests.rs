@@ -131,7 +131,7 @@ fn bind_posts_the_vector_fields_writes_bound_then_removes_bind() {
     let mut store = MemoryStore::default();
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
     let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
-    let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), T0);
+    let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
     assert!(matches!(result, BindResult::Bound(_)), "{result:?}");
     let seen = fake.0.borrow().seen[0].clone();
     assert_eq!(seen.url, format!("{DEV}/v1/cloud/bind"));
@@ -153,6 +153,22 @@ fn bind_posts_the_vector_fields_writes_bound_then_removes_bind() {
     let identity = crate::identity::enrolled(&store, "i-aaa").unwrap();
     assert_eq!(identity.machine, MACHINE);
     assert_eq!(identity.instance_id, "i-aaa");
+}
+
+/// A machine with the relay carrier also sends its daemon's Noise key; the
+/// default bind body (above) has no such field.
+#[test]
+fn bind_sends_the_daemon_noise_key_only_when_given() {
+    let fake = Fake::new();
+    let rng = SystemRandom::new();
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
+    let noise = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), Some(noise), T0);
+    assert!(matches!(result, BindResult::Bound(_)), "{result:?}");
+    let seen = fake.0.borrow().seen[0].clone();
+    assert_eq!(seen.body["daemon_noise_key"], noise);
 }
 
 #[test]
@@ -310,7 +326,7 @@ fn vm_receiver_client_existing_bind_auth_report_and_refresh_keep_working() {
     let mut store = MemoryStore::default();
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
     let key = ensure_install_key(&mut store, "i-original", &rng).unwrap().key;
-    let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), T0);
+    let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
     assert!(matches!(bound, BindResult::Bound(_)), "original bind failed");
     let saved: Bound = serde_json::from_str(&store.read(BOUND_FILE).unwrap()).unwrap();
     if let BindResult::Bound(bound) = bound {
