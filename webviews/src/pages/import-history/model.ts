@@ -254,7 +254,7 @@ export class ImportHistoryStore {
   }
   /** The provider's checkbox: checks or clears every source of `group` this Mac has, in one change. */
   selectGroup(group: ProviderGroup, selected: boolean): void {
-    if (this.busy) return;
+    if (this.detecting || this.busy) return;
     this.set({
       rows: this.snapshot.rows.map((row) =>
         group.members.includes(row.id) && isAvailable(row)

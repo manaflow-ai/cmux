@@ -255,3 +255,7 @@
 .history-provider-source .history-source-label {
   gap: var(--ds-space-2);
 }
+/* Cards draw a larger provider mark, so the indent grows with it. */
+.layout-cards .history-provider-sources {
+  padding-inline-start: calc(var(--ds-control-primary) + 12px + 12px + 13px);
+}
