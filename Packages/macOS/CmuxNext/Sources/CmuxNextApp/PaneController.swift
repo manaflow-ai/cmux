@@ -248,7 +248,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // 2026-10-23: "home chief should have no tabbar"); a tab dragged in brings it back while it
         // is there (plans/cmux-next/home-chief-pane.md H1).
         let homeChief = (dock.map { LayoutMapping.dock($0).hidesTabBar(shownTabs: tabs.count + local.count) } ?? false)
-            // A window dock in the same no-tab-bar mode (Show or Hide Dock Tab Bar, user 2026-11-05).
+            // A window dock in the same no-tab-bar mode (Show/Hide Dock Tab Bar, user 2026-11-05).
             || (LayoutTunables.dockedWorkspaces.value && ownWorkspace.map { state?.docks.hidesTabBar(of: $0.id, shownTabs: tabs.count + local.count) ?? false } ?? false)
         return Snapshot(tabs: tabs, items: local, groups: groups,
                          defaultIndex: pane.defaultTabIndex, generation: store.generation?.rawValue,
@@ -473,7 +473,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         // What shows changed (a frame after selection; a new page under the pane's one browser chrome counts): focus
         // applies again if this pane has it; a re-show of the same content reports nothing.
-        if workspace?.isParked == false, presentedReport.changes(tab: key, views: [content?.view, view.browserChrome.page(shown: content?.view), view.window], replacing: shownBefore) { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
+        if workspace?.isParked == false, presentedReport.changes(tab: key, views: [content?.view, view.browserChrome.page(shown: content?.view), view.window], replacing: shownBefore) { services.mainWork.budget.presentationPending(); BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } } // idle work waits until it is on screen
         BenchSpans.measure("switch.invariant") { services.surfaceInvariant.noteChange() }
         BenchSpans.measure("switch.neighbors") { noteNeighbors() }
         windowController?.revalidatePagePresentation() // a page that had the screen was switched away
@@ -493,6 +493,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     private var launchFrames: TerminalLaunchFrames { .beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()) }
     func showWhileWaiting() { // perf-hot: 1ms launch-first-frame (REOPEN-F1: a visible terminal waiting for its surface shows its last frame)
+        if presence == .visible, !isSuspended { services.mainWork.budget.presentationPending() } // new content queued: idle work waits until it shows
         guard presence == .visible, !isSuspended, !view.hostsContent, showsLiveTerminal, let key = stripModel.selectedID?.rawValue else { return }
         launchFrames.showAhead(key, in: view.contentHost)
     }

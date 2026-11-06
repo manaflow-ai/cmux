@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1326,
+    "entries": 1330,
     "shortcuts": 189
   },
   "sections": [
@@ -38,6 +38,12 @@
           "title": "Automations",
           "shortcut": null,
           "command": "cmux automation show-page"
+        },
+        {
+          "id": "home.compareTablePlayground",
+          "title": "Before/After Table Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "home.chatColors",
@@ -562,18 +568,6 @@
           "command": "cmux history show"
         },
         {
-          "id": "window.toggleDock",
-          "title": "Show or Hide Dock",
-          "shortcut": null,
-          "command": "cmux window toggle-dock"
-        },
-        {
-          "id": "window.toggleDockTabBar",
-          "title": "Show or Hide Dock Tab Bar",
-          "shortcut": null,
-          "command": "cmux window toggle-dock-tab-bar"
-        },
-        {
           "id": "stash.show",
           "title": "Show Stashed Tabs",
           "shortcut": null,
@@ -584,6 +578,18 @@
           "title": "Show/Hide All Windows",
           "shortcut": "⌃⌥⌘.",
           "command": null
+        },
+        {
+          "id": "window.toggleDock",
+          "title": "Show/Hide Dock",
+          "shortcut": null,
+          "command": "cmux window toggle-dock"
+        },
+        {
+          "id": "window.toggleDockTabBar",
+          "title": "Show/Hide Dock Tab Bar",
+          "shortcut": null,
+          "command": "cmux window toggle-dock-tab-bar"
         },
         {
           "id": "palette.sleepyMode",
@@ -3542,6 +3548,12 @@
           "title": "Reset Terminal Theme",
           "shortcut": null,
           "command": "cmux terminal clear-theme"
+        },
+        {
+          "id": "terminal.runLastCommandAgain",
+          "title": "Run Last Command Again",
+          "shortcut": null,
+          "command": "cmux terminal run-last-command-again"
         },
         {
           "id": "terminal.scrollPageDown",
@@ -7696,6 +7708,12 @@
           "command": "cmux settings open-sign-in-pages-in-cmux"
         },
         {
+          "id": "liveSwift.start",
+          "title": "Start Swift Live Mode",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "liveWeb.stop",
           "title": "Stop Editing cmux Live",
           "shortcut": null,
@@ -7704,6 +7722,12 @@
         {
           "id": "server.stopServing",
           "title": "Stop Serving",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "liveSwift.stop",
+          "title": "Stop Swift Live Mode",
           "shortcut": null,
           "command": null
         },

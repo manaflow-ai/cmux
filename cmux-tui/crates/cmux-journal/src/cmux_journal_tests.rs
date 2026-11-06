@@ -308,6 +308,34 @@ fn a_sealed_journal_refuses_appends() {
     assert_eq!(journal.full_durable_lsn(), 1);
 }
 
+/// A seal hands the journal over (a daemon's restart, whose next process opens it while the old
+/// one still exits): the next open takes it at once though the sealed handle lives on, and the
+/// sealed handle changes no file of the folder after that.
+#[test]
+fn a_sealed_journal_is_handed_to_the_next_open_at_once() {
+    let storage = SimStorage::new(35);
+    let config = Config { segment_bytes: 600, ..quick() };
+    let (first, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    // One batch per record, so the segments rotate: a retirement would delete some.
+    for lsn in 1..=40 {
+        let got = first.append(3, Class::Ack, &payload(lsn)).unwrap_or_else(|e| panic!("{e}"));
+        first.wait_durable(got, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    }
+    assert!(first.stats().segments_created >= 3, "{:?}", first.stats());
+    assert_eq!(first.seal(WAIT), Ok(40));
+    let (second, _, seen) = open_at(&storage, config, 0)
+        .unwrap_or_else(|e| panic!("the sealed journal kept its folder: {e}"));
+    assert_eq!(lsns(&seen), (1..=40).collect::<Vec<_>>());
+    let names = storage.names_in(&dir());
+    assert!(names.iter().filter(|name| name.ends_with(".seg")).count() >= 3, "{names:?}");
+    assert!(first.retire_through(40).is_err(), "a retirement after the handoff");
+    assert!(first.clear_damage().is_err(), "a damage clear after the handoff");
+    assert_eq!(storage.names_in(&dir()), names, "the sealed handle changed the folder");
+    assert_eq!(second.append(3, Class::Ack, &payload(41)), Ok(41));
+    drop(first);
+    second.wait_durable(41, WAIT).unwrap_or_else(|e| panic!("{e}"));
+}
+
 #[test]
 fn a_second_writer_is_refused_while_the_first_holds_the_lock() {
     let storage = SimStorage::new(11);
