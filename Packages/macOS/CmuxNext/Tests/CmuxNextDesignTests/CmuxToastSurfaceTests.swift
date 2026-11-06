@@ -290,7 +290,11 @@ struct CmuxToastSurfaceTests {
         toast.layer?.removeAllAnimations() // its arrival is done
 
         handle.dismiss()
-        try #require(toast.layer?.animation(forKey: "opacity") != nil, "the toast did not fade (no motion here)")
+        guard toast.layer?.animation(forKey: "opacity") != nil else {
+            // No fade here (the window out of sight, motion off): the toast went at once, and so does its room.
+            #expect(chat.reports.last == .some(nil), "the room stayed after the toast went at once")
+            return
+        }
         #expect(chat.reports.last == shown, "the room went while the toast still showed, fading")
         for _ in 0..<200 where chat.reports.last != .some(nil) { try await Task.sleep(for: .milliseconds(20)) }
         #expect(chat.reports.last == .some(nil), "the room stayed after the toast was gone")
