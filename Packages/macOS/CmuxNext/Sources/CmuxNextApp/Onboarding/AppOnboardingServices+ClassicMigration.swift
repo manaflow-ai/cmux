@@ -296,19 +296,17 @@ extension AppOnboardingServices {
     /// session with more terminals than macOS has PTYs (`kern.tty.ptmx_max`)
     /// comes over whole. A workspace whose classic terminals carry scrollback
     /// keeps running: its shell prints the scrollback at its first prompt.
+    /// Every tab the daemon lists for the workspace goes to `park-tabs`, which
+    /// leaves pages and ended terminals as they are: no wait for each terminal
+    /// to show running, which an ended one never does.
     private func parkClassicTerminals(of id: String, saved: ClassicSessionWorkspace) async {
         let local = services.machines.local
         guard local.supports(DaemonCapability.tabPark.rawValue), local.supports(DaemonCapability.tabRestartKeptLayout.rawValue),
               saved.remote == nil, !saved.layout.tabs.contains(where: { $0.scrollback != nil || $0.agent != nil }),
-              let connection = local.connection else { return }
-        let store = local.store
-        let terminals: @MainActor @Sendable () -> [SurfaceID] = {
-            store.workspace(id: id)?.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty && !$0.dead }.map(\.surface) ?? []
-        }
-        let expected = saved.layout.tabs.filter { $0.url == nil }.count
-        guard expected > 0, await Self.awaitStore({ terminals().count >= expected }) else { return }
+              saved.layout.tabs.contains(where: { $0.url == nil }), let connection = local.connection else { return }
         do {
-            _ = try await connection.request(ParkTabsRequest(surfaces: terminals()))
+            guard let shape = try await local.shape(of: WorkspaceKey(rawValue: id), after: connection) else { return }
+            _ = try await connection.request(ParkTabsRequest(surfaces: shape.screens.flatMap(\.panes).flatMap(\.surfaces)))
         } catch {
             services.daemon.logger.error("classic workspace not parked: \(String(describing: error), privacy: .public)")
         }
