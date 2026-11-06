@@ -1279,6 +1279,11 @@ button.acpmux-session-info-port:focus-visible {
   position: relative;
   padding: 0;
 }
+/* A wakeup or cron job whose call the transcript holds is a button too (it shows the call): the
+   button carries the row's padding, so it lights edge to edge as a command's row does. */
+.acpmux-session-info-task--opens {
+  padding: 0;
+}
 .acpmux-session-info-task--command > .acpmux-session-info-stop {
   position: absolute;
   top: 50%;

@@ -116,20 +116,38 @@ export function TasksSection({
   const scheduledRow = (entry: ScheduledEntry) => {
     const trailing = scheduledTrailing(t, language, entry);
     const ended = entry.status.state !== "scheduled";
-    return (
-      <li
-        key={`scheduled:${entry.item.id}`}
-        className="acpmux-session-info-task"
-        data-kind={entry.item.kind}
-        data-state={entry.status.state}
-        title={entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text}
-      >
+    // A wakeup or cron job is the call that made it (sessionSummary `scheduled`, keyed by the call):
+    // while the loaded transcript holds that call, a click shows it, and the row lights on hover as
+    // a command's does (Leo, 2026-11-06: the "Fallback heartbeat ... doesn't get highlighted in the
+    // same way that the other ones do"). With no call to show it stays plain text, as a command
+    // with nothing to open does.
+    const call = entry.item.id;
+    const shows = !!onShowCall && (calls?.has(call) ?? false);
+    const body = (
+      <>
         <Icon name={TASK_ICONS[entry.item.kind].web} size={ROW_ICON} row className="acpmux-row-glyph" />
         <span className="acpmux-session-info-task__command">{entry.item.text}</span>
         {trailing !== undefined && (
           <span className={ended ? "acpmux-session-info-task__state" : "acpmux-session-info-task__time"}>
             {trailing}
           </span>
+        )}
+      </>
+    );
+    return (
+      <li
+        key={`scheduled:${entry.item.id}`}
+        className={`acpmux-session-info-task${shows ? " acpmux-session-info-task--opens" : ""}`}
+        data-kind={entry.item.kind}
+        data-state={entry.status.state}
+        title={entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text}
+      >
+        {shows ? (
+          <button type="button" className="acpmux-session-info-task__open" onClick={() => onShowCall(call)}>
+            {body}
+          </button>
+        ) : (
+          body
         )}
       </li>
     );
