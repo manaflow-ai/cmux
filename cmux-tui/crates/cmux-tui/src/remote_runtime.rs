@@ -1481,6 +1481,7 @@ fn client_auth_kind(auth: &ClientAuthMode) -> AuthKind {
         ClientAuthMode::Enrolled => AuthKind::Enrolled,
         ClientAuthMode::Invitation { .. } => AuthKind::Invitation,
         ClientAuthMode::Carrier => AuthKind::Carrier,
+        ClientAuthMode::Grant { .. } => AuthKind::Grant,
     }
 }
 

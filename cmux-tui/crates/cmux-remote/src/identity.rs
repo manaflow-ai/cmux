@@ -213,6 +213,18 @@ impl ClientIdentityStore {
         self.identity.clone()
     }
 
+    /// Accept carrier grants checked by `verifier`. Set once, at daemon
+    /// start, before the daemon serves; a second call is refused. Without
+    /// it every grant is refused.
+    pub fn set_grant_verifier(
+        &self,
+        verifier: Arc<dyn crate::grant::GrantVerifier>,
+    ) -> Result<(), IdentityError> {
+        self.grant_verifier
+            .set(verifier)
+            .map_err(|_| IdentityError::Invalid("a grant verifier is already installed".into()))
+    }
+
     pub async fn known_daemons(&self) -> Vec<KnownDaemon> {
         let mut daemons = self
             .state
@@ -813,6 +825,8 @@ pub struct AuthDatabase {
     daemon_name: String,
     identity: StaticIdentity,
     allow_carrier: bool,
+    /// Carrier grants are refused until the owner installs a verifier.
+    grant_verifier: std::sync::OnceLock<Arc<dyn crate::grant::GrantVerifier>>,
     state: Arc<Mutex<AuthState>>,
     persistence: Arc<PersistenceCoordinator>,
     pending_changed: Notify,
@@ -827,6 +841,7 @@ impl std::fmt::Debug for AuthDatabase {
             .field("daemon_name", &self.daemon_name)
             .field("daemon_fingerprint", &self.identity.fingerprint())
             .field("allow_carrier", &self.allow_carrier)
+            .field("grant_verifier", &self.grant_verifier.get().is_some())
             .finish_non_exhaustive()
     }
 }
@@ -883,6 +898,7 @@ impl AuthDatabase {
             daemon_name,
             identity,
             allow_carrier,
+            grant_verifier: std::sync::OnceLock::new(),
             state: Arc::new(Mutex::new(AuthState::from_persisted(persisted))),
             persistence,
             pending_changed: Notify::new(),
@@ -1004,6 +1020,11 @@ impl AuthDatabase {
         if device_id.starts_with(TRUSTED_NETWORK_DEVICE_PREFIX) {
             return true;
         }
+        // A grant admits a session once; revoking it is a pushed retire,
+        // not a device-list change.
+        if crate::grant::is_grant_device_id(device_id) {
+            return self.grant_verifier.get().is_some();
+        }
         if device_id.starts_with("carrier:") {
             return self.allow_carrier;
         }
@@ -1021,6 +1042,9 @@ impl AuthDatabase {
     pub async fn grant_is_current(&self, grant: &AuthGrant) -> bool {
         if grant.device_id.starts_with(TRUSTED_NETWORK_DEVICE_PREFIX) {
             return true;
+        }
+        if crate::grant::is_grant_device_id(&grant.device_id) {
+            return self.grant_verifier.get().is_some();
         }
         if grant.device_id.starts_with("carrier:") {
             return self.allow_carrier;
@@ -1391,6 +1415,28 @@ impl ServerAuthenticator for AuthDatabase {
                 })
             }
             AuthKind::Carrier => Err("trusted carrier access is disabled or unavailable".into()),
+            AuthKind::Grant => {
+                let verifier = self
+                    .grant_verifier
+                    .get()
+                    .ok_or_else(|| "carrier grants are not accepted by this daemon".to_string())?;
+                let token =
+                    request.grant.as_ref().ok_or_else(|| "carrier grant is missing".to_string())?;
+                let admission = verifier.verify(crate::grant::GrantPresentation {
+                    token: token.as_str(),
+                    noise_key: &request.device_public_key,
+                    connection_attempt: request.connection_attempt,
+                })?;
+                if !crate::grant::is_grant_device_id(&admission.device_id) {
+                    return Err("carrier grant verifier answered a non-grant device id".into());
+                }
+                Ok(AuthGrant {
+                    device_id: admission.device_id,
+                    daemon_name: self.daemon_name.clone(),
+                    revocation_generation: *self.revocation_tx.borrow(),
+                    authority: admission.authority,
+                })
+            }
             AuthKind::Invitation => {
                 let invitation_id = request
                     .invitation_id
