@@ -784,7 +784,7 @@ private struct LiveCallHost: ViewModifier {
                 let user = shell.auth.isSignedIn ? shell.auth.user : nil
                 call.configure(store: shell.store, accountID: user?.id,
                                userName: user?.name.split(separator: " ").first.map(String.init))
-                ChiefCallLauncher.shared.handler = { [shell] in shell.callChief() }
+                ChiefCallLauncher.shared.handler = { [shell] chief in shell.callChief(chief) }
                 voice.install(accountID: user?.id)
                 voice.openKeySettings = { [shell] in shell.openChiefCallSettings() }
                 // One audio line at a time: voice mode ends a Chief call, a Chief call ends voice mode.

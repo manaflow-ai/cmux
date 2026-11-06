@@ -136,6 +136,12 @@ describe("cloud-vm-image-bake.yml", () => {
     expect(devTreeSmoke.argv.some((a) => a.startsWith("../images/cmux-vm/smoke.ts") && a.includes("--idle-seconds 120 "))).toBe(true);
   });
 
+  test("a first-session probe queues apart from the bakes; bakes keep one queue per ref", () => {
+    const group = String((workflow as unknown as { concurrency: { group: string } }).concurrency.group);
+    expect(group).toBe("cloud-vm-image-bake-${{ github.ref }}${{ inputs.mode == 'first-session' && '-probe' || '' }}");
+    expect((workflow as unknown as { concurrency: { "cancel-in-progress": boolean } }).concurrency["cancel-in-progress"]).toBe(false);
+  });
+
   test("team_vm is a boolean input that defaults to off", () => {
     expect(workflow.on.workflow_dispatch.inputs.team_vm).toMatchObject({ type: "boolean", default: false });
   });

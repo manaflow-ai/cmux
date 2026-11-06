@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 805,
-    "mcp": 720
+    "verbs": 817,
+    "mcp": 732
   },
   "nouns": [
     {
@@ -1092,6 +1092,13 @@
           "mcpTool": "app_browser_profile_open_link"
         },
         {
+          "command": "cmux browser-profile open-link-in-new",
+          "title": "Open Link in New Browser Profile…",
+          "id": "browserProfile.openLinkInNew",
+          "mcp": true,
+          "mcpTool": "app_browser_profile_open_link_in_new"
+        },
+        {
           "command": "cmux browser-profile remove-imported-data",
           "title": "Remove Imported Browser Data…",
           "id": "browserProfile.removeImportedData",
@@ -1138,6 +1145,13 @@
     {
       "noun": "chat",
       "verbs": [
+        {
+          "command": "cmux chat channel create",
+          "title": "New Channel…",
+          "id": "home.createChannel",
+          "mcp": true,
+          "mcpTool": "app_chat_channel_create"
+        },
         {
           "command": "cmux chat colors",
           "title": "Chat Colors…",
@@ -2045,6 +2059,13 @@
           "mcpTool": "app_home_open_chief"
         },
         {
+          "command": "cmux home open-chief-dock",
+          "title": "Open Chief Dock",
+          "id": "home.openChiefDock",
+          "mcp": true,
+          "mcpTool": "app_home_open_chief_dock"
+        },
+        {
           "command": "cmux home pin-unpin",
           "title": "Pin/Unpin Conversation",
           "id": "home.togglePin",
@@ -2424,6 +2445,13 @@
           "id": "triggerFlash",
           "mcp": true,
           "mcpTool": "app_pane_flash_focused"
+        },
+        {
+          "command": "cmux pane move-to-dock",
+          "title": "Move Pane to Dock",
+          "id": "window.movePaneToDock",
+          "mcp": true,
+          "mcpTool": "app_pane_move_to_dock"
         },
         {
           "command": "cmux pane move-to-new-window",
@@ -3194,6 +3222,13 @@
           "id": "palette.checkForUpdates",
           "mcp": true,
           "mcpTool": "app_settings_check_for_updates"
+        },
+        {
+          "command": "cmux settings clear-palette-history",
+          "title": "Clear Palette Search History",
+          "id": "palette.clearSearchHistory",
+          "mcp": true,
+          "mcpTool": "app_settings_clear_palette_history"
         },
         {
           "command": "cmux settings hide-announcements",
@@ -4970,6 +5005,41 @@
       "noun": "window",
       "verbs": [
         {
+          "command": "cmux window dock-edge-bottom",
+          "title": "Move Dock to Bottom",
+          "id": "window.dockEdgeBottom",
+          "mcp": true,
+          "mcpTool": "app_window_dock_edge_bottom"
+        },
+        {
+          "command": "cmux window dock-edge-left",
+          "title": "Move Dock to Left",
+          "id": "window.dockEdgeLeft",
+          "mcp": true,
+          "mcpTool": "app_window_dock_edge_left"
+        },
+        {
+          "command": "cmux window dock-edge-right",
+          "title": "Move Dock to Right",
+          "id": "window.dockEdgeRight",
+          "mcp": true,
+          "mcpTool": "app_window_dock_edge_right"
+        },
+        {
+          "command": "cmux window dock-edge-top",
+          "title": "Move Dock to Top",
+          "id": "window.dockEdgeTop",
+          "mcp": true,
+          "mcpTool": "app_window_dock_edge_top"
+        },
+        {
+          "command": "cmux window focus-dock",
+          "title": "Focus Dock",
+          "id": "window.focusDock",
+          "mcp": true,
+          "mcpTool": "app_window_focus_dock"
+        },
+        {
           "command": "cmux window screenshot",
           "title": "Screenshot Window",
           "id": "window.screenshot",
@@ -4982,6 +5052,13 @@
           "id": "window.stash",
           "mcp": true,
           "mcpTool": "app_window_stash"
+        },
+        {
+          "command": "cmux window toggle-dock",
+          "title": "Show or Hide Dock",
+          "id": "window.toggleDock",
+          "mcp": true,
+          "mcpTool": "app_window_toggle_dock"
         },
         {
           "command": "cmux window toggle-dock-bottom",
@@ -5010,6 +5087,13 @@
           "id": "window.toggleDockRight",
           "mcp": true,
           "mcpTool": "app_window_toggle_dock_right"
+        },
+        {
+          "command": "cmux window toggle-dock-tab-bar",
+          "title": "Show or Hide Dock Tab Bar",
+          "id": "window.toggleDockTabBar",
+          "mcp": true,
+          "mcpTool": "app_window_toggle_dock_tab_bar"
         },
         {
           "command": "cmux window toggle-dock-top",

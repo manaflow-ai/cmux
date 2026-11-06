@@ -111,7 +111,7 @@ import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
-import { isMuseTodoCall, isPlumbingCall, showsNothing } from "./hiddenTools";
+import { isMuseTodoCall, isPlanToolCall, isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptContext } from "./composer/videoTranscript";
@@ -291,6 +291,9 @@ export const MCP_RECONNECT_METHOD = "_acpmux/mcp/reconnect";
 /// Most reads of a chat's running limit one step makes when each is overtaken in flight
 /// (`readRunningLimit`): enough for an attach and a record landing together, never a loop.
 const LIMIT_READS = 3;
+/// The waits before each new read of the events a lag dropped, after a failed one
+/// (`readMissedAfterLag`): about 15 s in all, then the pane reports the failure.
+const LAG_RETRY_MS = [250, 500, 1_000, 2_000, 4_000, 8_000];
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
 const COMMANDS_KIND = "available_commands_update";
 /// How many withdrawn queue prompts a snapshot names (`queueWithdrawn`).
@@ -1828,8 +1831,22 @@ function seedRoots(
 }
 
 export class AcpmuxDirectClient {
-  // A busy daemon may legitimately emit no frame for many seconds. This is only the cleanup bound
-  // for a peer that has gone silent while its socket remains open; a frame resets the grace window.
+  // A busy daemon may legitimately emit no frame for many seconds, so quiet alone never ends a
+  // socket. Once a request has waited this long, and the daemon proved itself no sooner, the pane
+  // asks the daemon one cheap question on it (`probeDaemon`): the daemon's own answer, even an
+  // error, says it is alive and only slow, and its socket and requests are kept. Timed from the
+  // request, never from the last frame: the app's bridge answers some requests itself
+  // (`_acpmux/status`, refusals), also with no daemon, and such frames prove nothing.
+  private static readonly DAEMON_PROBE_AFTER_MS = 5_000;
+  // No frame at all this long after that question: nothing behind the open socket answers (acpmux
+  // restarted under the app's bridge). The pane gives the socket up and asks its host for a fresh
+  // handshake, which finds the new daemon; before, it waited two minutes of silence and said
+  // "Waiting for the agent service" meanwhile (ask-34b8c4ef25). Under the line's 25 s deadline, so
+  // a dead socket is replaced before the line shows.
+  private static readonly DAEMON_PROBE_ANSWER_MS = 15_000;
+  // A wire that cannot carry the probe (a chat on another machine: `RemoteAcpmuxWire` serves no
+  // daemon-backed method that cheap and refuses `_acpmux/peers` as `remote.unsupported`) keeps the
+  // older bound: its socket is given up only after this long with no frame while a request waits.
   private static readonly DAEMON_LIVENESS_GRACE_MS = 120_000;
   /// Coalesces the snapshots of acpmux events that land within one display frame: a fast stream
   /// sends several deltas per frame, and each snapshot re-renders the transcript. The page that
@@ -1864,12 +1881,21 @@ export class AcpmuxDirectClient {
       send: () => void;
       /// Busy refusals it has had.
       busy: number;
+      /// When it was first sent: the liveness probe is timed from the oldest waiting one.
+      since: number;
     }
   >();
   /// A request crossed its progress threshold on an open socket. This is a UI state, never a
   /// failure: a busy daemon may answer later, while a close still rejects promptly.
   private daemonWaitingSince?: number;
   private daemonLastFrameAt = Date.now();
+  /// The liveness probe out on the current socket, by request id and when it went; none while no
+  /// request waits or once the daemon answered it.
+  private daemonProbe?: { at: number; id: number };
+  /// When the current socket's daemon last proved itself (its open, or its answer to the probe).
+  private daemonProvedAt = Date.now();
+  /// The host refused the probe on the current socket (a remote wire): `DAEMON_LIVENESS_GRACE_MS`.
+  private daemonProbeRefused = false;
   private daemonLivenessTimer?: ReturnType<typeof setTimeout>;
   /// The daemon's count of this connection's work requests: a page never sends past it
   /// (requestBudget.ts). Reset with the connection.
@@ -2231,10 +2257,20 @@ export class AcpmuxDirectClient {
     },
   );
   private forking = false;
+  /// The person cancelled the fork `fork` waits on (`cancelFork`).
+  private forkCancelled = false;
+  /// When the Fork Conversation `fork` waits on began: the snapshot's `forkPending`.
+  private forkPendingSince?: number;
+  /// The chat that fork is of: only its snapshot shows the pending line and its Cancel.
+  private forkPendingFrom?: string;
+  /// The name that fork's request gives it, which its Cancel stops it by (acpmux
+  /// hub/fork_cancel.rs).
+  private forkCancelToken?: string;
   private streamingAssistant?: string;
   private streamingAssistantMessageId?: string;
-  /// A prompt or steer came while the streaming row's message was still being written: only that
-  /// message's own chunks (the same `messageId`) go on in the row, above the prompt's bubble.
+  /// A prompt, steer or notice came while the streaming row's message was still being written: only
+  /// that message's own chunks go on in the row, above what came (the same `messageId`, or any text
+  /// from an agent that sends none, until its next step).
   private assistantCut = false;
   private streamingActivity?: string;
   /// The open turn's plan row: its later `plan` updates redraw this one list (cx-ncc.80).
@@ -2629,6 +2665,9 @@ export class AcpmuxDirectClient {
       socket.onopen = () => {
         opened = true;
         this.daemonLastFrameAt = Date.now();
+        this.daemonProvedAt = this.daemonLastFrameAt;
+        this.daemonProbe = undefined;
+        this.daemonProbeRefused = false;
         this.wire.lifecycle("open");
         resolve(socket);
       };
@@ -2667,11 +2706,17 @@ export class AcpmuxDirectClient {
     const hold = this.holdSnapshots(OPEN_HOLD_MS);
     let early: EarlyAttach | undefined;
     try {
-      const initialized = await this.request("initialize", {
-        protocolVersion: 1,
-        clientInfo: { name: "cmux-react-agent-pane", version: "1" },
-        clientCapabilities: {},
-      });
+      // With a progress threshold, as the reads have: a socket that opened but whose daemon never
+      // answers is checked for life (`armDaemonLiveness`) instead of holding the handshake for good.
+      const initialized = await this.request(
+        "initialize",
+        {
+          protocolVersion: 1,
+          clientInfo: { name: "cmux-react-agent-pane", version: "1" },
+          clientCapabilities: {},
+        },
+        AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
+      );
       this.canFork = servesOperation(initialized, FORK_OP);
       const features = initialized?._meta?.acpmux?.features;
       this.features = new Set(
@@ -3581,6 +3626,10 @@ export class AcpmuxDirectClient {
     const message = parsed as Reply | Notification | null;
     if (!message) return;
     if ("id" in message && (typeof message.id === "number" || typeof message.id === "string")) {
+      if (!stale && this.daemonProbe?.id === message.id) {
+        this.probeAnswered(message);
+        return;
+      }
       const request = this.pending.get(message.id);
       const busy = (message.error?.data as { reason?: unknown } | undefined)?.reason === "connection.busy";
       if (request && busy && request.retryable) {
@@ -3737,10 +3786,28 @@ export class AcpmuxDirectClient {
     if (Array.isArray(params?.sessionIds) && !params.sessionIds.map(String).includes(sessionId)) return;
     this.emit("resyncing");
     void this.permissions.refresh().catch(() => {});
-    const generation = this.selectionGeneration;
-    void this.fetchMissedEvents(sessionId, generation, this.lastSeq).catch(() => {
-      if (!this.closed && generation === this.selectionGeneration)
+    this.readMissedAfterLag(sessionId, this.selectionGeneration, this.lastSeq, 0);
+  }
+
+  /// Reads the events a lag dropped, again after a failed read: a daemon too busy to answer
+  /// (acpmux at several cores) left the dropped chunks out of the reply for good, so a table
+  /// showed its separator row with no header and a bold its close with no opening (Leo,
+  /// 2026-11-06: "iam seeing messages and formating get cut off"). Every try reads from the
+  /// lag's cursor, since live events after the hole move `lastSeq` past it; it stops when a
+  /// read lands, the chat or connection changes, or after `LAG_RETRY_MS`'s tries, and only
+  /// then reports the failure.
+  private readMissedAfterLag(sessionId: string, generation: number, afterSeq: number, attempt: number): void {
+    void this.fetchMissedEvents(sessionId, generation, afterSeq).catch(() => {
+      if (this.closed || generation !== this.selectionGeneration) return;
+      const delay = LAG_RETRY_MS[attempt];
+      if (delay === undefined || this.socket?.readyState !== WebSocket.OPEN) {
         this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+        return;
+      }
+      setTimeout(() => {
+        if (!this.closed && generation === this.selectionGeneration)
+          this.readMissedAfterLag(sessionId, generation, afterSeq, attempt + 1);
+      }, delay);
     });
   }
 
@@ -4392,6 +4459,12 @@ export class AcpmuxDirectClient {
     return this.git("git.diff", { scope, include_patch: true, ...narrow });
   }
 
+  /// The totals of one git scope of the selected session's repository, with no patch: Session Info's
+  /// Changes row (session-info/changeCounts.ts).
+  gitDiffCounts(scope: string): Promise<unknown> {
+    return this.git("git.diff", { scope, include_patch: false });
+  }
+
   /// The selected session's branch, upstream and how far it is ahead and behind.
   gitStatus(): Promise<unknown> {
     return this.git("git.status", {});
@@ -4541,6 +4614,7 @@ export class AcpmuxDirectClient {
         send: send ?? (() => {}),
         busy: send ? 0 : BUSY_TRIES,
         retryable: Boolean(send),
+        since: Date.now(),
       });
     });
   }
@@ -4550,31 +4624,120 @@ export class AcpmuxDirectClient {
     const request = this.pending.get(id);
     if (request) request.waiting = false;
     if (![...this.pending.values()].some((entry) => entry.waiting)) this.daemonWaitingSince = undefined;
-    if (this.daemonWaitingSince === undefined && this.daemonLivenessTimer !== undefined) {
-      clearTimeout(this.daemonLivenessTimer);
+    if (this.daemonWaitingSince === undefined) {
+      this.daemonProbe = undefined;
+      if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
       this.daemonLivenessTimer = undefined;
     }
     if (wasWaiting && this.daemonWaitingSince === undefined) this.emit("daemon resumed");
   }
 
+  /// While a request waits, checks on the socket's daemon (`DAEMON_PROBE_AFTER_MS`,
+  /// `DAEMON_PROBE_ANSWER_MS`, or `DAEMON_LIVENESS_GRACE_MS` where the probe cannot go). Stops when
+  /// no request waits, the socket is not open, or the client closed; one timer at a time.
   private armDaemonLiveness(): void {
     if (this.daemonLivenessTimer !== undefined || this.closed) return;
-    this.daemonLivenessTimer = setTimeout(() => {
-      this.daemonLivenessTimer = undefined;
-      if (this.daemonWaitingSince === undefined || this.socket?.readyState !== WebSocket.OPEN) return;
-      const quietFor = Date.now() - this.daemonLastFrameAt;
-      if (quietFor < AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS) {
-        this.daemonLivenessTimer = setTimeout(
-          () => this.armDaemonLiveness(),
-          AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS - quietFor,
-        );
-        return;
+    const probe = this.daemonProbe;
+    const due = this.daemonUnprobed()
+      ? this.daemonLastFrameAt + AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS
+      : probe
+        ? probe.at + AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS
+        : this.daemonProbeFrom() + AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS;
+    this.daemonLivenessTimer = setTimeout(
+      () => {
+        this.daemonLivenessTimer = undefined;
+        this.checkDaemonLiveness();
+      },
+      Math.max(0, due - Date.now()),
+    );
+  }
+
+  /// A chat on another machine (`origin: "remote"`) or a host that refused the probe: no probe.
+  private daemonUnprobed(): boolean {
+    return this.origin === "remote" || this.daemonProbeRefused;
+  }
+
+  /// Since when the daemon owes a sign of life: the oldest waiting request's send, or its last
+  /// proof if later.
+  private daemonProbeFrom(): number {
+    let oldest = Date.now();
+    for (const entry of this.pending.values()) if (entry.waiting && entry.since < oldest) oldest = entry.since;
+    return Math.max(oldest, this.daemonProvedAt);
+  }
+
+  private checkDaemonLiveness(): void {
+    const socket = this.socket;
+    if (this.closed || this.daemonWaitingSince === undefined || !socket || socket.readyState !== WebSocket.OPEN) {
+      this.daemonProbe = undefined;
+      return;
+    }
+    const now = Date.now();
+    const probe = this.daemonProbe;
+    if (this.daemonUnprobed()) {
+      // The older bound: no frame at all for two minutes while a request waits.
+      if (now - this.daemonLastFrameAt >= AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS) {
+        return this.daemonGone(socket, now);
       }
-      // The socket stayed open but the daemon stopped producing any frame: treat that peer as dead
-      // so pending requests fail through the normal close/reconnect path.
-      this.wire.lifecycle("liveness timeout", { quietForMs: quietFor });
-      this.socket.close();
-    }, AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS);
+    } else if (probe) {
+      // The socket stayed open but nothing behind it answered, not even the probe.
+      if (now - probe.at >= AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS) return this.daemonGone(socket, now);
+    } else if (now - this.daemonProbeFrom() >= AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS) {
+      this.probeDaemon(socket);
+    }
+    this.armDaemonLiveness();
+  }
+
+  /// Gives `socket` up now, as when it closes, so waiting requests fail through the lost path and
+  /// the pane asks its host for a fresh handshake. Not `socket.close()` alone: a WebSocket whose
+  /// peer is gone may report its close only much later.
+  private daemonGone(socket: WebSocket, now: number): void {
+    this.daemonProbe = undefined;
+    this.wire.lifecycle("liveness timeout", { quietForMs: now - this.daemonLastFrameAt });
+    this.connectionEnded(socket);
+    try {
+      socket.close();
+    } catch {
+      // Already closing: the pane has left it either way.
+    }
+  }
+
+  /// The reply to the liveness probe. A result or an error from acpmux itself (its busy refusal,
+  /// an older daemon's unknown method) says the daemon is alive. An error the host made proves
+  /// nothing: its refusal of the method (`remote.unsupported` from a remote wire, a relay
+  /// refusal) means this socket cannot be probed, so it keeps `DAEMON_LIVENESS_GRACE_MS`; any
+  /// other host error (`data.origin: "native"`, such as an unavailable daemon) leaves the probe
+  /// out, and its deadline gives the socket up.
+  private probeAnswered(message: Reply): void {
+    const data = message.error?.data as { code?: unknown; origin?: unknown } | undefined;
+    const refused = probeRefusals.has(String(data?.code));
+    if (message.error && !refused && data?.origin === "native") return;
+    this.daemonProbe = undefined;
+    if (refused) {
+      this.daemonProbeRefused = true;
+      this.wire.lifecycle("liveness probe refused", { code: String(data?.code) });
+    } else {
+      this.daemonProvedAt = Date.now();
+    }
+    if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
+    this.daemonLivenessTimer = undefined;
+    if (this.daemonWaitingSince !== undefined) this.armDaemonLiveness();
+  }
+
+  /// Asks the daemon on `socket` one cheap question, outside the request budget: its own answer,
+  /// even an error, proves it alive (`probeAnswered`). `_acpmux/peers`, which the app's bridge passes
+  /// to the daemon as it is; never `_acpmux/status`, which the bridge answers itself from the
+  /// daemon's Unix socket.
+  private probeDaemon(socket: WebSocket): void {
+    const id = this.nextRequest++;
+    const method = "_acpmux/peers";
+    const text = JSON.stringify({ jsonrpc: "2.0", id, method, params: {} });
+    this.daemonProbe = { at: Date.now(), id };
+    try {
+      this.wire.sent(text, method, id);
+      socket.send(text);
+    } catch {
+      // A send that throws leaves the probe unanswered: the answer bound gives the socket up.
+    }
   }
 
   /// The newest turn-opening prompt before `events` when they start mid-turn and older history
@@ -5256,6 +5419,81 @@ export class AcpmuxDirectClient {
     this.reduce(event);
     this.noticeRefusal(event);
     this.emitInFrame(event.kind, this.streamGrew);
+    if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId)
+      this.checkFinishedTurn(event.sessionId, event.seq);
+  }
+
+  /// A turn that just ended live is drawn from its stored records, not only from the ones that
+  /// reached this pane: under load acpmux drops a slow client's streamed chunks, and a marker can
+  /// be lost behind a full queue or its read fail, so a finished reply kept a hole in its middle
+  /// ("without a focus-ring-stuck-2") or lost its first lines (Leo, 2026-11-06: "your sends are
+  /// getting busted intermittently as things load"). One read of the turn's transcript, from its
+  /// opening record to its end, O(turn) and never O(chat); the records the pane lacks are merged
+  /// and the chat drawn again, and a turn it already holds whole changes nothing. A failed read is
+  /// tried again on `LAG_RETRY_MS`; the chat changing or the pane closing stops it.
+  private checkFinishedTurn(sessionId: string, endSeq: number, attempt = 0): void {
+    const generation = this.selectionGeneration;
+    // Back from the end to the turn before's `turn_result`: the turn's own `turn_end` and
+    // `turn_error` come just before its result, so only a result ends the turn before. A turn
+    // older than the records held is read from the oldest one held: the part shown is repaired.
+    let start: number | undefined;
+    let before = false;
+    for (let index = this.events.length - 1; index >= 0; index--) {
+      const event = this.events[index]!;
+      if (event.seq >= endSeq) continue;
+      if (event.dir === "mux" && event.kind === "turn_result") {
+        before = true;
+        break;
+      }
+      if (event.kind === "turn_started" || event.kind === "user_message") start = event.seq;
+    }
+    if (!before) start = Math.min(start ?? endSeq, this.events[0]?.seq ?? endSeq);
+    if (start === undefined || start >= endSeq) return;
+    const afterSeq = start - 1;
+    void this.readTurnRecords(sessionId, generation, afterSeq, endSeq).then(
+      (stored) => {
+        if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+        const held = new Set(this.events.map((event) => event.seq));
+        const missing = stored.filter((event) => !held.has(event.seq));
+        if (missing.length === 0) return;
+        this.events = mergeEventRecords(this.events, missing);
+        this.sawPrompts(missing);
+        this.rebuildKeepingLiveState(Math.min(...missing.map((event) => event.seq)) - 1);
+        this.emit("connected");
+      },
+      () => {
+        const delay = LAG_RETRY_MS[attempt];
+        if (delay === undefined) return;
+        setTimeout(() => {
+          if (!this.closed && generation === this.selectionGeneration && this.selectedSessionId === sessionId)
+            this.checkFinishedTurn(sessionId, endSeq, attempt + 1);
+        }, delay);
+      },
+    );
+  }
+
+  /// The chat's stored transcript records after `afterSeq` through `endSeq`, paged.
+  private async readTurnRecords(
+    sessionId: string,
+    generation: number,
+    afterSeq: number,
+    endSeq: number,
+  ): Promise<EventRecord[]> {
+    const stored: EventRecord[] = [];
+    for (let cursor = afterSeq; cursor < endSeq;) {
+      const result = await this.typed("_acpmux/events", {
+        sessionId,
+        afterSeq: cursor,
+        limit: 5_000,
+        kinds: ["transcript"],
+      });
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+      const page = records(result?.events);
+      stored.push(...page.filter((event) => event.seq <= endSeq));
+      if (result?.hasMore !== true || page.length === 0) break;
+      cursor = Math.max(cursor, ...page.map((event) => event.seq));
+    }
+    return stored;
   }
 
   /// A queued prompt acpmux refused when its turn came, heard live, that this client did not send
@@ -6326,8 +6564,10 @@ export class AcpmuxDirectClient {
         // A line from outside the chat, such as cmux Cloud's after it resized the machine
         // (acpmux `server/host_notice.rs`): one muted notice where it happened.
         if (typeof msg.text === "string" && msg.text.trim()) {
-          // What the agent writes or does after the notice goes below it, not into the row above.
-          this.closeSegment();
+          // What the agent does after the notice goes below it; a reply still streaming keeps its
+          // words in its row above it.
+          this.holdAssistantSegment();
+          this.streamingActivity = undefined;
           const id = `host-notice-${event.seq}`;
           this.rows.set(id, { id, version: 1, at: event.at, kind: "notice", text: msg.text });
         }
@@ -6438,9 +6678,13 @@ export class AcpmuxDirectClient {
         // streams: Claude Code woke on its own (a background task's notice) and acpmux took the
         // chat for idle, so the prompt is no steer, yet the message goes on after it. Leo
         // 2026-10-31: "why was i able to cut my prompt in between your messages? that's s***
-        // rendering". Without message ids that end cannot be told.
-        if (!this.streamingAssistantMessageId) this.endAssistantSegment();
-        else this.assistantCut = true;
+        // rendering". A steer into an agent that sends no message ids (Codex) keeps its text in the
+        // row until its next step, since the agent reads the steer only there: a reply cut in two
+        // reads worse than a steer's answer run on (Leo, 2026-11-05: "If your text is streaming, I
+        // shouldn't be able to interrupt it"). A prompt that opens a turn is answered from its
+        // first word, so without message ids the text after it is that answer.
+        if (msg.steer === true || this.streamingAssistantMessageId) this.holdAssistantSegment();
+        else this.endAssistantSegment();
         // A call id names a call within its prompt: an adapter that numbers calls per process
         // reuses one in a later prompt, whose call draws under that prompt (cx-jzhka). A steer
         // splits a turn whose calls may still update.
@@ -6791,10 +7035,14 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
       const tool = update._meta?.claude?.tool ?? update.title;
+      // A call starting under an id seen before is a new call (an adapter may number calls per
+      // run): it is hidden only if it is itself one of the calls below.
+      if (event.kind === "tool_call") this.planCalls.delete(callId);
       if (event.kind === "tool_call" && tool === "TodoWrite" && this.planRow) this.planCalls.add(callId);
-      // Muse's write_todos announces its call before the plan it makes, so it is hidden on sight; a
-      // failed one leaves no plan and keeps its row.
-      if (isMuseTodoCall(update)) {
+      // Muse's write_todos, and a todo call acpmux makes the plan of (DeepSeek Harness's todo_write),
+      // announce their call before the plan they make, so they are hidden on sight; a failed one
+      // leaves no plan and keeps its row.
+      if (isMuseTodoCall(update) || isPlanToolCall(update)) {
         if (update.status === "failed") this.planCalls.delete(callId);
         else if (event.kind === "tool_call") this.planCalls.add(callId);
       }
@@ -6918,9 +7166,19 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "plan") {
       const plan = planEntries(update.entries);
       const existing = this.planRow ? this.rows.get(this.planRow) : undefined;
+      // A plan update is the agent's next step: a reply held open past a steer or notice
+      // (`holdAssistantSegment`) ends here, so the text after it starts below what landed.
+      if (this.assistantCut) this.endAssistantSegment();
       // A cleared list (TodoWrite with no todos, Codex's empty plan) takes the checklist away.
       if (Array.isArray(update.entries) && plan.length === 0) {
         if (existing) this.rows.delete(existing.id);
+        // Cleared before this turn wrote a list: the earlier turn's list stays in its turn, but no
+        // longer carries over under this one (turns.ts earlierTurnPlan).
+        else if (this.progressRow) {
+          const earlier = this.rows.get(this.progressRow);
+          if (earlier?.plan && !earlier.planCleared)
+            this.rows.set(earlier.id, { ...earlier, version: earlier.version + 1, planCleared: true });
+        }
         // Session Info's Progress goes with it, even when a later prompt already closed that row.
         this.progressRow = null;
         this.progressSuperseded = false;
@@ -7208,6 +7466,14 @@ export class AcpmuxDirectClient {
     });
   }
 
+  /// Something not the agent's own lands mid-turn (a prompt, a steer, another agent's message, a
+  /// notice): a reply still streaming keeps its row for the rest of its text, which stays one
+  /// message above what landed; anything else the agent writes next starts below it.
+  private holdAssistantSegment(): void {
+    if (this.streamingAssistant) this.assistantCut = true;
+    else this.endAssistantSegment();
+  }
+
   private endAssistantSegment(): void {
     this.assistantCut = false;
     if (!this.streamingAssistant) return;
@@ -7366,6 +7632,9 @@ export class AcpmuxDirectClient {
       summary: this.publishedSummary(summary, effort, limits),
       connection,
       ...(this.daemonWaitingSince !== undefined ? { daemonWaitingSince: this.daemonWaitingSince } : {}),
+      ...(this.forkPendingSince !== undefined && this.forkPendingFrom === this.actingSessionId
+        ? { forkPending: { since: this.forkPendingSince } }
+        : {}),
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
@@ -9826,36 +10095,34 @@ export class AcpmuxDirectClient {
   /// Forks the open session (or `from`, the chat it was forked from) through the turn whose summary
   /// is `throughSeq`, and opens the fork. One fork at a time; a second click while acpmux forks does
   /// nothing. A failure says so in the transcript; a reader who opened another session meanwhile
-  /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab.
+  /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab: the pane
+  /// shows its pending line meanwhile (ForkPendingLine), whose Cancel is `cancelFork`.
   /// `"live"`: the whole chat as it is now, also while its turn runs (Fork Conversation).
   async fork(throughSeq: number | "live", from?: string, stay = false): Promise<string | undefined> {
     if (!this.canFork || !this.actingSessionId || this.forking) return undefined;
     this.forking = true;
+    this.forkCancelled = false;
     const generation = this.selectionGeneration;
-    // Fork Conversation (`stay`): the chat says "Forking…" until acpmux answers and the app opens
-    // the fork, so a slow fork never looks like nothing happened.
-    const pendingId = stay ? noticeId("notice-forking") : undefined;
-    if (pendingId) {
-      this.rows.set(pendingId, {
-        id: pendingId,
-        version: 1,
-        at: Date.now(),
-        kind: "notice",
-        text: translate("notice.forking"),
-      });
+    const sessionId = from ?? this.actingSessionId;
+    const cancelToken = stay ? crypto.randomUUID() : undefined;
+    if (stay) {
+      this.forkPendingSince = Date.now();
+      this.forkPendingFrom = sessionId;
+      this.forkCancelToken = cancelToken;
       this.emit();
     }
     try {
-      const sessionId = from ?? this.actingSessionId;
-      const result = await this.request(
-        FORK_OP,
-        throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq },
-      );
+      const boundary = throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq };
+      const result = await this.request(FORK_OP, cancelToken ? { ...boundary, cancelToken } : boundary);
+      if (this.forkCancelled) {
+        if (result?.sessionId) this.takeBackFork(String(result.sessionId));
+        return undefined;
+      }
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
       if (stay) return String(result.sessionId);
       return await this.select(String(result.sessionId));
     } catch (error) {
-      if (generation === this.selectionGeneration) {
+      if (!this.forkCancelled && generation === this.selectionGeneration) {
         const at = Date.now();
         const reason = errorMessage(error) || undefined;
         const id = noticeId("notice-fork");
@@ -9871,11 +10138,35 @@ export class AcpmuxDirectClient {
       return undefined;
     } finally {
       this.forking = false;
-      if (pendingId && this.rows.has(pendingId)) {
-        this.rows.delete(pendingId);
+      this.forkCancelled = false;
+      this.forkPendingFrom = undefined;
+      this.forkCancelToken = undefined;
+      if (this.forkPendingSince !== undefined) {
+        this.forkPendingSince = undefined;
         this.emit();
       }
     }
+  }
+  /// Cancel on the pending fork: acpmux stops it where it is, by the token its request named it
+  /// with, and leaves nothing of it; one already made is taken back whole. Its answer opens
+  /// nothing either way, and an answer with a fork takes that back too (`takeBackFork`). "i shuold
+  /// be able to cancel a fork probably" (Leo, 2026-11-06).
+  cancelFork(): void {
+    if (!this.forking || this.forkCancelled) return;
+    this.forkCancelled = true;
+    this.forkPendingSince = undefined;
+    const cancelToken = this.forkCancelToken;
+    if (cancelToken && this.forkPendingFrom) {
+      void this.request("_acpmux/kill", { sessionId: this.forkPendingFrom, cancelFork: true, cancelToken }).catch(
+        () => undefined,
+      );
+    }
+    this.emit();
+  }
+  /// Removes a fork nobody used: its chat, and the conversation copy its agent made (acpmux
+  /// `hub/fork_cancel.rs`). Not waited on: the pane already went back to the chat.
+  private takeBackFork(sessionId: string): void {
+    void this.request("_acpmux/kill", { sessionId, purge: true, cancelFork: true }).catch(() => undefined);
   }
   /// Forks the open session through `throughSeq` and stays on it: New side chat's copy, which the
   /// host opens beside this chat. One fork at a time, as `fork`.
@@ -10676,6 +10967,7 @@ export class AcpmuxDirectClient {
     }
     this.pending.clear();
     this.daemonWaitingSince = undefined;
+    this.daemonProbe = undefined;
     if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
     this.daemonLivenessTimer = undefined;
   }
@@ -11020,6 +11312,9 @@ function warnIfNotAllowlisted(method: string, error: unknown): void {
   notAllowlisted.add(method);
   console.warn(`cmux: the host refused ${method}: it is not on the agent pane's relay allowlist`);
 }
+
+/// The host's refusals of the liveness probe's method itself (`probeAnswered`): no daemon saw it.
+const probeRefusals = new Set(["remote.unsupported", "transport.method_refused", "native.unsupported"]);
 
 /// Whether the pane's host refused to relay a request (`data.origin: "native"`): acpmux never saw it.
 function refusedByHost(error: AcpmuxRpcError): boolean {

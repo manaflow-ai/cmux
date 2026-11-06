@@ -1408,8 +1408,8 @@ fi
 if [[ -z "${CMUX_DEV_BACKEND_MODE:-}" && -z "${CMUX_DEV_BACKEND_URL:-}" ]]; then
   export CMUX_DEV_BACKEND_MODE=local
 fi
-# The cmuxterm-hq local build guard refuses xcodebuild/cargo below 500 GiB
-# free on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
+# The cmuxterm-hq local build guard refuses xcodebuild/cargo below its own floor
+# (CMUX_BUILD_MIN_FREE_GIB) of free space on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
 # sized for the legacy app and many agents at once. A cold cmux-next tagged
 # build (2026-09-29, tag nxpipe) left 5.8 GiB of DerivedData and lowered
 # free space by at most 10.6 GiB while it ran, so cmux-next reloads use their
@@ -1417,6 +1417,10 @@ fi
 # build. Its default (40 GiB, about 4x that peak) is the one number in
 # cmux-next/tour-requirements.json, so the runners that take tours read the
 # same floor instead of copying it.
+# The floor warns and the build runs anyway: a busy machine makes things
+# slower, never makes them fail (2026-11-06: a fleet try-pr --live-code run
+# with 33 GiB free was refused here). Under the floor it says the free space,
+# the floor and the host, and still lifts the guard's floor for this build.
 cmux_next_requirements="$SCRIPT_DIR/cmux-next/tour-requirements.json"
 cmux_next_default_min_free_gib="$(python3 -c '
 import json, sys
@@ -1428,14 +1432,18 @@ print(value)' "$cmux_next_requirements" 2>/dev/null)" \
 cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-$cmux_next_default_min_free_gib}"
 [[ "$cmux_next_min_free_gib" =~ ^[0-9]+$ ]] \
   || { echo "error: CMUX_NEXT_MIN_FREE_GIB must be a whole number of GiB" >&2; exit 1; }
-cmux_next_free_gib="$(df -Pk "$HOME" | awk 'NR==2{print int($4/1048576)}')"
-if (( cmux_next_free_gib < cmux_next_min_free_gib )); then
-  echo "error: cmux-next build needs ${cmux_next_min_free_gib} GiB free on the home volume; ${cmux_next_free_gib} GiB free." >&2
-  echo "       Free space (skills/build-release/cleanup-dev-builds in cmuxterm-hq) or build on the fleet with cmux-ci." >&2
-  exit 1
+cmux_next_free_gib="$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2{print int($4/1048576)}')" || cmux_next_free_gib=""
+cmux_next_host="$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)"
+if ! [[ "$cmux_next_free_gib" =~ ^[0-9]+$ ]]; then
+  echo "warning: cmux-next floor: cannot read the home volume's free space on ${cmux_next_host} (floor ${cmux_next_min_free_gib} GiB); building anyway" >&2
+elif (( cmux_next_free_gib < cmux_next_min_free_gib )); then
+  echo "warning: cmux-next floor: ${cmux_next_free_gib} GiB free on the home volume of ${cmux_next_host}, under the ${cmux_next_min_free_gib} GiB floor; building anyway" >&2
+  echo "         If the build runs out of space: skills/build-release/cleanup-dev-builds in cmuxterm-hq, or build on the fleet with cmux-ci." >&2
+else
+  echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB on ${cmux_next_host}"
 fi
 if [[ "${CMUX_ALLOW_LOW_SPACE_BUILD:-}" != "1" ]]; then
-  echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB; lifting the local build guard's 500 GiB floor for this build"
+  echo "==> cmux-next: lifting the local build guard's floor for this build"
   export CMUX_ALLOW_LOW_SPACE_BUILD=1
 fi
 if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then

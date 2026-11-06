@@ -49,6 +49,7 @@ struct ConductorNoteTests {
         let state = ImportSuggestionState.load(from: defaults)
         #expect(state.dismissed == ["agents.codex": "agents.codex|ok"])
         #expect(state.conductorNoteClosed == nil)
+        #expect(state.conductorImportRan == nil)
         #expect(state.showsConductorNote(findings: [Self.conductor], jobs: ImportJobLedger(), now: Self.now))
     }
 
@@ -70,6 +71,21 @@ struct ConductorNoteTests {
         #expect(!hidden.showsConductorNote(findings: [Self.conductor], jobs: ImportJobLedger(), now: Self.now))
     }
 
+    /// A finished import is kept in the state: once the job ledger prunes the finished job
+    /// (after 14 days) the note still stays gone, across a save and a load.
+    @Test func theNoteStaysGoneAfterTheFinishedJobIsPruned() throws {
+        var state = ImportSuggestionState()
+        state.conductorImportRan = true
+        #expect(!state.showsConductorNote(findings: [Self.conductor], jobs: ImportJobLedger(), now: Self.now))
+        let suite = "conductor-note-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        state.save(to: defaults)
+        let loaded = ImportSuggestionState.load(from: defaults)
+        #expect(loaded.conductorImportRan == true)
+        #expect(!loaded.showsConductorNote(findings: [Self.conductor], jobs: ImportJobLedger(), now: Self.now))
+    }
+
     @Test func theOnboardingLineNeedsConductorAndTheDeadline() throws {
         let home = try ImportScannerTests.Home(["conductor/workspaces/app/lima/README"])
         #expect(ImportScanner(home: home.url).conductorOnboardingLine(now: Self.now) == ConductorImportStrings.onboardingLine)
@@ -78,5 +94,28 @@ struct ConductorNoteTests {
         #expect(ImportScanner(home: database.url).conductorOnboardingLine(now: Self.now) != nil)
         let empty = try ImportScannerTests.Home()
         #expect(ImportScanner(home: empty.url).conductorOnboardingLine(now: Self.now) == nil)
+    }
+
+    /// The note, its button and the first-run line point at Settings › Import without naming
+    /// another app or its shutdown date, in every language; the Settings › Import card names its
+    /// source (that is what it imports) but carries no date either.
+    @Test func theNoteNamesNoOtherAppAndNoDateInEveryLanguage() throws {
+        let bundle = ConductorImportStrings.bundle
+        let localizations = bundle.localizations.filter { $0 != "Base" }
+        #expect(localizations.count >= 21, "\(bundle.bundlePath) has \(localizations)")
+        let unnamed = ["conductorImport.note.title", "conductorImport.note.detail", "conductorImport.note.open", "conductorImport.onboarding.line"]
+        let undated = unnamed + ["importSuggestions.benefit.conductor"]
+        let missing = "\u{0}missing"
+        for localization in localizations {
+            let lproj = try #require(bundle.url(forResource: localization, withExtension: "lproj").flatMap(Bundle.init(url:)))
+            for key in undated {
+                let text = lproj.localizedString(forKey: key, value: missing, table: "ImportSuggestions")
+                #expect(text != missing && !text.isEmpty, "\(localization): \(key) is missing")
+                #expect(!text.contains("20") && !text.contains("Cloud"), "\(localization): \(key) names a date: \(text)")
+                if unnamed.contains(key) {
+                    #expect(!text.contains("Conductor"), "\(localization): \(key) names another app: \(text)")
+                }
+            }
+        }
     }
 }

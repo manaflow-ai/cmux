@@ -254,6 +254,105 @@ import Testing
         }
     }
 
+    /// SWITCH STALL (cmux22, macOS 27, 60 Hz): after a Cmd-N's first frame the main thread missed two
+    /// to three refreshes (frames 55 and 28 ms apart), and the next Cmd-N's spare workspace view
+    /// (`WorkspaceSpareSlot`, background steps of about 3 ms) was built and mounted in those late frames,
+    /// as the first task of its class. Background work is idle work (Chrome's idle tasks): it waits for a
+    /// frame that came on time, while the person's visible work still runs in every frame.
+    @Test func backgroundStepsWaitOutTheLateFramesAfterASwitch() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let scheduler = MainWorkScheduler.testing(budget: budget) { _ in FakeFrameLink() }
+        let spare = FrameBatchQueue(owner: "WorkspaceSpare", budgeted: .background, on: scheduler)
+        let rows = FrameBatchQueue(owner: "SidebarRows", budgeted: .visible, on: scheduler)
+        var steps: [String] = [], shown = 0, time = 10.0
+        func frame(after ms: Double) {
+            rows.enqueue { shown += 1 }
+            clock.advance(ms: ms)
+            time += ms / 1000
+            scheduler.frameDidFire(timestamp: time, refreshInterval: 1.0 / 60)
+        }
+        // The fill's first step; it queues the next one, as the slot's steps do.
+        spare.enqueue {
+            steps.append("reserve")
+            spare.enqueue { steps.append("build") }
+        }
+        frame(after: 16.7)
+        #expect(steps.isEmpty, "background work ran in the link's first tick")
+        frame(after: 16.7)
+        #expect(steps == ["reserve"], "an on-time frame runs background work")
+        frame(after: 55)
+        #expect(steps == ["reserve"], "the spare's build ran in a frame 55 ms late")
+        frame(after: 28)
+        #expect(steps == ["reserve"], "the spare's build ran in a frame 28 ms late")
+        #expect(shown == 4, "visible work waited in a late frame")
+        frame(after: 16.7)
+        #expect(steps == ["reserve", "build"], "the build did not run once the frames came on time")
+        #expect(shown == 5)
+    }
+
+    /// SWITCH STALL 2 (cmux22, macOS 27, 60 Hz, xctrace of f6bf74d8d73): the display link is stopped
+    /// before a Cmd-N; its first tick 21 to 46 ms after the key renders the new workspace, and the New
+    /// Tab palette list and the idle spare (background, 4 to 5 ms) still ran in that tick, as it had no
+    /// tick before it to be late after. The first tick after the link starts renders what started it: it
+    /// has no idle time. The next on-time tick has.
+    @Test func backgroundWorkWaitsOutTheFirstTickAfterTheLinkStarts() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let scheduler = MainWorkScheduler.testing(budget: budget) { _ in FakeFrameLink() }
+        let palette = FrameBatchQueue(owner: "NewTab.paletteActions", budgeted: .background, on: scheduler)
+        let rows = FrameBatchQueue(owner: "SidebarRows", budgeted: .visible, on: scheduler)
+        var listed = 0, shown = 0
+        palette.enqueue { listed += 1 }
+        rows.enqueue { shown += 1 }
+        clock.advance(ms: 30)
+        scheduler.frameDidFire(timestamp: 10, refreshInterval: 1.0 / 60)
+        #expect(shown == 1, "the first tick did not render the visible work")
+        #expect(listed == 0, "background work ran in the first tick after the link started")
+        clock.advance(ms: 16.7)
+        scheduler.frameDidFire(timestamp: 10 + 1.0 / 60, refreshInterval: 1.0 / 60)
+        #expect(listed == 1, "background work did not run in the on-time tick after it")
+    }
+
+    /// An on-time frame after a long render pass (layout, display and commit past half a refresh) has no
+    /// idle time either: background work waits one more frame; the other classes' first task still runs.
+    @Test func backgroundWorkWaitsAfterALongRenderPass() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let interval = 1.0 / 60
+        budget.beginFrame(timestamp: 1, refreshInterval: interval)
+        budget.noteRenderPass(nanos: 12_000_000)
+        clock.advance(ms: 16.7)
+        budget.beginFrame(timestamp: 1 + interval, refreshInterval: interval)
+        #expect(!budget.mayRun(.background), "background work ran after a 12 ms render pass")
+        #expect(budget.mayRun(.visible))
+        #expect(budget.mayRun(.automation))
+        clock.advance(ms: 16.7)
+        budget.beginFrame(timestamp: 1 + 2 * interval, refreshInterval: interval)
+        #expect(budget.mayRun(.background), "a frame with idle time runs background work")
+    }
+
+    /// Under constant load (every frame late) background work still moves: after waiting 300 ms in a
+    /// row for an idle frame, one task runs (Chrome's idle task timeout), then it waits again.
+    @Test func backgroundWorkRunsAfterWaitingTheIdleTimeoutUnderConstantLoad() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let owner = budget.board.owner("WorkspaceSpare")
+        var time = 1.0, ran: [Int] = []
+        budget.beginFrame(timestamp: time, refreshInterval: 1.0 / 60)
+        for frame in 1...20 {
+            clock.advance(ms: 40)
+            time += 0.040
+            budget.beginFrame(timestamp: time, refreshInterval: 1.0 / 60)
+            if budget.mayRun(.background) {
+                budget.run(.background, owner: owner) { clock.advance(ms: 1) }
+                ran.append(frame)
+            }
+        }
+        // Waits from frame 1; 300 ms later is frame 9. The next wait starts at frame 10 and ends at frame 18.
+        #expect(ran == [9, 18], "background work under constant load ran in frames \(ran)")
+    }
+
     // MARK: Control work queue
 
     /// The injected stand-in for a key (`debug.key`, what the benches and agents send) waited

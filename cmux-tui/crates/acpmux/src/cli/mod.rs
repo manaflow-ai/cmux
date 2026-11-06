@@ -72,5 +72,6 @@ pub mod trigger_chat;
 pub mod uniichat_agent;
 pub(crate) mod unknown_command;
 pub(crate) mod unknown_flag;
+pub mod watch;
 pub mod who_else;
 pub mod worktree;
