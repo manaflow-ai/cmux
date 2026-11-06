@@ -261,6 +261,14 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
           client: el.clientWidth,
           glyph: el.querySelector("svg")?.getBoundingClientRect().width ?? 0,
           fontSize: getComputedStyle(el).fontSize,
+          captionSize: (() => {
+            const probe = document.createElement("span");
+            probe.style.fontSize = "var(--text-caption)";
+            document.body.append(probe);
+            const size = getComputedStyle(probe).fontSize;
+            probe.remove();
+            return size;
+          })(),
           paddingInline: `${getComputedStyle(el).paddingLeft} ${getComputedStyle(el).paddingRight}`,
           title: el.getAttribute("title"),
         }));
@@ -269,7 +277,7 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         expect(Math.abs(fit.height - 24)).toBeLessThanOrEqual(TOLERANCE);
         expect(fit.scroll).toBeLessThanOrEqual(fit.client + 1);
         expect(fit.glyph).toBeLessThan(20);
-        expect(fit.fontSize).toBe("12px");
+        expect(fit.fontSize).toBe(fit.captionSize);
         expect(fit.paddingInline).toBe("2px 2px");
         expect(fit.title).toBeNull();
       } finally {
