@@ -5,31 +5,48 @@ import CmuxNextActions
 import Foundation
 import Testing
 
-/// SWITCH STALL 4: Cmd-N's window shows the new workspace in the key's own turn. The key's intent selected
-/// the workspace in its window, but the window swapped its content one observation hop later
-/// (`WindowController.observeWorkspace`), after the key's Core Animation commit. When a display frame ran in
-/// between, it showed the old workspace and the swap, the page's child window and their commit came before
-/// the next frame: about 95 ms to the new workspace under STRESS instead of 35-40 (cmux22, macOS 27, 60 Hz,
-/// cmdn-latency runs 091a9785 and 99f2bd83, 2026-11-06). Chrome's model: the key changes the model and the
-/// shown frame in the same turn.
+/// SWITCH STALL 4 and 6: Cmd-N's key changes the model in its turn, and its window shows the new workspace in that
+/// turn's frame, before its Core Animation commit. SWITCH STALL 4: the window swapped its content one observation hop
+/// later (`WindowController.observeWorkspace`), after the key's commit; when a display frame ran in between, it showed
+/// the old workspace (about 95 ms to the new one under STRESS instead of 35-40; cmux22, macOS 27, 60 Hz, 2026-11-06).
+/// SWITCH STALL 6: the swap then ran inside the key's handler, which put AppKit's hide and unhide walk of both workspace
+/// trees, the layouts' liveness and the page's present (WindowController.show 5.3 of the 11.8 ms key turn, xctrace of
+/// Release 67fff7fd on cmux22) in the key's turn. Chrome's model: the key changes the model in its turn; the view work
+/// runs once in the frame that shows it. The frame here is one pass of the main run loop: its block phase runs before
+/// AppKit's display cycle and the commit, and inside this main-queue job the pass runs no main-queue job (no
+/// observation hop), so only work queued for the frame can show the workspace there.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CmdNShowsInKeyTurnTests {
-    /// The workspace the window shows when the key's turn ends, the workspace the key made, and the press's work.
-    private static func pressCmdN(_ services: AppServices) throws -> (shown: String?, made: String, work: [ActionWork]) {
+    /// One press: the workspace the window shows before the key, when the key's turn ends and after the turn's frame;
+    /// the workspace the key made; the press's work.
+    private struct Press {
+        var before: String?, inKey: String?, inFrame: String?
+        var made: String
+        var work: [ActionWork]
+
+        func expectSwapInFrame() {
+            #expect(before != nil && inKey == before, "the key's turn swapped the window from \(before ?? "nothing") to \(inKey ?? "nothing"): view work belongs to the frame")
+            #expect(inFrame == made, "the window showed \(inFrame ?? "nothing") in the key's frame, not Cmd-N's workspace \(made)")
+        }
+    }
+
+    private static func pressCmdN(_ services: AppServices) throws -> Press {
         let controller = try #require(services.windows.active, "no window")
         let store = services.daemon.store
-        let before = Set(store.workspaces.map(\.id))
-        var shown: String?
+        let before = Set(store.workspaces.map(\.id)), shownBefore = controller.content?.workspace.id
+        var inKey: String?
         let work = services.registry.capturingWork {
             _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
-            shown = controller.content?.workspace.id
+            inKey = controller.content?.workspace.id
         }
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {} // the mode is never empty: the pass runs
+        _ = CFRunLoopRunInMode(.defaultMode, 0, false)
         let made = try #require(store.workspaces.first { !before.contains($0.id) }?.id, "Cmd-N showed no workspace in its turn")
-        return (shown, made, work)
+        return Press(before: shownBefore, inKey: inKey, inFrame: controller.content?.workspace.id, made: made, work: work)
     }
 
     /// The common press: the window built the next Cmd-N's view before the key (`reservedContent`).
-    @Test func cmdNWithAReservedViewShowsItsWorkspaceInTheKeyTurn() async throws {
+    @Test func cmdNWithAReservedViewShowsItsWorkspaceInTheKeyFrame() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-cmdn-key-turn-reserved")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
@@ -38,13 +55,13 @@ struct CmdNShowsInKeyTurnTests {
             try await PasswordManagerRouteTests.until({ controller.reservedContent.ready != nil && services.daemon.store.reservedWorkspace != nil },
                                                       within: .seconds(10), report: { "the window built no next Cmd-N view" })
             let press = try Self.pressCmdN(services)
-            #expect(press.shown == press.made, "the window still showed \(press.shown ?? "nothing") when Cmd-N's turn ended, not its workspace \(press.made)")
+            press.expectSwapInFrame()
             for task in press.work { _ = await task.value }
         }
     }
 
     /// A press with no view built before it (memory pressure let the reservation go, or the refill had not run).
-    @Test func cmdNWithNoReservedViewShowsItsWorkspaceInTheKeyTurn() async throws {
+    @Test func cmdNWithNoReservedViewShowsItsWorkspaceInTheKeyFrame() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-cmdn-key-turn-cold")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
@@ -52,7 +69,7 @@ struct CmdNShowsInKeyTurnTests {
             controller.reservedContent.drop()
             services.agentTabs.releaseReservedWorkspace(on: services.daemon.store, .unshown)
             let press = try Self.pressCmdN(services)
-            #expect(press.shown == press.made, "the window still showed \(press.shown ?? "nothing") when Cmd-N's turn ended, not its workspace \(press.made)")
+            press.expectSwapInFrame()
             try await PasswordManagerRouteTests.until({ controller.content?.workspace.id == press.made && controller.content?.focusedPane != nil },
                                                       within: .seconds(2), report: { "the window shows no focused pane of Cmd-N's workspace" })
             for task in press.work { _ = await task.value }
