@@ -7,12 +7,15 @@ import Foundation
 /// Serves the onboarding page from the window's ``OnboardingModel``: `cmux.onboarding.state`, the
 /// `cmux.onboarding.changed` stream (the whole state after each model or icon change, coalesced,
 /// only when it differs), and the gestures, each a model call. A gesture runs only on a real
-/// click or key in the page (`PageCallContext.userGesture`): nothing a page sends on its own can
-/// start an import, a sign-in or a System Settings grant.
+/// click or key in the page (`PageCallContext.userGesture`), and each click or key runs one
+/// gesture (its `gestureEvent` is spent): nothing a page sends on its own can start an import, a
+/// sign-in or a System Settings grant, or run a second one off the same click.
 @MainActor
 final class OnboardingPageProvider: PageProvider {
     private let model: OnboardingModel
     private let images = OnboardingPageImages()
+    /// The click or key the last gesture ran on (`PageCallContext.gestureEvent`).
+    private var spentGesture: TimeInterval?
 
     init(model: OnboardingModel) {
         self.model = model
@@ -22,9 +25,10 @@ final class OnboardingPageProvider: PageProvider {
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         if op == "cmux.onboarding.state" { return try Self.json(state) }
-        guard context.userGesture else {
-            throw PageError(code: PageNativeOp.userOnlyCode, message: "\(op) runs only on a click or key in the window")
+        guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: "\(op) runs only on its own click or key in the window")
         }
+        spentGesture = event
         try perform(op, params)
         return [:]
     }
