@@ -831,6 +831,57 @@ class GoldenPathReceiptTests(unittest.TestCase):
         self.assertFalse(result["checks"]["acpmux_session_discovery"])
         self.assertEqual(result["golden_path_stages"]["reconnect"], "not_observable")
 
+    # Review BLOCK at 8ba8aa2a: every evidence path is required, not only the ones a check happened to name.
+
+    REQUIRED_EVIDENCE = {
+        "chat": {("session_id_chars",): 0, ("session_id_sha256",): "", ("session_discovered",): False},
+        "reconnect": {
+            ("pause", "state"): "running",
+            ("resume", "state"): "paused",
+            ("link", "dropped_while_paused"): False,
+            ("link", "back"): False,
+            ("second_reply", "ok"): False,
+            ("reconnected",): False,
+        },
+    }
+
+    def joined_with(self, stage_name: str, change) -> dict[str, object]:
+        cli = self.cli_from_writer()
+        value = next(item for item in cli["stages"] if item["stage"] == stage_name)["value"]
+        change(value)
+        return receipt.normalize([cli, self.platform_from_runner(), provider()])
+
+    def test_writer_fixture_with_every_required_path_passes(self) -> None:
+        self.assertEqual(receipt.normalize([self.cli_from_writer(), self.platform_from_runner(), provider()])["status"],
+                         "pass")
+
+    def test_deleting_any_required_evidence_path_never_passes(self) -> None:
+        for stage_name, paths in self.REQUIRED_EVIDENCE.items():
+            for path in paths:
+                with self.subTest(stage=stage_name, path=".".join(path)):
+                    def delete(value, path=path):
+                        for key in path[:-1]:
+                            value = value[key]
+                        del value[path[-1]]
+                    result = self.joined_with(stage_name, delete)
+                    self.assertNotEqual(result["status"], "pass")
+                    check = "acpmux_session_discovery" if stage_name == "chat" else "pause_resume_reconnect"
+                    self.assertFalse(result["checks"][check])
+            for parent in {path[0] for path in paths if len(path) > 1}:
+                with self.subTest(stage=stage_name, path=parent):
+                    result = self.joined_with(stage_name, lambda value, parent=parent: value.pop(parent))
+                    self.assertNotEqual(result["status"], "pass")
+
+    def test_a_wrong_required_evidence_value_never_passes(self) -> None:
+        for stage_name, paths in self.REQUIRED_EVIDENCE.items():
+            for path, wrong in paths.items():
+                with self.subTest(stage=stage_name, path=".".join(path), value=wrong):
+                    def put(value, path=path, wrong=wrong):
+                        for key in path[:-1]:
+                            value = value[key]
+                        value[path[-1]] = wrong
+                    self.assertNotEqual(self.joined_with(stage_name, put)["status"], "pass")
+
 
 if __name__ == "__main__":
     unittest.main()
