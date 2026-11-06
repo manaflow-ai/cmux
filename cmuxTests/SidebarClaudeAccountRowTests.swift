@@ -92,6 +92,32 @@ struct SidebarClaudeAccountRowTests {
         #expect(labels == ["work"])
     }
 
+    /// A pane cmux switched can run Codex later. Its index entry then names Codex, so the row
+    /// shows no Claude account for it, as the compact tooltip keeps Codex's own environment. A
+    /// pane with no index entry yet, or a Claude one, still names the account it was switched to.
+    @Test
+    func aSwitchedPaneThatNowRunsCodexNamesNoClaudeAccount() throws {
+        let switched = ["CLAUDE_CONFIG_DIR": "/Users/tester/.claude-work"]
+        let codex = try #require(SidebarWorkspaceSnapshotFactory.accountLabelAgent(
+            switchedAccount: switched,
+            indexed: (kind: .codex, environment: ["CODEX_HOME": "/Users/tester/.codex-foo"])
+        ))
+        #expect(codex.kind == .codex)
+        #expect(codex.environment == ["CODEX_HOME": "/Users/tester/.codex-foo"])
+        #expect(SidebarWorkspaceSnapshotFactory.claudeAccountLabels(agents: [codex], homeDirectory: Self.home).isEmpty)
+
+        let notIndexed = try #require(SidebarWorkspaceSnapshotFactory.accountLabelAgent(
+            switchedAccount: switched,
+            indexed: nil
+        ))
+        let indexedClaude = try #require(SidebarWorkspaceSnapshotFactory.accountLabelAgent(
+            switchedAccount: switched,
+            indexed: (kind: .claude, environment: ["CLAUDE_CONFIG_DIR": "/Users/tester/.claude-old"])
+        ))
+        #expect(SidebarWorkspaceSnapshotFactory.claudeAccountLabels(agents: [notIndexed], homeDirectory: Self.home) == ["work"])
+        #expect(SidebarWorkspaceSnapshotFactory.claudeAccountLabels(agents: [indexedClaude], homeDirectory: Self.home) == ["work"])
+    }
+
     /// A `set_status` caller may use the same key. The row reflects the pane, so it replaces that
     /// entry instead of showing a second "claude_account" row.
     @Test

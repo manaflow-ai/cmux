@@ -61,14 +61,24 @@ extension SidebarWorkspaceSnapshotFactory {
     static func claudeAccountLabels(workspace: Workspace, orderedPanelIds: [UUID]) -> [String] {
         let index = SharedLiveAgentIndex.shared.index
         let agents: [(kind: RestorableAgentKind, environment: [String: String]?)] = orderedPanelIds.compactMap { panelId in
-            if let account = workspace.terminalPanel(for: panelId)?.claudeAccountEnvironment {
-                return (kind: .claude, environment: account.accountEnvironment)
-            }
-            return index?.entry(workspaceId: workspace.id, panelId: panelId).map {
-                (kind: $0.snapshot.kind, environment: $0.snapshot.launchCommand?.environment)
-            }
+            accountLabelAgent(
+                switchedAccount: workspace.terminalPanel(for: panelId)?.claudeAccountEnvironment?.accountEnvironment,
+                indexed: index?.entry(workspaceId: workspace.id, panelId: panelId).map {
+                    (kind: $0.snapshot.kind, environment: $0.snapshot.launchCommand?.environment)
+                }
+            )
         }
         return claudeAccountLabels(agents: agents, homeDirectory: NSHomeDirectory())
+    }
+
+    /// The agent a pane names in account labels, from the account cmux switched the pane to
+    /// (`switchedAccount`) and the pane's agent-index entry (`indexed`).
+    static func accountLabelAgent(
+        switchedAccount: [String: String]?,
+        indexed: (kind: RestorableAgentKind, environment: [String: String]?)?
+    ) -> (kind: RestorableAgentKind, environment: [String: String]?)? {
+        if let switchedAccount { return (kind: .claude, environment: switchedAccount) }
+        return indexed
     }
 
     static func claudeAccountLabels(
