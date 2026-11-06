@@ -1092,7 +1092,8 @@
      short names), the menu is no wider than its fullest row plus the menu-fit spare (design/menus.md,
      gallery invariants.ts menu-fit). */
   min-width: 184px;
-  max-height: min(360px, calc(100dvh - 36px));
+  /* It fits the room on its side (Base UI's --available-height), so it never covers its control. */
+  max-height: min(360px, calc(100dvh - 36px), var(--available-height, 360px));
   overflow: hidden;
 }
 .acpmux-folder-popover .ui-combobox-pinned-list { flex: 1; min-height: 0; }
