@@ -65,7 +65,7 @@ work: `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and the 
 Every placement (`new --machine auto`, `dispatch --machine auto`, `machine pick`, a sub-session's
 host `auto`) and every session create also logs the shadow admission verdict (cmuxterm-hq#7342)
 next to its pick: one info line `shadow-admission {JSON}` in the daemon's log (`daemon.log`, or
-`journalctl --user -u acpmux.service` under systemd). The JSON has `ts`, `site`, `pick`, the
+`journalctl --user -u acpmux.service` under systemd). The JSON has `ts`, `site` (`place`, `pick`, `subsession`, `admit` or `over-cap`), `pick`, the
 pick's `would_defer`, `reason`, `inputs_digest`, `formula_version`, and `hosts`. Nothing is
 deferred on it. `daemon status --json` lists each host's last verdict as `shadowAdmission`, and
 `acpmux ls` ends with a `HOST: would-defer: REASON` line for each host whose verdict would defer.

@@ -431,7 +431,8 @@ impl Hub {
                 .filter(|p| p.get("connected").and_then(Value::as_bool) == Some(true))
                 .filter_map(|p| Candidate::peer(&p))
                 .collect();
-            crate::placement::place(&peers, registry, Work::Agent)
+            let verdict = crate::placement::place(&peers, registry, Work::Agent);
+            crate::shadow_admission::with_shadow("over-cap", verdict, &peers)
         });
         // A pick that has no room either (`overloaded`) is no better a place: no suggestion.
         let verdict =

@@ -5,8 +5,9 @@
 //!
 //! Each decision logs one line through `tracing` at info, so it lands in the
 //! daemon's log (`daemon.log`, or the journal under systemd):
-//! `shadow-admission {JSON}`, with `ts`, `site` (`place`, `pick`, `subsession`
-//! or `admit`), `pick`, the pick's `would_defer`, `reason`, `inputs_digest`,
+//! `shadow-admission {JSON}`, with `ts`, `site` (`place`, `pick`, `subsession`,
+//! `admit`, or `over-cap` for the peer a create past the lane cap is pointed
+//! to), `pick`, the pick's `would_defer`, `reason`, `inputs_digest`,
 //! `formula_version`, and `hosts`, one compact verdict per host weighed.
 //!
 //! The readings come from `_acpmux/host_health` (this machine's, read now, or a
