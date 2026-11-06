@@ -42,8 +42,10 @@ notary_wait_recover() {
 # "Error: HTTPClientError.connectTimeout": notarytool never connected, so Apple had
 # no submission and nothing was left to wait on. When the output names no
 # submission (no "id" and no .../submissions/<id>) and shows a connect-phase
-# failure, this runs the same command up to NOTARY_SUBMIT_RETRIES more times and
-# appends each run's output to the output file. It returns the last run's exit,
+# failure, this runs the same command up to NOTARY_SUBMIT_RETRIES more times. Each
+# run replaces the output file, so the caller and the next check read only the
+# newest attempt (an earlier attempt's connectTimeout would read as a wait
+# timeout); earlier attempts go to stderr, the job log. It returns the last run's exit,
 # or 1 when there was nothing to retry (a named submission, Apple's answer or a
 # refused upload, which the caller handles as before).
 notary_submit_retry() {
@@ -55,9 +57,12 @@ notary_submit_retry() {
       return "$rc"
     fi
     sleep "${NOTARY_SUBMIT_RETRY_SLEEP_SECONDS:-30}"
-    echo "notarytool did not reach Apple; submitting again (try $attempt)" >&2
+    {
+      echo "notarytool did not reach Apple; submitting again (try $attempt). The attempt before it said:"
+      cat "$output"
+    } >&2
     set +e
-    "$@" >>"$output" 2>&1
+    "$@" >"$output" 2>&1
     rc=$?
     set -e
     if [ "$rc" -eq 0 ]; then
