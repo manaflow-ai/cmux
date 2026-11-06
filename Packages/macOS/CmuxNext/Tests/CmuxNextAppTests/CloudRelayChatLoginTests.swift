@@ -334,11 +334,11 @@ struct CloudRelayChatLoginTests {
 
     /// A cold machine: running, no start-session first, no link up. The relay chat's own link step connects it, the login
     /// step then reads the link's owner answer (the app's ownership check, not a stand-in), and only then is the prompt sent.
-    static func cold(connect: @escaping @Sendable () throws -> Void) -> (services: AppServices, machine: CloudMachineSession) {
+    static func cold(_ status: CloudMachine.Status = .running, connect: @escaping @Sendable () throws -> Void) -> (services: AppServices, machine: CloudMachineSession) {
         let services = MachineIconTests.services()
         AppActions.bind(services)
         let id = "vm_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(20)
-        let machine = CloudTestLink.session(id: id, status: .running, name: "Cold VM", mainWork: services.mainWork, opened: connect)
+        let machine = CloudTestLink.session(id: id, status: status, name: "Cold VM", mainWork: services.mainWork, opened: connect)
         services.machines.add(machine)
         return (services, machine)
     }
@@ -376,6 +376,21 @@ struct CloudRelayChatLoginTests {
         #expect(run.fields["delivered"] == .bool(false) && run.fields["error_code"] == .string("cloud.relay.login_not_connected"))
         guard case .string(let command) = run.fields["command"] else { Issue.record("no recovery command"); return }
         #expect(command.hasPrefix("cmux cloud start-session --target machine:"))
+    }
+
+    /// A cold paused machine, and a cold one resuming (`starting`): this entry neither connects nor logs in nor sends. It answers
+    /// `machine_not_ready` with the start-session command, which resumes or waits out the machine, then connects and logs in;
+    /// `cloud start-chat` runs that itself on this code (any undelivered code that isn't a `login_` one).
+    @Test func aColdPausedOrResumingMachineSendsNothingAndNamesTheStartThatResumesIt() async throws {
+        for status in [CloudMachine.Status.paused, .starting] {
+            let f = Self.cold(status) { Steps.shared.append("connect") }
+            defer { f.machine.disconnect() }
+            let run = try await Self.coldRun(f)
+            #expect(run.steps == [], "\(status): \(run.steps)")
+            #expect(run.fields["delivered"] == .bool(false) && run.fields["error_code"] == .string("cloud.relay.machine_not_ready"), "\(status)")
+            guard case .string(let command) = run.fields["command"] else { Issue.record("\(status): no recovery command"); continue }
+            #expect(command.hasPrefix("cmux cloud start-session --target machine:" + f.machine.machineID), "\(status): \(command)")
+        }
     }
 
     /// The person's own run (the palette) sees the same refusal, and nothing is sent.

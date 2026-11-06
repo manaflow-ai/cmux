@@ -57,6 +57,9 @@ extension CloudStartSession {
             let promptID = (invocation["promptId"]?.stringValue?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 }
             // The machine takes the login first; the account that asked is checked after its wait, as start-session's is.
             let login: @MainActor () async throws -> (code: String, message: String)? = {
+                // This entry (the `cloudRelayChat` action) never resumes: a paused or resuming machine outlasts its 15 s. It sends nothing and
+                // runs no login (`machine_not_ready`); `cloud start-chat` then runs start-session on it, which resumes or waits, connects, logs in.
+                if machine.machine.status == .paused || machine.machine.shownStatus.isChanging { return ("cloud.relay.machine_not_ready", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent)) }
                 // The link first, as start-session's connect: a link that never came up sends nothing and runs no login.
                 guard await steps.link(machine) else { return ("cloud.relay.login_not_connected", CloudStartSessionStrings.notConnected(machine.machine.title, id: machineID, agent: started.agent)) }
                 try await steps.login(machine, started) { try Self.checked(account, now: cloud.account, started.asked(machine: machine.machine.title)) }
