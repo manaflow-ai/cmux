@@ -127,6 +127,31 @@ class CliSwapTests(unittest.TestCase):
         self.run_cli("undo")
         self.assertEqual(os.readlink(link), str(other))
 
+    def test_undo_leaves_a_link_something_else_changed_since(self):
+        links = self.tmp / "usr-local-bin"
+        links.mkdir()
+        other = self.tmp / "installed" / "cmux"
+        other.parent.mkdir()
+        other.write_text("install script's build\n")
+        other.chmod(0o755)
+        link = links / "cmux"
+        link.symlink_to(other)
+        os.environ["PATH"] = f"{links}:/usr/bin:/bin"
+        self.assertEqual(self.apply()[0], 0)
+        upgraded = self.tmp / "installed" / "cmux-upgraded"
+        upgraded.write_text("a package manager's upgrade\n")
+        link.unlink()
+        link.symlink_to(upgraded)
+        code, out = self.run_cli("undo")
+        self.assertEqual(code, 1)
+        self.assertIn("changed since the swap", out)
+        self.assertEqual(os.readlink(link), str(upgraded))
+
+    def test_it_loads_on_python_3_9(self):
+        # The system python3 of macOS: no `X | None` at runtime.
+        source = (ROOT / "scripts/cmux-next/cli-swap.py").read_text()
+        self.assertIn("from __future__ import annotations", source)
+
     def test_a_wrong_sha256_changes_nothing(self):
         os.environ["PATH"] = f"{self.bundled.parent}:/usr/bin:/bin"
         code, out = self.apply("--sha", "0" * 64)

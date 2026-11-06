@@ -22,6 +22,8 @@ Then it puts the copy where a cmux terminal finds it:
 `undo` takes back everything `apply` did: the names it added go, the links point where they
 pointed before. Nothing here relaunches or signals the app.
 """
+from __future__ import annotations  # `X | None` on the system python3 of macOS (3.9)
+
 import argparse
 import hashlib
 import json
@@ -112,6 +114,7 @@ def command_apply(args) -> int:
         if record is None:
             record = {"kind": "link", "path": str(found), "previous": os.readlink(found)}
             records.append(record)
+        record["to"] = str(copy)
         relink(found, str(copy))
         save(state, records)
         print(f"cli-swap: `cmux` is {copy} now ({found} pointed at {record['previous']})")
@@ -127,6 +130,7 @@ def command_apply(args) -> int:
         return 1
     if not ours:
         records.append({"kind": "alias", "path": str(alias)})
+    next(r for r in records if r["kind"] == "alias" and r["path"] == str(alias))["to"] = str(copy)
     relink(alias, str(copy))
     save(state, records)
     why = (f"{found} is inside an app bundle, which runs its daemon from that file and is never written"
@@ -151,16 +155,23 @@ def command_status(_args) -> int:
 
 def command_undo(_args) -> int:
     state = state_dir()
+    left = []
     for record in reversed(load(state)):
         path = Path(record["path"])
+        # Only what still points at this swap's copy: a link something else replaced or removed since
+        # (a package manager, the person) is theirs now, and is left as it is.
+        if not path.is_symlink() or os.readlink(path) != record.get("to"):
+            print(f"cli-swap: {path} changed since the swap; left as it is", file=sys.stderr)
+            left.append(record)
+            continue
         if record["kind"] == "link":
             relink(path, record["previous"])
             print(f"cli-swap: {path} -> {record['previous']} again")
-        elif path.is_symlink():
+        else:
             path.unlink()
             print(f"cli-swap: removed {path}")
     save(state, [])
-    return 0
+    return 1 if left else 0
 
 
 def main(argv=None) -> int:
