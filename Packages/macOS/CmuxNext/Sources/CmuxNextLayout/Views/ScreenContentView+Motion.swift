@@ -52,6 +52,15 @@ extension ScreenContentView {
         if !moving { releaseClosing() }
         return moving
     }
+    /// The key's turn (T-KEYS 3, `LayoutRootView.keyboardResizeDidChange`): the press's first refresh is drawn ahead as
+    /// each later refresh is, from the springs the press's targets just set, so the frame that shows the press shows each
+    /// terminal at its pane's size in it (keys bench 8554d26b: that frame was the only one a terminal showed off its pane).
+    /// Render only: no presentation, no layout, no bounds and no grid in the key's turn (S1B).
+    func drawAheadOfKeyPress() {
+        guard let window, hasMotion else { return }
+        drawAhead(MotionClock.forWindow(window).nextFrameInterval, policy: Motion.panes.policy)
+    }
+
     /// Draw ahead (cmux-ad m26, the Chromium model: the renderer gets the size before the compositor needs its frame):
     /// each pane its key hold's spring still moves hears how much its size changes at the next refresh, from a copy of
     /// its spring stepped once more by `dt`, the display link's interval to the next frame's target time (one refresh).
