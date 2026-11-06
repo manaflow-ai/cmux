@@ -334,3 +334,43 @@ fn the_written_back_segments_past_the_cap_are_synced_by_path() {
         );
     }
 }
+
+/// The open's write-back writes the bytes the log already holds, so the segment's modified time
+/// stays what it was: a closed chat's age is its log's modified time (`hub/retention.rs`), and a
+/// restart after a kill must not make a chat untouched for a month look written now (found by the
+/// store.journal default-on run: `hub::retention::tests::a_closed_chat_is_as_old_as_its_log`).
+#[test]
+fn the_write_back_at_the_open_keeps_the_logs_modified_time() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(116);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.close_log(CHAT);
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let segment = home.path().join("sessions").join(CHAT).join("events").join("000001.ndjson");
+    let month = std::time::SystemTime::now() - Duration::from_secs(30 * 86_400);
+    std::fs::File::options()
+        .append(true)
+        .open(&segment)
+        .and_then(|file| file.set_modified(month))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let unused_before = FAIL_NEXT_WRITE_BACK.with(std::cell::Cell::get);
+    assert!(!unused_before, "a failed write-back is armed from another test on this thread");
+    let store = open(home.path(), &killed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let modified = std::fs::metadata(&segment)
+        .and_then(|meta| meta.modified())
+        .unwrap_or_else(|e| panic!("{e}"));
+    drop(store);
+    assert_eq!(
+        modified, month,
+        "the open's write-back of the bytes the log already held changed its modified time"
+    );
+}

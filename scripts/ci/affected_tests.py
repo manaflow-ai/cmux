@@ -125,10 +125,12 @@ def is_browser_test(root: Path, test: str) -> bool:
 
 
 def webviews_source_changed(files: list[str]) -> list[str]:
-    """Non-test webviews sources a change touches. Browser and gallery tests render the whole app
-    through vite or read sources by path, so no import edge links them to what they load: any such
-    change runs every webviews test (a replay of merged PRs found reds the import graph skipped)."""
-    return [f for f in files if f.startswith(focused_tests.WEB + "src/") and not focused_tests.WEB_TEST.search(f)]
+    """Non-test webviews paths a change touches, docs aside. Browser and gallery tests render the whole
+    app through vite or read sources by path, so no import edge links them to what they load, and a
+    build input (vite.config.ts, package.json, the lockfile) changes every test: any such change runs
+    every webviews test (a replay of merged PRs found reds the import graph skipped)."""
+    return [f for f in files if f.startswith(focused_tests.WEB) and not focused_tests.WEB_TEST.search(f)
+            and not f.endswith(".md")]
 
 
 def web_workflow_python_tests(root: Path) -> list[str]:

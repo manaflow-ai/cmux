@@ -59,6 +59,27 @@ const CLI_FLAGS: &[&str] = &[
     "timeout",
 ];
 
+/// CLI-owned flags `run_action` also hands to an action that declares an argument of that name
+/// (`open-remote --focus false`: the run's focus and the action's `focus`).
+const SHARED_FLAGS: &[&str] = &["focus"];
+
+/// Action arguments whose flag the CLI's global parser takes first (`--session` names a daemon), with how
+/// a caller reaches them instead. A new collision fails `every_argument_named_like_a_cli_flag_reaches_its_action`.
+const GLOBAL_FLAG_ARGUMENTS: &[(&str, &str, &str)] = &[
+    (
+        "agent.openSessionWorkspace",
+        "session",
+        "--arg session=ID (or `cmux action run ... --session`)",
+    ),
+    ("agent.openSessionTab", "session", "--arg session=ID (or `cmux action run ... --session`)"),
+    ("remote.connect", "session", "--arg session=ID (or `cmux action run ... --session`)"),
+    (
+        "history.resumeAgentSession",
+        "session",
+        "--arg session=ID (or `cmux action run ... --session`)",
+    ),
+];
+
 /// Flags a CLI scope takes for itself before the words reach the app: `chat
 /// send`'s `--from`/`--as` (the sender label) and `--class` are read by
 /// chief/chat_scope.rs, which rewrites the words without them.
@@ -696,7 +717,7 @@ fn cli_requests() -> Value {
             };
             let flag = kebab(name);
             // A name `run_action` takes for itself (`--target`, `--focus`) goes as `--arg name=value`.
-            if CLI_FLAGS.contains(&flag.as_str()) {
+            if CLI_FLAGS.contains(&flag.as_str()) && !SHARED_FLAGS.contains(&flag.as_str()) {
                 words.extend([
                     "--arg".to_owned(),
                     format!("{name}={}", value.as_deref().unwrap_or("true")),
@@ -731,4 +752,96 @@ fn the_cli_request_fixture_is_what_the_cli_encodes() {
         "{} is stale: CMUX_UPDATE_CLI_ACTION_REQUESTS=1 cargo test -p cmux-tui --lib action_argument_contract",
         path.display()
     );
+}
+
+/// Every argument of an offered action whose `--flag` the CLI also owns either reaches the action through
+/// that flag (`SHARED_FLAGS`: `open-remote --focus false`) or is listed in `GLOBAL_FLAG_ARGUMENTS` with the
+/// spelling that reaches it. `open-remote`'s `focus` was only reachable as `--arg focus=true`.
+#[test]
+fn every_argument_named_like_a_cli_flag_reaches_its_action() {
+    let path = repo_root().join("plans/cmux-next/action-surfaces.json");
+    let root: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).expect("action-surfaces.json"))
+            .unwrap();
+    let mut unreached = Vec::new();
+    let mut listed = Vec::new();
+    for action in root["actions"].as_array().expect("actions") {
+        let Some(cli_name) = action["cli_name"].as_str().filter(|_| action["cli"] == "offered")
+        else {
+            continue;
+        };
+        let id = action["id"].as_str().unwrap_or_default();
+        for arg in action["args"].as_array().into_iter().flatten() {
+            let name = arg["name"].as_str().unwrap_or_default();
+            let flag = kebab(name);
+            if !CLI_FLAGS.contains(&flag.as_str()) {
+                continue;
+            }
+            if GLOBAL_FLAG_ARGUMENTS
+                .iter()
+                .any(|(action, argument, _)| *action == id && *argument == name)
+            {
+                listed.push(format!("{id} {name}"));
+                continue;
+            }
+            let value = if arg["kind"] == "bool" { "false" } else { "contract-1" };
+            let mut words = cli_name.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+            words.extend([format!("--{flag}"), value.to_owned()]);
+            let params = encoded(&words);
+            let sent = &params["args"][name];
+            let want = if arg["kind"] == "bool" {
+                serde_json::json!(false)
+            } else {
+                serde_json::json!(value)
+            };
+            if *sent != want {
+                unreached
+                    .push(format!("{id}: `cmux {}` sends args.{name} = {sent}", words.join(" ")));
+            }
+        }
+    }
+    assert!(
+        unreached.is_empty(),
+        "these action arguments are out of their own flag's reach:\n{}",
+        unreached.join("\n")
+    );
+    let stale = GLOBAL_FLAG_ARGUMENTS
+        .iter()
+        .map(|(action, argument, _)| format!("{action} {argument}"))
+        .filter(|entry| !listed.contains(entry))
+        .collect::<Vec<_>>();
+    assert!(
+        stale.is_empty(),
+        "GLOBAL_FLAG_ARGUMENTS lists arguments the catalog no longer has: {stale:?}"
+    );
+}
+
+/// `open-remote --focus false` is the action's `focus` argument and the run's own focus; a bare `--focus` is
+/// both true; `--focus=false` is the same as `--focus false`.
+#[test]
+fn open_remote_focus_reaches_the_action() {
+    let words = |tail: &[&str]| {
+        let mut words = vec!["open-remote".to_owned(), "--host".to_owned(), "h".to_owned()];
+        words.extend(tail.iter().map(|word| (*word).to_owned()));
+        encoded(&words)
+    };
+    for (tail, want) in [
+        (&["--focus", "false"][..], false),
+        (&["--focus"][..], true),
+        (&["--focus=false"][..], false),
+    ] {
+        let params = words(tail);
+        assert_eq!(params["args"]["focus"], serde_json::json!(want), "{tail:?}: {params}");
+        assert_eq!(params["focus"], serde_json::json!(want), "{tail:?}: {params}");
+    }
+    // An action without a `focus` argument keeps `--focus` as the run's focus only.
+    let params = encoded(&[
+        "workspace".to_owned(),
+        "rename".to_owned(),
+        "--focus".to_owned(),
+        "--name".to_owned(),
+        "x".to_owned(),
+    ]);
+    assert_eq!(params["focus"], serde_json::json!(true));
+    assert!(params["args"].get("focus").is_none(), "{params}");
 }

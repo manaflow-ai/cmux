@@ -40,7 +40,8 @@ extension TerminalSurfaceView {
     func place(_ frame: CGRect, anchor: PaneMotionAnchor) { // perf-hot: 1ms motion-frame (each frame of a key resize)
         guard frameOwnership.embedderPresents, isShown, window != nil, surface != nil else {
             // A size or a scale that waits gives way: the view takes this frame now (hidden, parked, no window).
-            if frameOwnership.inFlight != nil || frameOwnership.scale != nil || frameOwnership.ahead != nil {
+            let cancels = frameOwnership.inFlight != nil || frameOwnership.scale != nil || frameOwnership.ahead != nil
+            if cancels {
                 framePresenter?.cancel(self)
                 frameOwnership.inFlight = nil
                 frameOwnership.ahead = nil
@@ -48,6 +49,8 @@ extension TerminalSurfaceView {
                 applyHeldScale()
             }
             if self.frame != frame { self.frame = frame }
+            // After the bounds it takes: a drag grid that waited for the cancelled size goes as these bounds' grid.
+            if cancels { reportGridAfterCancel() }
             return
         }
         frameOwnership.wanted = frame
@@ -156,22 +159,28 @@ extension TerminalSurfaceView {
     }
 
     /// The commit that changed the shown size is done: frames at that size go to the screen off the main thread again.
-    func hostFrameCommitted() {
-        guard let surface, frameOwnership.embedderPresents else { return }
-        ghostty_surface_host_frame_committed(surface)
-    }
+    func hostFrameCommitted() { if let surface, frameOwnership.embedderPresents { ghostty_surface_host_frame_committed(surface) } }
 
-    /// A window change: a size that waits takes its bounds now, through the usual path, and a held scale goes to the
-    /// layer.
+    /// A window change: a size that waits takes its bounds now, through the usual path (its drag grid goes), and a held
+    /// scale goes to the layer.
     func releaseFrameOwnership() {
         guard frameOwnership.embedderPresents else { return }
         framePresenter?.cancel(self)
         applyHeldScale()
         frameOwnership.ahead = nil
         frameOwnership.pendingAhead = nil
+        defer { reportGridAfterCancel() } // after the bounds it takes (below), a waiting drag grid goes as their grid
         guard frameOwnership.inFlight != nil, let wanted = frameOwnership.wanted else { return }
         frameOwnership.inFlight = nil
         if frame != wanted { frame = wanted }
+    }
+
+    /// The presenter cancelled a size in flight and the view took its new bounds: a drag grid that waited for that size
+    /// goes as the grid of these bounds (``TerminalGridReporter/shownCancelled(_:live:)``), never the stored grid. Not
+    /// shown: its grid is measured when it shows, and goes then unless the PTY has it (``cancelGridReport()``'s resend).
+    private func reportGridAfterCancel() {
+        let taken = isShown ? fittedGrid : nil
+        if gridReports.shownCancelled(taken, live: isFollowingResizeGesture), taken == nil { resendsShownGrid = true }
     }
 
     /// A new display scale `backing` while its window's commit owns this terminal's frame, and its layer shows a

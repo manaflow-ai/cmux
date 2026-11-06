@@ -57,7 +57,7 @@ public final class TerminalSurfaceView: NSView {
     }
 
     /// A grid the PTY does not have was dropped with a hide (``cancelGridReport()``): shown again, the view's grid goes.
-    private var resendsShownGrid = false
+    var resendsShownGrid = false
 
     /// Who presents this view's new sizes and a held display scale (``place(_:)``).
     var frameOwnership = TerminalFrameOwnership()
