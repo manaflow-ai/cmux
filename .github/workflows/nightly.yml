@@ -1011,7 +1011,8 @@ jobs:
             else core.notice(`${decision.action}: ${decision.reason}`);
 
       # Before the release App secret: the claim again, and a keychain a killed job left is removed.
-      - name: Claim the whole Mac for the release App key
+      - &claim-root-checkout-mac
+        name: Claim the whole Mac for the release App key
         run: bash scripts/ci/signing-runner-claim.sh
 
       - name: Mint release App token
@@ -1099,7 +1100,8 @@ jobs:
     # Holds only the release App credentials (CMUX_RELEASE_APP_*). The approval
     # was given to release-surface-ack on this run; guard.approvedBy() reads it.
     environment: nightly-next-promote
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    # The trusted signing runner and the whole Mac (glaeda SIGNING_JOBS), never GitHub-hosted.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-trusted-next-signing' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -1111,6 +1113,9 @@ jobs:
       group: nightly-next-promote-ack-${{ github.run_id }}
       cancel-in-progress: false
     steps:
+      # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
+      - *hold-the-whole-mac
+      - *clean-owned-workdir
       - *legacy-route-shared-4
       - name: Decide again and check the approver
         id: ack
@@ -1147,6 +1152,8 @@ jobs:
             if (result.move) core.setOutput('decision', JSON.stringify(decision));
             core.notice(result.reason);
 
+      - *claim-root-checkout-mac
+
       - name: Mint release App token
         id: app-token
         if: steps.ack.outputs.decision != ''
@@ -1171,6 +1178,8 @@ jobs:
             const { owner, repo } = context.repo;
             const writer = getOctokit(process.env.APP_TOKEN);
             core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
+
+      - *wipe-owned-credentials
 
   probe-nightly-tag-permission:
     permissions:
@@ -5834,13 +5843,19 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
-    timeout-minutes: 75
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 195 || 75 }}
     env:
       BUILD: ${{ needs.publish-nightly.outputs.build }}
       BUILD_SHA: ${{ needs.publish-nightly.outputs.build_sha }}
     steps:
+      # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
+      - *hold-the-whole-mac
+      - *clean-owned-workdir
       - *checkout-publication-tooling-a
+
+      # Before any release App secret: the claim again, and a keychain a killed job left is removed.
+      - *claim-publication-mac
 
       - *gh-app-token-read
 
@@ -5870,6 +5885,8 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: bash .publish-tooling/scripts/ci/nightly-steps/dsyms-keep-on-r2.sh
 
+      - *wipe-owned-credentials
+
   # nightly-next's dSYMs to Sentry, off the build's path (Sentry held it 10.8 and 19.7 min in
   # runs 41471126151, 41466468306). Nothing needs it; it continues on error.
   sentry-dsyms-nightly:
@@ -5881,10 +5898,17 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
-    timeout-minutes: 45
+    # The trusted signing runner and the whole Mac (glaeda SIGNING_JOBS): it waits there while the signing holds it.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-trusted-next-signing' }}
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 165 || 45 }}
     steps:
+      # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
+      - *hold-the-whole-mac
+      - *clean-owned-workdir
       - *checkout-publication-tooling-a
+
+      # Before the Sentry token: the claim again, and a keychain a killed job left is removed.
+      - *claim-publication-mac
 
       - name: Download the build's dSYMs
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -5898,6 +5922,8 @@ jobs:
           SENTRY_ORG: manaflow
           SENTRY_PROJECT: cmuxterm-macos
         run: bash .publish-tooling/scripts/upload-sentry-dsyms.sh "$RUNNER_TEMP/dsyms"
+
+      - *wipe-owned-credentials
 
   generate-nightly-deltas:
     # Delta work is deliberately downstream of the first publication. A slow
@@ -6028,11 +6054,12 @@ jobs:
     concurrency:
       group: release-${{ needs.decide.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
     # It holds the publish group, so a hang must not hold it for the default 6 h. nightly-next
     # makes no gh call here (deltas and feed go to R2) and took at most 1.3 minutes in 56 runs;
     # other tracks keep the default, as their release uploads may wait out the rate limit.
-    timeout-minutes: ${{ needs.decide.outputs.track == 'nightly-next' && 15 || 360 }}
+    # One-mini mode adds glaeda's capacity wait (tests/test_nightly_mini_gate_timeouts.py).
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && needs.decide.outputs.track == 'nightly-next' && 135 || needs.decide.outputs.track == 'nightly-next' && 15 || 360 }}
     permissions:
       contents: write
       actions: read
@@ -6042,6 +6069,9 @@ jobs:
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
       CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
     steps:
+      # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
+      - *hold-the-whole-mac
+      - *clean-owned-workdir
       - *legacy-route-shared-3
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -6061,7 +6091,12 @@ jobs:
             scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh
             scripts/ci/nightly-steps/republish-deltas-upload-appcasts.sh
             scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
+            scripts/ci/signing-runner-claim.sh
+            scripts/ci/glaeda-signing-hooks.txt
           sparse-checkout-cone-mode: false
+
+      # Before any release App secret: the claim again, and a keychain a killed job left is removed.
+      - *claim-publication-mac
 
       - *gh-app-token-write
 
@@ -6196,6 +6231,8 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: bash .publish-tooling/scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
 
+      - *wipe-owned-credentials
+
   # Each PR in this nightly-next build gets a "Shipped in" line, in one comment
   # that release.yml also writes for stable releases
   # (scripts/ci/published_in_comments.py). The span is the one the release
@@ -6271,9 +6308,10 @@ jobs:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, pick-nightly-sign-runner]
     if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
     environment: content-signing
-    # The content-signing key remains scoped to this protected environment.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
-    timeout-minutes: 70
+    # The content-signing key remains scoped to this protected environment, on the trusted signing runner
+    # with the whole Mac (glaeda SIGNING_JOBS), never GitHub-hosted.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     permissions:
       contents: read
       # Read only: --pr-media reads the body of each highlight's pull request.
@@ -6287,6 +6325,9 @@ jobs:
       PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
       CONTENT_PUBLIC_KEY: AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4=
     steps:
+      # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
+      - *hold-the-whole-mac
+      - *clean-owned-workdir
       - &checkout-step
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -6297,9 +6338,28 @@ jobs:
       # The span starts at the newest build whose signed notes were published (its "head"), not at
       # the last published app: a build whose notes failed to publish then loses no highlight to
       # the next one (2026-10-12: 3821558930001 had no notes and its highlights were never shown).
+      # The build ref may predate the hook list: the claim runs the workflow commit's.
+      - *checkout-the-gh-token-wrapper
+      - *claim-publication-mac
+
       - *wait-through-github-api-rate-l
 
       - *older-tree-step-scripts-plain
+      - &openssl3-first
+        name: Put OpenSSL 3 first on PATH on a Mac
+        id: openssl3
+        timeout-minutes: 10
+        run: |
+          # release-notes.py signs and verifies Ed25519 with `openssl pkeyutl -rawin`. macOS's own openssl is
+          # LibreSSL, which has no -rawin, so Homebrew's openssl@3 goes first on PATH; Linux keeps its OpenSSL 3.
+          [ "$(uname -s)" = Darwin ] || exit 0
+          brew=$(command -v brew || echo /opt/homebrew/bin/brew)
+          keg=$("$brew" --prefix openssl@3)
+          if [ ! -x "$keg/bin/openssl" ]; then
+            HOMEBREW_NO_AUTO_UPDATE=1 "$brew" install openssl@3 >/dev/null
+          fi
+          "$keg/bin/openssl" version
+          echo "$keg/bin" >> "$GITHUB_PATH"
       - name: Start the span at the newest published notes
         id: span
         run: bash scripts/ci/nightly-steps/release-notes-start-span.sh
@@ -6320,6 +6380,8 @@ jobs:
           path: notes/
           retention-days: 7
 
+      - *wipe-owned-credentials
+
   publish-release-notes:
     # Still publish-nightly's lock: the notes writes (notes/index.json and the
     # rest) have no compare-and-swap, so only that lock keeps an older build's
@@ -6329,16 +6391,20 @@ jobs:
     needs: [decide, publish-nightly, sign-release-notes, resolve-nightly-cmux-tui-client, pick-nightly-sign-runner]
     if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.sign-release-notes.result == 'success'"
     environment: ${{ needs.decide.outputs.environment }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
     # 70 for the work (an hour of it for API rate-limit waits) plus the lease's 60-minute wait.
-    timeout-minutes: 130
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 250 || 130 }}
     permissions:
       contents: read
     steps:
+      # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
+      - *hold-the-whole-mac
+      - *clean-owned-workdir
       - *checkout-step
       # The wrapper comes from the workflow commit: the build checkout may predate it.
       # The publication-tooling shape test_nightly_cmux_tui_resolve.py exempts: scripts only.
       - *checkout-the-gh-token-wrapper
+      - *claim-publication-mac
 
       - *gh-app-token-read
 
@@ -6376,6 +6442,8 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/release-notes-upload-to-r2.sh
       - *release-the-nightly-next-publi
 
+      - *wipe-owned-credentials
+
   # The nightly reel (scripts/cmux-next/media/reel.py): each pull request in this
   # build's signed notes with its tour's "after" clip and a title card, joined
   # into one video, and a page listing them, on the pr-media branch at
@@ -6385,8 +6453,8 @@ jobs:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-release-notes, pick-nightly-sign-runner]
     if: "!cancelled() && github.repository_owner == 'manaflow-ai' && needs.decide.outputs.track == 'nightly-next' && needs.publish-release-notes.result == 'success'"
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
-    timeout-minutes: 90
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 210 || 90 }}
     # The private-terms secret lives only in this environment, which admits only
     # the protected branches (main, feat-cmux-next, nightly-next).
     environment: pr-media
@@ -6397,6 +6465,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
+      - *hold-the-whole-mac
+      - *clean-owned-workdir
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
@@ -6404,10 +6475,14 @@ jobs:
           sparse-checkout: |
             scripts
             .github/actions/pr-media-publish
+      - *checkout-the-gh-token-wrapper
+      - *claim-publication-mac
       - *wait-through-github-api-rate-l
 
       - *download-artifact-step
       - *older-tree-step-scripts-plain
+      # reel.py verifies the signed notes with release-notes.py.
+      - *openssl3-first
       - name: Install ffmpeg
         timeout-minutes: 10
         env:
@@ -6442,6 +6517,8 @@ jobs:
                 cell = f"[{pr.get('tour') or 'clip'}]({clip})" if clip.startswith("https://") else "no clip"
                 print(f"| #{pr['pr']} | {title} | {cell} |")
             PY
+
+      - *wipe-owned-credentials
 
   # A cancelled job (a timeout reports as cancelled) counts as a failure. On
   # nightly-next the signed release notes are part of the publication: a

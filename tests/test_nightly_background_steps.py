@@ -214,7 +214,10 @@ class BackgroundStepTests(unittest.TestCase):
             self.assertIn(condition, sentry["if"])
         self.assertNotIn("always()", sentry["if"])
         self.assertIs(sentry["continue-on-error"], True)
-        self.assertLessEqual(sentry["timeout-minutes"], 60)
+        # Its own limit; one-mini mode adds glaeda's capacity wait (tests/test_nightly_mini_gate_timeouts.py).
+        own = re.fullmatch(r"\$\{\{ vars\.CI_NIGHTLY_MINI != '' && (\d+) \|\| (\d+) \}\}", str(sentry["timeout-minutes"]))
+        self.assertTrue(own, sentry["timeout-minutes"])
+        self.assertLessEqual(int(own.group(2)), 60)
         self.assertEqual(sentry["permissions"], {"contents": "read", "actions": "read"})
         self.assertNotIn("cancel-in-progress", str(sentry))
         # Nothing waits for it.

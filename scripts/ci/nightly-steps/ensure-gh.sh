@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # nightly.yml: this job's steps call gh. Nightlies run on our own Mac minis, which have it from Homebrew
-# (/opt/homebrew/bin); a mini that lost it gets it back from Homebrew. A Linux runner (a job that still
-# waits for glaeda's exclusive class on hosted Ubuntu) installs it from the distro, else from
+# (/opt/homebrew/bin, or $HOMEBREW_PREFIX/bin); a mini that lost it gets it back from Homebrew. A Linux runner (a
+# fork's hosted Ubuntu) installs it from the distro, else from
 # cli.github.com's apt repo. Fail loudly if none works.
 set -uo pipefail
 command -v gh >/dev/null && exit 0
 if [ "$(uname -s)" = Darwin ]; then
-  brew=$(command -v brew || echo /opt/homebrew/bin/brew)
+  prefix="${HOMEBREW_PREFIX:-/opt/homebrew}"
+  brew=$(command -v brew || echo "$prefix/bin/brew")
   HOMEBREW_NO_AUTO_UPDATE=1 "$brew" install gh
-  if ! command -v gh >/dev/null && [ -x /opt/homebrew/bin/gh ] && [ -n "${GITHUB_PATH:-}" ]; then
-    echo /opt/homebrew/bin >> "$GITHUB_PATH"
+  if ! command -v gh >/dev/null && [ -x "$prefix/bin/gh" ] && [ -n "${GITHUB_PATH:-}" ]; then
+    echo "$prefix/bin" >> "$GITHUB_PATH"
     exit 0
   fi
 else
