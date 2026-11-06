@@ -1083,7 +1083,6 @@ impl Hub {
             tailnet_controller: std::sync::OnceLock::new(),
             briefs,
         });
-        let _ = hub.hub_ref.set(Arc::downgrade(&hub));
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
         }
@@ -1098,6 +1097,10 @@ impl Hub {
             hub.load_logs();
         }
         if tokio::runtime::Handle::try_current().is_ok() {
+            // A self-weak keeps worker threads from owning the hub forever. Install it only for
+            // runtime-backed hubs; tests that construct one outside Tokio retain a unique Arc so
+            // they can configure fields before entering their runtime.
+            let _ = hub.hub_ref.set(Arc::downgrade(&hub));
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             if !loading {

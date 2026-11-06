@@ -829,14 +829,13 @@ impl Hub {
                         for (id, row) in updates {
                             map.insert(id, row);
                         }
-                        if !changed.is_empty() || !gone.is_empty() {
-                            if let Some(current) =
+                        if (!changed.is_empty() || !gone.is_empty())
+                            && let Some(current) =
                                 self.peer(&peer).filter(|p| p.generation == generation)
-                            {
-                                current
-                                    .remote_rows_epoch
-                                    .fetch_add(1, std::sync::atomic::Ordering::Release);
-                            }
+                        {
+                            current
+                                .remote_rows_epoch
+                                .fetch_add(1, std::sync::atomic::Ordering::Release);
                         }
                         // Which generation of each session is current (`peer_snapshot.rs`), sent
                         // while the row swap is still held, so a page cannot observe a row before

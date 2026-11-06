@@ -208,8 +208,8 @@ fn lane2_update_resend_bench() {
     let churn = std::thread::spawn(move || {
         churn_start.wait();
         let mut list: Vec<Value> = (0..RESEND_ROWS).map(row).collect();
-        for i in 0..5 {
-            list[i]["updatedAt"] = json!(900 + i);
+        for (i, row) in list.iter_mut().enumerate().take(5) {
+            row["updatedAt"] = json!(900 + i);
         }
         let t = Instant::now();
         churn_hub.apply_peer_notice(
