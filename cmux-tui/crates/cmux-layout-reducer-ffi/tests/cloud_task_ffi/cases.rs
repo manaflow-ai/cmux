@@ -79,10 +79,14 @@ fn a_hand_offs_status_and_times() {
     assert_eq!(done, json!({"open": true, "running": false, "notice": {"key": "2:done", "outcome": "succeeded"}}));
     let (_, statuses) = call(c"cloud_task_handoff_statuses", &json!({}));
     assert_eq!(statuses["turnRuns"], json!(["starting", "running"]));
-    let (_, millis) = call(c"cloud_task_iso_millis", &json!({"text": "2026-10-20T10:00:00.000Z"}));
+    let (_, millis) = call(c"cloud_task_millis", &json!({"time": "2026-10-20T10:00:00.000Z"}));
     assert_eq!(millis["millis"], json!(1_792_490_400_000.0));
-    let (_, none) = call(c"cloud_task_iso_millis", &json!({"text": "yesterday"}));
-    assert_eq!(none["millis"], Value::Null);
+    // A number of milliseconds is taken as sent.
+    let (_, number) = call(c"cloud_task_millis", &json!({"time": 1_792_490_400_000u64}));
+    assert_eq!(number["millis"], json!(1_792_490_400_000.0));
+    for none in [json!("yesterday"), json!(null), json!(true)] {
+        assert_eq!(call(c"cloud_task_millis", &json!({"time": none})).1["millis"], Value::Null);
+    }
 }
 
 #[test]

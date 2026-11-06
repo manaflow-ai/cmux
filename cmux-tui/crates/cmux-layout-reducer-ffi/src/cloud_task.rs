@@ -50,7 +50,7 @@ struct Status {
 
 #[derive(Deserialize)]
 struct Time {
-    text: String,
+    time: serde_json::Value,
 }
 
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
@@ -85,10 +85,11 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             "turnEnds": handoff::TURN_ENDS,
             "turnRuns": handoff::TURN_RUNS,
         }),
-        // A store time (ISO 8601) as milliseconds since 1970; null when it is none.
-        b"cloud_task_iso_millis" => {
+        // A store time (a number of milliseconds, or ISO 8601) as milliseconds since 1970; null
+        // when it is neither.
+        b"cloud_task_millis" => {
             let time: Time = read(request)?;
-            json!({ "millis": handoff::iso_millis(&time.text) })
+            json!({ "millis": handoff::millis(&time.time) })
         }
         _ => return Err(ERR_INVALID),
     };

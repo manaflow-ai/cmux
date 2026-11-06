@@ -33,6 +33,16 @@ pub fn is_running(status: &str) -> bool {
     TURN_RUNS.contains(&status)
 }
 
+/// A store time as milliseconds since 1970: a number of milliseconds as sent, or an ISO 8601
+/// string ([`iso_millis`]); none for any other value.
+pub fn millis(time: &serde_json::Value) -> Option<f64> {
+    match time {
+        serde_json::Value::Number(number) => number.as_f64(),
+        serde_json::Value::String(text) => iso_millis(text),
+        _ => None,
+    }
+}
+
 /// A store time (`toISOString()`, or any ISO 8601 date and time with a zone) as milliseconds
 /// since 1970; none when it is no such time.
 pub fn iso_millis(text: &str) -> Option<f64> {

@@ -81,6 +81,9 @@ fn the_lists_times_are_read_as_the_store_sends_them() {
     assert_eq!(handoff::iso_millis("2026-10-20T10:00:00Z"), Some(1_792_490_400_000.0));
     assert_eq!(handoff::iso_millis("2026-10-20T12:00:00+02:00"), Some(1_792_490_400_000.0));
     assert_eq!(handoff::iso_millis("2024-02-29T00:00:00Z"), Some(1_709_164_800_000.0));
+    assert_eq!(handoff::millis(&json!(1_792_490_400_000u64)), Some(1_792_490_400_000.0));
+    assert_eq!(handoff::millis(&json!("2026-10-20T10:00:00Z")), Some(1_792_490_400_000.0));
+    assert_eq!(handoff::millis(&json!(null)), None);
     for wrong in ["yesterday", "2026-10-20", "2026-02-30T00:00:00Z", "2026-10-20T10:00:00", "2026-10-20T25:00:00Z"] {
         assert_eq!(handoff::iso_millis(wrong), None, "{wrong}");
     }
