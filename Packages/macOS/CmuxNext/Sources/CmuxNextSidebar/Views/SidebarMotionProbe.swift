@@ -38,6 +38,10 @@ public struct SidebarMotionFrame: Sendable {
     public var revision: UInt64
     /// A dropped drag still shows its look (`SidebarListView.settling`).
     public var settling: Bool
+    /// The keys whose row is closing its slot this frame (`SidebarRowView.closingEnd`: it left the list and
+    /// `RowMotion` shrinks it to its run top and fades it): their `views` entry is the closing view, so a film
+    /// sees a removed row shrink instead of vanish at the change.
+    public var closing: [String] = []
 }
 
 /// Samples the list once per display frame while on. Off by default; one
@@ -86,7 +90,12 @@ final class SidebarMotionProbe {
         var identity: [String: UInt] = [:]
         var selected: (key: String, frame: CGRect)?
         let fading = list.fadingRows.values.map { (key: $0.key, view: $0) }
-        for (key, view) in fading + list.rowViews.map({ (key: $0.key, view: $0.value) }) { // a live row wins over a fading one
+        // A row RowMotion closes leaves `rowViews` at the change and stays a subview until its close ends.
+        let closingViews = list.subviews.compactMap { $0 as? SidebarRowView }.filter { $0.closingEnd != nil && !$0.isHidden }
+        let closing = closingViews.map { (key: $0.key, view: $0) }
+        // A key listed again (a reopen) shows its live row: only keys with no live row are closing.
+        let closingKeys = closing.filter { list.rowViews[$0.key] == nil }.map { name(of: $0.key) }
+        for (key, view) in closing + fading + list.rowViews.map({ (key: $0.key, view: $0.value) }) { // a live row wins over a fading or closing one
             let name = name(of: key)
             let shown = Self.presented(view)
             views[name] = shown
@@ -106,7 +115,8 @@ final class SidebarMotionProbe {
                                          linkTimestamp: tick.timestamp, targetTimestamp: tick.targetTimestamp,
                                          refreshInterval: tick.refreshInterval, selectedKey: selected?.key, selection: selected?.frame,
                                          scale: list.window?.backingScaleFactor ?? 1, dragWorkMs: list.lastDragWorkMs,
-                                         revision: list.model.sectionsRevision, settling: list.settling != nil))
+                                         revision: list.model.sectionsRevision, settling: list.settling != nil,
+                                         closing: closingKeys))
         return true
     }
 

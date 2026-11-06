@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 584,
+  "count": 583,
   "sections": [
     {
       "id": "general",
@@ -557,7 +557,7 @@
           "title": "Computer Use Driver",
           "help": "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
           "kind": "choice",
-          "default": "legacy",
+          "default": "upstream",
           "group": "Computer Use",
           "values": [
             "legacy",
@@ -1085,14 +1085,6 @@
           "kind": "folder_list",
           "default": [],
           "group": "Folder Picker"
-        },
-        {
-          "key": "remote.enabled",
-          "title": "Use cmux Remote",
-          "help": "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts.",
-          "kind": "toggle",
-          "default": false,
-          "group": "cmux Remote"
         },
         {
           "key": "remote.endSharingOnQuit",

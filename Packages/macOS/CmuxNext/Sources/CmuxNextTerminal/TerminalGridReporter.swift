@@ -13,27 +13,40 @@ final class TerminalGridReporter {
     private weak var view: TerminalSurfaceView?
     /// The report going out now is a layout spring's final grid (the PTY owner sends it in the caller's turn).
     private var sendingFinal = false
-    private(set) lazy var coalescer = TerminalGridReportCoalescer { [weak self] in self?.deliver($0) }
+    private(set) lazy var coalescer = TerminalGridReportCoalescer(clock: clock) { [weak self] in self?.deliver($0) }
+    private let clock: any Clock<Duration>
 
-    init(view: TerminalSurfaceView) {
+    /// - Parameter clock: The coalescing window's clock; tests pass a manual one, so a drag needs no real sleep.
+    init(view: TerminalSurfaceView, clock: any Clock<Duration> = ContinuousClock()) {
         self.view = view
+        self.clock = clock
     }
 
     /// Whether a drag's grid waits in the coalescer's window.
     var isWaiting: Bool { coalescer.isWaiting }
-    /// A drag's grid waits for its size to show (asked of Ghostty, not shown yet).
-    private(set) var awaitsShown = false
+    /// A drag's grid that waits for its size to show (asked of Ghostty, not shown yet); nil when none waits.
+    private(set) var awaitingShown: TerminalGridSize?
 
     /// A drag's grid: coalesced when its size shows now (the bounds took it), else when the presenter shows it.
     func drag(_ grid: TerminalGridSize, shownNow: Bool) {
-        if shownNow { coalesced(grid) } else { awaitsShown = true }
+        if shownNow { coalesced(grid) } else { awaitingShown = grid }
     }
 
     /// The presenter's commit showed a size with its frame (``TerminalSurfaceView/frameDidLand()``): the grid that size
     /// fits goes, coalesced while the drag `live`s, else now (a size that landed after the drag ended).
     func shown(_ grid: TerminalGridSize?, live: Bool) {
-        guard awaitsShown, let grid else { return }
-        awaitsShown = false
+        guard awaitingShown != nil, let grid else { return }
+        awaitingShown = nil
+        if live { coalesced(grid) } else { now(grid) }
+    }
+
+    /// The presenter cancelled the size a drag's grid waited for (the view was hidden, or left its window, before its
+    /// frame landed): the view took that size's bounds without it, and its geometry counts that grid as reported, so the
+    /// grid goes now (coalesced while the drag `live`s). Without this the program kept an older grid until the next
+    /// resize (review of #36631). Nothing shows the size either way: the view is hidden or gone.
+    func shownCancelled(live: Bool) {
+        guard let grid = awaitingShown else { return }
+        awaitingShown = nil
         if live { coalesced(grid) } else { now(grid) }
     }
 
@@ -44,7 +57,7 @@ final class TerminalGridReporter {
 
     /// `grid` goes now; a grid that waits is older and is dropped. `final`: a layout spring's final grid.
     func now(_ grid: TerminalGridSize, final: Bool = false) {
-        awaitsShown = false // a size that waits to show is older than this grid; its landing sends nothing after it
+        awaitingShown = nil // a size that waits to show is older than this grid; its landing sends nothing after it
         sendingFinal = final
         defer { sendingFinal = false }
         coalescer.reportNow(grid)
