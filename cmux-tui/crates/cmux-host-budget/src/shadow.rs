@@ -11,14 +11,15 @@
 //! `unknown` while the host reads nothing for it. Each sample is classed first:
 //! - CPU is hot at load1 per core >= 1.25 or PSI cpu `some avg10` >= 30; calm
 //!   at load1 per core <= 0.90 with PSI cpu, when read, <= 15; else warm.
-//! - Memory is severe only at pressure `critical`. It is hot at swap growth
-//!   >= 64 MB/min, available (free plus compressible) under 8%, swap at least
-//!   90% full with available under 15%, or pressure `warn` with available under
-//!   15%. Pressure `warn` alone is warm: macOS reports it for long stretches
-//!   with plenty available, so it saturates nothing by itself. Calm is pressure
-//!   `normal` or unread, swap growth <= 16 MB/min or unread, and available read
-//!   and >= 15%; anything else is warm. With neither pressure nor available
-//!   read, only swap growth speaks: hot at its line, else unknown.
+//! - Memory is severe only at pressure `critical`. It is hot at a swap growth
+//!   of 64 MB/min or more, with available (free plus compressible) under 8%,
+//!   with swap at least 90% full and available under 15%, or at pressure `warn`
+//!   with available under 15%. Pressure `warn` alone is warm: macOS reports it
+//!   for long stretches with plenty available, so it saturates nothing by
+//!   itself. Calm is pressure `normal` or unread, a swap growth of 16 MB/min or
+//!   less or unread, and available read and at least 15%; anything else is
+//!   warm. With neither pressure nor available read, only swap growth speaks:
+//!   hot at its line, else unknown.
 //!
 //! A signal enters `saturated` on one severe sample or two hot samples in a row,
 //! and leaves it after three calm samples in a row. Outside `saturated`, a hot
