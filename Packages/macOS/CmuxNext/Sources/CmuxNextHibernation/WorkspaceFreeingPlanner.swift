@@ -9,8 +9,11 @@ public import Foundation
 /// the saved screen). A terminal frees only when every fact holds; an unknown fact keeps it running:
 ///
 /// - the workspace is hibernated, not shown, not pinned and not kept awake;
-/// - the shell sits at its prompt (OSC 133 A) with no command running, and printed nothing since;
-/// - no program reports a status in it (OSC 7501: an agent keeps it), and no client is attached;
+/// - the shell sits at its prompt (OSC 133 A) with no command running, and printed nothing since; with
+///   ``Policy/runningCommands`` `relaunch` a running command frees too (showing the tab types it again), and with
+///   `never` one keeps every terminal of its workspace;
+/// - no program reports a status in it (OSC 7501), and no client is attached; an agent TUI frees only when it is
+///   ``Terminal/Agent/resumable`` and ``Policy/agents`` is on (showing the tab resumes the session);
 /// - it is this Mac's terminal (never an ssh or Cloud machine's);
 /// - the workspace and the prompt are both older than ``Policy/idleMinutes``.
 ///
@@ -115,14 +118,23 @@ public nonisolated struct WorkspaceFreeingPlanner: Sendable {
             self.commandSince = commandSince
         }
 
-        /// Whether a fact keeps it running whatever its age.
-        var isKept: Bool {
-            !hibernated || workspaceKept || promptSince == nil || programReported || attached || !local || ended
+        /// A command of the person's (not an agent TUI) runs in it.
+        var runsCommand: Bool { agent == nil && commandSince != nil }
+
+        /// Whether a fact keeps it running whatever its age, under `policy`.
+        func isKept(_ policy: Policy) -> Bool {
+            if !hibernated || workspaceKept || attached || !local || ended { return true }
+            if let agent { return !(policy.agents && agent == .resumable) }
+            if programReported { return true }
+            if runsCommand { return policy.runningCommands != .relaunch }
+            return promptSince == nil
         }
 
-        /// When it was last used: the newest of the workspace's use, the prompt and the last output.
+        /// When it was last used: the newest of the workspace's use, the prompt, the running command's start and
+        /// the last output.
         func lastUse(now: Date) -> Date {
-            [workspaceLastActive ?? now, promptSince ?? now, lastOutput].compactMap(\.self).max() ?? now
+            let prompt = agent == nil && commandSince == nil ? promptSince ?? now : promptSince
+            return [workspaceLastActive ?? now, prompt, commandSince, lastOutput].compactMap(\.self).max() ?? now
         }
     }
 
@@ -148,7 +160,9 @@ public nonisolated struct WorkspaceFreeingPlanner: Sendable {
         let idle = max(policy.idleMinutes, 1) * 60
         var due: [(String, Date)] = []
         var next: Date?
-        for terminal in terminals where !terminal.isKept {
+        // `never`: a command the person runs keeps its whole workspace awake, as a running workspace always did.
+        let busy: Set<String> = policy.runningCommands == .relaunch ? [] : Set(terminals.filter(\.runsCommand).map(\.workspace))
+        for terminal in terminals where !terminal.isKept(policy) && !busy.contains(terminal.workspace) {
             let used = terminal.lastUse(now: now)
             let deadline = used.addingTimeInterval(idle)
             if deadline <= now {

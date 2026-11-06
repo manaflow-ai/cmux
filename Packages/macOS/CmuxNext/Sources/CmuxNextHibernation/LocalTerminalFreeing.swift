@@ -22,7 +22,8 @@ public final class LocalTerminalFreeing: WorkspaceTerminalFreeing {
             WorkspaceFreeingPlanner.Terminal(
                 surface: tab.surface, workspace: tab.workspace, workspaceLastActive: tab.workspaceLastActive,
                 workspaceKept: tab.workspaceKept, promptSince: tab.promptSince, lastOutput: tab.lastOutput,
-                programReported: tab.programReported, local: tab.local, ended: tab.ended)
+                programReported: tab.programReported, local: tab.local, ended: tab.ended,
+                agent: tab.runsAgent ? (tab.agentResumable ? .resumable : .working) : nil, commandSince: tab.commandSince)
         }
     }
 

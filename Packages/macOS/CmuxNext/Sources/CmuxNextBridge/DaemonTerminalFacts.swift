@@ -21,4 +21,11 @@ public nonisolated struct DaemonTerminalFacts: Hashable, Sendable {
     public var local: Bool
     /// The shell already ended or the tab is already parked.
     public var ended: Bool
+    /// A Claude Code or Codex TUI runs in it.
+    public var runsAgent: Bool = false
+    /// That agent is idle (no turn, nothing waits on the person) and its session id is recorded: showing the tab
+    /// resumes it.
+    public var agentResumable: Bool = false
+    /// When the command that runs now started; nil: none runs, or the shell sends no OSC 133.
+    public var commandSince: Date?
 }

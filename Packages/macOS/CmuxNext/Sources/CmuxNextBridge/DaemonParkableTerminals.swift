@@ -36,15 +36,19 @@ public final class DaemonParkableTerminals {
         return store.workspaces.filter { workspaces.contains($0.id) }.flatMap { workspace in
             let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             let facts = WorkspaceActivityFacts(workspace, tabs: tabs)
+            let working = StatusMapping.shared.isWorking(tabs: tabs)
             return tabs.filter { $0.kind == .pty }.map { tab in
                 DaemonTerminalFacts(
                     surface: tab.surface.description, workspace: workspace.id, workspaceLastActive: facts.lastActivity,
-                    workspaceKept: facts.pinned || facts.running || facts.needsAttention,
+                    // A running command is the planner's per-terminal fact (workspaces.freeing.runningCommands);
+                    // agent work and a question for the person keep the workspace.
+                    workspaceKept: facts.pinned || working || facts.needsAttention,
                     // A running command clears the prompt: only a shell at its prompt has one.
                     promptSince: tab.commandSinceMs == nil ? date(tab.promptSinceMs) : nil,
                     lastOutput: date(tab.lastOutputMs),
                     programReported: !tab.programStatus.isEmpty || tab.agent != nil,
-                    local: tab.remote == nil, ended: tab.dead)
+                    local: tab.remote == nil, ended: tab.dead, runsAgent: tab.agent != nil,
+                    agentResumable: resumable(tab), commandSince: date(tab.commandSinceMs))
             }
         }
     }
@@ -63,6 +67,13 @@ public final class DaemonParkableTerminals {
             }
         }
     }
+}
+
+/// An agent the person is not waiting on and whose session a respawn resumes (`claude --resume`, `codex resume`).
+@MainActor
+private func resumable(_ tab: TabModel) -> Bool {
+    guard let agent = tab.agent, agent.harnessSessionID != nil, tab.attention == nil else { return false }
+    return agent.state == .idle || agent.state == .done
 }
 
 /// A daemon time in Unix milliseconds as a date.
