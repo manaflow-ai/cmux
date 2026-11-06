@@ -94,6 +94,7 @@ fn personal_rows(mux: &Arc<Mux>) -> usize {
 /// so a group slot counts it from the start.
 #[test]
 fn a_new_workspace_gets_a_personal_row_at_create() {
+    let _top = crate::user_settings::NewWorkspacePlacement::Top.set_for_test();
     let session = Session::new("mixed-create");
     let mux = session.open();
     let before = personal_rows(&mux);
