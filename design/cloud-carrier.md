@@ -105,12 +105,22 @@ What's new is small:
    - It needs one change. Today a `Connect` that arrives before the daemon is answered `daemon-offline`
      (`slot.rs:357`), which makes the client retry. The slot will instead park the Connect, within its
      existing pending-allocation limit, and allocate it the moment the daemon registers.
-2. **The machine's keys travel in its signed bind record.** At bind, the VM generates its daemon's Noise
-   static key and sends the public half. The platform signs it into the machine record (the existing
-   Ed25519 keyset). The Mac pins it before its first handshake. The person's device key goes the other
-   way: the platform-signed grant names it, and the daemon checks it locally against the keyset it
-   already has.
-3. **The Mac's Cloud connection is a cmux-remote client** in the cmux-tui process the app already runs.
+2. **The machine's keys travel in its signed bind record.** At bind, the VM sends its daemon's Noise
+   static public key. The platform stores it in the machine record and hands it to the Mac, which pins it
+   (`ClientHandshake.expected_daemon`) before its first handshake.
+3. **The Mac proves who it is with a carrier grant.** This is a new cmux-remote client auth mode,
+   beside `Enrolled`, `Invitation` and `Carrier` (`cmux-remote/src/crypto.rs:78`).
+   - The grant is a compact JWS signed with the same Ed25519 keyset as today's link tokens
+     (`P:cloud/LinkToken.ts`), typed `cmux-carrier+jwt`.
+   - It names the machine, the team, the person, the services, an expiry of at most 300 s, a `jti`, and
+     the SHA-256 of the Mac's Noise static public key.
+   - The Mac sends it in the handshake payload. The daemon verifies it locally against the keyset
+     `cmux-link` already fetches and caches (`cmux-link/src/keyset.rs`), refuses it on replay, and checks
+     that the key it names is the one that just finished the Noise handshake. Its services become the
+     session's `ServiceAuthority`.
+   - The grant only admits a session. An established session outlives it, so a slow platform read can't
+     drop a session, and revocation is a pushed retire.
+4. **The Mac's Cloud connection is a cmux-remote client** in the cmux-tui process the app already runs.
    It's Rust. The Swift side only shows its state.
 
 ### One readiness event, pushed
@@ -210,9 +220,9 @@ Each slice is about 800 changed lines and reports before-and-after connect times
 1. **This doc.**
 2. **The relay waits for the daemon.** `cloudflare-do`'s slot parks a Connect until Register, with a test
    showing a client that connects before the daemon gets paired, with no retry.
-3. **Platform:** deploy the relay, mint Register and Connect tickets from the install and person tokens,
+3. **Platform:** deploy the relay, mint Register and Connect tickets and carrier grants from the install and person tokens,
    and push readiness on the state socket.
-4. **Guest:** the session host registers its relay route at boot, and the bind carries the daemon key.
+4. **Guest:** the session host registers its relay route at boot, the bind carries the daemon key, and the daemon accepts carrier grants.
 5. **Mac:** the app's Cloud connection runs as a cmux-remote client with one deadline. Chat goes over
    `MuxControl`. This is the first start-matrix carrier row.
 6. **Files and secrets:** folder copy, seed, login copy and `secrets-v1` move onto the session. The flag
