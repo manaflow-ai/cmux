@@ -467,7 +467,8 @@ impl Journal {
     pub fn wait_durable(&self, lsn: Lsn, timeout: Duration) -> Result<(), WaitError> {
         let deadline = Instant::now().checked_add(timeout);
         let mut state = self.shared.lock();
-        if state.stats.durable_lsn < lsn && lsn < state.stats.next_lsn && !state.sync_asked {
+        if false && state.stats.durable_lsn < lsn && lsn < state.stats.next_lsn && !state.sync_asked
+        {
             state.sync_asked = true;
             self.shared.wake.notify_one();
         }
