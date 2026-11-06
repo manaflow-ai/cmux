@@ -25,6 +25,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             prompt: "hi there".into(),
             agent: "claude".into(),
             cwd: None,
+            login: None,
             machine: Machine::New,
             wait: false,
             timeout: Duration::from_secs(900),
@@ -65,10 +66,30 @@ fn parse_refuses_what_start_session_would() {
         vec!["--prompt", "x", "--timeout", "soon"],
         vec!["--prompt", "x", "--bogus"],
         vec!["--prompt"],
+        vec!["--prompt", "x", "--login", "github"],
+        vec!["--prompt", "x", "--login", ""],
+        vec!["--prompt", "x", "--login"],
     ] {
         assert!(parse(&strings(&words), || Ok(String::new())).is_err(), "{words:?}");
     }
     assert_eq!(parse(&strings(&["--help"]), || Ok(String::new())), Ok(Parsed::Help));
+}
+
+/// Leo (2026-11-06): one command line, in conjunction with "login with Claude or login with Codex or login with
+/// nothing at all": `--login` takes the words `cloud start-session` takes, in any case.
+#[test]
+fn parse_takes_the_harness_login() {
+    for (word, login) in
+        [("pass", "pass"), ("machine", "machine"), ("none", "none"), ("None", "none")]
+    {
+        assert_eq!(
+            request(&["--prompt", "x", "--login", word]).login.as_deref(),
+            Some(login),
+            "{word}"
+        );
+    }
+    assert_eq!(request(&["--prompt", "x", "--login=machine"]).login.as_deref(), Some("machine"));
+    assert_eq!(request(&["--prompt", "x"]).login, None);
 }
 
 #[test]
@@ -116,6 +137,58 @@ fn again_command_quotes_every_word() {
         again_command(&asked, &Machine::Named("chat-1".into())),
         "cmux cloud start-chat --name chat-1 --agent codex --cwd '/a b' --prompt 'it'\\''s done' --wait --json"
     );
+    let asked = request(&["--prompt", "x", "--login", "none"]);
+    assert_eq!(
+        again_command(&asked, &Machine::Target("vm-1".into())),
+        "cmux cloud start-chat --target machine:vm-1 --login none --prompt x --json"
+    );
+}
+
+#[test]
+fn the_login_goes_to_start_session_and_the_relay_chat() {
+    for (agent, login) in [("claude", "pass"), ("codex", "machine"), ("claude", "none")] {
+        // The link path: start-session takes it.
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            started(),
+            exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        ]);
+        let asked =
+            request(&["--prompt", "x", "--name", "dev", "--agent", agent, "--login", login]);
+        let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+        assert_eq!(
+            fake.ran[1],
+            strings(&[
+                "cloud",
+                "start-session",
+                "--name",
+                "dev",
+                "--agent",
+                agent,
+                "--login",
+                login,
+                "--json"
+            ])
+        );
+        // The relay path: relay-chat takes it, before the send.
+        let mut fake = Fake::new(vec![signed_in(), made(), relayed(json!({"session_id": "r-1"}))]);
+        let asked = request(&["--prompt", "x", "--agent", agent, "--login", login, "--wait"]);
+        let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+        let relay = &fake.ran[2];
+        assert_eq!(&relay[..2], &strings(&["cloud", "relay-chat"]));
+        let at = relay.iter().position(|word| word == "--login").expect("relay-chat gets --login");
+        assert_eq!(relay[at + 1], login);
+    }
+    // No --login: neither step gets one, so the app's default holds.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(_) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"])) else {
+        panic!()
+    };
+    assert!(!fake.ran[1].contains(&"--login".to_owned()));
 }
 
 /// A fake app: answers each step from a queue and records what ran.
@@ -906,7 +979,15 @@ fn a_timeout_shorter_than_the_relay_window_goes_the_link_way() {
 /// ArgumentActionContractTests validate against its catalog).
 pub(in crate::cli) fn contract_relay_words() -> Vec<String> {
     let mut fake = Fake::new(vec![signed_in(), made(), relayed(json!({"session_id": "relay-1"}))]);
-    let asked = request(&["--prompt", "What is 2+2?", "--cwd", "/home/cmux/w", "--wait"]);
+    let asked = request(&[
+        "--prompt",
+        "What is 2+2?",
+        "--cwd",
+        "/home/cmux/w",
+        "--login",
+        "none",
+        "--wait",
+    ]);
     let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     let words = fake.ran[2].clone();
     assert_eq!(&words[..2], &strings(&["cloud", "relay-chat"]), "{:?}", fake.ran);
