@@ -37,6 +37,8 @@ let package = Package(
                 .linkedFramework("ScreenCaptureKit"),
                 .linkedFramework("ImageIO"),
                 .linkedFramework("AppKit"),
+                .linkedFramework("VideoToolbox"),
+                .linkedFramework("CoreMedia"),
             ]
         ),
         .executableTarget(name: "cmux-cu-service", dependencies: ["CmuxCUEngine"], swiftSettings: swiftSettings),

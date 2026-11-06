@@ -20,6 +20,8 @@ struct AXNodeInfo: Sendable, Equatable {
     var valueSettable = false
     var frame: CGRect?
     var actions: [String] = []
+    /// False when the action names were not asked for (a passive role).
+    var actionsKnown = false
     var depth = 0
 }
 
@@ -44,6 +46,12 @@ struct AXTreeWalker: Sendable {
         kAXDescriptionAttribute, kAXValueAttribute, kAXIdentifierAttribute, kAXHelpAttribute,
         kAXEnabledAttribute, kAXFocusedAttribute, kAXSelectedAttribute, kAXChildrenAttribute,
         kAXPositionAttribute, kAXSizeAttribute,
+    ]
+    /// Roles that never take an action of their own: their action names are
+    /// not asked for, which saves one round trip to the app per such node.
+    static let passiveRoles: Set<String> = [
+        kAXStaticTextRole, kAXImageRole, kAXGroupRole, kAXSplitGroupRole, kAXSplitterRole, "AXLayoutArea",
+        "AXLayoutItem", kAXUnknownRole, kAXValueIndicatorRole, kAXMenuBarRole, kAXRowRole, kAXColumnRole,
     ]
     /// Roles whose value an agent may set (only these pay the settable probe).
     static let editableRoles: Set<String> = [
@@ -158,7 +166,12 @@ struct AXTreeWalker: Sendable {
         if let origin = point(present(12)), let extent = size(present(13)) {
             info.frame = CGRect(origin: origin, size: extent)
         }
-        info.actions = element.actionNames
+        if let role = info.role, passiveRoles.contains(role) {
+            info.actionsKnown = false
+        } else {
+            info.actions = element.actionNames
+            info.actionsKnown = true
+        }
         if let role = info.role, editableRoles.contains(role) {
             info.valueSettable = element.isSettable(kAXValueAttribute)
         }

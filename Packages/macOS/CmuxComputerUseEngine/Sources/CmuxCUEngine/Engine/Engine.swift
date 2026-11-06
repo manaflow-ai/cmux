@@ -28,6 +28,8 @@ public final class Engine: @unchecked Sendable {
     let directory = AppDirectory()
     let sessions = AppSessions()
     let capture = WindowCapture()
+    let streams = WindowStreams()
+    var visualSettle = VisualSettlePolicy()
     let encoder = JPEGEncoder()
     let monitor = AppActivityMonitor()
     let input = InputSynth()
@@ -106,14 +108,24 @@ public final class Engine: @unchecked Sendable {
         return result
     }
 
+    /// The window's latest streamed frame (started on first use); a one-shot
+    /// ScreenCaptureKit screenshot when the window cannot be streamed.
     private func captureJPEG(_ window: WindowInfo?, _ geometry: ScreenshotGeometry?) async throws -> (Data, Double, Double)? {
         guard let window, let geometry else { return nil }
         let clock = ContinuousClock()
         let start = clock.now
-        let captured = try await capture.capture(windowID: window.id, pixelWidth: geometry.pixelWidth,
-                                                 pixelHeight: geometry.pixelHeight)
+        var image: CGImage?
+        if let stream = await streams.stream(windowID: window.id, pixelWidth: geometry.pixelWidth,
+                                             pixelHeight: geometry.pixelHeight) {
+            image = stream.image()
+        }
+        if image == nil {
+            image = try await capture.capture(windowID: window.id, pixelWidth: geometry.pixelWidth,
+                                              pixelHeight: geometry.pixelHeight).image
+        }
+        guard let image else { return nil }
         let captureDone = clock.now
-        let data = try encoder.encode(captured.image)
+        let data = try encoder.encode(image)
         return (data, ms(captureDone - start), ms(clock.now - captureDone))
     }
 
@@ -142,13 +154,25 @@ public final class Engine: @unchecked Sendable {
     }
 
     /// Runs `act`, waits for the app to settle, and returns the new state.
-    func acting(app query: String, pid: pid_t, _ note: String, act: () throws -> Void) async throws -> ToolResult {
+    func acting(app query: String, pid: pid_t, window: WindowInfo? = nil, geometry: ScreenshotGeometry? = nil,
+                _ note: String, act: () throws -> Void) async throws -> ToolResult {
         let clock = ContinuousClock()
         monitor.watch(pid: pid)
+        // The window's stream must be running before the action, so its first
+        // new frame is the action's effect.
+        var stream: WindowStream?
+        if let window, let geometry {
+            stream = await streams.stream(windowID: window.id, pixelWidth: geometry.pixelWidth, pixelHeight: geometry.pixelHeight)
+        }
         let start = clock.now
         try act()
         let actMs = ms(clock.now - start)
-        let (outcome, waited) = await monitor.settle(pid: pid, since: start, policy: settle)
+        let (outcome, waited): (SettleOutcome, Duration)
+        if let stream {
+            (outcome, waited) = await settleVisually(stream: stream, pid: pid, since: start)
+        } else {
+            (outcome, waited) = await monitor.settle(pid: pid, since: start, policy: settle)
+        }
         var result = try await state(app: query)
         result.blocks.insert(.text(note), at: 0)
         result.timings["act_ms"] = actMs
@@ -157,21 +181,41 @@ public final class Engine: @unchecked Sendable {
         return result
     }
 
+    /// Polls the stream's last frame time and the app's last notification
+    /// time (4 ms granularity) until `visualSettle` says the action settled.
+    func settleVisually(stream: WindowStream, pid: pid_t, since start: ContinuousClock.Instant) async -> (SettleOutcome, Duration) {
+        let clock = ContinuousClock()
+        while true {
+            let now = clock.now
+            let frame = stream.lastFrameAt.flatMap { $0 > start ? now - $0 : nil }
+            let ax = monitor.lastEventTime(pid: pid).flatMap { $0 > start ? now - $0 : nil }
+            if let outcome = visualSettle.outcome(elapsed: now - start, sinceFrame: frame, sinceAX: ax) {
+                return (outcome, now - start)
+            }
+            try? await Task.sleep(for: .milliseconds(4), tolerance: .milliseconds(1), clock: clock)
+        }
+    }
+
     func click(app: String, index: Int?, x: Double?, y: Double?, button: PointerButton, count: Int) async throws -> ToolResult {
         let target = try await self.target(app: app, index: index)
         let pid = target.snapshot.app.pid
         if let element = target.element {
             let info = element.info
             // A plain left click on a pressable element is AXPress: exact,
-            // works on background windows, and moves no pointer.
-            if button == .left, count == 1, info.actions.contains(kAXPressAction) {
-                return try await acting(app: app, pid: pid, "Clicked element \(index ?? -1).") {
+            // works on background windows, and moves no pointer. An element
+            // whose actions were not read gets AXPress tried first, and a
+            // pointer click at its centre when it refuses.
+            if button == .left, count == 1, info.actions.contains(kAXPressAction) || !info.actionsKnown {
+                let center = info.frame.map { CGPoint(x: $0.midX, y: $0.midY) }
+                return try await acting(app: app, pid: pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Clicked element \(index ?? -1).") {
                     let error = element.element.perform(kAXPressAction)
-                    if error != .success { throw EngineError("AXPress failed on element \(index ?? -1) (\(error.rawValue))") }
+                    guard error != .success else { return }
+                    guard let center else { throw EngineError("element \(index ?? -1) refused AXPress (\(error.rawValue)) and has no frame") }
+                    input.click(at: center, pid: pid, windowNumber: target.snapshot.window?.id, button: .left, count: 1)
                 }
             }
             if button == .right, info.actions.contains(kAXShowMenuAction) {
-                return try await acting(app: app, pid: pid, "Opened the menu of element \(index ?? -1).") {
+                return try await acting(app: app, pid: pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Opened the menu of element \(index ?? -1).") {
                     element.element.perform(kAXShowMenuAction)
                 }
             }
@@ -179,7 +223,7 @@ public final class Engine: @unchecked Sendable {
                 throw EngineError("element \(index ?? -1) has no frame to click")
             }
             let point = CGPoint(x: frame.midX, y: frame.midY)
-            return try await acting(app: app, pid: pid, "Clicked element \(index ?? -1).") {
+            return try await acting(app: app, pid: pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Clicked element \(index ?? -1).") {
                 input.click(at: point, pid: pid, windowNumber: target.snapshot.window?.id, button: button, count: count)
             }
         }
@@ -187,7 +231,7 @@ public final class Engine: @unchecked Sendable {
             throw EngineError("click needs element_index, or x and y in the last screenshot's pixels")
         }
         let point = geometry.globalPoint(x: x, y: y)
-        return try await acting(app: app, pid: pid, "Clicked at (\(Int(x)), \(Int(y))).") {
+        return try await acting(app: app, pid: pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Clicked at (\(Int(x)), \(Int(y))).") {
             input.click(at: point, pid: pid, windowNumber: target.snapshot.window?.id, button: button, count: count)
         }
     }
@@ -196,19 +240,19 @@ public final class Engine: @unchecked Sendable {
         let spec = try KeySpec(parsing: key)
         let target = try await self.target(app: app, index: nil)
         let pid = target.snapshot.app.pid
-        return try await acting(app: app, pid: pid, "Pressed \(key).") { input.key(spec, pid: pid) }
+        return try await acting(app: app, pid: pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Pressed \(key).") { input.key(spec, pid: pid) }
     }
 
     func typeText(app: String, text: String) async throws -> ToolResult {
         let target = try await self.target(app: app, index: nil)
         let pid = target.snapshot.app.pid
-        return try await acting(app: app, pid: pid, "Typed \(text.count) characters.") { input.type(text, pid: pid) }
+        return try await acting(app: app, pid: pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Typed \(text.count) characters.") { input.type(text, pid: pid) }
     }
 
     func setValue(app: String, index: Int, value: String) async throws -> ToolResult {
         let target = try await self.target(app: app, index: index)
         guard let element = target.element else { throw EngineError("set_value needs element_index") }
-        return try await acting(app: app, pid: target.snapshot.app.pid, "Set the value of element \(index).") {
+        return try await acting(app: app, pid: target.snapshot.app.pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Set the value of element \(index).") {
             let error = element.element.set(kAXValueAttribute, value as CFString)
             if error != .success { throw EngineError("element \(index) refused the value (\(error.rawValue))") }
         }
@@ -222,7 +266,7 @@ public final class Engine: @unchecked Sendable {
         let location = whole.utf16.distance(from: whole.utf16.startIndex, to: range.lowerBound)
         var cfRange = CFRange(location: location, length: text.utf16.count)
         guard let value = AXValueCreate(.cfRange, &cfRange) else { throw EngineError("could not make the range") }
-        return try await acting(app: app, pid: target.snapshot.app.pid, "Selected \"\(text)\" in element \(index).") {
+        return try await acting(app: app, pid: target.snapshot.app.pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Selected \"\(text)\" in element \(index).") {
             element.element.set(kAXSelectedTextRangeAttribute, value)
         }
     }
@@ -230,11 +274,16 @@ public final class Engine: @unchecked Sendable {
     func secondaryAction(app: String, index: Int, action: String) async throws -> ToolResult {
         let target = try await self.target(app: app, index: index)
         guard let element = target.element else { throw EngineError("perform_secondary_action needs element_index") }
-        guard let ax = TreeRenderer.axAction(named: action, in: element.info) else {
-            let offered = element.info.actions.compactMap(TreeRenderer.secondaryName)
+        var info = element.info
+        if !info.actionsKnown {
+            info.actions = element.element.actionNames
+            info.actionsKnown = true
+        }
+        guard let ax = TreeRenderer.axAction(named: action, in: info) else {
+            let offered = info.actions.compactMap(TreeRenderer.secondaryName)
             throw EngineError("element \(index) has no action \"\(action)\" (it offers: \(offered.joined(separator: ", ")))")
         }
-        return try await acting(app: app, pid: target.snapshot.app.pid, "Performed \(action) on element \(index).") {
+        return try await acting(app: app, pid: target.snapshot.app.pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Performed \(action) on element \(index).") {
             element.element.perform(ax)
         }
     }
@@ -253,7 +302,7 @@ public final class Engine: @unchecked Sendable {
         default: throw EngineError("direction must be up, down, left or right")
         }
         let point = CGPoint(x: frame.midX, y: frame.midY)
-        return try await acting(app: app, pid: pid, "Scrolled \(direction).") {
+        return try await acting(app: app, pid: pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Scrolled \(direction).") {
             input.scroll(at: point, dx: dx, dy: dy, pid: pid, windowNumber: target.snapshot.window?.id)
         }
     }
@@ -264,7 +313,7 @@ public final class Engine: @unchecked Sendable {
         let pid = target.snapshot.app.pid
         let start = geometry.globalPoint(x: from.0, y: from.1)
         let end = geometry.globalPoint(x: to.0, y: to.1)
-        return try await acting(app: app, pid: pid, "Dragged.") {
+        return try await acting(app: app, pid: pid, window: target.snapshot.window, geometry: target.snapshot.geometry, "Dragged.") {
             input.drag(from: start, to: end, pid: pid, windowNumber: target.snapshot.window?.id)
         }
     }

@@ -44,6 +44,30 @@ import Testing
     }
 }
 
+@Suite struct VisualSettlePolicyTests {
+    let policy = VisualSettlePolicy(visualQuiet: .milliseconds(48), visualIdle: .milliseconds(100),
+                                    axQuiet: .milliseconds(32), ceiling: .milliseconds(800))
+
+    @Test func aDrawnChangeSettlesOnceTheWindowStopsDrawing() {
+        #expect(policy.outcome(elapsed: .milliseconds(60), sinceFrame: .milliseconds(10), sinceAX: nil) == nil)
+        #expect(policy.outcome(elapsed: .milliseconds(90), sinceFrame: .milliseconds(48), sinceAX: nil) == .quiet)
+    }
+
+    @Test func noFrameAtAllMeansNothingVisibleChanged() {
+        #expect(policy.outcome(elapsed: .milliseconds(99), sinceFrame: nil, sinceAX: nil) == nil)
+        #expect(policy.outcome(elapsed: .milliseconds(100), sinceFrame: nil, sinceAX: nil) == .idle)
+    }
+
+    @Test func recentAccessibilityNotificationsHoldTheWait() {
+        #expect(policy.outcome(elapsed: .milliseconds(200), sinceFrame: .milliseconds(100), sinceAX: .milliseconds(5)) == nil)
+        #expect(policy.outcome(elapsed: .milliseconds(200), sinceFrame: .milliseconds(100), sinceAX: .milliseconds(40)) == .quiet)
+    }
+
+    @Test func anAnimatingWindowEndsAtTheCeiling() {
+        #expect(policy.outcome(elapsed: .milliseconds(800), sinceFrame: .milliseconds(1), sinceAX: .milliseconds(1)) == .ceiling)
+    }
+}
+
 @Suite struct GeometryTests {
     @Test func retinaWindowKeepsTwoPixelsPerPoint() {
         let geometry = ScreenshotGeometry(windowFrame: CGRect(x: 100, y: 50, width: 230, height: 408),
