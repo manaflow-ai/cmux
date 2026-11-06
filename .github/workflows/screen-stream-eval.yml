@@ -26,6 +26,7 @@ permissions: {}
 jobs:
   eval:
     if: false
-    runs-on: ubuntu-24.04
+    # Never runs; the runner guards still read it: the declared 2 vCPU Linux pool, a fork's hosted label.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     steps:
       - run: echo "The screen stream eval runs from feat-cmux-next."
