@@ -12,12 +12,16 @@ nonisolated enum RenamedSettingKeys {
         // `agentPane.display.sessionInfo.placement` replaced `agentPane.display.inspector.placement`, the
         // panel's old name (Leo, 2026-11-01: "WHY THE F***ING HAS IT STILL BEEN CALLED INSPECTOR").
         if path == AgentPaneDisplaySettingsSchema.sessionInfoPlacementPath { return AgentPaneDisplaySettingsSchema.legacySessionInfoPlacementPath }
+        // `computerUse.mode` replaced the on/off switch `computerUse.enabled` (cmux Computer Use,
+        // 2026-11-05): an old `"enabled": false` reads as mode "off" until the person picks a mode.
+        if path == ComputerUseSettings.modePath { return ComputerUseSettings.enabledPath }
         return WorkspaceRowSetting.legacyPath(for: path)
     }
 
     /// The old key's value as the new row shows it: what the app applies from it.
     static func legacyValue(for path: [String], in root: JSONValue) -> JSONValue? {
         guard let legacy = legacyPath(for: path), let value = root.value(at: legacy) else { return nil }
+        if legacy == ComputerUseSettings.enabledPath { return ComputerUseSettings.legacyMode(value) }
         guard legacy == BackdropArtSetting().configPath else { return value }
         // As BackdropArtSetting parses it: a bundled work (a retired id names its stand-in), else
         // nothing is painted, which the background row calls none.
