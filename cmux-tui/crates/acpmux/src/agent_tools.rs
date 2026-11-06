@@ -464,13 +464,12 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
     let _ = std::fs::remove_file(path);
 }
 
+/// The tools; no file or running process decides whether a session gets
+/// Computer Use. A joined machine's control consent (`cli/cloud_join.rs`) is
+/// enforced where a call runs (the worker's host, and the remote relay), so
+/// the tool list stays the same whatever the consent says.
 pub fn resolve(inputs: &Inputs) -> AgentTools {
-    let mut tools = resolve_servers(inputs);
-    // A machine joined to a team needs the person's control consent first.
-    if crate::cli::cloud_join::require_joined_consent("control").is_err() {
-        tools.servers.retain(|server| server.name != crate::computer_use::mcp::SERVER_NAME);
-    }
-    tools
+    resolve_servers(inputs)
 }
 
 /// Whether cmux.json turns Computer Use off (`computerUse.mode: "off"`).

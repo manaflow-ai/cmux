@@ -207,6 +207,14 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
                     "a call runs on one machine only",
                 ));
             }
+            // A machine joined to a team runs another machine's call only with
+            // its person's control consent there.
+            if crate::cli::cloud_join::require_joined_consent("control").is_err() {
+                return Err(refused(
+                    "computer_use_consent_required",
+                    "this machine needs its person's control consent before another machine may use it",
+                ));
+            }
             let origin = json!({"kind": "remote", "machine": machine, "same_account": true});
             let session = format!("remote:{machine}:{}", call.session);
             let label = if call.label.is_empty() {
