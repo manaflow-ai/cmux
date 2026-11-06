@@ -31,6 +31,7 @@ impl Sidecar {
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .unwrap();
