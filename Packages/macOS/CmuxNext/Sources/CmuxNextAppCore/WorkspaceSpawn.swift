@@ -117,7 +117,8 @@ public struct WorkspaceSpawn: Sendable {
     /// 2026-11-06).
     public func placement(setting: NewWorkspaceDefaultSlot) -> (row: NewWorkspaceDefaultSlot?, rule: NewWorkspaceDefaultSlot?) {
         let anchored = setting.anchored(fromCurrent: placesFromCurrent && placesBySetting)
-        return (slot == nil ? anchored : nil, placesBySetting ? anchored : nil)
+        let row: NewWorkspaceDefaultSlot? = if case .none = slot { anchored } else { nil }
+        return (row, placesBySetting ? anchored : nil)
     }
 
     /// What a new workspace's first terminal starts with (``TerminalStart``). On this Mac (`local`) it gets the app's
