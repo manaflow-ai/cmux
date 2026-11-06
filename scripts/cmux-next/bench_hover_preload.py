@@ -318,10 +318,10 @@ class Profile:
 
 
 def main_thread_frames(table: str, pid: int, top: int = 30) -> dict:
-    """Self and inclusive main-thread ms per frame name in an exported time-profile table."""
+    """Self and inclusive main-thread ms per frame name in an exported time-profile table: the main thread
+    of `pid`, else (a launcher pid, not the app's) the one main thread of a process named cmux."""
     byid: dict[str, ET.Element] = {}
-    own, inclusive, total = collections.Counter(), collections.Counter(), 0
-    threads = collections.Counter()  # main threads seen, for a report whose pid matched none
+    per: dict[str, list] = {}  # main thread name -> [own, inclusive, total ns]
 
     def resolve(element):
         ref = element.get("ref")
@@ -333,9 +333,7 @@ def main_thread_frames(table: str, pid: int, top: int = 30) -> dict:
             continue
         thread = element.find("thread")
         thread_name = resolve(thread).get("fmt", "") if thread is not None else ""
-        if "Main Thread" in thread_name:
-            threads[thread_name] += 1
-        if "Main Thread" not in thread_name or f"pid: {pid}" not in thread_name:
+        if "Main Thread" not in thread_name:
             continue
         weight = element.find("weight")
         weight = resolve(weight) if weight is not None else None
@@ -345,11 +343,16 @@ def main_thread_frames(table: str, pid: int, top: int = 30) -> dict:
         names = [resolve(frame).get("name", "?") for frame in backtrace.findall("frame")] if backtrace is not None else []
         if not names:
             continue
-        total += ns
+        own, inclusive, _ = per.setdefault(thread_name, [collections.Counter(), collections.Counter(), 0])
+        per[thread_name][2] += ns
         own[names[0]] += ns
         for name in set(names):
             inclusive[name] += ns
-    return {"main_ms": round(total / 1e6, 1), "threads": [name for name, _ in threads.most_common(3)] if not total else [],
+    chosen = [name for name in per if f"pid: {pid}" in name] or [name for name in per if "(cmux" in name]
+    if len(chosen) != 1:
+        return {"main_ms": 0.0, "threads": sorted(per, key=lambda name: -per[name][2])[:3], "self": [], "inclusive": []}
+    own, inclusive, total = per[chosen[0]]
+    return {"main_ms": round(total / 1e6, 1), "thread": chosen[0],
             "self": [[round(ns / 1e6, 1), name[:160]] for name, ns in own.most_common(top)],
             "inclusive": [[round(ns / 1e6, 1), name[:160]] for name, ns in inclusive.most_common(top * 2)]}
 
