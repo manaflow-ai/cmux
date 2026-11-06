@@ -4,20 +4,18 @@ public import CmuxNextDesign
 /// Draws each window's toasts as the overlay page's React toast stack (`cmux-page://cmux.overlay/`,
 /// route `/toasts`, webviews/src/pages/overlay/toasts) on the window's `WindowOverlayHost` (`.toast`).
 ///
-/// One pre-warmed transparent page per window (``OverlayPage``), so a toast showing is a state push,
-/// never a page load. The page covers the window's content inset by the overlay's 8 pt margin and
-/// draws the stack bottom-center; it reports where its toasts are (``CmuxToastPageProvider/Report``),
-/// and the overlay takes clicks only there, so the rest of the window stays usable. The page stays
-/// presented while toasts show or fade, and leaves the overlay once its last toast faded.
+/// A window that shows toasts claims a warm page view from one pool shared by every window
+/// (``OverlayPagePool``), so a toast showing is a state push, never a page load; the view goes back to
+/// the pool once the window's last toast has faded. The page covers the window's content inset by the
+/// overlay's 8 pt margin and draws the stack bottom-center; it reports where its toasts are
+/// (``CmuxToastPageProvider/Report``), and the overlay takes clicks only there, so the rest of the
+/// window stays usable.
 ///
 /// Toasts never cover the chat (#36969): the stack rests above every avoided view
 /// (``CmuxToastAvoiding``, `floor` in the page's state), and the views that reserve room
 /// (``CmuxToastReserving``) hear where the toasts rest whenever that changes.
 @MainActor
 public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
-    /// The overlay page's route for the toast stack.
-    public static let route = "/toasts"
-
     /// One window's stack.
     private final class Stack {
         weak var window: NSWindow?
@@ -39,9 +37,8 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
         }
     }
 
+    private let pool = OverlayPagePool(route: "/toasts") { CmuxToastPageProvider() }
     private var stacks: [ObjectIdentifier: Stack] = [:]
-    /// Makes (or finds) the window's pre-warmed page for `route` with its provider.
-    private let page: @MainActor (_ route: String, _ window: NSWindow, _ provider: any PageProvider) -> PageWebView
 
     /// The overlay's margin around the page (``WindowOverlayHost`` clamps every overlay 8 pt inside the window).
     static let inset: CGFloat = 8
@@ -51,9 +48,14 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
     /// reports its toasts (the widest a toast gets).
     static let assumedWidth: CGFloat = 420
 
-    public init(page: @escaping @MainActor (_ route: String, _ window: NSWindow, _ provider: any PageProvider) -> PageWebView
-        = { route, window, provider in OverlayPage.page(route: route, in: window, provider: provider) }) {
-        self.page = page
+    /// Draws `center`'s toasts from now on (the composition root makes one, for the shared center).
+    public init(drawing center: CmuxToastCenter) {
+        center.host = self
+    }
+
+    /// Loads the page of the next window's toasts ahead (an idle moment after launch).
+    public func prewarm() {
+        pool.prewarm()
     }
 
     // MARK: CmuxToastHosting
@@ -64,14 +66,12 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
         if let existing = stacks[key], existing.window === window {
             stack = existing
         } else {
-            guard !toasts.isEmpty else { return }
-            // Stacks of windows that are gone go with them.
-            stacks = stacks.filter { $0.value.window != nil }
-            let provider = CmuxToastPageProvider { [weak self, weak window] report in
+            guard !toasts.isEmpty, let (page, provider) = pool.claim() else { return }
+            provider.onReport = { [weak self, weak window] report in
                 guard let self, let window else { return }
                 self.received(report, in: window)
             }
-            stack = Stack(window: window, page: page(Self.route, window, provider), provider: provider)
+            stack = Stack(window: window, page: page, provider: provider)
             stacks[key] = stack
         }
         stack.center = center
@@ -160,18 +160,25 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
         return page.window == nil ? local : page.convert(local, to: nil)
     }
 
+    /// The window's last toast faded: its page leaves the overlay and goes back to the pool.
     private func retire(_ stack: Stack, in window: NSWindow) {
-        guard let handle = stack.handle else { return }
-        stack.handle = nil
-        handle.onDismiss = nil
-        handle.onWindowGeometryChange = nil
-        handle.dismiss()
-        CmuxToastAvoidance.unregister(self, from: window)
+        if let handle = stack.handle {
+            stack.handle = nil
+            handle.onDismiss = nil
+            handle.onWindowGeometryChange = nil
+            handle.dismiss()
+        }
+        forget(window)
     }
 
+    /// Ends `window`'s stack: its page goes back to the pool (warm for the next window's toasts).
     private func forget(_ window: NSWindow) {
         CmuxToastAvoidance.unregister(self, from: window)
-        stacks[ObjectIdentifier(window)] = nil
+        guard let stack = stacks.removeValue(forKey: ObjectIdentifier(window)) else { return }
+        stack.provider.onReport = nil
+        stack.provider.publish(CmuxToastPageProvider.state([], floor: 0))
+        pool.release(stack.page)
+        pool.prewarm()
     }
 
     // MARK: Reserving and avoiding
