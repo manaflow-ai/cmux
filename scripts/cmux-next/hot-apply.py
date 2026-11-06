@@ -141,11 +141,17 @@ def fetch(url: str) -> bytes:
         return answer.read()
 
 
-def app_commit(app: Path) -> str:
+def app_commit(app: Path, repo: Path = ROOT) -> str:
+    """The app's commit as a full sha. A nightly stamps CMUXCommit with the short one (nightly.yml)."""
     with open(app / "Contents/Info.plist", "rb") as handle:
         commit = str(plistlib.load(handle).get("CMUXCommit") or "")
-    if not SHA.fullmatch(commit):
+    if not re.fullmatch(r"[0-9a-f]{7,40}", commit):
         raise RuntimeError(f"{app} has no CMUXCommit (a DEV build): nothing to compare SHA with")
+    if not SHA.fullmatch(commit):
+        full = git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}", check=False)
+        if not SHA.fullmatch(full):
+            raise RuntimeError(f"{app}'s CMUXCommit {commit} is not one commit in {repo} (fetch feat-cmux-next)")
+        commit = full
     return commit
 
 
@@ -181,7 +187,7 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
 
 
 def plan(repo: Path, app: Path, sha: str) -> dict:
-    base = app_commit(app)
+    base = app_commit(app, repo)
     for commit in (base, sha):
         if not have_commit(repo, commit):
             raise RuntimeError(f"{commit} is not in {repo} (fetch feat-cmux-next)")

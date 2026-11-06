@@ -98,6 +98,14 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(receipt["steps"]["rust"]["running_sha256"], self.old)
         self.assertEqual(self.sha(), self.old)
 
+    def test_a_nightly_s_short_commit_stamp_is_resolved(self):
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": self.base[:11]}, handle)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--app", str(self.app)],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["base"], self.base)
+
     def test_a_rollback_that_fails_can_be_tried_again(self):
         code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
         self.assertEqual(code, 0, err)
