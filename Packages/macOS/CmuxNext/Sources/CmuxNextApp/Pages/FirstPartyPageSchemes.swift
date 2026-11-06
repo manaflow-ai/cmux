@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextCloudUI
 import CmuxNextPages
 import Foundation
 
