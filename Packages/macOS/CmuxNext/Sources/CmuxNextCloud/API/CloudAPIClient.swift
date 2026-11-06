@@ -129,17 +129,6 @@ public struct CloudAPIClient: Sendable {
 
     // MARK: Tunnel
 
-    /// `POST /api/vm/tunnel`: enrolls this Mac's WireGuard public key. The
-    /// private key never leaves the Mac.
-    public func enrollTunnel(_ request: CloudTunnelEnrollment.Request) async throws -> CloudTunnelEnrollment {
-        try await send("POST", "/api/vm/tunnel", body: request.body, timeout: .seconds(60), as: CloudTunnelEnrollment.self)
-    }
-
-    /// `DELETE /api/vm/tunnel?deviceId=…`: revokes this Mac's peer.
-    public func revokeTunnel(deviceID: String) async throws {
-        _ = try await send("DELETE", "/api/vm/tunnel?deviceId=\(deviceID)", as: Ignored.self)
-    }
-
     public func attachTunnelNetwork(deviceFingerprint: String, networkID: String, tunnelPurpose: String = "browser") async throws -> CloudTunnelNetworkMutation {
         try await send("POST", "/api/vm/tunnel/network/attach", body: ["deviceFingerprint": deviceFingerprint, "networkId": networkID, "tunnelPurpose": tunnelPurpose], timeout: .seconds(60), as: CloudTunnelNetworkMutation.self)
     }

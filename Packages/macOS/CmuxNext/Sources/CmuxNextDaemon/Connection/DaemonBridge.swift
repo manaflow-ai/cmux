@@ -13,10 +13,13 @@ public struct DaemonBridge: Hashable, Sendable {
     /// An absolute path inside the app bundle (never looked up on PATH).
     public var executable: String
     public var arguments: [String]
+    /// Variables set for the child on top of the app's environment (a carrier dial's platform origin and token).
+    public var environment: [String: String]
 
-    public init(executable: String, arguments: [String]) {
+    public init(executable: String, arguments: [String], environment: [String: String] = [:]) {
         self.executable = executable
         self.arguments = arguments
+        self.environment = environment
     }
 
     static let replyTimeoutMs: Int32 = 10_000
@@ -53,7 +56,11 @@ public struct DaemonBridge: Hashable, Sendable {
         let argv = ([executable] + arguments).map { strdup($0) } + [nil]
         defer { for pointer in argv { free(pointer) } }
         var pid: pid_t = 0
-        let spawned = posix_spawn(&pid, executable, &actions, &attributes, argv, environ)
+        let envp = environment.isEmpty ? nil
+            : ProcessInfo.processInfo.environment.merging(environment) { $1 }.map { strdup("\($0.key)=\($0.value)") } + [nil]
+        defer { for pointer in envp ?? [] { free(pointer) } }
+        let spawned = if let envp { blockingPosixSpawn(&pid, executable, &actions, &attributes, argv, envp) }
+            else { blockingPosixSpawn(&pid, executable, &actions, &attributes, argv, environ) }
         Darwin.close(theirs)
         Darwin.close(errWrite)
         guard spawned == 0 else {

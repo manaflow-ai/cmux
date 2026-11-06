@@ -20,9 +20,6 @@ public final class RemoteLocalhostService {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "remote-localhost")
     /// cmux.json `browser.remoteLocalhost*`, live.
     public var setting: RemoteLocalhostSetting = .fallback
-    /// The app's WireGuard tunnel (`CloudTunnelHub.endpoint()`): Open Desktop's route to a Cloud
-    /// machine, as cmux Classic reaches a machine's desktop. Nil until the app sets it.
-    public var cloudTunnelSocket: HubLoopbackOpener.Hub?
     @ObservationIgnored private var observation: Task<Void, Never>?
 
     /// DEBUG builds: `CMUX_NEXT_REMOTE_LOCALHOST_DEBUG_SOCKET` names a second
@@ -137,20 +134,11 @@ public final class RemoteLocalhostService {
         } else {
             daemon = machines.daemon(forTab: tab)
         }
-        let key: String, opener: any LoopbackTunnelOpening
-        if let machine = Self.desktopMachine(url: url, tabIsLocal: daemon.isLocal) {
-            // Open Desktop: over the app's WireGuard tunnel, in its own store, to that machine's
-            // desktop host and noVNC port only. No tunnel (signed out, the machine gone or without
-            // an address) is nil: a blank page, never this Mac.
-            guard let socket = cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: machine),
-                  let hub = HubLoopbackOpener(hub: socket, address: address) else { return nil }
-            key = Self.machineKey(registryID: "cloud-tunnel:" + machine)
-            opener = CloudDesktopOpener(base: hub, machine: machine)
-        } else {
-            guard let registryID = daemon.isLocal ? debugSocket : daemon.store.registryID else { return nil }
-            key = Self.machineKey(registryID: registryID)
-            opener = DaemonLoopbackOpener(client: daemon.isLocal ? debugClient(registryID) : client(for: daemon))
-        }
+        // An Open Desktop page has no route into its Cloud machine here: a blank page, never this Mac.
+        guard Self.desktopMachine(url: url, tabIsLocal: daemon.isLocal) == nil,
+              let registryID = daemon.isLocal ? debugSocket : daemon.store.registryID else { return nil }
+        let key = Self.machineKey(registryID: registryID)
+        let opener = DaemonLoopbackOpener(client: daemon.isLocal ? debugClient(registryID) : client(for: daemon))
         let port: UInt16
         do {
             port = try await proxy.listen(for: key, route: .init(machineName: name, opener: opener))
@@ -420,26 +408,5 @@ public final class RemoteLocalhostService {
         for client in debugClients.values { await client.close() }
         clients.removeAll()
         debugClients.removeAll()
-    }
-}
-
-/// Open Desktop's way into a Cloud machine: only that machine's desktop host
-/// (`<machine>.cloud-desktop.localhost`) and its noVNC port. A page in the desktop store that
-/// asks for another port (any other service on the machine's private address) or another
-/// machine's desktop host (which would show this machine under that one's badge) is refused.
-nonisolated struct CloudDesktopOpener: LoopbackTunnelOpening {
-    static let port: UInt16 = 6901
-    let base: any LoopbackTunnelOpening
-    let host: String
-
-    init(base: any LoopbackTunnelOpening, machine: String) {
-        self.base = base
-        host = machine.lowercased() + BrowserNavigationGuard.cloudDesktopHostSuffix
-    }
-
-    func openTunnel(host: String, port: UInt16) async throws(LoopbackTunnelFailure) -> any LoopbackTunnel {
-        guard port == Self.port else { throw .portNotAllowed }
-        guard host.lowercased() == self.host else { throw .other("Only this machine's desktop goes through the Cloud tunnel") }
-        return try await base.openTunnel(host: host, port: port)
     }
 }

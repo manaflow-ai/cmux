@@ -17,39 +17,20 @@ import Foundation
 import Observation
 
 extension AppServices {
-    /// Open Desktop's `cmux-rd` viewer: the machine's desktop host over the owner's Native link, a
-    /// new `link.dial` (service `desktop`, a new one-time link token) per session, with no token
-    /// in the hello (``CloudDesktopLinkDial``); each session's transport in the mode it asks for.
+    /// Open Desktop's `cmux-rd` viewer: the machine's desktop host over the carrier, a new
+    /// `cmux carrier dial --service desktop` per session with the platform origin and the person's
+    /// access token (``CloudDesktopLinkDial``); each session's transport in the mode it asks for.
     func cloudDesktopRdTransport(machine: String) -> (@MainActor (_ control: Bool) -> RemoteRdStreamTransport?)? {
         guard let id = machines.cloud.first(where: { $0.machineID.lowercased() == machine.lowercased() })?.machineID,
-              let cli = cloud.binary else { return nil }
-        let (cloud, run, hello) = (cloud, CloudAppLinks.runner(local: machines.local), RemoteRdHello.cloudDesktop())
+              let dial = CloudDesktopLinkDial(machine: id), let cli = cloud.binary else { return nil }
+        let (auth, platform, hello) = (cloud.auth, cloud.configuration.relayAPIBaseURL(), RemoteRdHello.cloudDesktop())
         return { control in
             let carrier = RemoteRdStreamCarrier {
-                await cloud.ensureLink()
-                let info = try await run(CloudDesktopLinkDial.connectInfoOp, ["machine": id], UUID().uuidString, .script)
-                guard let dial = CloudDesktopLinkDial(connectInfo: info, linkSocket: await cloud.linkSocket) else {
-                    throw CloudLinkError.helperNotRunning(reason: "no link socket or host for the desktop")
-                }
-                let stream = try await dial.open(cli: cli)
+                let environment = CloudDesktopLinkDial.environment(platform: platform, accessToken: try await auth.tokens().access)
+                let stream = try await dial.open(cli: cli, environment: environment)
                 return RemoteRdByteStream(read: { await stream.read() }, write: { try await stream.send($0) }, close: { stream.close() })
             }
             return RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString, control: control)
-        }
-    }
-
-    /// Open Desktop's native viewer: Cloud machine `machine`'s websockify port (6901, next to its
-    /// noVNC) over this Mac's own Cloud tunnel, with the hub's client token; no port opens on this
-    /// Mac. Nil when the tunnel cannot reach it (signed out, the machine without an address).
-    func cloudDesktopTransport(machine: String) -> (@Sendable () async throws -> RemoteViewPageSession.CloudDesktopStream)? {
-        guard let hub = remoteLocalhost.cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: machine),
-              let opener = HubLoopbackOpener(hub: hub, address: address) else { return nil }
-        return {
-            let tunnel = try await opener.openTunnel(host: "localhost", port: 6901)
-            let reader = LoopbackTunnelReader(tunnel)
-            return RemoteViewPageSession.CloudDesktopStream(read: { try await reader.read() },
-                                                            write: { try await tunnel.write($0) },
-                                                            close: { tunnel.close() })
         }
     }
 
@@ -188,14 +169,8 @@ extension AppServices {
               cloud.auth.user?.id == account.0, cloud.auth.teamID == account.1,
               let session = machines.session(link.machineID) else { throw Failure.forbidden }
         guard session.machine.shownStatus == .running else { throw Failure.asleep }
-        guard let open = cloudDesktopTransport(machine: session.machineID) else { throw Failure.unreachable }
-        let frames = CloudDesktopFrames(machine: session.machineID, open: open), machines = machines, cloud = cloud, settings = settings
-        return .init(feed: SurfaceFrameFeed(start: { frames.start(frame: $0, ended: $1) }, stop: { frames.stop() }),
-                     label: session.machineID) { [weak session, weak settings] in
-            guard let session, settings?.snapshot.sessions.phoneSeesCloudDesktop == true else { return false }
-            return cloud.auth.isSignedIn && cloud.auth.user?.id == account.0 && cloud.auth.teamID == account.1
-                && machines.session(session.machineID) === session && session.machine.shownStatus == .running
-        }
+        // The desktop's only route was the app's WireGuard tunnel, which is gone.
+        throw Failure.unreachable
     }
 
     /// Forward the account's app-link Cloud machines to Rust hostd (asleep ones with no socket),

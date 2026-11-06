@@ -11,8 +11,7 @@ import CmuxNextWakeups
 /// the link socket. The link is the Cloud app server's (`appLink`, through
 /// ``CloudLinkSession``, contract 2.3), whose socket serves one connection per connect: after a
 ///   drop, a `cloud.link.changed` down or revoked, or a failed connect the
-///   machine shows "disconnected, click to connect" (`linkEnded`), once a drop
-///   was dialed again a few times (``CloudAppLinkRedial``).
+///   machine shows "disconnected, click to connect" (`linkEnded`).
 @Observable
 final class CloudMachineSession {
     let machineID: String
@@ -36,7 +35,6 @@ final class CloudMachineSession {
     /// The list read an ended app link starts; its ``CloudLinkEndRead/confirming`` is
     /// ``CloudMachineStageInput/linkEndConfirming``, false once it answers or a connect starts.
     @ObservationIgnored let linkEndRead = CloudLinkEndRead()
-    @ObservationIgnored var dropRedial = CloudAppLinkRedial()
     /// The link as this session's endpoint calls see it (cx-lu8f): starting,
     /// up, or the last start's failure. Drives the booting and connecting
     /// stages; never set from elapsed time.
@@ -251,14 +249,13 @@ final class CloudMachineSession {
             do {
                 return try await appLink.endpoint(ticket)
             } catch {
-                // The connection asked again: it dropped (`showEnded` may redial it).
+                // The connection asked again: it dropped.
                 let message = await self?.endAppLink(error, ticket: ticket.id) ?? String(describing: error)
                 throw DaemonError.endpointBlocked(message)
             }
         }, requiredCapabilities: DaemonCapability.nativeRemoteRequired, admit: { [weak self] identity in
             do {
                 try identity.checkNotLocal(local: localIdentity())
-                self?.dropRedial.up()
             } catch {
                 self?.endAppLink(error, ticket: ticket.id)
                 throw error
@@ -313,8 +310,6 @@ final class CloudMachineSession {
         linkEnded = message
         linkDropped = CloudLinkError.isDrop(error)
         linkPhase = .failed(message)
-        dropRedial.ended(error, live: !disconnected && machine.status == .running, read: refresher) { [weak self] in // as a script: never starts a parked machine
-            if self?.linkEnded != nil, self?.machine.status == .running { self?.connect() } }
         guard let refresher else { return }
         linkEndRead.ended(dropped: appLink != nil && linkDropped, paused: machine.status == .paused, connects: connects,
                           connectsNow: { [weak self] in self?.connects }, read: refresher)
@@ -386,7 +381,6 @@ final class CloudMachineSession {
     /// auto-pause may have parked the machine behind it), then a paused machine resumes (``attach(origin:)``), an ended
     /// app link connects again, and a legacy link's daemon retries now instead of waiting for its next wake.
     func retry() {
-        dropRedial.cancel()
         guard daemon.connection == nil, machine.status != .paused, refresher != nil else { return retryNow() }
         // task-owner: one list read before the retry; the retry itself is synchronous
         Task {
@@ -395,13 +389,11 @@ final class CloudMachineSession {
         }
     }
 
-    /// A start's or a move's wait: true once the daemon answers or a resume failed; a dropped
-    /// or not-yet-up link is dialed again with a capped backoff until `limit` (a new machine's receiver may answer 30 s after it runs).
+    /// A start's or a move's wait: true once the daemon answers or a resume failed; a paused app-link machine is resumed once.
     func linkUp(within limit: Duration) async -> Bool {
         var resumed = false // one resume per wait: a start that settles back to paused is the platform's answer
         return await CloudWait.holds(within: limit, redialing: CloudWait.startRedial, redial: {
-            let appEnd = appLink != nil && linkEnded != nil && dropRedial.lastEndRedialable && machine.status == .running
-            if appEnd { retryNow() } else if appLink != nil, machine.status == .paused, !resumed { resumed = true; attach(origin: .script) }
+            if appLink != nil, machine.status == .paused, !resumed { resumed = true; attach(origin: .script) }
         }) { [daemon] in
             self.resumeFailure != nil || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }
@@ -444,7 +436,6 @@ final class CloudMachineSession {
 
     func disconnect() {
         disconnected = true
-        dropRedial.cancel()
         linkPhase = .idle
         connectHop?.cancel()
         daemon.shutdownConnection()
@@ -469,7 +460,6 @@ final class CloudMachineSession {
     /// provider pause/resume transition.
     func suspend() {
         suspends += 1
-        dropRedial.cancel()
         // A new pause: an earlier resume's failure no longer applies.
         resumeFailure = nil
         connectHop?.cancel()

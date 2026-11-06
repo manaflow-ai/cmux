@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 817,
-    "mcp": 732
+    "verbs": 815,
+    "mcp": 730
   },
   "nouns": [
     {
@@ -1282,13 +1282,6 @@
           "mcpTool": "app_cloud_domain_list"
         },
         {
-          "command": "cmux cloud enroll-machine",
-          "title": "Enroll Machine as Agent Host",
-          "id": "cloudEnrollMachine",
-          "mcp": true,
-          "mcpTool": "app_cloud_enroll_machine"
-        },
-        {
           "command": "cmux cloud exec",
           "title": "Run Command on Cloud Machine…",
           "id": "cloudExec",
@@ -1539,13 +1532,6 @@
           "id": "cloudPublicationList",
           "mcp": true,
           "mcpTool": "app_cloud_publication_list"
-        },
-        {
-          "command": "cmux cloud relay-chat",
-          "title": "Chat on Cloud Machine via the Relay…",
-          "id": "cloudRelayChat",
-          "mcp": true,
-          "mcpTool": "app_cloud_relay_chat"
         },
         {
           "command": "cmux cloud rename-machine",
