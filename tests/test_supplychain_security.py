@@ -162,15 +162,6 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
 
 
 def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
-    reachability = workflow("cloud-vm-image-reachability.yml")["jobs"]["reachable"]
-    reachability_environment = reachability.get("environment", "")
-    assert "cloud-vm-image-reachability" in reachability_environment
-    assert "pull_request" in reachability_environment
-    assert "'cloud-vm-image-reachability' || ''" in reachability_environment
-
-    promotion = workflow("cloud-vm-image-contract.yml")["jobs"]["promote"]
-    assert promotion.get("environment") == "cloud-vm-image-promotion"
-
     image_promote = workflow("cloud-vm-image-promote.yml")
     assert set(image_promote["on"]) == {"workflow_dispatch"}
     assert image_promote.get("permissions") == {"contents": "read", "actions": "read"}

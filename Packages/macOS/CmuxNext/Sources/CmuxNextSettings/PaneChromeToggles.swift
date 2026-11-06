@@ -41,11 +41,10 @@ import CoreGraphics
             chrome.padding = $0 ? Self.unsetOrExplicit(\.padding, in: chrome, design: design, metric: { Metrics.panePadding }, explicit: Metrics.densityPanePadding) : 0
             return (chrome, chrome.padding.map { JSONValue.number(Double($0)) })
         }
-        bindToggle("appearance.paneCorners.toggle", path: "paneCornerRadius", into: registry, isOn: { Metrics.paneCornerRadius > 0 }) {
-            // Off is square (0); on is the default radius, written explicitly where the default is square
-            // (no padding and no border).
+        bindToggle("appearance.paneCorners.toggle", path: "paneCornerRadius", into: registry, isOn: { Metrics.cornerRadius > 0 }) {
+            // Off is square (0) for panes, the main pane and tabs alike (one radius); on is the default radius.
             var chrome = design.paneChrome
-            chrome.cornerRadius = $0 ? Self.unsetOrExplicit(\.cornerRadius, in: chrome, design: design, metric: { Metrics.paneCornerRadius },
+            chrome.cornerRadius = $0 ? Self.unsetOrExplicit(\.cornerRadius, in: chrome, design: design, metric: { Metrics.cornerRadius },
                                                             explicit: Metrics.densityPaneCornerRadius) : 0
             return (chrome, chrome.cornerRadius.map { JSONValue.number(Double($0)) })
         }

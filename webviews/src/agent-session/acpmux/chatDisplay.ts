@@ -14,6 +14,16 @@ import { useSyncExternalStore } from "react";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
 import { isArm } from "../../experiments/experiment";
 import { threadMinimapLayout } from "./threadMinimap/layout.experiment";
+import {
+  CHAT_UI_FONT_KEY,
+  chatUiFontVariables,
+  chatUiMeasureStack,
+  DEFAULT_CHAT_UI_FONT,
+  isChatUiFont,
+  loadChatUiFont,
+  type ChatUiFont,
+} from "./chatUiFont";
+import { configureStatusVerbs } from "./statusVerbs";
 
 /// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
 export type ThreadMinimapArm = keyof typeof threadMinimapLayout.arms;
@@ -34,6 +44,8 @@ export interface ChatDisplay {
   width: number;
   fullWidth: boolean;
   font: ChatFontPreset;
+  /// The face of the whole chat (chatUiFont.ts): `--font-ui`, which the System preset's text follows.
+  uiFont: ChatUiFont;
   fontSize: number;
   /// Unitless, times `fontSize`.
   lineHeight: number;
@@ -76,6 +88,18 @@ export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
 /// (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03: "we said earlier the composer hat is kinda ok?").
 /// Not part of ChatDisplay: switching it measures no transcript row again.
 export const PINNED_PLAN_KEY = "agentPane.display.pinnedPlan";
+/// Settings > Agent Chat > Tuck Away Running Tray, off by default: the hat over the composer
+/// (subagents/SubagentTray.tsx) tucks away to a chevron at the top middle of the composer, shown on
+/// hover, which brings it back (subagents/TrayPullTab.tsx; Leo, 2026-11-04: "what if you wanted to
+/// collapse that one line?"). The hat's own chevron, the palette, the CLI and MCP write the same key.
+/// Not part of ChatDisplay: switching it measures no transcript row again.
+export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
+/// Settings > Agent Chat > Running Tray Handle, the middle by default: where along the composer's top
+/// edge the hat's tuck chevron and, tucked, its pull tab sit (subagents/TrayPullTab.tsx; Leo,
+/// 2026-11-04: "I also wonder if we'd want the grabber/dogear/whatever design thing on maybe the left…
+/// or the right…"). Not part of ChatDisplay: switching it measures no transcript row again.
+export const TRAY_HANDLE_KEY = "agentPane.display.trayHandle";
+export type TrayHandleSide = "left" | "middle" | "right";
 /// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";
 /// Settings > Updates > Show Feature Tips (featureTips.tsx), on unless set false. The host sends it
@@ -101,6 +125,11 @@ export const PRESENTATION_KEY = "agentPane.display.presentation";
 export type Presentation = "transcript" | "messages";
 export const PRESENTATIONS: readonly Presentation[] = ["transcript", "messages"];
 export const isPresentation = (value: unknown): value is Presentation => value === "transcript" || value === "messages";
+
+/// Settings > Agent Chat > Working Status Verbs. The mode is `thinking` by default; `rotate` opts
+/// into the per-turn -ing verbs and `custom` reads the comma-separated list in `STATUS_VERB_CUSTOM_KEY`.
+export const STATUS_VERB_MODE_KEY = "agentPane.display.statusVerbs.mode";
+export const STATUS_VERB_CUSTOM_KEY = "agentPane.display.statusVerbs.custom";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
@@ -128,6 +157,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   width: CHAT_DISPLAY.width.fallback,
   fullWidth: false,
   font: "system",
+  uiFont: DEFAULT_CHAT_UI_FONT,
   fontSize: CHAT_DISPLAY.fontSize.fallback,
   lineHeight: CHAT_DISPLAY.lineHeight.fallback,
   codeFamily: null,
@@ -191,6 +221,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
     width: number(values[CHAT_DISPLAY.width.key], CHAT_DISPLAY.width) ?? DEFAULT_CHAT_DISPLAY.width,
     fullWidth: values[CHAT_DISPLAY.fullWidth.key] === true,
     font,
+    uiFont: isChatUiFont(values[CHAT_UI_FONT_KEY]) ? values[CHAT_UI_FONT_KEY] : DEFAULT_CHAT_UI_FONT,
     fontSize: number(values[CHAT_DISPLAY.fontSize.key], CHAT_DISPLAY.fontSize) ?? DEFAULT_CHAT_DISPLAY.fontSize,
     lineHeight: number(values[CHAT_DISPLAY.lineHeight.key], CHAT_DISPLAY.lineHeight) ?? DEFAULT_CHAT_DISPLAY.lineHeight,
     codeFamily: family(values[CHAT_DISPLAY.codeFamily.key]) ?? family(values[MARKDOWN_FOLLOWED.codeFamily]),
@@ -226,7 +257,8 @@ export function chatMetrics(display: ChatDisplay): ChatMetrics {
   const inline = display.codeScale === null ? 13 * scale : display.fontSize * display.codeScale;
   const block = display.codeScale === null ? 12 * scale : display.fontSize * display.codeScale;
   return {
-    measureFont: `${display.fontSize}px ${MEASURE_STACKS[display.font]}`,
+    // The System preset's text is the interface font, whichever it is.
+    measureFont: `${display.fontSize}px ${display.font === "system" ? chatUiMeasureStack(display.uiFont) : MEASURE_STACKS[display.font]}`,
     lineHeight: round(display.fontSize * display.lineHeight),
     inlineCodeSize: round(inline),
     blockCodeSize: round(block),
@@ -244,6 +276,7 @@ export function chatDisplayVariables(display: ChatDisplay): Record<string, strin
   const isDefault = (key: keyof ChatDisplay) => display[key] === DEFAULT_CHAT_DISPLAY[key];
   const codeFont = display.codeFamily ? `${quoteFamily(display.codeFamily)}, var(--cv-mono-default)` : null;
   return {
+    ...chatUiFontVariables(display.uiFont),
     "--cv-font": isDefault("font") ? null : FONT_STACKS[display.font],
     "--cv-font-size": isDefault("fontSize") ? null : `${display.fontSize}px`,
     "--cv-line-height": isDefault("fontSize") && isDefault("lineHeight") ? null : `${metrics.lineHeight}px`,
@@ -267,6 +300,8 @@ let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
 let pinnedPlanOn = false;
+let trayTuckedOn = false;
+let trayHandle: TrayHandleSide = "middle";
 let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
@@ -285,9 +320,12 @@ export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void 
 /// The host's `display` event: the page follows at once.
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
+  configureStatusVerbs(raw);
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
+  const trayTucked = raw[TRAY_TUCKED_KEY] === true;
+  const handle = raw[TRAY_HANDLE_KEY] === "left" || raw[TRAY_HANDLE_KEY] === "right" ? raw[TRAY_HANDLE_KEY] : "middle";
   const threadMinimap = resolveThreadMinimapArm(raw);
   const stored = raw[TRANSCRIPT_VIEW_KEY];
   const view = isTranscriptView(stored) ? stored : "normal";
@@ -300,6 +338,8 @@ export function setChatDisplay(value: unknown): void {
     same &&
     minimap === minimapOn &&
     pinnedPlan === pinnedPlanOn &&
+    trayTucked === trayTuckedOn &&
+    handle === trayHandle &&
     threadMinimap === threadMinimapArm &&
     view === transcriptView &&
     nextPresentation === presentation &&
@@ -310,6 +350,8 @@ export function setChatDisplay(value: unknown): void {
   commandLabels = labels;
   minimapOn = minimap;
   pinnedPlanOn = pinnedPlan;
+  trayTuckedOn = trayTucked;
+  trayHandle = handle;
   threadMinimapArm = threadMinimap;
   transcriptView = view;
   presentation = nextPresentation;
@@ -319,6 +361,15 @@ export function setChatDisplay(value: unknown): void {
     return;
   }
   current = next;
+  // A bundled face loads after this event: once it has, the estimate measures it (its measure
+  // stack changes), and a new look (the same values) makes the transcript measure every row again,
+  // offscreen ones too, as a new font does (App.tsx `measuredLook`).
+  const uiFont = next.uiFont;
+  loadChatUiFont(uiFont, () => {
+    if (current.uiFont !== uiFont) return;
+    current = { ...current };
+    for (const listener of listeners) listener();
+  });
   if (typeof document !== "undefined") applyChatDisplay(document.documentElement, next);
   for (const listener of listeners) listener();
 }
@@ -359,6 +410,7 @@ export function changeChatDisplay(key: string, value: unknown): void {
 /// Removes every chat key, so the chat shows its default look (and follows the Markdown viewer).
 export function resetChatDisplay(): void {
   for (const option of Object.values(CHAT_DISPLAY)) changeChatDisplay(option.key, null);
+  changeChatDisplay(CHAT_UI_FONT_KEY, null);
 }
 
 /// The chat's keys the page set, as the host last sent them (the popover shows which follow the viewer).
@@ -387,6 +439,15 @@ const featureTipsSnapshot = () => featureTipsOn;
 const pinnedPlanSnapshot = () => pinnedPlanOn;
 /// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
 export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
+const trayTuckedSnapshot = () => trayTuckedOn;
+/// Whether the hat over the composer is tucked away to its pull tab (TRAY_TUCKED_KEY).
+export const useTrayTucked = (): boolean => useSyncExternalStore(subscribe, trayTuckedSnapshot, trayTuckedSnapshot);
+/// Tucks the hat away or brings it back, at once in the page; the host writes the setting.
+export const setTrayTucked = (tucked: boolean): void => changeChatDisplay(TRAY_TUCKED_KEY, tucked || null);
+const trayHandleSnapshot = () => trayHandle;
+/// Where the hat's tuck chevron and pull tab sit along the composer's top edge (TRAY_HANDLE_KEY).
+export const useTrayHandle = (): TrayHandleSide =>
+  useSyncExternalStore(subscribe, trayHandleSnapshot, trayHandleSnapshot);
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.

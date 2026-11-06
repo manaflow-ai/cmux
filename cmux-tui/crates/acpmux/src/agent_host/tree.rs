@@ -40,12 +40,7 @@ fn process_table() -> Vec<Started> {
 /// itself or the system.
 pub fn descendants(roots: &[u32]) -> Vec<Started> {
     let table = process_table();
-    let mut spared = vec![0, 1];
-    let mut me = std::process::id();
-    while me > 1 && !spared.contains(&me) {
-        spared.push(me);
-        me = table.iter().find(|p| p.pid == me).map_or(0, |p| p.ppid);
-    }
+    let spared = spared(&table);
     let own = std::process::id();
     let mut frontier: Vec<u32> =
         roots.iter().copied().filter(|r| *r == own || !spared.contains(r)).collect();
@@ -59,6 +54,33 @@ pub fn descendants(roots: &[u32]) -> Vec<Started> {
         }
     }
     found
+}
+
+/// The pids never taken: 0, 1, this process and its ancestors.
+fn spared(table: &[Started]) -> Vec<u32> {
+    let mut spared = vec![0, 1];
+    let mut me = std::process::id();
+    while me > 1 && !spared.contains(&me) {
+        spared.push(me);
+        me = table.iter().find(|p| p.pid == me).map_or(0, |p| p.ppid);
+    }
+    spared
+}
+
+/// The processes started with `name=value` in their environment, as the kernel has it: what a
+/// host's harness and everything under it inherit (`HOST_MARK`), a setsid helper too, so they
+/// are found after the parent link is gone. A process whose environment cannot be read (another
+/// user's) is not taken, nor this process or its ancestors.
+pub fn marked(name: &str, value: &str) -> Vec<Started> {
+    let table = process_table();
+    let spared = spared(&table);
+    table
+        .into_iter()
+        .filter(|p| !spared.contains(&p.pid))
+        .filter(|p| {
+            environ(p.pid).is_some_and(|env| env.iter().any(|(k, v)| k == name && v == value))
+        })
+        .collect()
 }
 
 /// SIGKILL each of `procs` that still runs as the same process.

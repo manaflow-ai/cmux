@@ -291,6 +291,49 @@ mark {
   overflow-wrap: anywhere;
 }
 
+/* A provider's accounts under its harness row (ProviderAccounts). */
+.harness-accounts {
+  gap: 8px;
+}
+
+.harness-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.harness-account-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.harness-account-copy > .row-help {
+  overflow-wrap: anywhere;
+}
+
+/* The plan usage card under an account (PlanUsageCardBody): its pane colors from this page's. */
+.harness-account-usage {
+  --agent-text: var(--text);
+  --agent-muted: var(--muted-text);
+  --agent-accent: var(--cmux-accent, var(--text));
+  width: 300px;
+  max-width: 100%;
+  margin-top: 4px;
+}
+
+.harness-account-usage > .acpmux-plan-usage {
+  padding: 0;
+}
+
+.harness-account-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
 .harness-update-card > .button {
   flex: 0 0 auto;
   margin-top: 1px;
@@ -2098,6 +2141,11 @@ button.menu-disclosure {
 }
 
 /* Updates > App Update: the download's bar under its status row, and Restart to Update filled. */
+/* The download's bytes line counts with tabular digits, so nothing on it moves as it counts. */
+[data-card="app-update"] .row-help {
+  font-variant-numeric: tabular-nums;
+}
+
 .app-update-progress-row {
   padding: 0 8px 8px;
 }

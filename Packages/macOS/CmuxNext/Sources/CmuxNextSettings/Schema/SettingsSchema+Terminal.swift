@@ -1,11 +1,13 @@
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum TerminalSettingsSchema {
     /// `terminal.fontFamily` and `terminal.fontSize` (Ghostty overrides,
-    /// `TerminalFontSetting`), and `terminal.linkOpener.*` (`TerminalLinkOpener`).
+    /// `TerminalFontSetting`), `terminal.linkOpener.*` (`TerminalLinkOpener`), and
+    /// `terminal.term` (`TerminalTermSetting`).
     static var descriptors: [SettingDescriptor] {
         let font = SettingsText.keyed("settings.group.terminalFont", "Font")
         let ghostty = SettingsText.keyed("settings.source.ghostty", "Ghostty")
         let links = SettingsText.keyed("settings.group.openingLinks", "Opening Links")
+        let compatibility = SettingsText.keyed("settings.group.terminalCompatibility", "Compatibility")
         return [
             SettingDescriptor(
                 TerminalFontSetting().familyPath, section: .terminal, group: font,
@@ -37,6 +39,18 @@ nonisolated enum TerminalSettingsSchema {
                 summary: SettingsText.keyed("settings.terminal.linkOpener.rules.summary", "Rules for program links"),
                 kind: .stringList, default: .array([]),
                 keywords: ["browser", "rules", "url", "link", "caller", "regex", "profile", "script"]
+            ),
+            SettingDescriptor(
+                TerminalTermSetting.configPath, section: .terminal, group: compatibility,
+                title: SettingsText.keyed("settings.terminal.term", "Terminal Type (TERM)"),
+                help: SettingsText.keyed("settings.terminal.term.help",
+                                         "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac."),
+                kind: .choice([
+                    SettingChoice(TerminalTerm.xterm256color.rawValue, SettingsText.keyed("settings.choice.xterm256color", "xterm-256color (standard)")),
+                    SettingChoice(TerminalTerm.xtermGhostty.rawValue, SettingsText.keyed("settings.choice.xtermGhostty", "xterm-ghostty")),
+                ]),
+                default: .string(TerminalTermSetting.fallback.rawValue),
+                keywords: ["TERM", "terminfo", "xterm", "xterm-256color", "xterm-ghostty", "ssh", "htop", "ncurses", "terminal type", "compatibility"]
             ),
         ]
     }

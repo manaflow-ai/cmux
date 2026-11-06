@@ -289,7 +289,7 @@ final class DividerHandleView: NSView {
             }
             Motion.feedback.transaction(.hover) {
                 line.backgroundColor = color.cgColor
-                line.cornerRadius = isEdge ? 1 : 0
+                line.cornerRadius = isEdge ? Metrics.capsuleRadius(line.bounds.size) : 0 // an edge line is a capsule
             }
         }
     }

@@ -19,6 +19,10 @@ to the first frame the pane shows the chat's content, with every surface the pan
              for 223 calls)
   restore    the app quit and launched again on the same state: the restored chat's pane, timed
              from the process start (a launch trace, CMUX_CHAT_OPEN_TRACE_LAUNCH=1)
+  relaunched a chat read and left before the app quit and launched again, opened again in a new
+             workspace after the relaunch, as a sidebar or link open of another session's chat
+             does (Leo, 2026-11-05: "There's no reason for them to have a delay, even under
+             load."): the app's memory holds nothing of it, only what it kept on disk
   click      a mouse click on the sidebar row of a chat never shown in this app's life (its workspace made in
              the background, so the click makes its pane): judged from pixels, not the page's mark
   click_again  a click back onto the row of a chat shown before and left (its page kept)
@@ -301,6 +305,8 @@ def seed(root):
         per[condition] = {
             "sidebar": [copy_chat(home, small, f"Sidebar {condition} {i}") for i in range(opts.runs)],
             "reopen": [copy_chat(home, small, f"Reopen {condition} {i}") for i in range(opts.runs)],
+            "relaunched": [copy_chat(home, small, f"Relaunched {condition} {i}") for i in range(opts.runs)]
+            if "relaunched" in CASES else [],
             "click": [copy_chat(home, small, f"Click {condition} {i}") for i in range(opts.runs)],
             "click_again": [copy_chat(home, small, f"Click again {condition} {i}") for i in range(opts.runs)],
             "subagent": [copy_chat(home, sub, f"Subagents {condition} {i}") for i in range(opts.runs)],
@@ -516,10 +522,14 @@ def why(record):
     if not record.get("first_content_ms"):
         reply = record.get("open_reply")
         shown = reply.pop("shown", None) if isinstance(reply, dict) else None
+        probe = reply.pop("probe", None) if isinstance(reply, dict) else None
         parts.append(f"open_reply={json.dumps(reply, default=str)[:200]}")
         if shown:
             parts.append(f"shown={json.dumps(shown, default=str)[:200]}")
             reply["shown"] = shown
+        if probe:  # a subagent click that matched nothing: what the page shows (click_subagent)
+            parts.append(f"probe={json.dumps(probe, default=str)[:2000]}")
+            reply["probe"] = probe
         # Frames are [ms, surface] pairs (flashes, first_of).
         surfaces = sorted({str(f[1]) for f in record.get("frames") or [] if isinstance(f, (list, tuple)) and len(f) > 1})
         # `order` lists the marks that ran; `marks_ms` names every mark, null for one that did not.
@@ -532,20 +542,57 @@ def why(record):
     return (" " + " ".join(parts)) if parts else ""
 
 
+# A subagent's line, by what opens it: its finished transcript line (SubagentDoneLine.tsx), then its running-tray
+# line (AgentLine.tsx). Enabled ones only: a line with nothing to open is disabled and its click opens nothing.
+SUBAGENT_LINES = ("button.cv-subagent-done:not([disabled])", "button.acpmux-agent-line__button:not([disabled])")
+NO_MATCH = "no visible element matches"
+
+
+def subagent_task(k):
+    """What chat_open_agent.py asks subagent `k` to do; a line that names a subagent by its task first shows this."""
+    return f"Audit area {k}: crashes, edge cases, slow paths"
+
+
 def click_subagent(run):
     """Clicks a subagent line the chat shows, newest first. The click needs the line in the page,
     and which of the chat's subagent lines it renders depends on the build: a fixed name per open
     failed with "no visible element matches" for "Auditor 0" at one base and "Auditor 1" at
     another (2026-10-31). A click that matches nothing returns that error at once and does
-    nothing, so the next name is tried. The reply is the app's (its `clicked` and any `error` as
-    they came), with the subagent it named under `subagent`. Each open is its own copy of the chat with its own
-    subagents, so the same name in two opens opens two subagents."""
+    nothing, so the next candidate is tried. The reply is the app's (its `clicked` and any `error` as
+    they came), with what it clicked under `subagent`. Each open is its own copy of the chat with its own
+    subagents, so the same name in two opens opens two subagents.
+
+    By text, each subagent's name, then its task: a build that names a line by its task (the tray and a
+    finished line read "Audit area 3: ..." since 2026-11-04) shows no element whose text is the name alone.
+    Then by structure (`SUBAGENT_LINES`). When nothing matches, `probe` lists which of those selectors match
+    anything, so a failed run says what the page shows."""
     reply = None
-    for k in range(SUBAGENTS - 1, -1, -1):
-        reply = run.rpc("debug.agent_pane", {"action": "click", "text": f"Auditor {k}"}) or {}
-        if reply.get("error") != "no visible element matches":
-            return {**reply, "subagent": f"Auditor {k}"}
-    return reply
+    texts = [text for k in range(SUBAGENTS - 1, -1, -1) for text in (f"Auditor {k}", subagent_task(k))]
+    for text in texts:
+        reply = run.rpc("debug.agent_pane", {"action": "click", "text": text}) or {}
+        if reply.get("error") != NO_MATCH:
+            return {**reply, "subagent": text}
+    for selector in SUBAGENT_LINES:
+        reply = run.rpc("debug.agent_pane", {"action": "click", "selector": selector}) or {}
+        if reply.get("error") != NO_MATCH:
+            return {**reply, "subagent": selector}
+    return {**reply, "probe": subagent_probe(run)}
+
+
+# What a failed subagent click looks for, to say what the page shows instead (`probe` in the open's reply).
+PROBE_SELECTORS = ("button.cv-subagent-done", "button.acpmux-agent-line__button", ".acpmux-summary-agent__name",
+                   ".acpmux-tray-pull__tab", "[data-tray-status]", ".cv-tool")
+
+
+def subagent_probe(run):
+    """Per `PROBE_SELECTORS`, whether the page shows one (a `hover`, which moves the pointer and clicks nothing)."""
+    found = {}
+    for selector in PROBE_SELECTORS:
+        reply = run.rpc("debug.agent_pane", {"action": "hover", "selector": selector}) or {}
+        found[selector] = reply.get("error") or "shown"
+    state = run.rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    found["chat_state"] = json.dumps(state, default=str)[:1500]  # the summary card and what the page says it shows
+    return found
 
 
 def workspace_id(row):
@@ -790,7 +837,7 @@ def main():
                 time.sleep(opts.settle)  # test script: the load reaches steady state
             results.setdefault("load_avg", {})[condition] = load_average()
             base = shown_workspace(run)
-            for case in [c for c in CASES if c != "restore"]:
+            for case in [c for c in CASES if c not in ("restore", "relaunched")]:
                 if case in ("big", "bloated") and not sessions[condition][case]:
                     continue
                 records = []
@@ -812,6 +859,23 @@ def main():
                         f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why(record)}")
                 results["raw"].setdefault(condition, {})[case] = records
                 results["cases"].setdefault(condition, {})[case] = (cof.summarize if case in CLICK_CASES else summarize)(records)
+            if "relaunched" in CASES:
+                records = []
+                for index in range(opts.runs):
+                    session = sessions[condition]["relaunched"][index]
+                    settle_open(run, session)
+                    run.app.action("workspace.newAtBottom", focus=True)  # leave it: read, not shown at the quit
+                    time.sleep(1)  # test script: the page hands its tail over as it leaves
+                    run.quit()
+                    run.launch()
+                    time.sleep(5)  # test script: let launch work end before the measured open, as at the start
+                    record = traced(run, lambda: open_workspace(run, session))
+                    record["invalid_reason"] = invalid_reason(record)
+                    records.append(record)
+                    say(f"chat-open: {condition} relaunched {index}: first_content_ms={record.get('first_content_ms')} "
+                        f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why(record)}")
+                results["raw"].setdefault(condition, {})["relaunched"] = records
+                results["cases"].setdefault(condition, {})["relaunched"] = summarize(records)
             if "restore" in CASES:
                 records = []
                 for index in range(opts.runs):

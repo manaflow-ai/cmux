@@ -63,7 +63,7 @@ struct StashPageView: View {
                 .font(Font(Typography.body)).foregroundStyle(colors.primary)
                 .scrollContentBackground(.hidden).frame(minHeight: 72, maxHeight: 160)
                 .padding(Metrics.panelInset / 2)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(colors.separator))
+                .overlay(RoundedRectangle(cornerRadius: Metrics.controlCornerRadius).stroke(colors.separator))
             HStack(spacing: Metrics.panelInset * 1.5) {
                 Spacer(minLength: 0)
                 Button(StashStrings.cancel) { draft.close() }.buttonStyle(.borderless).foregroundStyle(colors.secondary)

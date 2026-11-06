@@ -177,7 +177,10 @@ redrew only after the animation and the daemon echo.
 - Presentation: no frame reflows. A pane that grows has its content held at the rest size, so the
   surface is already final and its reflow preview reflows once until the owner announces the grid. A
   pane that shrinks keeps its larger view; once the owner announces the final grid the preview is off
-  (`previewsViewGrid`), so Ghostty pads the final grid instead of reflowing it back to the wider frame.
+  (`previewsViewGrid(followingPane:)`), so Ghostty pads the final grid instead of reflowing it back to the wider
+  frame. A key resize whose host follows its pane with `motion.frameOwner.terminals` on is the exception
+  (cmux-ad m14): its surface takes the pane's size in every frame, so the preview stays on and each frame draws
+  the grid that size fits, with the cursor row in view (no low-prompt bottom hold).
 - Anchor: a pane that grows downward pins its held content to the bottom when the cursor is in the
   lower half of a normal screen (the owner pulls scrollback down as rows grow, so the prompt is on the
   last row); a full-screen program (alternate screen) or a cursor near the top pins to the top.
