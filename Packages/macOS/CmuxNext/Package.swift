@@ -177,8 +177,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-6243f112cad89191dfd8ff1e57085f43ac2a3de0/CCmuxAppFFI.xcframework.zip",
-    checksum: "63a8f4b36bf6384c6236702152e7edb6015f82c9a856d926af2714a90113712b"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-c1654f352ab41eaaea1c72a0f02d8d43f6a8507b/CCmuxAppFFI.xcframework.zip",
+    checksum: "20123c856f036eca90e1d758a2e9456875bd3688f454197f56ad4c15d0d0ddef"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -1328,6 +1328,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextRemote", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons",
+                // NewWorkspaceDefaultSlot reads `workspaces.newPlacement` (NewWorkspacePlacement).
+                "CmuxNextSettings",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
             swiftSettings: uiSwiftSettings

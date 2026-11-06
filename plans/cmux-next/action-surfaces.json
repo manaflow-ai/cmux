@@ -48009,6 +48009,37 @@
       "title" : "View Hang Report",
       "title_key" : "action.diagnostics.viewHangReport",
       "title_table" : "HangReportsActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "settings clear-palette-history",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.clearSearchHistory",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Clear Palette Search History",
+      "title_key" : "action.palette.clearSearchHistory",
+      "title_table" : "SettingsActions"
     }
   ],
   "context_menu_rules" : [

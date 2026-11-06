@@ -551,7 +551,18 @@ pub(super) fn run_action(
                 continue;
             }
             "focus" => {
-                params.insert("focus".into(), json!(true));
+                // An action with its own `focus` argument (`open-remote`) takes the flag as that argument too,
+                // with an optional `true`/`false` after it; the run's own focus follows it.
+                let mut value = true;
+                if super::action_hint::action_takes_argument(action, "focus") {
+                    if let Some(word @ ("true" | "false")) = args.get(index + 1).map(String::as_str)
+                    {
+                        value = word == "true";
+                        index += 1;
+                    }
+                    arguments.insert("focus".into(), json!(value));
+                }
+                params.insert("focus".into(), json!(value));
                 index += 1;
                 continue;
             }
@@ -583,6 +594,24 @@ pub(super) fn run_action(
                     .split_once('=')
                     .ok_or_else(|| UsageError::new(messages.arg_shape.replace("{value}", text)))?;
                 arguments.insert(key.into(), json!(value));
+            }
+            // `--focus=false` for an action with a `focus` argument: the argument, and the run's own focus.
+            // Any other value is a usage error, never a silent `true`.
+            "focus" if super::action_hint::action_takes_argument(action, "focus") => {
+                let on = match value.as_str() {
+                    None | Some("true") => true,
+                    Some("false") => false,
+                    Some(text) => {
+                        return Err(UsageError::new(
+                            messages
+                                .flag_bool
+                                .replace("{flag}", "--focus")
+                                .replace("{value}", text),
+                        ));
+                    }
+                };
+                params.insert("focus".into(), json!(on));
+                arguments.insert("focus".into(), json!(on));
             }
             _ => {
                 let key = argument_name(&name);

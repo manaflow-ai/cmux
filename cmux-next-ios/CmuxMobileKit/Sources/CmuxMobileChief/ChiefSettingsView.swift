@@ -190,7 +190,8 @@ public struct ChiefSettingsView: View {
                     .accessibilityIdentifier("chief.settings.message")
             }
             ChiefQuickAction(symbol: "phone.fill", title: String(localized: "Call"), enabled: true) {
-                ChiefCallLauncher.shared.call()
+                // This Chief's page: the call is to this Chief only.
+                ChiefCallLauncher.shared.call(session)
             }
             .accessibilityIdentifier("chief.settings.call")
             if !session.runsInCloud {

@@ -191,7 +191,7 @@ public final class LayoutModel {
     /// sent yet (`flushLandedCloseSizes`).
     @ObservationIgnored var landedCloseRatios: [SplitID: Double] = [:]
     /// Until this uptime, a ratio-only change is an explicit equalize the screens spring (Lawrence 2026-10-16).
-    @ObservationIgnored public private(set) var explicitReflowUntil: TimeInterval = 0
+    @ObservationIgnored public internal(set) var explicitReflowUntil: TimeInterval = 0
     static let explicitReflowWindow: TimeInterval = 0.6
     /// An explicit equalize is in its window now.
     public var animatesReflow: Bool { ProcessInfo.processInfo.systemUptime < explicitReflowUntil }

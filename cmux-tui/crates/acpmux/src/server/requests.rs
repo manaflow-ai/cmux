@@ -760,6 +760,23 @@ fn caller_sends_no_files(
 /// or answers itself for a peer's session (`peer_forward.rs`) keeps its params as they are, and
 /// so does `keep`, whose `sessionId` is an exact id this connection owns (`ephemeral.rs`).
 fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), RpcError> {
+    // A machine named in another case or by a prefix (`new --host`, `dispatch --host`) reads as
+    // the one peer it names, by the same rule (`Hub::host_route`).
+    let host = match m {
+        method::SESSION_NEW | method::MUX_HARNESSES | method::MUX_HARNESS_HEALTH => {
+            params.pointer_mut("/_meta/acpmux/peer")
+        }
+        method::MUX_DISPATCH => {
+            let field = ["host", "target"].into_iter().find(|f| params[*f].is_string());
+            field.and_then(|f| params.get_mut(f))
+        }
+        _ => None,
+    };
+    if let Some(slot) = host
+        && let Some(peer) = slot.as_str().map(|h| hub.host_route(h)).transpose()?.flatten()
+    {
+        *slot = Value::String(peer);
+    }
     let slot = if m == method::MUX_SEND_QUEUE {
         params.pointer_mut("/request/sessionId")
     } else if m != method::MUX_KEEP && super::peer_forward::names_a_session(m) {
@@ -1024,6 +1041,10 @@ async fn dispatch_request_with_identity(
     }
     // A session on a machine only the mesh hub reaches (`mesh_read.rs`).
     if let Some(reply) = super::mesh_relay::read::forward(hub, conn, m, &params).await {
+        return reply;
+    }
+    // The app's prompt to a chat on a machine only the hub reaches (`mesh_read.rs`).
+    if let Some(reply) = super::mesh_relay::read::prompt(hub, conn, m, &params).await {
         return reply;
     }
     if matches!(

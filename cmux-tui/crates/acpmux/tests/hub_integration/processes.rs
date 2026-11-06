@@ -475,6 +475,37 @@ async fn a_long_foreground_shell_goes_to_the_background_on_its_own() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A shell whose call declares a Bash `timeout` longer than the wait stays in the foreground:
+/// the agent chose to block on it (a land-queue wait, a CI watch), and Claude Code ends it at
+/// that timeout anyway. Moved, the turn ended on a running shell and the agent stalled
+/// (a1000, a1001, a994, 2026-11-05).
+#[tokio::test]
+async fn a_shell_with_a_declared_timeout_stays_in_the_foreground() {
+    let env = [("FAKE_CLAUDE_FG_TIMEOUT_MS", "600000"), ("FAKE_CLAUDE_FG_WAIT_S", "2")];
+    let (hub, mut c, root) = claude_hub(&env).await;
+    hub.set_auto_background_after(Some(Duration::from_millis(300)));
+    let (id, turn) = fg_shell(&mut c).await;
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    assert_eq!(control_requests(&hub, &id, "background_tasks"), Vec::<Value>::new());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A declared `timeout` no longer than the wait changes nothing: the shell still moves.
+#[tokio::test]
+async fn a_shell_with_a_short_timeout_still_goes_to_the_background() {
+    let (hub, mut c, root) = claude_hub(&[("FAKE_CLAUDE_FG_TIMEOUT_MS", "200")]).await;
+    hub.set_auto_background_after(Some(Duration::from_millis(300)));
+    let (id, turn) = fg_shell(&mut c).await;
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    let sent = control_requests(&hub, &id, "background_tasks");
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Turned off (`ACPMUX_AUTO_BACKGROUND_SECS=0`, here the setter), the shell stays in the
 /// foreground until the person's Ctrl-B.
 #[tokio::test]

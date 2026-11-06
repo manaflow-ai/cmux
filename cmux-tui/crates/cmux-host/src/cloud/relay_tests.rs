@@ -159,8 +159,11 @@ fn the_backoff_wait_runs_from_the_relay_thread_outside_any_runtime() {
     // ends the relay thread, so the machine never dials the relay again after its first socket drops.
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     let (_tx, mut rx) = watch::channel(false);
+    let (_resume, mut resumes) = watch::channel(0);
     let started = std::time::Instant::now();
-    let waited = std::thread::spawn(move || pause(&rt, &mut rx, Duration::from_millis(20))).join();
+    let waited =
+        std::thread::spawn(move || pause(&rt, &mut rx, &mut resumes, 0, Duration::from_millis(20)))
+            .join();
     assert!(waited.is_ok(), "the wait panicked the relay thread");
     assert!(started.elapsed() >= Duration::from_millis(20), "it waited out the backoff");
 }
@@ -170,7 +173,7 @@ fn a_stop_drops_the_socket_at_once() {
     struct Socket(std::sync::Arc<std::sync::atomic::AtomicBool>);
     impl Drop for Socket {
         fn drop(&mut self) {
-            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            self.0.store(true, Ordering::SeqCst);
         }
     }
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
@@ -196,10 +199,7 @@ fn a_stop_drops_the_socket_at_once() {
             tokio::join!(or_stop(&mut rx, serving), stopper).0
         });
         assert_eq!(out, None);
-        assert!(
-            dropped.load(std::sync::atomic::Ordering::SeqCst),
-            "the socket is dropped with its chats"
-        );
+        assert!(dropped.load(Ordering::SeqCst), "the socket is dropped with its chats");
         assert!(started.elapsed() < Duration::from_secs(2), "not at the next ping tick");
     }
 }
@@ -466,4 +466,33 @@ fn a_failed_session_create_keeps_its_exit_and_its_type() {
     assert_eq!(event["code"], "chat.no_session", "{event}");
     assert_eq!(event["detail"], "daemon_closed");
     assert_eq!(event["retryable"], true);
+}
+
+#[test]
+fn a_chat_counts_as_running_until_its_task_ends_or_is_aborted() {
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let (release, wait) = tokio::sync::oneshot::channel::<()>();
+        let running = Running::start(&COUNT);
+        let done = tokio::spawn(async move {
+            let _running = running;
+            let _ = wait.await;
+        });
+        assert_eq!(COUNT.load(Ordering::SeqCst), 1);
+        let _ = release.send(());
+        done.await.unwrap();
+        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
+
+        // Aborted before it ever ran: the count still goes back down.
+        let running = Running::start(&COUNT);
+        let aborted = tokio::spawn(async move {
+            let _running = running;
+            std::future::pending::<()>().await;
+        });
+        assert_eq!(COUNT.load(Ordering::SeqCst), 1);
+        aborted.abort();
+        let _ = aborted.await;
+        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
+    });
 }
