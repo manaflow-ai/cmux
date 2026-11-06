@@ -31,10 +31,11 @@ enum WorkerControl: Equatable, Sendable {
             guard let policy = PolicyFlags.data(line["config"]) else { return nil }
             self = .config(policy: policy, motion: CursorMotionSettings(line["motion"]))
         case "approvals":
-            guard let edit = ApprovalEdit(action: line["action"] as? String, appID: line["app_id"] as? String) else {
-                return .some(.unknown(id: id, type: "approvals"))
+            if let edit = ApprovalEdit(action: line["action"] as? String, appID: line["app_id"] as? String) {
+                self = .approvals(id: id, action: edit)
+            } else {
+                self = .unknown(id: id, type: "approvals")
             }
-            self = .approvals(id: id, action: edit)
         case let type:
             self = .unknown(id: id, type: type ?? "")
         }

@@ -11,7 +11,7 @@ import Foundation
 /// dialog components, so the buttons are AppKit push buttons in the Screen Sharing banner's style.)
 @MainActor
 final class ApprovalPanel {
-    static let timeout: TimeInterval = 120
+    nonisolated static let timeout: TimeInterval = 120
 
     private struct Pending {
         let id: Int

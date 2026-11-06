@@ -204,8 +204,9 @@ private final class SessionCursor {
             ring.add(group, forKey: "ripple")
         }
         // The ring's bounded display time (animated or not); a one-shot removal, not a synchronization.
+        nonisolated(unsafe) let shown = ring // only touched on the main run loop below
         Timer.scheduledTimer(withTimeInterval: animated ? lifetime : 0.3, repeats: false) { _ in
-            MainActor.assumeIsolated { ring.removeFromSuperlayer() }
+            MainActor.assumeIsolated { shown.removeFromSuperlayer() }
         }
     }
 

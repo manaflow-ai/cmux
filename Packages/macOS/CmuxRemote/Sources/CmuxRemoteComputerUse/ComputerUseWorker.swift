@@ -200,7 +200,10 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
         let answered = DispatchSemaphore(value: 0)
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                guard let approvals = self.approvals else { return answered.signal() }
+                guard let approvals = self.approvals else {
+                    answered.signal()
+                    return
+                }
                 approvals.ask(question) { answer in
                     box.withLock { $0 = answer }
                     answered.signal()
