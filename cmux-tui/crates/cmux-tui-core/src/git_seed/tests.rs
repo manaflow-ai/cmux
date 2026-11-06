@@ -764,9 +764,12 @@ fn a_clone_through_the_cloud_agent_keeps_its_helper_for_push() {
     let folder = world.home.join("pushable");
     let job = start(&service, &clone_params(&folder, None)).unwrap();
     assert_eq!(wait(&service, &job)["state"], "done");
-    let helpers =
-        git(&folder, &["config", "--local", "--get-all", "credential.https://github.com.helper"]);
-    assert_eq!(helpers, format!("\n{HELPER}"), "an empty reset, then the agent's helper");
+    // NUL-separated: the empty reset survives `git`'s trim.
+    let helpers = git(
+        &folder,
+        &["config", "--local", "-z", "--get-all", "credential.https://github.com.helper"],
+    );
+    assert_eq!(helpers, format!("\0{HELPER}\0"), "an empty reset, then the agent's helper");
     assert_eq!(
         git(&folder, &["config", "--local", "credential.https://github.com.useHttpPath"]),
         "true"
