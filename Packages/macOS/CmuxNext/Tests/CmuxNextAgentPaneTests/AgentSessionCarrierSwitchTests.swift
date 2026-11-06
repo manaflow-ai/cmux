@@ -428,6 +428,30 @@ struct AgentSessionCarrierSwitchTests {
         #expect(page.seqs == [1, 2])
     }
 
+    /// Codex re-review at ff648278: AgentSessionAttachClient serializes attaches, so the old handler
+    /// keeps pushing while a re-attach waits its turn. Those pushes reach the page, whether the
+    /// re-attach then goes through or is refused.
+    @Test(arguments: [true, false])
+    func pushesOnTheOldAttachmentDuringAReattachReachThePage(refused: Bool) async throws {
+        let relay = Carrier()
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        let page = Page()
+        _ = try await chat.attach(AgentSessionPage(), events: page.handler)
+        relay.push(1)
+        let old = try #require(relay.state.withLock { $0.handler })
+        relay.state.withLock { $0.holdAttach = true }
+        let reattach = Task { try await chat.attach(AgentSessionPage(afterSeq: 1), events: page.handler) }
+        await Self.until { relay.attachHeld }
+        old(.record(Data(#"{"seq":2}"#.utf8)))
+        #expect(page.seqs == [1, 2])
+        if refused { relay.state.withLock { $0.attachFails = true } }
+        relay.releaseAttach()
+        _ = try? await reattach.value
+        // Once the new attachment carries the chat, the old one's late pushes are not the page's.
+        old(.record(Data(#"{"seq":3}"#.utf8)))
+        #expect(page.seqs == (refused ? [1, 2, 3] : [1, 2]))
+    }
+
     /// Codex re-review at 54f1272e, F2: a fall-back waits for calls still running on the direct client,
     /// so a prompt made during it never reaches the relay ahead of an older one.
     @Test func aFallBackWaitsForDirectCallsInFlight() async throws {
