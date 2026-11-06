@@ -186,13 +186,7 @@ export function ProjectChooser({
             suggestions={suggestions}
             pinnedSuggestions={pinned}
             pinnedPlacement="bottom"
-            onQuery={(value) => {
-              // The menu keeps the width it opened at while a search narrows its rows (its height
-              // stays too: keepHeight), so nothing in it moves as the user types.
-              const menu = search.current?.closest<HTMLElement>(".acpmux-project-menu");
-              if (menu && !menu.style.minWidth) menu.style.minWidth = `${menu.getBoundingClientRect().width}px`;
-              setQuery(value);
-            }}
+            onQuery={setQuery}
             onSubmit={(key) => {
               if (key === ADD_PROJECT_KEY) {
                 close(false);

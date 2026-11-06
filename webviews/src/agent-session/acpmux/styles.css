@@ -458,6 +458,8 @@
 .ui-popup.acpmux-project-menu{position:relative;inset:auto;width:max-content;min-width:200px;max-width:min(300px,calc(100vw - 32px));max-height:none;overflow:visible;font-size:13px;--acpmux-project-menu-edge:4px}
 .acpmux-project-menu .acpmux-menu-item{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-project-search{padding-inline:var(--acpmux-project-menu-edge)}
+/* The search field takes the rows' width; its own default size never widens the menu. */
+.acpmux-project-menu .acpmux-project-search-field{contain:inline-size}
 .acpmux-project-menu .acpmux-project-browse{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
 /* Every badge sits on the same quiet neutral tile, so a dark or a white icon reads in either theme
