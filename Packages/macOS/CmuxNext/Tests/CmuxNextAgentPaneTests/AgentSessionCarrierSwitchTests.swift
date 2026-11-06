@@ -23,6 +23,8 @@ struct AgentSessionCarrierSwitchTests {
             var closed = false
             var detached = false
             var onAttach: (@Sendable () -> Void)?
+            /// Runs as a detach starts, with the handler the attachment had (a push still in flight).
+            var onDetach: (@Sendable ((@Sendable (AgentSessionRemoteEvent) -> Void)?) -> Void)?
             /// The next attach waits here until ``releaseAttach()``.
             var holdAttach = false
             var heldAttach: CheckedContinuation<Void, Never>?
@@ -49,6 +51,7 @@ struct AgentSessionCarrierSwitchTests {
                     state.withLock { $0.heldAttach = waiter }
                 }
             }
+            if state.withLock({ $0.attachFails }) { throw AgentSessionRemoteError(code: "link.down", message: "no direct link") }
             hook?()
             return answer(after: page.afterSeq)
         }
@@ -77,7 +80,11 @@ struct AgentSessionCarrierSwitchTests {
         func cancel() async throws {}
         func permission(id: String, option: String, answers: Data?, annotations: Data?, decisionNonce: String?,
                         personDecision: String?) async throws {}
-        func detach() async { state.withLock { $0.detached = true } }
+        func detach() async {
+            let (hook, handler) = state.withLock { ($0.onDetach, $0.handler) }
+            hook?(handler)
+            state.withLock { $0.detached = true }
+        }
         func close() async { state.withLock { $0.closed = true } }
 
         func push(_ seq: UInt64) {
@@ -246,6 +253,66 @@ struct AgentSessionCarrierSwitchTests {
         #expect(!chat.moved)
     }
 
+    /// A relay record ahead of the direct replay (the relay never pushed 6-8) lets the replay's
+    /// earlier records out first, during the drain and during the attach alike.
+    @Test(arguments: [true, false])
+    func aRelayRecordAheadOfTheDirectReplayWaitsForIt(duringAttach: Bool) async throws {
+        let relay = Carrier()
+        let direct = Carrier(log: Array(1...8))
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        let page = Page()
+        _ = try await chat.attach(AgentSessionPage(), events: page.handler)
+        for seq in UInt64(1)...5 { relay.push(seq) }
+        if duringAttach {
+            direct.state.withLock { $0.holdAttach = true }
+        } else {
+            relay.state.withLock { $0.holdPrompts = true }
+        }
+        let prompt = duringAttach ? nil : Task { try await chat.prompt(id: "a", text: "first") }
+        if !duringAttach { await Self.until { relay.heldCount == 1 } }
+
+        let move = Task { await chat.move(to: direct) }
+        if duringAttach {
+            await Self.until { direct.attachHeld }
+        } else {
+            await Self.until { chat.holding }
+        }
+        relay.push(9)
+        if duringAttach {
+            #expect(page.seqs == Array(1...5), "the record waits for the replay")
+            direct.releaseAttach()
+        } else {
+            #expect(page.seqs == Array(1...9), "the replay's earlier records go first")
+            relay.releasePrompts()
+            _ = try await prompt?.value
+        }
+        #expect(await move.value)
+        direct.push(10)
+        #expect(page.seqs == Array(1...10))
+        #expect(page.closes == 0)
+    }
+
+    @Test func aMoveThatFailsLetsTheRelayRecordsItHeldOut() async throws {
+        let relay = Carrier()
+        let direct = Carrier(log: [1])
+        direct.state.withLock { $0.holdAttach = true }
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        let page = Page()
+        _ = try await chat.attach(AgentSessionPage(), events: page.handler)
+        relay.push(1)
+
+        let move = Task { await chat.move(to: direct) }
+        await Self.until { direct.attachHeld }
+        relay.push(2)
+        #expect(page.seqs == [1])
+        direct.state.withLock { $0.attachFails = true }
+        direct.releaseAttach()
+        #expect(await move.value == false)
+        #expect(page.seqs == [1, 2])
+        relay.push(3)
+        #expect(page.seqs == [1, 2, 3])
+    }
+
     @Test func theRelaysEndBeforeAnyMoveEndsThePagesAttachment() async throws {
         let relay = Carrier()
         let chat = AgentSessionCarrierSwitch(fallback: relay)
@@ -281,6 +348,38 @@ struct AgentSessionCarrierSwitchTests {
         #expect(await chat.move(to: direct))
         #expect(direct.state.withLock { $0.attaches.first?.afterSeq } == 3)
         #expect(page.seqs == [4])
+    }
+
+    /// Codex re-review at 7343a24b, F1: a forward read narrower than the attachment (a transcript-only
+    /// page) covers only its own kinds, so a move still replays the records it left out.
+    @Test func aNarrowerForwardReadDoesNotMoveTheCursor() async throws {
+        let relay = Carrier()
+        let direct = Carrier(log: [1, 2, 3, 4])
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        let page = Page()
+        _ = try await chat.attach(AgentSessionPage(afterSeq: 0), events: page.handler)
+        relay.state.withLock { $0.log = [1, 2, 3] }
+        _ = try await chat.events(AgentSessionPage(afterSeq: 0, kinds: ["transcript"]))
+        #expect(await chat.move(to: direct))
+        #expect(direct.state.withLock { $0.attaches.first?.afterSeq } == 0)
+        #expect(page.seqs == [1, 2, 3, 4])
+    }
+
+    /// Codex re-review at 7343a24b, F3: closing the chat while a move still attaches the direct
+    /// link closes that client too, so its attachment does not outlive the chat.
+    @Test func closingDuringAMoveClosesTheDirectClient() async throws {
+        let relay = Carrier()
+        let direct = Carrier()
+        direct.state.withLock { $0.holdAttach = true }
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        _ = try await chat.attach(AgentSessionPage(), events: Page().handler)
+        let move = Task { await chat.move(to: direct) }
+        await Self.until { direct.attachHeld }
+        await chat.close()
+        #expect(direct.state.withLock { $0.closed })
+        #expect(relay.state.withLock { $0.closed })
+        direct.releaseAttach()
+        #expect(await move.value == false)
     }
 
     /// Codex review F3: no move starts while the chat is on its way back to the relay.
@@ -365,6 +464,59 @@ struct AgentSessionCarrierSwitchTests {
         if !clientKeepsNewHandler { relay.state.withLock { $0.handler = old } }
         relay.push(2)
         #expect(page.seqs == [1, 2])
+    }
+
+    /// Codex re-review at ff648278: AgentSessionAttachClient serializes attaches, so the old handler
+    /// keeps pushing while a re-attach waits its turn. Those pushes reach the page, whether the
+    /// re-attach then goes through or is refused.
+    @Test(arguments: [true, false])
+    func pushesOnTheOldAttachmentDuringAReattachReachThePage(refused: Bool) async throws {
+        let relay = Carrier()
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        let page = Page()
+        _ = try await chat.attach(AgentSessionPage(), events: page.handler)
+        relay.push(1)
+        let old = try #require(relay.state.withLock { $0.handler })
+        relay.state.withLock { $0.holdAttach = true }
+        let reattach = Task { try await chat.attach(AgentSessionPage(afterSeq: 1), events: page.handler) }
+        await Self.until { relay.attachHeld }
+        old(.record(Data(#"{"seq":2}"#.utf8)))
+        #expect(page.seqs == [1, 2])
+        if refused { relay.state.withLock { $0.attachFails = true } }
+        relay.releaseAttach()
+        _ = try? await reattach.value
+        // Once the new attachment carries the chat, the old one's late pushes are not the page's.
+        old(.record(Data(#"{"seq":3}"#.utf8)))
+        #expect(page.seqs == (refused ? [1, 2, 3] : [1, 2]))
+    }
+
+    /// Codex re-review at 1aff3697: a relay push still in flight when the move cuts over reaches the
+    /// page if it is a permission, change or presence; its records come over the direct link.
+    @Test func aRelayPushInFlightAtTheCutoverIsNotLost() async throws {
+        let relay = Carrier()
+        let direct = Carrier(log: [1, 2])
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        let page = Page()
+        _ = try await chat.attach(AgentSessionPage(), events: page.handler)
+        relay.push(1)
+        let permission = AgentSessionRemoteEvent.permission(Data(#"{"id":"p1"}"#.utf8))
+        relay.state.withLock { state in
+            state.onDetach = { handler in
+                handler?(.record(Data(#"{"seq":3}"#.utf8)))
+                handler?(permission)
+                handler?(.closed("detached"))
+            }
+        }
+
+        #expect(await chat.move(to: direct))
+        #expect(page.events.withLock { $0 }.contains(permission))
+        #expect(page.seqs == [1, 2], "the relay's late record waits for the direct link")
+        #expect(page.closes == 0)
+        direct.push(3)
+        #expect(page.seqs == [1, 2, 3])
+        relay.state.withLock { $0.handler }?(.permission(Data(#"{"id":"p2"}"#.utf8)))
+        #expect(page.events.withLock { $0 }.filter { if case .permission = $0 { true } else { false } }.count == 1,
+                "once the relay detached, its pushes are not the page's")
     }
 
     /// Codex re-review at 54f1272e, F2: a fall-back waits for calls still running on the direct client,
