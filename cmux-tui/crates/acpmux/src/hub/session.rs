@@ -879,9 +879,11 @@ pub(crate) fn mark_pasted(msg: &mut Value, blocks: &[Value]) {
     if !pasted.is_empty() {
         msg["pasted"] = Value::Array(pasted);
     }
-    // Only the person's own prompt: another agent's carries its sender (`_meta.provenance`,
-    // `fromAgent`). A client draws `agentText` only on the person's bubble.
-    if msg.pointer("/_meta/provenance").is_none()
+    // Only the person's own prompt: another agent's carries its sender (an agent kind of
+    // `_meta.provenance`, `fromAgent`). A client draws `agentText` only on the person's bubble.
+    // A person's own prompt with provenance (`person_message`, multiplayer) is still theirs.
+    let agents = super::digest::agent_sender(msg.pointer("/_meta/provenance"), None).is_some();
+    if !agents
         && msg.get("fromAgent").is_none()
         && let Some(agent) = typed_agent_text(blocks)
     {

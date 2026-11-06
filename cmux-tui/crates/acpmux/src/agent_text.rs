@@ -118,8 +118,10 @@ fn window(text: &str) -> (&str, Option<&str>) {
     while !text.is_char_boundary(tail) {
         tail += 1;
     }
+    // A line cut in part at the tail's start is dropped; one that starts there is whole.
+    let whole = text.as_bytes()[tail - 1] == b'\n';
     let tail = &text[tail..];
-    let tail = tail.split_once('\n').map_or("", |(_, rest)| rest);
+    let tail = if whole { tail } else { tail.split_once('\n').map_or("", |(_, rest)| rest) };
     (&text[..head], Some(tail))
 }
 
@@ -200,6 +202,17 @@ mod tests {
         assert!(detect("## Handoff\nnext steps").agent());
         let batch = detect("[message 1 of 2] from lane-a\nhello");
         assert_eq!(batch.from.as_deref(), Some("lane-a"));
+    }
+
+    /// Review of #37190 (F3): a footer line that starts exactly where the tail starts is read.
+    #[test]
+    fn a_tail_that_starts_on_a_line_reads_that_line() {
+        let footer = "Trace-ID: ask-1";
+        let body = "y".repeat(HEAD_BYTES + 10);
+        let pad = "z".repeat(TAIL_BYTES - footer.len() - 1);
+        let text = format!("{body}\n{footer}\n{pad}");
+        assert_eq!(text.as_bytes()[text.len() - TAIL_BYTES - 1], b'\n');
+        assert!(detect(&text).signals.contains(&"a Trace-ID line"));
     }
 
     #[test]

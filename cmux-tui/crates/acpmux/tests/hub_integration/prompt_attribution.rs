@@ -54,7 +54,7 @@ async fn the_agent_reads_who_wrote_each_part_of_a_prompt() {
         ),
         "{read}"
     );
-    assert!(rest.ends_with(&format!("{HANDOFF}[End of pasted text]")), "{read}");
+    assert!(rest.ends_with(&format!("{HANDOFF}\n[End of pasted text]")), "{read}");
     let record = c.user_message(&session, "p-paste").await;
     assert_eq!(
         record["text"],

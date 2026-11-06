@@ -168,8 +168,20 @@ def prompt_text(params):
         blocks = [b for b in blocks if not is_cmux_guidance(b)]
     # Who wrote it (hub/prompt_attribution.rs): fixtures match the prompt, opt in to the marks.
     if os.environ.get("FAKE_ECHO_ATTRIBUTION") != "1":
-        blocks = [b for b in blocks if not is_attribution(b)]
+        blocks = [unwrapped(b) for b in blocks if not is_attribution(b)]
     return "".join(b.get("text", "") for b in blocks)
+
+
+def unwrapped(block):
+    """A paste acpmux wrapped in its marks (attributionWrap), as the composer sent it."""
+    wrap = ((block.get("_meta") or {}).get("acpmux") or {}).get("attributionWrap") if isinstance(block, dict) else None
+    text = block.get("text", "") if isinstance(block, dict) else ""
+    if not wrap or not isinstance(text, str):
+        return block
+    head, tail = wrap.get("open", "") + "\n", "\n" + wrap.get("close", "")
+    if text.startswith(head) and text.endswith(tail):
+        return {**block, "text": text[len(head):len(text) - len(tail)]}
+    return block
 
 
 def is_attribution(block):

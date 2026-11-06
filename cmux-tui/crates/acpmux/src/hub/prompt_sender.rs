@@ -16,10 +16,16 @@ pub(super) fn add_steer_sender(
     add_sender(params, sender, class.map(crate::prompt_class::PromptClass::as_str), provenance);
 }
 
-/// [`prompt_params`] for queued prompt `run`.
-pub(super) fn run_params(agent_sid: &str, prompt: Value, run: &super::queue::PromptRun) -> Value {
+/// [`prompt_params`] for queued prompt `run`, under its turn's effective `provenance` (a fan-in
+/// turn's is its digest's, `turns.rs`, not `run`'s own).
+pub(super) fn run_params(
+    agent_sid: &str,
+    prompt: Value,
+    run: &super::queue::PromptRun,
+    provenance: Option<&Value>,
+) -> Value {
     let class = run.class.map(crate::prompt_class::PromptClass::as_str);
-    prompt_params(agent_sid, prompt, run.agent.as_deref(), class, run.provenance.as_ref())
+    prompt_params(agent_sid, prompt, run.agent.as_deref(), class, provenance)
 }
 
 /// The `session/prompt` params for `prompt` to `agent_sid`, with the sender of

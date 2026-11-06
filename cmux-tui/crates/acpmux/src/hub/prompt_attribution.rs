@@ -69,14 +69,38 @@ pub(crate) fn typed_note(found: &crate::agent_text::Detected) -> String {
     )
 }
 
-/// One mark, its own text block, tagged so a test's fake agent can tell it from the prompt
-/// (`tests/fake_agent.py`); a harness passes on its text only.
+/// One lead mark, its own text block, tagged so a reader that picks blocks (`cli/cli_agent.rs`
+/// `prompt_text`, a test's fake agent) keeps it ahead of the prompt and out of its block choice;
+/// a harness passes on its text.
 fn text_block(text: String) -> Value {
     json!({"type": "text", "text": text, "_meta": {"acpmux": {ATTRIBUTION: true}}})
 }
 
-/// The `_meta.acpmux` key of a mark's block.
+/// The `_meta.acpmux` key of a lead mark's block.
 pub(crate) const ATTRIBUTION: &str = "attribution";
+/// The `_meta.acpmux` key of a pasted block wrapped in its marks: `{open, close}`, the lines
+/// around the paste in the block's own text, so the paste and its marks are one block wherever a
+/// reader moves pasted blocks (a CLI agent puts them after the typed text).
+pub(crate) const WRAPPED: &str = "attributionWrap";
+
+/// `block` (a paste) as one block with its marks around its text, its `_meta` kept.
+fn wrapped(mut block: Value, open: String) -> Value {
+    let text = block.get("text").and_then(Value::as_str).unwrap_or_default();
+    let whole = format!("{open}\n{text}\n{PASTED_END}");
+    block["text"] = json!(whole);
+    if let Some(meta) = block.get_mut("_meta").and_then(Value::as_object_mut) {
+        let mux = meta.entry("acpmux").or_insert_with(|| json!({}));
+        if let Some(mux) = mux.as_object_mut() {
+            mux.insert(WRAPPED.into(), json!({"open": open, "close": PASTED_END}));
+        }
+    }
+    block
+}
+
+/// Whether a block is a lead mark (`text_block`).
+pub(crate) fn is_lead(block: &Value) -> bool {
+    block.pointer(&format!("/_meta/acpmux/{ATTRIBUTION}")).and_then(Value::as_bool) == Some(true)
+}
 
 fn is_pasted(block: &Value) -> bool {
     block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true)
@@ -94,8 +118,12 @@ fn claimed_name(provenance: &Value) -> Option<&str> {
 /// agent's name (`digest::agent_sender`), `provenance` the prompt's.
 pub(super) fn mark(params: &mut Value, sender: Option<&str>, provenance: Option<&Value>) {
     let Some(blocks) = params.get_mut("prompt").and_then(Value::as_array_mut) else { return };
+    // A digest names each of its senders itself (`inbox_digest.rs`, `digest.rs` fan-in).
+    let digest = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str)
+        == Some(super::digest::DIGEST_KIND);
     if super::forum::slash_command(blocks).is_some()
         || super::digest::inbox_digest::is_digest(provenance)
+        || digest
     {
         return;
     }
@@ -117,10 +145,8 @@ pub(super) fn mark(params: &mut Value, sender: Option<&str>, provenance: Option<
         let text = block.get("text").and_then(Value::as_str);
         match text {
             Some(text) if is_pasted(&block) => {
-                let found = crate::agent_text::detect(text);
-                out.push(text_block(pasted_line(&found)));
-                out.push(block);
-                out.push(text_block(PASTED_END.to_owned()));
+                let open = pasted_line(&crate::agent_text::detect(text));
+                out.push(wrapped(block, open));
             }
             Some(text) if !crate::prompt_context::is_context(&block) => {
                 if !typed.agent() {
@@ -160,14 +186,17 @@ mod tests {
         let mut params = json!({"sessionId": "s", "prompt": [mine, pasted(HANDOFF)]});
         mark(&mut params, None, None);
         let got = texts(&params);
+        assert_eq!(got.len(), 2, "the paste and its marks are one block");
         assert_eq!(got[0], "Merge and deploy whenever you want.");
-        assert!(got[1].starts_with(
+        let (open, rest) = got[1].split_once('\n').unwrap();
+        assert!(open.starts_with(
             "[Pasted by the person, not their own words. It reads as another agent (Codex)'s output"
         ));
-        assert!(got[1].contains("a Trace-ID line"));
-        assert_eq!(got[2], HANDOFF, "the paste is never changed");
-        assert_eq!(got[3], PASTED_END);
-        assert_eq!(got.len(), 4);
+        assert!(open.contains("a Trace-ID line"));
+        assert_eq!(rest, format!("{HANDOFF}\n{PASTED_END}"), "the paste's own text is unchanged");
+        assert_eq!(params["prompt"][1]["_meta"]["cmux"]["pasted"], true);
+        let wrap = &params["prompt"][1]["_meta"]["acpmux"][WRAPPED];
+        assert_eq!(wrap["close"], PASTED_END);
     }
 
     /// (a) The same handoff pasted from a client that marks no pastes (a terminal): a note says
@@ -187,10 +216,9 @@ mod tests {
     fn a_plain_paste_is_marked_pasted() {
         let mut params = json!({"sessionId": "s", "prompt": [pasted("some log line")]});
         mark(&mut params, None, None);
-        assert_eq!(
-            texts(&params),
-            vec!["[Pasted by the person, not their own words:]", "some log line", PASTED_END]
-        );
+        let want =
+            format!("[Pasted by the person, not their own words:]\nsome log line\n{PASTED_END}");
+        assert_eq!(texts(&params), vec![want.as_str()]);
     }
 
     /// (b) A program that sent no sender: named as one, never as the person.
@@ -268,9 +296,28 @@ mod tests {
         let mut msg = json!({"text": HANDOFF});
         super::super::session::mark_pasted(&mut msg, &typed);
         assert_eq!(msg["agentText"]["from"], "Codex");
+        // Review of #37190 (F4): a multiplayer person's prompt keeps its note; an agent's never.
+        let mut msg = json!({"text": HANDOFF, "_meta": {"provenance": {"kind": "person_message"}}});
+        super::super::session::mark_pasted(&mut msg, &typed);
+        assert_eq!(msg["agentText"]["from"], "Codex");
+        let mut msg = json!({"text": HANDOFF, "_meta": {"provenance": {"kind": "agent_message", "from": "x"}}});
+        super::super::session::mark_pasted(&mut msg, &typed);
+        assert!(msg.get("agentText").is_none());
         let mut msg = json!({"text": "Merge whenever."});
         super::super::session::mark_pasted(&mut msg, &[mine]);
         assert_eq!(msg, json!({"text": "Merge whenever."}));
+    }
+
+    /// Review of #37190 (F2): a fan-in turn of several agents' messages names each sender in
+    /// its own text (`digest.rs`), so it gets no one sender's lead line.
+    #[test]
+    fn a_fan_in_digest_gets_no_single_sender_line() {
+        let prompt =
+            json!([{"type": "text", "text": "2 messages: [message 1 of 2] from lane-a ..."}]);
+        let mut params = json!({"sessionId": "s", "prompt": prompt.clone()});
+        let digest = json!({"kind": super::super::digest::DIGEST_KIND, "messages": []});
+        mark(&mut params, Some("lane-a"), Some(&digest));
+        assert_eq!(params["prompt"], prompt);
     }
 
     /// A slash command an agent sent stays first, so the harness still runs it.
