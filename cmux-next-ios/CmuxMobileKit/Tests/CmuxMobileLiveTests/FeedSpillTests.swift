@@ -72,7 +72,8 @@ import Testing
         while store.olderOnDisk > 0 { await store.loadOlderPage() }
         #expect(store.item(id: "e6") == nil)
         #expect(store.item(id: "e5")?.isRead == true)
-        #expect(store.items.allSatisfy(\.isRead))
+        let unread = store.items.filter { !$0.isRead }.count
+        #expect(unread == 0)
         #expect(store.items.count == 699)
         store.useSpill(nil)
     }
