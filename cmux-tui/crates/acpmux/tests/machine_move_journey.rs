@@ -81,6 +81,17 @@ impl C {
     }
 }
 
+/// A connection of this machine's unix socket that proves no person: a chat it starts runs in
+/// the machine's policy (approve-all here), which a peer's prompt may drive, as `send_async.rs`'s.
+async fn plain_client(h: Arc<Hub>) -> C {
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(h, in_rx, out_tx));
+    let mut c = C { tx: in_tx, rx: out_rx, next: 0 };
+    c.call(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "t"}})).await;
+    c
+}
+
 const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 async fn client(h: Arc<Hub>) -> C {
@@ -233,7 +244,7 @@ async fn a_session_moved_to_a_fresh_machine_from_an_older_disk_loses_no_prompt_a
         std::fs::read_to_string(acpmux::server::peer_auth::token_path(&auth)).unwrap()
     };
     let relay = Relay::to(serve(b.clone(), &auth).await).await;
-    let mut cb = client(b.clone()).await;
+    let mut cb = plain_client(b.clone()).await;
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
                      "_meta": {"acpmux": {"name": "moved"}}});
     let id = cb.call(method::SESSION_NEW, new).await["sessionId"].as_str().unwrap().to_owned();
