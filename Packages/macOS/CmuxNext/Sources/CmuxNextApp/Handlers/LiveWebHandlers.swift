@@ -85,7 +85,7 @@ enum LiveWebHandlers {
                 if let why = refusal(on) { return .refused(why) }
                 guard let cli = bundled.known, let tree else { return .refused(LiveWebStrings.noCLI) }
                 let window = context.activeWindow?.window
-                let byPerson = invocation.origin == .user
+                let byPerson = invocation.isPersonsOwnRun // a socket request may claim the user origin
                 let settings = context.services.settings
                 show(on ? LiveWebStrings.swiftStarting : LiveWebStrings.swiftStopping, in: window, duration: .seconds(20))
                 return .applied(result: {
