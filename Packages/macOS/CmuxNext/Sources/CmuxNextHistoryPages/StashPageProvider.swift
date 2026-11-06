@@ -22,6 +22,9 @@ public final class StashPageProvider: PageProvider {
     /// The page view whose window shows the Undo toast.
     public var anchor: () -> NSView? = { nil }
 
+    /// The Stashed Tabs top page's title.
+    public static var title: String { StashPageStrings.title }
+
     public init(stash: StashService, relay: any PageProvider) {
         self.stash = stash
         self.relay = relay
@@ -83,12 +86,14 @@ public final class StashPageProvider: PageProvider {
     }
 }
 
-/// The Undo toast's strings (this target's Localizable.xcstrings); the page's own are webviews/src/pages/stash.
+/// The top page's title and the Undo toast's strings (this target's Localizable.xcstrings); the
+/// page's own are webviews/src/pages/stash.
 nonisolated enum StashPageStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, bundle: .module)
     }
 
+    static var title: String { t("stash.title", "Stashed Tabs") }
     static var deletedTab: String { t("stash.deleted.tab", "Stashed tab deleted") }
     static var deletedGroup: String { t("stash.deleted.group", "Stashed group deleted") }
 }

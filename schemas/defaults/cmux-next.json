@@ -1416,6 +1416,7 @@
     "tunable.glass.overlayTintStrength": 1.25,
     "tunable.history.menuLayout": "scopeThenWindow",
     "tunable.history.menuStyle": "inline",
+    "tunable.history.surface": "native",
     "tunable.home.chatHeader": true,
     "tunable.home.chiefViewGallery": true,
     "tunable.home.headerPanelToggles": false,

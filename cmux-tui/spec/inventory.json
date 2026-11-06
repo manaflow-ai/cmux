@@ -667,6 +667,12 @@
       ]
     },
     {
+      "name": "stash-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "browser-state",
       "streams": [
         "attach-browser"

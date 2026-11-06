@@ -57,10 +57,12 @@ import PackageDescription
 //   CmuxNextComputerUse -> AgentActivity, Compat, Settings, Wakeups (the macOS Computer Use helper:
 //     launch, v2 helper and its disclaimed spawner, signed Unix peer checks, the cua helper manifest
 //     reader; setup stays in the App)
-//   CmuxNextHistory -> Design, Icons (history model, SQLite visit log, cmux://history page; no daemon)
+//   CmuxNextHistory -> Design, Icons (history model and addresses; the History page is React; no daemon)
 //   CmuxNextHistoryDaemon -> Daemon, History, Wakeups (the daemon history module's client, `history-v1`)
-//   CmuxNextStash -> Compat, Daemon, DaemonService, History (Stash on this Mac's daemon: the Stashed
-//     page's source; the App answers StashHost)
+//   CmuxNextStash -> Compat, Daemon, DaemonService (Stash on this Mac's daemon: Save and Close, the
+//     Stashed Tabs page's restore and delete; the App answers StashHost)
+//   CmuxNextHistoryPages -> BrowserAutomation, DaemonService, Design, Pages, Settings, Stash (the React
+//     History and Stashed Tabs pages' native ops: Cookie Backups, stash restore and delete with Undo)
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
 //     plans/cmux-next/react-pages.md)
@@ -1832,8 +1834,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHangReports",
                 "CmuxNextHibernation",
                 "CmuxNextHistory",
-                "CmuxNextHistoryPages",
                 "CmuxNextHistoryDaemon",
+                "CmuxNextHistoryPages",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHostedChief",

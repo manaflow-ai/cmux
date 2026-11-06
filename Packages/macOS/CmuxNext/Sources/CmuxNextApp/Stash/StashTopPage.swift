@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextHistory
+import CmuxNextHistoryPages
 import CmuxNextIcons
 import CmuxNextPages
 
@@ -21,7 +22,7 @@ final class StashTopPage: InternalPageProvider {
     init(services: AppServices) { self.services = services }
 
     var page: InternalPageID { .stashed }
-    var title: String { StashTopPageStrings.title }
+    var title: String { StashPageProvider.title }
     var symbol: String { "tray.full" }
     var icon: IconName? { .tabgroupSave }
 
@@ -33,7 +34,7 @@ final class StashTopPage: InternalPageProvider {
         return page
     }
 
-    func tabClosed(_ key: String) { pages[key] = nil }
+    func tabClosed(_ key: String) { pages.removeValue(forKey: key)?.close() }
 
     /// Opens the OneTab paste box of the page `show` opens: a page made by `show` opens with it,
     /// one already open is told to.
@@ -43,9 +44,4 @@ final class StashTopPage: InternalPageProvider {
         if importOnOpen, let page = pages[key] { page.send(command: "open", arguments: ["text": .string("import")]) }
         importOnOpen = false
     }
-}
-
-/// The top page's title (table Stash.xcstrings).
-nonisolated enum StashTopPageStrings {
-    static var title: String { String(localized: "stash.title", defaultValue: "Stashed Tabs", table: "Stash", bundle: .module) }
 }

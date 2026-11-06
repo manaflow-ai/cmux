@@ -331,8 +331,8 @@ fn the_stash_page_relay_lists_stashes_and_hears_stash_changed() {
     let fixture = Fixture::new("stash");
     fixture.ensure(HISTORY_ORIGIN);
     let mut relay = fixture.unix();
-    let hello = relay
-        .send(&json!({"id": 1, "cmd": "client-hello", "role": "page_relay", "page": "stash"}));
+    let hello =
+        relay.send(&json!({"id": 1, "cmd": "client-hello", "role": "page_relay", "page": "stash"}));
     assert_eq!(hello["ok"], true, "{hello}");
     assert_eq!(hello["data"]["page_events"], json!(["stash-changed"]), "{hello}");
     let list = v2("list", "stash.list", json!({}), None);
