@@ -91,6 +91,9 @@ export function withoutQuietThoughts(
   // The caller's index comes from the daemon's raw row list. Refuse it if a filtered or rebuilt
   // list slipped through, preserving the projection's exact semantics over a speculative speedup.
   if (reuse > 0 && previous![reuse - 1] !== rows[reuse - 1]) reuse = 0;
+  // A live projection shaped its last row with keepLast (its quiet thought may still stream). Once
+  // a row follows it, that shape is stale: shape the old last row again.
+  if (live && reuse > 0 && reuse >= previous!.length) reuse = previous!.length - 1;
   let changed = false;
   const out: AcpmuxRow[] = reuse ? prior.rows.slice(0, prior.offsets[reuse]) : [];
   const offsets = reuse ? prior.offsets.slice(0, reuse + 1) : [0];
