@@ -80,6 +80,10 @@ extension LayoutRootView: ScrollGestureOwning {
             return event
         case .magnify:
             return handleCanvasMagnify(event) ? nil : event
+        case .keyDown:
+            // Escape takes the focus ring away and still reaches the pane (a terminal's vim, a page).
+            if event.keyCode == 53 { model.dismissFocusRing() } // Escape
+            return event
         default:
             return event
         }

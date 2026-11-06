@@ -175,9 +175,14 @@ extension NotificationCenterService {
         let key = highlightKey(for: workspace)
         let dismissed = dismissedHighlights[key] ?? 0
         var marks: [LayoutPaneID: AttentionMark] = [:]
+        let policy = NotificationPolicy(prefs: preferences)
         for screen in workspace.screens {
             for pane in screen.panes {
                 guard let id = shownTab(pane) ?? self.shownTab(of: pane), let shown = pane.tabs.first(where: { $0.id == id }) else { continue }
+                // The tab the person is looking at reads its notifications at once (dismissal on focus):
+                // a ring there only blinked on and off with each one, on a pane nobody touched (Leo
+                // 2026-11-06: "STOP FIRING SO OFTEN"). A Mark as Unread on it still rings.
+                if !shown.markedUnread, policy.clears(.focus, for: source(of: shown)), isViewed(shown.id) { continue }
                 // An agent chat whose turn ended rings until the person goes into it, only with
                 // the opt-in agent chat ring (`notifications.attention.agentChats`).
                 let agentChat = shown.agentSession != nil
