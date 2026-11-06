@@ -6602,7 +6602,8 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   height: var(--ds-control-icon);
   padding: 0 var(--ds-space-2);
   box-sizing: border-box;
-  border-radius: 999px;
+  /* Small-radius rects, not capsules (agent-pane-no-capsules.test.ts). */
+  border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--acpmux-needs-you-mark) 16%, transparent);
   line-height: var(--ds-control-icon);
 }
