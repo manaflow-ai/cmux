@@ -30,6 +30,20 @@ final class KeyboardPinTrace: NSObject {
         shared = KeyboardPinTrace()
     }
 
+    /// A demo's step (`demo=<label>` on the probe and a line in the file).
+    static func note(_ label: String) {
+        guard let shared else { return }
+        shared.demo = label
+        shared.write(String(format: "t=%.4f demo=%@", CACurrentMediaTime() - shared.start, label))
+    }
+
+    private var demo = "-"
+    /// The last keyboard notifications, `name@t:dur/inherited/endY`.
+    private var events: [String] = []
+    /// The field's bottom edge as drawn, per frame: `jumps` counts frames
+    /// where it moved without an animation (KeyboardToggleInterruptUITests).
+    private var fieldSteps = FieldStepMeter()
+
     private override init() {
         let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("kbd-pin-trace.txt")
         FileManager.default.createFile(atPath: url.path, contents: nil)
@@ -58,6 +72,10 @@ final class KeyboardPinTrace: NSObject {
                 let local = (info[UIResponder.keyboardIsLocalUserInfoKey] as? Bool) ?? true
                 MainActor.assumeIsolated {
                     guard let self else { return }
+                    // The keyboard's own animation, which a nested layout pass inherits.
+                    let inherited = UIView.inheritedAnimationDuration
+                    self.events.append(String(format: "%@@%.2f:%.2f/%.2f/%.0f", label, CACurrentMediaTime() - self.start, duration, inherited, end.minY))
+                    if self.events.count > 24 { self.events.removeFirst(self.events.count - 24) }
                     // Where the window sits in the screen's and the scene's
                     // coordinate spaces (an iPhone app on an iPad).
                     var place = ""
@@ -67,9 +85,9 @@ final class KeyboardPinTrace: NSObject {
                         place = String(format: " winscreen=%.1f,%.1f,%.1f,%.1f screen=%.0fx%.0f",
                                        inScreen.minX, inScreen.minY, inScreen.width, inScreen.height, screen.width, screen.height)
                     }
-                    self.write(String(format: "t=%.4f ev=%@ end=%.1f,%.1f,%.1f,%.1f dur=%.3f curve=%d local=%d",
+                    self.write(String(format: "t=%.4f ev=%@ end=%.1f,%.1f,%.1f,%.1f dur=%.3f curve=%d local=%d inh=%.3f",
                                       CACurrentMediaTime() - self.start, label,
-                                      end.minX, end.minY, end.width, end.height, duration, curve, local ? 1 : 0) + place)
+                                      end.minX, end.minY, end.width, end.height, duration, curve, local ? 1 : 0, inherited) + place)
                 }
             }
         }
@@ -104,6 +122,7 @@ final class KeyboardPinTrace: NSObject {
             parts.append(String(format: "field=%@ fy=%.2f fb=%.2f fx=%.1f fw=%.1f fr=%d",
                                 field.accessibilityIdentifier ?? "?", rect.minY, rect.maxY, rect.minX, rect.width,
                                 field.isFirstResponder ? 1 : 0))
+            fieldSteps.add(time: link.timestamp - start, bottom: rect.maxY)
             if let guide = Self.keyboardGuide(above: field) {
                 let frame = guide.owningView.map { window.convert(guide.layoutFrame, from: $0) } ?? .zero
                 parts.append(String(format: "kg=%.2f kgh=%.1f", frame.minY, frame.height))
@@ -123,7 +142,14 @@ final class KeyboardPinTrace: NSObject {
             parts.append("field=-")
         }
         let line = parts.joined(separator: " ")
-        probe.accessibilityValue = line
+        let summary = [
+            "fj=\(fieldSteps.jumps)",
+            String(format: "fjmax=%.1f", fieldSteps.largestJump),
+            "demo=\(demo)",
+            "fjlog=" + (fieldSteps.log.isEmpty ? "-" : fieldSteps.log.joined(separator: ",")),
+            "evlog=" + (events.isEmpty ? "-" : events.joined(separator: ",")),
+        ].joined(separator: " ")
+        probe.accessibilityValue = line + " " + summary
         write(line)
     }
 
@@ -185,6 +211,44 @@ final class KeyboardPinTrace: NSObject {
         }
         walk(window)
         return best
+    }
+}
+
+/// Per-frame steps of the composer field's bottom edge as drawn. A frame is a
+/// jump when the field moves faster than any keyboard animation carries it
+/// (3600 pt/s: 60 pt in a 60 Hz frame; the keyboard's own spring peaks near
+/// 2000 pt/s), or when one step is far larger than the steps on either side
+/// of it: a constraint applied outside the animation moves the field in one
+/// frame, where an animation, even one cut short, accelerates into it.
+struct FieldStepMeter {
+    private(set) var jumps = 0
+    private(set) var largestJump: CGFloat = 0
+    /// The latest jumps, `t:step`.
+    private(set) var log: [String] = []
+    private var previous: (time: Double, bottom: CGFloat)?
+    /// The last step, waiting for the next one to judge it.
+    private var pending: (time: Double, step: CGFloat, speed: CGFloat, before: CGFloat)?
+    private var lastSpeed: CGFloat = 0
+
+    mutating func add(time: Double, bottom: CGFloat) {
+        defer { previous = (time, bottom) }
+        guard let previous, time > previous.time else { return }
+        let step = bottom - previous.bottom
+        let speed = abs(step) / CGFloat(time - previous.time)
+        if let pending {
+            let neighbors = max(pending.before, speed)
+            let spike = pending.speed > 1200 && pending.speed > 3 * neighbors
+            if pending.speed > 3600 || spike { record(pending.time, pending.step) }
+        }
+        pending = (time, step, speed, lastSpeed)
+        lastSpeed = speed
+    }
+
+    private mutating func record(_ time: Double, _ step: CGFloat) {
+        jumps += 1
+        largestJump = max(largestJump, abs(step))
+        log.append(String(format: "%.2f:%.0f", time, step))
+        if log.count > 8 { log.removeFirst(log.count - 8) }
     }
 }
 #endif
