@@ -394,6 +394,18 @@ struct CloudRelayChatLoginTests {
         }
     }
 
+    /// A cold machine whose record status is not known yet (`.unknown`, before any list read): the script connect does not
+    /// connect a machine that isn't live, so no connect, no login and no send; a typed terminal code with its recovery command.
+    @Test func aColdMachineOfUnknownStatusSendsNothing() async throws {
+        let f = Self.cold(.unknown) { Steps.shared.append("connect") }
+        defer { f.machine.disconnect() }
+        let run = try await Self.coldRun(f)
+        #expect(run.steps == [], "\(run.steps)")
+        #expect(run.fields["delivered"] == .bool(false) && run.fields["error_code"] == .string("cloud.relay.login_not_connected"))
+        guard case .string(let command) = run.fields["command"] else { Issue.record("no recovery command"); return }
+        #expect(command.hasPrefix("cmux cloud start-session --target machine:" + f.machine.machineID), command)
+    }
+
     /// The person's own run (the palette) sees the same refusal, and nothing is sent.
     @Test func thePersonsRunIsRefusedTheSameWay() async throws {
         let run = try await Self.relayChat(Self.decision(outcome: CloudCredentialTransfer.CachedLogin.none.startOutcome), origin: .user)
