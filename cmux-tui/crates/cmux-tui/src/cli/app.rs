@@ -286,7 +286,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         // viewer, whether it is connected and who has control; never a credential
         // or a pixel of the screen.
         ("app", Some("remote-views")) => {
-            let options = Options::parse(&rest[1..], &["tab"], &[])?;
+            let options = Options::parse(rest.get(1..).unwrap_or_default(), &["tab"], &[])?;
             let mut params = Map::new();
             if let Some(tab) = options.value("tab") {
                 params.insert("tab".into(), json!(tab));
