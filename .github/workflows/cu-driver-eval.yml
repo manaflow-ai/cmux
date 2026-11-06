@@ -42,6 +42,10 @@ jobs:
           ref: feat-cmux-next
           fetch-depth: 1
           submodules: false
+          # A thin client on the gateway runner (glaeda GATEWAY_JOBS): only the summary script it runs
+          # here, no other blob. The measure worker checks the tree out itself.
+          filter: blob:none
+          sparse-checkout: scripts/measure/cu-driver-eval
       - name: the last successful run
         id: previous
         env:
