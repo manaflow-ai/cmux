@@ -32,7 +32,10 @@ function chromiumScriptDeadlineMs(): number {
     new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFTab+Events.swift", import.meta.url),
     "utf8",
   );
-  const match = /public func devTools\(method: String, params: \[String: any Sendable\], timeout: Duration = \.seconds\((\d+(?:\.\d+)?)\)\)/.exec(swift);
+  const match =
+    /public func devTools\(method: String, params: \[String: any Sendable\], timeout: Duration = \.seconds\((\d+(?:\.\d+)?)\)\)/.exec(
+      swift,
+    );
   if (!match) throw new Error("CEFTab.devTools' default timeout moved: update idleProbe's bound and this test");
   return Number(match[1]) * 1000;
 }
