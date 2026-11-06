@@ -579,7 +579,7 @@ async fn threads_are_read_whole_and_answered_into_the_senders_inbox() {
         rows.iter().map(|t| t["threadId"].as_str().unwrap().to_owned()).collect();
     assert_eq!(
         keys,
-        vec!["topic:plan".to_owned(), format!("from:{lane}/pr:27133"), "pr:27133".to_owned()],
+        vec!["topic:plan".to_owned(), "from:lane-a/pr:27133".to_owned(), "pr:27133".to_owned()],
         "{threads}"
     );
     assert_eq!(rows[0]["from"], json!(["lane-a"]));
