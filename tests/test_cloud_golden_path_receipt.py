@@ -40,38 +40,70 @@ def passing_records() -> list[dict[str, object]]:
     ]
 
 
-ORCHESTRATOR_STAGES = (
-    ("machine.create", {"machine_id": "vm_ab12", "folder": "$HOME", "route": "cloud start-chat --name"}),
-    ("folder.readiness", {"machine_id": "vm_ab12", "ready": True}),
-    ("lease.acquire", {"machine_id": "vm_ab12", "lease_id": "machine:vm_ab12"}),
-    ("auth.exchange", {"machine_id": "vm_ab12", "signed_in": True}),
-    ("chat.first_reply", {"machine_id": "vm_ab12", "first_token": "ok", "session_id": "sess_acp_1"}),
-    ("session.pause", {"machine_id": "vm_ab12", "paused": True}),
-    ("session.resume", {"machine_id": "vm_ab12", "resumed": True}),
-    ("session.reconnect", {"machine_id": "vm_ab12", "reconnected": True}),
-)
+MACHINE = "vm_ab12cd34ef56gh78ij90"
 
 
-def orchestrator_record(stage: str, status: str, details: dict | None = None, failure: dict | None = None) -> dict:
-    return {
-        "schema_version": "golden-path/v1",
-        "request_id": "nightly-golden-path",
-        "mode": "production-cli",
-        "proof_scope": "production-nightly",
-        "stage": stage,
-        "status": status,
-        "occurred_at_ms": 1_000,
-        "details": details or {},
-        "failure": failure,
+def stage(name: str, second: int, ms: int, *, probe: str = "cli-1", ok: bool = True,
+          value: dict | None = None, failure: dict | None = None) -> dict[str, object]:
+    record: dict[str, object] = {
+        "stage": name,
+        "requestId": f"{probe}:{name}",
+        "startedAt": f"2026-11-06T18:00:{second:02d}.000Z",
+        "endedAt": f"2026-11-06T18:00:{second:02d}.{ms:03d}Z",
+        "ok": ok,
     }
+    if value is not None:
+        record["value"] = value
+    if failure is not None:
+        record["failure"] = failure
+    return record
 
 
-def orchestrator_records() -> list[dict[str, object]]:
-    records: list[dict[str, object]] = []
-    for stage, details in ORCHESTRATOR_STAGES:
-        records.append(orchestrator_record(stage, "started"))
-        records.append(orchestrator_record(stage, "ok", details))
-    return records
+def golden_receipt(probe: str, stages: list[dict[str, object]], machine: str | None = MACHINE) -> dict[str, object]:
+    failed = next((s for s in stages if not s["ok"]), None)
+    receipt_value: dict[str, object] = {
+        "version": 1,
+        "probeId": probe,
+        "startedAt": "2026-11-06T18:00:00.000Z",
+        "endedAt": "2026-11-06T18:00:59.000Z",
+        "outcome": "failed" if failed else "passed",
+        "stages": stages,
+    }
+    if machine:
+        receipt_value["machineId"] = machine
+    if failed:
+        receipt_value["failure"] = {**failed["failure"], "stage": failed["stage"]}
+    return receipt_value
+
+
+def cli_receipt(**chat_value: object) -> dict[str, object]:
+    chat = {
+        "session_id": "sess_acp_1",
+        "discovery": {"source": "acpmux sessions list", "found": True},
+        "provider_verified": True,
+        "reply": "ok",
+    }
+    chat.update(chat_value)
+    chat = {key: value for key, value in chat.items() if value is not None}
+    return golden_receipt("cli-1", [
+        stage("machine", 1, 120, value={"machineId": MACHINE, "workspace": "golden-path", "created": True}),
+        stage("folder", 2, 5, value={"workspace": "golden-path", "folder": "$HOME"}),
+        stage("readiness", 3, 900, value={"state": "running", "tunnel": "up", "guest_identity": MACHINE,
+                                          "exec_request_id": "exec-1"}),
+        stage("chat", 5, 450, value=chat),
+        stage("reconnect", 7, 800, value={"pause": {"state": "paused"}, "resume": {"state": "running"},
+                                          "reconnected": True, "reply": "ok"}),
+    ])
+
+
+def platform_receipt(**auth: object) -> dict[str, object]:
+    auth_stage = stage("auth", 11, 30, probe="plat-1", value={"allowed": True})
+    auth_stage.update(auth)
+    return golden_receipt("plat-1", [
+        stage("lease", 10, 40, probe="plat-1",
+              value={"machineId": MACHINE, "connectionMachine": MACHINE, "generation": 7}),
+        auth_stage,
+    ])
 
 
 class GoldenPathReceiptTests(unittest.TestCase):
@@ -228,81 +260,142 @@ class GoldenPathReceiptTests(unittest.TestCase):
         self.assertEqual(result["status"], "fail")
         self.assertFalse(result["stages"]["pause_resume_reconnect"])
 
-    def test_orchestrator_jsonl_receipt_passes_with_provider_proof(self) -> None:
-        records = orchestrator_records() + [{"provider_verified": True}]
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "golden-path.jsonl"
-            path.write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
-            result = receipt.normalize(receipt.load_receipt(path))
+    def test_golden_path_receipts_merge_to_pass_with_stage_ms(self) -> None:
+        result = receipt.normalize([cli_receipt(), platform_receipt()])
 
         self.assertEqual(result["status"], "pass", result["blockers"])
-        self.assertEqual(result["machine_id"], "vm_ab12")
+        self.assertEqual(result["blockers"], [])
+        self.assertEqual(result["machine_id"], MACHINE)
         self.assertEqual(result["session_id"], "sess_acp_1")
-        self.assertEqual(result["request_id"], "nightly-golden-path")
         self.assertTrue(all(result["stages"].values()))
+        self.assertEqual(
+            result["golden_path_stages"],
+            {name: "ok" for name in ("machine", "folder", "readiness", "lease", "auth", "chat", "reconnect")},
+        )
+        self.assertEqual(
+            result["stage_ms"],
+            {"machine": 120, "folder": 5, "readiness": 900, "lease": 40, "auth": 30, "chat": 450, "reconnect": 800},
+        )
 
-    def test_orchestrator_receipt_without_provider_proof_is_blocked(self) -> None:
-        result = receipt.normalize(orchestrator_records())
+    def test_golden_path_missing_lease_and_auth_blocks(self) -> None:
+        result = receipt.normalize([cli_receipt()])
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("missing_stage_lease", result["blockers"])
+        self.assertIn("missing_stage_auth", result["blockers"])
+        self.assertEqual(result["golden_path_stages"]["lease"], "missing")
+
+    def test_golden_path_failed_stage_fails(self) -> None:
+        denied = platform_receipt(
+            ok=False,
+            value=None,
+            failure={"code": "auth.denied", "message": "no chat grant", "retryable": False},
+        )
+        denied["stages"][1].pop("value")
+        result = receipt.normalize([cli_receipt(), denied])
+
+        self.assertEqual(result["status"], "fail")
+        self.assertIn("receipt_reports_failure", result["blockers"])
+        self.assertIn("stage_failed_auth", result["blockers"])
+        self.assertEqual(result["golden_path_stages"]["auth"], "failed")
+        self.assertEqual(result["failures"][0]["code"], "auth.denied")
+
+    def test_golden_path_failure_in_one_receipt_beats_ok_in_another(self) -> None:
+        cli = cli_receipt()
+        failed_chat = golden_receipt("plat-1", [
+            stage("lease", 10, 40, probe="plat-1", value={"machineId": MACHINE}),
+            stage("auth", 11, 30, probe="plat-1", value={"allowed": True}),
+            stage("chat", 12, 70, probe="plat-1", ok=False,
+                  failure={"code": "chat.error", "message": "the machine returned a chat error", "retryable": False}),
+        ])
+        result = receipt.normalize([cli, failed_chat])
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["golden_path_stages"]["chat"], "failed")
+
+    def test_golden_path_not_observable_blocks(self) -> None:
+        cli = cli_receipt()
+        cli["stages"][2] = stage("readiness", 3, 900, ok=False, failure={
+            "code": "readiness.not_observable", "message": "no tunnel probe in this build", "retryable": False,
+        })
+        cli["outcome"] = "failed"
+        cli["failure"] = {**cli["stages"][2]["failure"], "stage": "readiness"}
+        result = receipt.normalize([cli, platform_receipt()])
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("stage_not_observable_readiness", result["blockers"])
+        self.assertNotIn("receipt_reports_failure", result["blockers"])
+        self.assertEqual(result["golden_path_stages"]["readiness"], "not_observable")
+
+    def test_golden_path_without_provider_proof_is_blocked(self) -> None:
+        result = receipt.normalize([cli_receipt(provider_verified=None), platform_receipt()])
 
         self.assertEqual(result["status"], "blocked")
         self.assertIn("provider_proof_missing", result["blockers"])
 
-    def test_orchestrator_error_record_fails_the_receipt(self) -> None:
-        records = [r for r in orchestrator_records() if r["stage"] != "session.resume"]
-        index = next(i for i, r in enumerate(records) if r["stage"] == "session.reconnect")
-        records[index:index] = [
-            orchestrator_record("session.resume", "started"),
-            orchestrator_record(
-                "session.resume",
-                "error",
-                failure={"code": "resume_failed", "stage": "session.resume", "message": "machine stayed paused"},
-            ),
-        ]
-        records.append({"provider_verified": True})
-        result = receipt.normalize(records)
+    def test_golden_path_rejected_provider_proof_fails(self) -> None:
+        result = receipt.normalize([cli_receipt(provider_verified=False), platform_receipt()])
 
         self.assertEqual(result["status"], "fail")
-        self.assertIn("receipt_reports_failure", result["blockers"])
-        self.assertFalse(result["stages"]["pause_resume_reconnect"])
+        self.assertIn("provider_proof_rejected", result["blockers"])
 
-    def test_orchestrator_error_without_status_word_still_fails(self) -> None:
-        records = orchestrator_records() + [{"provider_verified": True}]
-        records.append(
-            {
-                "stage": "chat.first_reply",
-                "status": "done",
-                "failure": {"code": "no_reply", "stage": "chat.first_reply", "message": "no reply"},
-            }
-        )
-        result = receipt.normalize(records)
+    def test_golden_path_chat_without_session_discovery_is_blocked(self) -> None:
+        result = receipt.normalize([cli_receipt(discovery=None), platform_receipt()])
 
-        self.assertEqual(result["status"], "fail")
-        self.assertFalse(result["stages"]["first_reply"])
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("missing_acpmux_session_discovery", result["blockers"])
 
-    def test_orchestrator_started_without_terminal_record_fails(self) -> None:
-        records = orchestrator_records()
-        last = max(i for i, r in enumerate(records) if r["stage"] == "session.reconnect")
-        del records[last]
-        records.append({"provider_verified": True})
-        result = receipt.normalize(records)
+    def test_golden_path_reconnect_without_pause_resume_is_blocked(self) -> None:
+        cli = cli_receipt()
+        cli["stages"][4]["value"] = {"events": 3, "final": "done", "reconnected": True}
+        result = receipt.normalize([cli, platform_receipt()])
 
-        self.assertEqual(result["status"], "fail")
-        self.assertIn("receipt_reports_failure", result["blockers"])
-        self.assertIn("stage_unfinished", result["blockers"])
-        self.assertFalse(result["stages"]["pause_resume_reconnect"])
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("missing_pause_resume_reconnect", result["blockers"])
 
-    def test_orchestrator_started_only_first_reply_fails(self) -> None:
-        records = [
-            orchestrator_record("machine.create", "started"),
-            orchestrator_record("machine.create", "ok", dict(ORCHESTRATOR_STAGES[0][1])),
-            orchestrator_record("chat.first_reply", "started"),
-            {"provider_verified": True},
-        ]
-        result = receipt.normalize(records)
+    def test_golden_path_receipts_for_different_machines_do_not_merge(self) -> None:
+        other = platform_receipt()
+        other["machineId"] = "vm_zz99zz99zz99zz99zz99"
+        result = receipt.normalize([cli_receipt(), other])
+
+        self.assertNotEqual(result["status"], "pass")
+        self.assertIn("machine_id_mismatch", result["blockers"])
+
+    def test_golden_path_failed_outcome_without_failed_stage_fails(self) -> None:
+        cli = cli_receipt()
+        cli["outcome"] = "failed"
+        result = receipt.normalize([cli, platform_receipt()])
 
         self.assertEqual(result["status"], "fail")
-        self.assertFalse(result["stages"]["first_reply"])
-        self.assertFalse(result["stages"]["acpmux_session_discovery"])
+
+    def test_golden_path_jsonl_receipts_and_check_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "golden-path.jsonl"
+            path.write_text(
+                "\n".join(json.dumps(r) for r in (cli_receipt(), platform_receipt())) + "\n", encoding="utf-8"
+            )
+            self.assertEqual(receipt.main(["--receipt", str(path), "--check"]), 0)
+            path.write_text(json.dumps(cli_receipt()), encoding="utf-8")
+            self.assertEqual(receipt.main(["--receipt", str(path), "--check"]), 2)
+
+    def test_golden_path_negative_value_evidence_fails(self) -> None:
+        for chat_value, reconnect_value in (
+            ({"discovery": {"source": "acpmux sessions list", "found": False}}, None),
+            (None, {"pause": {"state": "running"}, "resume": {"state": "running"}, "reconnected": True}),
+            (None, {"pause": {"state": "paused"}, "resume": {"state": "paused"}, "reconnected": True}),
+        ):
+            cli = cli_receipt(**(chat_value or {}))
+            if reconnect_value:
+                cli["stages"][4]["value"] = reconnect_value
+            result = receipt.normalize([cli, platform_receipt()])
+            self.assertEqual(result["status"], "fail", (chat_value, reconnect_value))
+            self.assertIn("receipt_reports_failure", result["blockers"])
+
+    def test_golden_path_discovery_without_positive_evidence_is_blocked(self) -> None:
+        result = receipt.normalize([cli_receipt(discovery={"source": "acpmux sessions list"}), platform_receipt()])
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("missing_acpmux_session_discovery", result["blockers"])
 
 
 if __name__ == "__main__":
