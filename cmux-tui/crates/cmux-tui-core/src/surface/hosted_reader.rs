@@ -263,6 +263,12 @@ impl HostedReader {
             return None;
         }
         let identity = pty.host_identity.clone()?;
+        // An exit or a loss below ends the terminal's Running lifecycle; its
+        // publications the output queued commit first (a resync keeps it
+        // running, and its queued publication still commits).
+        if !resync_requested && let Some(mux) = mux.upgrade() {
+            mux.settle_terminal_publications(surface);
+        }
         if let Some(exit) = received_exit {
             // The host's Exit frame is its report that the child
             // ended, even when an older host omits the status.

@@ -322,6 +322,7 @@ mod terminal_host_link;
 mod terminal_move;
 mod terminal_move_topology;
 mod terminal_progress;
+mod terminal_publisher;
 mod terminal_reap;
 #[cfg(unix)]
 mod terminal_rehost;
@@ -654,7 +655,7 @@ pub struct Mux {
     /// Child agents each terminal agent runs past its turn, memory only (`agent_hook_children.rs`).
     agent_hook_children: Mutex<HashMap<TerminalPublicId, agent_hook_children::HookChildren>>,
     agent_roster: Mutex<AgentRosterHost>,
-    agent_roster_fold: Mutex<agent_roster_fold::AgentRosterFold>,
+    agent_roster_worker: agent_roster_fold::AgentRosterWorker,
     agent_message_pump: agent_message_pump::AgentMessagePump,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
@@ -669,6 +670,8 @@ pub struct Mux {
     terminal_command_history: AtomicBool,
     /// The command history worker's bounded queue (`mux/command_history.rs`).
     command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
+    /// Makes the durable commits terminal output asks for, off the output readers.
+    terminal_publisher: terminal_publisher::TerminalPublisher,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this
@@ -945,12 +948,19 @@ impl Mux {
         state.surfaces.get(&id).or_else(|| state.terminal_runtime_by_id(id)).cloned()
     }
 
+    /// The catalog owner of `terminal_id`; recovers a poisoned state, as the shutdown that calls it does (the output
+    /// store's last write looks terminals up here, inside `Mux::drop`).
     #[track_caller]
     pub(crate) fn terminal_resource_surface(
         &self,
         terminal_id: &TerminalPublicId,
     ) -> Option<Arc<Surface>> {
-        self.state.lock().unwrap().terminal_catalog.get(terminal_id).cloned()
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_catalog
+            .get(terminal_id)
+            .cloned()
     }
 
     #[cfg(test)]

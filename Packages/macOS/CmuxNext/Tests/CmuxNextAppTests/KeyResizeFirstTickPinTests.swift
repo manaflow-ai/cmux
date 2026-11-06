@@ -35,11 +35,15 @@ struct KeyResizeFirstTickPinTests {
     }
 
     /// (a) Ctrl-Shift-H on p2 (right of p1): p2 grows to the left and its right edge stays. The first tick is late (0.1 s:
-    /// most of the travel in one step). In every frame p2's surface keeps its place against the right edge.
-    @Test(arguments: [0.1, 1.0 / 120])
-    func theHeldSurfaceRidesTheEdgeThatStaysWhenTheFirstTickIsLate(firstStep: Double) throws {
+    /// most of the travel in one step). In every frame p2's surface keeps its place against the right edge. With
+    /// `motion.frameOwner.terminals` on (cmux-ad m6) the surface fills its area, so it keeps that place because it follows
+    /// the pane; with the switch off it holds the final size against that edge (the hold's edge picked once).
+    @Test(arguments: [0.1, 1.0 / 120], [false, true])
+    func theHeldSurfaceRidesTheEdgeThatStaysWhenTheFirstTickIsLate(firstStep: Double, switchOn: Bool) throws {
         let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")
         defer { rig.close() }
+        defer { Ground.releaseFrames() }
+        try #require(Ground.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
         let host = try #require(rig.root.context.hosts["p2"])
         func rightEdge() -> CGFloat { host.convert(host.roundedRect, to: nil).maxX }
         func surfaceRight() throws -> CGFloat { let s = try Self.surface("p2", in: rig); return s.convert(s.bounds, to: nil).maxX }
@@ -59,12 +63,16 @@ struct KeyResizeFirstTickPinTests {
     }
 
     /// (b) Ctrl-Shift-H twice before one tick: each terminal sends one grid, the final one. Then H and L before one tick:
-    /// no terminal sends a grid or takes a new surface size.
-    @Test func pressesBeforeOneTickCoalesce() async throws {
+    /// no terminal sends a grid or takes a new surface size. In both states of `motion.frameOwner.terminals` (review of
+    /// #35470, T5).
+    @Test(arguments: [false, true])
+    func pressesBeforeOneTickCoalesce(switchOn: Bool) async throws {
         let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")
         defer { rig.close() }
+        defer { Ground.releaseFrames() }
         let panes: [PaneID] = ["p1", "p2"]
         for pane in panes { _ = try await Self.grids(pane, rig) }
+        try #require(Ground.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         var frames = 0
@@ -79,6 +87,8 @@ struct KeyResizeFirstTickPinTests {
 
         var sizes: [PaneID: CGSize] = [:]
         for pane in panes { sizes[pane] = try Self.surface(pane, in: rig).frame.size }
+        // The store is process-wide: the switch again after the awaits, before the presses.
+        try #require(Ground.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         #expect(PaneResize.press("p2", .right, model: rig.model, view: rig.root))
         frames = 0

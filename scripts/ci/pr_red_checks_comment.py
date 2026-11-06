@@ -224,10 +224,14 @@ def _commit_runs(commit):
         return None
     runs = []
     for suite in suites.get("nodes") or []:
-        page = (suite or {}).get("checkRuns") or {}
+        if not isinstance(suite, dict):
+            return None  # a null suite could hide a red run: incomplete, so REST answers
+        page = suite.get("checkRuns") or {}
         if (page.get("pageInfo") or {}).get("hasNextPage"):
             return None
         for node in page.get("nodes") or []:
+            if not isinstance(node, dict):
+                return None  # a null node (a deleted or hidden run): incomplete, so REST answers
             runs.append({"id": node.get("databaseId"), "node_id": node.get("id"), "name": node.get("name"),
                          "status": _lower(node.get("status")), "conclusion": _lower(node.get("conclusion")),
                          "started_at": node.get("startedAt")})
@@ -275,6 +279,9 @@ def prefetch_details(gh, runs, query=None):
             # REST's job read returns every step; a failed step past the first page must not drop out of the
             # signature (it could turn a new red into a base red), so REST answers this run.
             continue
+        if not all(isinstance(item, dict) for key in ("steps", "annotations")
+                   for item in ((node.get(key) or {}).get("nodes") or [])):
+            continue  # a null step or annotation: incomplete, so REST answers this run
         steps = [{"name": s.get("name"), "conclusion": _lower(s.get("conclusion")), "number": s.get("number")}
                  for s in ((node.get("steps") or {}).get("nodes") or [])]
         notes = [{"title": a.get("title"), "message": a.get("message"),

@@ -486,6 +486,9 @@ impl Hub {
             queue_paused: session.queue_paused(),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
+            // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered
+            // session/new or session/load): the busy("starting") of `stop_if_idle.rs`.
+            starting: session.spawn_lock.try_lock().is_err(),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some() && m.moved_to.is_none(),
             // Moved away for good (`transfer_out.rs` commit): where it runs now.
@@ -762,6 +765,9 @@ impl Hub {
             // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
             // `acpmux ls` says so, `acpmux send --status` lists them.
             "outboxPending": self.outbox_unsettled(),
+            // Each host's last shadow admission verdict (`shadow_admission.rs`): what a
+            // pressure-aware admission would say. Nothing is deferred on it.
+            "shadowAdmission": crate::shadow_admission::last_verdicts(),
             "liveAgents": live,
             "stuckSessions": stuck,
             "disk": disk,

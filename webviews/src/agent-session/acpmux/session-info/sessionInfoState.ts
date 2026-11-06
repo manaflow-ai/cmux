@@ -33,8 +33,10 @@ export type SessionInfoSectionId =
   | "changes"
   | "sources"
   | "servers"
+  | "progress"
   | "subagents"
   | "tasks"
+  | "alsoHere"
   | "outputs"
   | `app:${string}#${string}`;
 export type BuiltInSessionInfoSectionId = Exclude<SessionInfoSectionId, `app:${string}#${string}`>;
@@ -55,8 +57,10 @@ export const DEFAULT_SECTIONS: SessionInfoSections = {
   changes: true,
   sources: true,
   servers: true,
+  progress: true,
   subagents: true,
   tasks: true,
+  alsoHere: true,
   outputs: true,
 };
 

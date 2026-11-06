@@ -163,8 +163,12 @@ cannot create an App Group, and adding the App Groups capability to
 Distribution" profiles (local and CI, the CI one also a release secret). So
 device builds sign without the App Group (`CMUX_MOBILE_APP_GROUP=NO`, the
 default for device SDKs; simulator builds always have it): the extension shows
-the notification and its buttons, and its option rows and composer open the
-app on the chat instead of handing over the answer.
+the notification and its buttons, and hands an option row's, Submit's or an
+answer field's reply over through the push keychain group instead
+(`PushHandover`, keyed by the notification's request id): it opens the app,
+whose open response for that request takes the reply and sends it after Face
+ID. Before 2026-11-04 these rows opened the app with the answer dropped, so a
+tapped choice did nothing. "+" (files) still needs the App Group.
 
 A build without the App Group must never ask for it: TestFlight 1.2.0
 (20261026194905) was killed by the launch watchdog (0x8BADF00D) because a view

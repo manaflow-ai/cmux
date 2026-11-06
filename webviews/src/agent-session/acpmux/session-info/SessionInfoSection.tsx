@@ -41,8 +41,9 @@ export function SessionInfoFold({
 }
 
 /// Six dots, drawn here (the icon pack has no grip glyph): three across and two down, a grip wider than it
-/// is tall (Leo, 2026-11-03: "make it a more horizontally wide symbol, why not?").
-const GRIP_DOTS = [1.25, 4.75].flatMap((y) => [1, 4, 7].map((x) => ({ x, y })));
+/// is tall (Leo, 2026-11-03: "make it a more horizontally wide symbol, why not?"). Small enough to sit
+/// inside the head's pill, left of its icon, with room either side (sessionInfo.css).
+const GRIP_DOTS = [0.75, 3.25].flatMap((y) => [0.75, 3.25, 5.75].map((x) => ({ x, y })));
 
 function ReorderHandle({ id, title }: { id: SessionInfoSectionId; title: string }) {
   const reorder = useReorder();
@@ -61,9 +62,9 @@ function ReorderHandle({ id, title }: { id: SessionInfoSectionId; title: string 
         reorder.step(id, event.key === "ArrowUp" ? -1 : 1);
       }}
     >
-      <svg width="8" height="6" viewBox="0 0 8 6" aria-hidden="true">
+      <svg width="6.5" height="4" viewBox="0 0 6.5 4" aria-hidden="true">
         {GRIP_DOTS.map(({ x, y }) => (
-          <circle key={`${x}-${y}`} cx={x} cy={y} r="0.9" fill="currentColor" />
+          <circle key={`${x}-${y}`} cx={x} cy={y} r="0.75" fill="currentColor" />
         ))}
       </svg>
     </button>

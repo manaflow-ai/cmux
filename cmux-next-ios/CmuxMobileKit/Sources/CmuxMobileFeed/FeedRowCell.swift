@@ -520,7 +520,6 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
             }
             for (index, button) in buttons.enumerated() {
                 capsule(index).apply(button)
-                capsule(index).accessibilityHint = button.title.string.contains("Allow") ? "Approve with Face ID" : nil
             }
             used = buttons.count
         case .question(let card, let openTerminal):

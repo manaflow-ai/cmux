@@ -5,7 +5,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::format::{self, MAX_PAYLOAD_LEN};
-use crate::recovery::{self, OpenReport};
+use crate::recovery::{self, LiveSegment, OpenReport};
 use crate::storage::{Storage, StorageLock};
 use crate::writer::Writer;
 use crate::{Class, Config, Lsn, Record};
@@ -33,6 +33,8 @@ pub struct JournalStats {
     /// Segments the writer made since open (rotation, or after a failed sync); a segment that
     /// recovery made is not counted.
     pub segments_created: u64,
+    /// Segments `Journal::retire_through` deleted since open.
+    pub segments_retired: u64,
     /// Failed writes, syncs and segment creations. After each, the writer tries again after a
     /// backoff: a failed write in the same segment, anything else in a new segment.
     pub failures: u64,
@@ -62,11 +64,31 @@ pub(crate) struct Shared {
     /// Wakes waiters: the durable LSN moved, or the writer ended.
     pub(crate) durable: Condvar,
     pub(crate) listeners: Mutex<Vec<Listener>>,
+    /// The live segments, oldest first: recovery's, then each one the writer makes.
+    pub(crate) segments: Mutex<Vec<LiveSegment>>,
 }
 
 impl Shared {
     pub(crate) fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl State {
+    /// Whether a record of `size` bytes (header included) may join the queue now: refused when
+    /// the journal is closed, or, for a `limited` record, when the queue holds records and would
+    /// grow past [`Config::max_pending_bytes`] (one record is always taken, however large).
+    fn admits(&self, config: &Config, size: usize, limited: bool) -> Result<(), AppendError> {
+        if self.closed {
+            return Err(AppendError::Closed);
+        }
+        if limited
+            && !self.pending.is_empty()
+            && self.pending.len().saturating_add(size) > config.max_pending_bytes
+        {
+            return Err(AppendError::Backlog);
+        }
+        Ok(())
     }
 }
 
@@ -173,6 +195,9 @@ pub struct Journal {
     shared: Arc<Shared>,
     storage: Arc<dyn Storage>,
     dir: PathBuf,
+    /// This journal's id, in every segment's header: kept across opens and retirements while one
+    /// segment is left, new for a journal made from nothing ([`Journal::journal_id`]).
+    journal_id: u64,
     writer: Option<std::thread::JoinHandle<()>>,
     /// Held as long as the writer may write; released after the writer is joined.
     _lock: Box<dyn StorageLock>,
@@ -215,38 +240,62 @@ impl Journal {
             wake: Condvar::new(),
             durable: Condvar::new(),
             listeners: Mutex::new(Vec::new()),
+            segments: Mutex::new(recovered.live),
         });
         let report = recovered.report;
         let lock = recovered.lock;
+        let journal_id = recovered.writer.journal_id;
         let writer =
             Writer::new(shared.clone(), Arc::clone(&storage), dir.to_path_buf(), recovered.writer);
         let handle = std::thread::Builder::new()
             .name("cmux-journal-writer".into())
             .spawn(move || writer.run())
             .map_err(|error| OpenError::Io { what: "writer thread".into(), error })?;
-        let journal =
-            Self { shared, storage, dir: dir.to_path_buf(), writer: Some(handle), _lock: lock };
+        let journal = Self {
+            shared,
+            storage,
+            dir: dir.to_path_buf(),
+            journal_id,
+            writer: Some(handle),
+            _lock: lock,
+        };
         Ok((journal, report))
     }
 
     /// Appends one record and returns its LSN. A memory copy: no I/O, no wait. The record is
     /// durable once [`Journal::durable_lsn`] reaches the LSN.
     pub fn append(&self, kind: u16, class: Class, payload: &[u8]) -> Result<Lsn, AppendError> {
+        self.append_admitted(kind, class, payload, true)
+    }
+
+    /// Appends one control record as [`Journal::append`] does, except that a full queue never
+    /// refuses it ([`AppendError::Backlog`]): for a record its caller must not lose to a slow or
+    /// failing disk, and appends a bounded number of times (acpmux's `frozen` record, once per
+    /// store). Still refused when the journal is closed or the payload is too large.
+    pub fn append_control(
+        &self,
+        kind: u16,
+        class: Class,
+        payload: &[u8],
+    ) -> Result<Lsn, AppendError> {
+        self.append_admitted(kind, class, payload, false)
+    }
+
+    fn append_admitted(
+        &self,
+        kind: u16,
+        class: Class,
+        payload: &[u8],
+        limited: bool,
+    ) -> Result<Lsn, AppendError> {
         if payload.len() > MAX_PAYLOAD_LEN {
             return Err(AppendError::TooLarge);
         }
         // The payload's checksum is computed before the lock; the lock covers the LSN and copy.
         let crc = format::payload_crc(payload);
         let mut state = self.shared.lock();
-        if state.closed {
-            return Err(AppendError::Closed);
-        }
         let size = format::record_len(payload.len());
-        if !state.pending.is_empty()
-            && state.pending.len().saturating_add(size) > self.shared.config.max_pending_bytes
-        {
-            return Err(AppendError::Backlog);
-        }
+        state.admits(&self.shared.config, size, limited)?;
         let lsn = state.stats.next_lsn;
         state.stats.next_lsn = lsn.saturating_add(1);
         let was_empty = state.pending.is_empty();
@@ -259,6 +308,24 @@ impl Journal {
             self.shared.wake.notify_one();
         }
         Ok(lsn)
+    }
+
+    /// Whether [`Journal::append`] of a `payload_len`-byte payload would be refused now, and why.
+    /// A caller that runs this check and its append under one lock of its own, with every append
+    /// under that lock, is sure of the append unless the writer stops in between
+    /// ([`AppendError::Closed`]): only appends fill the queue, and only the writer empties it.
+    pub fn check_append(&self, payload_len: usize) -> Result<(), AppendError> {
+        if payload_len > MAX_PAYLOAD_LEN {
+            return Err(AppendError::TooLarge);
+        }
+        self.shared.lock().admits(&self.shared.config, format::record_len(payload_len), true)
+    }
+
+    /// This journal's id (never 0). LSNs are unique only within one id: a journal made again from
+    /// nothing (its folder removed) starts another id and may give out LSNs an older one gave. A
+    /// caller that keeps an LSN outside the journal keeps the id beside it.
+    pub fn journal_id(&self) -> u64 {
+        self.journal_id
     }
 
     /// Every record up to this LSN is synced (survives a crash of any process and a kernel
@@ -298,6 +365,61 @@ impl Journal {
     /// caller's thread: call it off any request path.
     pub fn clear_damage(&self) -> std::io::Result<()> {
         recovery::clear_damage(self.storage.as_ref(), &self.dir)
+    }
+
+    /// Deletes the segments that hold no record after `compacted`, the caller's compaction point:
+    /// every record at or before it is in the caller's own durable output (its projection,
+    /// synced, and the checkpoint that names `compacted`, synced too). A segment is deleted when
+    /// the next segment's "previous last LSN" is at or before `compacted` (recovery reads nothing
+    /// past that from it), so the newest segment is never deleted. `compacted` is capped at the
+    /// durable LSN. Returns how many segments it deleted.
+    ///
+    /// The only delete in this crate. The caller must open the journal later with a compaction
+    /// point at or after `compacted`: recovery skips a segment the point covers, so a crash in
+    /// the middle of a retirement, or a delete that a crash takes back, is harmless; an older
+    /// compaction point is reported as `Damage::Missing`. It deletes and syncs the folder on the
+    /// caller's thread: call it from a background thread, never on a request path. A segment
+    /// whose delete fails stays live, and a later call deletes it.
+    pub fn retire_through(&self, compacted: Lsn) -> std::io::Result<usize> {
+        let compacted = compacted.min(self.durable_lsn());
+        let retiring: Vec<LiveSegment> = {
+            let mut live = self.shared.segments.lock().unwrap_or_else(PoisonError::into_inner);
+            let count = live
+                .windows(2)
+                .take_while(|pair| pair.get(1).is_some_and(|next| next.prev_last <= compacted))
+                .count();
+            live.drain(..count).collect()
+        };
+        if retiring.is_empty() {
+            return Ok(0);
+        }
+        for (index, segment) in retiring.iter().enumerate() {
+            let path = self.dir.join(format::segment_name(segment.seq));
+            match self.storage.remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    // This one and the rest stay live, ahead of the segments made since.
+                    let mut live =
+                        self.shared.segments.lock().unwrap_or_else(PoisonError::into_inner);
+                    let mut restored = retiring.get(index..).unwrap_or_default().to_vec();
+                    restored.append(&mut live);
+                    *live = restored;
+                    drop(live);
+                    self.count_retired(index);
+                    return Err(error);
+                }
+            }
+        }
+        self.count_retired(retiring.len());
+        self.storage.sync_dir(&self.dir)?;
+        Ok(retiring.len())
+    }
+
+    fn count_retired(&self, count: usize) {
+        let mut state = self.shared.lock();
+        let retired = u64::try_from(count).unwrap_or(u64::MAX);
+        state.stats.segments_retired = state.stats.segments_retired.saturating_add(retired);
     }
 
     /// Blocks until record `lsn` is durable. For tests and tools: a daemon's request path

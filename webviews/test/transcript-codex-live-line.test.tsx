@@ -6,13 +6,22 @@
 // top, then tool rows, then a separate "Thinking" far below, past his steers).
 import { expect, test } from "bun:test";
 import type { ReactElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { THINKING, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { shortCommand } from "../src/agent-session/acpmux/conversation/shortCommand";
+
+import type { ReactNode } from "react";
+import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
+
+// These assertions cover turn state and time, independently of decorative verb rotation.
+const renderToStaticMarkup = (node: ReactNode) =>
+  renderMarkup(
+    <StatusVerbContext.Provider value={{ mode: "thinking", verbs: ["Thinking"] }}>{node}</StatusVerbContext.Provider>,
+  );
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -158,14 +167,15 @@ test("each step replaces the line in place: Ran, Running, Ran, one id throughout
   expect(running.find((entry) => entry.id === "run")!.items).toHaveLength(1);
 });
 
-test("a command reads its description, or its short command line without the setup", () => {
+test("a command reads its short command line without the setup, never its description", () => {
   const described = codex([
     row("u", "user"),
     row("run", "activity", {
       items: [call('export PATH="/a:$PATH"; gh run list', "in_progress", { description: "List the runs" })],
     }),
   ]).at(-1)!;
-  expect(described).toMatchObject({ doing: "List the runs", doingShell: false });
+  // Codex parity: the command itself, as Codex draws it, never Bash's description.
+  expect(described).toMatchObject({ doing: "gh run list" });
   const raw = codex([
     row("u", "user"),
     row("run", "activity", { items: [call('export PATH="/a:$PATH"; B=~/x; gh run list -L 5', "in_progress")] }),

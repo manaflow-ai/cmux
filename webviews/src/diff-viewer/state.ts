@@ -49,6 +49,14 @@ export type AppState = {
   optionsOpen: boolean;
   /** Bumped by a soft refresh so the render effect re-streams in place. */
   renderGeneration: number;
+  /**
+   * The render in flight replaces a diff that is on screen (the host's precomputed diff turned out
+   * older than the work tree): the files shown stay until the new diff has fully arrived, then are
+   * swapped in one commit (`replace-items`), so the reader is never sent back to the top.
+   */
+  reconciling: boolean;
+  /** Bumped by each `replace-items`; the viewer puts the reader's place back after it. */
+  replaceCount: number;
   status: DiffViewerStatus;
   /** Every file of this diff has arrived; only then does "Group by kind" reorder the list. */
   streamComplete: boolean;
@@ -82,6 +90,9 @@ export type AppAction =
   | { type: "set-generated-paths"; paths: string[] }
   | { type: "set-whitespace-hidden"; hidden: boolean }
   | { type: "refresh"; status: DiffViewerStatus }
+  | { type: "reconcile" }
+  | { type: "end-reconcile" }
+  | { type: "replace-items"; items: DiffItem[] }
   | { type: "reset-diff"; status: DiffViewerStatus }
   | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
@@ -144,6 +155,8 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     } as DiffViewerOptions,
     optionsOpen: false,
     renderGeneration: 0,
+    reconciling: false,
+    replaceCount: 0,
     status: initialStatus,
     streamComplete: false,
     treeSource: null,
@@ -330,6 +343,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case "refresh":
       return {
         ...state,
+        reconciling: false,
         activeItemId: "",
         activeTreePath: "",
         draft: null,
@@ -343,6 +357,23 @@ export function reducer(state: AppState, action: AppAction): AppState {
         treeSource: null,
         whitespaceHidden: null,
       };
+    case "reconcile":
+      return { ...state, reconciling: true, renderGeneration: state.renderGeneration + 1 };
+    case "end-reconcile":
+      return state.reconciling ? { ...state, reconciling: false } : state;
+    case "replace-items": {
+      // The new diff's files in one commit, prepared as appended ones; the reader's file stays active
+      // when it is still in the diff (ids come from paths, so an unchanged file keeps its id).
+      const next = reducer({ ...state, items: [], languages: ["text"] }, { type: "append-items", items: action.items });
+      const kept = next.items.some((item) => item.id === state.activeItemId);
+      return {
+        ...next,
+        activeItemId: kept ? state.activeItemId : next.activeItemId,
+        activeTreePath: kept ? state.activeTreePath : "",
+        reconciling: false,
+        replaceCount: state.replaceCount + 1,
+      };
+    }
     case "append-items": {
       const generatedPaths = new Set(state.generatedPaths);
       const nextItems = action.items.map((item) => {

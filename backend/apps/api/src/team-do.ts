@@ -35,7 +35,7 @@ import { vmApiConnection, vmApiOrigin } from "./cloud-vm-api-config.ts"
 import { authorizeNativeDial, recheckNativeDial, type NativeDialDeps, type NativeDialPermit, type NativeDialTarget } from "./cloud-native-dial.ts"
 import { vmReceiverPeers, type VmReceiverPeerTarget } from "./cloud-vm-receiver-peers.ts"
 import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
-import { HostReplicaDrops, hostsLeavingOwner, type ReplicaDropTarget } from "./team-host-replica-drop.ts"
+import { HostReplicaDrops, hostsLeavingOwner } from "./team-host-replica-drop.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export type { SignInRules } from "./team-sign-in-rules.ts"
@@ -99,7 +99,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** A host that left its owner loses its read replica (team-host-replica-drop.ts); the queue is SQL, the alarm retries. */
   private _replicaDrops: HostReplicaDrops | undefined
   private get replicaDrops(): HostReplicaDrops {
-    return (this._replicaDrops ??= new HostReplicaDrops(this.ctx.storage.sql, (host) => this.env.HOST_DO.get(this.env.HOST_DO.idFromName(host)) as unknown as ReplicaDropTarget))
+    return (this._replicaDrops ??= new HostReplicaDrops(this.ctx.storage.sql, (host) => this.env.HOST_DO.get(this.env.HOST_DO.idFromName(host))))
   }
 
   private nextTeamWakeAt(state: TeamState, now: number): number | null {
@@ -129,7 +129,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     const team = state.team.id
     const push = runSyncPush(state)
     try {
-      const stub = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(team)) as unknown as { applyRunPolicy(e: string, p: typeof push): Promise<{ ok: boolean; message?: string }> }
+      const stub = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(team))
       const r = await stub.applyRunPolicy(team, push)
       if (!r.ok) throw new Error(r.message ?? "refused")
       this.requireCommitted(this.submitSystem("team.policy.runs_synced", push, `runs-synced:${push.version}:${push.runs_allowed ? 1 : 0}`))
@@ -193,7 +193,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     // The ordinary Stack mirror receives deletion webhooks even though this logical owner is personal.
     const canonical = stackTeamIdFor(this.env.STACK_PROJECT_ID, target.tenant)
     if (canonical === entity) return null
-    const mirror = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(canonical)) as unknown as { vmApiTenantState(e: string): Promise<string> }
+    const mirror = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(canonical))
     const status = await mirror.vmApiTenantState(canonical).catch(() => null)
     if (status !== "unknown" && status !== "active") return null
     // Solo membership is re-read (briefly cached), not trusted from provisioning: anyone added to the
@@ -227,7 +227,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return owner && personalTeamIdFor(owner) === entity ? owner : null
   }
   private async personalStackUser(user: string): Promise<string | null> {
-    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(user)) as unknown as { stackUserOf(entity: string): Promise<string | null> }
+    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
     return stub.stackUserOf(user)
   }
   /** Provisioning is a separate owner command; reads and cleanup never call it. */

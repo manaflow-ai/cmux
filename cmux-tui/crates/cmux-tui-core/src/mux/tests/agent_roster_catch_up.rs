@@ -11,7 +11,8 @@
 use super::*;
 
 fn saved_roster_cursor(mux: &Mux) -> u64 {
-    mux.workspace_registry
+    settled(mux)
+        .workspace_registry
         .lock()
         .unwrap()
         .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)

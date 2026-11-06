@@ -35,7 +35,7 @@ final class HelperDragPanel: NSPanel {
     /// The helper icon's center from the panel's leading edge: docked, it is in the list's icon column.
     static let iconCenter: CGFloat = rowLeading + HelperAppTile.iconCenter
     /// The helper row's corner; the panel's corner is concentric around it.
-    static let rowRadius: CGFloat = 8
+    static var rowRadius: CGFloat { Metrics.insetCornerRadius }
     private let onBack: () -> Void
     /// The grant the panel helps with: it decides where the panel docks.
     let pane: ComputerUsePermissionPane
@@ -125,7 +125,7 @@ final class HelperDragPanel: NSPanel {
             ])
         }
         let size = NSSize(width: Self.width, height: content.fittingSize.height)
-        let surface = Glass.makeOverlayPanel(content: content, cornerRadius: Self.rowRadius + padding)
+        let surface = Glass.makeOverlayPanel(content: content, cornerRadius: Metrics.cornerRadius(nestedIn: Self.rowRadius, inset: -padding))
         // A window's content view sizes by its frame, not constraints.
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.frame = NSRect(origin: .zero, size: size)

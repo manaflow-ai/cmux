@@ -60,6 +60,10 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It runs tree-preflight's inspect step with fakes and asserts
     # wall-clock bounds of its fallback owner election; run it by hand when that step changes.
     "tests/test_cmux_tui_election_budget.py",
+    # lane = "manual" for the same rule. It writes a fixture .github/workflows/nightly.yml into a throwaway
+    # repository and pushes it through the real pre-push hook (the workflow YAML layer of prepush-gate.py); it
+    # reads no real workflow. Run it by hand when that layer changes. Exit: as above.
+    "tests/test_cmux_next_prepush_workflow_yaml.py",
     # lane = "manual" for the same rule. They check the cmux-next swift test job's shard plan and its
     # main-thread-heavy split; run them by hand after changing scripts/cmux-next/swift-test-shards.py,
     # main-thread-heavy-suites.py or that job.
@@ -68,6 +72,12 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It reads nightly-next-launch-smoke.yml and nightly.yml to assert
     # the post-publish smoke never gates a publish; run it by hand when the smoke or its workflow changes.
     "tests/test_nightly_next_launch_smoke.py",
+    # lane = "manual" for the same rule. It checks the one-mini routing (vars.CI_NIGHTLY_MINI) of nightly.yml
+    # and the tag permission probe; run it by hand after changing either. Exit: as above.
+    "tests/test_nightly_one_mini.py",
+    # lane = "manual" for the same rule. It checks that generate-nightly-deltas checks out only scripts/ of the
+    # build ref and that the reel's apt install retries; run it by hand after changing either.
+    "tests/test_nightly_deltas_sparse_checkout.py",
     # lane = "manual" for the same rule. It reads nightly.yml only to keep the pinned Sparkle key of
     # nightly_next_artifact_check.py equal to NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY; run it by hand when that
     # helper or the workflows that call it change.
@@ -78,8 +88,6 @@ UNWIRED: set[str] = {
     "tests/test_ci_blacksmith_linux_sizes.py",
     # a Linux runs-on or the RUNNER_POOLS.linux picker (#30878);
     "tests/test_ci_overflow_pick_reads_pool.py",
-    # scripts/ci/nightly_next_control_rescue.py or nightly.yml's control rescue (#30657);
-    "tests/test_nightly_next_control_rescue.py",
     # scripts/ci/cloud_probe_rescue.py, run by the main controller's workflow_run adapter, not a PR job
     # (#30796): python3 -m unittest tests.test_ci_cloud_probe_rescue from the repository root.
     "tests/test_ci_cloud_probe_rescue.py",

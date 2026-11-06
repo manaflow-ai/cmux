@@ -519,6 +519,38 @@ def test_a_job_with_more_steps_than_a_page_reads_them_over_rest():
     assert any("/actions/jobs/11" in p for p in fake.gets)
     assert not any("/actions/jobs/21" in p for p in fake.gets)
 
+
+def test_a_null_graphql_check_run_reads_that_commit_over_rest():
+    # GraphQL lists a deleted or hidden run as null; the commit's runs are then incomplete, so REST answers.
+    import pr_red_checks_comment as red
+    good = {"id": "n1", "databaseId": 1, "name": "web", "status": "COMPLETED", "conclusion": "FAILURE",
+            "startedAt": "2026-10-13T00:00:00Z"}
+    commit = {"checkSuites": {"pageInfo": {"hasNextPage": False},
+                              "nodes": [{"checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [good, None]}}]}}
+    assert red._commit_runs(commit) is None
+    commit["checkSuites"]["nodes"][0]["checkRuns"]["nodes"] = [good]
+    assert [r["id"] for r in red._commit_runs(commit)] == [1]
+    commit["checkSuites"]["nodes"].append(None)
+    assert red._commit_runs(commit) is None
+
+
+def test_a_null_step_or_annotation_leaves_that_run_to_rest():
+    import pr_red_checks_comment as red
+
+    class GH:
+        details = {}
+
+    def node(steps, notes, id_):
+        return {"databaseId": id_, "steps": {"pageInfo": {"hasNextPage": False}, "nodes": steps},
+                "annotations": {"nodes": notes}}
+
+    step = {"name": "Build", "conclusion": "FAILURE", "number": 1}
+    data = {"nodes": [node([step, None], [], 1), node([step], [None], 2), node([step], [], 3)]}
+    gh = GH()
+    red.prefetch_details(gh, [{"id": i, "node_id": f"n{i}"} for i in (1, 2, 3)], query=lambda q, v: data)
+    assert sorted(gh.details) == [3]
+
+
 if __name__ == "__main__":
     import traceback
     bad = 0

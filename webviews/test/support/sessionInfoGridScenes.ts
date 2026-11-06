@@ -76,6 +76,8 @@ export const sessionInfoGridScenes: GridScene[] = [
       expected: token("row"),
       all: true,
     },
+    // Session Info's own spacing, tighter than the transcript's (Leo, 2026-11-04: "there's a bit too big of
+    // a gap between sections"): one base step inside a block, one inner gap between blocks.
     // Adjacent sections of one block in the default order (sectionOrder.ts DEFAULT_ORDER, #32850:
     // environment, context, usage, subagents, tasks, sources, changes, outputs, connectors).
     ...[
@@ -85,7 +87,7 @@ export const sessionInfoGridScenes: GridScene[] = [
       name: `${before} to ${after}: inner gap`,
       actual: point(section(after!), "top"),
       origin: point(section(before!), "bottom"),
-      expected: token("gap-inner"),
+      expected: token("base"),
     })),
     // The block runs that order draws: where it runs, what it runs, what it made, then Connectors
     // (where it runs) last.
@@ -97,7 +99,7 @@ export const sessionInfoGridScenes: GridScene[] = [
       name: `${before} to ${after}: block gap`,
       actual: point(`${p}-slot[data-run-start][data-group="${after}"]`, "top"),
       origin: point(`${p}-slot[data-run-end][data-group="${before}"]`, "bottom"),
-      expected: token("gap-block"),
+      expected: token("gap-inner"),
     })),
   ]),
   ...["workflow-running", "workflow-agent-row-narrow"].map((variant) =>

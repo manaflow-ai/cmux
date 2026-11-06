@@ -23,7 +23,7 @@
 //! with `{consentRequired: bool, consent: {screen, control}}`, each state
 //! `none` or `granted`. The helper obtains this from its established app-owned
 //! daemon connection; a child environment or request never picks the authority.
-//! Missing support, malformed replies and a two-second timeout deny the action.
+//! Missing support, malformed replies and no answer within [`crate::rpc::ANSWER_WAIT`] deny the action.
 //!
 //! Tool names and arguments stay upstream-shaped. The trusted bridge adds
 //! the session's target allow-list to the helper envelope, outside model
@@ -205,7 +205,7 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
             // Only the admitted host can select the machine's consent authority.
             // Never consult this agent descendant's HOME, ACPMUX_HOME or socket env.
             let status = tokio::time::timeout(
-                std::time::Duration::from_secs(2),
+                crate::rpc::ANSWER_WAIT,
                 self.exchange("machine/consent", None, Value::Null),
             )
             .await
@@ -220,7 +220,7 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
                 && status["consent"]["control"] == "none"
             {
                 let inventory = tokio::time::timeout(
-                    std::time::Duration::from_secs(2),
+                    crate::rpc::ANSWER_WAIT,
                     self.exchange("tools/list", None, Value::Null),
                 )
                 .await
@@ -295,6 +295,8 @@ pub async fn run_bridge() -> Result<()> {
 #[cfg(unix)]
 pub async fn run_bridge() -> Result<()> {
     let dir = dir_from_env().ok_or_else(|| anyhow!("{ENDPOINT_DIR_ENV} is not set"))?;
+    // Stdin may stay open after the agent died (`parent_watch.rs`).
+    crate::parent_watch::exit_with_parent();
     let stdin = BufReader::new(tokio::io::stdin());
     let stdout = tokio::io::stdout();
     serve(stdin, stdout, || async { Helper::connect(&read_endpoint(&dir)?).await }).await

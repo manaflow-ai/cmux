@@ -853,6 +853,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
                 onAgentPill(peer)
                 return
             }
+            // cmux: a picture in a table card opens in the large picture viewer, with the table's other pictures
+            // (the user, 2026-11-05: "i want to be able to expand and annotate").
+            if case let .custom(custom) = hit.row.part, custom.kind == HomeTableRowProvider.kind,
+               openTablePicture(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY), width: hit.body.width) {
+                return
+            }
             // cmux: an agents row opens or closes (HomeStore.toggleAgentMessages).
             if intents?.agentRowClicked(hit.row.ref.messageId) == true { return }
             // cmux: a Feed row in the main Chief's transcript opens what it is about (HomeFeedRow.url).
@@ -871,6 +877,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
                 } else {
                     intents?.toggleVideo(hit.row.ref, a.id)
                 }
+            // cmux: a picture opens large, to zoom and mark up (opening it in an app is in the context menu).
+            case let .attachment(a) where a.kind == "image": openPictureAttachment(hit.row.ref.messageId, a.id)
             case let .attachment(a): intents?.openAttachment(hit.row.ref.messageId, a.id)
             // cmux: a plain click on a bubble (no selection made) leaves the field ready to type
             // (Lawrence 2026-10-18: Home focused means the message box has the keyboard).
