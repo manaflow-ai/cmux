@@ -778,6 +778,9 @@ impl Hub {
             // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
             // `acpmux ls` says so, `acpmux send --status` lists them.
             "outboxPending": self.outbox_unsettled(),
+            // The lock bridge (`hub/lock_bridge.rs`): this Mac's screen lock, whether
+            // `sessions.keepAwakeWhenLocked` is on, and whether it holds idle sleep off now.
+            "lockBridge": super::lock_bridge::state(),
             // Each host's last shadow admission verdict (`shadow_admission.rs`): what a
             // pressure-aware admission would say. Nothing is deferred on it.
             "shadowAdmission": crate::shadow_admission::last_verdicts(),

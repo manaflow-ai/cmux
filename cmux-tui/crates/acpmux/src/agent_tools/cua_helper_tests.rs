@@ -77,8 +77,20 @@ impl Drop for Fixture {
     }
 }
 
+/// The cmux-cua server as the helper it runs: on a Mac it runs behind `acpmux cua-lock-gate --`
+/// (checked here), and the helper is the command after the gate's words.
 fn cua(tools: AgentTools) -> Option<super::super::McpServer> {
-    tools.servers.into_iter().find(|server| server.name == "cmux-cua")
+    let mut server = tools.servers.into_iter().find(|server| server.name == "cmux-cua")?;
+    let gate = server.args.iter().position(|a| a == crate::cua_lock_gate::COMMAND);
+    assert_eq!(gate.is_some(), cfg!(target_os = "macos"), "gated on a Mac only: {server:?}");
+    if let Some(at) = gate {
+        assert!(server.command.ends_with("acpmux"), "the gate is this acpmux: {server:?}");
+        assert_eq!(server.args[at + 1], "--");
+        let mut rest = server.args.split_off(at + 2).into_iter();
+        server.command = rest.next().expect("the helper").into();
+        server.args = rest.collect();
+    }
+    Some(server)
 }
 
 #[test]

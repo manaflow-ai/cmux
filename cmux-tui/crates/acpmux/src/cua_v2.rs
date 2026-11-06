@@ -302,8 +302,26 @@ pub async fn run_bridge() -> Result<()> {
     serve(stdin, stdout, || async { Helper::connect(&read_endpoint(&dir)?).await }).await
 }
 
-/// The MCP loop, generic over the transport and the helper connection.
-pub async fn serve<R, W, S, C, F>(input: R, mut output: W, connect: C) -> Result<()>
+/// The MCP loop, generic over the transport and the helper connection. A call waits with
+/// `mac_locked` while this Mac's screen is locked (`cua_lock_gate.rs`).
+pub async fn serve<R, W, S, C, F>(input: R, output: W, connect: C) -> Result<()>
+where
+    R: AsyncBufRead + Unpin,
+    W: AsyncWrite + Unpin,
+    S: tokio::io::AsyncRead + AsyncWrite + Unpin,
+    C: Fn() -> F,
+    F: std::future::Future<Output = Result<Helper<S>>>,
+{
+    serve_gated(input, output, connect, crate::mac_lock::locked).await
+}
+
+/// [`serve`] with the screen lock read passed in.
+pub async fn serve_gated<R, W, S, C, F>(
+    input: R,
+    mut output: W,
+    connect: C,
+    locked: impl Fn() -> bool,
+) -> Result<()>
 where
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -326,6 +344,10 @@ where
             .await?;
             continue;
         };
+        if let Some(reply) = crate::cua_lock_gate::gate(&message, &locked) {
+            write_line(&mut output, &reply).await?;
+            continue; // never reaches the helper
+        }
         let Some(id) = message.get("id").cloned() else { continue }; // a notification
         let method = message["method"].as_str().unwrap_or_default();
         let reply = match method {
