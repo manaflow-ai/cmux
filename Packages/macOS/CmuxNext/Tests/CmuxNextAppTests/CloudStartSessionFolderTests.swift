@@ -13,12 +13,13 @@ import Testing
 struct CloudStartSessionFolderTests {
     static let home = "/Users/me"
 
+    /// The person's own run in this app (``ActionInvocation/isPersonsOwnRun``), the only one that copies.
     static func request(_ arguments: [String: ActionValue]) throws -> CloudStartSession.Request {
-        try CloudStartSession.request(CloudStartSessionTests.invocation(target: "vm-a", arguments.merging(["agent": .string("claude")]) { $1 }))
+        try CloudStartSession.request(CloudStartSessionTests.invocation(target: "vm-a", arguments.merging(["agent": .string("claude")]) { $1 }, origin: .user))
     }
 
     static func fromFolder(_ folder: String, cwd: String? = nil) throws -> String? {
-        try CloudStartSession.fromFolder(CloudStartSessionTests.invocation(["fromFolder": .string(folder)]), cwd: cwd, home: home)
+        try CloudStartSession.fromFolder(CloudStartSessionTests.invocation(["fromFolder": .string(folder)], origin: .user), cwd: cwd, home: home)
     }
 
     @Test func anAgentsRunNeverCopiesAFolderFromThisMac() throws {
@@ -32,24 +33,24 @@ struct CloudStartSessionFolderTests {
         #expect(try CloudStartSession.fromFolder(CloudStartSessionTests.invocation([:], origin: .mcp), cwd: nil, home: Self.home) == nil)
     }
 
-    /// Only a CLI run on this Mac at the person's terminal (`cli`; `start-chat --from-folder` at a terminal
-    /// says `cli` for the `start-session` it pipes) or the person's own run names a folder to copy. A script
-    /// (`script`: no terminal), a socket caller claiming another client (`remote`), a page, or `user` from the
-    /// socket (an app host during a gesture) copies nothing.
-    @Test func onlyACLIRunOnThisMacOrThePersonCopiesAFolder() throws {
-        var socketUser = CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .user)
-        socketUser.viaControlSocket = true
-        for invocation in [CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .script),
-                           CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .remote),
-                           CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .page), socketUser] {
+    /// Only the person's own run in this app (``ActionInvocation/isPersonsOwnRun``: a gesture, never the control socket)
+    /// names a folder to copy. Every origin a socket caller names is only its claim, so none copies: `cli` (an agent in
+    /// the person's terminal says it too), `cli` naming the terminal it runs in (`caller.terminal_id`, also the caller's
+    /// own word), a script, another client (`remote`), a page, or `user` from the socket (an app host during a gesture).
+    @Test func onlyThePersonsOwnRunCopiesAFolder() throws {
+        func run(_ origin: ActionOrigin, socket: Bool = true, terminal: String? = nil) -> ActionInvocation {
+            var invocation = CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: origin)
+            invocation.viaControlSocket = socket
+            invocation.callerTerminal = terminal
+            return invocation
+        }
+        for invocation in [run(.cli), run(.cli, socket: false), run(.cli, terminal: "term_1"), run(.cli, socket: false, terminal: "term_1"),
+                           run(.script), run(.remote), run(.page), run(.user), run(.user, socket: false, terminal: "term_1")] {
             #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderAgent)) {
                 try CloudStartSession.fromFolder(invocation, cwd: nil, home: Self.home)
             }
         }
-        for origin in [ActionOrigin.cli, .user] {
-            let invocation = CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: origin)
-            #expect(try CloudStartSession.fromFolder(invocation, cwd: nil, home: Self.home) == "/Users/me/code/app")
-        }
+        #expect(try CloudStartSession.fromFolder(run(.user, socket: false), cwd: nil, home: Self.home) == "/Users/me/code/app")
     }
 
     /// The copy waits on the machine's owner answer: a machine whose link has not said this account owns it (a
