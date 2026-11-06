@@ -105,6 +105,10 @@ struct Spent {
 struct State {
     keys: Keyset,
     spent: BTreeMap<String, Spent>,
+    /// The latest time the clock gave. Time never runs back for the
+    /// verifier: a clock stepped backwards after a spent `jti` was purged
+    /// must not make that grant valid again.
+    high_water: u64,
 }
 
 type Clock = dyn Fn() -> Option<u64> + Send + Sync;
@@ -158,7 +162,7 @@ impl CarrierGrantVerifier {
             issuer,
             machine,
             team,
-            state: Mutex::new(State { keys, spent: BTreeMap::new() }),
+            state: Mutex::new(State { keys, spent: BTreeMap::new(), high_water: 0 }),
             clock: Box::new(clock),
             replay_capacity,
         })
@@ -209,8 +213,10 @@ impl CarrierGrantVerifier {
         if token.is_empty() || token.len() > MAX_GRANT_BYTES {
             return Err(no(Invalid, "token_size"));
         }
-        let now = (self.clock)().ok_or(no(Invalid, "clock"))?;
+        let clock = (self.clock)().ok_or(no(Invalid, "clock"))?;
         let mut state = self.state.lock().map_err(|_| no(Invalid, "state"))?;
+        state.high_water = state.high_water.max(clock);
+        let now = state.high_water;
         let signed = verify_signed(token, GRANT_TYP, &state.keys)?;
         let c: Claims =
             serde_json::from_slice(&signed.claims).map_err(|_| no(Invalid, "claims_malformed"))?;
