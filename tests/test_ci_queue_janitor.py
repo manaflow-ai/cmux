@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import base64
 import email.message
+import gzip
 import http.client
 import importlib.util
 import io
@@ -4058,6 +4060,108 @@ class FleetGatesTests(unittest.TestCase):
         step = next(s for s in steps if s.get("name") == "Cancel wasted macOS runs")
         self.assertEqual(step["env"]["FLEET_GATES"], "${{ vars.CI_FLEET_GATES }}")
         self.assertEqual(text.count("vars.CI_FLEET_GATES"), 1)  # never expanded into a script
+
+
+class HostedLightCandidatesTests(unittest.TestCase):
+    def _raw(self, *, rows=None, state_overrides=None, candidate_overrides=None):
+        created = (NOW - dt.timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        rows = rows if rows is not None else [{
+            "id": 123, "path": ".github/workflows/ci.yml", "event": "pull_request",
+            "run_attempt": 1, "status": "queued", "head_sha": "a" * 40,
+            "created_at": created, "private": "drop-me",
+        }]
+        source = {
+            "schema": "hosted-light-candidates/v1", "repository": "manaflow-ai/cmux",
+            "generated_at": (NOW - dt.timedelta(seconds=20)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "controller_generated_at": (NOW - dt.timedelta(seconds=10)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "receiver_last_delivery": (NOW - dt.timedelta(seconds=20)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "jobs_since": (NOW - dt.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "coverage": "partial", "complete": False, "truncated": True,
+            "total_runs": len(rows), "runs": rows,
+        }
+        source.update(candidate_overrides or {})
+        state = {"schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
+                 "generated_at": (NOW - dt.timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                 "runner_groups": {}, "repository_runners": [], "scale_sets": {},
+                 "hosted_light_candidates": source}
+        state.update(state_overrides or {})
+        return base64.b64encode(gzip.compress(json.dumps(state).encode(), mtime=0)).decode()
+
+    def test_valid_source_uses_receiver_clock_and_strips_payload_fields(self):
+        snapshot = {"truncated": False}
+        janitor.attach_hosted_light_candidates(snapshot, self._raw(), now=NOW)
+        value = snapshot["hosted-light-candidates"]
+        self.assertEqual(value["generated_at"], "2026-09-22T16:59:40Z")
+        self.assertEqual(value["controller_generated_at"], "2026-09-22T16:59:50Z")
+        self.assertEqual(value["receiver_last_delivery"], value["generated_at"])
+        self.assertEqual(set(value["runs"][0]), {
+            "id", "path", "event", "run_attempt", "status", "head_sha", "created_at",
+        })
+        self.assertNotIn("drop-me", json.dumps(snapshot))
+
+    def test_invalid_source_and_kill_switch_omit_optional_field(self):
+        for overrides in (
+            {"schema": "runner-state/v2"},
+            {"repository": "other/repo"},
+            {"generated_at": "2026-09-22T16:54:59Z"},
+            {"generated_at": "2026-09-22T17:00:06Z"},
+        ):
+            with self.subTest(overrides=overrides):
+                snapshot = {"truncated": False}
+                janitor.attach_hosted_light_candidates(snapshot, self._raw(state_overrides=overrides), now=NOW)
+                self.assertNotIn("hosted-light-candidates", snapshot)
+        snapshot = {"truncated": False}
+        janitor.attach_hosted_light_candidates(
+            snapshot, self._raw(candidate_overrides={"receiver_last_delivery": "2026-09-22T17:00:00Z"}), now=NOW)
+        self.assertNotIn("hosted-light-candidates", snapshot)
+        with mock.patch.dict("os.environ", {"CI_HOSTED_LIGHT_CANDIDATES_DISABLED": "1"}):
+            snapshot = {"truncated": False}
+            janitor.attach_hosted_light_candidates(snapshot, self._raw(), now=NOW)
+            self.assertNotIn("hosted-light-candidates", snapshot)
+
+    def test_outer_truncation_never_presents_candidate_field(self):
+        for snapshot in ({"truncated": True}, {"truncated": False, "starved_incomplete": True}):
+            janitor.attach_hosted_light_candidates(snapshot, self._raw(), now=NOW)
+            self.assertNotIn("hosted-light-candidates", snapshot)
+
+    def test_malformed_rows_are_dropped_and_candidate_remains_partial(self):
+        rows = [{"id": 1, "path": ".github/workflows/ci.yml", "event": "pull_request", "run_attempt": 1,
+                 "status": "queued", "head_sha": "b" * 40, "created_at": "2026-09-22T16:55:00Z"},
+                {"id": "bad", "path": "private.txt"}]
+        snapshot = {"truncated": False}
+        janitor.attach_hosted_light_candidates(snapshot, self._raw(rows=rows), now=NOW)
+        value = snapshot["hosted-light-candidates"]
+        self.assertEqual([row["id"] for row in value["runs"]], [1])
+        self.assertTrue(value["truncated"])
+        self.assertEqual(value["total_runs"], 2)
+
+    def test_encoded_and_decoded_bounds_omit_source(self):
+        snapshot = {"truncated": False}
+        janitor.attach_hosted_light_candidates(snapshot, "A" * (48 * 1024 + 1), now=NOW)
+        self.assertNotIn("hosted-light-candidates", snapshot)
+        oversized = {"x": "x" * (2 * 1024 * 1024 + 1)}
+        state = {"schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
+                 "generated_at": "2026-09-22T16:59:30Z", "hosted_light_candidates": oversized}
+        raw = base64.b64encode(gzip.compress(json.dumps(state).encode(), mtime=0)).decode()
+        janitor.attach_hosted_light_candidates(snapshot, raw, now=NOW)
+        self.assertNotIn("hosted-light-candidates", snapshot)
+
+    def test_timestamp_overflow_omits_optional_source(self):
+        snapshot = {"truncated": False}
+        janitor.attach_hosted_light_candidates(
+            snapshot,
+            self._raw(candidate_overrides={"receiver_last_delivery": "0001-01-01T00:00:00+23:59"}),
+            now=NOW,
+        )
+        self.assertNotIn("hosted-light-candidates", snapshot)
+
+    def test_workflow_passes_runner_state_only_through_env(self):
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["sweep"]["steps"]
+        step = next(item for item in steps if item.get("name") == "Cancel wasted macOS runs")
+        self.assertEqual(step["env"]["CI_RUNNER_STATE"], "${{ vars.CI_RUNNER_STATE }}")
+        self.assertEqual(step["env"]["CI_HOSTED_LIGHT_CANDIDATES_DISABLED"],
+                         "${{ vars.CI_HOSTED_LIGHT_CANDIDATES_DISABLED }}")
+        self.assertEqual(WORKFLOW.read_text(encoding="utf-8").count("vars.CI_RUNNER_STATE"), 1)
 
 
 NEXT_PATH = ".github/workflows/cmux-next.yml"
