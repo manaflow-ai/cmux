@@ -1120,6 +1120,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-codex-holder"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64",
+ "futures-util",
+ "libc",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "uuid",
+]
+
+[[package]]
 name = "cmux-cloud-config"
 version = "0.1.0"
 dependencies = [
@@ -1856,6 +1872,7 @@ dependencies = [
  "cmux-chat-index",
  "cmux-cloud-config",
  "cmux-cloud-client",
+ "cmux-cloud-codex-holder",
  "cmux-cloud-environment",
  "cmux-config",
  "cmux-conversation",

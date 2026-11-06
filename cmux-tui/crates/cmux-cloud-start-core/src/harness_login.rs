@@ -304,7 +304,7 @@ fn transfers(d: &Inputs) -> bool {
 
 fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     // Codex's refresh token never leaves the Mac: the start runs its broker, which delivers only
-    // short-lived access to the machine and renews it (CloudCodexBroker).
+    // short-lived access to the machine and renews it (cmux-cloud-codex-holder).
     // A Release copy is held by its setting and its remote switch whatever `gate` the caller sent
     // (a pre-resolved request with `release` and `gate` but no `dogfood` gets the same answer).
     if d.release && !release_passes_harness_login(d.setting, d.remote_switch) {

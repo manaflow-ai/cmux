@@ -44,6 +44,8 @@ mod chief_target;
 #[cfg(unix)]
 mod cloud_client_session;
 #[cfg(unix)]
+mod cloud_codex_holder;
+#[cfg(unix)]
 mod cloud_environment;
 mod cloud_help;
 #[cfg(unix)]
@@ -550,6 +552,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
+        .or_else(|| cloud_codex_holder::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))

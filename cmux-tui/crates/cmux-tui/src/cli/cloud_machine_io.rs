@@ -313,7 +313,7 @@ fn runtime_and_client() -> Result<(tokio::runtime::Runtime, reqwest::Client), St
 
 /// The one HTTP client of a call (tests use it too). reqwest is built without a default rustls crypto
 /// provider, so this installs ring first: a process that builds a client before any install panics.
-fn http_client() -> Result<reqwest::Client, String> {
+pub(super) fn http_client() -> Result<reqwest::Client, String> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
