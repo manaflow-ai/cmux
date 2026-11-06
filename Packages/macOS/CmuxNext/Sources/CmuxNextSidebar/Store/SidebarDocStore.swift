@@ -281,6 +281,17 @@ public final class SidebarDocStore {
         isActive ? mirror.rows(request) : nil
     }
 
+    /// The sections the rows of `request` draw, regrouped by the reducer (one FFI call; only on a structural rebuild).
+    func projected(_ request: SidebarViewRequest) -> SidebarDocWire.Projection? {
+        isActive ? mirror.projection(request) : nil
+    }
+
+    /// The ops the reducer plans for `request` on the document as shown (`SidebarMirror.plan`); a refusal while the
+    /// document is not shown.
+    func plan(_ request: [String: Any]) -> Result<[[String: Any]], SidebarMirror.Refusal> {
+        isActive ? mirror.plan(request) : .failure(SidebarMirror.Refusal(code: "unavailable"))
+    }
+
     /// Group item `item` sits in Pinned as the sidebar draws it, pending changes included, so a second
     /// Pin/Unpin before the daemon answers undoes the first; nil while the document is not shown. It reads
     /// the projection over the live set `show` used, so the mirror's rows (a drag reads them) stay as shown.
