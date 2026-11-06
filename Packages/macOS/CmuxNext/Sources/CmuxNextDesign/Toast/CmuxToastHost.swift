@@ -69,13 +69,22 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
     /// Tells every view in `window` that reserves room for toasts where this host's toasts now
     /// rest (nil: none), with the toasts' move time.
     public func settled(in window: NSWindow) {
+        let rect = toastsRect(in: window)
+        let duration = Motion.overlays.animatesMovement ? Motion.overlays.duration(.move) : 0
+        Self.reservingViews(in: window).forEach { $0.toastsSettled(in: rect, duration: duration) }
+    }
+
+    func settled(in window: NSWindow, only view: any CmuxToastReserving) {
+        view.toastsSettled(in: toastsRect(in: window), duration: 0)
+    }
+
+    /// The union of this host's toast frames in `window` (window coordinates); nil when none shows.
+    private func toastsRect(in window: NSWindow) -> NSRect? {
         let frames = handles.values.filter { $0.window === window }.compactMap { entry -> NSRect? in
             guard let panel = entry.view.window else { return nil }
             return window.convertFromScreen(panel.convertToScreen(entry.view.convert(entry.view.bounds, to: nil)))
         }
-        let rect = frames.dropFirst().reduce(frames.first) { $0?.union($1) }
-        let duration = Motion.overlays.animatesMovement ? Motion.overlays.duration(.move) : 0
-        Self.reservingViews(in: window).forEach { $0.toastsSettled(in: rect, duration: duration) }
+        return frames.dropFirst().reduce(frames.first) { $0?.union($1) }
     }
 
     /// Every view under `window`'s content view that reserves room for toasts, hidden ones too

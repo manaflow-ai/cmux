@@ -554,6 +554,8 @@ public final class AgentPaneView: NSView {
         } else {
             // The composer's + > Attach files or images opens without making a panel (PageOpenPanel).
             openPanel?.warmWhenIdle()
+            // The toasts may have come or gone while the pane was out of the window.
+            if let window { CmuxToastAvoidance.reservingViewMoved(self, to: window) }
         }
         applyTheme()
     }
