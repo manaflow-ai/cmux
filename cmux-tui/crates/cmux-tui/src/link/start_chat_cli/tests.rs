@@ -11,9 +11,9 @@ use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
 use super::trust::trusted_at;
 use super::{
-    Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, made_no_machine,
-    origin_url, percent_segment, pin, plan, plan_with, remote_name, setup_state, too_broad,
-    valid_environment, valid_key, valid_repo, valid_workspace,
+    Ensure, Flags, Keys, Lease, PushFailure, StartCopy, ensure_answer, github_repo, import,
+    made_no_machine, origin_url, percent_segment, pin, plan, plan_with, remote_name, setup_state,
+    too_broad, valid_environment, valid_key, valid_repo, valid_workspace,
 };
 
 const ME: &str = "user-leo";
@@ -621,7 +621,7 @@ fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
     let trusted = copy.run(&ledger, &|_: &Path, _: &Path, _: &str| panic!("must reuse copy"));
     assert_eq!(trusted["source_trusted"], json!(true), "{trusted}");
     let failed = StartCopy { key: key(), ..copy }
-        .run(&ledger, &|_: &Path, _: &Path, _: &str| Err(("sync_failed".into(), "no".into())));
+        .run(&ledger, &|_: &Path, _: &Path, _: &str| Err(PushFailure::new("sync_failed", "no")));
     assert!(failed.get("source_trusted").is_none(), "a failed copy answers no trust: {failed}");
 }
 
@@ -631,13 +631,25 @@ fn failed_copy_and_ledger_answers_finish_the_clone_clock() {
     let path = ledger_in(dir.path());
     let copy = copy_of("/Users/me/src/paint", "");
     let failed = copy.run(&path, &|_: &Path, _: &Path, _: &str| {
-        Err(("sync_failed".into(), "copy refused".into()))
+        Err(PushFailure::new("sync_failed", "copy refused"))
     });
     assert_eq!(failed["ok"], json!(false));
     assert_eq!(failed["seed_state"], json!("failed"));
     assert_eq!(failed["seed_phase"], json!("copy"));
     assert_eq!(failed["error"], json!("copy refused"));
     assert_copy_timings(&failed);
+
+    // A machine that did not answer `identify`: the copy's answer carries why, as its category.
+    let silent = copy.run(&path, &|_: &Path, _: &Path, _: &str| {
+        Err(PushFailure {
+            identify_failure: Some("eof"),
+            ..PushFailure::new("machine_not_answering", "the machine did not answer identify (eof)")
+        })
+    });
+    assert_eq!(silent["error_code"], json!("machine_not_answering"), "{silent}");
+    assert_eq!(silent["identify_failure"], json!("eof"), "{silent}");
+    assert_eq!(silent["seed_phase"], json!("copy"));
+    assert!(failed.get("identify_failure").is_none(), "{failed}");
 
     // A regular file cannot contain a ledger directory.
     let file = dir.path().join("not-a-directory");
@@ -905,7 +917,7 @@ fn a_retry_resumes_its_folder_only_when_no_live_copy_holds_it() {
     let seen = RefCell::new(Vec::<String>::new());
     let fails = |_: &Path, _: &Path, remote: &str| {
         seen.borrow_mut().push(remote.to_string());
-        Err(("fs.failure".to_string(), "cut off".to_string()))
+        Err(PushFailure::new("fs.failure", "cut off"))
     };
     assert_eq!(copy.run(&path, &fails)["error_code"], json!("fs.failure"));
     let place =

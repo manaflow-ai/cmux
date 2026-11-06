@@ -142,4 +142,21 @@ struct CloudStartChatSocketFaultTests {
         }
         #expect(calls.copies == 1)
     }
+
+    /// The start's copy answer as `cmux link start-chat copy` prints it for a machine that did not answer `identify`
+    /// (start_chat_cli tests, `failed_copy_and_ledger_answers_finish_the_clone_clock`): the app reads its category as a field,
+    /// never from the words, and the start says the machine didn't connect.
+    @Test func theCopysAnswerCarriesWhyTheMachineDidNotAnswerToTheApp() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("start-copy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let cli = folder.appendingPathComponent("cmux")
+        let line = #"{"ok":false,"error":"the machine did not answer identify (eof)","error_code":"machine_not_answering","identify_failure":"eof","seed_state":"failed","seed_phase":"copy"}"#
+        try "#!/bin/sh\nprintf '%s\\n' '\(line)'\nexit 1\n".write(to: cli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cli.path)
+        let (answer, _) = try await CloudMoveCLI(binary: cli, timeout: .seconds(20)).startChatCopy(
+            key: "send-1", account: "u/t", machine: "vm-a", socket: "/tmp/cmux-link-a.sock", local: folder.path, subpath: "", workRoots: ["/home/cmux"], acpmuxHome: nil)
+        #expect(answer.errorCode == CloudOutdatedMachine.notAnswering && answer.identifyFailure == "eof", "\(answer)")
+        #expect(CloudMove.failure(syncing: answer, machine: Self.machine, retry: Self.retry).message == CloudMoveStrings.notConnected(Self.machine))
+    }
 }

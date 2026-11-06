@@ -143,6 +143,11 @@ pub(super) fn failure(error: &anyhow::Error) -> (String, String) {
     (error.code, error.message)
 }
 
+/// Why a failed [`push`]'s machine did not answer `identify`, when that is why it failed.
+pub(super) fn identify_failure(error: &anyhow::Error) -> Option<&'static str> {
+    SeedError::of(error).identify_failure
+}
+
 /// What a push did.
 #[derive(Debug)]
 pub(super) struct Pushed {
