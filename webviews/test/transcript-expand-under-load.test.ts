@@ -190,8 +190,10 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
           if (!running) return;
           const until = performance.now() + ms;
           while (performance.now() < until) {}
+          // raf-read: none; this only holds the main thread in each frame's callbacks (the load).
           requestAnimationFrame(hold);
         };
+        // raf-read: as above.
         requestAnimationFrame(hold);
         scope.stopJank = () => (running = false);
       },
