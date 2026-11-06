@@ -71,7 +71,14 @@ pub(super) fn install(
     durability: Option<Durability>,
     out: mpsc::Sender<String>,
 ) -> (mpsc::Sender<String>, Option<Arc<Gate>>) {
-    let Some(Durability { acked, durable, stalled }) = durability else { return (out, None) };
+    // PROBE (scratch, never merge): no gate, to measure what the durable wait costs.
+    let _ = durability;
+    if true {
+        return (out, None);
+    }
+    let Some(Durability { acked, durable, stalled }) = None::<Durability> else {
+        return (out, None);
+    };
     let gate = Arc::new(Gate { needs: AtomicU64::new(0), acked });
     let (lines_tx, lines) = mpsc::channel(out.max_capacity());
     tokio::spawn(run(lines, out, Arc::clone(&gate), durable, stalled));
