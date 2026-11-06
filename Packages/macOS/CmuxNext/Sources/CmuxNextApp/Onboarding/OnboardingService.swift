@@ -163,11 +163,11 @@ final class OnboardingService {
         }
     }
 
-    /// First-run routing only, once per app channel (an upgrade is no first run). Never under showcase: its
-    /// scene captures are fresh homes, and the page over Home parks the workspace their seed fills.
+    /// First-run routing only, once per app channel (an upgrade is no first run). Never when ``AppEnvironment/skipsOnboarding``
+    /// (showcase, capture builds): their captures are fresh homes, and the page over Home parks the workspace their seed fills.
     func showHistoryAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) {
         let key = "home.firstRun.historyImportShown"
-        guard !services.environment.showcase, !defaults.bool(forKey: key) else { return }
+        guard !services.environment.skipsOnboarding, !defaults.bool(forKey: key) else { return }
         if isFirstRun {
             // On top: launch can replace its first Home pane. Consume only once shown. The
             // mark tells the fresh-home launch smoke this page covers Home on purpose.
@@ -183,9 +183,9 @@ final class OnboardingService {
         return await services.openLocalProviderLogin(line)
     }
 
-    /// The first-run Agents step over Bring your history (``OnboardingWindowPresenter/showAgentsAtFirstRun``); never under showcase.
+    /// The first-run Agents step over Bring your history (``OnboardingWindowPresenter/showAgentsAtFirstRun``); never when ``AppEnvironment/skipsOnboarding``.
     func showAgentsAtFirstRun(isFirstRun: Bool) async {
-        guard !services.environment.showcase else { return }
+        guard !services.environment.skipsOnboarding else { return }
         await presenter.showAgentsAtFirstRun(isFirstRun: isFirstRun, source: signInHarnesses)
     }
 

@@ -18,6 +18,9 @@ public struct PaletteSources {
     public var recentDirectories: (any PaletteRecentDirectorySource)?
     /// Lists objects for target arguments (tab groups, windows, ...).
     public var targets: (any PaletteTargetSource)?
+    /// Makes a new target of a kind from the typed name when an argument page lists none
+    /// matching it (Create Browser Profile “austin”). A kind with no creator offers no such row.
+    public var targetCreators: [ActionTargetKind: PaletteTargetCreator] = [:]
     /// Extra root providers (custom `cmux.json` actions, extensions).
     public var extraProviders: [any PaletteProvider]
     /// The objects the user acts on, captured when the palette opens (the

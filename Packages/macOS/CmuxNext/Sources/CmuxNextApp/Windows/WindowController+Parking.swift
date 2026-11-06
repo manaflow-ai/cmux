@@ -64,17 +64,8 @@ extension WindowController {
         parkSerial &+= 1
         controller.park(serial: parkSerial)
         parked[controller.workspace.id] = controller
-        trimParked(keeping: controller.workspace.id, leaving: leaving)
-    }
-
-    /// Past `ParkedWorkspaceBudget.standard`'s capacity, the least recently parked workspaces leave as under
-    /// critical pressure, so a window that visited hundreds keeps a bounded set mounted.
-    private func trimParked(keeping parkedNow: String, leaving: String?) {
-        let budget = ParkedWorkspaceBudget.standard
-        let entries = parked.compactMap { $0.key == leaving ? nil : (id: $0.key, serial: $0.value.parkedSerial) }
-        guard entries.count > budget.capacity else { return }
-        let kept = Set(parked.keys.filter(keepsParked)).union([parkedNow])
-        for id in budget.evictions(parked: entries, kept: kept) {
+        // Past `ParkedWorkspaceBudget.standard`'s capacity the least recently parked leave, as under critical pressure.
+        for id in ParkedWorkspaceBudget.standard.evictions(parked: parked.mapValues(\.parkedSerial), parkedNow: controller.workspace.id, leaving: leaving, keeps: keepsParked) {
             parked.removeValue(forKey: id)?.teardown()
         }
     }

@@ -878,6 +878,10 @@ impl Hub {
         {
             started = Box::pin(self.child_for_since(session, stops)).await;
         }
+        // A start that missed its deadline is pending, not failed: tried again after a wait.
+        let started =
+            Box::pin(self.retry_late_start(session, stops, cancels, &prompt_id, &turn_id, started))
+                .await;
         let started = match started {
             Ok(child) => session
                 .meta()
@@ -889,7 +893,12 @@ impl Hub {
         let (mut child, agent_sid) = match started {
             Ok(started) => started,
             Err(e) => {
-                self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
+                // A turn the shutdown settles writes no end of its own (`start_retry.rs`).
+                if !self.shutdown_settles(&turn_id, &e) {
+                    self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
+                } else if self.hands_off(session) {
+                    super::digest::forget_joined(Some(joined));
+                }
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
@@ -1418,6 +1427,9 @@ impl Hub {
                 self.save_meta(session);
             }
         }
+        // Its todo calls still held go with it, however the turn ends or is handed off
+        // (`acp_todo_plan.rs`): a late result passes through as any other tool's.
+        crate::acp_todo_plan::forget(&session.id);
         // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
         // no agent starts after it, so the lane reports nothing (`lane_reports.rs`). A restart
         // handed it to the next daemon, which continues it: its end is that daemon's to write.
@@ -1539,8 +1551,6 @@ impl Hub {
             }
             // The turn's wrap-up answer, taken whatever the turn's end (`wrap_up_suggestion.rs`).
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
-            // Its todo calls still held go with it (`acp_todo_plan.rs`).
-            crate::acp_todo_plan::forget(&session.id);
             match &result {
                 Ok(v) => {
                     self.note_reply_refusal(session);
@@ -1927,8 +1937,17 @@ impl Hub {
                 // The mode first, then the mark, under the lock, only while the chat runs it:
                 // a write that moves the mode takes the mark (`write_mode_state`).
                 let reported = res.get("currentModeId").or(res.get("modeId")).cloned();
+                let mut writes = Vec::new();
+                // Claude Code answers with its options too, the `mode` option now at the new
+                // mode: kept with it, so the option never shows the mode the chat started in.
+                if let Some(opts) = res.get("configOptions").filter(|o| o.is_array()) {
+                    writes.push(ModeWrite::ConfigOptions(opts.clone()));
+                }
                 if let Some(mode) = reported.or_else(|| asked_mode.clone().map(Value::String)) {
-                    self.write_mode_state(session, [ModeWrite::CurrentMode(mode)]);
+                    writes.push(ModeWrite::CurrentMode(mode));
+                }
+                if !writes.is_empty() {
+                    self.write_mode_state(session, writes);
                 }
                 let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
                 if asked_mode.is_some() && crate::web_modes::mode_of(&meta) == asked_mode {
@@ -2210,6 +2229,8 @@ impl Hub {
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
+        // A start that waits to be tried again ends its wait (`start_retry.rs`).
+        session.start_retry_wake.notify_waiters();
         // Stopped, not hibernated: its next start is no wake (`idle.rs`).
         self.clear_hibernation(session);
         self.stop_auto_resume(session);
