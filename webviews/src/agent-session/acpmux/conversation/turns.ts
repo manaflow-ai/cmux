@@ -90,9 +90,6 @@ export const SUPERSEDED = "superseded";
 /// Activity rows shown inside an open disclosure are copies under this suffix, so the
 /// edited-files card after the answer keeps the original id.
 const FOLDED = ":fold";
-/// The line a closed "Worked for" draws for a stretch of work beside the replies it keeps in sight,
-/// under this suffix: its run's id, as the open fold draws it, stays that run's own.
-const AROUND = ":around";
 
 /// "1m 16s", "42s", "1h 3m"; zero units dropped, under one second is "0s".
 export function formatDuration(ms: number): string {
@@ -1062,6 +1059,8 @@ function repliesIn(body: readonly AcpmuxRow[]): Set<string> {
 /// it, and each stretch of hidden work between them as closed run lines, one for the stretch
 /// (`groups`) or one per run (`runs`). A line counts calls only; its short notes go with it as quiet
 /// lines; an edit stays on the turn's edits card; anything else hidden stays under "Worked for".
+/// A line keeps its first run's id, so opening the fold keeps that line where it is (one row, one
+/// open state) rather than fading it out and drawing its run anew.
 function aroundReplies(
   rows: readonly AcpmuxRow[],
   out: (row: AcpmuxRow) => boolean,
@@ -1074,7 +1073,6 @@ function aroundReplies(
   let stretch: AcpmuxRow[] = [];
   const line = (run: AcpmuxRow): AcpmuxRow => ({
     ...run,
-    id: `${run.id}${AROUND}`,
     settled: true,
     foldRun: true,
     version: run.version * RUN_STATES + 3,

@@ -50,9 +50,9 @@ test("the final answer and every earlier answer stay in sight; the work around e
   expect(drawn(leosTurn())).toEqual([
     "user:u",
     "worked:worked-u",
-    "activity:ran-1:around",
+    "activity:ran-1",
     "assistant:first",
-    "activity:ran-5:around",
+    "activity:ran-5",
     "assistant:second",
     "turnSummary:end",
   ]);
@@ -119,9 +119,9 @@ test("long reply, then a tool, then 'Pushed.': both replies stay in sight, each 
   expect(drawn(rows)).toEqual([
     "user:u",
     "worked:worked-u",
-    "activity:read:around",
+    "activity:read",
     "assistant:reply",
-    "activity:git push:around",
+    "activity:git push",
     "assistant:pushed",
     "turnSummary:end",
   ]);

@@ -138,7 +138,8 @@ test("the same turn in a Codex chat folds its work and chatter under one Worked 
   ).toEqual([14, 16, 17]);
   expect(assistants(view).some((row) => SHORT.test(row.text ?? ""))).toBe(false);
   const lines = view.filter((row) => row.kind === "activity" && !row.merged);
-  expect(lines.every((row) => row.foldRun === true && row.id.endsWith(":around"))).toBe(true);
+  expect(lines.length).toBeGreaterThan(0);
+  expect(lines.every((row) => row.foldRun === true)).toBe(true);
   expect(view.find((row) => row.kind === "turnSummary")?.folded).toBe(true);
 });
 
