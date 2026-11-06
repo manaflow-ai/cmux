@@ -1786,7 +1786,9 @@ async fn dispatch_request_with_identity(
                     && (conn.is_person()
                         || (conn.origin == super::Origin::Peer
                             && mux_meta(&params)
-                                .and_then(|meta| meta.get(crate::prompt_provenance::PERSON_VERIFIED))
+                                .and_then(|meta| {
+                                    meta.get(crate::prompt_provenance::PERSON_VERIFIED)
+                                })
                                 .and_then(Value::as_bool)
                                 == Some(true))),
                 agent,

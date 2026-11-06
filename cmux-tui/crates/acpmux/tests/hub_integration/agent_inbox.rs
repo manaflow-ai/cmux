@@ -209,7 +209,7 @@ async fn an_idle_chat_runs_its_first_work_and_wakes_for_a_blocker_only() {
     assert_eq!(ids, ["a-1", "b-1", "f-1"]);
     let text = notices[0]["text"].as_str().unwrap();
     assert!(
-        text.contains("\n- [blocker] 1 new in #12 from lane-d: blocked on #12"),
+        text.contains("\n- [blocker] 1 new in #12 (self-declared, unauthenticated) from lane-d (self-declared, unauthenticated): blocked on #12"),
         "blockers first: {text}"
     );
     for answer in answered.values() {
@@ -268,7 +268,9 @@ async fn a_queued_prompt_never_waits_behind_agent_messages() {
     assert_ne!(notices[0]["steer"], true, "no steer: {all:?}");
     assert_eq!(all[at("p-me")]["text"], text.as_str(), "the person's words as written");
     assert_eq!(carried(&notices[0]).len(), 5);
-    assert!(notices[0]["text"].as_str().unwrap().contains("5 new in #9 from lane-a"));
+    assert!(notices[0]["text"].as_str().unwrap().contains(
+        "5 new in #9 (self-declared, unauthenticated) from lane-a (self-declared, unauthenticated)"
+    ));
     for answer in answered.values() {
         assert_eq!(answer["stopReason"], "end_turn", "{answer}");
         assert_eq!(answer["_meta"]["acpmux"]["turnId"], notices[0]["turnId"], "{answer}");
@@ -679,7 +681,7 @@ async fn a_closed_chat_answers_and_refuses_senders_and_keeps_its_threads() {
     .expect("the waiting sender was never answered");
     assert!(line.is_some(), "a closed chat answers its waiting sender with an error");
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(threads["threads"][0]["threadId"], "from:lane-b/pr:5", "{threads}");
+    assert_eq!(threads["threads"][0]["threadId"], "declared:lane-b/pr:5", "{threads}");
 }
 
 /// A review box (`review_box.rs`) has no inbox: another agent's message to its running review

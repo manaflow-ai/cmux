@@ -67,32 +67,13 @@ const SENT_SHOWN: u64 = 10;
 /// A reply of `_acpmux/inbox_threads`, `_acpmux/inbox_thread` or `_acpmux/inbox_reply` as text.
 pub fn describe(reply: &Value) -> String {
     let s = |v: &Value| v.as_str().unwrap_or_default().to_owned();
-    let sender_name = |name: &str, sender: Option<&Value>| {
-        if name.contains(" (self-declared, unauthenticated)") || name.contains(" (label: ") {
-            return name.to_owned();
-        }
-        let Some(sender) = sender else { return name.to_owned() };
-        let label = sender.get("label").and_then(Value::as_str);
-        let declared = sender.get("labelDeclared").and_then(Value::as_bool) == Some(true);
-        let authenticated = sender.get("authenticated").and_then(Value::as_bool) == Some(true);
-        match (label, declared, authenticated) {
-            (Some(label), true, false) => format!("{label} (self-declared, unauthenticated)"),
-            (Some(label), true, true) if name.is_empty() => label.to_owned(),
-            (Some(label), true, true) => format!("{name} (label: {label})"),
-            _ => name.to_owned(),
-        }
-    };
     if let Some(threads) = reply.get("threads").and_then(Value::as_array) {
         if threads.is_empty() {
             return "The inbox is empty.".to_owned();
         }
         let from = |t: &Value| {
             let names = t["from"].as_array().cloned().unwrap_or_default();
-            names
-                .iter()
-                .map(|name| sender_name(&s(name), t.get("sender")))
-                .collect::<Vec<_>>()
-                .join(", ")
+            names.iter().map(|name| s(name)).collect::<Vec<_>>().join(", ")
         };
         let lines: Vec<String> = threads
             .iter()
@@ -121,7 +102,7 @@ pub fn describe(reply: &Value) -> String {
             text.push_str(&format!(
                 "\n\n[{}] from {}, promptId {}:\n{}",
                 s(&m["kind"]),
-                sender_name(&s(&m["from"]), m.get("sender")),
+                s(&m["from"]),
                 s(&m["promptId"]),
                 s(&m["text"])
             ));

@@ -79,7 +79,7 @@ fn a_self_declared_label_has_a_distinct_thread_key_and_display() {
 fn an_authenticated_session_named_declared_does_not_collide_with_a_declared_label() {
     assert_eq!(thread_key(None, "declared:dot", "hello"), "declared:dot");
     assert_eq!(thread_key(None, "session:declared:dot", "hello"), "from:declared:dot");
-    assert_eq!(thread_key(None, "session:dot", "hello"), "from:session:dot");
+    assert_eq!(thread_key(None, &thread_sender(None, "session:dot"), "hello"), "from:session:dot");
 }
 
 #[test]

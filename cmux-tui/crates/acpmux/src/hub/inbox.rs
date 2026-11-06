@@ -417,9 +417,11 @@ pub(crate) fn thread_key(explicit: Option<&str>, sender: &str, text: &str) -> St
     }
     let prefix = if let Some(sender) = sender.strip_prefix("declared:") {
         format!("declared:{sender}")
-    } else if let Some(sender) = sender.strip_prefix("session:declared:") {
-        format!("from:declared:{sender}")
     } else {
+        let sender = sender
+            .strip_prefix("session:")
+            .or_else(|| sender.strip_prefix("raw:"))
+            .unwrap_or(sender);
         format!("from:{sender}")
     };
     match first_pr(text.lines().next().unwrap_or_default()) {
@@ -486,6 +488,9 @@ fn first_pr(line: &str) -> Option<u64> {
 /// How a thread reads in a notice: `#N`, the topic, or "messages".
 fn label(key: &str) -> String {
     if let Some(name) = key.strip_prefix("declared:") {
+        if let Some((_, n)) = name.rsplit_once("/pr:") {
+            return format!("#{n} (self-declared, unauthenticated)");
+        }
         return format!("{name} (self-declared, unauthenticated)");
     }
     if let Some(n) = key.strip_prefix("pr:") {
@@ -536,17 +541,25 @@ fn thread_sender(provenance: Option<&Value>, sender: &str) -> String {
     );
     if identity.get("authenticated") == Some(&Value::Bool(false))
         && identity.get("labelDeclared") == Some(&Value::Bool(true))
+        && let Some(label) = identity.get("label").and_then(Value::as_str)
     {
-        if let Some(label) = identity.get("label").and_then(Value::as_str) {
-            return format!("declared:{label}");
+        return format!("declared:{label}");
+    }
+    if identity.get("authenticated") == Some(&Value::Bool(true)) {
+        if let Some(session) =
+            provenance.and_then(|p| crate::prompt_provenance::sender_of(Some(p)).0)
+        {
+            return format!("session:{session}");
         }
     }
-    if identity.get("authenticated") == Some(&Value::Bool(true))
-        && sender.starts_with("declared:")
+    if sender.starts_with("declared:")
+        || sender.starts_with("session:")
+        || sender.starts_with("raw:")
     {
-        return format!("session:{sender}");
+        format!("raw:{sender}")
+    } else {
+        sender.to_owned()
     }
-    sender.to_owned()
 }
 
 /// Re-key a historical bare sender thread in memory when its old provenance proves that the
@@ -562,10 +575,11 @@ fn legacy_thread_key(provenance: Option<&Value>, from: &str, thread: String) -> 
 /// memory. Keep that handle readable without merging it with an authenticated session thread.
 fn thread_matches(item: &Item, requested: &str, allow_declared_fallback: bool) -> bool {
     item.thread == requested
-        || (allow_declared_fallback && item
-            .thread
-            .strip_prefix("declared:")
-            .is_some_and(|rest| requested == format!("from:{rest}")))
+        || (allow_declared_fallback
+            && item
+                .thread
+                .strip_prefix("declared:")
+                .is_some_and(|rest| requested == format!("from:{rest}")))
 }
 
 /// Whether a message reports work this chat gave: a lane's report (`lane_reports.rs`) or a task's
@@ -1036,11 +1050,8 @@ impl Hub {
         let message =
             super::message_events::message_context(self, session, &blocks, &opts, prompt_id);
         super::message_events::embed_message_context(&mut opts, message.as_ref(), &session.id);
-        let sender_identity = crate::prompt_provenance::sender_record(
-            opts.provenance.as_ref(),
-            Some(lane),
-            None,
-        );
+        let sender_identity =
+            crate::prompt_provenance::sender_record(opts.provenance.as_ref(), Some(lane), None);
         let fresh = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             if inbox.items.iter().any(|i| i.prompt_id == prompt_id)
