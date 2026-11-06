@@ -577,6 +577,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `chief.reactionClassifier.model` | string | `"claude-haiku-5-5"` |  | Reaction Classifier Model. The model that decides whether a reaction starts a turn. Claude Haiku by default: it is fast and cheap. |
 | `chief.reactionClassifier.prompt` | string | `""` |  | Reaction Classifier Instructions. What the classifier is told when it decides. Empty uses the built-in instructions. |
 | `chief.autoRouteSubagents` | boolean | `false` |  | Route Subagents to the Best Agent. The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent. |
+| `subagents.showWorkspaces` | boolean | `false` |  | Show Each Subagent in the Sidebar. Each subagent the Chief starts gets its own workspace in the sidebar. Off, subagents run hidden and open from their links in the Chief's replies. |
+| `subagents.closeFinishedWorkspaces` | boolean | `false` |  | Close Finished Subagent Workspaces. When a subagent finishes, its workspace closes, so the sidebar keeps fewer workspaces. Off, a subagent's workspace stays until you close it. |
 | `notifications.dismissal` | string | `"focus"` | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Clear Notification When |
 | `notifications.timeoutSeconds` | real | `30` | 1 to 86400 | Timeout. Used when a source clears after a timeout. |
 | `notifications.sources.agent.dismissal` | string |  | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Agents |
