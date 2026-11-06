@@ -21,23 +21,22 @@ struct AgentPaneCloudAsksTests {
     }
 
     /// Waits until `asks` holds a question (the ask's push ran), so the test answers a waiting one.
-    private func shown(_ pushes: AsyncStream<JSONValue>.Iterator) async -> AsyncStream<JSONValue>.Iterator {
-        var pushes = pushes
-        _ = await pushes.next(isolation: #isolation)
-        return pushes
+    private func shown(_ pushes: AsyncStream<JSONValue>) async {
+        for await _ in pushes { break }
     }
 
     @Test func theClickedButtonEndsTheWaitAndClearsTheCard() async throws {
         let asks = AgentPaneCloudAsks()
         let stream = AsyncStream.makeStream(of: JSONValue.self)
-        let waiting = Task { await asks.ask(question(), start: key) { stream.continuation.yield($0) } }
-        var pushes = await shown(stream.stream.makeAsyncIterator())
+        let pushed = PushedValues()
+        let waiting = Task { await asks.ask(question(), start: key) { pushed.values.append($0); stream.continuation.yield($0) } }
+        await shown(stream.stream)
         #expect(asks.waitingCount == 1)
         #expect(asks.answer(try answer("setUp")))
         #expect(await waiting.value == "setUp")
-        // The second push takes the question out of the card.
-        let cleared = await pushes.next(isolation: #isolation)
-        #expect(cleared == .object(["key": .string(key), "ask": .null]))
+        // The second push, made before the wait returns, takes the question out of the card.
+        #expect(pushed.values.count == 2)
+        #expect(pushed.values.last == .object(["key": .string(key), "ask": .null]))
         #expect(asks.waitingCount == 0)
     }
 
@@ -45,7 +44,7 @@ struct AgentPaneCloudAsksTests {
         let asks = AgentPaneCloudAsks()
         let stream = AsyncStream.makeStream(of: JSONValue.self)
         let waiting = Task { await asks.ask(question(), start: key) { stream.continuation.yield($0) } }
-        _ = await shown(stream.stream.makeAsyncIterator())
+        await shown(stream.stream)
         #expect(!AgentPaneCloudAsks().answer(try answer("setUp"))) // another pane's asks
         #expect(!asks.answer(try answer("setUp", id: "ask-0"))) // an earlier question
         #expect(!asks.answer(try answer("transfer"))) // not one of its buttons
@@ -59,7 +58,7 @@ struct AgentPaneCloudAsksTests {
         let asks = AgentPaneCloudAsks()
         let stream = AsyncStream.makeStream(of: JSONValue.self)
         let waiting = Task { await asks.ask(question(), start: key) { stream.continuation.yield($0) } }
-        _ = await shown(stream.stream.makeAsyncIterator())
+        await shown(stream.stream)
         waiting.cancel()
         #expect(await waiting.value == nil)
         #expect(!asks.answer(try answer("setUp")))
@@ -80,7 +79,7 @@ struct AgentPaneCloudAsksTests {
         let asks = AgentPaneCloudAsks()
         let stream = AsyncStream.makeStream(of: JSONValue.self)
         let waiting = Task { await asks.ask(question(), start: key) { stream.continuation.yield($0) } }
-        _ = await shown(stream.stream.makeAsyncIterator())
+        await shown(stream.stream)
         AgentPaneCloudAsks().endAll() // another pane closing ends nothing
         #expect(asks.waitingCount == 1)
         asks.endAll()
@@ -96,7 +95,7 @@ struct AgentPaneCloudAsksTests {
             return "setUp"
         }
         let waiting = Task { await asks.ask(question(), start: key, fallback: dialog) { stream.continuation.yield($0) } }
-        _ = await shown(stream.stream.makeAsyncIterator())
+        await shown(stream.stream)
         asks.pageReloaded()
         #expect(await waiting.value == "setUp")
         #expect(asked.questions == [question()])
@@ -112,13 +111,13 @@ struct AgentPaneCloudAsksTests {
         let dialog = AgentPaneCloudAsker { _ in
             opened.continuation.yield()
             var never = AsyncStream<String> { _ in }.makeAsyncIterator()
-            return await never.next(isolation: #isolation)
+            return await never.next()
         }
         let waiting = Task { await asks.ask(question(), start: key, fallback: dialog) { stream.continuation.yield($0) } }
-        _ = await shown(stream.stream.makeAsyncIterator())
+        await shown(stream.stream)
         asks.pageReloaded()
         var openedIterator = opened.stream.makeAsyncIterator()
-        _ = await openedIterator.next(isolation: #isolation)
+        _ = await openedIterator.next()
         asks.endAll()
         #expect(await waiting.value == nil)
     }
@@ -127,10 +126,10 @@ struct AgentPaneCloudAsksTests {
         let asks = AgentPaneCloudAsks()
         let first = AsyncStream.makeStream(of: JSONValue.self), second = AsyncStream.makeStream(of: JSONValue.self)
         let earlier = Task { await asks.ask(question(), start: key) { first.continuation.yield($0) } }
-        _ = await shown(first.stream.makeAsyncIterator())
+        await shown(first.stream)
         let later = Task { await asks.ask(question(id: "ask-2"), start: key) { second.continuation.yield($0) } }
         #expect(await earlier.value == nil)
-        _ = await shown(second.stream.makeAsyncIterator())
+        await shown(second.stream)
         #expect(asks.answer(try answer("setUp", id: "ask-2")))
         #expect(await later.value == "setUp")
     }
@@ -163,6 +162,11 @@ struct AgentPaneCloudAsksTests {
         #expect(json["kind"] == .string("loginCopy") && json["code"] == .string("ABCD-1234"))
         #expect(json["link"] == .object(["url": .string(link.absoluteString), "title": .string("Open sign-in")]))
     }
+}
+
+/// What a test's ask pushed to its card, in order.
+@MainActor private final class PushedValues {
+    var values: [JSONValue] = []
 }
 
 /// The questions a test's dialog was asked, in order.
