@@ -6,7 +6,7 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// A top page (Import history's "Bring your history", History) fills the main pane with no tab
+/// A web top page (Import history's "Bring your history", Stats) fills the main pane with no tab
 /// strip above it, so its top row is the window's title bar, like the sidebar header beside it.
 /// The window moved only from the sidebar's top strip (https://github.com/manaflow-ai/cmux/issues/36897).
 /// The page's controls there must keep their clicks, and AppKit cannot see them, so the page
@@ -14,7 +14,7 @@ import Testing
 /// of a top page only (``PageTitleRowPress``).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct TopPageTitlebarDragTests {
-    @Test(arguments: [InternalPageID.importHistory, .history])
+    @Test(arguments: [InternalPageID.importHistory, .stats])
     func aTopPagesTitleRowMovesTheWindowAndItsControlsKeepTheirPress(_ id: InternalPageID) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             let controller = try #require(services.windows.active)
@@ -64,6 +64,10 @@ struct TopPageTitlebarDragTests {
             pane.removeFromSuperview()
             window.contentView!.addSubview(host)
             #expect(TitleRowHostView.takesTitleRowPress(from: content, atWindowPoint: top))
+            // Native content keeps its presses (AppKit cannot see a SwiftUI button); the host's own background moves the window.
+            #expect(host.titlebarPress(atWindowPoint: top) == .staysPut)
+            content.removeFromSuperview()
+            #expect(host.titlebarPress(atWindowPoint: top) == .movesWindow)
             window.close()
         }
     }

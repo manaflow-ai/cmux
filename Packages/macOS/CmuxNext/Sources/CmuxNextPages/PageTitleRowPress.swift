@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import WebKit
 
 /// Presses on a page's own title row (https://github.com/manaflow-ai/cmux/issues/36897). A page
-/// shown with no tab strip above it (a top page: Import history, History, the App Store) has the
+/// shown with no tab strip above it (a top page: Import history, Stats, the App Store) has the
 /// window's title row over its top, and a press on the row's background there moves the window,
 /// like the sidebar header beside it. AppKit cannot see the page's controls (a Chromium page is
 /// even a child window), so the page reports the press: a document script tells the host about a

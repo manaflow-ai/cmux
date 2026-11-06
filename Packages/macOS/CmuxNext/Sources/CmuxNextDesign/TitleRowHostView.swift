@@ -7,24 +7,21 @@ public import AppKit
 public protocol TitleRowSelfHandling: NSView {}
 
 /// A view that can fill the main pane with no tab strip above it (a top
-/// page: Import history, History, Settings), so that its top row is the
+/// page: Import history, Stats, History), so that its top row is the
 /// window's title bar, like the sidebar header beside it
 /// (https://github.com/manaflow-ai/cmux/issues/36897).
 ///
 /// `TitlebarDragPolicy` asks it for points in the window's top row only.
 /// Inside a container that answers for its own top row (a pane, under its
 /// tab strip) the container decides, as it would without this view. With
-/// none, a press moves the window, except on a native control or on
-/// ``TitleRowSelfHandling`` content, which keep their press.
+/// none, a press on the host's own background moves the window. Content keeps
+/// its presses: AppKit cannot see a SwiftUI page's buttons, so native content
+/// is never guessed to be background, and ``TitleRowSelfHandling`` content (a
+/// web page) reports the presses on its own row background itself.
 open class TitleRowHostView: NSView, TitlebarPressDeciding {
     public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
         if let container = decidingContainer { return container.titlebarPress(atWindowPoint: windowPoint) }
-        guard let superview else { return .staysPut }
-        var view = hitTest(superview.convert(windowPoint, from: nil))
-        while let current = view, current !== self {
-            if current is NSControl || current is any TitleRowSelfHandling { return .staysPut }
-            view = current.superview
-        }
+        guard let superview, hitTest(superview.convert(windowPoint, from: nil)) === self else { return .staysPut }
         return .movesWindow
     }
 
