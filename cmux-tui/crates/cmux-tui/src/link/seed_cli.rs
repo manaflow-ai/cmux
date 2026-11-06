@@ -85,11 +85,18 @@ pub(super) struct SeedError {
     code: String,
     message: String,
     install_url: Option<String>,
+    /// Why the machine's `identify` got no answer ([`machine_gate::IdentifyFailure`]).
+    identify_failure: Option<&'static str>,
 }
 
 impl SeedError {
     fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into(), install_url: None }
+        Self {
+            code: code.into(),
+            message: message.into(),
+            install_url: None,
+            identify_failure: None,
+        }
     }
 
     /// A machine call or upload that failed, coded as the copy codes it.
@@ -97,6 +104,7 @@ impl SeedError {
         if let Some(seed) = error.downcast_ref::<Self>() {
             return Self {
                 install_url: seed.install_url.clone(),
+                identify_failure: seed.identify_failure,
                 ..Self::new(&seed.code, &seed.message)
             };
         }
@@ -108,6 +116,9 @@ impl SeedError {
         let mut line = json!({"ok": false, "error": self.message, "error_code": self.code});
         if let Some(url) = &self.install_url {
             line.set("install_url", json!(url));
+        }
+        if let Some(failure) = self.identify_failure {
+            line.set("identify_failure", json!(failure));
         }
         line
     }
@@ -292,13 +303,18 @@ struct Machine<'a> {
 impl<'a> Machine<'a> {
     /// Refuses a machine too old for `fs-v1` (`machine_outdated`).
     fn read(socket: &'a Path) -> Result<Self, SeedError> {
-        let identity = machine_gate::identify(socket);
-        if identity.is_none() {
-            return Err(SeedError::new(
-                "sync_failed",
-                format!("the machine at {} did not answer", socket.display()),
-            ));
-        }
+        let identity = match machine_gate::identify_checked(socket) {
+            Ok(identity) => Some(identity),
+            Err(failure) => {
+                return Err(SeedError {
+                    identify_failure: Some(failure.code()),
+                    ..SeedError::new(
+                        "sync_failed",
+                        format!("the machine at {} did not answer", socket.display()),
+                    )
+                });
+            }
+        };
         let lacks = |capability: &str| {
             identity
                 .as_ref()
@@ -674,7 +690,19 @@ impl Drop for LocalBundle {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, LocalBundle, parse, pull};
+    use super::{Command, LocalBundle, Machine, SeedError, parse, pull};
+
+    /// The copy's answer for a machine socket nobody answers says why, as a category.
+    #[test]
+    fn a_machine_that_does_not_answer_identify_says_why_on_the_answer_line() {
+        let folder = tempfile::tempdir().expect("socket folder");
+        let socket = folder.path().join("d.sock");
+        drop(std::os::unix::net::UnixListener::bind(&socket).expect("bind"));
+        let Err(error) = Machine::read(&socket) else { panic!("no daemon answers") };
+        let line = SeedError::of(&error.into()).line();
+        assert_eq!(line["error_code"], "sync_failed");
+        assert_eq!(line["identify_failure"], "connect");
+    }
 
     #[test]
     fn the_bundle_lives_in_a_folder_only_this_user_opens_and_goes_with_it() {

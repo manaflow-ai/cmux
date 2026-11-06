@@ -170,7 +170,7 @@ pub(crate) fn identify_checked(socket: &Path) -> Result<Value, IdentifyFailure> 
 }
 
 fn identify_within(socket: &Path, budget: Duration) -> Result<Value, IdentifyFailure> {
-    call_within(socket, json!({"cmd": "identify"}), budget).map_err(|_| IdentifyFailure::Connect)
+    call_typed(socket, json!({"cmd": "identify"}), budget).map_err(|(failure, _)| failure)
 }
 
 /// One request on the daemon's socket: its `data`, or why not (the daemon's
@@ -201,11 +201,23 @@ impl std::fmt::Display for CallFailure {
     }
 }
 
-fn call_within(socket: &Path, mut request: Value, budget: Duration) -> Result<Value, CallFailure> {
-    let lost = |why: String| CallFailure::Lost(why);
+fn call_within(socket: &Path, request: Value, budget: Duration) -> Result<Value, CallFailure> {
+    call_typed(socket, request, budget).map_err(|(_, failure)| failure)
+}
+
+/// [`call_within`], with the [`IdentifyFailure`] category of a failure beside its words.
+fn call_typed(
+    socket: &Path,
+    mut request: Value,
+    budget: Duration,
+) -> Result<Value, (IdentifyFailure, CallFailure)> {
+    let lost = |category: IdentifyFailure| move |why: String| (category, CallFailure::Lost(why));
     let deadline = Instant::now() + budget;
-    let stream = UnixStream::connect(socket).map_err(|e| lost(format!("cannot connect: {e}")))?;
-    stream.set_write_timeout(Some(budget)).map_err(|e| lost(e.to_string()))?;
+    let stream = UnixStream::connect(socket)
+        .map_err(|e| lost(IdentifyFailure::Connect)(format!("cannot connect: {e}")))?;
+    stream
+        .set_write_timeout(Some(budget))
+        .map_err(|e| lost(IdentifyFailure::Connect)(e.to_string()))?;
     let mut reader = BufReader::new(stream);
     request.set("id", json!(1));
     let mut line = request.to_string();
@@ -213,10 +225,12 @@ fn call_within(socket: &Path, mut request: Value, budget: Duration) -> Result<Va
     reader
         .get_mut()
         .write_all(line.as_bytes())
-        .map_err(|e| lost(format!("cannot send the request: {e}")))?;
+        .map_err(|e| lost(IdentifyFailure::Connect)(format!("cannot send the request: {e}")))?;
     for _ in 0..=MAX_OTHER_ANSWERS {
-        let line = read_line(&mut reader, deadline, budget).map_err(lost)?;
-        let answer: Value = serde_json::from_slice(&line).map_err(|e| lost(e.to_string()))?;
+        let line = read_line(&mut reader, deadline, budget)
+            .map_err(|(category, why)| lost(category)(why))?;
+        let answer: Value = serde_json::from_slice(&line)
+            .map_err(|e| lost(IdentifyFailure::Parse)(e.to_string()))?;
         if answer["id"] != json!(1) {
             continue;
         }
@@ -224,36 +238,43 @@ fn call_within(socket: &Path, mut request: Value, budget: Duration) -> Result<Va
             return Ok(answer["data"].clone());
         }
         let code = answer["error_code"].as_str().unwrap_or("refused");
-        return Err(CallFailure::Refused(format!(
-            "{code}: {}",
-            answer["error"].as_str().unwrap_or_default()
-        )));
+        return Err((
+            IdentifyFailure::Refused,
+            CallFailure::Refused(format!(
+                "{code}: {}",
+                answer["error"].as_str().unwrap_or_default()
+            )),
+        ));
     }
-    Err(lost("the daemon kept answering other requests".into()))
+    Err(lost(IdentifyFailure::Parse)("the daemon kept answering other requests".into()))
 }
 
 /// One answer line, newline included; or why none came within `budget`
 /// (ending at `deadline`): the time ran out, the daemon closed the
-/// connection, or the line passed [`MAX_ANSWER_BYTES`].
+/// connection, or the line passed [`MAX_ANSWER_BYTES`], each with its category.
 fn read_line(
     reader: &mut BufReader<UnixStream>,
     deadline: Instant,
     budget: Duration,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, (IdentifyFailure, String)> {
     let mut line = Vec::new();
     let timed_out = |line: &[u8]| {
-        format!(
+        let why = format!(
             "the daemon did not answer within {} s ({} bytes of its answer arrived)",
             budget.as_secs(),
             line.len()
-        )
+        );
+        (IdentifyFailure::Timeout, why)
     };
     loop {
         let Some(left) = deadline.checked_duration_since(Instant::now()).filter(|l| !l.is_zero())
         else {
             return Err(timed_out(&line));
         };
-        reader.get_ref().set_read_timeout(Some(left)).map_err(|e| e.to_string())?;
+        reader
+            .get_ref()
+            .set_read_timeout(Some(left))
+            .map_err(|e| (IdentifyFailure::Eof, e.to_string()))?;
         let available = match reader.fill_buf() {
             Ok(available) => available,
             Err(error)
@@ -265,16 +286,22 @@ fn read_line(
                 return Err(timed_out(&line));
             }
             Err(error) => {
-                return Err(format!(
-                    "the connection to the daemon failed after {} bytes of its answer: {error}",
-                    line.len()
+                return Err((
+                    IdentifyFailure::Eof,
+                    format!(
+                        "the connection to the daemon failed after {} bytes of its answer: {error}",
+                        line.len()
+                    ),
                 ));
             }
         };
         if available.is_empty() {
-            return Err(format!(
-                "the daemon closed the connection after {} bytes of its answer",
-                line.len()
+            return Err((
+                IdentifyFailure::Eof,
+                format!(
+                    "the daemon closed the connection after {} bytes of its answer",
+                    line.len()
+                ),
             ));
         }
         let (taken, done) = match available.iter().position(|byte| *byte == b'\n') {
@@ -284,9 +311,12 @@ fn read_line(
         line.extend_from_slice(&available[..taken]);
         reader.consume(taken);
         if line.len() as u64 > MAX_ANSWER_BYTES + 1 {
-            return Err(format!(
-                "the daemon's answer passed the {MAX_ANSWER_BYTES}-byte limit ({} bytes read)",
-                line.len()
+            return Err((
+                IdentifyFailure::Parse,
+                format!(
+                    "the daemon's answer passed the {MAX_ANSWER_BYTES}-byte limit ({} bytes read)",
+                    line.len()
+                ),
             ));
         }
         if done {
