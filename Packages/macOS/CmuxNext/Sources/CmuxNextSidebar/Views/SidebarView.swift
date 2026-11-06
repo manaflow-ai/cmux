@@ -57,6 +57,8 @@ public final class SidebarView: NSView {
     let needsYouTray = SidebarNeedsYouTrayView() // the session tree's needs-you tray (SidebarView+NeedsYou)
     /// Coalesces the tray's recompute across a burst of row patches (status ticks).
     let needsYouRefresh = DemandTimer(owner: "sidebar.needs-you.refresh")
+    /// The notification surfaces (`SidebarNotificationEmphasis`, SidebarView+Attention).
+    let attention = SidebarAttentionSurfaces()
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
@@ -290,7 +292,7 @@ public final class SidebarView: NSView {
         spacePaging.attach(list: scrollView, dots: profileBar)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
-        buildBands(); buildNeedsYou()
+        buildBands(); buildNeedsYou(); buildAttention()
 
         addSubview(footer)
         footer.addSubview(profileBar)
@@ -320,6 +322,7 @@ public final class SidebarView: NSView {
 
     private func clipBoundsChanged() {
         list.realizeVisibleRows()
+        updateAttentionBeacons() // the loud-rows look's counts above and below change as the list scrolls
         // The list updates row hover as rows move. A window-wide refresh here
         // rescans every chrome target on every scroll tick and adds no state
         // change for the sidebar's fixed chrome.

@@ -1,5 +1,17 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: the sidebar can surface a workspace with a notification much harder (`sidebar.notificationEmphasis`,
+  Debug Settings; default `standard`, the dot only, unchanged). Aziz, verbatim: "come up with 3 new uxes for surface
+  whether a workspace has a notification in the sidebar. I feel like the current way doesn't capture my attention
+  enough", then on a first round of row decorations (edge bar, count pill, halo): too timid, redo. Three structural
+  surfaces for the person to pick from: `inbox` (a Needs You shelf pinned over the top of the list with every workspace
+  that has a notification, most urgent first, wherever its row is; the list's top inset grows by its height),
+  `arrivalCard` (a "Just In" card over the bottom of the list, above the session tree's tray, for each notification that
+  arrives after the sidebar first drew; the arriving row flashes; it leaves when read or dismissed), `loudRows` (a row
+  with a notification paints solid in its badge color with white text and a white count pill, and "↑ N above" / "↓ N
+  below" beacons at the list's edges take you to rows scrolled out of view). A notification is the badge's unread,
+  needs-you or failed state (`WorkspaceRowAttention`); no surface moves a row. Regression: `SidebarNotificationEmphasisTests`. A workspace's first live report is the arrival card's baseline (saved and connecting rows carry no unread), so a
+  relaunch never floods it; more unread of the same kind arrives again.
 - 2026-11-05: every workspace row's trailing glyph box ends the row inset before its fill's end, as its leading glyph
   box starts the row inset after the fill's start. Lawrence, verbatim: "too much padding on right. padding on left/right
   of every workspace needs to be even." The trailing column centers `horizontalInset + statusGlyphSize / 2` inside the

@@ -1509,6 +1509,7 @@
     "tunable.sidebar.multiView": false,
     "tunable.sidebar.noColorGroup": "glass",
     "tunable.sidebar.notificationBadge": "classic",
+    "tunable.sidebar.notificationEmphasis": "standard",
     "tunable.sidebar.notificationIcon": "bell",
     "tunable.sidebar.nowLine": false,
     "tunable.sidebar.presenceDots": false,

@@ -42,6 +42,8 @@ extension SidebarViewComponents {
         var workspacesAsTabs: Bool
         /// Group by Status (`SidebarTunables.groupByStatus`, Debug, off by default).
         var groupsByStatus: Bool
+        /// How a workspace with a notification is surfaced (`sidebar.notificationEmphasis`): the shelves and beacons follow it.
+        var notificationEmphasis: SidebarNotificationEmphasis
         /// The row limit (`SidebarTunables.groupRowLimit`): changing it lays the list out again.
         var rowLimit: Int
         /// Where group lines sit (`sidebar.groupLineLayout`): headers reach and lines move, so the list lays out again.
@@ -80,6 +82,7 @@ extension SidebarViewComponents {
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabsOn
             groupsByStatus = SidebarTunables.groupByStatus.value
+            notificationEmphasis = SidebarNotificationEmphasis.tunable.value
             rowLimit = SidebarTunables.rowLimit
             groupLineLayout = SidebarGroupLineLayout.tunable.value
             groupChromeShape = SidebarStyle.groupChromeShape
@@ -172,6 +175,7 @@ extension SidebarViewComponents {
         }
         if lastState?.onScreen != state.onScreen { list.syncRowStates() }
         if listChanged || lastState?.tree != state.tree { refreshNeedsYou() }
+        if listChanged || lastState?.notificationEmphasis != state.notificationEmphasis { refreshAttention() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
         lastState = state

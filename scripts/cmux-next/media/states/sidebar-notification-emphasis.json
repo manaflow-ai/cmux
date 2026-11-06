@@ -1,0 +1,13 @@
+{
+  "title": "Sidebar notification surfaces (sidebar.notificationEmphasis): the showcase sidebar and the Debug row badge preview rows with the dot only (before), the inbox shelf pinned at the top, the arrival card (a preview row marked unread arrives), and loud rows with edge beacons. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/sidebar-notification-emphasis.json --video",
+  "launch_args": ["--showcase"],
+  "steps": [
+    {"title": "Add the Debug row badge preview rows (unread, needs-you, working, error)", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.rowBadgePreview", "value": true}}, "wait": 1.5},
+    {"title": "Before: dot only (the current look)", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.notificationEmphasis", "value": "standard"}}, "wait": 1.5},
+    {"title": "Look 1: inbox shelf pinned at the top", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.notificationEmphasis", "value": "inbox"}}, "wait": 1.5},
+    {"title": "Look 2: arrival card (switch on: nothing has arrived yet)", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.notificationEmphasis", "value": "arrivalCard"}}, "wait": 1.0},
+    {"title": "Look 2: arrival card after new notifications arrive (preview rows re-added)", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.rowBadgePreview", "value": false}}, "wait": 1.0, "shot": false},
+    {"title": "Look 2: arrival card, the preview rows' notifications arrive", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.rowBadgePreview", "value": true}}, "wait": 1.5},
+    {"title": "Look 3: loud rows", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.notificationEmphasis", "value": "loudRows"}}, "wait": 1.5}
+  ]
+}

@@ -11,13 +11,14 @@ final class SidebarTunablesWatch {
     static let shared = SidebarTunablesWatch()
 
     typealias Values = (agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap, workspaceTitleMotion: SidebarWorkspaceTitleMotionVariant,
-                         rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool)
+                         rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool, emphasis: SidebarNotificationEmphasis)
 
     /// Every tunable a listed row draws or lays out from, read together so one pass can tell whether any changed.
     private struct Snapshot: Equatable {
         var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap
         var workspaceTitleMotion: SidebarWorkspaceTitleMotionVariant
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
+        var emphasis: SidebarNotificationEmphasis
         /// Laid out, not configured: the hover close's spot and glyph size.
         var rowCloseSpot: SidebarRowCloseSpot
 
@@ -26,11 +27,12 @@ final class SidebarTunablesWatch {
                      rowBadge: SidebarRowBadgeStyle.tunable.value, stackCap: SidebarRowBadgeStackCap.tunable.value,
                      workspaceTitleMotion: SidebarTunables.workspaceTitleMotion.value,
                      rowTitle: SidebarTunables.rowTitle.value, rowTitleSingleChat: SidebarTunables.rowTitleSingleChat.value,
+                     emphasis: SidebarNotificationEmphasis.tunable.value,
                      rowCloseSpot: SidebarTunables.rowCloseSpot.value)
         }
 
         var values: Values {
-            (agentMark, presenceDots, rowBadge, stackCap, workspaceTitleMotion, rowTitle, rowTitleSingleChat)
+            (agentMark, presenceDots, rowBadge, stackCap, workspaceTitleMotion, rowTitle, rowTitleSingleChat, emphasis)
         }
     }
 

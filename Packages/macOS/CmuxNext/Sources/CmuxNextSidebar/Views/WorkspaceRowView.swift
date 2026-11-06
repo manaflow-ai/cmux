@@ -25,6 +25,8 @@ final class WorkspaceRowView: SidebarRowView {
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
+    /// The loud-rows look's part of the row (`SidebarNotificationEmphasis`, WorkspaceRowView+Emphasis).
+    let emphasis = WorkspaceRowEmphasis()
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
     let presenceDots = PresenceDotsView()
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
@@ -228,7 +230,7 @@ final class WorkspaceRowView: SidebarRowView {
         var group: GroupID?
         var fontSize: CGFloat
         var iconSize: CGFloat
-        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackLimit: Int
+        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackLimit: Int, emphasis: SidebarNotificationEmphasis
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
         var row: WorkspaceRowContent?
     }
@@ -239,7 +241,7 @@ final class WorkspaceRowView: SidebarRowView {
         let content = Content(
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: SidebarStyle.leadingGlyphSide,
-            agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
+            agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit, emphasis: tunables.emphasis,
             rowTitle: tunables.rowTitle, rowTitleSingleChat: tunables.rowTitleSingleChat,
             row: row.content
         )
@@ -332,7 +334,7 @@ final class WorkspaceRowView: SidebarRowView {
         statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)
         statusHeight = statusBlock.isHidden ? 0 : SidebarLayoutMetrics.standard.statusHeight(shown)
         rowBadgeStyle = content.rowBadge
-        configureBadges(ws, shown: shown, style: content.rowBadge, stackLimit: content.stackLimit)
+        configureBadges(ws, shown: shown, style: content.rowBadge, stackLimit: content.stackLimit, emphasis: content.emphasis)
         themedToolTip = nil // the workspace hover card shows the cwd (and CPU and memory)
         // A placeholder says nothing; its section header says it connects.
         setAccessibilityElement(!isShowingPlaceholder)

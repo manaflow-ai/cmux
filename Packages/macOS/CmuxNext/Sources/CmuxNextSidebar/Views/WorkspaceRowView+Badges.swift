@@ -11,11 +11,13 @@ import Foundation
 extension WorkspaceRowView {
     /// Applies `style` after the rest of `configure`: the row badge and the trailing time. `trailing` leaves the row as it was.
     func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle,
-                         stackLimit: Int = SidebarRowBadgeStackCap.tunable.defaultValue.limit) {
+                         stackLimit: Int = SidebarRowBadgeStackCap.tunable.defaultValue.limit,
+                         emphasis: SidebarNotificationEmphasis = .standard) {
         let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit,
                                         detailed: shown.detailedStatus || ws.activityFromProgram)
         guard style != .trailing, !isShowingPlaceholder else {
             rowBadge.configure([], look: .corner)
+            configureEmphasis(nil, style: emphasis)
             return
         }
         // The icon, the cleared unread badge and the idle activity are set in `configure`.
@@ -30,6 +32,7 @@ extension WorkspaceRowView {
         let states = corner ? badges.first.map { [$0] } ?? [] : badges.stacked
         rowBadge.configure(states, look: states.count > 1 ? .stack : .plain)
         rowBadge.themedToolTip = Self.badgeSummary(badges, stacked: !corner)
+        configureEmphasis(badges, leading: states.first, style: emphasis)
     }
 
     /// What the badges say, for the tooltip: the count, then each state, then what the stack left out
@@ -58,7 +61,9 @@ extension WorkspaceRowView {
         let columns = SidebarStyle.columns(rowWidth: rowWidth)
         let column = columns.trailingCenter()
         let view: NSView
-        if !rowBadge.isHidden {
+        if let pill = layoutEmphasisPill(column: column, cy: cy) {
+            view = pill // a loud row's count, in the dot's place (WorkspaceRowView+Emphasis)
+        } else if !rowBadge.isHidden {
             // The nearest backing pixel, so the last glyph's center stays on the column (a floor moved it up to a point left).
             // With no window the scale is unknown: whole points, on the pixel grid at every scale (a 2x guess put the 10 pt
             // glyph on a half point, off the 1x grid, when a row's width ended 1.5 pt from the edge).
