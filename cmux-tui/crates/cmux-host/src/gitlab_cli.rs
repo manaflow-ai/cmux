@@ -52,9 +52,10 @@ pub fn token_path(home: &Path, authority: &str) -> Option<PathBuf> {
 }
 
 /// `localhost` or a loopback address, with any port.
+/// Parsed as an address: `127.attacker.example` is a name, not loopback.
 fn loopback(authority: &str) -> bool {
     let host = authority.rsplit_once(':').map_or(authority, |(host, _)| host);
-    host == "localhost" || host.starts_with("127.")
+    host == "localhost" || host.parse::<std::net::Ipv4Addr>().is_ok_and(|ip| ip.is_loopback())
 }
 
 /// GitHub's hosts go to `cmux github credential`, never here.
@@ -229,6 +230,10 @@ mod tests {
         // Loopback http is allowed (a local test server).
         home.token("127.0.0.1:9000", TOKEN, 0o600);
         assert!(credential_get(&ask("http", "127.0.0.1:9000"), &home.0).0.contains(TOKEN));
+        // A name that only starts like a loopback address gets nothing over plain http.
+        home.token("127.attacker.example", TOKEN, 0o600);
+        assert_eq!(credential_get(&ask("http", "127.attacker.example"), &home.0).0, "");
+        assert!(credential_get(&ask("https", "127.attacker.example"), &home.0).0.contains(TOKEN));
     }
 
     #[test]

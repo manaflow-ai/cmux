@@ -99,7 +99,8 @@ impl Seed {
     /// process, never stored). Only when that path was the one used: the
     /// lane helper is global already, and anonymous needs none. A checkout
     /// with a github.com helper of its own keeps it. A failure is not the
-    /// seed's: the clone is there, and `cmux github setup` still wires git.
+    /// seed's: the clone is there, its status says
+    /// `push_credential_not_kept`, and `cmux github setup` still wires git.
     fn keep_credential(&self) {
         let Credential::CmuxGithub(helper) = &self.chosen else { return };
         if self.git(&["config", "--local", "--get-all", HELPER_KEY]).is_ok() {
@@ -107,10 +108,13 @@ impl Seed {
         }
         // The empty value first drops a helper from the person's global
         // config (a stored gh login) for github.com in this checkout only.
-        let _ = self
+        let kept = self
             .git(&["config", "--local", "--add", HELPER_KEY, ""])
             .and_then(|_| self.git(&["config", "--local", "--add", HELPER_KEY, helper]))
             .and_then(|_| self.git(&["config", "--local", USE_HTTP_PATH_KEY, "true"]));
+        if kept.is_err() {
+            self.job.note("push_credential_not_kept");
+        }
     }
 
     fn steps(&mut self) -> Result<(), Failed> {
