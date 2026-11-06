@@ -12,7 +12,8 @@
 //! - only while the screen is locked ([`Lock::Locked`]; an unknown state holds nothing);
 //! - only while a turn runs, or for [`WAIT_GRACE`] after the last one ran while a turn waits on
 //!   the person (an answer from their phone can still reach this Mac), never longer;
-//! - at most [`CAP`] per locked stretch, so a turn that never ends cannot keep the Mac up;
+//! - at most [`CAP`] per locked stretch, however many turns run in it, so neither a turn that
+//!   never ends nor turn after turn can keep the Mac up (only an unlock starts a new stretch);
 //! - and not past what macOS forces: a closed lid on battery and low battery still sleep it.
 //!
 //! The worker sleeps on a wake (a session's status changed) and ticks only while some session
@@ -73,8 +74,12 @@ pub(crate) fn setting_on(doc: Option<&Value>) -> bool {
     on && keep_awake.as_ref().and_then(Value::as_str) != Some("off")
 }
 
-/// What the worker carries from one reading to the next: when a turn last ran, and when this
-/// locked stretch began.
+/// What the worker carries from one reading to the next, for the daemon's life: when a turn last
+/// ran, and when this locked stretch began. Going idle between turns keeps both, so turns one
+/// after another in one locked stretch share its [`CAP`] and the [`WAIT_GRACE`] after the last
+/// running turn. Only a read that says unlocked ends a stretch: an unknown read keeps it, and an
+/// unlock and a lock again while no session runs are not seen, so the next turn counts from the
+/// earlier lock and the hold can only end sooner, never later.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Tracker {
     last_running: Instant,
@@ -96,7 +101,6 @@ impl Tracker {
         now: Instant,
     ) -> Option<Inputs> {
         if running == 0 && waiting == 0 {
-            *self = Self::new(now);
             return None;
         }
         if running > 0 {
@@ -108,7 +112,8 @@ impl Tracker {
                 self.locked_since = Some(now);
                 Duration::ZERO
             }
-            _ => {
+            (Lock::Unknown, _) => Duration::ZERO,
+            (Lock::Unlocked | Lock::None, _) => {
                 self.locked_since = None;
                 Duration::ZERO
             }

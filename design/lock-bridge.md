@@ -39,9 +39,15 @@ every 15 s while a session runs or waits:
   10 minutes ago;
 - this locked stretch is under 2 hours.
 
+A locked stretch starts when the worker first sees the screen locked, and only a read that says
+unlocked ends it. Turns one after another share it: a turn that ends and a new one that starts while
+the screen stays locked do not open a new window, and neither does a lock read that fails. If the Mac
+is unlocked and locked again while no turn runs, the worker does not see it, and the next turn counts
+from the earlier lock: the hold can only end sooner, never later.
+
 When no session runs or waits, the worker releases the hold and sleeps until the next status change:
-no timer runs. A turn that never ends cannot keep the Mac up past 2 hours, and a question nobody
-answers cannot keep it up past 10 minutes. Quitting or crashing acpmux drops the assertion (IOKit
+no timer runs. Neither a turn that never ends nor turn after turn can keep the Mac up past 2 hours of
+one locked stretch, and a question nobody answers cannot keep it up past 10 minutes. Quitting or crashing acpmux drops the assertion (IOKit
 releases a dead process's assertions).
 
 ### 2. Credentials stay where they are
