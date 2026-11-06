@@ -47,6 +47,39 @@ test("typed text and a short one-line paste stay the person's", () => {
   expect(blocks).toEqual([{ type: "text", text: prompt.text }]);
 });
 
+// Review of #37191: a paste is found however often it was pasted, whatever the trim did to the
+// space around it, and with the person's words typed around it.
+test("each copy of a paste pasted twice goes as pasted", () => {
+  const pastes = remember(remember([], HANDOFF), HANDOFF);
+  const marked = markPastes({ text: `${HANDOFF}\n\n${MINE}\n\n${HANDOFF}`, attachments: [] }, pastes);
+  const texts = promptBlocks(marked.text, marked.attachments).flatMap((block) =>
+    block.type === "text" ? [[block.text.trim(), Boolean(block._meta)]] : [],
+  );
+  expect(texts).toEqual([
+    [HANDOFF, true],
+    [MINE, false],
+    [HANDOFF, true],
+  ]);
+});
+
+test("a paste pasted once is placed once, a second typed copy stays typed", () => {
+  const marked = markPastes({ text: `${HANDOFF}\n${HANDOFF}`, attachments: [] }, remember([], HANDOFF));
+  expect(marked.attachments).toHaveLength(1);
+});
+
+test("a paste with line breaks around it is found in the trimmed prompt, words typed around it stay", () => {
+  const paste = `\n${HANDOFF}\n\n`;
+  const marked = markPastes({ text: `${MINE} ${HANDOFF.trim()} thanks`, attachments: [] }, remember([], paste));
+  const blocks = promptBlocks(marked.text, marked.attachments).flatMap((block) =>
+    block.type === "text" ? [[block.text.trim(), Boolean(block._meta)]] : [],
+  );
+  expect(blocks).toEqual([
+    [MINE, false],
+    [HANDOFF, true],
+    ["thanks", false],
+  ]);
+});
+
 test("a paste the person edited, or one no longer in the draft, is theirs", () => {
   const prompt = { text: HANDOFF.replace("Do not", "Please do"), attachments: [] };
   expect(markPastes(prompt, remember([], HANDOFF))).toBe(prompt);

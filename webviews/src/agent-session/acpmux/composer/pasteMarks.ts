@@ -26,29 +26,51 @@ export function marksPaste(text: string): boolean {
   return body.length >= MARKED_PASTE_CHARS || /\S[^\S\n]*\n[\s\S]*\S/.test(body) || readsAsAgent(body);
 }
 
-/// `pastes` remembered with `text` added, oldest dropped past REMEMBERED_PASTES.
+/// `pastes` remembered with `text` added, oldest dropped past REMEMBERED_PASTES. The same text
+/// pasted twice is remembered twice: each copy in the draft goes as pasted.
 export function remember(pastes: readonly string[], text: string): string[] {
   if (!marksPaste(text)) return [...pastes];
-  return [...pastes.filter((held) => held !== text), text].slice(-REMEMBERED_PASTES);
+  return [...pastes, text].slice(-REMEMBERED_PASTES);
 }
 
 /// The prompt with each remembered paste still in `text` as pasted put in its place as a placed
-/// paste chip, the longest first so a paste inside another is not cut out of it. Text that holds
-/// an attachment's mark is left as it is (it is no plain paste any more).
+/// paste chip: as many copies as were pasted, the longest pastes first so a paste inside another
+/// is not cut out of it. A paste is found by its text without the space or line breaks around it
+/// (the prompt goes trimmed, and the field may drop a trailing line break), so words typed before
+/// or after it stay the person's. Text that holds an attachment's mark is left as it is (it is no
+/// plain paste any more), and so is any part of the text already placed.
 export function markPastes(
   prompt: { text: string; attachments: ComposerAttachment[] },
   pastes: readonly string[],
 ): { text: string; attachments: ComposerAttachment[] } {
-  let { text } = prompt;
-  const added: ComposerAttachment[] = [];
-  const longest = [...pastes].sort((a, b) => b.length - a.length);
-  for (const paste of longest) {
-    if (paste.includes(INLINE_ATTACHMENT_MARK)) continue;
-    const at = text.indexOf(paste);
-    if (at < 0) continue;
-    const chip: ComposerAttachment = { ...pastedTextAttachment(paste), inline: true };
-    text = text.slice(0, at) + inlineToken(chip.id) + text.slice(at + paste.length);
-    added.push(chip);
+  const counts = new Map<string, number>();
+  for (const paste of pastes) {
+    const needle = paste.trim();
+    if (needle && !needle.includes(INLINE_ATTACHMENT_MARK)) counts.set(needle, (counts.get(needle) ?? 0) + 1);
   }
-  return added.length ? { text, attachments: [...prompt.attachments, ...added] } : prompt;
+  // The text as runs: plain text still to search, and the tokens of chips placed so far.
+  let runs: { text: string; placed: boolean }[] = [{ text: prompt.text, placed: false }];
+  const added: ComposerAttachment[] = [];
+  for (const [needle, count] of [...counts].sort((a, b) => b[0].length - a[0].length)) {
+    let left = count;
+    runs = runs.flatMap((run) => {
+      if (run.placed || left === 0) return [run];
+      const out: { text: string; placed: boolean }[] = [];
+      let rest = run.text;
+      let at = rest.indexOf(needle);
+      while (at >= 0 && left > 0) {
+        const chip: ComposerAttachment = { ...pastedTextAttachment(needle), inline: true };
+        added.push(chip);
+        if (at > 0) out.push({ text: rest.slice(0, at), placed: false });
+        out.push({ text: inlineToken(chip.id), placed: true });
+        rest = rest.slice(at + needle.length);
+        left -= 1;
+        at = rest.indexOf(needle);
+      }
+      if (rest) out.push({ text: rest, placed: false });
+      return out;
+    });
+  }
+  if (!added.length) return prompt;
+  return { text: runs.map((run) => run.text).join(""), attachments: [...prompt.attachments, ...added] };
 }
