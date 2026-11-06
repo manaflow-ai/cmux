@@ -252,3 +252,20 @@ test("a held send that waits for the switch's Trust answer keeps the ticket its 
   await turn;
   expect(pane.sent).toEqual([{ text: "after trust", promptId: "held-2", ticket: "ticket-enter" }]);
 });
+
+test("two held sends behind the switch each go with the ticket their own Enter bound", async () => {
+  const pane = harness();
+  pane.store.setHandlers({ gesture: async () => undefined });
+  pane.store.connect(pane.port(pane.slowStart));
+  const opened = pane.store.switchTo("claude", "/Users/dev");
+  await laterTurn();
+  const first = pane.store.send("first", [], undefined, "held-1", true, Promise.resolve("ticket-1"));
+  const second = pane.store.send("second", [], undefined, "held-2", true, Promise.resolve("ticket-2"));
+  pane.start("s1");
+  await opened;
+  await Promise.all([first, second]);
+  expect(pane.sent).toEqual([
+    { text: "first", promptId: "held-1", ticket: "ticket-1" },
+    { text: "second", promptId: "held-2", ticket: "ticket-2" },
+  ]);
+});
