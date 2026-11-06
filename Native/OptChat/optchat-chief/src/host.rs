@@ -1659,6 +1659,18 @@ fn start(
                 &crate::paths::home_id(home),
             )),
             peers,
+            fork: Some(Arc::new(crate::migrate_fork::ForkPeer::new(
+                home.to_path_buf(),
+                {
+                    let tx = Mutex::new(tx.clone());
+                    Arc::new(move |text| {
+                        tx.lock()
+                            .expect("fork tx")
+                            .send(Input::PeerChiefNote { text })
+                            .is_ok()
+                    })
+                },
+            ))),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
