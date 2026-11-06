@@ -672,6 +672,10 @@ public final class LayoutRootView: NSView {
                 // No frames run while parked or away: a resize drag's pages lay out now (`ScreenContentView+ResizeGesture`).
                 view.finishResizeGesture()
             }
+            // A screen switch in flight lands too, as `landMotion` lands it: the flag below must not drop while a screen
+            // still slides, and the show must not restart a slide nobody saw.
+            for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
+            applyScreenFrames()
             // Settled: the motion ended for its observers (the window's divider catchers and page geometry, the still
             // work), as a landing frame ends it. Without this the flag stayed set through the park, nothing landed
             // after it, and the catchers never moved off the old dividers (Leo 2026-11-06: a closed split's pane
