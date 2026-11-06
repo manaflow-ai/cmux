@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextAgentPane
 import CmuxAgentBrands
 public import CmuxNextOnboarding
 import CmuxNextPages

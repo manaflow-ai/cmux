@@ -351,6 +351,9 @@ import Testing
         let (none, noneShown) = presenter()
         await none.showAgentsAtFirstRun(isFirstRun: true, source: MockAgentSignInSource(), defaults: try defaults())
         await none.showAgentsAtFirstRun(isFirstRun: true, source: nil, defaults: try defaults())
-        #expect(noneShown().isEmpty, "no agent CLI found: nothing opens")
+        let missing = MockAgentSignInSource(agents: [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude",
+                                                                     auth: .unknown, installed: false)])
+        await none.showAgentsAtFirstRun(isFirstRun: true, source: missing, defaults: try defaults())
+        #expect(noneShown().isEmpty, "no agent CLI found (only ones to install): nothing opens")
     }
 }
