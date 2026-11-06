@@ -103,6 +103,9 @@ class FleetCacheTests(unittest.TestCase):
         (scripts / "nightly-steps").mkdir(exist_ok=True)
         shutil.copyfile(ROOT / "scripts/ci/nightly-steps/app-host-build-root.sh",
                         scripts / "nightly-steps/app-host-build-root.sh")
+        # Writes the job summary after a build; the real one, so its cache label is checked too.
+        shutil.copyfile(ROOT / "scripts/ci/nightly-steps/release-build-summary.sh",
+                        scripts / "nightly-steps/release-build-summary.sh")
         (scripts / "run-with-helper-prebuild.py").write_text(
             "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"
@@ -138,7 +141,7 @@ class FleetCacheTests(unittest.TestCase):
         command = "\n".join(line[10:] for line in command.splitlines() if line.startswith("          "))
         return warm_cache(step, command)
 
-    def _run_nightly_release_stub(self, diagnostic):
+    def _run_nightly_release_stub(self, diagnostic, **extra_env):
         scripts = self.root / "scripts/ci"
         scripts.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(SETTINGS, scripts / SETTINGS.name)
@@ -150,6 +153,9 @@ class FleetCacheTests(unittest.TestCase):
         (scripts / "nightly-steps").mkdir(exist_ok=True)
         shutil.copyfile(ROOT / "scripts/ci/nightly-steps/app-host-build-root.sh",
                         scripts / "nightly-steps/app-host-build-root.sh")
+        # Writes the job summary after a build; the real one, so its cache label is checked too.
+        shutil.copyfile(ROOT / "scripts/ci/nightly-steps/release-build-summary.sh",
+                        scripts / "nightly-steps/release-build-summary.sh")
         (scripts / "run-with-helper-prebuild.py").write_text(
             "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"
@@ -168,7 +174,7 @@ class FleetCacheTests(unittest.TestCase):
         )
         xcode.chmod(0o755)
         env = {**self.env, "PATH": str(self.root) + os.pathsep + self.env["PATH"],
-               "RUNNER_TEMP": str(self.root), "CHANNEL_ICON_NAME": "AppIcon-Nightly"}
+               "RUNNER_TEMP": str(self.root), "CHANNEL_ICON_NAME": "AppIcon-Nightly", **extra_env}
         command = self._nightly_release_command()
         result = subprocess.run(
             ["bash", "-euc", 'archs=arm64; only_active=YES; notary_test_flags=(build)\n' + command],
@@ -199,6 +205,19 @@ class FleetCacheTests(unittest.TestCase):
         result, count, _ = self._run_nightly_release_stub("error: use of unresolved identifier 'cas'")
         self.assertEqual(result.returncode, 65)
         self.assertEqual(count.read_text().strip(), "1")
+
+    def test_the_job_summary_names_the_retry_s_cache_from_the_first_build(self):
+        """Only a retry of a fleet-cache build is "after the fleet cache failed"; a cold-cache first build
+        that hits the same diagnostic retries with the same local cache and says so."""
+        summary = self.root / "summary.md"
+        for cold, said in (("", "local cache after the fleet cache failed"), ("1", "local cache (a cold-cache run)")):
+            summary.write_text("")
+            result, count, _ = self._run_nightly_release_stub(
+                "error: CAS error encountered during compilation",
+                GITHUB_STEP_SUMMARY=str(summary), DECIDE_COLD_CACHE_DISABLE=cold)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(count.read_text().strip(), "2")
+            self.assertIn(f"- cache: {said}\n", summary.read_text())
 
     def test_nightly_release_retries_local_cache_after_runtime_cas_failure(self):
         workflow = nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text())

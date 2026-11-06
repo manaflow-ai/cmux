@@ -18,6 +18,11 @@
 //! running process after a short wait (`codex_app_server/background.rs`), so a turn never
 //! blocks on one.
 //!
+//! A call that declares a Bash `timeout` longer than the wait is left alone: the agent chose to
+//! block on it (a land-queue wait, a CI watch), and Claude Code ends it at that timeout anyway.
+//! Moving it ended the turn on a running shell, and agents that must report at the end of their
+//! turn stalled until someone restarted them (a1000, a1001, a994, 2026-11-05).
+//!
 //! `ACPMUX_AUTO_BACKGROUND_SECS` in the daemon's environment sets the wait; `0` turns it off.
 
 use super::*;
@@ -65,6 +70,13 @@ pub(super) fn foreground_shell(update: &Value) -> Option<&str> {
     update.get("toolCallId")?.as_str()
 }
 
+/// The wait the Bash call in `update` declared with its `timeout` (milliseconds), if any.
+fn declared_timeout(update: &Value) -> Option<std::time::Duration> {
+    let ms = update.get("rawInput")?.get("timeout")?;
+    let ms = ms.as_u64().or_else(|| ms.as_f64().filter(|v| *v > 0.0).map(|v| v as u64))?;
+    Some(std::time::Duration::from_millis(ms))
+}
+
 impl Hub {
     /// How long a foreground shell runs before it goes to the background; None turns it off
     /// (tests shorten it).
@@ -88,7 +100,11 @@ impl Hub {
             return;
         };
         let Some(params) = params else { return };
-        let Some(tool) = params.get("update").and_then(foreground_shell) else { return };
+        let Some(update) = params.get("update") else { return };
+        let Some(tool) = foreground_shell(update) else { return };
+        if declared_timeout(update).is_some_and(|wait| wait > after) {
+            return;
+        }
         let sid = params.get("sessionId").and_then(Value::as_str);
         if sid.is_some_and(|sid| {
             session.subagents.lock().unwrap_or_else(|e| e.into_inner()).owns(sid)
@@ -148,6 +164,21 @@ mod tests {
         assert_eq!(after_of(Some("90")), Some(std::time::Duration::from_secs(90)));
         assert_eq!(after_of(Some("0")), None);
         assert_eq!(after_of(Some("soon")), Some(AUTO_BACKGROUND_AFTER));
+    }
+
+    #[test]
+    fn a_declared_timeout_is_read_in_milliseconds() {
+        let call = |input: Value| json!({"rawInput": input});
+        assert_eq!(declared_timeout(&call(json!({"command": "x"}))), None);
+        assert_eq!(
+            declared_timeout(&call(json!({"command": "x", "timeout": 600000}))),
+            Some(std::time::Duration::from_secs(600))
+        );
+        assert_eq!(
+            declared_timeout(&call(json!({"command": "x", "timeout": 1500.0}))),
+            Some(std::time::Duration::from_millis(1500))
+        );
+        assert_eq!(declared_timeout(&call(json!({"command": "x", "timeout": "soon"}))), None);
     }
 
     #[test]

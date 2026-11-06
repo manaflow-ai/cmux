@@ -240,16 +240,26 @@ fn a_profile_holding_a_regular_file_is_refused() {
 #[test]
 fn busy_sessions_follow_acpmux_rules() {
     let ls = json!({"sessions": [
-        {"name": "idle", "status": "idle", "turn": null},
-        {"name": "turn", "status": "idle", "turn": {"id": 1}},
-        {"name": "running", "status": "running"},
-        {"name": "asks", "status": "idle", "pendingPermissions": 1},
+        {"name": "idle", "status": "idle", "turn": null, "starting": false},
+        {"name": "turn", "status": "idle", "turn": {"id": 1}, "starting": false},
+        {"name": "running", "status": "running", "starting": false},
+        {"name": "asks", "status": "idle", "pendingPermissions": 1, "starting": false},
+        {"name": "starting", "status": "idle", "turn": null, "starting": true},
+        {"name": "started", "status": "ready", "turn": null, "starting": false},
         {"name": "peer", "status": "running", "peer": "mac"},
     ]});
     assert_eq!(
         busy_sessions_in(&ls.to_string()).unwrap(),
-        vec!["turn".to_owned(), "running".to_owned(), "asks".to_owned()]
+        vec!["turn".to_owned(), "running".to_owned(), "asks".to_owned(), "starting".to_owned()]
     );
+    // An acpmux too old to send `starting` (the one a stale image runs): a session it made or
+    // changed in the last two minutes may be starting and holds the update; an older one does not.
+    let now = 10_000_000;
+    let old = json!({"sessions": [
+        {"name": "just-made", "status": "idle", "turn": null, "createdAt": now - 5_000, "updatedAt": now - 5_000},
+        {"name": "long-idle", "status": "ready", "turn": null, "createdAt": 1, "updatedAt": now - UNREPORTED_START_MS},
+    ]});
+    assert_eq!(busy_sessions_at(&old.to_string(), now).unwrap(), vec!["just-made".to_owned()]);
     assert_eq!(busy_sessions_in("{\"sessions\": []}").unwrap(), Vec::<String>::new());
     assert!(busy_sessions_in("not json").is_none());
 }
@@ -289,4 +299,32 @@ fn state_and_pending_round_trip() {
     assert_eq!(load_pending(&paths), Some(pending));
     clear_pending(&paths);
     assert_eq!(load_pending(&paths), None);
+}
+
+// `role` is Linux only (updater/mod.rs), the tests module every unix: on macOS this did not compile.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_log_line_shortens_a_hash_without_slicing_past_its_end() {
+    assert_eq!(role::short_hex(OLD_TUI), "111111111111");
+    assert_eq!(role::short_hex(COMMIT), "0123456789ab");
+    assert_eq!(role::short_hex("abc"), "abc");
+    assert_eq!(role::short_hex(""), "");
+    // 11 ASCII bytes then a 2-byte character: byte 12 is inside it, so the whole text is logged.
+    assert_eq!(role::short_hex("0123456789aé"), "0123456789aé");
+}
+
+#[test]
+fn a_file_hash_covers_every_byte_past_one_read_buffer() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("big");
+    let bytes: Vec<u8> = (0..(1usize << 16) * 3 + 17).map(|i| (i % 251) as u8).collect();
+    fs::write(&path, &bytes).unwrap();
+    assert_eq!(store::sha256_file(&path).unwrap(), sha(&bytes));
+}
+
+#[test]
+fn a_running_relay_chat_holds_the_update() {
+    assert_eq!(relay_chats_busy(0), None);
+    assert_eq!(relay_chats_busy(1).as_deref(), Some("1 relay chat"));
+    assert_eq!(relay_chats_busy(3).as_deref(), Some("3 relay chats"));
 }

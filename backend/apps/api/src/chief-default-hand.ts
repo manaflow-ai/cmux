@@ -6,6 +6,7 @@ import { handStub, apiOrigin } from "./hand-api.ts"
 import { layoutSelector, asDaemonUser, shellQuote } from "./cloud-acpmux-guest.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
 import { platformCloud } from "./platform-cloud.ts"
+import { declared } from "./do-stub.ts"
 
 export interface DefaultChiefMachine {
   readonly workspace: string
@@ -58,7 +59,7 @@ type Grant = { id: string; grantee: string; revoked_at: unknown; expires_at: num
 export const authorizeDefaultMachine = async (env: Env, scope: DefaultHandScope, options: { running?: boolean } = {}): Promise<DefaultCloud> => {
   const { owner, chief, team, workspace, install, connection_machine: carrier } = scope
   if (team !== personalTeamIdFor(owner) || workspace !== `chief-default-${owner}` || !/^vm_[a-z0-9]{20}$/.test(carrier)) throw new Error("chief.machine.invalid_scope")
-  const user = env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as ReadStub
+  const user = declared(env.USER_DO.get(env.USER_DO.idFromName(owner)))
   const principal: Principal = { identity: `session:${owner}`, kind: "session", user: owner }
   const [record, installed] = await Promise.all([
     user.readOp(owner, principal, "chief.list", {}),

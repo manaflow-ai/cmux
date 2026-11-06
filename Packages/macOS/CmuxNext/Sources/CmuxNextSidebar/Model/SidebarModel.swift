@@ -119,6 +119,9 @@ public final class SidebarModel {
     @ObservationIgnored var itemOrderCache: (inputs: SidebarItemOrderInputs, order: SidebarItemOrder)?
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
     @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
+    /// The same row patches with their previous values, for projections that only need to react
+    /// when a row crosses one of their states. The list callback above still receives every patch.
+    @ObservationIgnored public var onRowsPatchedWithPrevious: (([SidebarNeedsYou.RowPatch]) -> Void)?
     /// The workspace rows as the list draws them, top to bottom (its folder sort and filter applied; empty with no list).
     @ObservationIgnored public var drawnWorkspaceOrder: () -> [WorkspaceID] = { [] }
     /// Every workspace a selection can hold, as drawn: the pinned tiles too (`SidebarListView.selectionOrder`).
@@ -331,9 +334,15 @@ public final class SidebarModel {
     @ObservationIgnored public var docDrag: SidebarDocDrag?
     /// The document's group sorts the last `setSections` arranged its groups in.
     @ObservationIgnored private var arrangedSorts: [String: SidebarGroupSort] = [:]
-    /// Whether the document lists each group in the sort the sections were arranged in: a sort-only change leaves the
-    /// App's live rows as they were, so a pass that would skip them sets them again when this is false.
-    public var arrangedSortsAreCurrent: Bool { (docDrag?.document?.shown?.groupSorts ?? [:]) == arrangedSorts }
+    /// The document's archived items the last `setSections` marked its rows by.
+    @ObservationIgnored private var arrangedArchived: Set<String> = []
+    /// Whether the document lists each group in the sort, and marks the rows archived, as the sections were arranged:
+    /// a sort-only or archive-only change (Archive Workspaces Below archives the last rows) leaves the App's live rows
+    /// as they were, so a pass that would skip them sets them again when this is false.
+    public var arrangementIsCurrent: Bool {
+        let shown = docDrag?.document?.shown
+        return (shown?.groupSorts ?? [:]) == arrangedSorts && (shown?.archived ?? []) == arrangedArchived
+    }
     /// The favicon at a page icon address, when the App has it (it fetches a missing one); link rows draw it. Set by
     /// the App's bridge from its own favicon store.
     @ObservationIgnored public var itemFavicon: ((String) -> SidebarFavicon?)?
@@ -440,6 +449,7 @@ public final class SidebarModel {
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         let shown = docDrag.flatMap { drag in drag.document?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         arrangedSorts = docDrag?.document?.shown?.groupSorts ?? [:]
+        arrangedArchived = docDrag?.document?.shown?.archived ?? []
         sections = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections) // the setter skips an unchanged list
     }
 
@@ -453,6 +463,7 @@ public final class SidebarModel {
         // A filter may match or drop a listed row: shown again; a row this window does not list changes nothing.
         guard filterText.isEmpty else { return !rows.contains { !index.paths(of: $0.id).isEmpty } }
         var patched: [SidebarWorkspace] = []
+        var previousPatches: [SidebarNeedsYou.RowPatch] = []
         var writes: [(SidebarRowIndex.Path, SidebarWorkspace)] = []
         for var row in rows {
             let paths = index.paths(of: row.id)
@@ -474,9 +485,13 @@ public final class SidebarModel {
                 writes.append((path, copy))
             }
             patched.append(row)
+            if onRowsPatchedWithPrevious != nil { previousPatches.append((before: old, after: row)) }
         }
         for (path, row) in writes { SidebarRowIndex.set(row, at: path, in: &storedSections) }
-        if !patched.isEmpty { onRowsPatched?(patched) }
+        if !patched.isEmpty {
+            onRowsPatched?(patched)
+            if !previousPatches.isEmpty { onRowsPatchedWithPrevious?(previousPatches) }
+        }
         return true
     }
 
@@ -573,7 +588,8 @@ public final class SidebarModel {
         (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
-                                                unreadCount: preferences.groupHeaderUnreadCount)
+                                                unreadCount: preferences.groupHeaderUnreadCount,
+                                                background: preferences.groupHeaderBackground)
         hidesWorkspaces = !preferences.showProjects
         grouping.by = preferences.groupBy
         groupsByComputer = preferences.groupsByComputer
@@ -584,7 +600,7 @@ public final class SidebarModel {
     func listOptions() -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
-        (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, SidebarTunables.doneFold.value, SidebarTunables.rowLimit)
+        (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, true, SidebarTunables.rowLimit)
         o.activeWorkspaceID = activeWorkspaceID
         // A group opened by a structural set (another client) forgets its revealed members.
         revealedMembers = revealedMembers.filter { group($0.key)?.isCollapsed == true }

@@ -220,7 +220,7 @@ test("a value asked for one chat never shows on another", async () => {
   expect(line()).toBe("Started chats: 0 of 16 at once");
 });
 
-test("Subagents shows a set limit before the agent starts a chat, and sets it for that chat", async () => {
+test("the started chats limit shows only while a started chat runs or waits, and sets it for that chat", async () => {
   const sent: [string, number | null][] = [];
   // Never used, at acpmux's default: no Subagents card.
   await render(
@@ -239,16 +239,24 @@ test("Subagents shows a set limit before the agent starts a chat, and sets it fo
     />,
   );
   expect(line()).toBe("Started chats: 1 of 16 at once");
-  // No chats yet, but the settings set the limit: the card shows only the limit.
+  // No chats yet, though the settings set the limit: the line counts started chats, not subagents, so
+  // it waits until one runs (Lucas, 2026-11-05, Session Info lab: "we should hide it by default then").
   await render(
     <SessionInfo
       summary={{ sessionId: "chat-1", subsessionLimits: { maxRunning: 16, maxRunningSource: "settings" } }}
       onSetRunningLimit={async (sessionId, value) => void sent.push([sessionId, value])}
     />,
   );
-  expect(line()).toBe("Started chats: 0 of 16 at once");
-  // No avatar row with nothing in it.
-  expect(host.querySelector(".acpmux-session-info-avatars")).toBeNull();
+  expect(host.querySelector(".acpmux-subagent-limit")).toBeNull();
+  // A chat waiting for a slot shows it too, and its buttons set the limit for this chat.
+  await render(
+    <SessionInfo
+      summary={{ sessionId: "chat-1", subsessionLimits: { maxRunning: 16, maxRunningSource: "settings" } }}
+      sessions={[{ ...child("kid", "running"), waitsForSlot: true }]}
+      onSetRunningLimit={async (sessionId, value) => void sent.push([sessionId, value])}
+    />,
+  );
+  expect(host.querySelector(".acpmux-subagent-limit")).not.toBeNull();
   await click(button(/Lower/));
   expect(sent).toEqual([["chat-1", 15]]);
   // A chat on another machine: its acpmux takes the limit only from its own person, so it only reads.
@@ -259,10 +267,11 @@ test("Subagents shows a set limit before the agent starts a chat, and sets it fo
         peer: "build-01",
         subsessionLimits: { maxRunning: 16, maxRunningSource: "workspace" },
       }}
+      sessions={[child("kid", "running")]}
       onSetRunningLimit={async (sessionId, value) => void sent.push([sessionId, value])}
     />,
   );
-  expect(line()).toBe("Started chats: 0 of 16 at once");
+  expect(line()).toBe("Started chats: 1 of 16 at once");
   expect(host.querySelectorAll(".acpmux-subagent-limit button").length).toBe(0);
   // An acpmux without the limit and no chats: no Subagents at all.
   await render(<SessionInfo summary={{ sessionId: "chat-1" }} />);

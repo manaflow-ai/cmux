@@ -53,6 +53,8 @@ OWN_REPOSITORY = {
     "scripts/cmux-next/notices/vt_link_graph.py": "fetches into a fresh `git init` temp directory",
     "scripts/cmux_agent_cursor_vendor.py": "fetches into a fresh `git init` temp directory",
     "scripts/ci/swiftpm_prefetch_binary_artifacts.py": "fetches each dependency pin into its own temporary `git init` directory",
+    "scripts/ci/base_red_excuse.py": "git_text fetches only into its own `git init --bare` cache repository under source_cache(), never the caller's clone",
+    "scripts/measure/agent-loop.sh": "fetch_tree fetches into $tree right after its own `git init` there",
     "webviews/src/agent-session/acpmux/session-info/commandRules.ts":
         "runs no git: it names a shown command line in words, and lists `git clone`'s --depth as a flag to skip",
 }

@@ -28,7 +28,7 @@ TARGETS = {
     "gallery-health.yml": {"health"},
     "web-validation.yml": {"changes", "build", "tests", "database", "web-validation"},
     "pr-checks.yml": {"base-only", "size", "ui-review", "split"},
-    "pr-cloud-backend-check.yml": {"cloud-backend"},
+    "pr-body-checks.yml": {"body"},
 }
 
 

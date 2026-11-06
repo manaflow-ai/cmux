@@ -520,8 +520,9 @@ struct FailureCard: View {
     }
 }
 
-/// The Mac's next-step card (#33269): a tagged ask a finished turn ended on, its question, a muted
-/// line, and its answers as buttons, the first filled. A tap sends the answer as the next prompt;
+/// The Mac's next-step card (#33269): a tagged ask a finished turn ended on, or the agent's own
+/// wrap-up call with its recap above (WrapUp.swift); its question, a muted line, and its answers as
+/// buttons, the first filled. A tap sends the answer as the next prompt;
 /// once a prompt follows, the card folds to the question and the answer in grey.
 struct NextStepCard: View {
     let ask: NextStepAsk
@@ -532,9 +533,19 @@ struct NextStepCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(ask.question)
-                .font(.headline)
-                .fixedSize(horizontal: false, vertical: true)
+            // The agent's wrap-up call carries a recap: what changed and where things stand.
+            if let recap = ask.recap {
+                Text(recap)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("agentChat.nextStep.recap")
+            }
+            if !ask.question.isEmpty {
+                Text(ask.question)
+                    .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let answer {
                 Label(answer, systemImage: "arrowshape.turn.up.left")
                     .font(.subheadline)

@@ -189,6 +189,7 @@ public final class MockAgentSession: AgentSessionSource {
         let turnID = "history-1"
         emit(.userMessage(text: "What does the link framing look like today?", promptId: "p-h1", turnId: turnID, attachments: [], at: start))
         emit(.turnStarted(turnId: turnID, at: start))
+        replayWhoElseCall()
         emit(.update(.toolCall(ACPToolCall(
             id: "h-read", title: "Read frame.rs", kind: .read, status: .completed,
             content: [.content(.text("pub struct Frame { len: u32, channel: u32, kind: FrameKind, payload: Bytes }"))],
@@ -196,6 +197,7 @@ public final class MockAgentSession: AgentSessionSource {
         ))))
         emit(.update(.agentMessageChunk(text: MockScript.historyAnswer, messageId: "h-m1")))
         emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: start.addingTimeInterval(41)))
+        replayAgentMessageTurns(at: Date().addingTimeInterval(-2700))
         let second = Date().addingTimeInterval(-1800)
         replaySubagentTurn(at: second)
         replayStressTurns(ListStressSettings.shared.historyTurns)

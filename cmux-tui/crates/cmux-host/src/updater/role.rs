@@ -367,12 +367,18 @@ fn check_inner(paths: &Paths) -> Outcome {
         "profile {} -> {}: cmux-tui {} ({}); restarting the services",
         plan.from,
         plan.to,
-        &plan.cmux_tui.sha256[..12],
-        &plan.commit[..12]
+        short_hex(&plan.cmux_tui.sha256),
+        short_hex(&plan.commit)
     ));
     restart_after_flip(&store_binary(&plan.old_cmux_tui));
     drop(commit);
     Outcome::Updating(plan.commit)
+}
+
+/// The first 12 characters of a hash for a log line; a shorter or non-ASCII text is logged whole, never sliced
+/// inside a character.
+pub(super) fn short_hex(hash: &str) -> &str {
+    hash.get(..12).unwrap_or(hash)
 }
 
 fn store_binary(sha: &str) -> PathBuf {
@@ -493,11 +499,20 @@ fn acpmux(args: &[&str]) -> Option<(bool, String)> {
     Some((output.status.success(), String::from_utf8_lossy(&output.stdout).into_owned()))
 }
 
+/// What a restart would cut: the relay chats this cmux-host runs, then
+/// [`acpmux_busy_sessions`]. Empty only when both are idle.
+fn busy_sessions() -> Result<Vec<String>, String> {
+    if let Some(chats) = super::relay_chats_busy(crate::cloud::relay::running_chats()) {
+        return Ok(vec![chats]);
+    }
+    acpmux_busy_sessions()
+}
+
 /// The acpmux sessions that run a turn or wait on a permission, by name
 /// (as `acpmux host update --if-idle` reads them). Fails closed: an error,
 /// which the caller counts as busy, unless acpmux answered. Empty only when
 /// it answered that no daemon runs and its unit is down (or absent).
-fn busy_sessions() -> Result<Vec<String>, String> {
+fn acpmux_busy_sessions() -> Result<Vec<String>, String> {
     let (_, status) = acpmux(&["--json", "daemon", "status"]).ok_or("acpmux did not run")?;
     match super::daemon_running(&status) {
         None => return Err("acpmux daemon status is unreadable".to_owned()),

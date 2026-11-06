@@ -14,6 +14,11 @@ path = "tests/test_ci_admission_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_affected_tests.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/affected_tests.py's plans (dependent closure, the Rust step, guards, registry and unregistered tests) and the rust-check prune scope; run python3 tests/test_ci_affected_tests.py yourself after changing affected_tests.py, cargo_affected.py, focused_tests.py or cmux-tui-rust-check.sh (about 30 s, no build)."
+
+[[test]]
 path = "tests/test_ci_blacksmith_linux_failover.py"
 lane = "linux-guard"
 
@@ -21,6 +26,11 @@ lane = "linux-guard"
 path = "tests/test_ci_blacksmith_linux_sizes.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. #30360 registered it as linux-guard without a ci-guards.yml step, which reddened tooling-tests on every pull request. Checks .github/runners.json linux_sizes against every Blacksmith Linux runs-on; run python3 tests/test_ci_blacksmith_linux_sizes.py yourself after changing a runs-on label or that table (about 3 s, no build)."
+
+[[test]]
+path = "tests/test_ci_build_class.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Checks scripts/ci/build_class.py's blaze/app/no-compile classes against the real Cargo manifests and cmux.xcodeproj; run python3 tests/test_ci_build_class.py yourself after changing it or cmux_next_route.py's app_ffi_inputs or scheme_phase_rust_inputs (under a second, no build)."
 
 [[test]]
 path = "tests/test_ci_cache_restore_receipt.py"

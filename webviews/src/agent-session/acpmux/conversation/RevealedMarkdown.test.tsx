@@ -2,8 +2,7 @@
 // A streaming reply reads like Claude desktop's and Codex's (Leo 2026-10-19: "remove that block
 // ascii blinking cursor thing"; whole words from #22339): nothing trails the newest word (no block
 // cursor), and the text grows a whole word at a time, each word fading in, never a letter at a time
-// or with a partial word at its end. Once the stream ends, all of it shows. The Debug toggle
-// agentPane.debug.streamWords off (`data-stream-words="off"`) grows it a character at a time.
+// or with a partial word at its end. Once the stream ends, all of it shows.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -170,18 +169,6 @@ test("fresh text expires with the host fade-in token", () => {
   expect(container.querySelectorAll(".cv-fresh").length).toBeGreaterThan(0);
 });
 
-test("with the Debug toggle off, a reply grows a character at a time", () => {
-  dom!.window.document.documentElement.dataset.streamWords = "off";
-  root = createRoot(container);
-  render("", true);
-  render("Hello there wor", true);
-  const shown = frames(0, 90);
-  // The partial word shows: the reveal reached the end of what arrived.
-  expect(shown.at(-1)).toBe("Hello there wor");
-  // On the way there it showed parts of words.
-  expect(shown).toContain("Hello there w");
-});
-
 /// Runs a display frame `gap` ms after the one before for each of `gaps`, from `from`; returns how
 /// many ran a reveal step (StreamReveal.advance), the frames that commit.
 function steps(from: number, gaps: number[]): number {
@@ -336,7 +323,6 @@ test("turning Reduce Motion on mid-reply shows the whole reply and stops the rev
 // Motion on there shows that text. Turning it off again must pace only what arrives after it,
 // never re-reveal from the reveal's older length: what shows never shrinks.
 test("Reduce Motion on then off before a frame keeps what shows when later text arrives", () => {
-  dom!.window.document.documentElement.dataset.streamWords = "off";
   const motion = reducedMotionQuery(false);
   const { frame } = cancellableFrames();
   root = createRoot(container);
