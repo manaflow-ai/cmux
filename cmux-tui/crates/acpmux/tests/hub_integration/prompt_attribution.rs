@@ -9,19 +9,19 @@ use serde_json::{Value, json};
 const HANDOFF: &str =
     "From Codex:\nHandoff: the probe is red.\n\nDo not merge or deploy.\n\nTrace-ID: ask-77";
 
-/// Sends `params` as a turn and returns what the agent read of it (its `turn: ` echo).
+/// Sends `params` as a turn and returns what the agent read of it (its `echo: ` echo).
 async fn agent_read(c: &mut Client, params: Value) -> String {
     let id = c.send("session/prompt", params).await;
     let echo = c
         .until(|v| {
             v.pointer("/params/update/content/text")
                 .and_then(Value::as_str)
-                .is_some_and(|t| t.starts_with("turn: "))
+                .is_some_and(|t| t.starts_with("echo: "))
         })
         .await;
     let reply = c.reply_to(id).await;
     assert!(reply.get("error").is_none(), "{reply}");
-    echo["params"]["update"]["content"]["text"].as_str().unwrap()["turn: ".len()..].to_owned()
+    echo["params"]["update"]["content"]["text"].as_str().unwrap()["echo: ".len()..].to_owned()
 }
 
 fn params(session: &str, prompt_id: &str, blocks: Value, provenance: Option<Value>) -> Value {
@@ -81,4 +81,36 @@ async fn the_agent_reads_who_wrote_each_part_of_a_prompt() {
     let record = c.user_message(&session, "p-agent").await;
     assert_eq!(record.pointer("/_meta/provenance"), Some(&provenance), "{record}");
     assert!(record.get("agentText").is_none(), "{record}");
+}
+
+/// A send from a Codex shell outside acpmux goes through this daemon's outbox
+/// (`_acpmux/send_queue`, client `acpmux-outbox#…`) naming its harness (`cli/sender.rs`
+/// `harness_sender`): it is recorded as that agent's message, never the person's "you", and the
+/// agent reads it as that agent's. Leo saw such sends as his own (ask-03a81c42d5).
+#[tokio::test]
+async fn an_outbox_send_from_an_agent_shell_is_that_agents() {
+    let hub = hub_env(json!({"FAKE_ECHO_ATTRIBUTION": "1"}));
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let request = json!({"sessionId": session, "prompt": [{"type": "text", "text": "PR is green"}],
+        "_meta": {"acpmux": {"promptId": "p-outbox", "fromAgent": "Codex on big-red"}}});
+    c.call("_acpmux/send_queue", json!({"request": request})).await;
+    let echo = c
+        .until(|v| {
+            v.pointer("/params/update/content/text")
+                .and_then(Value::as_str)
+                .is_some_and(|t| t.starts_with("echo: From another agent"))
+        })
+        .await;
+    assert_eq!(
+        echo["params"]["update"]["content"]["text"],
+        "echo: From another agent (Codex on big-red), not the person:PR is green"
+    );
+    let record = c.user_message(&session, "p-outbox").await;
+    assert!(record["client"].as_str().unwrap_or_default().starts_with("acpmux-outbox"), "{record}");
+    assert_eq!(
+        record.pointer("/_meta/provenance/fromName"),
+        Some(&json!("Codex on big-red")),
+        "{record}"
+    );
 }
