@@ -79,4 +79,50 @@ struct DividerDragTerminalResizeCountTests {
         let after = try #require(screen.terminals["p1"]?.session.surfaceView.fittedGrid)
         #expect(after.columns < before.columns - 10, "the drag narrowed p1 (\(before.columns) -> \(after.columns) columns)")
     }
+
+    /// The RESIZE OWNER's film of px-col-drag-2 on build 155b3f25 (STATUS 15707): after a fast drag's mouse-up the
+    /// full-screen program was whole only 4 refreshes after its pane rested. One of them: the drag's last grid waited in
+    /// the coalescer's window until the release landed, the frame tick after the mouse-up. The person let go: the grid
+    /// that waits goes in the mouse-up turn, not a frame (or a 25 ms window) later. The clock never moves here, so only
+    /// that release can send it.
+    @Test func aDragsLastGridGoesInTheMouseUpTurn() async throws {
+        _ = NSApplication.shared
+        let screen = Harness.Screen(Harness.pair)
+        defer { screen.close() }
+        try screen.attachTerminal("p1")
+        try screen.attachTerminal("p2")
+        await screen.drain()
+        let clock = ManualClock()
+        for terminal in screen.terminals.values {
+            let view = terminal.session.surfaceView
+            view.gridReports = TerminalGridReporter(view: view, clock: clock)
+        }
+        let view = try #require(screen.root.screenViews["s"])
+        let handle = try #require(view.dividerViews[.split("r")])
+        let start = handle.convert(CGPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)
+        view.handleDrag(kind: .split("r"), event: .began(start, []))
+        for step in 1...6 {
+            view.handleDrag(kind: .split("r"), event: .moved(CGPoint(x: start.x - CGFloat(step) * 12, y: start.y), []))
+            screen.root.syncWithModel()
+            await screen.step()
+        }
+        let left = try #require(screen.terminals["p1"]?.session.surfaceView)
+        try #require(left.gridReports.isWaiting, "p1's last drag grid does not wait in the coalescer: the case under test did not happen")
+        // The mouse-up, at the last point: its turn, no frame after it, no time on the clock.
+        view.handleDrag(kind: .split("r"), event: .ended(CGPoint(x: start.x - 72, y: start.y), []))
+        for (pane, terminal) in screen.terminals {
+            let surface = terminal.session.surfaceView
+            #expect(!surface.gridReports.isWaiting, "\(pane): its last drag grid still waits after the mouse-up (a frame or 25 ms more)")
+            #expect(surface.gridReports.coalescer.lastSent == surface.fittedGrid,
+                    "\(pane): the program has \(String(describing: surface.gridReports.coalescer.lastSent)), the view fits \(String(describing: surface.fittedGrid))")
+        }
+        screen.root.syncWithModel()
+        var moving = true
+        for _ in 1...240 where moving { moving = await screen.step() }
+        await screen.drain()
+        let applied = try #require(screen.terminals["p1"]).pty.applied
+        if let grid = left.fittedGrid, let last = applied.last {
+            #expect(last == CellSize(cols: grid.columns, rows: grid.rows), "p1: the PTY rests at \(last), the view fits \(grid)")
+        }
+    }
 }
