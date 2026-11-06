@@ -224,6 +224,12 @@ impl Desktop for MacDesktop {
         Ok(self.windows_from(windows, &apps))
     }
 
+    /// One window's own pixels (ScreenCaptureKit's window filter / PrintWindow), never a
+    /// window drawn over it.
+    fn window_capture_isolated(&self) -> bool {
+        true
+    }
+
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame> {
         if let Some(host) = &self.host {
             return host.capture(target);

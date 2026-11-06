@@ -19,6 +19,8 @@ pub enum Event {
 }
 
 pub struct FakeDesktop {
+    /// Whether a window capture holds only the window's own pixels.
+    pub isolated_window_capture: bool,
     pub apps: Vec<App>,
     pub windows: Vec<Window>,
     pub scale: f64,
@@ -49,6 +51,7 @@ impl FakeDesktop {
             minimized: false,
         };
         Self {
+            isolated_window_capture: false,
             apps: vec![
                 app("com.apple.Safari", "Safari", 10),
                 app("com.1password.1password", "1Password", 20),
@@ -107,6 +110,10 @@ impl Desktop for FakeDesktop {
     fn list_windows(&self) -> DResult<Vec<Window>> {
         Ok(self.windows.clone())
     }
+    fn window_capture_isolated(&self) -> bool {
+        self.isolated_window_capture
+    }
+
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame> {
         let (frame, origin) = match target {
             CaptureTarget::Window(id) => {

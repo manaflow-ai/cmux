@@ -262,3 +262,21 @@ fn labels_shown_to_the_person_are_bounded() {
     let CursorEvent::Move { label, .. } = &events[0] else { panic!() };
     assert_eq!(label.chars().count(), LABEL_MAX_CHARS);
 }
+
+#[test]
+fn an_isolated_window_capture_paints_nothing_out_of_the_target() {
+    // 1Password (denied) is drawn over Safari's window. Composited capture:
+    // the overlap is painted out. Isolated capture (macOS, Windows): the
+    // shot holds only Safari's pixels, so nothing is painted out of it.
+    let composited = engine(Arc::new(FakeDesktop::standard()), PolicyConfig::default());
+    let shot = composited.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
+    assert_eq!(shot.body["redacted_windows"], 1);
+    let mut desktop = FakeDesktop::standard();
+    desktop.isolated_window_capture = true;
+    let isolated = engine(Arc::new(desktop), PolicyConfig::default());
+    let shot = isolated.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
+    assert_eq!(shot.body["redacted_windows"], 0);
+    // A display shot still paints the denied window out.
+    let display = isolated.call(&ctx(None), "screenshot", &json!({}));
+    assert_eq!(display.body["redacted_windows"], 1);
+}

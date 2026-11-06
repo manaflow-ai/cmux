@@ -856,16 +856,21 @@ impl Engine {
         });
         let raw = self.desktop.capture(&target).map_err(|e| ToolOutput::desktop(&e))?;
         // Every on-screen window of a blocked app is painted out of a display
-        // shot, and out of a window shot where it overlaps (a covering denied
-        // window would otherwise show in a composited capture). The windows
+        // shot, and out of a window shot where it overlaps when the platform's
+        // window capture is a composited crop (a covering denied window would
+        // show in it). An isolated window capture (macOS, Windows) holds only
+        // the target's pixels, so nothing in it is painted out. The windows
         // are read again after the capture and both lists count, so a denied
         // window that appeared or moved during it is painted out too; if the
         // second read fails, the capture is not returned.
         let after = self.windows()?;
         let saved = self.sessions.saved();
+        let isolated =
+            matches!(&target, CaptureTarget::Window(_)) && self.desktop.window_capture_isolated();
         let mut redact: Vec<Rect> = Vec::new();
         for w in windows.iter().chain(after.iter()) {
-            let skip = !w.on_screen
+            let skip = isolated
+                || !w.on_screen
                 || w.minimized
                 || matches!(&target, CaptureTarget::Window(id) if w.id == *id)
                 || self.blocked(config, &saved, &self.target_of(w, &names)).is_none();

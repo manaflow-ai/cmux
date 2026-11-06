@@ -296,6 +296,12 @@ pub trait Desktop: Send + Sync {
     /// All top-level windows (the engine filters by app and policy).
     fn list_windows(&self) -> DResult<Vec<Window>>;
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame>;
+    /// Whether a window capture holds only that window's own pixels, never a
+    /// window drawn over it. When false (a composited crop of the screen), the
+    /// engine paints denied windows that overlap the target out of the shot.
+    fn window_capture_isolated(&self) -> bool {
+        false
+    }
     fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree>;
     fn click(&self, target: &PointerTarget, spec: &ClickSpec) -> DResult<ActionOutcome>;
     /// Types `text` into the window's focused element (or `element_id`).

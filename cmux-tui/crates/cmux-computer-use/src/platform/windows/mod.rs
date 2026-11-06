@@ -114,6 +114,12 @@ impl Desktop for WindowsDesktop {
         Ok(win::top_level_windows(&self.names)?.into_iter().map(|w| w.window).collect())
     }
 
+    /// One window's own pixels (ScreenCaptureKit's window filter / PrintWindow), never a
+    /// window drawn over it.
+    fn window_capture_isolated(&self) -> bool {
+        true
+    }
+
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame> {
         session::require_interactive()?;
         match target {
