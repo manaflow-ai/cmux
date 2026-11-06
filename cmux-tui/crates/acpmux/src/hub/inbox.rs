@@ -417,8 +417,8 @@ pub(crate) fn thread_key(explicit: Option<&str>, sender: &str, text: &str) -> St
     }
     let prefix = if let Some(sender) = sender.strip_prefix("declared:") {
         format!("declared:{sender}")
-    } else if let Some(sender) = sender.strip_prefix("session:") {
-        format!("from:{sender}")
+    } else if let Some(sender) = sender.strip_prefix("session:declared:") {
+        format!("from:declared:{sender}")
     } else {
         format!("from:{sender}")
     };
