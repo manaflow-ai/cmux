@@ -59,6 +59,28 @@ public final class CmuxRemoteComputerUseState {
     }
 }
 
+/// Whether the policy goes to the daemon again: unless this same connection already took this
+/// same policy. A new connection (a daemon that was not ready, restarted or reconnected) or a
+/// refused send sends it again, since cmux Remote's worker waits for it before it starts.
+struct ComputerUsePolicyResend {
+    private var taken: (policy: CmuxRemoteComputerUsePolicy, connection: ObjectIdentifier)?
+
+    func shouldSend(_ policy: CmuxRemoteComputerUsePolicy, connection: ObjectIdentifier) -> Bool {
+        guard let taken else { return true }
+        return taken.policy != policy || taken.connection != connection
+    }
+
+    mutating func record(_ policy: CmuxRemoteComputerUsePolicy, connection: ObjectIdentifier, taken ok: Bool) {
+        taken = ok ? (policy, connection) : nil
+    }
+}
+
+/// One re-evaluation of the policy for ``CmuxRemoteService/followComputerUse(_:)``: deliberately
+/// not `Equatable`, so an unchanged policy still wakes the loop (a new daemon connection needs it).
+struct ComputerUsePolicyWake: Sendable {
+    let policy: CmuxRemoteComputerUsePolicy?
+}
+
 /// The policy the app sends cmux Remote's Computer Use worker: the person's `computerUse.*`
 /// (`ComputerUseSettings.policyConfigJSON()`) and the agent cursor's animation switches.
 public struct CmuxRemoteComputerUsePolicy: Equatable, Sendable {
@@ -86,27 +108,39 @@ public struct CmuxRemoteComputerUsePolicy: Equatable, Sendable {
 
 extension CmuxRemoteService {
     /// Sends the policy to cmux Remote (it starts, restarts or stops its Computer Use worker from it).
-    public func applyComputerUse(_ policy: CmuxRemoteComputerUsePolicy) async {
-        guard let config = policy.config else { return }
+    /// Returns whether the daemon took it.
+    @discardableResult
+    public func applyComputerUse(_ policy: CmuxRemoteComputerUsePolicy) async -> Bool {
+        guard let config = policy.config else { return false }
         do {
             // The daemon checks the policy and hands it to cmux Remote (the verified app's only).
             let answer = try await daemonRequest(ComputerUseConfigRequest(config: config))
             computerUse.take(host: Self.object(answer))
+            return true
         } catch {
             computerUseLogger.notice("cmux Remote Computer Use config refused: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 
     /// Follows the policy (read inside an observation) for the app's life, from the first settings load on.
+    ///
+    /// The worker waits for this policy before it starts, so the policy is sent again whenever the
+    /// daemon connection changes (a daemon not ready at launch, a restart, a reconnect), not only
+    /// when the settings change: the stream's element is not `Equatable` (every re-evaluation wakes
+    /// this loop, `policy` reads the daemon's identity), and a send is skipped only when this same
+    /// connection already took this same policy.
     public func followComputerUse(_ policy: @escaping @MainActor () -> CmuxRemoteComputerUsePolicy?) {
         // task-owner: lives with the app; follows the settings and the daemon.
         Task { [weak self] in
             // The settings load first (`follow` sets the switches then): no policy is sent before it.
             _ = await self?.waitAvailable()
-            for await next in ObservationStream(policy) {
-                guard let self, let next else { continue }
-                guard await waitAvailable() else { continue }
-                await applyComputerUse(next)
+            var resend = ComputerUsePolicyResend()
+            for await wake in ObservationStream({ ComputerUsePolicyWake(policy: policy()) }) {
+                guard let self, let next = wake.policy else { continue }
+                let connection = await waitAvailable() ? currentConnectionID : nil
+                guard let connection, resend.shouldSend(next, connection: connection) else { continue }
+                resend.record(next, connection: connection, taken: await applyComputerUse(next))
             }
         }
     }

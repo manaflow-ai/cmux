@@ -61,6 +61,9 @@ public final class CmuxRemoteService {
 
     private var connection: DaemonConnection? { connectionSource() }
 
+    /// Which daemon connection is current (a reconnect or a new daemon is a new one), nil without one.
+    var currentConnectionID: ObjectIdentifier? { connection.map(ObjectIdentifier.init) }
+
     /// The person's switches to the daemon (it saves them and starts or stops the host).
     public func apply(computerUse: Bool, screenSharing: Bool, headless: Bool) async {
         let next = (computerUse, screenSharing, headless)
