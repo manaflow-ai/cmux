@@ -575,8 +575,13 @@ async fn threads_are_read_whole_and_answered_into_the_senders_inbox() {
     }
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
     let rows = threads["threads"].as_array().unwrap();
-    let keys: Vec<&str> = rows.iter().map(|t| t["threadId"].as_str().unwrap()).collect();
-    assert_eq!(keys, ["topic:plan", "from:lane-a/pr:27133", "pr:27133"], "{threads}");
+    let keys: Vec<String> =
+        rows.iter().map(|t| t["threadId"].as_str().unwrap().to_owned()).collect();
+    assert_eq!(
+        keys,
+        vec!["topic:plan".to_owned(), format!("from:{lane}/pr:27133"), "pr:27133".to_owned()],
+        "{threads}"
+    );
     assert_eq!(rows[0]["from"], json!(["lane-a"]));
     assert_eq!(rows[0]["unread"], 1);
     assert_eq!(rows[0]["class"], "action");
