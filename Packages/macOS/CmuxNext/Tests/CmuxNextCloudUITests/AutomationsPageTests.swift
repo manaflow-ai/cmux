@@ -1,8 +1,7 @@
 import AppKit
-import CmuxNextCloudUI
+@testable import CmuxNextCloudUI
 import CmuxNextDesign
 import Foundation
-import SwiftUI
 import Testing
 
 /// The Automations page (docs/automations-platonic-ideal.md section 8, option A): both sources in one
@@ -81,6 +80,44 @@ import Testing
         #expect(signedOut.problems[.cloud] == "automation.signed_out")
     }
 
+    private static func descendants(of view: NSView) -> [NSView] { view.subviews + view.subviews.flatMap(descendants) }
+
+    private static func texts(in view: NSView) -> [String] {
+        descendants(of: view).compactMap { ($0 as? NSTextField)?.stringValue }
+    }
+
+    /// The page is AppKit: no hosting view, a list row per automation in section order, the selected
+    /// automation's detail, and a click on a row selects it and redraws the detail.
+    @Test func aClickOnARowSelectsItAndShowsItsDetail() async throws {
+        let page = AutomationsPage(local: { Self.localJSON }, cloud: { Self.cloudJSON })
+        await page.reload(now: Self.now)
+        let light = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x1D1D1F)))
+        let view = AutomationsPageView(page: page, palette: AutomationsPalette(tokens: light), now: Self.now)
+        view.frame = NSRect(x: 0, y: 0, width: 760, height: 440)
+        view.layoutSubtreeIfNeeded()
+        #expect(!Self.descendants(of: view).contains { NSStringFromClass(type(of: $0)).contains("NSHostingView") })
+        let rows = Self.descendants(of: view).compactMap { $0 as? AutomationListRow }
+        #expect(rows.map(\.row.name) == page.sections(now: Self.now).flatMap(\.1).map(\.name))
+        #expect(rows.filter(\.selected).map(\.row.id) == [page.selection].compactMap { $0 })
+        let brief = try #require(rows.first { $0.row.name == "Morning brief" })
+        #expect(brief.accessibilityPerformPress())
+        #expect(page.selection == "auto_dddddddddddddddddddd")
+        view.render()
+        #expect(Self.texts(in: view).contains("Summarize overnight mail and PRs"), "the detail shows the selected automation's task")
+    }
+
+    /// A source that failed shows its line above the list; an empty page says so.
+    @Test func problemLinesAndTheEmptyLineShow() async {
+        let page = AutomationsPage(local: { Data("{\"automations\": []}".utf8) }, cloud: { throw Offline() })
+        await page.reload(now: Self.now)
+        let light = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x1D1D1F)))
+        let view = AutomationsPageView(page: page, palette: AutomationsPalette(tokens: light), now: Self.now)
+        let texts = Self.texts(in: view)
+        #expect(texts.contains(AutomationStrings().problem(.cloud, code: "unreachable")))
+        #expect(texts.contains(AutomationStrings().empty))
+        #expect(!texts.contains(AutomationStrings().problem(.thisMac, code: "unreachable")))
+    }
+
     @Test func selectionFollowsTheRows() async {
         let page = AutomationsPage(local: { Self.localJSON }, cloud: { Data() })
         await page.reload(now: Self.now)
@@ -108,16 +145,15 @@ import Testing
             let shown = AutomationsPage(rows: rows, selection: row.id)
             let light = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x1D1D1F)))
             let dark = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0x1E1E20), foreground: ThemeRGB(hex: 0xF2F2F7)))
-            let view = HStack(spacing: 24) {
-                AutomationsPageView(page: shown, palette: AutomationsPalette(tokens: light), now: Self.now)
-                    .frame(width: 760, height: 440).environment(\.colorScheme, .light)
-                AutomationsPageView(page: shown, palette: AutomationsPalette(tokens: dark), now: Self.now)
-                    .frame(width: 760, height: 440).environment(\.colorScheme, .dark)
+            let host = NSView(frame: NSRect(x: 0, y: 0, width: 1592, height: 488))
+            host.wantsLayer = true
+            host.layer?.backgroundColor = NSColor.gray.cgColor
+            for (column, (tokens, appearance)) in [(light, NSAppearance.Name.aqua), (dark, .darkAqua)].enumerated() {
+                let pane = AutomationsPageView(page: shown, palette: AutomationsPalette(tokens: tokens), now: Self.now)
+                pane.appearance = NSAppearance(named: appearance)
+                pane.frame = NSRect(x: 24 + CGFloat(column) * 784, y: 24, width: 760, height: 440)
+                host.addSubview(pane)
             }
-            .padding(24).background(Color.gray)
-            // ImageRenderer draws no ScrollView content; a hosting view draws what the app draws.
-            let host = NSHostingView(rootView: view)
-            host.frame = NSRect(x: 0, y: 0, width: 1592, height: 488)
             host.layoutSubtreeIfNeeded()
             let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: rep)
