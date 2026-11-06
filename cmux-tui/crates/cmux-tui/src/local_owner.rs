@@ -842,7 +842,12 @@ fn ready_pipe(command: &mut Command) -> io::Result<(std::fs::File, io::PipeWrite
 }
 
 fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
-    let program = platform::self_exe_for_spawn()?;
+    // A build staged beside this binary goes in now, while no owner runs this
+    // session: the owner starts from the new file (staged_update.rs).
+    let program = match crate::staged_update::promote_own_binary() {
+        Some(binary) => binary,
+        None => platform::self_exe_for_spawn()?,
+    };
     let mut command = Command::new(program);
     command.arg("--headless");
     command.arg("--session").arg(&spec.session);

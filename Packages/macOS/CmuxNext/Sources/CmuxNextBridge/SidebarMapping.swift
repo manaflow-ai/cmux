@@ -55,6 +55,8 @@ public struct SidebarMapping {
     }
     /// Supplies a row in place of mapping it now: the workspace, its machine, and the mapping to run later.
     public typealias RowSource = (WorkspaceModel, MachineID, @escaping SidebarRowFeed.Make) -> SidebarWorkspace
+    /// Answers whether a workspace lists in place of running its rule in the structural pass (``SidebarRowFeed/lists(_:rule:)``).
+    public typealias ListingSource = (WorkspaceModel, @escaping () -> Bool) -> Bool
 
     /// What a browser workspace's row shows of its front tab's page
     /// (cx-e32b): the title in place of a name the user never gave, and the
@@ -91,6 +93,8 @@ public struct SidebarMapping {
     /// so a structural pass reads no row's status.
     /// `workspaceFilter` drops workspaces that are no longer valid sidebar rows
     /// (for example, an acpmux session that was purged while its tab lingers).
+    /// `listing`, when given, answers whether each workspace lists (the Home rule and `workspaceFilter`) from its own
+    /// observation, so the pass reads no workspace's tabs (`SidebarRowFeed`).
     /// `terminalTitle` (localized by the App) names a Cloud machine's unnamed workspace whose shell idles at its home.
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
@@ -105,7 +109,8 @@ public struct SidebarMapping {
                                 iconAsset: @escaping (String) -> SidebarFavicon? = { _ in nil },
                                 groupIconAsset: ((String) -> SidebarFavicon?)? = nil,
                                 rowSource: RowSource? = nil,
-                                workspaceFilter: (WorkspaceModel) -> Bool = { _ in true },
+                                listing: ListingSource? = nil,
+                                workspaceFilter: @escaping (WorkspaceModel) -> Bool = { _ in true },
                                 terminalTitle: String? = nil,
                                 harnessIcons: @escaping () -> HarnessIconLookup = { .none }) -> [SidebarRowSection] {
         // A personal group's icon lives on the home daemon, whichever machine's section shows it.
@@ -115,7 +120,10 @@ public struct SidebarMapping {
             // The home workspace (`kind` "home") and a window's own Home (cmux#27880) are what
             // the Home item in the top section shows; neither is also a workspace row (nxdog28)
             // while that item is in the layout (`hidesHomeWorkspace`).
-            let rows = section.workspaces.filter { (!hidesHomeWorkspace || !$0.isAnyHome) && workspaceFilter($0) }
+            let rows = section.workspaces.filter { workspace in
+                let lists = { (!hidesHomeWorkspace || !workspace.isAnyHome) && workspaceFilter(workspace) }
+                return listing?(workspace, lists) ?? lists()
+            }
                 .map { workspace in
                     let make = { row(workspace, machine: machine.id, status: statusLine(workspace.id), showsUnread: showsUnread,
                                      muted: muted.contains(workspace.id), selectedTab: selectedTab,
@@ -643,5 +651,10 @@ extension SidebarRowFeed {
     /// This feed as the mapping's row source (`SidebarMapping.sections(rowSource:)`).
     public var rowSource: SidebarMapping.RowSource {
         { workspace, machine, make in self.row(SidebarWorkspaceID(workspace.id), machine: machine, make: make) }
+    }
+
+    /// This feed as the mapping's listing source (`SidebarMapping.sections(listing:)`).
+    public var listingSource: SidebarMapping.ListingSource {
+        { workspace, rule in self.lists(SidebarWorkspaceID(workspace.id), rule: rule) }
     }
 }
