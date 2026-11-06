@@ -86,7 +86,7 @@ extension WorkspaceRowView {
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
             let colored = colorFill() // `workspaceColors.indicatorStyle` (#25653): fill or rail
-            let painted = paintEmphasis(over: colored ?? fill, colorFilled: colored != nil) // the loud-rows look: solid in the notification's color
+            let painted = paintEmphasis(over: colored ?? fill) // the loud-rows look: solid in the notification's color
             paintFill(painted)
             // The one border: the focus ring of the group this row stands for, as its header draws it.
             layer?.borderColor = Palette.focusRing.cgColor

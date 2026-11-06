@@ -97,7 +97,7 @@ extension WorkspaceRowView {
     /// Inside `updateLayer`'s theme scope, so the row takes the theme's status color as the badge's dot does;
     /// returns the fill the row paints. A loud row paints solid (a step stronger hovered or selected, so selection
     /// still reads) and its text white; every other row keeps `fill`.
-    func paintEmphasis(over fill: NSColor?, colorFilled: Bool) -> NSColor? {
+    func paintEmphasis(over fill: NSColor?) -> NSColor? {
         guard emphasis.isLoud, let attention = emphasis.attention else { return fill }
         let color = attention.color
         let strong = isSelected || isDropTarget || isSecondarySelected

@@ -96,9 +96,17 @@ nonisolated struct SidebarAttentionItem: Equatable {
     /// Every workspace with a notification, in sidebar order (loose rows and each group's members in their
     /// place, folded groups too); a workspace listed twice (a pin) counts once.
     static func all(in sections: [SidebarSection]) -> [SidebarAttentionItem] {
-        var seen: Set<WorkspaceID> = [], items: [SidebarAttentionItem] = []
+        scan(sections).items
+    }
+
+    /// `all(in:)`, and the workspaces whose rows report what they have now (`reports(_:)`), for `SidebarArrivals`.
+    static func scan(_ sections: [SidebarSection]) -> (items: [SidebarAttentionItem], reporting: Set<WorkspaceID>) {
+        var seen: Set<WorkspaceID> = [], items: [SidebarAttentionItem] = [], reporting: Set<WorkspaceID> = []
         func add(_ ws: SidebarWorkspace) {
-            guard seen.insert(ws.id).inserted, !ws.isArchived, let attention = WorkspaceRowAttention(ws) else { return }
+            guard seen.insert(ws.id).inserted, !ws.isArchived else { return }
+            let attention = WorkspaceRowAttention(ws)
+            if reports(ws, attention) { reporting.insert(ws.id) }
+            guard let attention else { return }
             items.append(SidebarAttentionItem(id: ws.id, title: ws.title, attention: attention))
         }
         for section in sections {
@@ -113,25 +121,51 @@ nonisolated struct SidebarAttentionItem: Equatable {
                 }
             }
         }
-        return items
+        return (items, reporting)
+    }
+
+    /// Whether a row says what its workspace has now: a live row does; a saved (stale) row or a connecting
+    /// machine's placeholder carries no unread or activity (`SidebarSnapshot` never saves them), so its "nothing"
+    /// is not news. A placeholder that does carry a notification (the Debug badge preview rows) reports it.
+    private static func reports(_ ws: SidebarWorkspace, _ attention: WorkspaceRowAttention?) -> Bool {
+        ws.rowState == .live || (ws.rowState == .placeholder && attention != nil)
     }
 }
 
 /// The arrival card's queue (`arrivalCard`): workspaces whose notification arrived since the sidebar first
 /// drew, newest first; one leaves when it no longer has a notification (opened, read) or the card is dismissed.
-/// What was already waiting at launch is not an arrival, so a relaunch never floods the card.
+/// A workspace's first report is its baseline, not an arrival: what waits at launch, or when a saved row or a
+/// connecting machine's row turns live, never floods the card.
 nonisolated struct SidebarArrivals: Equatable {
-    /// What had a notification at the last update; nil until the first.
-    private(set) var known: [WorkspaceID: WorkspaceRowAttention.Kind]?
+    /// What each workspace had at its last report (nil kind: nothing). A workspace that left the list keeps
+    /// "nothing", so a notification it brings back arrives.
+    private(set) var known: [WorkspaceID: Seen] = [:]
     private(set) var queue: [WorkspaceID] = []
+    private var started = false
 
-    /// Takes the current items; returns the ids that just arrived (a new notification, or one that got more urgent).
-    mutating func update(_ items: [SidebarAttentionItem]) -> [WorkspaceID] {
-        let now = Dictionary(items.map { ($0.id, $0.attention.kind) }, uniquingKeysWith: { a, _ in a })
-        defer { known = now }
-        guard let known else { return [] }
-        let arrived = items.filter { item in known[item.id].map { item.attention.kind < $0 } ?? true }.map(\.id)
-        queue = arrived + queue.filter { now[$0] != nil && !arrived.contains($0) }
+    struct Seen: Equatable {
+        var kind: WorkspaceRowAttention.Kind?
+        var count: Int
+    }
+
+    /// Takes the current items and the workspaces whose rows report (`SidebarAttentionItem.scan`); returns the
+    /// ids that just arrived: a notification where there was none, a more urgent one, or more unread of the same kind.
+    mutating func update(_ items: [SidebarAttentionItem], reporting: Set<WorkspaceID>) -> [WorkspaceID] {
+        let byID = Dictionary(items.map { ($0.id, $0.attention) }, uniquingKeysWith: { a, _ in a })
+        var arrived: [WorkspaceID] = []
+        for id in Set(known.keys).subtracting(reporting) where known[id]?.kind != nil && byID[id] == nil {
+            known[id] = Seen(kind: nil, count: 0) // gone or read while not reporting: nothing now
+        }
+        for id in reporting {
+            let now = Seen(kind: byID[id]?.kind, count: byID[id]?.count ?? 0)
+            defer { known[id] = now }
+            guard started, let was = known[id], let kind = now.kind else { continue }
+            if was.kind.map({ kind < $0 || (kind == $0 && now.count > was.count) }) ?? true { arrived.append(id) }
+        }
+        started = true
+        // Sidebar order among those that arrived together.
+        arrived = items.map(\.id).filter(arrived.contains)
+        queue = arrived + queue.filter { byID[$0] != nil && !arrived.contains($0) }
         return arrived
     }
 

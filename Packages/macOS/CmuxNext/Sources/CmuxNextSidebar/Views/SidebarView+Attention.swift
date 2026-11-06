@@ -35,7 +35,10 @@ extension SidebarView {
         let previousPatch = model.onRowsPatchedWithPrevious
         model.onRowsPatchedWithPrevious = { [weak self] changes in
             previousPatch?(changes)
-            guard let self, changes.contains(where: { WorkspaceRowAttention($0.before) != WorkspaceRowAttention($0.after) }) else { return }
+            guard let self, changes.contains(where: {
+                WorkspaceRowAttention($0.before) != WorkspaceRowAttention($0.after) || $0.before.rowState != $0.after.rowState
+                    || ($0.before.title != $0.after.title && WorkspaceRowAttention($0.after) != nil)
+            }) else { return }
             attention.refresh.scheduleIfIdle(after: .milliseconds(50)) { @MainActor [weak self] in self?.refreshAttention() }
         }
     }
@@ -50,8 +53,8 @@ extension SidebarView {
     func refreshAttention() {
         let surfaces = attention
         let look = SidebarNotificationEmphasis.tunable.value
-        let items = SidebarAttentionItem.all(in: model.sections)
-        let arrived = surfaces.arrivals.update(items)
+        let (items, reporting) = SidebarAttentionItem.scan(model.sections)
+        let arrived = surfaces.arrivals.update(items, reporting: reporting)
         surfaces.look = look
         surfaces.items = items
         let before = (surfaces.inbox.preferredHeight, surfaces.arrival.preferredHeight)
@@ -71,7 +74,7 @@ extension SidebarView {
     /// The loud-rows look's beacons: how many rows with a notification lie above and below the visible part of the list.
     func updateAttentionBeacons() {
         let surfaces = attention
-        guard surfaces.look == .loudRows else {
+        guard surfaces.look == .loudRows, !isEditingItems else {
             surfaces.above.show(count: 0, kind: nil)
             surfaces.below.show(count: 0, kind: nil)
             return
@@ -81,8 +84,8 @@ extension SidebarView {
         var above: [WorkspaceRowAttention.Kind] = [], below: [WorkspaceRowAttention.Kind] = []
         for item in surfaces.items {
             guard let row = list.displayed.row(for: .workspace(item.id)) else { continue }
-            let frame = list.frame(for: row)
-            if frame.midY < top { above.append(item.attention.kind) } else if frame.midY > bottom { below.append(item.attention.kind) }
+            let midY = row.y + row.height / 2
+            if midY < top { above.append(item.attention.kind) } else if midY > bottom { below.append(item.attention.kind) }
         }
         let before = (surfaces.above.isHidden, surfaces.below.isHidden, surfaces.above.count, surfaces.below.count)
         surfaces.above.show(count: above.count, kind: above.min())
@@ -96,7 +99,7 @@ extension SidebarView {
         let top = clip.bounds.minY + insets.top, bottom = clip.bounds.maxY - insets.bottom
         let candidates = attention.items.compactMap { item -> (WorkspaceID, CGFloat)? in
             guard let row = list.displayed.row(for: .workspace(item.id)) else { return nil }
-            return (item.id, list.frame(for: row).midY)
+            return (item.id, row.y + row.height / 2)
         }
         let target = edge == .top ? candidates.filter { $0.1 < top }.max { $0.1 < $1.1 } : candidates.filter { $0.1 > bottom }.min { $0.1 < $1.1 }
         if let target { _ = list.revealRow(target.0, centre: true) }

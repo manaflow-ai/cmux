@@ -99,19 +99,41 @@ import Testing
         }
     }
 
+    private static func item(_ id: WorkspaceID, unread: Int = 1, state: SidebarRowState = .live) throws -> SidebarAttentionItem {
+        SidebarAttentionItem(id: id, title: id.rawValue, attention: try #require(WorkspaceRowAttention(
+            SidebarWorkspace(id: id, title: "x", kind: .terminal, unread: .count(unread), activity: .idle, rowState: state))))
+    }
+
     @Test func arrivalsQueueNewestFirstAndDismissEmptiesIt() throws {
         var arrivals = SidebarArrivals()
-        let item = { (id: WorkspaceID) throws -> SidebarAttentionItem in SidebarAttentionItem(id: id, title: id.rawValue, attention: try #require(WorkspaceRowAttention(
-            SidebarWorkspace(id: id, title: "x", kind: .terminal, unread: .count(1), activity: .idle)))) }
-        let first = arrivals.update([])
-        #expect(first.isEmpty, "what waits at the first update is not an arrival")
-        let second = arrivals.update([try item(Self.unread)])
-        #expect(second == [Self.unread])
-        let third = arrivals.update([try item(Self.unread), try item(Self.read)])
-        #expect(third == [Self.read])
+        let both: Set = [Self.unread, Self.read]
+        #expect(arrivals.update([], reporting: both).isEmpty, "the first report is the baseline")
+        #expect(arrivals.update([try Self.item(Self.unread)], reporting: both) == [Self.unread])
+        #expect(arrivals.update([try Self.item(Self.unread), try Self.item(Self.read)], reporting: both) == [Self.read])
         #expect(arrivals.queue == [Self.read, Self.unread], "newest first")
         arrivals.dismiss()
         #expect(arrivals.queue.isEmpty)
+    }
+
+    /// Review of #36913: a relaunch draws saved rows with no unread (`SidebarSnapshot` never saves it), then the
+    /// live rows come with what was waiting; that is the baseline, not news.
+    @Test func savedRowsTurningLiveWithWhatWaitedAreNotArrivals() throws {
+        var arrivals = SidebarArrivals()
+        #expect(arrivals.update([], reporting: []).isEmpty, "saved (stale) rows report nothing")
+        #expect(arrivals.update([try Self.item(Self.unread)], reporting: [Self.unread]).isEmpty, "its first live report")
+        #expect(arrivals.queue.isEmpty)
+        #expect(arrivals.update([try Self.item(Self.unread, unread: 2)], reporting: [Self.unread]) == [Self.unread], "a later one is news")
+    }
+
+    /// Review of #36913: a second notification on a workspace already unread arrives again, after a dismiss too.
+    @Test func moreUnreadOfTheSameKindArrivesAgain() throws {
+        var arrivals = SidebarArrivals()
+        _ = arrivals.update([], reporting: [Self.unread])
+        #expect(arrivals.update([try Self.item(Self.unread, unread: 1)], reporting: [Self.unread]) == [Self.unread])
+        arrivals.dismiss()
+        #expect(arrivals.update([try Self.item(Self.unread, unread: 1)], reporting: [Self.unread]).isEmpty, "nothing new")
+        #expect(arrivals.update([try Self.item(Self.unread, unread: 2)], reporting: [Self.unread]) == [Self.unread])
+        #expect(arrivals.queue == [Self.unread])
     }
 
     @Test func loudRowsPaintSolidWithACountPillInsteadOfTheDot() throws {
@@ -131,6 +153,17 @@ import Testing
             let sidebar = Self.sidebar(fillers: 40, height: 300)
             #expect(sidebar.attention.below.count == 2, "both rows with a notification are below the visible part")
             #expect(!sidebar.attention.below.isHidden && sidebar.attention.above.isHidden)
+        }
+    }
+
+    @Test func switchingBackToTheDotClearsTheInboxAndItsInset() throws {
+        try Self.with(.inbox) {
+            let sidebar = Self.sidebar()
+            #expect(!sidebar.attention.inbox.isHidden && sidebar.scrollView.contentInsets.top > 0)
+            TunableStore.shared.set(SidebarNotificationEmphasis.tunable.key, SidebarNotificationEmphasis.standard.tunableValue)
+            sidebar.refreshAttention()
+            sidebar.layoutSubtreeIfNeeded()
+            #expect(sidebar.attention.inbox.isHidden && sidebar.scrollView.contentInsets.top == 0)
         }
     }
 }

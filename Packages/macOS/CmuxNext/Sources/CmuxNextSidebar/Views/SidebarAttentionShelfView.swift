@@ -48,6 +48,9 @@ final class SidebarAttentionShelfView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// The items as last given, before the inbox sorts them, so an unchanged list is a no-op.
+    private var shown: [SidebarAttentionItem] = []
+
     /// The height the shelf takes over the list; 0 while it is empty.
     var preferredHeight: CGFloat {
         guard !items.isEmpty else { return 0 }
@@ -59,7 +62,8 @@ final class SidebarAttentionShelfView: NSView {
     var urgent: WorkspaceRowAttention.Kind? { items.map(\.attention.kind).min() }
 
     func show(_ items: [SidebarAttentionItem]) {
-        guard items != self.items else { return }
+        guard items != shown else { return }
+        shown = items
         // The inbox lists the most urgent first; the arrival card keeps its newest-first queue.
         self.items = role == .inbox ? items.enumerated().sorted { a, b in
             a.element.attention.kind != b.element.attention.kind ? a.element.attention.kind < b.element.attention.kind : a.offset < b.offset

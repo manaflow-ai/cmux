@@ -10,7 +10,8 @@
   arrives after the sidebar first drew; the arriving row flashes; it leaves when read or dismissed), `loudRows` (a row
   with a notification paints solid in its badge color with white text and a white count pill, and "↑ N above" / "↓ N
   below" beacons at the list's edges take you to rows scrolled out of view). A notification is the badge's unread,
-  needs-you or failed state (`WorkspaceRowAttention`); no surface moves a row. Regression: `SidebarNotificationEmphasisTests`.
+  needs-you or failed state (`WorkspaceRowAttention`); no surface moves a row. Regression: `SidebarNotificationEmphasisTests`. A workspace's first live report is the arrival card's baseline (saved and connecting rows carry no unread), so a
+  relaunch never floods it; more unread of the same kind arrives again.
 - 2026-11-05: every workspace row's trailing glyph box ends the row inset before its fill's end, as its leading glyph
   box starts the row inset after the fill's start. Lawrence, verbatim: "too much padding on right. padding on left/right
   of every workspace needs to be even." The trailing column centers `horizontalInset + statusGlyphSize / 2` inside the
