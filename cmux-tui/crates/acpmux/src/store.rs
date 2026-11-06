@@ -1039,19 +1039,12 @@ fn parse_record(line: &[u8]) -> serde_json::Result<EventRecord> {
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
     Ok(match config.mode {
         StoreMode::Memory => Box::new(MemoryStore::default()),
-        StoreMode::Local if config.journal => Box::new(journal_store::JournalStore::open(
+        StoreMode::Local => Box::new(journal_store::JournalStore::open(
             config,
             root,
             std::sync::Arc::new(journal_store::FencedStorage::daemon()),
             cmux_journal::Config::default(),
         )?),
-        StoreMode::Local => {
-            // A journal a run with `store.journal` on left: its lines go to the logs first.
-            if let Err(error) = journal_store::catch_up(config, root) {
-                tracing::error!("the event journal's catch-up with store.journal off: {error:#}");
-            }
-            Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes)?)
-        }
     })
 }
 

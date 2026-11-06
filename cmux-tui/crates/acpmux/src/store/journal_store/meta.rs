@@ -10,7 +10,7 @@
 //! goes to `journal-unapplied/`. `session_dir` and `flush_session`, which hand the folder to such
 //! code or make it durable, first write the chat's image (`settle_meta`).
 //!
-//! A run without the journal (the switch off after a catch-up that failed, or an older build) can
+//! A run without the journal (an older build) can
 //! write `session.json` after the journal's records (review of #35483, F1). Every write of the
 //! store's own carries `journalLsn` and the journal's id (`journalId`): an LSN means something
 //! only in the journal that gave it, and a chat folder can come from another home's journal
@@ -536,7 +536,7 @@ impl Inner {
                         Ok(SessionFile::Journaled(_) | SessionFile::Missing) => None,
                         Ok(SessionFile::Plain(stamp)) if replayed.saw.contains(&stamp) => None,
                         Ok(SessionFile::Plain(_)) => Some(
-                            "its session.json changed without this journal since (a run with store.journal off, an older build, or another journal)",
+                            "its session.json changed without this journal since (an older build, or another journal)",
                         ),
                         Err(_) => Some("its session.json does not read"),
                     }

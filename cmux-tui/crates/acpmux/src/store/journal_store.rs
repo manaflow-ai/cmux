@@ -1,4 +1,4 @@
-//! The event log through one append-only journal (`store.journal`, R-DURABILITY S2;
+//! The event log through one append-only journal (R-DURABILITY S2;
 //! `handoff/rewrites/R-DURABILITY/DESIGN.md` 3.3b and 3.3c).
 //!
 //! Without it, no event-log append is synced: a line a client was told about reaches the disk at
@@ -31,7 +31,7 @@
 //!   takes over, so the first checkpoint after it syncs bytes this process wrote (a killed
 //!   daemon's writes may be in the page cache only, and a failed sync's dropped pages still read
 //!   back). A chat whose folder is gone is not written again. A log that moved on
-//!   without the journal (a run with the switch off, or an older build, after a crash) is left as
+//!   without the journal (an older build, after a crash) is left as
 //!   it is, and the journal's lines for it go to `<home>/journal-unapplied/`. A chat whose log
 //!   cannot be read or written now keeps its lines there in a repair file
 //!   (`<id>.<lsn>.repair.ndjson`), which the next open journals again and repairs the chat with;
@@ -40,8 +40,8 @@
 //! - Delete: a `forget` record (the replay then drops the chat's earlier journaled lines, so a
 //!   chat made again under the same id gets only its own), then the folder's removal, off the
 //!   appends' lock and without waiting for the record, then the chat's repair file.
-//! - With the switch off, [`catch_up`] runs this recovery once on a journal left by a run with it
-//!   on, so every acknowledged line is in the logs before they are written alone.
+//! - Without a daemon (the build adoption moves a home's chat folders), [`catch_up`] runs this
+//!   recovery once, so every acknowledged line is in the logs before they move.
 //!
 //! - Durability (S2c): [`Store::durability`] gives the last acknowledged LSN and the journal's
 //!   durable LSN, for which each connection's outbound gate waits (`server/durable_gate.rs`). A
@@ -494,7 +494,7 @@ impl JournalStore {
 }
 
 /// [`super::open`] with the journal on `storage` (a simulated file system in the crash tests) and
-/// its own limits, for `store.journal`.
+/// its own limits.
 #[cfg(test)]
 pub(crate) fn open_with_journal(
     config: &StoreConfig,
@@ -532,10 +532,9 @@ fn open_journal(
     }
 }
 
-/// With `store.journal` off: a journal that a run with it on left behind is replayed into the logs,
-/// checkpointed and retired first, so a crash with the switch on and a start with it off keep
-/// every acknowledged line, and turning it on again replays nothing old (DESIGN.md 3.3c, the
-/// catch-up of 3.6). Nothing to do when there is no journal.
+/// A journal a run left behind is replayed into the logs, checkpointed and retired, so the home's
+/// `sessions/` hold every acknowledged change on their own (`store::catch_up_journal`; DESIGN.md
+/// 3.3c, the catch-up of 3.6). Nothing to do when there is no journal.
 pub(super) fn catch_up(config: &StoreConfig, home: &Path) -> Result<()> {
     if std::fs::symlink_metadata(home.join(JOURNAL_DIR)).is_err() {
         return Ok(());

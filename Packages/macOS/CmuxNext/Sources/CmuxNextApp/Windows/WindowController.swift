@@ -319,7 +319,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebar.sameTurn.syncNow(rows: (controller !== kept || controller === reserved) && !sidebar.model.lists(SidebarWorkspaceID(workspace.id)))
         DebugWorkspaceSwitch.mark(self, "sidebar")
         root.show(controller.contentView)
-        services.mainWork.budget.presentationPending() // idle work waits until this workspace's first frame is on screen
         DebugWorkspaceSwitch.mark(self, "root")
         arrangeOnScreen() // with `sidebar.multiView`, the workspaces shown beside it
         // The workspace's theme first, so the chrome repaints once: only the room's own views (sidebar,
