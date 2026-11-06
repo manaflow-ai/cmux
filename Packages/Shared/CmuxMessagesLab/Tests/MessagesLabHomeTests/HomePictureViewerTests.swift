@@ -14,7 +14,6 @@ import UniformTypeIdentifiers
 @Suite(.serialized) @MainActor struct HomePictureViewerTests {
     init() {
         HomeMarkdownPolicy.install()
-        HomeTableRowProvider.isOn = true
         CustomRows.unregister(HomeTableRowProvider.kind)
         CustomRows.unregister(HomePlanRowProvider.kind)
         HomeTableRowProvider.install()
