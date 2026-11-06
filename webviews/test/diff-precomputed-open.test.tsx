@@ -36,7 +36,7 @@ Object.assign(scope, replacements);
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { useDiffFreshness } = await import("../src/diff-viewer/freshness");
+const { useDiffFreshness, usePrecomputedFingerprint } = await import("../src/diff-viewer/freshness");
 const { initialAppState, reducer } = await import("../src/diff-viewer/state");
 const { createDiffViewerStatus } = await import("../src/status");
 const timing = await import("../src/diff-viewer/openTiming");
@@ -199,6 +199,43 @@ test("a later precompute with the same fingerprint gets its own first comparison
   await settle();
   expect(reconciled).toBe(1);
   await render(2, 1);
+  await settle();
+  expect(reconciled).toBe(2);
+});
+
+test("a precompute cleared by a render with none, then made again at the same hash, is checked again", async () => {
+  // Codex review of #36808 at 4bbb1758 (comment 6673248915, F1): the id restarted at 1 after a render
+  // reported no precompute, so the second precompute was `1:X` again, matched the consumed key, and an
+  // older diff stayed shown without reconciling.
+  let reconciled = 0;
+  let prepare: (fingerprint: string | undefined) => void = () => {};
+  function Host({ generation }: { generation: number }) {
+    const [precomputed, prepared] = usePrecomputedFingerprint();
+    prepare = prepared;
+    const stale = useDiffFreshness(
+      async () => "edited",
+      generation,
+      () => true,
+      () => {},
+      undefined,
+      {
+        fingerprint: precomputed?.fingerprint,
+        id: precomputed?.id,
+        reconcile: () => (reconciled += 1),
+      },
+    );
+    return <output>{stale ? "stale" : "fresh"}</output>;
+  }
+  await act(async () => root.render(<Host key="reset-id" generation={0} />));
+  await act(async () => prepare("X"));
+  await settle();
+  expect(reconciled).toBe(1);
+  // A plain render (no precompute) clears it, then a new precompute of the same tree arrives.
+  await act(async () => root.render(<Host key="reset-id" generation={1} />));
+  await act(async () => prepare(undefined));
+  await settle();
+  await act(async () => root.render(<Host key="reset-id" generation={2} />));
+  await act(async () => prepare("X"));
   await settle();
   expect(reconciled).toBe(2);
 });
