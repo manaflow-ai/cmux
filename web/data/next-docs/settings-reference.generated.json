@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 583,
+  "count": 584,
   "sections": [
     {
       "id": "general",
@@ -3505,6 +3505,19 @@
           "values": [
             "none",
             "folder"
+          ]
+        },
+        {
+          "key": "sidebar.groupHeader.background",
+          "title": "Group Background",
+          "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Sidebar",
+          "values": [
+            "auto",
+            "glass",
+            "solid"
           ]
         },
         {
