@@ -90,6 +90,11 @@ public struct RemoteInstallPlan: Hashable, Sendable {
     /// The `build_identity` the automatic update was decided for (cx-3r9mt): the script refuses
     /// when the machine's binary changed since (another Mac installed meanwhile). Nil: no check.
     public var expectedRemoteIdentity: String?
+    /// Stage instead of replace (a binary the person runs by hand, `SSHHost.staticInstallBinary`):
+    /// the checked build goes to `<binary>.staged`, never over a binary a session server runs.
+    /// cmux-tui swaps it in at its next session-server start (cmux-tui `staged_update.rs`); the
+    /// script swaps it in itself only when no session server runs the binary.
+    public var stageOnly = false
 
     public init(commit: String, platform: RemotePlatform, manifest: CmuxTUIManifest, remoteBinary: String,
                 base: URL = RemoteInstallPlan.base, lockToken: String = RemoteInstallPlan.newLockToken()) throws(RemoteInstallError) {
