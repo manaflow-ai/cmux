@@ -37,6 +37,15 @@ jobs:
           ref: main
           persist-credentials: false
 
+      # The repository GITHUB_TOKEN pool's remaining calls, as one notice NOW (cmuxterm-hq now_repo_token.py)
+      # reads from the newest run: every 5 minutes, and GET /rate_limit does not count against the pool.
+      - name: Report the GITHUB_TOKEN budget
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          BUDGET_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/github_token_budget.py --notice
+
       # Only the existing owned-pool-sweeper concurrency group mutates runs.
       # A dispatch waits behind a live sweep, then provides its next handover;
       # when no sweep is running it starts recovery without the overflow probe.
