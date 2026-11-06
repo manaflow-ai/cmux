@@ -1,5 +1,5 @@
 public import CmuxNextIcons
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// One of the user's agents as the empty Chief conversation lists it
 /// (`HomeFirstRunView`): its tab, the name its tab shows, and one word for

@@ -51,7 +51,7 @@ public nonisolated struct HomeChiefRoster: Hashable, Sendable, Codable {
         for id in chiefRows { places[id] = cloud.contains(id) ? .cloud : .thisMac }
         if let local { places[local] = .thisMac }
         if let hosted { places[hosted] = .cloud }
-        if let placed { places[placed] = server.map(HomeChiefPlace.server) ?? .server(HomeConversationStrings.placeServer) }
+        if let placed { places[placed] = server.map(HomeChiefPlace.server) ?? .server(HomeModelStrings.placeServer) }
         return HomeChiefRoster(main: main, places: places)
     }
 
@@ -73,7 +73,7 @@ public nonisolated struct HomeChiefRoster: Hashable, Sendable, Codable {
     /// the main Chief ("Main · Cloud"), since the same Chief can be listed
     /// on more than one host; a non-default engine follows ("This Mac · UniiChat").
     @MainActor public func tag(for id: ConversationID, engine: String?) -> String? {
-        let parts = [id == main ? HomeConversationStrings.mainChief : nil, places[id]?.label, engine]
+        let parts = [id == main ? HomeModelStrings.mainChief : nil, places[id]?.label, engine]
             .compactMap { $0 }.filter { !$0.isEmpty }
         return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }

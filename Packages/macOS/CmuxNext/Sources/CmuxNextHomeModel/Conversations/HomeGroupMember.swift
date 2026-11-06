@@ -36,9 +36,9 @@ public struct HomeGroupMember: Hashable, Sendable, Identifiable {
     /// The role tag the sheet shows (Owner, Admin, Read-only); nil for a plain member or no role.
     public var roleTag: String? {
         switch role {
-        case .owner: HomeConversationStrings.infoRoleOwner
-        case .admin: HomeConversationStrings.infoRoleAdmin
-        case .readOnly: HomeConversationStrings.infoRoleReadOnly
+        case .owner: HomeModelStrings.infoRoleOwner
+        case .admin: HomeModelStrings.infoRoleAdmin
+        case .readOnly: HomeModelStrings.infoRoleReadOnly
         case .member, nil: nil
         }
     }

@@ -72,5 +72,5 @@ public enum HomeGroupOutcome: Hashable, Sendable {
     }
 
     /// What the sheet or a refused action says; nil when it worked.
-    public var message: String? { HomeConversationStrings.groupOutcome(self) }
+    public var message: String? { HomeModelStrings.groupOutcome(self) }
 }

@@ -12,10 +12,10 @@ public enum HomeTeamInviteFailure: Hashable, Sendable {
     /// The sentence the dialog's status line shows.
     public var message: String {
         switch self {
-        case .alreadyMember(let email): HomeConversationStrings.teamInviteAlreadyMember(email)
-        case .sendFailed(let email): HomeConversationStrings.teamInviteSendFailed(email)
-        case .notAllowed: HomeConversationStrings.teamInviteNotAllowed
-        case .cancelled: HomeConversationStrings.teamInviteCancelled
+        case .alreadyMember(let email): HomeModelStrings.teamInviteAlreadyMember(email)
+        case .sendFailed(let email): HomeModelStrings.teamInviteSendFailed(email)
+        case .notAllowed: HomeModelStrings.teamInviteNotAllowed
+        case .cancelled: HomeModelStrings.teamInviteCancelled
         }
     }
 }

@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextHome
+import CmuxNextHomeModel
 import Foundation
 import CmuxNextCompat
 import UniformTypeIdentifiers

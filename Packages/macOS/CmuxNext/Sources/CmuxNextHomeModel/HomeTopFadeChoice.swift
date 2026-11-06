@@ -1,5 +1,4 @@
-public import CmuxNextDesign
-import MessagesLabHome
+public import CmuxNextDesignTokens
 
 /// ``HomeTunables/topFadeStyle``'s choices: MessagesLabHome's ``HomeTopFadeStyle``, one to one.
 public nonisolated enum HomeTopFadeChoice: String, Sendable, CaseIterable, TunableChoice {
@@ -22,19 +21,6 @@ public nonisolated enum HomeTopFadeChoice: String, Sendable, CaseIterable, Tunab
         case .belowPill: "F. Fade below the pill"
         case .backgroundTint: "G. Background tint (default)"
         case .messagesBar: "H. Messages blurred bar"
-        }
-    }
-
-    var style: HomeTopFadeStyle {
-        switch self {
-        case .glassBand: .glassBand
-        case .softMask: .softMask
-        case .progressiveBlur: .progressiveBlur
-        case .materialHairline: .materialHairline
-        case .edgeShadow: .edgeShadow
-        case .belowPill: .belowPill
-        case .backgroundTint: .backgroundTint
-        case .messagesBar: .messagesBar
         }
     }
 }

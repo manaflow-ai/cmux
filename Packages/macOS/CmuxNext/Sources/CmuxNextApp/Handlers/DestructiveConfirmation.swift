@@ -3,7 +3,7 @@ import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import CmuxNextSettings
 import CmuxNextUpdater
