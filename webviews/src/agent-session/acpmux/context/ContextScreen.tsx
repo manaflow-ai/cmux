@@ -360,7 +360,8 @@ function TextEditor({
         className="acpmux-context-editor-text"
         aria-label={heading}
         value={draft}
-        readOnly={!save}
+        // Read-only while a save is in flight: its answer brings the saved text, which replaces the draft.
+        readOnly={!save || status.kind === "saving"}
         spellCheck={false}
         rows={Math.min(16, Math.max(4, draft.split("\n").length + 1))}
         onChange={(event) => {
