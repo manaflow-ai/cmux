@@ -139,7 +139,14 @@ async function reconcile(patchResponse: () => Promise<Response>) {
     await act(async () => root.render(<Viewer generation={2} />));
     expect(calls.map(([method]) => method)).toEqual(["sessionOpen"]);
     await act(async () => opens.shift()!(opened("fresh")));
-    await act(async () => await new Promise((resolve) => setTimeout(resolve, 10)));
+    // Until the reconcile ends: its new diff committed, or it failed and the shown one stays.
+    for (
+      let turn = 0;
+      turn < 200 && !actions.some((type) => type === "replace-items" || type === "end-reconcile");
+      turn++
+    ) {
+      await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+    }
     return { calls, actions, prepared, patchURLs, active: active.current, retained: retained.current };
   } finally {
     await act(async () => root.unmount());
