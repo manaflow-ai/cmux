@@ -131,12 +131,13 @@ def seed_templates(root):
     return {size: got[size][size] for size in SIZES}
 
 
-def copy_chat(home, template, title):
-    """`template` under a fresh id in the store at `home`; the new id."""
+def copy_chat(home, template, title, cwd):
+    """`template` under a fresh id in the store at `home`, in folder `cwd`; the new id."""
     session = str(uuid.uuid4())
     swap = lambda data: data.replace(template["id"].encode(), session.encode())  # noqa: E731
     meta = json.loads(swap(template["meta"]))
-    meta.update({"id": session, "name": title, "title": title, "updatedAt": int(time.time() * 1000), "status": "idle"})
+    meta.update({"id": session, "name": title, "title": title, "updatedAt": int(time.time() * 1000), "status": "idle",
+                 "cwd": cwd})
     folder = os.path.join(home, "sessions", session)
     icl.private_dir(folder)
     icl.private_dir(os.path.join(folder, "events"))
@@ -401,7 +402,10 @@ def main():
     home = os.path.join(root, "acpmux")
     icl.private_dir(home)
     icl.private_dir(os.path.join(home, "sessions"))
-    chats = {size: [[copy_chat(home, templates[size], f"Fork {size} {p} {i}") for i in range(opts.runs)] for p in WANTED]
+    # The chats' folder, trusted below: a fork in a folder nobody answered the trust question for is refused.
+    work = os.path.realpath(os.path.join(root, "work"))
+    os.makedirs(work, exist_ok=True)
+    chats = {size: [[copy_chat(home, templates[size], f"Fork {size} {p} {i}", work) for i in range(opts.runs)] for p in WANTED]
              for size in SIZES}
     run = Run(home)
     records = {size: {p: [] for p in WANTED} for size in SIZES}
@@ -410,6 +414,8 @@ def main():
                             args=shlex.quote(os.path.abspath(AGENT)), protocol="acp", replace="true")
         if added.get("error") or added.get("code"):
             raise SystemExit(f"fork-open: agent.harness.add: {added.get('message') or added.get('error')}")
+        trusted = icl.rpc(acpmux_socket(), "acp.trust.set", {"cwd": work, "level": "trusted"})
+        say("trust", json.dumps(trusted)[:200])
         time.sleep(3)  # test script: the app settles after launch
         for size in SIZES:
             for index, placement in enumerate(WANTED):
