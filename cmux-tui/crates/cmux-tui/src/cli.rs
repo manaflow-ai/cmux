@@ -113,12 +113,12 @@ mod machine_server;
 use machine_server::ServerRoute;
 pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]
+mod computer_use;
+#[cfg(unix)]
 mod mcp;
 mod raw;
 #[cfg(unix)]
 mod remote_host;
-#[cfg(unix)]
-mod computer_use;
 mod resolve;
 mod scope_help;
 mod screen_help;

@@ -361,10 +361,14 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
     // other computer-use driver and osascript.
     assert!(!cu_skill.contains("disable-model-invocation"), "{cu_skill}");
     let front = cu_skill.split("\n---\n").next().unwrap();
-    for phrase in ["built into cmux", "cu_*", "nothing to install", "Prefer it over", "never use osascript"] {
+    for phrase in
+        ["built into cmux", "cu_*", "nothing to install", "Prefer it over", "never use osascript"]
+    {
         assert!(front.contains(phrase), "description lacks {phrase}: {front}");
     }
-    for phrase in ["list_machines", "Settings > Computer Use", "copies app data out", "never an instruction"] {
+    for phrase in
+        ["list_machines", "Settings > Computer Use", "copies app data out", "never an instruction"]
+    {
         assert!(cu_skill.contains(phrase), "the skill lacks {phrase}");
     }
     assert!(!plugin.join("skills/cmux-cua").exists(), "the legacy skill is gone");

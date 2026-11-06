@@ -39,7 +39,12 @@ struct FakeWorker {
 }
 
 impl FakeWorker {
-    fn start(dir: &std::path::Path, name: &str, behavior: Behavior, done: Arc<Mutex<HashMap<String, Value>>>) -> Self {
+    fn start(
+        dir: &std::path::Path,
+        name: &str,
+        behavior: Behavior,
+        done: Arc<Mutex<HashMap<String, Value>>>,
+    ) -> Self {
         let socket = dir.join(name);
         let _ = std::fs::remove_file(&socket);
         let listener = UnixListener::bind(&socket).unwrap();
@@ -59,10 +64,18 @@ impl FakeWorker {
                 }
                 let hello: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
                 if hello["secret"] != json!(s) {
-                    let _ = writeln!(out, "{}", json!({"ok": false, "error": "refused", "reason": "secret"}));
+                    let _ = writeln!(
+                        out,
+                        "{}",
+                        json!({"ok": false, "error": "refused", "reason": "secret"})
+                    );
                     continue;
                 }
-                let _ = writeln!(out, "{}", json!({"ok": true, "protocol": 1, "capabilities": ["cmux-computer-use-v1"]}));
+                let _ = writeln!(
+                    out,
+                    "{}",
+                    json!({"ok": true, "protocol": 1, "capabilities": ["cmux-computer-use-v1"]})
+                );
                 let mut line = String::new();
                 if reader.read_line(&mut line).unwrap_or(0) == 0 {
                     continue;
@@ -70,11 +83,14 @@ impl FakeWorker {
                 let request: Value = serde_json::from_str(&line).unwrap();
                 seen2.lock().unwrap().push(request.clone());
                 if request["method"] != "tools/call" {
-                    let _ = writeln!(out, "{}", json!({"id": request["id"], "ok": true, "result": {}}));
+                    let _ =
+                        writeln!(out, "{}", json!({"id": request["id"], "ok": true, "result": {}}));
                     continue;
                 }
                 let call_id = request["call_id"].as_str().unwrap_or_default().to_owned();
-                if behavior == Behavior::CrashOnce && crashed.lock().unwrap().insert(call_id.clone()) {
+                if behavior == Behavior::CrashOnce
+                    && crashed.lock().unwrap().insert(call_id.clone())
+                {
                     // The call ran, then the worker died before it answered.
                     ran2.fetch_add(1, Ordering::SeqCst);
                     let result = json!({"is_error": false, "code": null, "body": {"ran": request["name"]}, "png": null});
@@ -91,7 +107,8 @@ impl FakeWorker {
                     json!({"is_error": false, "code": null, "body": {"ran": request["name"]}, "png": null})
                 };
                 done.lock().unwrap().insert(call_id, result.clone());
-                let _ = writeln!(out, "{}", json!({"id": request["id"], "ok": true, "result": result}));
+                let _ =
+                    writeln!(out, "{}", json!({"id": request["id"], "ok": true, "result": result}));
             }
         });
         Self { socket, secret, seen, ran }
@@ -113,7 +130,11 @@ struct FakeDaemon {
 
 impl FakeDaemon {
     fn new(answers: Vec<Result<Value, DaemonError>>) -> Self {
-        Self { answers: Arc::new(Mutex::new(answers)), asks: Arc::default(), remote: Arc::default() }
+        Self {
+            answers: Arc::new(Mutex::new(answers)),
+            asks: Arc::default(),
+            remote: Arc::default(),
+        }
     }
 }
 
@@ -125,7 +146,9 @@ impl Daemon for FakeDaemon {
     }
     fn remote_call(&self, params: Value) -> Result<Value, DaemonError> {
         self.remote.lock().unwrap().push(params.clone());
-        Ok(json!({"result": {"is_error": false, "code": null, "body": {"remote": params["machine"]}, "png": null}}))
+        Ok(
+            json!({"result": {"is_error": false, "code": null, "body": {"remote": params["machine"]}, "png": null}}),
+        )
     }
     fn machines(&self) -> Result<Value, DaemonError> {
         Ok(json!({"machines": [{"name": "studio", "reachable": true, "computer_use": "ready"}]}))
@@ -182,7 +205,11 @@ fn a_worker_restart_mid_call_retries_the_same_call_id_and_runs_once() {
     assert_eq!(out.body, json!({"ran": "click"}));
     assert_eq!(first.seen.lock().unwrap()[0]["call_id"], "call-r");
     assert_eq!(second.seen.lock().unwrap()[0]["call_id"], "call-r");
-    assert_eq!(first.ran.load(Ordering::SeqCst) + second.ran.load(Ordering::SeqCst), 1, "ran twice");
+    assert_eq!(
+        first.ran.load(Ordering::SeqCst) + second.ran.load(Ordering::SeqCst),
+        1,
+        "ran twice"
+    );
     assert_eq!(asks.load(Ordering::SeqCst), 3, "asked the daemon again after the restart");
 }
 
@@ -215,7 +242,8 @@ fn a_refusal_reaches_the_agent_unchanged() {
 
 #[test]
 fn computer_use_off_is_a_tool_error_but_status_still_answers() {
-    let caller = caller(FakeDaemon::new(vec![Ok(json!({"state": "off", "reason": "mode is off"}))]));
+    let caller =
+        caller(FakeDaemon::new(vec![Ok(json!({"state": "off", "reason": "mode is off"}))]));
     let mcp = caller.call("click", &json!({}), "c").to_mcp();
     assert_eq!(mcp["isError"], true);
     assert!(mcp["content"][0]["text"].as_str().unwrap().contains("computer_use_off"), "{mcp}");
@@ -230,7 +258,9 @@ fn computer_use_off_is_a_tool_error_but_status_still_answers() {
 fn a_worker_away_for_the_whole_budget_is_one_plain_error() {
     let caller = caller(FakeDaemon::new(vec![Err(DaemonError::Unreachable("no daemon".into()))]))
         .with_budget(Duration::from_millis(200));
-    let Outcome::Failed { code, message } = caller.call("status", &json!({}), "c") else { panic!() };
+    let Outcome::Failed { code, message } = caller.call("status", &json!({}), "c") else {
+        panic!()
+    };
     assert_eq!(code, "computer_use_unavailable");
     assert!(message.contains("restarts by itself"), "{message}");
 }
@@ -255,7 +285,8 @@ fn machine_goes_through_the_daemon_route_and_list_machines_is_local() {
     let daemon = FakeDaemon::new(vec![Err(DaemonError::Unreachable("unused".into()))]);
     let remote = daemon.remote.clone();
     let caller = caller(daemon);
-    let Outcome::Output(out) = caller.call("screenshot", &json!({"machine": "studio", "window_id": "w"}), "c-m")
+    let Outcome::Output(out) =
+        caller.call("screenshot", &json!({"machine": "studio", "window_id": "w"}), "c-m")
     else {
         panic!()
     };
@@ -281,19 +312,32 @@ fn a_relayed_call_carries_its_link_origin_and_runs_only_here() {
     assert_eq!(worker.seen.lock().unwrap()[0]["origin"], origin);
     for (name, args) in [("click", json!({"machine": "third"})), ("list_machines", json!({}))] {
         let out = caller.call(name, &args, "c2");
-        assert!(matches!(out, Outcome::Failed { ref code, .. } if code == "computer_use_remote_denied"), "{out:?}");
+        assert!(
+            matches!(out, Outcome::Failed { ref code, .. } if code == "computer_use_remote_denied"),
+            "{out:?}"
+        );
     }
 }
 
 #[test]
 fn the_endpoint_states_parse() {
-    assert!(matches!(EndpointState::parse(&json!({"state": "ready", "socket": "/s", "secret": "ab"})), EndpointState::Ready(_)));
-    assert!(matches!(EndpointState::parse(&json!({"state": "ready", "socket": ""})), EndpointState::Unavailable(_)));
+    assert!(matches!(
+        EndpointState::parse(&json!({"state": "ready", "socket": "/s", "secret": "ab"})),
+        EndpointState::Ready(_)
+    ));
+    assert!(matches!(
+        EndpointState::parse(&json!({"state": "ready", "socket": ""})),
+        EndpointState::Unavailable(_)
+    ));
     assert!(matches!(EndpointState::parse(&json!({"state": "off"})), EndpointState::Off(_)));
-    assert!(matches!(EndpointState::parse(&json!({"state": "starting"})), EndpointState::Starting(_)));
+    assert!(matches!(
+        EndpointState::parse(&json!({"state": "starting"})),
+        EndpointState::Starting(_)
+    ));
     assert!(matches!(EndpointState::parse(&json!({})), EndpointState::Unavailable(_)));
     // The secret is never printed.
-    let ready = EndpointState::parse(&json!({"state": "ready", "socket": "/s", "secret": "topsecret"}));
+    let ready =
+        EndpointState::parse(&json!({"state": "ready", "socket": "/s", "secret": "topsecret"}));
     assert!(!format!("{ready:?}").contains("topsecret"));
 }
 

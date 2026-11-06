@@ -409,8 +409,11 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
             .await
             .expect("set_tools");
         assert_eq!(set["applied"], json!("now"), "{set}");
-        while tool(&watcher.changed(&claude, "tools").await["session"]["tools"], "mcp:cmux-computer-use").3
-            != enabled
+        while tool(
+            &watcher.changed(&claude, "tools").await["session"]["tools"],
+            "mcp:cmux-computer-use",
+        )
+        .3 != enabled
         {}
         let args = argv(&local.ask(&claude, "hi").await);
         let has = upstreams(&args).contains(&"cmux-computer-use".to_owned());

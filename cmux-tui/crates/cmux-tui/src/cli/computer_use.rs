@@ -5,7 +5,9 @@
 //! links like an agent's. Settings are not here: they go through
 //! `cmux settings` (`computerUse.*`), which agents may not change.
 
-use acpmux::computer_use::client::{Caller, Daemon, DaemonError, ENDPOINT_CMD, Outcome, new_call_id};
+use acpmux::computer_use::client::{
+    Caller, Daemon, DaemonError, ENDPOINT_CMD, Outcome, new_call_id,
+};
 use acpmux::computer_use::tools;
 use base64::Engine as _;
 use serde_json::{Value, json};
@@ -63,7 +65,11 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
         "tools" if rest.is_empty() => Ok(Request::Tools),
         "status" => {
             let f = flags(rest, &["--machine"])?;
-            Ok(Request::Call { tool: "status".into(), args: json!({}), machine: get(&f, "--machine") })
+            Ok(Request::Call {
+                tool: "status".into(),
+                args: json!({}),
+                machine: get(&f, "--machine"),
+            })
         }
         "machines" if rest.is_empty() => Ok(Request::Machines),
         "call" => {
@@ -87,7 +93,11 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
         "screenshot" => {
             let f = flags(rest, &["--out", "--window", "--machine"])?;
             let out = get(&f, "--out").ok_or("screenshot needs --out FILE")?;
-            Ok(Request::Screenshot { out, window: get(&f, "--window"), machine: get(&f, "--machine") })
+            Ok(Request::Screenshot {
+                out,
+                window: get(&f, "--window"),
+                machine: get(&f, "--machine"),
+            })
         }
         "approvals" => match rest {
             ["list"] => Ok(Request::Approvals { action: "list", app: None }),
@@ -160,14 +170,19 @@ fn print(global: &GlobalArgs, outcome: Outcome) -> i32 {
         Outcome::Output(out) if !out.is_error => {
             let mut body = out.body;
             if out.png_base64.is_some() {
-                body["image"] = json!("png (use `cmux computer-use screenshot --out FILE` to save it)");
+                body["image"] =
+                    json!("png (use `cmux computer-use screenshot --out FILE` to save it)");
             }
             super::wire::print_local_success(&body, global.output)
         }
         Outcome::Output(out) => {
             let message = out.body["error"].as_str().unwrap_or("refused").to_owned();
             let code = out.code.unwrap_or_else(|| "refused".into());
-            super::wire::print_local_error(&json!({"code": code, "message": message}), global.output, 1)
+            super::wire::print_local_error(
+                &json!({"code": code, "message": message}),
+                global.output,
+                1,
+            )
         }
         Outcome::Off(reason) => super::wire::print_local_error(
             &json!({"code": "computer_use_off", "message": format!(
@@ -201,7 +216,9 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             let list = tools::mcp_list();
             super::wire::print_local_success(&list, global.output)
         }
-        Request::Machines => print(global, caller(global).call("list_machines", &json!({}), &new_call_id())),
+        Request::Machines => {
+            print(global, caller(global).call("list_machines", &json!({}), &new_call_id()))
+        }
         Request::Call { tool, args, machine } => {
             let args = with_machine(args, machine.as_deref());
             print(global, caller(global).call(&tool, &args, &new_call_id()))
@@ -248,7 +265,9 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         }
         Request::Approvals { action, app } => {
             // Forgetting a "Never" lets an agent use that app again: only the person.
-            if action == "forget" && std::env::var_os(AGENT_SESSION_ENV).is_some_and(|v| !v.is_empty()) {
+            if action == "forget"
+                && std::env::var_os(AGENT_SESSION_ENV).is_some_and(|v| !v.is_empty())
+            {
                 return super::wire::print_local_error(
                     &json!({"code": "person_only", "message": "Only the person can forget a saved Computer Use answer. Ask them to do it in Settings > Computer Use."}),
                     global.output,
@@ -285,16 +304,33 @@ mod tests {
         assert_eq!(parse(&words("machines")).unwrap(), Request::Machines);
         assert_eq!(
             parse(&words("status --machine studio")).unwrap(),
-            Request::Call { tool: "status".into(), args: json!({}), machine: Some("studio".into()) }
+            Request::Call {
+                tool: "status".into(),
+                args: json!({}),
+                machine: Some("studio".into())
+            }
         );
-        let args = vec!["call".to_owned(), "click".into(), "--args".into(), r#"{"window_id":"w","x":1}"#.into()];
+        let args = vec![
+            "call".to_owned(),
+            "click".into(),
+            "--args".into(),
+            r#"{"window_id":"w","x":1}"#.into(),
+        ];
         assert_eq!(
             parse(&args).unwrap(),
-            Request::Call { tool: "click".into(), args: json!({"window_id": "w", "x": 1}), machine: None }
+            Request::Call {
+                tool: "click".into(),
+                args: json!({"window_id": "w", "x": 1}),
+                machine: None
+            }
         );
         assert_eq!(
             parse(&words("screenshot --out /tmp/a.png --window w1")).unwrap(),
-            Request::Screenshot { out: "/tmp/a.png".into(), window: Some("w1".into()), machine: None }
+            Request::Screenshot {
+                out: "/tmp/a.png".into(),
+                window: Some("w1".into()),
+                machine: None
+            }
         );
         assert_eq!(
             parse(&words("approvals forget com.apple.Notes")).unwrap(),

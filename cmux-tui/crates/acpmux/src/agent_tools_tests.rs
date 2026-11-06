@@ -89,7 +89,8 @@ fn every_session_gets_computer_use_unless_the_mode_is_off() {
     assert!(!has(Some("{\n// mine\n\"computerUse.mode\": \"off\",\n}")));
     // The session's own key, this daemon and nothing inherited.
     let tools = super::resolve(&inputs(None)).for_session("s-cu");
-    let cu = tools.servers.iter().find(|s| s.name == crate::computer_use::mcp::SERVER_NAME).unwrap();
+    let cu =
+        tools.servers.iter().find(|s| s.name == crate::computer_use::mcp::SERVER_NAME).unwrap();
     assert_eq!(cu.args, [crate::computer_use::mcp::COMMAND]);
     let env: std::collections::HashMap<_, _> = cu.env.iter().cloned().collect();
     assert_eq!(env[crate::computer_use::mcp::SESSION_ENV], "s-cu");
@@ -221,7 +222,10 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
         env: vec![],
     };
     let tools = super::AgentTools {
-        servers: vec![server(crate::acpmux_mcp::SERVER_NAME), server(crate::computer_use::mcp::SERVER_NAME)],
+        servers: vec![
+            server(crate::acpmux_mcp::SERVER_NAME),
+            server(crate::computer_use::mcp::SERVER_NAME),
+        ],
         ..Default::default()
     };
     let env = std::collections::BTreeMap::from([

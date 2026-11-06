@@ -91,8 +91,15 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
 /// subagent gets its own set, kept until the app-server exits), so a tokio
 /// worker per core in each one adds up: about 100 tasks a set on a 32-core
 /// machine, which filled the sessions slice's task cap on a fleet host.
-const STDIO_MCP_SERVERS: [&str; 7] =
-    ["acpmux-mcp", "subsession-mcp", "forum-mcp", "offer-mcp", "secret-mcp", "computer-use-mcp", "repo-mcp"];
+const STDIO_MCP_SERVERS: [&str; 7] = [
+    "acpmux-mcp",
+    "subsession-mcp",
+    "forum-mcp",
+    "offer-mcp",
+    "secret-mcp",
+    "computer-use-mcp",
+    "repo-mcp",
+];
 
 /// Worker threads of a stdio MCP server: it answers one client's requests
 /// on one pipe. Still a multi-thread runtime, so `block_in_place` works.

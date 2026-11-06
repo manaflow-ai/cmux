@@ -107,7 +107,10 @@ impl AgentTools {
         // cmux. Code mode reveals them via docs; tool listing may defer them via
         // tool search. Their load status is not known, so they are excluded from totals.
         if cmux.is_some()
-            && self.servers.iter().any(|server| server.name == crate::computer_use::mcp::SERVER_NAME)
+            && self
+                .servers
+                .iter()
+                .any(|server| server.name == crate::computer_use::mcp::SERVER_NAME)
         {
             parts.push(with_text(
                 source(

@@ -712,8 +712,9 @@ impl AgentTools {
                     ),
                     ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
-                if let Some(socket) = std::env::var_os(crate::computer_use::client::DAEMON_SOCKET_ENV)
-                    .filter(|s| !s.is_empty())
+                if let Some(socket) =
+                    std::env::var_os(crate::computer_use::client::DAEMON_SOCKET_ENV)
+                        .filter(|s| !s.is_empty())
                 {
                     server.env.push((
                         crate::computer_use::client::DAEMON_SOCKET_ENV.to_owned(),

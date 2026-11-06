@@ -54,7 +54,9 @@ pub(super) enum Admission {
     /// The local unix socket: may send a call on to a peer.
     Forward,
     /// A machine the person let drive this daemon, by the name we know it by.
-    Run { machine: String },
+    Run {
+        machine: String,
+    },
     Refused(&'static str),
 }
 
@@ -71,7 +73,9 @@ pub(super) fn admit(origin: Origin, auth: ConnAuth, device: Option<&DeviceRecord
         (Origin::Peer, ConnAuth::PeerToken) => Admission::Run { machine: "peer".into() },
         (Origin::Peer, ConnAuth::Device) => match device {
             Some(d) if d.role == "client" => Admission::Run { machine: machine_label(&d.name) },
-            Some(_) => Admission::Refused("only a machine paired as a client may use Computer Use here"),
+            Some(_) => {
+                Admission::Refused("only a machine paired as a client may use Computer Use here")
+            }
             None => Admission::Refused("the paired machine is unknown or revoked"),
         },
         (Origin::Web | Origin::LocalApp, _) => {
@@ -117,13 +121,19 @@ pub(super) fn parse(params: &Value) -> Result<CallParams, RpcError> {
     let tool = tools::find(&name)
         .ok_or_else(|| refused("unknown_tool", format!("unknown Computer Use tool {name:?}")))?;
     if tool.name == "list_machines" {
-        return Err(refused("computer_use_remote_denied", "list_machines runs on the caller's machine"));
+        return Err(refused(
+            "computer_use_remote_denied",
+            "list_machines runs on the caller's machine",
+        ));
     }
     let arguments = match params.get("arguments") {
         None | Some(Value::Null) => json!({}),
         Some(Value::Object(map)) => {
             if map.contains_key("machine") || map.contains_key("origin") {
-                return Err(refused("computer_use_remote_denied", "a call runs on one machine only"));
+                return Err(refused(
+                    "computer_use_remote_denied",
+                    "a call runs on one machine only",
+                ));
             }
             Value::Object(map.clone())
         }
@@ -176,7 +186,10 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
                 ));
             };
             let peer = hub.peer_by_name(&machine).ok_or_else(|| {
-                refused("unknown_machine", format!("no machine named {machine:?}; see list_machines"))
+                refused(
+                    "unknown_machine",
+                    format!("no machine named {machine:?}; see list_machines"),
+                )
             })?;
             let onward = json!({
                 "name": call.name,
@@ -189,7 +202,10 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
         }
         Admission::Run { machine } => {
             if call.machine.is_some() {
-                return Err(refused("computer_use_remote_denied", "a call runs on one machine only"));
+                return Err(refused(
+                    "computer_use_remote_denied",
+                    "a call runs on one machine only",
+                ));
             }
             let origin = json!({"kind": "remote", "machine": machine, "same_account": true});
             let session = format!("remote:{machine}:{}", call.session);
@@ -199,9 +215,11 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
                 format!("{} on {machine}", call.label)
             };
             let outcome = tokio::task::spawn_blocking(move || {
-                Caller::new(SocketDaemon::from_env(), session, label)
-                    .with_origin(origin)
-                    .call(&call.name, &call.arguments, &call.call_id)
+                Caller::new(SocketDaemon::from_env(), session, label).with_origin(origin).call(
+                    &call.name,
+                    &call.arguments,
+                    &call.call_id,
+                )
             })
             .await
             .map_err(|e| RpcError::internal(format!("the call stopped: {e}")))?;
@@ -222,13 +240,14 @@ pub(super) async fn state(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, RpcError
     let device = device_record(hub, conn.device.as_deref());
     match admit(conn.origin, conn.auth, device.as_ref()) {
         Admission::Run { .. } => {}
-        Admission::Forward => return Err(refused("invalid_arguments", "ask a peer, not this machine")),
+        Admission::Forward => {
+            return Err(refused("invalid_arguments", "ask a peer, not this machine"));
+        }
         Admission::Refused(why) => return Err(refused("computer_use_remote_denied", why)),
     }
-    let data = tokio::task::spawn_blocking(|| SocketDaemon::from_env().request(
-        crate::computer_use::client::ENDPOINT_CMD,
-        json!({}),
-    ))
+    let data = tokio::task::spawn_blocking(|| {
+        SocketDaemon::from_env().request(crate::computer_use::client::ENDPOINT_CMD, json!({}))
+    })
     .await
     .map_err(|e| RpcError::internal(format!("the state read stopped: {e}")))?;
     Ok(match data {

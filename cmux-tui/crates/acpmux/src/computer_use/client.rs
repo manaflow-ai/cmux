@@ -127,8 +127,8 @@ pub struct SocketDaemon {
 
 impl SocketDaemon {
     pub fn from_env() -> Self {
-        let path = cmux::raw::env_socket_path()
-            .unwrap_or_else(|| cmux::raw::default_socket_path("main"));
+        let path =
+            cmux::raw::env_socket_path().unwrap_or_else(|| cmux::raw::default_socket_path("main"));
         Self { path }
     }
 
@@ -188,7 +188,9 @@ fn block_on<T>(
         Ok(handle) => handle.block_on(fut),
         Err(_) => match tokio::runtime::Builder::new_current_thread().enable_all().build() {
             Ok(runtime) => runtime.block_on(fut),
-            Err(e) => Err(DaemonError::Unreachable(format!("no runtime for the acpmux daemon: {e}"))),
+            Err(e) => {
+                Err(DaemonError::Unreachable(format!("no runtime for the acpmux daemon: {e}")))
+            }
         },
     }
 }
@@ -338,7 +340,10 @@ fn read_json(reader: &mut BufReader<Box<dyn Duplex>>) -> io::Result<Value> {
             Err(e) => return Err(e),
         };
         if available.is_empty() {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "the worker closed the connection"));
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "the worker closed the connection",
+            ));
         }
         let (used, done) = match available.iter().position(|b| *b == b'\n') {
             Some(at) => (at + 1, true),
@@ -348,7 +353,10 @@ fn read_json(reader: &mut BufReader<Box<dyn Duplex>>) -> io::Result<Value> {
         reader.consume(used);
         total += used;
         if total > wire::MAX_LINE {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "the worker's answer is too long"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "the worker's answer is too long",
+            ));
         }
         if done {
             return serde_json::from_slice(&buf)
@@ -496,12 +504,14 @@ impl<D: Daemon> Caller<D> {
                 },
             },
             // `status` still answers with Computer Use off: that is its status.
-            Err(Outcome::Off(reason)) if name == "status" => Outcome::Output(ToolOutput::ok(json!({
-                "engine": "cmux Computer Use",
-                "mode": "off",
-                "reason": reason,
-                "settings": "Settings > Computer Use",
-            }))),
+            Err(Outcome::Off(reason)) if name == "status" => {
+                Outcome::Output(ToolOutput::ok(json!({
+                    "engine": "cmux Computer Use",
+                    "mode": "off",
+                    "reason": reason,
+                    "settings": "Settings > Computer Use",
+                })))
+            }
             Err(outcome) => outcome,
         }
     }
@@ -541,7 +551,11 @@ impl<D: Daemon> Caller<D> {
                         }
                         EndpointState::Off(reason) => return Err(Outcome::Off(reason)),
                         EndpointState::Starting(reason) => {
-                            last = if reason.is_empty() { "the worker is starting".into() } else { reason };
+                            last = if reason.is_empty() {
+                                "the worker is starting".into()
+                            } else {
+                                reason
+                            };
                             None
                         }
                         EndpointState::Unavailable(reason) => {
@@ -553,7 +567,9 @@ impl<D: Daemon> Caller<D> {
                         // A daemon without the command never gets it by waiting.
                         return Err(Outcome::Failed {
                             code: "computer_use_unavailable".into(),
-                            message: format!("cmux could not start Computer Use: {message} ({code})"),
+                            message: format!(
+                                "cmux could not start Computer Use: {message} ({code})"
+                            ),
                         });
                     }
                     Err(e) => {
@@ -601,7 +617,9 @@ impl<D: Daemon> Caller<D> {
                 "machines": [],
                 "note": format!("Only this machine is reachable from here ({message}, {code})."),
             }))),
-            Err(e) => Outcome::Failed { code: "computer_use_unavailable".into(), message: e.to_string() },
+            Err(e) => {
+                Outcome::Failed { code: "computer_use_unavailable".into(), message: e.to_string() }
+            }
         }
     }
 
@@ -624,9 +642,10 @@ impl<D: Daemon> Caller<D> {
                 Ok(data) => {
                     return match data.get("result").and_then(ToolOutput::from_json) {
                         Some(out) => Outcome::Output(out),
-                        None if data["state"] == "off" => {
-                            Outcome::Off(format!("on {machine}: {}", data["reason"].as_str().unwrap_or("off")))
-                        }
+                        None if data["state"] == "off" => Outcome::Off(format!(
+                            "on {machine}: {}",
+                            data["reason"].as_str().unwrap_or("off")
+                        )),
                         None => Outcome::Failed {
                             code: "worker_error".into(),
                             message: format!("{machine} sent a result this cmux cannot read"),

@@ -1481,7 +1481,10 @@ mod help_contract_tests {
         ("integrate-harness skill", include_str!("../../skills/integrate-harness/SKILL.md")),
         ("cmux-acpmux skill", include_str!("../../../../../skills/cmux-acpmux/SKILL.md")),
         ("cmux skill", include_str!("../../../../../skills/cmux/SKILL.md")),
-        ("cmux-computer-use skill", include_str!("../../../../../skills/cmux-computer-use/SKILL.md")),
+        (
+            "cmux-computer-use skill",
+            include_str!("../../../../../skills/cmux-computer-use/SKILL.md"),
+        ),
         ("docs/agent-surfaces.md", include_str!("../../docs/agent-surfaces.md")),
         ("docs/cli-sessions.md", include_str!("../../docs/cli-sessions.md")),
         ("docs/cli-hosts.md", include_str!("../../docs/cli-hosts.md")),

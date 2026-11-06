@@ -110,7 +110,8 @@ where
                 continue;
             }
             other => {
-                let error = json!({"code": -32601, "message": format!("method not found: {other}")});
+                let error =
+                    json!({"code": -32601, "message": format!("method not found: {other}")});
                 let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "error": error})).await;
                 continue;
             }
