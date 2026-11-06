@@ -2,10 +2,11 @@
 // Opening a tool group at the very bottom of a running turn while the agent goes on (Leo,
 // 2026-11-06, on a recording under heavy load: "the entire tool call expansion apparatus is borked",
 // "way too discontinuous"). In his recording a row opened while the list reflowed under it, rows
-// regrouped mid-motion, the jump arrow came up and the view jumped. Here a third command joins the
-// opened group on the fold's third frame, with and without a 6x CPU throttle. On every painted frame:
-// the view stays at its end, the jump arrow stays down, no row is drawn over the next, the opened
-// row only grows and its line only rises. Under load the fold still ends in bounded time.
+// regrouped mid-motion and the view jumped. Here a third command joins the opened group on the fold's
+// third frame, with frames coming steadily and with the main thread held in every frame. An open at
+// the very bottom grows down (Lucas, 2026-11-06, Codex parity; transcript-expand-at-bottom.test.ts),
+// so on every painted frame the clicked line and the view's offset stay on their pixels, no row is
+// drawn over the next and the opened row only grows. Under load the fold still ends in bounded time.
 //
 // Real Chromium from Playwright on the agent pane's gallery scene (ExpandAtBottom.gallery.ts,
 // variant "under-load").
@@ -94,8 +95,8 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
     at: number;
     line: number;
     height: number;
+    scrollTop: number;
     fromEnd: number;
-    jump: boolean;
     overlap: number;
     open: string | null;
     /// The opened row's fold is mid-flight on this frame (its body clipped, `data-fold-clip`).
@@ -148,13 +149,12 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
               let overlap = 0;
               for (let index = 1; index < rows.length; index++)
                 overlap = Math.max(overlap, foot(rows[index - 1]!) - rows[index]!.getBoundingClientRect().top);
-              const jump = document.querySelector<HTMLElement>(".acpmux-jump-latest");
               frames.push({
                 at: performance.now() - start,
                 line: line.getBoundingClientRect().top,
                 height: foot(opened) - opened.getBoundingClientRect().top,
+                scrollTop: scroller.scrollTop,
                 fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
-                jump: jump?.hasAttribute("data-shown") === true,
                 overlap,
                 open: line.getAttribute("aria-expanded"),
                 folding: opened.querySelector("[data-fold-clip]") !== null,
@@ -210,6 +210,7 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
           return {
             line: document.querySelector<HTMLElement>(selector)!.getBoundingClientRect().top,
             height: opened.getBoundingClientRect().height,
+            scrollTop: scroller.scrollTop,
             fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
           };
         },
@@ -225,16 +226,13 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
         console.log(`under-load ${load} before=${JSON.stringify(before)} frames=${JSON.stringify(frames)}`);
       expect(frames.length).toBeGreaterThan(3);
       let height = before.height;
-      let line = before.line;
       for (const [index, frame] of frames.entries()) {
         const at = { load, index, ...frame };
-        expect({ at, end: frame.fromEnd <= 2 }).toEqual({ at, end: true });
-        expect({ at, jump: frame.jump }).toEqual({ at, jump: false });
+        expect({ at, held: Math.abs(frame.line - before.line) <= 1 }).toEqual({ at, held: true });
+        expect({ at, still: Math.abs(frame.scrollTop - before.scrollTop) <= 1 }).toEqual({ at, still: true });
         expect({ at, overlap: frame.overlap <= 1 }).toEqual({ at, overlap: true });
         expect({ at, grows: frame.height >= height - 0.5 }).toEqual({ at, grows: true });
-        expect({ at, rises: frame.line <= line + 0.5 }).toEqual({ at, rises: true });
         height = frame.height;
-        line = frame.line;
       }
       const after = await page.evaluate(
         (row) => ({
