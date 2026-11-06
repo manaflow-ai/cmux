@@ -669,6 +669,37 @@ mod tests {
     }
 
     #[test]
+    fn a_purge_after_an_inflight_snapshot_stays_purged_on_disk() {
+        let (hub, dir) = test_hub();
+        let peer = add_idle_peer(&hub, "builder");
+        hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_delay_ms.store(200, std::sync::atomic::Ordering::SeqCst);
+        let mut listed = remote("m1", "lane");
+        listed["createdAt"] = json!(5);
+        hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(vec![listed]));
+        for _ in 0..100_000 {
+            if hub.cache_test_write_started.load(std::sync::atomic::Ordering::Acquire) {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        assert!(hub.cache_test_write_started.load(std::sync::atomic::Ordering::Acquire));
+
+        let purging = {
+            let hub = hub.clone();
+            let generation = peer.generation;
+            std::thread::spawn(move || hub.forget_remote(("builder", generation), "m1", Some(5)))
+        };
+        purging.join().unwrap();
+        hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+
+        let again = hub_at(dir.path());
+        let restored = add_idle_peer(&again, "builder");
+        again.load_peer_cache(&restored);
+        assert!(again.remote_sessions().is_empty(), "purged row was restored from cache");
+    }
+
+    #[test]
     fn one_peer_cache_write_does_not_block_another_peer() {
         let (hub, _dir) = test_hub();
         let slow = add_idle_peer(&hub, "slow");

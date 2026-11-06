@@ -248,7 +248,12 @@ impl Hub {
                 if let Some(leased) = leased {
                     leased.stop();
                 }
-                self.purge_peer_rows(name);
+                // The lease lock is held here and this peer has no cache. Avoid taking the
+                // per-peer writer, whose workers take the lease lock while saving.
+                let gone = take_peer_rows(&mut self.remote_sessions.lock().unwrap(), name);
+                for summary in gone {
+                    self.announce_remote(name, summary, "purged");
+                }
             }
             self.start_peer(name, &pc)
         };
@@ -448,10 +453,33 @@ impl Hub {
 
     /// Drop every row of peer `name` and tell watching clients they left.
     pub(super) fn purge_peer_rows(&self, name: &str) {
-        let gone = take_peer_rows(&mut self.remote_sessions.lock().unwrap(), name);
+        // Serialize a purge with an in-flight cache snapshot. Otherwise its pre-purge snapshot
+        // could be the last file written before a restart restores the deleted row.
+        let writer = self.peer_cache_writer(name);
+        let (gone, generation) = {
+            let _writer = writer.lock().unwrap_or_else(|e| e.into_inner());
+            let peer = self.peer(name);
+            let leased =
+                self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).contains_key(name);
+            let mut rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let gone = take_peer_rows(&mut rows, name);
+            let generation = (!leased).then(|| peer.as_ref().map(|p| p.generation)).flatten();
+            if !gone.is_empty()
+                && let Some(p) = peer.as_ref().filter(|p| Some(p.generation) == generation)
+            {
+                p.remote_rows_epoch.fetch_add(1, std::sync::atomic::Ordering::Release);
+                p.cache_dirty_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            (gone, generation)
+        };
         // Clients watching the list drop these rows.
-        for summary in gone {
-            self.announce_remote(name, summary, "purged");
+        for summary in &gone {
+            self.announce_remote(name, summary.clone(), "purged");
+        }
+        if !gone.is_empty()
+            && let Some(generation) = generation
+        {
+            self.save_peer_cache(name, generation, false);
         }
     }
 
@@ -1326,30 +1354,46 @@ impl Hub {
     /// is the peer the purge went to: one replaced since (another machine under the name) keeps
     /// its rows and copies.
     pub fn forget_remote(&self, (peer, instance): (&str, u64), mux: &str, generation: Option<u64>) {
-        let mut map = self.remote_sessions.lock().unwrap();
+        // Serialize a remote purge with cache snapshots. A worker that already captured the row
+        // must finish before this mutation, and the mutation must dirty the next cache snapshot.
         if !self.is_current(peer, instance) {
             return;
         }
-        let created = |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
-        let key = map
-            .find_mux(peer, mux)
-            .filter(|(_, r)| created(r) == generation)
-            .map(|(key, _)| key.clone());
-        let removed = key.and_then(|key| map.take(&key));
-        if removed.is_some()
-            && let Some(current) = self.peer(peer).filter(|p| p.generation == instance)
-        {
-            current
-                .remote_purge_fences
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(mux.to_owned());
-            current.remote_rows_epoch.fetch_add(1, std::sync::atomic::Ordering::Release);
-        }
-        // Its event snapshot goes with it (`peer_snapshot.rs`), before the lock does. A purge that
-        // names no generation and found no such row removes no copy of another.
-        if generation.is_some() || removed.is_some() {
-            self.peer_snapshots.gone(peer, mux, generation);
+        let writer = self.peer_cache_writer(peer);
+        let removed = {
+            let _writer = writer.lock().unwrap_or_else(|e| e.into_inner());
+            let mut map = self.remote_sessions.lock().unwrap();
+            if !self.is_current(peer, instance) {
+                return;
+            }
+            let created = |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
+            let key = map
+                .find_mux(peer, mux)
+                .filter(|(_, r)| created(r) == generation)
+                .map(|(key, _)| key.clone());
+            let removed = key.and_then(|key| map.take(&key));
+            if removed.is_some()
+                && let Some(current) = self.peer(peer).filter(|p| p.generation == instance)
+            {
+                current
+                    .remote_purge_fences
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(mux.to_owned());
+                current.remote_rows_epoch.fetch_add(1, std::sync::atomic::Ordering::Release);
+                current.cache_dirty_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            // Its event snapshot goes with it (`peer_snapshot.rs`), before the lock does. A purge
+            // that names no generation and found no such row removes no copy of another.
+            if generation.is_some() || removed.is_some() {
+                self.peer_snapshots.gone(peer, mux, generation);
+            }
+            removed
+        };
+        if removed.is_some() {
+            // A purge is a final row mutation for this generation: persist it after the writer
+            // gate makes any older in-flight snapshot finish, even inside the throttle interval.
+            self.save_peer_cache(peer, instance, true);
         }
     }
 
