@@ -114,12 +114,14 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
     );
 
   describe("Session Info's six-dot handles", () => {
-    test("every section has one", () => {
+    test("every section but the pinned Environment has one", () => {
       // Counted against the sections the full gallery draws, so a new section (Sources, #25208)
-      // needs no edit here.
+      // needs no edit here. Environment heads the panel and never moves, so it has no grip (Lucas,
+      // 2026-11-06: "the re order icon feels a bit weird here"; sectionOrder.ts PINNED_TOP).
       const sections = markup.match(/<section class="acpmux-session-info-section"/g)?.length ?? 0;
-      expect(sections).toBeGreaterThanOrEqual(8);
-      expect(markup.match(/acpmux-session-info-section__handle/g)?.length).toBe(sections);
+      const pinned = markup.includes('data-section="environment"') ? 1 : 0;
+      expect(sections).toBeGreaterThanOrEqual(6);
+      expect(markup.match(/acpmux-session-info-section__handle/g)?.length).toBe(sections - pinned);
     });
 
     test("before any hover the panel's pixels are the panel's without them", async () => {
@@ -143,57 +145,26 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
       }
     });
 
-    // Since #27570 the section list owns the spacing (sessionInfo.css): one gap between any two
-    // sections of a block, About's included, and one larger gap between blocks with the hairline
-    // centred in it. Since Leo's "there's a bit too big of a gap between sections" (2026-11-04) those
-    // are `--grid-base` 4 inside a block and `--grid-gap-inner` 12 between blocks, tighter than the
-    // transcript's 12 and 24. Before the grid it was 6px inside a block, none inside About, and 8px,
-    // a hairline, 8px between blocks.
-    test("the default order draws the blocks: the inner gap inside a block, the block gap with a hairline between", async () => {
+    // Since #27570 the section list owns the spacing (sessionInfo.css). The lean panel (Lucas, 2026-11-05,
+    // Session Info lab) has no blocks and no hairlines: one grid gap between every two items of the list,
+    // the Show more line included.
+    test("the default order draws one grid gap between every two sections, and no hairline", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
         await show(page, { grid: true });
         const geometry = await page.evaluate(() => {
-          const box = (id: string) => document.querySelector(`[data-slot="${id}"]`)!.getBoundingClientRect();
-          const rule = (id: string) => {
-            const before = getComputedStyle(document.querySelector(`[data-slot="${id}"]`)!, "::before");
-            return before.content !== "none";
-          };
-          // The default order (sectionOrder.ts DEFAULT_ORDER): the machine, Context and Usage (#28773),
-          // what it runs, then Sources and what it made, then Connectors.
-          const ruled = [
-            "environment",
-            "context",
-            "usage",
-            "subagents",
-            "tasks",
-            "sources",
-            "changes",
-            "outputs",
-            "connectors",
-          ];
+          const slots = [...document.querySelectorAll(".acpmux-session-info-sections > [data-slot]")];
           return {
-            inner: [
-              box("context").top - box("environment").bottom,
-              box("usage").top - box("context").bottom,
-              box("tasks").top - box("subagents").bottom,
-              box("changes").top - box("sources").bottom,
-              box("outputs").top - box("changes").bottom,
-            ],
-            between: [
-              box("subagents").top - box("usage").bottom,
-              box("sources").top - box("tasks").bottom,
-              box("connectors").top - box("outputs").bottom,
-            ],
-            rules: ruled.map(rule),
+            count: slots.length,
+            gaps: slots
+              .slice(1)
+              .map((slot, index) => slot.getBoundingClientRect().top - slots[index]!.getBoundingClientRect().bottom),
+            rules: slots.filter((slot) => getComputedStyle(slot, "::before").content !== "none").length,
           };
         });
-        const inner = gridLength("base");
-        for (const gap of geometry.inner) expect(gap).toBeCloseTo(inner, 1);
-        // The hairline is drawn inside the block gap (absolutely placed), so it adds no height.
-        for (const gap of geometry.between) expect(gap).toBeCloseTo(gridLength("gap-inner"), 1);
-        // The hairline over the first section of each block but the first, and nowhere else.
-        expect(geometry.rules).toEqual([false, false, false, true, false, true, false, false, true]);
+        expect(geometry.count).toBeGreaterThanOrEqual(5);
+        for (const gap of geometry.gaps) expect(gap).toBeCloseTo(gridLength("gap"), 1);
+        expect(geometry.rules).toBe(0);
       } finally {
         await page.close();
       }
@@ -237,7 +208,7 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             // Before the head's icon column: one grid gap (the head's padding) into the section.
             beforeIconColumn: handle.right <= section.left + 8.5,
             leftOfTitle: handle.right <= title.left,
-            titleAtTextColumn: Math.round(title.left - section.left),
+            titleAtIconColumn: Math.round(title.left - section.left),
           };
         });
         expect(inside).toEqual({
@@ -245,9 +216,9 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
           clearOfScrollbar: true,
           beforeIconColumn: true,
           leftOfTitle: true,
-          // design/grid.md section 3: text = lead + box + 8 (8 + 16 + 8); a head without an icon still
-          // starts its title on that column (#27570).
-          titleAtTextColumn: 32,
+          // The heads have no icon, and the title starts on the rows' icon column: the head's leading
+          // padding, one grid gap (Lucas, 2026-11-05, Session Info lab).
+          titleAtIconColumn: 8,
         });
       } finally {
         await page.close();
@@ -255,9 +226,10 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
     });
 
     // Leo, 2026-11-04, of the grip centred on the Subagents head's left edge, half on its pill and half
-    // off: "this is off". On every head the dots sit wholly inside the pill, on its middle line, and
-    // left of the icon (Context's) or the title, with about the same gap to the pill's edge as to it.
-    test("a head's grip sits inside its pill, on its middle line, with an even gap", async () => {
+    // off: "this is off". Lucas, 2026-11-05, Session Info lab: the grip "looks strange and poorly
+    // positioned" inside the pill. On every head the dots, two columns of three, sit wholly in the body's
+    // left gutter left of the pill, on its middle line, clear of the title.
+    test("a head's grip sits in the gutter left of its pill, on its middle line", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
         await show(page, { grid: true });
@@ -280,32 +252,14 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
                   ),
                 )
               : trigger.querySelector(".acpmux-session-info-section__title")!.getBoundingClientRect().left;
-            const gapToEdge = dots.left - pill.left;
-            const gapToNext = nextLeft - dots.right;
             return {
-              inside: gapToEdge >= 0.5,
-              beforeNext: gapToNext >= 0.5,
+              inGutter: dots.right <= pill.left + 0.5,
+              beforeNext: nextLeft - dots.right >= 0.5,
               onMiddleLine: Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) <= 0.5,
-              wide: dots.width > dots.height,
-              gapToEdge,
-              gapToNext,
+              tall: dots.height > dots.width,
             };
           }, head);
-          expect({
-            id,
-            inside: fit.inside,
-            beforeNext: fit.beforeNext,
-            onMiddleLine: fit.onMiddleLine,
-            wide: fit.wide,
-          }).toEqual({
-            id,
-            inside: true,
-            beforeNext: true,
-            onMiddleLine: true,
-            wide: true,
-          });
-          // Context's icon is the tight case: the room left of it is shared about evenly.
-          if (id === "context") expect(Math.abs(fit.gapToEdge - fit.gapToNext)).toBeLessThanOrEqual(1);
+          expect({ id, ...fit }).toEqual({ id, inGutter: true, beforeNext: true, onMiddleLine: true, tall: true });
         }
       } finally {
         await page.close();

@@ -208,7 +208,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       ? { snapshot: structuredClone(snapshot), machineName: "This Mac", workflowLabs: state.workflowLabs }
       : undefined;
   if (initialChat) {
-    const { applyPaneTheme, applyPaneThemeCSS } = await import("../../agent-session/acpmux/App");
+    const { applyPaneTheme, applyPaneThemeCSS } = await import("../../agent-session/acpmux/paneTheme");
     const { setSessionStatus } = await import("../../agent-session/acpmux/sessionStatus");
     applyPaneTheme({ ...context.agentTheme, ...state.theme });
     applyPaneThemeCSS(agentPaneFontCSS(context.env.fontFamily, context.env.fontSize));
