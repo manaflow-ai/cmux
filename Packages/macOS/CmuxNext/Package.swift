@@ -58,6 +58,7 @@ import PackageDescription
 //     launch, v2 helper and its disclaimed spawner, signed Unix peer checks, the cua helper manifest
 //     reader; setup stays in the App)
 //   CmuxNextHistory -> Design, Icons (history model, SQLite visit log, cmux://history page; no daemon)
+//   CmuxNextHistoryDaemon -> Daemon, History, Wakeups (the daemon history module's client, `history-v1`)
 //   CmuxNextStash -> Compat, Daemon, DaemonService, History (Stash on this Mac's daemon: the Stashed
 //     page's source; the App answers StashHost)
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
@@ -348,6 +349,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextNowPlaying",
                 "CmuxNextFloating",
                 "CmuxNextStash",
+                "CmuxNextHistoryDaemon",
                 // The window focus rules (cmux-focus-core) run in-process over the app FFI.
                 "CCmuxAppFFI",
             ],
@@ -407,6 +409,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Stash (a native OneTab, cx-rws36): the Stashed page's source on this Mac's daemon.
         // The App only answers `StashHost`.
+        // The daemon history module's client (`history-v1`): visits, entries, clearing.
+        .target(
+            name: "CmuxNextHistoryDaemon",
+            dependencies: ["CmuxNextDaemon", "CmuxNextHistory", "CmuxNextWakeups"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextStash",
             dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextHistory"],
@@ -1811,6 +1819,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHangReports",
                 "CmuxNextHibernation",
                 "CmuxNextHistory",
+                "CmuxNextHistoryDaemon",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHostedChief",

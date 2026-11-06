@@ -120,15 +120,17 @@ final class ClassicUpgradeSimulator {
     ///   - ssh: the daemon for an SSH destination (default: none connects).
     ///   - documentRemote: wraps the home daemon's sidebar document remote (a test holds its replies).
     ///   - tap: relays the app's daemon connection and counts its commands (``Launch/treeReads``).
+    ///   - shell: the daemon's `SHELL`, the program each terminal runs.
     init(mac: Mac, ssh: (@MainActor (String) throws -> DaemonService)? = nil,
-         documentRemote: (@MainActor (any SidebarDocRemote) -> any SidebarDocRemote)? = nil, tap: DaemonCommandTap? = nil) throws {
+         documentRemote: (@MainActor (any SidebarDocRemote) -> any SidebarDocRemote)? = nil, tap: DaemonCommandTap? = nil,
+         shell: String = "/bin/sh") throws {
         self.mac = mac
         self.tap = tap
         let binary = try #require(SameTreeDaemonBinary.url)
         launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-upgrade-\(UUID().uuidString.prefix(8).lowercased())",
                                  stateDirectory: mac.root.appendingPathComponent("state")),
-            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": shell, "TERM": "xterm-256color"] })
         _ = NSApplication.shared
         services = AppServices(environment: AppEnvironment.current([:]))
         if let documentRemote {

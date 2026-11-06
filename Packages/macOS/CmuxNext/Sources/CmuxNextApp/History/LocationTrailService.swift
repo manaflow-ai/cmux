@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -241,9 +242,12 @@ final class LocationTrailService {
         trail.list(direction, scope: scope, isAvailable: isAvailable)
     }
 
-    /// The headed right-click / long-press list under the Debug Settings layout (history.md 4.2c).
+    /// The headed right-click / long-press list under the Debug Settings layout (history.md 4.2c). Listed rows show
+    /// their tabs' current titles: a chat named after its step was recorded is renamed in place (the order stays).
     func menuSections(_ direction: LocationTrailDirection, layout: LocationTrailMenuLayout) -> [LocationTrailMenuSection] {
-        trail.menuSections(direction, scope: scope, layout: layout, isAvailable: isAvailable)
+        let sections = trail.menuSections(direction, scope: scope, layout: layout, isAvailable: isAvailable)
+        guard trail.retitle(sections, liveTitle: liveTitle) else { return sections }
+        return trail.menuSections(direction, scope: scope, layout: layout, isAvailable: isAvailable)
     }
 
     /// Goes to a listed entry (`history.goTo`). False when the index is gone or not focusable.
