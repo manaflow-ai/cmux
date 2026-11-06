@@ -1,0 +1,433 @@
+/* Bookmarks page; the shared base (colors) is shared/pageBase.css, sizes are the type tokens. No
+   blue: selection, hover and drop marks are the foreground at low alpha, panes are separated by
+   hairlines. Every row has one fixed height so the virtual lists place rows on fixed offsets. */
+.bm-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+  container-type: inline-size;
+}
+
+.bm-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px var(--page-edge) 8px;
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.bm-title {
+  flex: none;
+  margin: 0;
+  font-size: var(--text-heading);
+  letter-spacing: var(--text-heading--letter-spacing);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bm-search {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 8px;
+  font-size: var(--text-title);
+  border-radius: 6px;
+  border: 1px solid var(--page-separator);
+  background: transparent;
+  outline: none;
+  user-select: text;
+}
+
+.bm-search:focus {
+  border-color: var(--page-text-3);
+}
+
+.bm-search::placeholder {
+  color: var(--page-text-3);
+}
+
+.bm-more {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--page-text-2);
+}
+
+.bm-more:hover {
+  background: var(--page-hover);
+}
+
+.bm-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The folder tree. */
+.bm-tree-pane {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: clamp(160px, 28%, 240px);
+  min-height: 0;
+  padding: 8px 0 8px calc(var(--page-edge) - 8px);
+  border-inline-end: 1px solid var(--page-separator);
+}
+
+.bm-tree {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-inline-end: 8px;
+  outline: none;
+}
+
+.bm-tree-row {
+  display: flex;
+  align-items: stretch;
+  height: 24px;
+  min-width: 0;
+  border-radius: 6px;
+  color: var(--page-text-2);
+}
+
+.bm-tree-row:hover {
+  background: var(--page-hover);
+}
+
+.bm-tree-row.is-selected {
+  background: var(--page-selection);
+  color: var(--page-text);
+}
+
+/* The whole row is the drop target and the menu's anchor. */
+.bm-tree-cell {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding-inline-end: 8px;
+  border-radius: 6px;
+}
+
+.bm-tree-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bm-chevron {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  color: var(--page-text-3);
+}
+
+.bm-chevron.is-open svg {
+  transform: rotate(90deg);
+}
+
+.bm-chevron.is-leaf svg {
+  visibility: hidden;
+}
+
+:root[dir="rtl"] .bm-chevron:not(.is-open) svg {
+  transform: scaleX(-1);
+}
+
+/* The list. */
+.bm-list-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px calc(var(--page-edge) - 8px) 0;
+}
+
+.bm-list {
+  flex: 1;
+  min-height: 0;
+  padding-bottom: 12px;
+}
+
+.bm-row {
+  display: flex;
+  min-width: 0;
+  border-radius: 6px;
+  outline: none;
+}
+
+.bm-row-cell {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.bm-row:hover {
+  background: var(--page-hover);
+}
+
+.bm-row.selected {
+  background: var(--page-selection);
+}
+
+.bm-row:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--page-text-3);
+}
+
+.bm-row-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bm-row-detail {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  color: var(--page-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.is-compact .bm-row-cell {
+  gap: 4px;
+}
+
+/* The favicon's box is reserved before the icon arrives, so a loaded icon never shifts the title. */
+.bm-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--page-text-3);
+}
+
+.bm-icon img {
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+}
+
+/* A template symbol (a folder's SF Symbol) is a mask in the icon box's color, never an <img>. */
+.bm-icon-mask {
+  width: 100%;
+  height: 100%;
+  background-color: currentColor;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+}
+
+/* Drop marks: a hairline above the row a drop goes before, a tint on the folder it goes into. */
+.bm-row.drop-before {
+  box-shadow: inset 0 2px 0 var(--page-text-2);
+}
+
+.bm-row.drop-into,
+.bm-tree-cell.drop-into {
+  background: var(--page-selection);
+  box-shadow: inset 0 0 0 1px var(--page-text-3);
+}
+
+/* The breadcrumb. In the two-pane layout it shows only when the pane is too narrow for the tree. */
+.bm-crumbs {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 24px;
+  padding: 0 var(--page-edge);
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--page-text-2);
+}
+
+.bm-list-pane > .bm-crumbs {
+  padding: 0 8px;
+}
+
+.bm-crumbs.is-narrow-only {
+  display: none;
+}
+
+.bm-crumb {
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+}
+
+.bm-crumb:hover {
+  background: var(--page-hover);
+}
+
+.bm-crumb[aria-current="location"] {
+  color: var(--page-text);
+  font-weight: 600;
+}
+
+.bm-crumb-separator {
+  padding: 0 4px;
+  color: var(--page-text-3);
+}
+
+@container (max-width: 479px) {
+  .is-two-pane .bm-tree-pane {
+    display: none;
+  }
+
+  .bm-crumbs.is-narrow-only {
+    display: flex;
+  }
+}
+
+.bm-notice {
+  margin: 4px 8px 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--page-separator);
+  color: var(--page-text-2);
+}
+
+.bm-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 48px 16px 0;
+  text-align: center;
+}
+
+.bm-empty-title {
+  font-size: var(--text-title);
+  letter-spacing: var(--text-title--letter-spacing);
+  font-weight: 600;
+  color: var(--page-text-2);
+}
+
+.bm-empty-hint {
+  color: var(--page-text-3);
+}
+
+/* The editor dialog. */
+.bm-editor {
+  width: min(420px, calc(100vw - 32px));
+  padding: 16px 24px;
+}
+
+.bm-editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+}
+
+.bm-editor-title {
+  margin: 0 0 4px;
+  font-size: var(--text-title);
+  letter-spacing: var(--text-title--letter-spacing);
+  font-weight: 600;
+}
+
+.bm-editor-field {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.bm-editor-label {
+  color: var(--page-text-2);
+  text-align: end;
+}
+
+.bm-editor-input {
+  box-sizing: border-box;
+  height: 28px;
+  min-width: 0;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--page-separator);
+  background: transparent;
+  outline: none;
+  user-select: text;
+}
+
+.bm-editor-input:focus {
+  border-color: var(--page-text-3);
+}
+
+.bm-editor-input[aria-invalid="true"] {
+  border-color: var(--page-text-2);
+}
+
+.bm-editor-select {
+  min-width: 0;
+}
+
+.bm-editor-error {
+  min-height: 1.4em;
+  margin: 0;
+  padding-inline-start: 72px;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  color: var(--page-text);
+}
+
+.bm-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.bm-button {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--page-separator);
+  background: transparent;
+  color: var(--page-text);
+}
+
+.bm-button.is-primary {
+  background: var(--page-text);
+  color: var(--page-elevated);
+  border-color: transparent;
+}
+
+.bm-button:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+/* The keycap (ui/DialogButton) reads one step quieter than its button's label, on both fills. */
+.bm-button .ui-keyhint {
+  color: inherit;
+  opacity: 0.6;
+}
