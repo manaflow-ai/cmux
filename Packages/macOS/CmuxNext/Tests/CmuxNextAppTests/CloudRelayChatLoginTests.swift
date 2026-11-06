@@ -403,7 +403,7 @@ struct CloudRelayChatLoginTests {
         #expect(run.steps == [], "\(run.steps)")
         #expect(run.fields["delivered"] == .bool(false) && run.fields["error_code"] == .string("cloud.relay.login_not_connected"))
         guard case .string(let command) = run.fields["command"] else { Issue.record("no recovery command"); return }
-        #expect(command.hasPrefix("cmux cloud start-session --target machine:" + f.machine.machineID), command)
+        #expect(command.hasPrefix("cmux cloud start-session --target machine:" + f.machine.machineID), "\(command)")
     }
 
     /// The person's own run (the palette) sees the same refusal, and nothing is sent.
