@@ -23,7 +23,15 @@ impl Hub {
         if meta.parent_id.is_none() || meta.fork_before.is_some() {
             return Err(RpcError::invalid_params("only a fork can be cancelled"));
         }
-        if self.fork_was_used(fork)? {
+        // Checked and stopped under the lease each prompt is admitted under (`queue.rs`
+        // `queue_slot`), as a conditional stop is (`stop_if_idle.rs`): a prompt admitted first
+        // shows in the check, and one after it waits for the stop and finds the fork closed.
+        let _turn = fork.turn_lock.lock().await;
+        // The fork's agent start (`start_later` in `fork.rs`) holds this shared until its agent
+        // is up and has reported its own session id: that start ends first, so the copy it made
+        // is known below, and none starts after.
+        let using = fork.harness_use.write().await;
+        if fork.queued() > 0 || self.fork_was_used(fork)? {
             return Err(RpcError::invalid_params(
                 "this fork has a prompt of its own, so it is a chat now; delete it instead",
             ));
@@ -31,7 +39,7 @@ impl Hub {
         let (_, harness_env) = self.harness_env(&meta).await;
         // Read before the kill purges the fork's meta from the store.
         let store_env = self.btw_store_env(&meta, &harness_env).await;
-        self.kill(fork, true).await?;
+        self.kill_held(fork, true, using.downgrade()).await?;
         // Its agent may have reported its own session id while it started (Claude's
         // `--fork-session`): read after the kill, which ended that start.
         let Some(copy) = fork.meta().agent_session_id else { return Ok(()) };

@@ -75,6 +75,28 @@ test("a Fork Conversation shows the pending line, not a transcript row, until th
   }
 });
 
+// The line and its Cancel belong to the chat being forked: another chat opened meanwhile shows
+// neither, and going back shows them again (review of #36979).
+test("a pending fork's line shows only in the chat it forks", async () => {
+  const { client, shown, answers } = await forkingClient();
+  const internals = client as unknown as { selectedSessionId?: string; emit(): void };
+  try {
+    const forked = client.fork("live", undefined, true);
+    await Promise.resolve();
+    expect(shown.forkPending).toBeDefined();
+    internals.selectedSessionId = "chat-2";
+    internals.emit();
+    expect(shown.forkPending).toBeUndefined();
+    internals.selectedSessionId = "chat-1";
+    internals.emit();
+    expect(shown.forkPending).toBeDefined();
+    answers[0]!.resolve({ sessionId: "fork-1" });
+    await forked;
+  } finally {
+    client.close();
+  }
+});
+
 // "i shuold be able to cancel a fork probably" (Leo, 2026-11-06): Cancel hides the line at once,
 // the fork's answer opens nothing, and the fork acpmux made is taken back whole.
 test("Cancel on a pending fork opens nothing and takes the fork back", async () => {

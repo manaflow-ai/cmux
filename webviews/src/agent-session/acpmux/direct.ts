@@ -2221,6 +2221,8 @@ export class AcpmuxDirectClient {
   private forkCancelled = false;
   /// When the Fork Conversation `fork` waits on began: the snapshot's `forkPending`.
   private forkPendingSince?: number;
+  /// The chat that fork is of: only its snapshot shows the pending line and its Cancel.
+  private forkPendingFrom?: string;
   private streamingAssistant?: string;
   private streamingAssistantMessageId?: string;
   /// A prompt, steer or notice came while the streaming row's message was still being written: only
@@ -7379,7 +7381,9 @@ export class AcpmuxDirectClient {
       summary: this.publishedSummary(summary, effort, limits),
       connection,
       ...(this.daemonWaitingSince !== undefined ? { daemonWaitingSince: this.daemonWaitingSince } : {}),
-      ...(this.forkPendingSince !== undefined ? { forkPending: { since: this.forkPendingSince } } : {}),
+      ...(this.forkPendingSince !== undefined && this.forkPendingFrom === this.actingSessionId
+        ? { forkPending: { since: this.forkPendingSince } }
+        : {}),
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
@@ -9848,12 +9852,13 @@ export class AcpmuxDirectClient {
     this.forking = true;
     this.forkCancelled = false;
     const generation = this.selectionGeneration;
+    const sessionId = from ?? this.actingSessionId;
     if (stay) {
       this.forkPendingSince = Date.now();
+      this.forkPendingFrom = sessionId;
       this.emit();
     }
     try {
-      const sessionId = from ?? this.actingSessionId;
       const result = await this.request(
         FORK_OP,
         throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq },
@@ -9883,6 +9888,7 @@ export class AcpmuxDirectClient {
     } finally {
       this.forking = false;
       this.forkCancelled = false;
+      this.forkPendingFrom = undefined;
       if (this.forkPendingSince !== undefined) {
         this.forkPendingSince = undefined;
         this.emit();
