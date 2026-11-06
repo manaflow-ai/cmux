@@ -405,3 +405,40 @@ fn a_read_that_a_delete_lands_in_still_reads_the_history() {
     assert_eq!(reading.join().unwrap(), expected(20, 4), "the read lost the history");
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
 }
+
+/// The disk store runs through the event journal since #37118: a fork there is by reference, its
+/// history is written in when its chat goes, and a kill -9 and an open after keep every line of
+/// it once, the history's and its own (review of #37020, F2: the journal store wrote no history,
+/// so every fork copied its chat again).
+#[test]
+fn a_fork_on_the_journal_store_keeps_its_history_through_a_kill() {
+    use cmux_journal::{Crash, SimStorage};
+    let home = tempfile::tempdir().unwrap();
+    let journal = SimStorage::new(64);
+    let config = cmux_journal::Config {
+        retry_min: std::time::Duration::from_millis(1),
+        retry_max: std::time::Duration::from_millis(5),
+        ..cmux_journal::Config::default()
+    };
+    let open = |storage: SimStorage| {
+        crate::store::open_with_journal(
+            &crate::config::StoreConfig::default(),
+            home.path(),
+            std::sync::Arc::new(storage),
+            config.clone(),
+        )
+        .unwrap()
+    };
+    let view = forked(open(journal.clone()), 30, 20, 2);
+    assert!(view.writes_history(), "the journal store writes no history: forks copy theirs");
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 2));
+    view.delete("chat").unwrap();
+    view.append("fork", &record(23, "user_message")).unwrap();
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 3));
+    assert!(view.wait_durable(std::time::Duration::from_secs(10)).unwrap(), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(view);
+    let view = ForkView::new(open(killed));
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 3), "each once");
+    assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
+}

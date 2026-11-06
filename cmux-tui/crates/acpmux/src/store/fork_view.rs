@@ -211,6 +211,40 @@ impl ForkView {
     }
 }
 
+impl ForkView {
+    /// `save` through `write`: a save that names no reference must not undo a materialize the
+    /// hub's copy of the meta has not heard of, so once dropped, a reference never comes back.
+    fn save_with(
+        &self,
+        meta: &SessionMeta,
+        write: impl Fn(&SessionMeta) -> Result<()>,
+    ) -> Result<()> {
+        if meta.history_from.is_none() {
+            write(meta)?;
+            self.note(meta);
+            return Ok(());
+        }
+        let _dropping = self.exclusive();
+        let mut meta = meta.clone();
+        let dropped =
+            self.refs.read().unwrap_or_else(|e| e.into_inner()).dropped.get(&meta.id).copied();
+        if let Some(through) = dropped {
+            meta.history_from = None;
+            meta.history_kept_through = Some(through);
+        } else if let Some(stored) = self.inner.load(&meta.id)?
+            && stored.history_from.is_none()
+            && stored.history_kept_through.is_some()
+        {
+            // Written in by another process (an earlier daemon): its meta on disk says so.
+            meta.history_from = None;
+            meta.history_kept_through = stored.history_kept_through;
+        }
+        write(&meta)?;
+        self.note(&meta);
+        Ok(())
+    }
+}
+
 impl Store for ForkView {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         let metas = self.inner.list()?;
@@ -233,31 +267,12 @@ impl Store for ForkView {
         Ok(meta)
     }
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        // A save that names no reference must not undo a materialize the hub's copy of the meta
-        // has not heard of: once dropped, a reference never comes back.
-        if meta.history_from.is_none() {
-            self.inner.save(meta)?;
-            self.note(meta);
-            return Ok(());
-        }
-        let _dropping = self.exclusive();
-        let mut meta = meta.clone();
-        let dropped =
-            self.refs.read().unwrap_or_else(|e| e.into_inner()).dropped.get(&meta.id).copied();
-        if let Some(through) = dropped {
-            meta.history_from = None;
-            meta.history_kept_through = Some(through);
-        } else if let Some(stored) = self.inner.load(&meta.id)?
-            && stored.history_from.is_none()
-            && stored.history_kept_through.is_some()
-        {
-            // Written in by another process (an earlier daemon): its meta on disk says so.
-            meta.history_from = None;
-            meta.history_kept_through = stored.history_kept_through;
-        }
-        self.inner.save(&meta)?;
-        self.note(&meta);
-        Ok(())
+        self.save_with(meta, |meta| self.inner.save(meta))
+    }
+    /// A draft or a name (`ShowAfter::Written`): the inner store's own kept save, which waits for
+    /// no sync (review of #37020: a draft through the default `save` waited one).
+    fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
+        self.save_with(meta, |meta| self.inner.save_kept(meta))
     }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         self.inner.append(id, record)
