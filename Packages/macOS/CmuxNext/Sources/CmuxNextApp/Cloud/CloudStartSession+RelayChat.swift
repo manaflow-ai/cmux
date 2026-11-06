@@ -87,7 +87,7 @@ extension CloudStartSession {
                 let decided: (code: String, message: String)??
                 do { decided = try await Self.first(within: steps.loginWithin, login); try Self.checked(account, now: now(), asked) } catch let failure as ActionFailure { return refused("cloud.relay.login_account_changed", failure.message) }
                 guard let refusal = decided else { return refused("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(asked)) }
-                if let refusal { let reason = machine.harnessLogin?.reason; return refused(refusal.code, refusal.message).merging(["command": .string(asked.command + (reason == .needsLoginChoice ? " --login none" : ""))].merging(reason.map { ["login_reason": .string($0.rawValue)] } ?? [:]) { $1 }) { $1 } }
+                if let refusal { let reason = machine.harnessLogin?.reason; return refused(refusal.code, refusal.message).merging(["command": .string(asked.command + ([.needsLoginChoice, .machineLoginMissing].contains(reason) ? " --login none" : ""))].merging(reason.map { ["login_reason": .string($0.rawValue)] } ?? [:]) { $1 }) { $1 } }
                 let answer = try await relay.answer(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd,
                                                     promptID: promptID, within: CloudHandlers.answerWithin - (clock.now - begun))
                 return relayFields(answer, machineID: machineID)
@@ -104,10 +104,10 @@ extension CloudStartSession {
         guard ownership == .owner else { return ("cloud.relay.login_unverified", CloudStartSessionStrings.relayLoginUnverified(asked)) }
         guard let decision else { return nil }
         if let reason = decision.refusal { return ("cloud.relay.login_refused", CloudStartSessionStrings.loginRefused(reason, asked)) }
-        // No login copied to a machine that needs one: none cached on this Mac, or the person said no to the copy of the
-        // one it holds (the confirm, or Release's one-time consent: both come only after the cache check).
+        // No login copied to a machine that needs one: none cached on this Mac, or the person said no to its copy (the confirm or Release's consent, after the cache check).
         if decision.outcome == CloudStartChat.loginDeclined { return ("cloud.relay.login_declined", CloudStartSessionStrings.relayLoginDeclined(asked)) }
         if CloudStartChat.signInOnMachine.contains(decision.outcome) { return ("cloud.relay.login_missing", CloudStartSessionStrings.relayLoginMissing(asked)) }
+        if decision.outcome == CloudStartChat.loginCancelled { return ("cloud.relay.login_cancelled", CloudStartSessionStrings.relayLoginPending(asked)) } // its step never finished
         if let outcome = decision.outcome, outcome.hasPrefix(CloudStartChat.loginFailed) {
             return ("cloud.relay.login_failed", CloudStartSessionStrings.relayLoginFailed(asked, reason: Self.reason(String(outcome.dropFirst(CloudStartChat.loginFailed.count)))))
         }

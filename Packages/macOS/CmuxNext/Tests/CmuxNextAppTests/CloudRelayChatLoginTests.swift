@@ -179,6 +179,27 @@ struct CloudRelayChatLoginTests {
         #expect(command.hasPrefix("cmux cloud start-session --target machine:vm_") && command.hasSuffix(" --agent claude --login none"), "\(command)")
     }
 
+    /// A login step cancelled before it finished (``CloudStartChat/loginCancelled``): the machine may have no login, so nothing
+    /// is sent, with a typed code and the start-session command that runs the step to its end (review23 F1 at a54d3d18).
+    @Test func aCancelledLoginSendsNothing() async throws {
+        let run = try await Self.relayChat(Self.decision(outcome: CloudStartChat.loginCancelled))
+        #expect(run.steps == ["login"], "a cancelled login was sent")
+        let fields = try Self.fields(run.result)
+        #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_cancelled"))
+        #expect(fields["command"].map { "\($0)".contains("cmux cloud start-session --target machine:") } == true)
+    }
+
+    /// `--login machine` on a machine with no login of its own: the recovery is `--login none` (the chat's Sign in to Claude
+    /// card), never the same command, which a kept `machine` choice refuses again (review23 F2).
+    @Test func aMissingMachineLoginRecoversWithLoginNone() async throws {
+        let missing = Self.decision(requested: .machine, outcome: nil)
+        try #require(missing.refusal == .machineLoginMissing)
+        let fields = try Self.fields(try await Self.relayChat(missing).result)
+        #expect(fields["error_code"] == .string("cloud.relay.login_refused") && fields["login_reason"] == .string("machine-login-missing"))
+        guard case .string(let command) = fields["command"] else { Issue.record("no recovery command: \(fields)"); return }
+        #expect(command.hasSuffix(" --login none"), "\(command)")
+    }
+
     /// The person said no to the copy, on a machine with no login: nothing is sent.
     @Test func aDeclinedCopySendsNothing() async throws {
         let run = try await Self.relayChat(Self.decision(outcome: CloudStartChat.loginDeclined))
