@@ -113,7 +113,7 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
     }
 
     private func configure(_ configuration: WorkerConfiguration) {
-        guard lock.withLock({ engine == nil }) else {
+        guard lock.withLock({ self.engine == nil }) else {
             logger.error("Computer Use worker: configured twice; ignored")
             return
         }
