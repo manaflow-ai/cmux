@@ -4,8 +4,9 @@
 # (cmux-remote-dev.pin.json; docs/cmux-remote.md) at
 #   Contents/Library/cmux Remote (dev).app
 # of a DEV build, where its cmux-tui daemon finds it, copies it outside the app
-# and starts it. Run from the "Embed Computer Use helper (dev)" phase
-# (embed-cua-helper-dev.sh). The bytes are never re-signed (cmux Remote's code
+# and starts it; its Computer Use worker hosts libcmux_computer_use.dylib from
+# its Frameworks. Run from the cmux-next target's "Embed cmux Remote (dev)"
+# phase. The bytes are never re-signed (cmux Remote's code
 # identity, and so its macOS grants, must stay the same across builds).
 # Release embeds nothing here. An unavailable pin warns and embeds nothing
 # unless CMUX_NEXT_REQUIRE_CMUX_REMOTE=1; a sha256 mismatch fails the build.
@@ -50,5 +51,7 @@ mkdir -p "$(dirname "$stamp")"
 if find "$dest" -name "*.framework" -type d | grep -q .; then
   rm -rf "$dest"; echo "error: cmux Remote must ship no nested .framework (build-cmux-remote-dev.sh)" >&2; exit 1
 fi
+[[ -f "$dest/Contents/Frameworks/libcmux_computer_use.dylib" ]] ||
+  { rm -rf "$dest"; echo "error: the pinned cmux Remote has no libcmux_computer_use.dylib (built before the Computer Use engine; rebuild it with build-cmux-remote-dev.sh)" >&2; exit 1; }
 echo "$want" > "$stamp"
 echo "note: embedded cmux Remote (dev) sha256 $want"

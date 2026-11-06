@@ -12,7 +12,6 @@ import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
 import CmuxNextCloud
 import CmuxNextCompat
-public import CmuxNextComputerUse
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
@@ -287,10 +286,6 @@ final class AppServices {
     }()
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
-    /// The live preview card of computer use in agent chats (`computerUse.livePreview`); its live
-    /// view runs only while the person can see the chat's page.
-    private(set) lazy var computerUsePreview = ComputerUseLivePreview(
-        host: self, sight: ComputerUsePreviewViewSight { [weak self] in self?.agentTabs.views[$0] })
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
     private(set) lazy var screenshotsPage = ScreenshotsPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
@@ -356,9 +351,11 @@ final class AppServices {
         overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
-    /// Share Screen with Chief (docs/chief-screen-share.md), read by the Computer Use helper; journal in `optchat/screen`.
+    /// Share Screen with Chief (docs/chief-screen-share.md); journal in `optchat/screen`. Its capture
+    /// host went with the cmux Computer Use helper: until cmux Remote serves screen stills, the
+    /// share reports itself unavailable (``ChiefScreenStillsUnavailable``).
     lazy var chiefScreenShare = ChiefScreenShare(
-        capture: ChiefScreenHelperCapture(host: ComputerUseScreenStills(helper: .shared)),
+        capture: ChiefScreenHelperCapture(host: ChiefScreenStillsUnavailable()),
         journal: ChiefScreenJournal(directory: ChiefHome.resolve(tag: environment.tag).muxHome.appending(path: "optchat/screen", directoryHint: .isDirectory)))
     /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
     let browserNativeInputs = BrowserNativeInputs()
@@ -930,4 +927,3 @@ extension AppServices {
     }
 }
 
-nonisolated extension ComputerUseScreenStills: ChiefScreenCaptureHost {}

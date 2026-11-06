@@ -164,7 +164,7 @@
 				CE7A00000000000000000044 /* Bundle cmux-mobile-host */,
 				CE7A00000000000000000017 /* Embed CEF */,
 				CE7A00000000000000000041 /* Embed remote browser host */,
-				CE7A00000000000000000042 /* Embed Computer Use helper (dev) */,
+				CE7A00000000000000000042 /* Embed cmux Remote (dev) */,
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
 				CE7A00000000000000000031 /* Bundle server helper */,
 				CE7A00000000000000000043 /* Bundle MediaRemote adapter */,
@@ -653,7 +653,7 @@
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/embed-remote-browser-host.sh\"\n";
 		};
-		CE7A00000000000000000042 /* Embed Computer Use helper (dev) */ = {
+		CE7A00000000000000000042 /* Embed cmux Remote (dev) */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -662,30 +662,29 @@
 			);
 
 			inputPaths = (
-				"$(SRCROOT)/scripts/cmux-next/embed-cua-helper-dev.sh",
-				"$(SRCROOT)/scripts/cmux-next/cua-helper-dev.pin.json",
+				"$(SRCROOT)/scripts/cmux-next/embed-cmux-remote-dev.sh",
 				"$(SRCROOT)/scripts/cmux-next/ensure-cua-pinned-asset.sh",
 				"$(SRCROOT)/scripts/cmux-next/cef-cache-root.sh",
 				"$(SRCROOT)/scripts/ci/macho_minos.py",
-				"$(CMUX_NEXT_CUA_HELPER_PIN)",
-				"$(CMUX_NEXT_SKIP_CUA_HELPER)",
-				"$(CMUX_NEXT_REQUIRE_CUA_HELPER)",
+				"$(CMUX_NEXT_CMUX_REMOTE_PIN)",
+				"$(CMUX_NEXT_SKIP_CMUX_REMOTE)",
+				"$(CMUX_NEXT_REQUIRE_CMUX_REMOTE)",
 				"$(ARCHS)",
 				"$(MACOSX_DEPLOYMENT_TARGET)",
 				"$(CONFIGURATION)",
 				"$(CMUX_CUA_ASSET_CACHE_DIR)",
 				"$(CMUX_CUA_ASSET_FILE)",
 			);
-			name = "Embed Computer Use helper (dev)";
+			name = "Embed cmux Remote (dev)";
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/cmux Computer Use (dev).app",
-				"$(TARGET_TEMP_DIR)/embed-cua-helper-dev.stamp",
+				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/cmux Remote (dev).app",
+				"$(TARGET_TEMP_DIR)/embed-cmux-remote-dev.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/embed-cua-helper-dev.sh\"\n";
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/embed-cmux-remote-dev.sh\"\n";
 		};
 		CE7A00000000000000000018 /* Bundle Ghostty resources */ = {
 			isa = PBXShellScriptBuildPhase;

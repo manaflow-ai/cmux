@@ -6,9 +6,9 @@ import Foundation
 import Testing
 
 /// Focus Computer Use, Focus Calling Terminal and Stop Computer Use (`computerUseFocus`,
-/// `computerUseFocusCallingTerminal`, `computerUseStop`; File menu, `cmux agent ...`): each acts
-/// on the newest live session the CUA host lists (`activity_sessions_list`), as classic's menu bar
-/// item acted on its first row. They are working actions, not rows disabled forever.
+/// `computerUseFocusCallingTerminal`, `computerUseStop`; File menu, `cmux agent ...`): the focus
+/// actions act on the newest live session the host lists, as classic's menu bar item acted on its
+/// first row; Stop ends every session. They are working actions, not rows disabled forever.
 @MainActor @Suite(.serialized)
 struct ComputerUseSessionActionsTests {
     /// A CUA host with canned live sessions that records each stop.
@@ -16,12 +16,17 @@ struct ComputerUseSessionActionsTests {
         var sessions: [ComputerUseLiveSession]
         var failure: ComputerUseSessionError?
         private(set) var stopped: [String] = []
+        private(set) var stoppedAll = 0
         init(_ sessions: [ComputerUseLiveSession]) { self.sessions = sessions }
         func liveSessions() async throws -> [ComputerUseLiveSession] {
             if let failure { throw failure }
             return sessions
         }
         func stop(_ id: String) async throws { stopped.append(id) }
+        func stopAll() async throws {
+            if let failure { throw failure }
+            stoppedAll += 1
+        }
     }
 
     /// Records what the actions bring forward.
@@ -93,11 +98,14 @@ struct ComputerUseSessionActionsTests {
         #expect(sessions[0].target?.pid == 42)
     }
 
-    @Test func stopStopsTheNewestLiveSession() async {
-        let sessions = FakeSessions([Self.older, Self.newer])
+    /// Stop ends every session, whether or not the host lists them.
+    @Test(arguments: [[], [ComputerUseSessionActionsTests.older, ComputerUseSessionActionsTests.newer]])
+    func stopStopsEverySession(_ live: [ComputerUseLiveSession]) async {
+        let sessions = FakeSessions(live)
         let registry = Self.registry(sessions, FakeFocus())
         #expect(await Self.run("computerUseStop", registry) == nil)
-        #expect(sessions.stopped == ["cua_new"])
+        #expect(sessions.stoppedAll == 1)
+        #expect(sessions.stopped.isEmpty)
     }
 
     @Test func focusComputerUseRaisesTheNewestSessionsTarget() async {
@@ -114,8 +122,8 @@ struct ComputerUseSessionActionsTests {
         #expect(focus.revealedTerminals == ["term_new"])
     }
 
-    @Test(arguments: ["computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"])
-    func withNoLiveSessionEachActionSaysSo(id: String) async {
+    @Test(arguments: ["computerUseFocus", "computerUseFocusCallingTerminal"])
+    func withNoLiveSessionEachFocusActionSaysSo(id: String) async {
         let sessions = FakeSessions([])
         let registry = Self.registry(sessions, FakeFocus())
         #expect(await Self.run(ActionID(rawValue: id), registry) == ComputerUseSessionStrings.noLiveSession)
@@ -141,6 +149,6 @@ struct ComputerUseSessionActionsTests {
         sessions.failure = .notRunning(ComputerUseSessionStrings.off)
         let registry = Self.registry(sessions, FakeFocus())
         #expect(await Self.run("computerUseStop", registry) == ComputerUseSessionStrings.off)
-        #expect(sessions.stopped.isEmpty)
+        #expect(sessions.stoppedAll == 0)
     }
 }

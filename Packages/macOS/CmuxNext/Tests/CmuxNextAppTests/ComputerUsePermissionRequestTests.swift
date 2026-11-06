@@ -15,7 +15,6 @@ import Testing
         var shown = 0
         let setup = ComputerUseSetup(
             inputs: { .init(disabledByPolicy: false, enabled: false, helper: .off) },
-            configuration: { nil },
             openURL: { opened.append($0) },
             requestPermission: { requested.append($0) },
             enableSetting: { enabled += 1 }
@@ -33,37 +32,12 @@ import Testing
         #expect(opened == [ComputerUseSetup.settingsURL(pane)].compactMap { $0 })
     }
 
-    /// The window reads the legacy helper's grants only: under the helper v2, Continue asks for the
-    /// card's grant directly and opens its list, with no window.
-    @Test(arguments: [PermissionKind.accessibility, .screenRecording, .computerUse])
-    func upstreamContinueRequestsTheGrantWithoutTheWindow(_ kind: PermissionKind) {
-        var requested: [ComputerUsePermissionPane] = []
-        var opened: [URL] = []
-        var shown = 0
-        let setup = ComputerUseSetup(
-            inputs: { .init(disabledByPolicy: false, enabled: true, helper: .off, driver: .upstream) },
-            configuration: { nil },
-            resolveHelper: { _ in nil },
-            openURL: { opened.append($0) },
-            requestPermission: { requested.append($0) }
-        )
-        setup.start()
-        let opener = SystemPermissionOpener(setup: setup, showComputerUse: { shown += 1 }, openURL: { opened.append($0) })
-        opener.open(kind, target: nil)
-        let pane: ComputerUsePermissionPane = kind == .screenRecording ? .screenRecording : .accessibility
-        #expect(shown == 0)
-        #expect(requested == [pane])
-        #expect(opened == [ComputerUseSetup.settingsURL(pane)].compactMap { $0 })
-    }
-
-    /// The card hides after Continue only when the Computer Use window took over: under the
-    /// upstream driver no window opens, so the card must keep guiding the grant.
-    @Test func theCardStepsAsideOnlyWhenTheWindowGuides() {
+    /// The card hides after Continue because the Computer Use window takes over cmux Remote's grants.
+    @Test func theCardStepsAsideForComputerUseKinds() {
         for kind in [PermissionKind.accessibility, .screenRecording, .computerUse] {
-            #expect(SystemPermissionOpener.guidesInWindow(kind, driver: .legacy))
-            #expect(!SystemPermissionOpener.guidesInWindow(kind, driver: .upstream))
+            #expect(SystemPermissionOpener.guidesInWindow(kind))
         }
-        #expect(!SystemPermissionOpener.guidesInWindow(.fullDiskAccess, driver: .legacy))
+        #expect(!SystemPermissionOpener.guidesInWindow(.fullDiskAccess))
     }
 
     @Test func launchAndStatusNeverRequestGrantsButSetupRequestsOnlyTheClickedGrant() {
@@ -71,7 +45,6 @@ import Testing
         var opened: [URL] = []
         let setup = ComputerUseSetup(
             inputs: { .init(disabledByPolicy: false, enabled: true, helper: .off) },
-            configuration: { nil },
             openURL: { opened.append($0) },
             requestPermission: { requested.append($0) }
         )

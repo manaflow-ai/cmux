@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Signs the unsigned "cmux Remote (dev).app" (build-cmux-remote-dev.sh) with an
-# Apple Development identity from this Mac's keychain (hardened runtime; the
-# dylib and libWebRTC.dylib get the same team signature, so library
+# Apple Development identity from this Mac's keychain (hardened runtime;
+# libcmux_computer_use.dylib and libWebRTC.dylib get the same team signature, so library
 # validation holds), verifies it against the designated requirement the
 # cmux-tui daemon checks (identifier com.cmuxterm.remote.dev, cmux's team), and
 # writes the signed zip and its pin cmux-remote-dev.pin.json. Every DEV build
@@ -12,7 +12,9 @@
 #
 #   sign-cmux-remote-dev.sh UNSIGNED.zip [--identity NAME] [--keychain PATH] [--timestamp] [--out DIR]
 #
-# --identity, --keychain and --timestamp work as in sign-cua-helper-dev.sh: CI
+# --identity NAME picks the certificate (default: the keychain's first Apple
+# Development one), --keychain PATH reads it from that keychain, --timestamp
+# asks Apple's time stamp server: CI
 # signs with the Developer ID certificate from a temporary keychain and Apple's
 # time stamp; the pin's "signing" field records the certificate kind.
 #
@@ -44,7 +46,7 @@ app="$work/cmux Remote (dev).app"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == com.cmuxterm.remote.dev ]] ||
   { echo "error: unexpected bundle id" >&2; exit 1; }
 sign() { codesign --force --options runtime "$timestamp" ${keychain[@]+"${keychain[@]}"} --sign "$identity" "$@"; }
-sign "$app/Contents/Frameworks/libcua_driver_sdk.dylib"
+sign "$app/Contents/Frameworks/libcmux_computer_use.dylib"
 sign "$app/Contents/Frameworks/libWebRTC.dylib"
 sign "$app"
 team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"

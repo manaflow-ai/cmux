@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Fetches, verifies and caches one pinned cmux Computer Use helper v2 input
-# (cua-driver-sdk.pin.json or cua-helper-dev.pin.json, written by
-# publish-cua-pinned-asset.sh) and prints its cached path on stdout.
+# Fetches, verifies and caches one pinned signed asset (cmux-remote-dev.pin.json,
+# the Apple Development signed cmux Remote (dev).app written by
+# sign-cmux-remote-dev.sh and published by publish-cua-pinned-asset.sh) and
+# prints its cached path on stdout.
 #
 #   ensure-cua-pinned-asset.sh PIN.json [--optional]
 #

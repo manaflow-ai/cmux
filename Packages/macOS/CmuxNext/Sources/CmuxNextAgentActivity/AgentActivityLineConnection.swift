@@ -30,9 +30,8 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
     static let sendTimeout = timeval(tv_sec: 10, tv_usec: 0)
 
     /// Whether the socket's server, read on this connection, may get the
-    /// first frame (nil: no check). The CUA clients pass
-    /// ``CuaHelperIdentity/isHelperServer(_:)``: this user's process running
-    /// the Developer ID signed helper, so an impostor never receives a token.
+    /// first frame (nil: no check). The activity clients pass a check that the
+    /// server is this user's process, so another user's never receives a token.
     let acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)?
     let path: String
 
@@ -55,7 +54,7 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
             if let acceptsServer {
                 let peer = UnixSocketPeer(descriptor: fd)
                 guard let peer, acceptsServer(peer) else {
-                    Self.logger.error("CUA socket \(self.path, privacy: .public): server \(peer?.executablePath ?? "unknown", privacy: .public) is not the signed helper; nothing sent")
+                    Self.logger.error("CUA socket \(self.path, privacy: .public): server \(peer?.executablePath ?? "unknown", privacy: .public) is not an accepted server; nothing sent")
                     return finish()
                 }
             }

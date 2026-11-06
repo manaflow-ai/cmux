@@ -54,9 +54,8 @@ import PackageDescription
 //   CmuxNextFocusUI -> Actions, Design (AppKit overlays of keys: the shortcut hint overlay and capture
 //     waiter, the which-key controller, overlay, rows and strings; the focus state machine, key rules
 //     and key delivery stay in the App)
-//   CmuxNextComputerUse -> AgentActivity, Compat, Settings, Wakeups (the macOS Computer Use helper:
-//     launch, v2 helper and its disclaimed spawner, signed Unix peer checks, the cua helper manifest
-//     reader; setup stays in the App)
+//   CmuxNextComputerUse -> Compat (the embedded cmux Remote and the live sessions model; Computer
+//     Use itself runs in cmux Remote's worker; setup stays in the App)
 //   CmuxNextHistory -> Design, Icons (history model, SQLite visit log, cmux://history page; no daemon)
 //   CmuxNextStash -> Compat, Daemon, DaemonService, History (Stash on this Mac's daemon: the Stashed
 //     page's source; the App answers StashHost)
@@ -686,12 +685,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // The macOS Computer Use helper (moved out of CmuxNextApp/ComputerUse): helper
-        // launch, the v2 helper and its disclaimed spawner, the cua helper manifest
-        // reader. Setup (ComputerUseSetup) stays in the App.
+        // Computer Use's app-side models: the embedded cmux Remote (whose worker hosts the cmux
+        // Computer Use engine) and the live sessions the File menu acts on. Setup
+        // (ComputerUseSetup) stays in the App.
         .target(
             name: "CmuxNextComputerUse",
-            dependencies: ["CmuxNextAgentActivity", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat"],
             swiftSettings: uiSwiftSettings
         ),
         // Resource usage for hover cards and `resources` (CPU and memory per

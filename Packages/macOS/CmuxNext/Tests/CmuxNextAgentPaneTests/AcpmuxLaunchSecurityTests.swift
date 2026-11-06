@@ -25,14 +25,12 @@ struct AcpmuxLaunchSecurityTests {
         #expect(!arguments.contains(String(AcpmuxDaemonLauncher.personKeyDescriptor)))
     }
 
-    @Test func spawnEnvironmentWithholdsLegacyComputerUseSecrets() throws {
+    /// The retired cmux-cua socket variables never reach acpmux, signed or not: Computer Use's
+    /// endpoint comes from the cmux-tui daemon (`computer-use-endpoint`), never from the app.
+    @Test(arguments: [false, true])
+    func spawnEnvironmentDropsTheRetiredComputerUseVariables(unsigned: Bool) throws {
         var environment = try Self.environment()
-        environment.passesPersonKeyAtSpawn = false
-        environment.computerUse = [
-            "CMUX_NEXT_CUA_SOCKET": "/private/helper.sock",
-            "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "fixture-secret",
-            "CMUX_NEXT_CUA_V2_DIR": "/private/v2",
-        ]
+        environment.passesPersonKeyAtSpawn = unsigned
 
         let variables = AcpmuxDaemonLauncher.spawnEnvironment(
             environment,
@@ -47,41 +45,7 @@ struct AcpmuxLaunchSecurityTests {
         #expect(variables["CMUX_NEXT_CUA_SOCKET"] == nil)
         #expect(variables["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"] == nil)
         #expect(variables["CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"] == nil)
-        #expect(variables["CMUX_NEXT_CUA_V2_DIR"] == "/private/v2")
         #expect(variables["PATH"] == "/usr/bin")
-    }
-
-    @Test func unsignedDevelopmentLaunchKeepsLegacyComputerUseAgentCredentials() throws {
-        var environment = try Self.environment()
-        environment.passesPersonKeyAtSpawn = true
-        environment.computerUse = [
-            "CMUX_NEXT_CUA_SOCKET": "/private/helper.sock",
-            "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "fixture-secret",
-            "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN": "host-secret",
-        ]
-
-        let variables = AcpmuxDaemonLauncher.spawnEnvironment(environment, inherited: [:])
-
-        #expect(variables["CMUX_NEXT_CUA_SOCKET"] == "/private/helper.sock")
-        #expect(variables["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"] == "fixture-secret")
-        #expect(variables["CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"] == nil)
-    }
-
-    @Test func signedComputerUseEnrollmentCarriesOnlyTheAgentCredential() throws {
-        var environment = try Self.environment()
-        environment.passesPersonKeyAtSpawn = false
-        environment.computerUse = [
-            "CMUX_NEXT_CUA_SOCKET": "/private/helper.sock",
-            "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "fixture-secret",
-            "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN": "host-secret",
-            "CMUX_NEXT_CUA_V2_DIR": "/private/v2",
-        ]
-
-        let parameters = AcpmuxComputerUse.enrollmentParameters(environment)
-
-        #expect(parameters["socket"] as? String == "/private/helper.sock")
-        #expect(parameters["agentToken"] as? String == "fixture-secret")
-        #expect(parameters.count == 2)
     }
 
     @Test func signedLaunchDoesNotInheritUnrelatedApplicationSecrets() throws {

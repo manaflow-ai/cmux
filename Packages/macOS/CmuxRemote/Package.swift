@@ -9,7 +9,10 @@ import PackageDescription
 //
 //   CmuxRemoteWire           -> JSON lines, process stamps, peer checks (no AppKit)
 //   CmuxRemoteHost           -> Wire, AppKit (supervisor link, worker supervision, permissions, app socket)
-//   CmuxRemoteComputerUse    -> Wire, CmuxCuaHelperCore (the Computer Use worker: upstream Cua Driver)
+//   CCmuxComputerUse         -> the cmux Computer Use C ABI header (types only; the dylib is dlopened)
+//   CmuxRemoteComputerUse    -> Wire, CCmuxComputerUse, CmuxAgentCursor, AppKit, ScreenCaptureKit (the Computer
+//                               Use worker: hosts libcmux_computer_use, draws the agent cursor, asks the person,
+//                               captures windows, watches for the person's takeover)
 //   CmuxRemoteScreenSharing  -> Wire, CmuxDeviceHub, CmuxVNCWebRTC, AppKit (this Mac's device, sessions, banner)
 //   cmux-remote              -> all of them (the executable in "cmux Remote.app")
 let swiftSettings: [SwiftSetting] = [
@@ -26,7 +29,7 @@ let package = Package(
         .library(name: "CmuxRemoteWire", targets: ["CmuxRemoteWire"]),
     ],
     dependencies: [
-        .package(path: "../CmuxComputerUseHelper"),
+        .package(path: "../../Shared/CmuxAgentCursor"),
         .package(path: "../../Shared/CmuxDeviceHub"),
         .package(path: "../../Shared/CmuxVNCWebRTC"),
     ],
@@ -38,10 +41,14 @@ let package = Package(
             swiftSettings: swiftSettings,
             linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("ApplicationServices"), .linkedFramework("Security")]
         ),
+        .target(name: "CCmuxComputerUse"),
         .target(
             name: "CmuxRemoteComputerUse",
-            dependencies: ["CmuxRemoteWire", .product(name: "CmuxCuaHelperCore", package: "CmuxComputerUseHelper")],
-            swiftSettings: swiftSettings
+            dependencies: ["CmuxRemoteWire", "CCmuxComputerUse", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
+            resources: [.process("Resources")],
+            swiftSettings: swiftSettings,
+            linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("ApplicationServices"),
+                             .linkedFramework("ScreenCaptureKit"), .linkedFramework("QuartzCore")]
         ),
         .target(
             name: "CmuxRemoteScreenSharing",
@@ -57,6 +64,11 @@ let package = Package(
         .executableTarget(
             name: "cmux-remote",
             dependencies: ["CmuxRemoteWire", "CmuxRemoteHost", "CmuxRemoteComputerUse", "CmuxRemoteScreenSharing"],
+            swiftSettings: swiftSettings
+        ),
+        .testTarget(
+            name: "CmuxRemoteComputerUseTests",
+            dependencies: ["CmuxRemoteComputerUse"],
             swiftSettings: swiftSettings
         ),
         .testTarget(

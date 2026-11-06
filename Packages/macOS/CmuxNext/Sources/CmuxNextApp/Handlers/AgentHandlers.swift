@@ -268,12 +268,10 @@ enum AgentHandlers {
         AgentShareActions(host: context.services).bind(into: registry)
         AgentTeamsLaunch.bind(into: registry, context: context)
         let services = context.services
-        let helper = ComputerUseHelperDaemon.shared
         ComputerUseHandlers.bind(
             into: registry,
-            sessions: CuaComputerUseSessions(configuration: { helper.configuration },
-                                             phase: { [weak services] in services?.onboarding.computerUseSetup.phase ?? .off },
-                                             confirmRunning: { helper.confirmRunning() }),
+            sessions: RemoteComputerUseSessions(remote: services.cmuxRemote,
+                                                phase: { [weak services] in services?.onboarding.computerUseSetup.phase ?? .off }),
             focus: AppComputerUseFocus(services: services))
     }
 

@@ -406,10 +406,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.followMacScreenSettings(settings)
         services.startDeviceHub(settings)
         services.updater.follow(settings)
-        ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in
-            services?.registry.disabledFeatures.contains(.computerUse) ?? true
-        })
-        services.computerUsePreview.follow(settings)
         services.startHibernation(settings: settings)
         services.autoArchive.start() // workspaces.autoArchive: first pass 30 s after launch
         services.workspaceHibernation.start() // workspaces.hibernation: first pass 60 s after launch
@@ -566,7 +562,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.updater.stopReleasePush()
         services?.agentTabs.pageChats.stopNotices()
         AppProcessRoot.shared.hangReports?.applicationWillTerminate()
-        ComputerUseHelperDaemon.shared.applicationWillTerminate()
         services?.viewers.diffPages.terminate()
         services?.viewers.markdownPages.terminate()
         services?.viewers.editorPages.terminate()

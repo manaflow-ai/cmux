@@ -47,7 +47,7 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
     let layout: RemoteHostLayout
     let permissions: PermissionAuthority
     let screen: ScreenWorkerSupervisor
-    let computerUse: ComputerUseWorkers
+    let computerUse: ComputerUseSupervisor
     private let core: HostCore
     /// How long the host serves with no daemon connected before it exits.
     static let adoptionGrace: TimeInterval = 60
@@ -59,11 +59,20 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
         let workerEnvironment = Self.workerEnvironment(hubURL: bootstrap.hubURL, headless: bootstrap.headless)
         let launch = WorkerLaunch(executable: executable, environment: workerEnvironment, logPath: layout.log,
                                   stateDirectory: stateDirectory, scope: scope)
-        permissions = PermissionAuthority(probe: PermissionAuthority.processProbe(executable: executable, logPath: layout.log))
+        let permissions = PermissionAuthority(probe: PermissionAuthority.processProbe(executable: executable, logPath: layout.log))
+        self.permissions = permissions
         let core = HostCore(secret: bootstrap.supervisorSecret, daemonBuild: bootstrap.daemonBuild, daemonSocket: bootstrap.daemonSocket)
         self.core = core
         screen = ScreenWorkerSupervisor(launch: launch, layout: layout) { core.statusChanged() }
-        computerUse = ComputerUseWorkers(launch: launch, layout: layout) { core.statusChanged() }
+        computerUse = ComputerUseSupervisor(launch: launch, layout: layout, onChange: { core.statusChanged() },
+                                            requestPermission: { permission in
+                                                // The worker's engine asked: macOS names cmux Remote in its prompt.
+                                                // The probe spawns a process: off the main thread, then the prompt on it.
+                                                Task.detached {
+                                                    _ = permissions.refresh()
+                                                    _ = await MainActor.run { permissions.request(permission) }
+                                                }
+                                            })
         super.init()
         core.host = self
         core.config = (bootstrap.computerUse, bootstrap.screenSharing, bootstrap.headless)
@@ -83,7 +92,8 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
     }
 
     /// Starts serving: both sockets, the first probe, the Screen Sharing worker
-    /// when sharing is on, and the Accessibility change observer.
+    /// when sharing is on (the Computer Use worker waits for the app's policy), and the
+    /// Accessibility change observer.
     public func start() throws {
         let supervisor = try LocalSocket.listen(layout.supervisorSocket)
         let app = try LocalSocket.listen(layout.appSocket)
@@ -92,6 +102,7 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
         LocalSocket.serve(app, name: "remote-app") { channel in core.serveApp(channel) }
         Task.detached { await core.refresh() }
         screen.setWanted(core.config.screenSharing)
+        computerUse.setWanted(core.config.computerUse)
         // macOS posts this when the Accessibility list changes: a grant reaches the feature without a poll.
         accessibilityObserver = DistributedNotificationCenter.default().addObserver(
             forName: NSNotification.Name("com.apple.accessibility.api"), object: nil, queue: .main) { _ in
@@ -128,6 +139,7 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
         computerUse.stopAll()
         unlink(layout.supervisorSocket)
         unlink(layout.appSocket)
+        unlink(layout.computerUseSocket)
         exit(0)
     }
 
@@ -192,12 +204,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         if let pid = screen.pid { screenWorker["pid"] = Int(pid) }
         if let started = screen.startedAt { screenWorker["stale"] = started < grantsChanged }
         workers[RemoteWorkerKind.screenSharing.rawValue] = screenWorker
-        let running = host.computerUse.running
-        workers[RemoteWorkerKind.computerUse.rawValue] = [
-            "state": running.isEmpty ? "idle" : "running",
-            "pids": running.keys.sorted().map(Int.init),
-            "stale": running.values.contains { $0 < grantsChanged },
-        ]
+        workers[RemoteWorkerKind.computerUse.rawValue] = host.computerUse.statusFields(grantsChangedAt: grantsChanged)
         var result: [String: Any] = [
             "protocol": RemoteWire.maximumProtocol, "build": RemoteHost.build, "pid": Int(getpid()),
             "bundle_id": Bundle.main.bundleIdentifier ?? "", "name": Bundle.main.infoDictionary?["CFBundleName"] as? String ?? "",
@@ -228,10 +235,10 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         if changed || forceRestart {
             logger.notice("grants \(snapshot.map { "ax=\($0.accessibility) sr=\($0.screenRecording)" } ?? "unknown", privacy: .public); restarting stale workers")
             host.screen.restart(force: false)
-            // A Computer Use worker reads Screen Recording once, at start: end it, and the app's
-            // helper start (its restart budget) opens a new channel, so the grant applies without
-            // a relaunch of anything the person sees.
-            host.computerUse.stopAll()
+            // A process that ran before a grant can keep the old Screen Recording answer: a new
+            // Computer Use worker reads the new one. Its sessions and grants live in its state
+            // directory, and calls carry call_id, so agents lose nothing.
+            host.computerUse.restart()
         }
         statusChanged()
     }
@@ -307,7 +314,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         case "restart":
             switch (params["worker"] as? String).flatMap(RemoteWorkerKind.init(rawValue:)) {
             case .screenSharing: host.screen.restart(force: params["force"] as? Bool ?? false)
-            case .computerUse: host.computerUse.stopAll()
+            case .computerUse: host.computerUse.restart()
             case nil: return RemoteWire.failure(id: id, code: "bad_request", message: "worker must be computer-use or screen-sharing")
             }
             return RemoteWire.answer(id: id, result: status())
@@ -320,7 +327,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             // A new headless choice reaches the worker at its next start (now when idle).
             if host.screen.setEnvironment("CMUX_REMOTE_HEADLESS", next.headless ? "1" : "0") { host.screen.restart(force: false) }
             host.screen.setWanted(next.screenSharing)
-            if !next.computerUse { host.computerUse.stopAll() }
+            host.computerUse.setWanted(next.computerUse)
             statusChanged()
             return RemoteWire.answer(id: id, result: status())
         case "app_grant":
@@ -331,6 +338,34 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             lock.withLock { appGrant = (stamp, fresh) }
             return RemoteWire.answer(id: id, result: ["socket": host.layout.appSocket, "secret": RemoteWire.hex(fresh),
                                                       "host_pid": Int(getpid())])
+        case "computer_use.endpoint":
+            // The daemon's `computer-use-endpoint`: acpmux never reads files. A starting worker gets a few
+            // seconds (this request's own task waits, never the main thread).
+            let supervisor = host.computerUse
+            let endpoint = await Task.detached { WorkerReply(supervisor.endpoint(wait: 5)) }.value
+            return RemoteWire.answer(id: id, result: endpoint.value)
+        case "computer_use.config":
+            // The verified app's policy (the daemon forwards only its requests).
+            guard let policy = params["config"] as? [String: Any],
+                  let data = try? JSONSerialization.data(withJSONObject: policy, options: [.sortedKeys]) else {
+                return RemoteWire.failure(id: id, code: "bad_request", message: "computer_use.config needs config (a PolicyConfig object)")
+            }
+            host.computerUse.configure(policy: data, motion: params["motion"] as? [String: Any],
+                                       machine: params["machine"] as? String, computerUse: config.computerUse)
+            statusChanged()
+            return RemoteWire.answer(id: id, result: status())
+        case "computer_use.approvals":
+            // Saved approvals: list, forget, always, never, revoke_sessions (the verified app only, through the daemon).
+            guard let action = params["action"] as? String,
+                  ["list", "forget", "always", "never", "revoke_sessions"].contains(action) else {
+                return RemoteWire.failure(id: id, code: "bad_request",
+                                          message: "computer_use.approvals needs action list, forget, always, never or revoke_sessions")
+            }
+            var line: [String: Any] = ["type": "approvals", "action": action]
+            if let app = params["app_id"] as? String { line["app_id"] = app }
+            var reply = await host.computerUse.request(line)
+            reply["id"] = id ?? NSNull()
+            return RemoteWire.line(reply)
         case "drain":
             lock.withLock { draining = true }
             statusChanged()
@@ -350,7 +385,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
 
     /// The app's connections: a hello with the secret from `app_grant`, from
     /// that exact process; then one `open` that turns the connection into a
-    /// channel (Computer Use control, or the Screen Sharing worker's socket).
+    /// channel (the Screen Sharing worker's socket).
     func serveApp(_ channel: LineChannel) {
         channel.setReadTimeout(5)
         guard let hello = channel.readObject(), hello["type"] as? String == "hello",
@@ -367,16 +402,11 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         let id = request["id"]
         switch request["channel"] as? String {
         case RemoteWorkerKind.computerUse.rawValue:
-            guard config.computerUse else {
-                channel.write(RemoteWire.failure(id: id, code: "off", message: "Computer Use is off"))
-                return channel.close()
-            }
-            // The tagged DEV app this channel's agents may drive (legacy dogfood scope; only the app opens a channel).
-            let prefix = "com.cmuxterm.app.debug."
-            let allowed = (request["allowed_target_bundle_id"] as? String).flatMap {
-                $0.hasPrefix(prefix) && $0.count > prefix.count && $0.allSatisfy { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" } ? $0 : nil
-            }
-            host.computerUse.open(for: channel, id: id, environment: ["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS": allowed ?? ""])
+            // Computer Use is no app channel any more: the worker serves agents on its own socket,
+            // which the daemon hands to acpmux (`computer_use.endpoint`).
+            channel.write(RemoteWire.failure(id: id, code: "bad_request",
+                                             message: "Computer Use has no app channel; the daemon serves computer-use-endpoint"))
+            channel.close()
         case RemoteWorkerKind.screenSharing.rawValue:
             // A worker that is starting answers within seconds; this connection's own thread waits for it.
             guard host.screen.waitReady(until: Date().addingTimeInterval(10)),

@@ -3,8 +3,8 @@ import CmuxNextComputerUse
 
 /// Focus Computer Use, Focus Calling Terminal and Stop Computer Use (File
 /// menu, `cmux agent focus-computer-use|focus-calling-terminal|stop-computer-use`).
-/// Each acts on the newest live session the CUA host lists, as classic's menu
-/// bar item acted on its first row (plans/cmux-next/computer-use.md section 6:
+/// The focus actions act on the newest live session the host lists, as classic's menu
+/// bar item acted on its first row; Stop ends every session (plans/cmux-next/computer-use.md section 6:
 /// "re-bound to the store"). The work is tracked, so a CLI or MCP run answers
 /// when it is done and gets the reason when there is nothing to act on.
 enum ComputerUseHandlers {
@@ -35,8 +35,18 @@ enum ComputerUseHandlers {
                 throw ComputerUseSessionError.failed(ComputerUseSessionStrings.noCallingTerminal)
             }
         }
-        work("computerUseStop") { session in
-            try await sessions.stop(session.id)
-        }
+        // Stops every session: the person's stop must not depend on a session list the host may not give.
+        _ = registry.bindEffect("computerUseStop", effect: { _ in
+            // action-wait-allow: the stop runs in cmux Remote's Computer Use worker, another process, through the daemon.
+            .waiting(.externalProcess) {
+                do {
+                    try await sessions.stopAll()
+                    return nil
+                } catch {
+                    return ActionWorkFailure(refusal: .unavailable,
+                                             reason: (error as? ComputerUseSessionError)?.reason ?? String(describing: error))
+                }
+            }
+        })
     }
 }
