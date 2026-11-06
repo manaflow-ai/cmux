@@ -258,6 +258,12 @@ export const PAGES = {
     out: "webviews/src/pages/home-channels/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
   },
+  // The cards drawn in a Home chat (home-messages/cards: agent pills, link previews, MCP connect,
+  // first run, header toggles), with the Swift keys they replace; their table lives next to them.
+  "home-messages-cards": {
+    out: "webviews/src/pages/home-messages/cards/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/home-messages/cards/Localizable.xcstrings" }],
+  },
   // The agent pane's rows the channels Home reuses for agent runs (tool calls, shell blocks,
   // diffs, Markdown): only their keys, installed as the pane's table (agent-session/acpmux/i18n.ts).
   "home-channels-pane": {
