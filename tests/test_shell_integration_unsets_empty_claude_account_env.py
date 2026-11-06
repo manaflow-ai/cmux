@@ -16,6 +16,8 @@ environment a child process receives:
 2. A non-empty variable is passed through unchanged.
 3. Blank variables are unset even with the Claude integration turned off,
    because the cleanup runs before anything in the script can return early.
+   fish and nushell also read ``CMUX_SHELL_INTEGRATION=0``; the cleanup runs
+   ahead of that toggle too.
 
 zsh and bash always run. fish and nushell skip loudly when they are not
 installed locally and fail when ``CI`` is set, so CI never skips silently.
@@ -61,7 +63,9 @@ def _require_shell(shell: str) -> str | None:
     return None
 
 
-def _environment(root: Path, account_values: dict[str, str], *, claude_disabled: bool) -> dict[str, str]:
+def _environment(
+    root: Path, account_values: dict[str, str], *, claude_disabled: bool, shell_integration_disabled: bool
+) -> dict[str, str]:
     env = {
         key: value
         for key, value in os.environ.items()
@@ -83,17 +87,30 @@ def _environment(root: Path, account_values: dict[str, str], *, claude_disabled:
     env.update(account_values)
     if claude_disabled:
         env["CMUX_CLAUDE_INTEGRATION_DISABLED"] = "1"
+    if shell_integration_disabled:
+        # Set explicitly: inherited CMUX* keys are dropped above.
+        env["CMUX_SHELL_INTEGRATION"] = "0"
     return env
 
 
 def _child_account_environment(
-    shell: str, executable: str, account_values: dict[str, str], *, claude_disabled: bool = False
+    shell: str,
+    executable: str,
+    account_values: dict[str, str],
+    *,
+    claude_disabled: bool = False,
+    shell_integration_disabled: bool = False,
 ) -> dict[str, str]:
     """Source the shell's integration, then return the account keys `/usr/bin/env` sees."""
     with tempfile.TemporaryDirectory(prefix=f"cmux-claude-account-env-{shell}-") as td:
         root = Path(td)
         (root / "home" / ".cmuxterm").mkdir(parents=True)
-        env = _environment(root, account_values, claude_disabled=claude_disabled)
+        env = _environment(
+            root,
+            account_values,
+            claude_disabled=claude_disabled,
+            shell_integration_disabled=shell_integration_disabled,
+        )
         if shell == "nu":
             integration = str(INTEGRATION_DIR / "nushell/cmux-nushell-integration.nu").replace('"', r"\"")
             arguments = [executable, "-n", "-c", f'source "{integration}"; ^/usr/bin/env']
@@ -124,6 +141,11 @@ def _assert_shell(shell: str) -> None:
 
     child = _child_account_environment(shell, executable, blank, claude_disabled=True)
     assert child == {}, f"{shell} kept blank account variables with Claude integration off: {child}"
+
+    if shell in ("fish", "nu"):
+        # Only these two read the integration toggle; the cleanup runs ahead of it.
+        child = _child_account_environment(shell, executable, blank, shell_integration_disabled=True)
+        assert child == {}, f"{shell} kept blank account variables with CMUX_SHELL_INTEGRATION=0: {child}"
 
     work = {
         "CLAUDE_CONFIG_DIR": "/tmp/cmux-claude-account-env/work",

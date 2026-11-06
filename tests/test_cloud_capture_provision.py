@@ -109,6 +109,26 @@ class Provision(unittest.TestCase):
         self.assertNotIn(PASSWORD, json.dumps(bundle))
         self.assertNotIn(PASSWORD, stdout)
 
+    def test_the_journey_target_makes_its_own_account_sealed_to_the_journey_environment(self):
+        fake = FakeStack([{"id": "user-1", "primary_email": provision.EMAIL, "password": "capture-password",
+                           "client_read_only_metadata": {"cmuxVmPlan": "pro"}}])
+        key, pk, sk = keypair()
+        target = provision.TARGETS["journey"]
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "bundle.json"
+            action = provision.provision(stack(fake), out, log=lambda _: None, lib=SODIUM, key_id="42", key=key,
+                                         make_password=lambda: PASSWORD, target=target)
+            bundle = json.loads(out.read_text())
+        self.assertEqual(action, "created")
+        self.assertEqual(fake.users["user-1"]["password"], "capture-password")  # the capture account is untouched
+        created = [r for r in fake.requests if r[0] == "POST" and r[1] == "/users"]
+        self.assertEqual(created[0][3]["primary_email"], "cmux-cloud-capture-journey@manaflow.dev")
+        self.assertEqual(bundle["repo"], "manaflow-ai/cmux")
+        self.assertEqual(bundle["environment"], "cmux-next-vm-image-dev")
+        self.assertEqual(sorted(bundle["secrets"]), ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"])
+        self.assertEqual(open_sealed(bundle["secrets"]["CMUX_DOGFOOD_STACK_PASSWORD"], pk, sk), PASSWORD)
+        self.assertTrue(provision.GRANT_ONLY_EMAIL.fullmatch(target.email))
+
     def test_an_existing_account_is_rotated_keeping_other_metadata(self):
         fake = FakeStack([{"id": "user-1", "primary_email": provision.EMAIL.upper(), "password": "old",
                            "client_read_only_metadata": {"other": 1, "cmuxVmPlan": "free"}}])
@@ -134,6 +154,53 @@ class Provision(unittest.TestCase):
         users = [{"id": f"u{i}", "primary_email": provision.EMAIL} for i in range(2)]
         with self.assertRaisesRegex(provision.ProvisionError, "refusing to pick"):
             stack(FakeStack(users)).find(provision.EMAIL)
+
+
+class GrantOnly(unittest.TestCase):
+    OWNER = "cmux-cloud-capture-owner3@manaflow.dev"
+
+    def test_an_existing_capture_account_gets_only_the_plan_grant_and_a_verified_email(self):
+        fake = FakeStack([{"id": "u1", "primary_email": self.OWNER, "password": PASSWORD, "primary_email_verified": False,
+                           "client_read_only_metadata": {"cmuxPlan": "free", "keep": 1}}])
+        provision.grant_only(stack(fake), self.OWNER, log=lambda _: None)
+        self.assertEqual(fake.users["u1"]["client_read_only_metadata"], {"cmuxPlan": "free", "keep": 1, "cmuxVmPlan": "pro"})
+        self.assertIs(fake.users["u1"]["primary_email_verified"], True)
+        self.assertEqual(fake.users["u1"]["password"], PASSWORD)
+        patches = [body for method, _, _, body in fake.requests if method == "PATCH"]
+        self.assertEqual(patches, [{"client_read_only_metadata": {"cmuxPlan": "free", "keep": 1, "cmuxVmPlan": "pro"},
+                                    "primary_email_verified": True}])
+
+    def test_an_email_that_does_not_read_back_verified_fails(self):
+        class Unverifiable(FakeStack):
+            def __call__(self, method, url, headers, body, timeout=None):
+                if method == "PATCH" and body:
+                    body = {k: v for k, v in body.items() if k != "primary_email_verified"}
+                return super().__call__(method, url, headers, body, timeout)
+        fake = Unverifiable([{"id": "u1", "primary_email": self.OWNER, "primary_email_verified": False}])
+        with self.assertRaisesRegex(provision.ProvisionError, "verified"):
+            provision.grant_only(stack(fake), self.OWNER, log=lambda _: None)
+
+    def test_a_missing_account_is_never_created(self):
+        fake = FakeStack()
+        with self.assertRaises(provision.ProvisionError):
+            provision.grant_only(stack(fake), self.OWNER, log=lambda _: None)
+        self.assertFalse([r for r in fake.requests if r[0] in ("POST", "PATCH")])
+
+    def test_any_other_email_is_refused_before_any_request(self):
+        for email in ("someone@manaflow.dev", "cmux-cloud-capture@manaflow.dev.evil.com", "cmux-cloud-capture@gmail.com"):
+            fake = FakeStack()
+            with self.assertRaises(provision.ProvisionError):
+                provision.grant_only(stack(fake), email, log=lambda _: None)
+            self.assertEqual(fake.requests, [])
+
+
+    def test_an_empty_grant_only_never_falls_through_to_provisioning(self):
+        env = {"NEXT_PUBLIC_STACK_PROJECT_ID": provision.STAGING_PROJECT_ID, "STACK_SECRET_SERVER_KEY": "k",
+               "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY": "c"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(provision, "provision") as rotate, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(provision.main(["--grant-only", ""]), 1)
+        rotate.assert_not_called()
 
 
 class Guards(unittest.TestCase):

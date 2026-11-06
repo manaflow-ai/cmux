@@ -114,6 +114,33 @@ struct SidebarClaudeAccountRowTests {
         #expect(entries.contains { $0.key == "build" })
     }
 
+    /// Compact mode shows the account in the status glyph's tooltip instead of a row, so a pane
+    /// switched without a resumed Claude names its account there too, as the normal row does.
+    @Test
+    func theCompactTooltipNamesTheAccountAPaneWasSwitchedTo() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let defaults = try #require(UserDefaults(suiteName: "SidebarClaudeAccountRowTests.\(UUID().uuidString)"))
+        defaults.set(true, forKey: "sidebarCompactAgentStatus")
+        func tooltip() throws -> String {
+            let snapshot = SidebarWorkspaceSnapshotFactory(
+                workspace: workspace,
+                settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+                showsAgentActivity: false
+            ).makeSnapshot()
+            return try #require(snapshot.compactStatusGlyph?.tooltip)
+        }
+        #expect(try !tooltip().contains("zebra"))
+
+        panel.claudeAccountEnvironment = ClaudeAccountPaneEnvironment(
+            overrides: ["CLAUDE_CONFIG_DIR": "/Users/cmux-test/.claude-zebra"],
+            removedKeys: []
+        )
+
+        #expect(try tooltip().contains("zebra"))
+    }
+
     /// What a full index reload compares to skip rebuilding a row: the account row the cached
     /// snapshot shows against the one the panes give now.
     @Test
