@@ -6,8 +6,8 @@ cmux-managed: true
 
 # Cloud machines
 
-The user's cmux Cloud machines are Linux VMs with a 1440x900 desktop
-(`DISPLAY=:1`), Chrome, `cua-driver` (computer use for its windows) and the
+The user's cmux Cloud machines are Linux VMs with a 1280x800 agent desktop
+(`DISPLAY=:99`), Chrome, `cmux-cua` (computer use for its windows) and the
 machine's own `cmux`. You reach them from the Mac through the cmux app's
 Cloud actions; the app holds the sign-in and asks the user before anything
 that costs money.
@@ -153,7 +153,7 @@ machine attached to you as your computer. One op per call:
 - `click` (`x`, `y`, `button`), `move`, `drag` (`x`, `y`, `to_x`, `to_y`),
   `scroll` (`x`, `y`, `direction`, `amount`), `type` (`text`), `key`
   (`keys`: `Return`, `ctrl+l`, `shift+Tab`). Coordinates are screen pixels of
-  the 1440x900 screenshot.
+  the 1280x800 screenshot.
 - Never say something happened on the desktop until a result or a
   screenshot shows it. A `"effect": "unverifiable"` result means the input
   was sent: check the screenshot.
@@ -164,16 +164,17 @@ machine attached to you as your computer. One op per call:
   user (a sign-in, a password, a payment, a captcha), call
   `cloud_computer_control` `request_human` with a short `reason` and tell
   them; never type a password or card number yourself.
-- `computer.failed` says what `cua-driver` reported; a machine without
-  `cua-driver` is too old: say so. For anything the ops do not cover, run
-  `cua-driver` through `cloud exec` after `. /etc/cmux/desktop-env.sh`
-  (`cua-driver describe <tool>` lists a tool's arguments).
+- `computer.failed` says what `cmux-cua` reported; a machine without
+  `cmux-cua` is too old: say so. For anything the ops do not cover, run
+  `cmux-cua call <tool> '<json>'` through `cloud exec` with
+  `HOME=/home/cmux PATH=/opt/cmux/current/bin:$PATH DISPLAY=:99`
+  (`cmux-cua describe <tool>` lists a tool's arguments).
 - A long desktop task (many steps, a whole flow to test) goes to a coding
   agent on the machine instead: its Codex, Claude Code and OpenCode get
-  `cua-driver mcp` as a tool on first launch. Check its sign-in first
+  `cmux-cua mcp` as a tool on first launch. Check its sign-in first
   (`HOME=/home/cmux codex login status`, `HOME=/home/cmux claude auth status --text`);
   when it is not signed in, tell the user to sign it in rather than copying
   credentials.
 - Use `agent-browser` on the machine for a task that is only web pages,
-  `cua-driver` for desktop windows. Close only windows you opened. Leave the
+  `cmux-cua` for desktop windows. Close only windows you opened. Leave the
   driver's daemon running; an agent on the machine may use it.

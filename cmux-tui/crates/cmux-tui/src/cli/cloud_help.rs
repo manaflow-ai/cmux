@@ -598,7 +598,7 @@ usage: cmux cloud computer OP [--target machine:MACHINE_ID] [flags]
        cmux cloud computer control status|request|release [--target machine:MACHINE_ID]
                                    [--reason TEXT]
 
-Uses a Cloud machine's desktop (1440x900) with its cua-driver. Without
+Uses a Cloud machine's desktop (1280x800) with its cmux-cua. Without
 --target it uses the machine attached to the Chief (its engine `computer`).
 
   screenshot [--out FILE]                     Save the screen as a PNG

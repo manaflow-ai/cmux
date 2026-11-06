@@ -79,7 +79,7 @@ fn cloud_machines_lists_the_apps_machines_and_this_chiefs_computer() {
 }
 
 #[test]
-fn an_input_op_reads_the_lease_then_drives_cua_driver_on_the_chiefs_computer() {
+fn an_input_op_reads_the_lease_then_drives_cmux_cua_on_the_chiefs_computer() {
     let fake = Fake {
         chief_computer: Some("vm-1".into()),
         action_answers: answers(&[
@@ -101,13 +101,9 @@ fn an_input_op_reads_the_lease_then_drives_cua_driver_on_the_chiefs_computer() {
     assert_eq!(runs[1]["action"], "cloud exec");
     assert_eq!(runs[1]["target"], "machine:vm-1");
     let script = runs[1]["args"]["command"].as_str().unwrap();
-    assert!(script.contains(". /etc/cmux/desktop-env.sh"), "{script}");
-    assert!(
-        script.ends_with(
-            "cua-driver call click '{\"button\":\"left\",\"scope\":\"desktop\",\"x\":10,\"y\":20}'"
-        ),
-        "{script}"
-    );
+    assert!(script.contains("sudo -n systemctl start cmux-agent-cua.service"), "{script}");
+    assert!(script.contains("set_config '{\"capture_scope\":\"desktop\"}'"), "{script}");
+    assert!(script.ends_with("cua click '{\"button\":\"left\",\"x\":10,\"y\":20}'"), "{script}");
 
     // Named keys and typed text are one quoted JSON word each.
     let mut server = serve(Fake {
@@ -138,7 +134,7 @@ fn an_input_op_reads_the_lease_then_drives_cua_driver_on_the_chiefs_computer() {
         execs[0]["args"]["command"]
             .as_str()
             .unwrap()
-            .ends_with("type_text '{\"scope\":\"desktop\",\"text\":\"it'\\''s $HOME\"}'"),
+            .ends_with("cua_win '' type_text '{\"text\":\"it'\\''s $HOME\"}'"),
         "{}",
         execs[0]["args"]["command"]
     );
@@ -146,7 +142,7 @@ fn an_input_op_reads_the_lease_then_drives_cua_driver_on_the_chiefs_computer() {
         execs[1]["args"]["command"]
             .as_str()
             .unwrap()
-            .ends_with("hotkey '{\"keys\":[\"ctrl\",\"l\"],\"scope\":\"desktop\"}'"),
+            .ends_with("cua_win '' hotkey '{\"keys\":[\"ctrl\",\"l\"]}'"),
         "{}",
         execs[1]["args"]["command"]
     );

@@ -6,8 +6,9 @@
 //! Every step is one of the app's Cloud actions (`action.run`): `cloud list-machines`,
 //! `cloud exec`, `cloud file-read`, the start-chat chain (cloud_start_chat.rs, its steps run here
 //! through [`AppRunner`] instead of a child `cmux`), and `cloud.computerControl`, the Mac app's
-//! per-machine control lease (`ChiefComputerControlStore`). The desktop is driven by the machine's
-//! own `cua-driver` through `cloud exec`, on the desktop `/etc/cmux/desktop-env.sh` points at.
+//! per-machine control lease (`ChiefComputerControlStore`). The desktop is the machine image's
+//! agent display (Xvfb `:99`, 1280x800; web/scripts/cmux-vm-image/agent-tools.ts) driven by its
+//! own `cmux-cua` (`cmux-agent-cua.service`, started on first use) through `cloud exec`.
 //!
 //! Take-over: before every input op `cloud_computer` reads the lease and refuses with
 //! `computer.human_has_control` while the person holds it; `screenshot` and `list_windows` still
@@ -53,14 +54,34 @@ const OPS: &[(&str, bool)] = &[
 /// The screenshot file on the machine, overwritten by each `screenshot`.
 const SCREEN_FILE: &str = "/home/cmux/.cache/cmux-computer/screen.png";
 
-/// Every desktop step's start: the work user's home and the desktop's env, and `cua-driver`'s
-/// daemon started when it is not running (bounded on the machine, as the chief-cloud-machines
-/// skill's helper did; `cloud exec` itself stops after 25 s).
-const DESKTOP_PRELUDE: &str = "export HOME=/home/cmux; [ -f /etc/cmux/desktop-env.sh ] && . \
-    /etc/cmux/desktop-env.sh; command -v cua-driver >/dev/null 2>&1 || { echo 'this machine has \
-    no cua-driver: it is too old for computer use' >&2; exit 127; }; if ! cua-driver status \
-    >/dev/null 2>&1; then setsid -f cua-driver serve >/dev/null 2>&1 </dev/null; i=0; while [ \
-    \"$i\" -lt 20 ] && ! cua-driver status >/dev/null 2>&1; do i=$((i+1)); sleep 0.5; done; fi; ";
+/// The agent display's size (`cmux-agent-display@99.service`: Xvfb 1280x800).
+const SCREEN: (u32, u32) = (1280, 800);
+
+/// Every desktop step's start, as the work user on the agent display: `cmux-cua serve` started when
+/// it is not running (the image's unit; `sudo -n systemctl start` returns once its socket listens),
+/// desktop capture scope (screen coordinates for screenshots and clicks), and three helpers:
+/// - `cua TOOL JSON`: one cmux-cua tool. cmux-cua exits 0 on a refusal too, so its answer is read:
+///   a `"code"` field or a refusal line fails the step with cmux-cua's words.
+/// - `cua_win "X Y" TOOL JSON`: the tool on the frontmost app window at X,Y (any window for ""):
+///   its pid and window id added, coordinates made window-local, input delivered to the front
+///   (the agent display has no person on it; background delivery cannot type into Chrome there).
+/// - `chief_chrome URL`: the image's Chrome for Testing (the browser role), else a system Chrome,
+///   in a new window on the agent display, then a bounded wait for its window.
+const DESKTOP_PRELUDE: &str = r##"export HOME=/home/cmux PATH=/opt/cmux/current/bin:$PATH DISPLAY=:99 XAUTHORITY=/home/cmux/.cache/cmux-display/Xauthority-99 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cmux-agent-a11y-99/bus; command -v cmux-cua >/dev/null 2>&1 || { echo 'this machine has no cmux-cua: it is too old for computer use' >&2; exit 127; }; cmux-cua status >/dev/null 2>&1 || sudo -n systemctl start cmux-agent-cua.service >/dev/null 2>&1 || { echo 'the computer-use driver did not start (systemctl status cmux-agent-cua.service)' >&2; exit 1; }; cua() { out=$(cmux-cua call "$1" "$2" 2>&1); if printf '%s' "$out" | grep -Eq '^[[:space:]]*"code"[[:space:]]*:|^(Missing|No windows|Failed|Error|Unknown|Invalid|error|unknown|invalid)'; then printf 'cmux-cua %s: %s\n' "$1" "$out" | tail -c 800 >&2; return 1; fi; printf '%s\n' "$out"; }; cua set_config '{"capture_scope":"desktop"}' >/dev/null || exit 1; CUA_PICK='import json,os,sys
+ws=[w for w in json.loads(os.environ["CUA_WINDOWS"]).get("windows",[]) if w.get("pid") and w.get("is_on_screen",True)]
+ws.sort(key=lambda w:-w.get("z_index",0))
+at=os.environ["CUA_AT"].split()
+if at:
+    px,py=float(at[0]),float(at[1])
+    ws=[w for w in ws if w["x"]<=px<w["x"]+w["width"] and w["y"]<=py<w["y"]+w["height"]]
+if not ws: sys.exit("no app window there on the desktop: open one with open_url, or take a screenshot")
+w=ws[0]; a=json.loads(os.environ["CUA_ARGS"])
+for k in ("x","from_x","to_x"):
+    if k in a: a[k]-=w["x"]
+for k in ("y","from_y","to_y"):
+    if k in a: a[k]-=w["y"]
+a.update(pid=w["pid"],window_id=w["window_id"],delivery_mode="foreground")
+print(json.dumps(a))'; cua_win() { j=$(cua list_windows '{"on_screen_only":true}') || return 1; a=$(CUA_WINDOWS="$j" CUA_AT="$1" CUA_ARGS="$3" python3 -c "$CUA_PICK") || return 1; cua "$2" "$a"; }; chief_chrome() { c=$(python3 -c 'import json;print(json.load(open("/etc/cmux/roles.json"))["roles"]["browser"]["env"]["CMUX_BROWSER_HOST_CHROMIUM"])' 2>/dev/null); [ -x "$c" ] || c=$(command -v google-chrome-stable || command -v google-chrome || command -v chromium); [ -n "$c" ] || { echo 'this machine has no Chrome' >&2; return 1; }; setsid -f "$c" --user-data-dir=/home/cmux/.cache/cmux-computer/chrome --no-first-run --no-default-browser-check --force-renderer-accessibility --window-position=0,0 --window-size=1280,800 --new-window "$1" >/dev/null 2>&1 </dev/null; i=0; while [ "$i" -lt 40 ] && ! cmux-cua call list_windows '{"on_screen_only":true}' 2>/dev/null | grep -q '"pid": [0-9]'; do i=$((i+1)); sleep 0.25; done; echo '{"opened":true}'; }; "##;
 
 pub(super) fn descriptors() -> [Value; 6] {
     let machine = json!({"type":"string","minLength":1,"description":"machine:<id> (cloud_machines lists them)."});
@@ -109,7 +130,7 @@ pub(super) fn descriptors() -> [Value; 6] {
         ),
         descriptor(
             COMPUTER,
-            "Use a Cloud machine's desktop (1440x900): screenshot (an image), list_windows, click, move, drag, scroll, type, key (ctrl+l, Return), open_url. machine defaults to this Chief's computer. Input is refused while the person has control.",
+            "Use a Cloud machine's desktop (1280x800): screenshot (an image), list_windows, click, move, drag, scroll, type, key (ctrl+l, Return), open_url. machine defaults to this Chief's computer. Input is refused while the person has control.",
             json!({
                 "op":{"type":"string","enum":OPS.iter().map(|(op, _)| *op).collect::<Vec<_>>()},
                 "machine":machine,
@@ -607,8 +628,9 @@ impl<B: Backend> Calls<'_, B> {
                 "not_run",
             ));
         };
-        let text = json!({"machine": target, "op": "screenshot", "width": 1440, "height": 900})
-            .to_string();
+        let text =
+            json!({"machine": target, "op": "screenshot", "width": SCREEN.0, "height": SCREEN.1})
+                .to_string();
         Ok(json!({
             "content": [
                 {"type": "text", "text": text},
@@ -638,7 +660,8 @@ struct DesktopStep {
     script: String,
 }
 
-/// `cua-driver call TOOL 'ARGS'` for `op`, from the call's arguments (each op takes only its own).
+/// `cua TOOL 'ARGS'` (or `cua_win`, `chief_chrome`; [`DESKTOP_PRELUDE`]) for `op`, from the call's
+/// arguments (each op takes only its own).
 fn desktop_step(op: &str, arguments: &Map<String, Value>) -> Result<DesktopStep, Value> {
     let tool = COMPUTER;
     let point = |arguments: &Map<String, Value>| -> Result<(u64, u64), Value> {
@@ -646,8 +669,15 @@ fn desktop_step(op: &str, arguments: &Map<String, Value>) -> Result<DesktopStep,
         let y = integer(arguments, "y", 10_000)?.ok_or_else(|| invalid(format!("{op} needs y")))?;
         Ok((x, y))
     };
-    let call = |name: &str, args: Value| {
-        format!("cua-driver call {name} {}", chat::shell_quote(&args.to_string()))
+    let call =
+        |name: &str, args: Value| format!("cua {name} {}", chat::shell_quote(&args.to_string()));
+    // On the frontmost app window at `at` ("x y"; "" for the frontmost of all).
+    let on_window = |at: String, name: &str, args: Value| {
+        format!(
+            "cua_win {} {name} {}",
+            chat::shell_quote(&at),
+            chat::shell_quote(&args.to_string())
+        )
     };
     let script = match op {
         "screenshot" => {
@@ -655,13 +685,12 @@ fn desktop_step(op: &str, arguments: &Map<String, Value>) -> Result<DesktopStep,
             let shot = call("get_desktop_state", json!({"screenshot_out_file": SCREEN_FILE}));
             format!(
                 "mkdir -p \"$(dirname {SCREEN_FILE})\" && rm -f {SCREEN_FILE} && {shot} >/dev/null \
-                 2>&1; test -s {SCREEN_FILE} || {{ echo 'no screenshot saved:' >&2; cua-driver \
-                 doctor 2>&1 | tail -5 >&2; exit 1; }}"
+                 && test -s {SCREEN_FILE} || {{ echo 'no screenshot saved' >&2; exit 1; }}"
             )
         }
         "list_windows" => {
             only(arguments, tool, &["op", "machine"])?;
-            call("list_windows", json!({}))
+            call("list_windows", json!({"on_screen_only": true}))
         }
         "click" => {
             only(arguments, tool, &["op", "machine", "x", "y", "button"])?;
@@ -670,12 +699,12 @@ fn desktop_step(op: &str, arguments: &Map<String, Value>) -> Result<DesktopStep,
             if !matches!(button, "left" | "right" | "middle") {
                 return Err(invalid("button is left, right or middle"));
             }
-            call("click", json!({"scope": "desktop", "x": x, "y": y, "button": button}))
+            call("click", json!({"x": x, "y": y, "button": button}))
         }
         "move" => {
             only(arguments, tool, &["op", "machine", "x", "y"])?;
             let (x, y) = point(arguments)?;
-            call("move_cursor", json!({"scope": "desktop", "x": x, "y": y}))
+            call("move_cursor", json!({"x": x, "y": y}))
         }
         "drag" => {
             only(arguments, tool, &["op", "machine", "x", "y", "to_x", "to_y"])?;
@@ -684,9 +713,10 @@ fn desktop_step(op: &str, arguments: &Map<String, Value>) -> Result<DesktopStep,
                 integer(arguments, "to_x", 10_000)?.ok_or_else(|| invalid("drag needs to_x"))?;
             let to_y =
                 integer(arguments, "to_y", 10_000)?.ok_or_else(|| invalid("drag needs to_y"))?;
-            call(
+            on_window(
+                format!("{x} {y}"),
                 "drag",
-                json!({"scope": "desktop", "from_x": x, "from_y": y, "to_x": to_x, "to_y": to_y}),
+                json!({"from_x": x, "from_y": y, "to_x": to_x, "to_y": to_y}),
             )
         }
         "scroll" => {
@@ -697,10 +727,10 @@ fn desktop_step(op: &str, arguments: &Map<String, Value>) -> Result<DesktopStep,
                 return Err(invalid("direction is up, down, left or right"));
             }
             let amount = integer(arguments, "amount", 50)?.unwrap_or(3).max(1);
-            call(
+            on_window(
+                format!("{x} {y}"),
                 "scroll",
-                json!({"scope": "desktop", "x": x, "y": y, "direction": direction,
-                       "amount": amount, "by": "line"}),
+                json!({"x": x, "y": y, "direction": direction, "amount": amount, "by": "line"}),
             )
         }
         "type" => {
@@ -709,7 +739,7 @@ fn desktop_step(op: &str, arguments: &Map<String, Value>) -> Result<DesktopStep,
             if typed.is_empty() || typed.chars().count() > 10_000 {
                 return Err(invalid("type needs text (at most 10000 characters)"));
             }
-            call("type_text", json!({"scope": "desktop", "text": typed}))
+            on_window(String::new(), "type_text", json!({"text": typed}))
         }
         "key" => {
             only(arguments, tool, &["op", "machine", "keys"])?;
@@ -726,8 +756,8 @@ fn desktop_step(op: &str, arguments: &Map<String, Value>) -> Result<DesktopStep,
                 ));
             }
             match parts.as_slice() {
-                [key] => call("press_key", json!({"scope": "desktop", "key": key})),
-                _ => call("hotkey", json!({"scope": "desktop", "keys": parts})),
+                [key] => on_window(String::new(), "press_key", json!({"key": key})),
+                _ => on_window(String::new(), "hotkey", json!({"keys": parts})),
             }
         }
         "open_url" => {
@@ -739,11 +769,7 @@ fn desktop_step(op: &str, arguments: &Map<String, Value>) -> Result<DesktopStep,
             {
                 return Err(invalid("url is an http or https address"));
             }
-            call(
-                "launch_app",
-                json!({"name": "google-chrome-stable", "additional_arguments":
-                       ["--new-window", "--no-first-run", "--hide-crash-restore-bubble", url]}),
-            )
+            format!("chief_chrome {}", chat::shell_quote(url))
         }
         _ => return Err(invalid(format!("unknown op {op}"))),
     };
@@ -753,6 +779,93 @@ fn desktop_step(op: &str, arguments: &Map<String, Value>) -> Result<DesktopStep,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The prelude and a step run in a real `sh` against a stand-in `cmux-cua` that logs each
+    /// call and answers like the real one (exit 0, a refusal as a `"code"` field or a line).
+    fn run_on_stub_desktop(op: &str, arguments: Value) -> (i32, String, String) {
+        let dir = std::env::temp_dir().join(format!("cloud-computer-{}-{op}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("calls.log");
+        let stub = format!(
+            r#"#!/bin/sh
+[ "$1" = status ] && exit 0
+echo "$2 $3" >> {log}
+case "$2" in
+  list_windows) printf '%s\n' '{{"windows":[{{"pid":null,"window_id":1,"x":0,"y":0,"width":1280,"height":800,"z_index":2,"is_on_screen":true}},{{"pid":42,"window_id":7,"x":100,"y":50,"width":800,"height":600,"z_index":1,"is_on_screen":true}}]}}' ;;
+  press_key) printf '%s\n' '{{' '  "code": "background_unavailable"' '}}' ;;
+  *) echo '{{"ok":true}}' ;;
+esac
+"#,
+            log = log.display()
+        );
+        let bin = dir.join("cmux-cua");
+        std::fs::write(&bin, stub).unwrap();
+        std::process::Command::new("chmod").arg("+x").arg(&bin).status().unwrap();
+        let step = desktop_step(op, arguments.as_object().unwrap()).unwrap();
+        // The machine's paths become the stand-in's: its bin dir first, no Chrome to launch.
+        let prelude = DESKTOP_PRELUDE.replace("/opt/cmux/current/bin", &dir.display().to_string());
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("{prelude}{}", step.script))
+            .output()
+            .unwrap();
+        (
+            output.status.code().unwrap_or(-1),
+            std::fs::read_to_string(&log).unwrap_or_default(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        )
+    }
+
+    #[test]
+    fn input_on_a_window_goes_to_the_frontmost_app_window_there_in_its_own_coordinates() {
+        let (code, calls, stderr) = run_on_stub_desktop(
+            "drag",
+            json!({"op": "drag", "x": 300, "y": 200, "to_x": 500, "to_y": 260}),
+        );
+        assert_eq!(code, 0, "{stderr}");
+        let drag = calls.lines().find(|line| line.starts_with("drag ")).expect(&calls);
+        let sent: Value = serde_json::from_str(drag.trim_start_matches("drag ")).unwrap();
+        // The pid-less cursor overlay is skipped; window 7 starts at 100,50.
+        assert_eq!(
+            sent,
+            json!({"from_x": 200, "from_y": 150, "to_x": 400, "to_y": 210, "pid": 42,
+                   "window_id": 7, "delivery_mode": "foreground"})
+        );
+        assert!(calls.starts_with("set_config {\"capture_scope\":\"desktop\"}"), "{calls}");
+
+        let (code, calls, stderr) = run_on_stub_desktop(
+            "scroll",
+            json!({"op": "scroll", "x": 5, "y": 5, "direction": "down"}),
+        );
+        assert_eq!(code, 1, "no app window at 5,5: {calls}");
+        assert!(stderr.contains("no app window there"), "{stderr}");
+        assert!(!calls.contains("scroll "), "nothing scrolled: {calls}");
+    }
+
+    #[test]
+    fn a_refusal_cmux_cua_answers_with_exit_0_fails_the_step() {
+        let (code, _, stderr) = run_on_stub_desktop("key", json!({"op": "key", "keys": "Return"}));
+        assert_eq!(code, 1);
+        assert!(
+            stderr.contains("cmux-cua press_key") && stderr.contains("background_unavailable"),
+            "{stderr}"
+        );
+        let (code, calls, stderr) =
+            run_on_stub_desktop("click", json!({"op": "click", "x": 3, "y": 4}));
+        assert_eq!(code, 0, "{stderr}");
+        assert!(calls.contains("click {\"button\":\"left\",\"x\":3,\"y\":4}"), "{calls}");
+    }
+
+    #[test]
+    fn open_url_opens_one_quoted_word_in_chrome() {
+        let step = desktop_step(
+            "open_url",
+            json!({"op": "open_url", "url": "https://a.test/?q=x&y='1'"}).as_object().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(step.script, r#"chief_chrome 'https://a.test/?q=x&y='\''1'\'''"#);
+    }
 
     #[test]
     fn every_description_stays_short() {
