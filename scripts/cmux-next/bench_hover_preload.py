@@ -278,7 +278,8 @@ class Profile:
         table = self.trace + ".xml"
         with open(table, "w") as handle:
             subprocess.run(["xcrun", "xctrace", "export", "--input", self.trace, "--xpath",
-                            '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]'], stdout=handle, check=False)
+                            '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]'], stdout=handle, check=False,
+                           timeout=300)
         return main_thread_frames(table, self.pid)
 
 
@@ -331,13 +332,22 @@ def sweep(bench: Bench, args, report: dict, rows: list[str]):
         if not 0 <= index + step < len(rows):
             step = -step
         index += step
-    profile = Profile(bench.pid, args.profile, args.label) if args.profile else None
+    profile = None
+    if args.profile:
+        try:
+            profile = Profile(bench.pid, args.profile, args.label)
+        except Exception as error:  # a profile that cannot start never costs the arm its sweep
+            report["sweep_profile"] = {"error": repr(error)}
     bench.rpc("debug.frames", {"action": "start"})
     moved = bench.rpc("debug.pointer_sweep", {"path": path, "hz": args.hz}, timeout=90)
     time.sleep(0.5)  # test script: past the dwell, so a pending intent would have fired
     frames = bench.rpc("debug.frames", {"action": "stop", "raw": True})
     if profile:
-        frames_of_profile = profile.stop()
+        try:
+            frames_of_profile = profile.stop()
+        except Exception as error:  # an export that fails or does not parse keeps the sweep's numbers
+            profile.proc.kill()
+            frames_of_profile = {"error": repr(error)}
         report["sweep_profile"] = frames_of_profile
         print(f"PERF-HOVER-PROFILE main_ms={frames_of_profile.get('main_ms')} error={frames_of_profile.get('error')} "
               f"unmatched_threads={json.dumps(frames_of_profile.get('threads'))}", flush=True)
