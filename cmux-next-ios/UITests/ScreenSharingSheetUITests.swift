@@ -54,8 +54,11 @@ final class ScreenSharingSheetUITests: XCTestCase {
         open.tap()
 
         XCTAssertTrue(app.buttons["screenSharing.done"].firstMatch.waitForNonExistence(timeout: 10), "the sheet closes")
-        let page = app.descendants(matching: .any)["screenSharing.tabPage"].firstMatch
-        XCTAssertTrue(page.waitForExistence(timeout: 15), "the Screen Sharing tab's page\n\(app.debugDescription)")
+        // The workspace screen's identifier covers its pages' own, so the tab shows by its
+        // address pill and the page by the viewer's Touch picker.
+        let pill = app.buttons["Screen Sharing, Your Macs"].firstMatch
+        XCTAssertTrue(pill.waitForExistence(timeout: 15), "the Screen Sharing tab's address\n\(app.debugDescription)")
+        XCTAssertTrue(app.buttons["Touch"].firstMatch.waitForExistence(timeout: 10), "the tab's page: the viewer's choices\n\(app.debugDescription)")
         settle(1)
         attach(app.screenshot(), "02-screen-sharing-tab")
 
