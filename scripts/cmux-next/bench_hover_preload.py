@@ -21,7 +21,9 @@ per main-actor turn paced by the clock (not one socket round trip, a display fra
               each: "cold" (select it from another workspace, no hover) and "dwell" (the pointer
               rests --dwell-ms on its row, then select). Time to content: from the select until
               every shown page is live (not the hibernated stand-in) and answers
-              document.readyState == "complete".
+              document.readyState == "complete". First frame: the commit that carries the switch
+              (debug.workspace_switch) shows every page live and loaded, not the stand-in or a
+              page still loading (first_frame_content).
   (c) grace   after a dwell with no select: renderer footprint before the hover, after the wake, and
               after hoverGrace (30 s) plus --grace-slack-s; the woken pages must hibernate again.
 
@@ -41,6 +43,7 @@ import collections
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -86,6 +89,37 @@ class Sites:
         if index >= len(self.ports):
             self.ports.append(serve())
         return f"http://127.0.0.1:{self.ports[index]}/?n={label}"
+
+
+def start_vdisplay(hz: float, scratch: str, hold_s: int = 3600) -> tuple[subprocess.Popen, str]:
+    """`--vdisplay HZ`: a 1920x1200 virtual main display at `hz` (scripts/ci/frame-pacing/vdisplay.m, as
+    palette-open-stages.py and split-spring.sh), made before the app launches, so a 60 Hz mini measures at 120 Hz.
+    Returns the helper (it ends by itself after `hold_s`) and its ready line ("ready DISPLAY_ID p50_ms main=ID")."""
+    repo = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    folder = os.path.join(scratch, "VDisplay.app", "Contents")
+    os.makedirs(os.path.join(folder, "MacOS"), exist_ok=True)
+    binary = os.path.join(folder, "MacOS", "VDisplay")
+    built = subprocess.run(["xcrun", "clang", "-fobjc-arc", "-O2", "-Wno-deprecated-declarations", "-framework", "AppKit",
+                            "-framework", "CoreVideo", os.path.join(repo, "scripts/ci/frame-pacing/vdisplay.m"), "-o", binary],
+                           capture_output=True, text=True)
+    if built.returncode != 0:
+        raise SystemExit(f"bench-hover-preload: the virtual display helper did not compile: {built.stderr[-600:]}")
+    shutil.copyfile(os.path.join(repo, "scripts/ci/frame-pacing/VDisplay-Info.plist"), os.path.join(folder, "Info.plist"))
+    subprocess.run(["codesign", "-s", "-", "--force", os.path.dirname(folder)], capture_output=True)
+    out = open(os.path.join(scratch, "vdisplay.out"), "w+")
+    helper = subprocess.Popen([binary, str(int(hz)), str(hold_s), "main", "1920x1200"], stdout=out, stderr=subprocess.DEVNULL)
+    line = ""
+    for _ in range(20):
+        out.seek(0)
+        line = next((l for l in out.read().splitlines() if l.startswith(("ready", "error"))), "")
+        if line or helper.poll() is not None:
+            break
+        time.sleep(1)  # test script: a bounded wait for the helper's own ready line
+    if not line.startswith("ready"):
+        helper.kill()
+        raise SystemExit(f"bench-hover-preload: no virtual display ({line or 'no line'})")
+    time.sleep(2)  # test script: WindowServer settles the new main display before the app opens on it
+    return helper, line
 
 
 def pct(values: list[float], p: float) -> float | None:
@@ -398,6 +432,8 @@ def click_trials(bench: Bench, args, report: dict, target: str, row: str, tabs: 
                     print(f"PERF-HOVER-CLICK trial={trial} mode={mode} error=row_not_hoverable", flush=True)
                     continue
                 time.sleep(args.dwell_ms / 1000)  # test script: the pointer rests on the row
+            # The first frame: what the commit carrying the switch shows of each page (debug.workspace_switch).
+            bench.rpc("debug.workspace_switch", {"action": "start"})
             started = time.perf_counter()
             bench.app.action("goToWorkspace", workspace=target)
             shown_at = (time.perf_counter() - started) * 1000
@@ -406,8 +442,15 @@ def click_trials(bench: Bench, args, report: dict, target: str, row: str, tabs: 
                 return all(bench.live(t, hibernated) for t in tabs)
             done = wait_for(content, 20, 0.03)
             content_ms = (time.perf_counter() - started) * 1000 if done else None
+            switches = bench.rpc("debug.workspace_switch", {"action": "stop"}).get("switches") or []
+            first = switches[-1] if switches else {}
             entry = {"trial": trial, "mode": mode, "select_rtt_ms": round(shown_at, 2),
-                     "content_ms": round(content_ms, 1) if content_ms else None}
+                     "content_ms": round(content_ms, 1) if content_ms else None,
+                     "first_frame": {k: first.get(k) for k in ("pages", "pages_placeholder", "pages_loading", "commit_ms",
+                                                               "late_vsyncs", "refresh_ms")},
+                     # Every shown page shows its loaded content in the switch's first frame (None: no switch read).
+                     "first_frame_content": (first.get("pages", 0) > 0 and not first.get("pages_placeholder")
+                                             and not first.get("pages_loading")) if "pages" in first else None}
             if not done:
                 # Why no content: each page's phase and what it answers now.
                 entry["diag"] = bench.diagnose(f"click-{trial}-{mode}-no-content", tabs)
@@ -416,13 +459,17 @@ def click_trials(bench: Bench, args, report: dict, target: str, row: str, tabs: 
                 print(f"PERF-HOVER-CLICK-NOCONTENT {json.dumps(entry['answers'])}", flush=True)
             trials.append(entry)
             print(f"PERF-HOVER-CLICK trial={trial} mode={mode} content_ms={entry['content_ms']} "
-                  f"select_rtt_ms={entry['select_rtt_ms']}", flush=True)
-    summary = {}
+                  f"select_rtt_ms={entry['select_rtt_ms']} first_frame_content={entry['first_frame_content']} "
+                  f"first_frame={json.dumps(entry['first_frame'])}", flush=True)
+    summary, first_frames = {}, {}
     for mode in ("cold", "dwell"):
         values = [t["content_ms"] for t in trials if t.get("mode") == mode and t.get("content_ms") is not None]
         summary[mode] = dist(values)
-    report["click"] = {"trials": trials, "summary": summary}
-    print(f"PERF-HOVER-CLICK-SUMMARY cold={json.dumps(summary['cold'])} dwell={json.dumps(summary['dwell'])}", flush=True)
+        read = [t["first_frame_content"] for t in trials if t.get("mode") == mode and t.get("first_frame_content") is not None]
+        first_frames[mode] = {"n": len(read), "content": sum(read)}
+    report["click"] = {"trials": trials, "summary": summary, "first_frame_content": first_frames}
+    print(f"PERF-HOVER-CLICK-SUMMARY cold={json.dumps(summary['cold'])} dwell={json.dumps(summary['dwell'])} "
+          f"first_frame_content={json.dumps(first_frames)}", flush=True)
 
 
 def grace(bench: Bench, args, report: dict, pid: int, bundle: str, tabs: list[str], away: str, row: str,
@@ -473,6 +520,8 @@ def main():
     parser.add_argument("--out")
     # A directory: record a Time Profiler trace of the app over the sweep and print its heaviest main-thread frames.
     parser.add_argument("--profile")
+    # Refresh rate of a virtual main display made before the launch (a 60 Hz mini measures at 120 Hz); 0: the host's own.
+    parser.add_argument("--vdisplay", type=float, default=0)
     args = parser.parse_args()
     phases = set(args.phases.split(","))
     # Hidden pages discard after 0.5 min (a timeout written, so the hover may restore them) and freeze after 5 s.
@@ -480,11 +529,15 @@ def main():
     bundle = os.path.realpath(args.app)
     signal.signal(signal.SIGTERM, bm.interrupted)
     bp.wipe_state(bundle)
+    vdisplay, ready = None, None
+    if args.vdisplay:
+        vdisplay, ready = start_vdisplay(args.vdisplay, tempfile.mkdtemp(prefix="hover-vdisplay-"))
+        print(f"PERF-HOVER-VDISPLAY hz={args.vdisplay} {ready}", flush=True)
     pid, sock, scratch = bm.launch(bundle, config)
     app = bm.App(bundle, sock)
     bench = Bench(sock, app, pid)
     sites = Sites(args.engine)
-    report = {"app": bundle, "engine": args.engine, "label": args.label, "config": config}
+    report = {"app": bundle, "engine": args.engine, "label": args.label, "config": config, "vdisplay": ready}
     print(f"PERF-HOVER-ARM label={args.label}", flush=True)
     try:
         # The workspace the bench shows while the others are hidden, then the target right after it, so the
@@ -555,6 +608,8 @@ def main():
         bm.wait_gone(pid, 20)
         bm.end_bundle(bundle)
         shutil.rmtree(scratch, ignore_errors=True)
+        if vdisplay:
+            vdisplay.terminate()
         if args.out:
             with open(args.out, "w") as handle:
                 json.dump(report, handle, indent=1)

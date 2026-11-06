@@ -10,6 +10,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// Fades a clipped title and scrolls it while the pointer rests on the
     /// row (TitleFade); NSTextField would end it in an ellipsis instead.
     let title = MarqueeLabel(gate: Motion.sidebar)
+    /// A hover asked for the title's marquee: it starts at the end of the row's next `layout()` (WorkspaceRowView+Rendering).
+    var marqueeOnLayout = false
     let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// Expanded rows (`sidebar.density`, cx-13w3; WorkspaceRowView+Expanded): the age and the meta line.
     let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)

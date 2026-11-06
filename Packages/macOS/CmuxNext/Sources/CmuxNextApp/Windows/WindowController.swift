@@ -336,7 +336,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         services.cloudContextDidChange()
         services.canvasContextDidChange()
         services.windows.contentDidAppear(self)
-        DebugWorkspaceSwitch.shown(self, in: window)
+        DebugWorkspaceSwitch.shown(self, in: window, pages: controller.panes.values.compactMap { $0.stripModel.selectedID.flatMap { services.cache.browsers[$0.rawValue]?.tab } }.firstFrameColumns)
         revalidatePagePresentation()
     }
 
