@@ -17,6 +17,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
     public var effectOverrides: [ActionID: @MainActor () -> PaletteEffect?] = [:]
     /// Lists objects for target arguments (workspace, tab group, ...).
     public var targets: (any PaletteTargetSource)?
+    /// Makes a target from a typed name on an argument page (`PaletteSources.targetCreators`).
+    public var targetCreators: [ActionTargetKind: PaletteTargetCreator] = [:]
     /// Objects captured when the palette opened; argument-taking actions
     /// target them (`PaletteArgumentFlow`).
     public var capturedTargets: [ActionTargetRef] = []
@@ -241,7 +243,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
         }
         return .deferred {
             PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: context.targets, captured: context.capturedTargets,
-                                preview: context.argumentPreview, swatches: context.argumentSwatches)
+                                preview: context.argumentPreview, swatches: context.argumentSwatches,
+                                creators: context.targetCreators)
                 .effect(collected: ActionInvocation())
         }
     }
