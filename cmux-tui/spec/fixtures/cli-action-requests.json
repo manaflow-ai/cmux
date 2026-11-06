@@ -1055,6 +1055,19 @@
     },
     {
       "params": {
+        "action": "chat channel create",
+        "args": {
+          "chief": "/tmp/contract",
+          "members": "/tmp/contract",
+          "title": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux chat channel create --title /tmp/contract --members /tmp/contract --chief /tmp/contract"
+    },
+    {
+      "params": {
         "action": "chat replies",
         "args": {
           "conversation": "/tmp/contract",
@@ -1879,6 +1892,18 @@
     },
     {
       "params": {
+        "action": "browser-profile open-link-in-new",
+        "args": {
+          "name": "/tmp/contract",
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile open-link-in-new --url /tmp/contract --name /tmp/contract"
+    },
+    {
+      "params": {
         "action": "browser-profile set-workspace-default",
         "args": {
           "browserProfile": "browser-profile:contract-1"
@@ -2543,12 +2568,12 @@
       "params": {
         "action": "cloud open-desktop",
         "args": {
-          "viewer": "web"
+          "viewer": "rd"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux cloud open-desktop --viewer web"
+      "source": "cmux cloud open-desktop --viewer rd"
     },
     {
       "params": {
