@@ -79,14 +79,12 @@ extension CloudStartSession {
                 // the rest. A step still running sends nothing (it goes on and ends on its own); the caller goes the
                 // start-session way, whose start waits for its own step.
                 let clock = ContinuousClock(), begun = clock.now, asked = started.asked(machine: machine.machine.title)
-                // Every login refusal carries the start-session command that recovers (its `--login` choice is the caller's).
+                // Each login refusal carries the start-session that recovers: the caller's `--login`, else (a bare rerun refuses again) `--login none`, whose chat signs in.
                 let refused = { (code: String, message: String) in notSent(code, message).merging(["command": .string(asked.command)]) { $1 } }
                 let decided: (code: String, message: String)??
                 do { decided = try await Self.first(within: steps.loginWithin, login) } catch let failure as ActionFailure { return refused("cloud.relay.login_account_changed", failure.message) }
                 guard let refusal = decided else { return refused("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(asked)) }
-                // With no login choice a bare rerun is refused the same way; `--login none` starts it, copies nothing, and its chat's Sign in to Claude card signs in.
-                let recovery = machine.harnessLogin?.reason == .needsLoginChoice ? asked.command + " --login none" : asked.command, reason = machine.harnessLogin?.reason.rawValue
-                if let refusal { return refused(refusal.code, refusal.message).merging(["command": .string(recovery)].merging(reason.map { ["login_reason": .string($0)] } ?? [:]) { $1 }) { $1 } }
+                if let refusal { let reason = machine.harnessLogin?.reason; return refused(refusal.code, refusal.message).merging(["command": .string(asked.command + (reason == .needsLoginChoice ? " --login none" : ""))].merging(reason.map { ["login_reason": .string($0.rawValue)] } ?? [:]) { $1 }) { $1 } }
                 let answer = try await relay.answer(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd,
                                                     promptID: promptID, within: CloudHandlers.answerWithin - (clock.now - begun))
                 return relayFields(answer, machineID: machineID)
