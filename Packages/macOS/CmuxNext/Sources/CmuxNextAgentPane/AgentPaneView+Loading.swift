@@ -226,6 +226,9 @@ extension AgentPaneView {
         loadingView.giveUpWhenSeenUnpainted { [weak self] in
             guard let self, !model.hasPainted else { return }
             loadingLogger.error("agent pane page did not report its first paint in sight; showing it")
+#if DEBUG || CMUX_BENCH_HOOKS
+            self.captureDebugPaintWatchdogSnapshot()
+#endif
             model.markPainted()
         }
     }
