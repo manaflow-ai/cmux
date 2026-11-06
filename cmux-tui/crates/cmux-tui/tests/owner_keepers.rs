@@ -411,13 +411,20 @@ mod owner_keepers {
     }
 
     #[test]
-    fn the_switch_set_to_0_leaves_the_owner_running() {
-        // `CMUX_TUI_OWNER_KEEPERS=0` (the app's `CMUX_NEXT_TUI_OWNER_KEEPERS=0`)
-        // turns the rule off: the owner runs on as before it.
-        let owner = Owner::ensure_session("cmux-app-okp-off", "off", Vec::new(), Some("0"));
+    fn a_stale_off_switch_does_not_turn_the_rule_off() {
+        // The stage's switch is deleted (PERF FLAGS): a `CMUX_TUI_OWNER_KEEPERS=0`
+        // left in an environment (an old app's `CMUX_NEXT_TUI_OWNER_KEEPERS=0`,
+        // a shell) no longer keeps the owner running after its app left.
+        let owner = Owner::ensure_session(
+            "cmux-app-okp-off",
+            "off",
+            vec![("CMUX_TUI_OWNER_KEEPERS", "0")],
+            None,
+        );
         let app = Client::app(&owner.socket);
+        owner.assert_kept("the app's connection");
         drop(app);
-        owner.assert_kept("its switched-off rule");
+        owner.assert_stops("its app's last connection closed, with a stale off switch set");
     }
 
     #[test]
