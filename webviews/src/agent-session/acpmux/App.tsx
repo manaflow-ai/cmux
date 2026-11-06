@@ -9459,8 +9459,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         return result.cwd;
       })
       .catch((error: unknown) => {
-        setFolderError(errorMessage(error) || undefined);
+        // A deferred ask's caller (the folder menu) shows the failure with its Retry; one notice, not two.
         if (request?.deferPick) throw error;
+        setFolderError(errorMessage(error) || undefined);
         return undefined;
       });
   };
