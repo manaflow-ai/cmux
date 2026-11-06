@@ -1870,7 +1870,7 @@ tokio::task_local! {
 }
 
 /// An agent start that a stop (`acpmux session stop`) came after the request for.
-fn stopped_while_starting() -> RpcError {
+pub(super) fn stopped_while_starting() -> RpcError {
     RpcError::invalid_params("the session was stopped while its agent started")
 }
 

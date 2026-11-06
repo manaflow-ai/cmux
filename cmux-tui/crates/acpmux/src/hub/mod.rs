@@ -174,6 +174,7 @@ pub(crate) mod session_pages;
 mod settings_watch;
 mod silent_turn;
 mod stalled_turn;
+mod start_retry;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
@@ -1397,6 +1398,8 @@ impl Hub {
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
+            start_retry_wake: Notify::new(),
+            start_retry_waits: AtomicBool::new(false),
             cancel_forced_turn: StdMutex::new(None),
             unwritten_prompt: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
