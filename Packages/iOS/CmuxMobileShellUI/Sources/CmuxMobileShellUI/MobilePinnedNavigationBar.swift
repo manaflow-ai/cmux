@@ -10,7 +10,7 @@ extension View {
     /// the content under it scrolls (Safari-style), which hides the back
     /// button, the workspace title, and the trailing controls behind a "…"
     /// menu on the browser and chat surfaces. The SwiftUI opt-out
-    /// (`toolbarMinimizeBehavior(.never)`) does not exist in the iOS 26 SDK,
+    /// (`toolbarMinimizationBehavior(.never, for: .navigationBar)`) does not exist in the iOS 26 SDK,
     /// and UIKit's 26 SDK only exposes a minimize behavior for the tab bar.
     /// The bar's scroll linkage does have a public control: the view
     /// controller's top-edge content scroll view (iOS 15+), which UIKit
@@ -35,7 +35,7 @@ extension View {
         #if compiler(>=6.4)
         if #available(iOS 27.0, *) {
             background(PinnedNavigationBarApplier())
-                .toolbarMinimizeBehavior(.never, for: .navigationBar)
+                .toolbarMinimizationBehavior(.never, for: .navigationBar)
         } else {
             background(PinnedNavigationBarApplier())
         }
