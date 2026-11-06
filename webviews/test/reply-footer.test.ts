@@ -280,9 +280,22 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         expect(fit.fontSize).toBe(fit.captionSize);
         expect(fit.paddingInline).toBe("2px 2px");
         expect(fit.title).toBeNull();
+        await still(page, `${theme.file}-stopped-after`);
       } finally {
         await page.close();
       }
     });
+
+    for (const variant of ["footer-before", "footer-chosen", "footer-roomy"]) {
+      test(`captures the stopped footer gallery arm (${variant}, ${theme.name})`, async () => {
+        const page = await open(variant, theme.name, "agent-pane.stopped-turn");
+        try {
+          await page.locator(".cv-turn-continue").waitFor({ timeout: 10_000 });
+          await still(page, `${theme.file}-${variant}`);
+        } finally {
+          await page.close();
+        }
+      });
+    }
   }
 });
