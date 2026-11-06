@@ -214,8 +214,9 @@ import Testing
     }
 
     /// A shortcut edit rebuilds the structure but keeps the live reason
-    /// observation instead of arming another next to it: after many such
-    /// edits, one binding change fires one reason observation, not one per edit.
+    /// observations instead of arming others next to them: after many such
+    /// edits, one binding change fires each action's reason observation once,
+    /// not once per edit.
     @Test func structureRebuildsKeepOneReasonObservation() async {
         let fixture = Fixture()
         fixture.registry.bind("splitDown") {}
@@ -235,7 +236,7 @@ import Testing
         fixture.registry.bind("splitRight") {}
         await fixture.settle { fixture.router.catalog.resolve("splitRight")?.isBound == true && fixture.bridge.reasonReads > reads }
         await fixture.settle()
-        #expect(fixture.bridge.reasonFirings == firings + 1)
+        #expect(fixture.bridge.reasonFirings == firings + fixture.router.catalog.actions.count)
         fixture.expectCurrent()
     }
 
