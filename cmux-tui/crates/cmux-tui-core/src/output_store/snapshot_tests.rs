@@ -486,3 +486,18 @@ fn a_flood_crossing_half_the_cap_wakes_the_writer_at_once() {
         "the writer is not due at once after the flood crossed half the cap: {due:?}"
     );
 }
+
+/// The parked snapshots' trim runs once a day however busy the writer is: the first pass after start (whose prune
+/// already trimmed) only starts the day.
+#[test]
+fn the_parked_trim_runs_once_a_day_with_any_pass() {
+    use super::{WriterState, take_trim};
+    let mut state = WriterState::default();
+    assert!(!take_trim(&mut state), "the start's prune ran it");
+    assert!(!take_trim(&mut state), "a busy writer's next pass does not");
+    let a_day_ago = std::time::Instant::now().checked_sub(super::super::parked_trim::PASS_EVERY);
+    let Some(a_day_ago) = a_day_ago else { return }; // a clock that started under a day ago (Windows)
+    state.last_trim = Some(a_day_ago);
+    assert!(take_trim(&mut state), "a day later any pass runs it");
+    assert!(!take_trim(&mut state));
+}

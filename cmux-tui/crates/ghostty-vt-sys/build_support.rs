@@ -116,6 +116,17 @@ pub fn zon_version(path: &Path) -> Option<String> {
     })
 }
 
+/// The zig program the build runs: `ZIG` when set, else the pinned zig that
+/// `scripts/install-zig-ci.sh` publishes as `CMUX_ZIG`, else `zig` on PATH.
+/// PATH comes last because a runner may hold an older zig ahead of the pin.
+pub fn zig_program(zig: Option<String>, cmux_zig: Option<String>) -> String {
+    [zig, cmux_zig]
+        .into_iter()
+        .flatten()
+        .find(|path| !path.is_empty())
+        .unwrap_or_else(|| "zig".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,5 +289,18 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
         for (target, host, expected) in cases {
             assert_eq!(zig_target_arg(target, host, "13.0").as_deref(), Some(expected), "{target}");
         }
+    }
+
+    /// CI pins zig with `scripts/install-zig-ci.sh`, which publishes `CMUX_ZIG`.
+    /// A runner whose PATH holds an older zig first (glaeda-5: Zig 0.16 under
+    /// `~/.local/lib`, ahead of the pinned 0.17) must still build with the pin.
+    #[test]
+    fn the_pinned_zig_wins_over_path() {
+        let pinned = "/runner/_temp/zig-aarch64-macos-0.17.0/zig".to_string();
+        assert_eq!(zig_program(None, Some(pinned.clone())), pinned);
+        assert_eq!(zig_program(Some("/opt/zig".into()), Some(pinned.clone())), "/opt/zig");
+        assert_eq!(zig_program(Some(String::new()), Some(pinned.clone())), pinned);
+        assert_eq!(zig_program(None, Some(String::new())), "zig");
+        assert_eq!(zig_program(None, None), "zig");
     }
 }

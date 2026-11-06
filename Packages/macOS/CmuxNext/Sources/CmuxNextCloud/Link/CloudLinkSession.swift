@@ -117,6 +117,26 @@ public actor CloudLinkSession {
         }
     }
 
+    /// What this link's connect answered about the signed-in caller: ``CloudCallerOwnership/unknown`` while no
+    /// link is up, or when the answer was neither `owner` nor `team` (the app server could not read it, or predates it).
+    public var callerOwnership: CloudCallerOwnership {
+        switch state {
+        case .ready(let socket), .attached(let socket): socket.callerOwnsVM ? .owner : socket.callerIsTeammate ? .team : .unknown
+        case .idle, .connecting, .ended: .unknown
+        }
+    }
+
+    /// The link's state in one word, for a decision log line (no id, path or token).
+    public var stateWord: String {
+        switch state {
+        case .idle: "idle"
+        case .connecting: "connecting"
+        case .ready: "ready"
+        case .attached: "attached"
+        case .ended: "ended"
+        }
+    }
+
     /// True while the link is up and its connect's answer said the machine is a teammate's
     /// (``CloudLinkSocket/callerIsTeammate``): a chat start is refused as a teammate's machine
     /// (`agent_session.team_vm_blocked`). It never grants a start; only ``ownerLink`` does.
@@ -202,4 +222,10 @@ public actor CloudLinkSession {
 public struct CloudLinkTicket: Equatable, Sendable {
     public let id: UInt64
     public let socket: CloudLinkSocket
+}
+
+/// Who the signed-in caller is to a machine, by its link's connect answer: its owner, a teammate, or not known (no link
+/// up, or no answer read). Only `owner` grants anything; `unknown` is never read as a teammate's machine.
+public enum CloudCallerOwnership: String, Sendable {
+    case owner, team, unknown
 }

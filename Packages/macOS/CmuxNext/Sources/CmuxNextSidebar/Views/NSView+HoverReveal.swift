@@ -47,6 +47,28 @@ extension NSView {
         CATransaction.commit()
     }
 
+    /// Shows or clears a hover control by paint only (HOVER COMMIT; Chrome's model: a hover changes style, never the
+    /// tree). The control's first show unhides it; from then on it stays in the view tree, unhidden, and a hover only
+    /// sets its layer's opacity, fading with `token` when `fades` (instant under Reduce Motion). An `isHidden` flip in
+    /// every crossing made AppKit rebuild the window's layer tree, walk the window for its default button and repaint
+    /// the control (its `viewDidHide`) in the frame's commit: the sweep stalls of steps f105684e and 909bfc85.
+    /// A clear control takes no click (`SidebarRowView.hitTest` skips clear buttons), is not among its row's
+    /// accessibility children (`SidebarRowView.accessibilityChildren`) and shows no tooltip (`TooltipPresenter`), as
+    /// a hidden one did. A control that never showed stays hidden.
+    func setHoverPainted(_ view: NSView, _ shown: Bool, fades requested: Bool, token: MotionFade = .hover) {
+        let appears = shown && view.isHidden
+        if appears {
+            view.alphaValue = 0
+            view.isHidden = false
+        }
+        guard !view.isHidden else { return }
+        let drawn = shown && view.alphaValue == 0
+        let fades = requested && Motion.sidebar.duration(token) > 0
+        fadeOpacity(view, to: shown ? 1 : 0, fades: fades, from: appears && fades ? 0 : nil, token: token)
+        // A pointer already on it (the next row's x as the pointer moves down the column) gets its tooltip.
+        if drawn { view.themedToolTipDrawn() }
+    }
+
     /// Shows or hides a trailing slot (`SidebarRevealSlotView`) at `frame`: it fades as
     /// `setHoverShown` does and its width collapses to nothing at its trailing edge (grows from it
     /// on the way in), so the mark leaves no hole and arrives without a jump. A shown slot that
