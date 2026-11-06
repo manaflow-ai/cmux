@@ -6806,7 +6806,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           if (!ownsSession()) throw startCancelled();
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
-          const switchPromptId = promptId ?? crypto.randomUUID();
+          const switchPromptId = promptId ?? gesture?.promptId ?? crypto.randomUUID();
           // Only the person's own send, not one with a seeded prompt's own id (its host ticket is bound
           // to it), keeps its gesture for a prompt held behind a slow start (#23031).
           // A prompt the folder's trust held keeps its id and its send's ticket there too, and is
@@ -6819,6 +6819,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             fromTrust ? () => accepted?.() : undefined,
             switchPromptId,
             !seeded && promptId === undefined,
+            // A send the composer held for its files goes with the ticket its Enter bound.
+            gesture?.promptId === switchPromptId ? gesture.ticket : undefined,
           );
           if (!held && fromTrust) trustTickets.delete(fromTrust.promptId);
           if (held) {
@@ -9693,7 +9695,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // (trustHeld.ts). One sent while earlier held prompts still go waits behind them, so
               // none overtakes another.
               if (trustHolds || trustHeld.pending()) {
-                trustHeld.hold(text, attachments);
+                // A send the composer held for its files keeps the ticket its Enter bound.
+                trustHeld.hold(text, attachments, undefined, false, gesture);
                 return true;
               }
               if (!snapshot.sessionId) claimShellRuns.current = true;

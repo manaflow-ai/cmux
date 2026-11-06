@@ -351,12 +351,16 @@ export class HarnessSwitch {
   /// `byPerson`: the person's own Enter or click sent it, so its gesture may become the prompt's
   /// ticket; a seeded or scripted send takes none. The caller passes false for a send that carries
   /// a seeded prompt's own id (its host ticket is bound to it), even when it passes an id.
+  /// `bound`: the ticket the composer bound to `promptId` at the Enter or click of a send it held
+  /// for its files (Composer `onBindSendGesture`). The prompt goes with it and asks for no other:
+  /// the host may have no grant left by now (a pasted image's upload spends it).
   send(
     text: string,
     attachments: ComposerAttachment[] = [],
     written?: () => void,
     promptId?: string,
     byPerson = false,
+    bound?: Promise<string | undefined>,
   ): Promise<unknown> | undefined {
     let intent = this.intent;
     if (!intent) return undefined;
@@ -378,9 +382,11 @@ export class HarnessSwitch {
     const id = promptId ?? crypto.randomUUID();
     const queued: Queued = { id, text, attachments, at: Date.now(), resolve, reject, written };
     intent.queued = [...intent.queued, queued];
+    if (bound && this.port) queued.ticket = { port: this.port, value: bound.catch(() => undefined) };
     // A prompt sent while the switch waits for the trust answer keeps this send's gesture for
     // after Trust (the first held prompt only: one ticket per send).
-    if (intent.phase === "trust" && intent.queued.length === 1) this.handlers.holdPrompt?.(id);
+    // One with the ticket its Enter bound keeps that, and takes or holds no other.
+    if (!queued.ticket && intent.phase === "trust" && intent.queued.length === 1) this.handlers.holdPrompt?.(id);
     // The first prompt held behind the start keeps this send's gesture as its ticket now: the
     // relay grants a prompt only on a gesture under 30 s old, and a harness can take longer to
     // start, so the prompt came back "Not sent. Press Retry" (#23031). Only the person's own send
@@ -388,6 +394,7 @@ export class HarnessSwitch {
     // machine, which needs this gesture, and not when this send restarts the switch: its
     // session/new may need the gesture for its folder.
     else if (
+      !queued.ticket &&
       byPerson &&
       !restarts &&
       // A start sent in this same turn takes the Enter itself (its folder check may need it) and
