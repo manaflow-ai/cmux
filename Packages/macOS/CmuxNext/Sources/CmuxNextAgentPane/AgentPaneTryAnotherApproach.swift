@@ -7,7 +7,9 @@ public nonisolated struct AgentPaneTryAnotherApproach: Equatable, Sendable {
 
     public init?(params: [String: Any]?) {
         guard let params, Set(params.keys) == ["throughSeq"] else { return nil }
-        guard let value = (params["throughSeq"] as? NSNumber)?.intValue, value > 0 else { return nil }
+        // A whole positive number only: NSNumber would coerce a boolean or 6.5 to a turn.
+        guard let number = params["throughSeq"] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              let value = Int(exactly: number.doubleValue), value > 0 else { return nil }
         throughSeq = value
     }
 

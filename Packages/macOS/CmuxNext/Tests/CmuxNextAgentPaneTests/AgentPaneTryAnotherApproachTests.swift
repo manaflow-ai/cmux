@@ -17,6 +17,10 @@ import Testing
             == .unsupported("chat.tryAnotherApproach"))
         #expect(AgentPaneRequest(body: ["method": "chat.tryAnotherApproach", "params": ["throughSeq": 6, "extra": true]])
             == .unsupported("chat.tryAnotherApproach"))
+        for loose: Any in [6.5, true, "6"] {
+            #expect(AgentPaneRequest(body: ["method": "chat.tryAnotherApproach", "params": ["throughSeq": loose]])
+                == .unsupported("chat.tryAnotherApproach"))
+        }
     }
 
     /// A machine snapshot plus a durable sibling chat: page script alone never starts one, and the
