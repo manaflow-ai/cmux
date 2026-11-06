@@ -16,6 +16,12 @@
 //! | `nk` | base64url SHA-256 of the client's Noise static public key |
 //! | `jti` | 16 random bytes, base64url |
 //! | `iat`, `exp` | NumericDate seconds, `0 < exp - iat <= 300` |
+//! | `vmk` | optional: `owner` when the person owns the machine, else `team` or absent |
+//!
+//! `vmk` follows the link token's convention ([`VmKind`]): absent never means
+//! owner, and an explicit `null` or another value is malformed. Only an
+//! owner's grant reaches the machine's owner-only services (the desktop
+//! socket, cmux-remote's `local-socket`).
 //!
 //! The verifier checks the signature, every claim, that `nk` names the key
 //! that just finished the Noise handshake, and that the `jti` was not spent.
@@ -45,7 +51,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::jws::{valid_jti, valid_keys, verify_signed};
 use crate::keyset::Keyset;
-use crate::token::{TokenRefusal, TokenRefused};
+use crate::token::{TokenRefusal, TokenRefused, VmKind};
 
 /// The JWS `typ` of a carrier grant.
 pub const GRANT_TYP: &str = "cmux-carrier+jwt";
@@ -79,6 +85,15 @@ pub struct CarrierGrant {
     pub services: Vec<String>,
     /// `exp`, NumericDate seconds. Informational: admission is the only use.
     pub expires_at: u64,
+    /// `vmk` as signed; `None` when the grant has none.
+    pub vm_kind: Option<VmKind>,
+}
+
+impl CarrierGrant {
+    /// Whether the grant marks the person as the machine's owner.
+    pub fn owner(&self) -> bool {
+        self.vm_kind == Some(VmKind::Owner)
+    }
 }
 
 #[derive(Deserialize)]
@@ -93,6 +108,16 @@ struct Claims {
     jti: String,
     iat: u64,
     exp: u64,
+    #[serde(default, deserialize_with = "present_vm_kind")]
+    vmk: Option<VmKind>,
+}
+
+/// A missing `vmk` is `None`; a present one must be a signed role (an
+/// explicit `null` is malformed), as in the link token.
+fn present_vm_kind<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<VmKind>, D::Error> {
+    VmKind::deserialize(deserializer).map(Some)
 }
 
 struct Spent {
@@ -275,7 +300,13 @@ impl CarrierGrantVerifier {
                 );
             }
         }
-        Ok(CarrierGrant { team: c.team, subject: c.sub, services: c.svc, expires_at: c.exp })
+        Ok(CarrierGrant {
+            team: c.team,
+            subject: c.sub,
+            services: c.svc,
+            expires_at: c.exp,
+            vm_kind: c.vmk,
+        })
     }
 }
 

@@ -6102,6 +6102,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         }));
       },
       rowCount: () => rowsRef.current.length,
+      rowIds: () => rowsRef.current.map((row) => row.id),
       sessionId: () => directClient.current?.selectedSession,
       automation: {
         snapshot: () => automationView.current!.snapshot,

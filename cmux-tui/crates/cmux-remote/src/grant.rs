@@ -117,9 +117,16 @@ pub fn is_grant_device_id(device_id: &str) -> bool {
 
 /// A service name a grant may carry: the wire name of a cmux-remote
 /// [`Service`] (`mux-control`, `workspace-rpc`, `process-stream`,
-/// `terminal-bytes-v1`, `tcp-tunnel`, `computer-use`).
+/// `terminal-bytes-v1`, `tcp-tunnel`, `computer-use`, `local-socket`).
 pub fn service_from_name(name: &str) -> Option<Service> {
     serde_json::from_value(serde_json::Value::String(name.to_owned())).ok()
+}
+
+/// The services only the machine's owner holds: [`Service::LocalSocket`]
+/// (the Cloud desktop). A grant gets them from its `vmk: "owner"` claim,
+/// never from its `svc` list, which the verifier strips of them.
+pub fn owner_services(owner: bool) -> impl Iterator<Item = Service> {
+    owner.then_some(Service::LocalSocket).into_iter()
 }
 
 impl GrantVerifier for CarrierGrantVerifier {
@@ -133,8 +140,13 @@ impl GrantVerifier for CarrierGrantVerifier {
         .map_err(|refusal| format!("carrier grant refused: {refusal}"))?;
         // A name this daemon does not know grants nothing; a grant naming
         // only unknown services admits nothing.
-        let services =
-            grant.services.iter().filter_map(|name| service_from_name(name)).collect::<Vec<_>>();
+        let mut services = grant
+            .services
+            .iter()
+            .filter_map(|name| service_from_name(name))
+            .filter(|service| *service != Service::LocalSocket)
+            .collect::<Vec<_>>();
+        services.extend(owner_services(grant.owner()));
         if services.is_empty() {
             return Err("carrier grant refused: no service this daemon serves".into());
         }
