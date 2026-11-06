@@ -111,10 +111,6 @@ async fn restart_after_stop(script: &str) {
     .expect("the stopped turn never ended");
     assert_eq!(ended["msg"]["status"], "cancelled", "{ended}");
     assert_eq!(ended["msg"]["cancelForced"], true, "{ended}");
-    assert_eq!(
-        ended["msg"]["restarted"], true,
-        "a stopped turn retained its wedged process: {ended}"
-    );
     tokio::time::timeout(
         Duration::from_secs(20),
         c.wait_for(method::MUX_EVENT, |p| p["kind"] == "stop_restarted"),

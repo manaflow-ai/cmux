@@ -35,6 +35,10 @@
 //! subagent's stop (`_acpmux/subagent_stop`). Claude Code's own interrupt spares them too once
 //! acpmux says it stops tasks one by one (`claude_stdio/outbound.rs` `initialize_request`).
 //!
+//! A harness with unanswered steering messages is also spared. Their settlement needs the
+//! live harness to confirm whether it dropped them unread; killing it first loses that proof
+//! and can drop a message or duplicate work. The forced logical end retains that exchange.
+//!
 //! The person's Stop also holds the other agents' messages queued behind the turn
 //! ([`Hub::person_stop`]): they stay queued, held, until the person's next turn completes or the
 //! queue is resumed, so they do not start a turn the moment the stopped one ends. The person's
@@ -233,14 +237,26 @@ impl Hub {
             Self::force_cancel(&session, &current);
             return;
         };
-        // Its background work would end with the process: only the turn ends (module docs).
-        if self.runs_background_work(&session) {
-            tracing::warn!(session = %session.id, turn_id = %turn.turn_id, "the agent works on after two cancels, beside background work: ending only its turn");
+        // Keep the harness while unread steering messages still need its acknowledgement.
+        // Killing it first loses the proof needed to return an unread message without
+        // replaying one it may have acted on (steer_end.rs::steer_taken_back).
+        let pending_steers =
+            !session.steer_now.lock().unwrap_or_else(|e| e.into_inner()).waiting.is_empty();
+        let spare = if self.runs_background_work(&session) {
+            Some("background_work")
+        } else if pending_steers {
+            Some("pending_steers")
+        } else {
+            None
+        };
+        // Background work and unacknowledged messages outlive this logical turn.
+        if let Some(reason) = spare {
+            tracing::warn!(session = %session.id, turn_id = %turn.turn_id, reason, "the agent has work to preserve after Stop: ending only its turn");
             self.append(
                 &session,
                 "mux",
                 "stop_escalated",
-                json!({"turnId": turn.turn_id, "step": "spared", "reason": "background_work"}),
+                json!({"turnId": turn.turn_id, "step": "spared", "reason": reason}),
             );
             Self::force_cancel(&session, &current);
             return;
