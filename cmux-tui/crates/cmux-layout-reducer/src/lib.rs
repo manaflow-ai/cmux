@@ -965,3 +965,4 @@ pub mod sidebar_drag;
 pub mod sidebar_drop;
 pub mod sidebar_face;
 pub mod sidebar_layout;
+pub mod sidebar_layout_plan;

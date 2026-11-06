@@ -165,6 +165,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_layout::respond(&request)).map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_layout_plan" => {
+                let request: cmux_layout_reducer::sidebar_layout_plan::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_layout_reducer::sidebar_layout_plan::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"group_hover_summary" => {
                 let request: cmux_layout_reducer::group_hover_summary::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
