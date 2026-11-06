@@ -23,17 +23,20 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
     static let firstSnapshotRead = "list-workspaces (first store snapshot)"
     private var closed = false
     /// Per command: requests answered, their total and longest reply time (seconds).
-    private var replies: [String: (count: Int, total: Double, longest: Double)] = [:]
+    private var replies: [String: (count: Int, total: Double, longest: Double, bytes: Int)] = [:]
+    /// Event lines by event name (a session stream item by its item kind): how many, and their bytes.
+    private var eventsByName: [String: (count: Int, bytes: Int)] = [:]
     /// Lines the daemon sent that answer no request (events), and their bytes.
     private var events = (count: 0, bytes: 0)
 
     /// Reply times by command and the event volume so far (``Timings``).
     struct Timings: Sendable {
-        var replies: [String: (count: Int, total: Double, longest: Double)]
+        var replies: [String: (count: Int, total: Double, longest: Double, bytes: Int)]
         var events: (count: Int, bytes: Int)
+        var eventsByName: [String: (count: Int, bytes: Int)]
     }
 
-    func timings() -> Timings { lock.withLock { Timings(replies: replies, events: events) } }
+    func timings() -> Timings { lock.withLock { Timings(replies: replies, events: events, eventsByName: eventsByName) } }
 
     init() throws {
         path = "/tmp/cntap-\(UUID().uuidString.prefix(8).lowercased()).sock"
@@ -175,11 +178,18 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
             guard let id, let sent = connection.pending.removeValue(forKey: id) else {
                 events.count += 1
                 events.bytes += reply.count
+                var name = object?["event"] as? String ?? "?"
+                if let item = (object?["item"] as? [String: Any])?["kind"] as? String { name += "/" + item }
+                var entry = eventsByName[name] ?? (0, 0)
+                entry.count += 1
+                entry.bytes += reply.count
+                eventsByName[name] = entry
                 return
             }
             let seconds = (ContinuousClock.now - sent.sent) / .seconds(1)
-            var entry = replies[sent.command] ?? (0, 0, 0)
+            var entry = replies[sent.command] ?? (0, 0, 0, 0)
             entry.count += 1
+            entry.bytes += reply.count
             entry.total += seconds
             entry.longest = max(entry.longest, seconds)
             replies[sent.command] = entry
