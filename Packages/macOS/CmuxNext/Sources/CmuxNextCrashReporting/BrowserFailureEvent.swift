@@ -80,11 +80,12 @@ public nonisolated struct BrowserFailureEvent: Sendable, Equatable {
         let event = Event(level: failure.kind == .loadFailed ? .warning : .error)
         event.platform = "cocoa"
         let exception = Exception(value: summary, type: exceptionType)
-        let mechanism = Mechanism(type: switch failure.kind {
+        let mechanismType = switch failure.kind {
         case .rendererTerminated: "cef_render_process_terminated"
         case .loadFailed: "cef_load_error"
         case .helperEnded: "cef_helper_process_ended"
-        })
+        }
+        let mechanism = Mechanism(type: mechanismType)
         mechanism.handled = true
         exception.mechanism = mechanism
         event.exceptions = [exception]
