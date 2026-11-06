@@ -197,6 +197,21 @@ struct AgentAutoResumePolicyTests {
         }
     }
 
+    @Test func aCompletionThatDoesNotEndTheTurnCancelsAPendingResume() {
+        var tracker = AgentAutoResumeTracker()
+        guard case let .schedule(_, _, _, token) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
+        ) else {
+            Issue.record("expected a schedule")
+            return
+        }
+        #expect(tracker.observe(
+            kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil, endsTurn: false
+        ) == .cancel(surfaceId: surface))
+        #expect(!tracker.isPending(surfaceId: surface, token: token))
+        #expect(tracker.resumeSent(surfaceId: surface, token: token) == nil)
+    }
+
     @Test func thePanesSettlementAfterAFinalStopKeepsTheTurnEnded() {
         // The Stop was still queued when the pane settled, so the synthetic
         // completion lands after it. It is no sign of a new turn.
