@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -265,12 +266,16 @@ extension AppOnboardingServices {
             run.outcome.summary.merge(summary)
             run.unreachable.formUnion(unreachable)
         }
+        // One the window did not show comes over unshown (a quiet claim): no view attaches its terminals, so they park.
+        let scope = saved.key == window.selectedKey ? ActionRunScope.current : ActionRunScope(origin: .user, allowsViewChange: false)
         do {
-            made = try await importClassicWorkspace(saved, into: run.targets[index], frame: frame, summary: &summary,
-                                                    unreachable: &unreachable,
-                                                    on: saved.remote.flatMap { run.hosts[$0.sshDestination] }) { id in
-                run.ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .created, nextWorkspace: id)
-                try? await self.save(run.ledger, to: repository)
+            made = try await ActionRunScope.$current.withValue(scope) { // concurrency-allow: the async overload binds inside this run's task
+                try await importClassicWorkspace(saved, into: run.targets[index], frame: frame, summary: &summary,
+                                                 unreachable: &unreachable,
+                                                 on: saved.remote.flatMap { run.hosts[$0.sshDestination] }) { id in
+                    run.ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .created, nextWorkspace: id)
+                    try? await self.save(run.ledger, to: repository)
+                }
             }
         } catch {
             // Stays pending with its half-made workspace: the next manual run closes and remakes it.
@@ -290,15 +295,10 @@ extension AppOnboardingServices {
         if index == 0, saved.key == window.selectedKey { run.reveal = made }
     }
 
-    /// Parks the terminals of a workspace that came over in the background
-    /// (`park-tabs`): their shells end and their tabs stay, each starting when
-    /// the workspace is first shown (`DaemonService.wakeParkedTabs`). So a
-    /// session with more terminals than macOS has PTYs (`kern.tty.ptmx_max`)
-    /// comes over whole. A workspace whose classic terminals carry scrollback
-    /// keeps running: its shell prints the scrollback at its first prompt.
-    /// Every tab the daemon lists for the workspace goes to `park-tabs`, which
-    /// leaves pages and ended terminals as they are: no wait for each terminal
-    /// to show running, which an ended one never does.
+    /// Parks the terminals of a workspace that came over in the background (`park-tabs`): their shells end and their
+    /// tabs stay, each starting when the workspace is first shown (`DaemonService.wakeParkedTabs`), so a session with more
+    /// terminals than macOS has PTYs comes over whole. Classic scrollback keeps its shell running (it prints at the prompt).
+    /// Every tab the daemon lists goes, with no wait for each to run: `park-tabs` leaves pages and ended terminals.
     private func parkClassicTerminals(of id: String, saved: ClassicSessionWorkspace) async {
         let local = services.machines.local
         guard local.supports(DaemonCapability.tabPark.rawValue), local.supports(DaemonCapability.tabRestartKeptLayout.rawValue),
