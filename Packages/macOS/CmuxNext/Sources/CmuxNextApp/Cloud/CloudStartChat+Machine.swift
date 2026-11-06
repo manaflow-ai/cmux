@@ -62,19 +62,29 @@ extension CloudStartChat {
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         let listed = cloud.listedMachineIDs
         let ensureProject = (account.last ?? nil) == nil && !cloud.auth.configuration.isProductionAuth
-        let team = try (start.reservationKey != nil ? cloud.auth.accessTokenTeam(requested: nil) : nil)
+        let team = start.reservationKey != nil ? try await cloud.reservationTeam() : nil
         let access = try? await (ensureProject || start.reservationKey != nil ? cloud.auth.tokens().access : nil)
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
                                        machines: machines.cloud.filter { listed.contains($0.machineID) }, local: start.home ? nil : start.uploadRoot ?? start.cwd,
                                        stored: machines.cloud.map(\.machine).keptForPin(listed: listed), environment: start.environment, access: access != nil,
                                        reservationKey: start.reservationKey, platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString, team: team, ensureProject: ensureProject)
-        let plan = try Self.checked(await cli.startChatPlan(request: request, access: access))
+        var plan = try Self.checked(await cli.startChatPlan(request: request, access: access))
         var invocation = invocation
+        if let id = plan.machine, !listed.contains(id) {
+            await cloud.refresh() // List a platform-reserved or project machine before attaching.
+            // A remembered machine that is gone (deleted, or of another backend) is dropped, never
+            // shown: the send makes a new machine instead (DEV 9fa9b1c3: "No Cloud machine has the
+            // id vm_c813daded688a74e806f." on a first send).
+            if machines.session(id) == nil {
+                cloud.logger.info("cloud start chat: the planned machine \(id, privacy: .public) is gone; making a new one")
+                plan.machine = nil
+                plan.createSent = false
+            }
+        }
         if let id = plan.machine {
-            if !listed.contains(id) { await cloud.refresh() } // List a platform-reserved or project machine before attaching.
             invocation.arguments["machine"] = .string(id)
         } else {
-            if cloud.configuration.linkSource == .appServer, !plan.createSent {
+            if !plan.createSent {
                 _ = try Self.checked(await cli.startChatCreateBegin(key: start.key, account: CloudStartCore().accountText(account), name: plan.newName ?? "cloud-chats", createKey: plan.createKey))
             }
             var request = CloudMachineRequest(startChatKey: plan.createKey, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil))
@@ -89,7 +99,7 @@ extension CloudStartChat {
                 }) {
                     try Self.checkAccount(account, now: cloud.account, listCurrent: true)
                 }
-            } catch let failure as CloudAppOpFailure where cloud.configuration.linkSource == .appServer && !Task.isCancelled && CloudMachineCreateRetry().isDefinitiveRefusal(failure) {
+            } catch let failure as CloudAppOpFailure where !Task.isCancelled && CloudMachineCreateRetry().isDefinitiveRefusal(failure) {
                 _ = try Self.checked(await cli.startChatCreateRefused(key: start.key, account: CloudStartCore().accountText(account), createKey: plan.createKey))
                 throw failure
             }

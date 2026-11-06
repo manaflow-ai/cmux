@@ -13,11 +13,20 @@
 // fixtures/claude-turn-groups.ndjson is one real Claude Code turn as acpmux recorded it (81 calls,
 // 17 messages), its words and commands replaced with neutral ones of the same kind: a short note
 // stays short, a long message stays long.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { SUPERSEDED, turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+
+// Claude's in-place runs (claudeTurnFold.experiment.ts arm "runs"): these tests cover that arm. The
+// default folds a Claude turn under "Worked for", as Codex does (turnFoldStyle.test.ts).
+beforeAll(() => {
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = undefined;
+});
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c1";
 const history = readFileSync(new URL("./fixtures/claude-turn-groups.ndjson", import.meta.url), "utf8")

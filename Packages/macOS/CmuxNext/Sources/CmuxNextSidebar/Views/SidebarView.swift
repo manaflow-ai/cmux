@@ -399,7 +399,7 @@ public final class SidebarView: NSView {
         let footerHeight: CGFloat = noFade ? 0 : (footerBand.needsDedicatedSearchRow ||
             !(spacesPosition == .bottom && footerBand.dotsShareBandRow) ? SidebarStyle.footerHeight : 0)
         // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
-        let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height
+        let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height(width: b.width)
         // The Updated card after a relaunch takes its room in the frame it shows (Leo 2026-11-04).
         let landsAtOnce = cardSlot.updatedLandsAtOnce
         let updateHeight = cardSlotMotion.height(toward: slotHeight, in: self, snaps: landsAtOnce)

@@ -68,6 +68,7 @@ async fn serve(
         epoch: 4,
         session_socket: &host.session,
         sshd: host.sshd.local_addr().unwrap(),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     // A refused stream ends at once; one still open after 5 s was served.
     let result = tokio::time::timeout(
@@ -134,6 +135,7 @@ async fn a_valid_ssh_hello_reaches_the_loopback_sshd() {
         epoch: 4,
         session_socket: &host.session,
         sshd: host.sshd.local_addr().unwrap(),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let task =
         async { serve_host_inbound(link_side, [5; 32], from("inst_mac"), &GoodToken, &me).await };
@@ -154,6 +156,74 @@ async fn a_valid_ssh_hello_reaches_the_loopback_sshd() {
 }
 
 #[tokio::test]
+async fn a_valid_desktop_hello_reaches_the_desktop_socket_and_splices_bytes() {
+    let host = host().await;
+    let socket = host._directory.path().join("desktop.sock");
+    let desktop = tokio::net::UnixListener::bind(&socket).unwrap();
+    let hello = "{\"service\":\"desktop\",\"link_token\":\"good\",\"epoch\":4}\nrd-hello\n";
+    let (mut peer, link_side) = tokio::io::duplex(64 * 1024);
+    peer.write_all(hello.as_bytes()).await.unwrap();
+    let me = HostIdentity {
+        host: "host_vm1",
+        epoch: 4,
+        session_socket: &host.session,
+        sshd: host.sshd.local_addr().unwrap(),
+        desktop: &socket,
+    };
+    let task =
+        async { serve_host_inbound(link_side, [5; 32], from("inst_mac"), &GoodToken, &me).await };
+    let check = async {
+        let (desktop_side, _) = desktop.accept().await.unwrap();
+        let mut lines = BufReader::new(desktop_side);
+        let mut first = String::new();
+        lines.read_line(&mut first).await.unwrap();
+        assert_eq!(first, "rd-hello\n", "the hello line is the link's; the rest is the viewer's");
+        lines.get_mut().write_all(b"rd-welcome\n").await.unwrap();
+        let mut back = [0u8; 11];
+        peer.read_exact(&mut back).await.unwrap();
+        assert_eq!(&back, b"rd-welcome\n");
+        drop(peer);
+    };
+    let (result, ()) = tokio::join!(task, check);
+    assert_eq!(result, Ok(()));
+    let accepted =
+        tokio::time::timeout(std::time::Duration::from_millis(100), host.sshd.accept()).await;
+    assert!(accepted.is_err(), "a desktop stream never reaches sshd");
+}
+
+#[tokio::test]
+async fn a_desktop_hello_on_a_machine_without_the_socket_is_refused_as_desktop_unavailable() {
+    let host = host().await;
+    let hello = "{\"service\":\"desktop\",\"link_token\":\"good\",\"epoch\":4}\n";
+    let (mut peer, link_side) = tokio::io::duplex(64 * 1024);
+    peer.write_all(hello.as_bytes()).await.unwrap();
+    let me = HostIdentity {
+        host: "host_vm1",
+        epoch: 4,
+        session_socket: &host.session,
+        sshd: host.sshd.local_addr().unwrap(),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
+    };
+    let mut trace = StreamTrace::default();
+    let result = serve_host_inbound_traced(
+        link_side,
+        [5; 32],
+        from("inst_mac"),
+        &GoodToken,
+        &me,
+        &mut trace,
+    )
+    .await;
+    assert_eq!(result, Err(HostRefused::DesktopUnavailable));
+    assert_eq!(trace.service, Some(Service::Desktop));
+    let mut line = String::new();
+    BufReader::new(&mut peer).read_line(&mut line).await.unwrap();
+    let refusal = super::super::refusal_watch::parse_refusal(line.trim_end().as_bytes()).unwrap();
+    assert_eq!(refusal.reason, "DesktopUnavailable");
+    assert_eq!(refusal.check.as_deref(), Some("desktop_unavailable"));
+}
+
+#[tokio::test]
 async fn token_issue_time_valid_daemon_hello_reaches_the_entry_as_the_token_install() {
     let host = host().await;
     let entry_path = cmux_link::entry_path::remote_entry_socket_path(&host.session);
@@ -167,6 +237,7 @@ async fn token_issue_time_valid_daemon_hello_reaches_the_entry_as_the_token_inst
         epoch: 4,
         session_socket: &host.session,
         sshd: host.sshd.local_addr().unwrap(),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let task =
         async { serve_host_inbound(link_side, [5; 32], from("inst_mac"), &GoodToken, &me).await };
@@ -199,6 +270,7 @@ async fn serve_traced(
         epoch: 4,
         session_socket: &host.session,
         sshd: host.sshd.local_addr().unwrap(),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let mut trace = StreamTrace::default();
     let source = from("inst_mac");
@@ -274,6 +346,7 @@ async fn a_spliced_stream_reports_its_bytes_each_way() {
         epoch: 4,
         session_socket: &host.session,
         sshd: host.sshd.local_addr().unwrap(),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let mut trace = StreamTrace::default();
     let sshd = async {
@@ -329,4 +402,34 @@ fn a_stream_the_receiver_closed_says_so() {
         None,
     );
     assert!(line.contains("(no hello)"), "{line}");
+}
+
+/// A Cloud Mac mints the hello's token only after the stream opens, with up
+/// to 5 s for that mint: a hello 6 s in (past the old 5 s limit) is still
+/// read, and the limit itself sits well past the mint's.
+#[tokio::test]
+async fn a_hello_after_the_macs_token_mint_is_still_read() {
+    assert!(HELLO_TIMEOUT >= super::super::dial::DIAL_TIMEOUT * 3);
+    let host = host().await;
+    let me = HostIdentity {
+        host: "host_vm1",
+        epoch: 4,
+        session_socket: &host.session,
+        sshd: host.sshd.local_addr().unwrap(),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
+    };
+    let (mut peer, link_side) = tokio::io::duplex(64 * 1024);
+    let late = async {
+        tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+        peer.write_all(b"{\"service\":\"daemon\",\"link_token\":\"bad\",\"epoch\":4}\n")
+            .await
+            .unwrap();
+        peer
+    };
+    let (result, _peer) = tokio::join!(
+        serve_host_inbound(link_side, [5; 32], from("inst_mac"), &GoodToken, &me),
+        late
+    );
+    // The hello was read (its token then refused), not dropped as no hello.
+    assert_eq!(result, Err(HostRefused::Token));
 }

@@ -2427,127 +2427,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux is already shutting down, so agents may still be running. Retry waits for the shutdown to finish."
+            "value": "Agents are still shutting down. Retry waits for them to finish."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يجري إيقاف acpmux بالفعل، لذا قد تظل الوكلاء قيد التشغيل. تنتظر إعادة المحاولة انتهاء الإيقاف."
+            "value": "لا يزال الوكلاء قيد الإيقاف. تنتظر إعادة المحاولة حتى ينتهوا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux se već gasi, pa agenti možda još rade. Ponovni pokušaj čeka da se gašenje završi."
+            "value": "Agenti se još gase. Ponovni pokušaj čeka da završe."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux lukker allerede ned, så agenter kører måske stadig. Prøv igen venter på, at nedlukningen er færdig."
+            "value": "Agenterne lukker stadig ned. Prøv igen venter, til de er færdige."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux wird bereits beendet, daher laufen Agenten möglicherweise noch. „Erneut versuchen“ wartet, bis das Beenden abgeschlossen ist."
+            "value": "Agenten werden noch beendet. Erneut versuchen wartet, bis sie fertig sind."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux ya se está cerrando, así que es posible que los agentes sigan en ejecución. Reintentar espera a que termine el cierre."
+            "value": "Los agentes aún se están cerrando. Reintentar espera a que terminen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux est déjà en cours d’arrêt, des agents peuvent donc encore fonctionner. Réessayer attend la fin de l’arrêt."
+            "value": "Les agents sont encore en cours d’arrêt. Réessayer attend qu’ils aient terminé."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux si sta già arrestando, quindi alcuni agenti potrebbero essere ancora in esecuzione. Riprova attende la fine dell’arresto."
+            "value": "Gli agenti si stanno ancora chiudendo. Riprova attende che finiscano."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux はすでに終了処理中のため、エージェントがまだ動作している可能性があります。再試行すると終了処理の完了を待ちます。"
+            "value": "エージェントはまだ終了処理中です。再試行すると完了するまで待ちます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux កំពុងបិទរួចហើយ ដូច្នេះភ្នាក់ងារអាចនៅតែដំណើរការ។ ការព្យាយាមម្ដងទៀតរង់ចាំការបិទបញ្ចប់។"
+            "value": "ភ្នាក់ងារនៅតែកំពុងបិទ។ ការព្យាយាមម្តងទៀតនឹងរង់ចាំឱ្យពួកវាបញ្ចប់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux가 이미 종료 중이므로 에이전트가 아직 실행 중일 수 있습니다. 다시 시도는 종료가 끝날 때까지 기다립니다."
+            "value": "에이전트가 아직 종료 중입니다. 다시 시도하면 종료가 끝날 때까지 기다립니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux avsluttes allerede, så agenter kan fortsatt kjøre. Prøv igjen venter til avslutningen er ferdig."
+            "value": "Agentene avslutter fortsatt. Prøv igjen venter til de er ferdige."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux już się zamyka, więc agenci mogą nadal działać. Ponów czeka na zakończenie zamykania."
+            "value": "Agenci wciąż się zamykają. Ponów czeka, aż skończą."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O acpmux já está sendo encerrado, então os agentes podem continuar em execução. Tentar novamente espera o encerramento terminar."
+            "value": "Os agentes ainda estão sendo encerrados. Tentar de novo espera até que terminem."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux уже завершает работу, поэтому агенты могут ещё работать. Повтор дождётся окончания завершения."
+            "value": "Агенты ещё завершают работу. Повтор дождётся, пока они закончат."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux กำลังปิดอยู่แล้ว เอเจนต์จึงอาจยังทำงานอยู่ การลองอีกครั้งจะรอให้การปิดเสร็จสิ้น"
+            "value": "เอเจนต์ยังปิดตัวไม่เสร็จ ลองอีกครั้งจะรอจนกว่าจะเสร็จ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux zaten kapanıyor, bu nedenle ajanlar hâlâ çalışıyor olabilir. Yeniden Dene kapanmanın bitmesini bekler."
+            "value": "Ajanlar hâlâ kapanıyor. Yeniden Dene, bitmelerini bekler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux уже завершує роботу, тому агенти можуть ще працювати. Повторна спроба дочекається завершення."
+            "value": "Агенти ще завершують роботу. Повтор зачекає, доки вони закінчать."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux đang tắt, nên các tác tử có thể vẫn đang chạy. Thử lại sẽ chờ quá trình tắt hoàn tất."
+            "value": "Các tác tử vẫn đang tắt. Thử lại sẽ đợi đến khi chúng xong."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 已在关闭，因此代理可能仍在运行。重试会等待关闭完成。"
+            "value": "代理仍在关闭。重试会等待它们完成。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 已在關閉，因此代理可能仍在執行。重試會等待關閉完成。"
+            "value": "代理仍在關閉。重試會等待它們完成。"
           }
         }
       }

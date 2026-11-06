@@ -95,6 +95,26 @@ const pastedPrompt = () => {
   );
 };
 
+/// One long paragraph pasted under a typed ask, as dictation or a chat message gives it: about
+/// 1,100 words on a single line (Leo, 2026-11-05: "it says pasted text one line, but there's a lot
+/// more than this").
+const PARAGRAPH = Array.from(
+  { length: 40 },
+  (_, index) =>
+    `Okay, but at the same time the retry helper in step ${index + 1} should back off a little longer each attempt, log why it gave up, and keep the`,
+).join(" ");
+const TIGHTEN = "Can you tighten this up?";
+const pastedParagraph = () => {
+  const text = `${TIGHTEN}\n${PARAGRAPH}`;
+  return claude(
+    chat([
+      user(text, 9, { seq: 1, pasted: [{ start: TIGHTEN.length + 1, end: text.length }] }),
+      assistant("Here it is in half the words.", 8.5),
+      summary(8.5, { seq: 3, status: "completed" }),
+    ]),
+  );
+};
+
 /// A chat from 15 hours ago: its rows read "15 hours ago", their exact time above it on hover.
 const yesterday = () =>
   claude(
@@ -279,12 +299,24 @@ export default agentPaneEntry({
       ),
     },
     "pasted-chip": {
-      note: "A pasted 2,300-line stack trace is a chip under the typed question: its first words and line count.",
+      note: "A pasted 2,300-line stack trace is a card under the typed question: its first three lines, the last fading, over 'Pasted text', its line count and its characters.",
       snapshot: pastedPrompt(),
     },
     "pasted-chip-open": {
-      note: "Play: the chip opens the whole paste in place, under it, with Show less to fold the prompt again.",
+      note: "Play: the card opens in place, the same text growing to the whole paste, its label under it to close it, with Show less to fold the prompt again.",
       snapshot: pastedPrompt(),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-user__paste" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));
+      },
+    },
+    "pasted-paragraph": {
+      note: "One pasted paragraph of 1,100 words: its first three lines wrapped at the bubble's width, and its size in characters, never '1 line'.",
+      snapshot: pastedParagraph(),
+    },
+    "pasted-paragraph-open": {
+      note: "Play: the paragraph's card opens in place to the whole paragraph.",
+      snapshot: pastedParagraph(),
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-user__paste" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));

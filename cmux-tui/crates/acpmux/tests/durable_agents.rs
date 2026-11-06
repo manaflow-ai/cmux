@@ -426,6 +426,30 @@ async fn agent_turn_survives_a_daemon_crash_and_completes_after_adoption() {
     assert!(alive(harness_pid), "a second agent replaced the adopted one");
 }
 
+/// A live agent host says its build, the host record's (`hostBuild`): this daemon's own here, so
+/// neither the chat (`hostOutdated`) nor `daemon status` (`outdatedHosts`) calls it older.
+#[tokio::test]
+async fn a_live_host_on_the_daemons_build_is_not_outdated() {
+    let daemon = Daemon::new("hostbuild", "approve-all");
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let reply = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello"}]}),
+        )
+        .await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    let host = daemon.host_record(&session);
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    let info = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(info["hostBuild"], host["host_build"], "{info}");
+    assert_eq!(info["hostBuild"], status["build"], "the host runs the daemon's build");
+    assert_eq!(info["hostOutdated"], false, "{info}");
+    assert_eq!(status["outdatedHosts"], 0, "{status}");
+    assert_eq!(status["liveAgents"], 1, "{status}");
+}
+
 /// A daemon whose turns stall after 300 ms (`stalledTurnMs`) runs `mode: GATE` (fake_agent.py)
 /// until `ready` logs, is killed and started again, and adopts the turn: the chat's summary
 /// 600 ms after that, with the daemon, the chat and the gate that ends the turn.

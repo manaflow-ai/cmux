@@ -1,14 +1,14 @@
 // Tool-call rows read one way across the transcript (Leo, 2026-11-03: "i think we ought to audit the
 // whole tool call/notice/send and recieve message styling"; design/chat-transcript.md "One row
 // grammar" and "Grouped steps"). Measured in Chromium over gallery scenes, light and dark:
-// - a failed call whose label runs past the line keeps its failure word whole after the cut label
-//   (agent-pane.tool-errors#long-label; cmux#24339 put the word inside the ellipsis);
-// - a failed Read step and a failed command step both read "Failed", capitalised alike
-//   (agent-pane.tool-errors#failed-step-mixed; cmux#33759 capitalised only the command's);
+// - a failed call draws no failure word: the word stays for screen readers only, out of the row's
+//   flow, and the cut label keeps the whole line (agent-pane.tool-errors#long-label; Codex parity);
+// - a failed Read step and a failed command step both say "Failed" to a screen reader, and draw
+//   nothing (agent-pane.tool-errors#failed-step-mixed);
 // - an opened lead thought reads "Thought for 6s" with its chevron right after the words
 //   (agent-pane.claude-desktop-organization#shared; cmux#27896 parked it at the row's far edge);
-// - an inner step under the pointer shows its chevron and keeps its words' tone
-//   (agent-pane.claude-desktop-organization#step-hover);
+// - an inner step under the pointer shows its chevron and lights its words, never its glyph
+//   (agent-pane.claude-desktop-organization#step-hover; Codex parity);
 // - a sub-session line still working draws no spinner, shimmers its title, and its harness mark is
 //   the received rows' 12px (agent-pane.long-report#lead-finished-working; cmux#32927).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -67,39 +67,32 @@ await requireBrowserLane("transcript-tool-row-consistency.test.ts", async () => 
   };
 
   for (const theme of THEMES) {
-    test(`a cut label keeps its failure word whole after it (${theme.file})`, async () => {
+    test(`a failed call draws no failure word and keeps it for screen readers (${theme.file})`, async () => {
       const page = await open("agent-pane.tool-errors", "long-label", theme.name);
       try {
         const rows = await page.evaluate(() =>
           [...document.querySelectorAll<HTMLElement>(".cv-tool > .cv-tool__failed")].map((word) => {
-            const row = word.parentElement!;
-            const text = row.querySelector<HTMLElement>(".cv-tool__text")!;
-            const box = word.getBoundingClientRect();
+            const style = getComputedStyle(word);
             return {
-              word: word.textContent!.trim(),
-              cut: text.scrollWidth > text.clientWidth,
-              whole: word.scrollWidth <= Math.ceil(box.width) && box.width > 0,
-              inside: box.right <= row.getBoundingClientRect().right + 0.5,
-              after: box.left >= text.getBoundingClientRect().right - 0.5,
-              color: getComputedStyle(word).color,
-              rowColor: getComputedStyle(row).color,
+              word: word.textContent!.trim().length > 0,
+              position: style.position,
+              clip: style.clipPath,
+              cut: (() => {
+                const text = word.parentElement!.querySelector<HTMLElement>(".cv-tool__text")!;
+                return text.scrollWidth > text.clientWidth;
+              })(),
             };
           }),
         );
         expect(rows.length).toBeGreaterThanOrEqual(3);
-        for (const row of rows) {
-          expect(row.cut).toBe(true);
-          expect(row.whole).toBe(true);
-          expect(row.inside).toBe(true);
-          expect(row.after).toBe(true);
-          expect(row.color).not.toBe(row.rowColor);
-        }
+        for (const row of rows)
+          expect(row).toEqual({ word: true, position: "absolute", clip: "inset(50%)", cut: true });
       } finally {
         await page.close();
       }
     });
 
-    test(`a failed Read step and a failed command step both read "Failed" (${theme.file})`, async () => {
+    test(`a failed Read step and a failed command step both say "Failed" to a screen reader only (${theme.file})`, async () => {
       const page = await open("agent-pane.tool-errors", "failed-step-mixed", theme.name, 760);
       try {
         const tags = await page.evaluate(() =>
@@ -109,15 +102,15 @@ await requireBrowserLane("transcript-tool-row-consistency.test.ts", async () => 
             ),
           ].map((tag) => ({
             text: tag.textContent!.trim(),
-            transform: getComputedStyle(tag, "::first-letter").textTransform,
-            whiteSpace: getComputedStyle(tag).whiteSpace,
+            position: getComputedStyle(tag).position,
+            clip: getComputedStyle(tag).clipPath,
           })),
         );
         expect(tags.length).toBe(2);
         for (const tag of tags) {
           expect(tag.text.toLowerCase()).toBe("failed");
-          expect(tag.transform).toBe("uppercase");
-          expect(tag.whiteSpace).toBe("nowrap");
+          expect(tag.position).toBe("absolute");
+          expect(tag.clip).toBe("inset(50%)");
         }
       } finally {
         await page.close();

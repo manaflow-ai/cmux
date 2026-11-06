@@ -76,13 +76,14 @@ impl Shared {
 
 impl State {
     /// Whether a record of `size` bytes (header included) may join the queue now: refused when
-    /// the journal is closed, or when the queue holds records and would grow past
-    /// [`Config::max_pending_bytes`] (one record is always taken, however large).
-    fn admits(&self, config: &Config, size: usize) -> Result<(), AppendError> {
+    /// the journal is closed, or, for a `limited` record, when the queue holds records and would
+    /// grow past [`Config::max_pending_bytes`] (one record is always taken, however large).
+    fn admits(&self, config: &Config, size: usize, limited: bool) -> Result<(), AppendError> {
         if self.closed {
             return Err(AppendError::Closed);
         }
-        if !self.pending.is_empty()
+        if limited
+            && !self.pending.is_empty()
             && self.pending.len().saturating_add(size) > config.max_pending_bytes
         {
             return Err(AppendError::Backlog);
@@ -264,6 +265,29 @@ impl Journal {
     /// Appends one record and returns its LSN. A memory copy: no I/O, no wait. The record is
     /// durable once [`Journal::durable_lsn`] reaches the LSN.
     pub fn append(&self, kind: u16, class: Class, payload: &[u8]) -> Result<Lsn, AppendError> {
+        self.append_admitted(kind, class, payload, true)
+    }
+
+    /// Appends one control record as [`Journal::append`] does, except that a full queue never
+    /// refuses it ([`AppendError::Backlog`]): for a record its caller must not lose to a slow or
+    /// failing disk, and appends a bounded number of times (acpmux's `frozen` record, once per
+    /// store). Still refused when the journal is closed or the payload is too large.
+    pub fn append_control(
+        &self,
+        kind: u16,
+        class: Class,
+        payload: &[u8],
+    ) -> Result<Lsn, AppendError> {
+        self.append_admitted(kind, class, payload, false)
+    }
+
+    fn append_admitted(
+        &self,
+        kind: u16,
+        class: Class,
+        payload: &[u8],
+        limited: bool,
+    ) -> Result<Lsn, AppendError> {
         if payload.len() > MAX_PAYLOAD_LEN {
             return Err(AppendError::TooLarge);
         }
@@ -271,7 +295,7 @@ impl Journal {
         let crc = format::payload_crc(payload);
         let mut state = self.shared.lock();
         let size = format::record_len(payload.len());
-        state.admits(&self.shared.config, size)?;
+        state.admits(&self.shared.config, size, limited)?;
         let lsn = state.stats.next_lsn;
         state.stats.next_lsn = lsn.saturating_add(1);
         let was_empty = state.pending.is_empty();
@@ -294,7 +318,7 @@ impl Journal {
         if payload_len > MAX_PAYLOAD_LEN {
             return Err(AppendError::TooLarge);
         }
-        self.shared.lock().admits(&self.shared.config, format::record_len(payload_len))
+        self.shared.lock().admits(&self.shared.config, format::record_len(payload_len), true)
     }
 
     /// This journal's id (never 0). LSNs are unique only within one id: a journal made again from

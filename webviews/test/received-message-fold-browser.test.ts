@@ -186,9 +186,9 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
       scroller.scrollTop += line.getBoundingClientRect().top - scroller.getBoundingClientRect().top - down;
     }, y);
 
-  test("the message opened at the latest row keeps the bottom and pushes the text up", async () => {
-    // At the very bottom, what opens pushes the text above it up (Leo, 2026-11-02: "YOU EXPAND UP
-    // WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"); away from it, it grows down.
+  test("the message opened at the latest row stays on its pixel and grows down", async () => {
+    // At the very bottom, what opens grows down under the composer, as anywhere else, and the view
+    // stops following (Lucas, 2026-11-06, Codex parity; it replaces the bottom pin on open).
     const page = await open("no-preference");
     await show(page, [...done, received]);
     await settle(page);
@@ -199,9 +199,10 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
 
     const opened = await clickAndWatch(page);
     expect(await expanded(page)).toBe("true");
+    expect(opened.moved).toBeLessThanOrEqual(1);
     await settle(page);
-    expect(await probedTop(page)).toBeLessThan(opened.top - 1);
-    expect(await atLatest(page)).toBe(true);
+    expect(Math.abs((await probedTop(page)) - opened.top)).toBeLessThanOrEqual(1);
+    expect(await atLatest(page)).toBe(false);
     await page.close();
   });
 

@@ -177,8 +177,6 @@ public final class HomeNativeTranscriptView: NSView {
         attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
-        // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
-        MessagesLabHomeView.richTables = HomeTunables.richTables.value
         conversationID = conversation
         // One binding per shown conversation; it opens the conversation on
         // the store now and `stop()` closes exactly that open, once. Before the
@@ -226,7 +224,6 @@ public final class HomeNativeTranscriptView: NSView {
         followTextSize()
         followZoom()
         followBubbleStyle()
-        followHeroTunable()
         followChiefPet()
         followPresence()
         applyTheme()

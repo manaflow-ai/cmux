@@ -82,7 +82,11 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
         }
         guard let first = lines.first else { return nil }
         var clause = first.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
-        for mark in [":", ",", ";", " - ", ". "] {
+        // A quoted message's speaker header ("User (Nov 4): \"…\"", "User: …") names who spoke, not the task.
+        if let colon = clause.range(of: ":"), isSpeakerHeader(clause[..<colon.lowerBound]) {
+            clause = clause[colon.upperBound...].trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"“”'")))
+        }
+        for mark in [":", ",", ";", " - ", ". ", "? ", "! "] {
             if let cut = clause.range(of: mark) { clause = String(clause[..<cut.lowerBound]) }
         }
         let words = clause.split(separator: " ")
@@ -94,6 +98,14 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
         }
         while let last = title.last, ".,;:!?-–—".contains(last) || last.isWhitespace { title.removeLast() }
         return title.isEmpty ? nil : title
+    }
+
+    /// Whether `head` (the words before a first line's `:`) is a speaker header: "User", "The user",
+    /// "User (Nov 4)", "User msg 12" — a relayed quote's label, never a task's title.
+    private static func isSpeakerHeader(_ head: Substring) -> Bool {
+        let words = head.lowercased().split(separator: " ")
+        guard let first = words.first, words.count <= 4 else { return false }
+        return first == "user" || (first == "the" && words.dropFirst().first == "user")
     }
 
     /// Creates a row of `group`.

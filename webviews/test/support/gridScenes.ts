@@ -301,7 +301,7 @@ export const gridScenes: GridScene[] = [
   menu("menu.context", "ui.context-menu", "open", ".ui-context-menu", false),
   menu("menu.mode", "agent-pane.composer-pickers", "permission-menu", ".acpmux-access-menu", true),
   menu("menu.mode", "ui.menu", "open", ".menu-gallery-popup", true),
-  scene("menu.plus", "agent-pane.composer", "add-menu", ".acpmux-composer-plus .acpmux-menu", [
+  scene("menu.plus", "agent-pane.composer", "add-menu", ".acpmux-composer-plus.acpmux-menu", [
     left("edge: highlight", ".acpmux-menu-item", "left", menuToken("highlight-inset")),
     left("lead", ".acpmux-menu-item > svg", "left", menuToken("icon-x")),
     left("text", ".acpmux-menu-label", "text", menuToken("text-x")),
