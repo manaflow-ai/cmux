@@ -499,13 +499,86 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
 /// caller (the start matrix) may delete that machine as its own; no other answer is proof of that.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let mut made = None;
-    let mut outcome = steps(runner, request, &mut made);
+    let mut timed = Timed::new(runner);
+    let mut outcome = steps(&mut timed, request, &mut made);
     if let (Some(id), Outcome::Done(answer)) = (made.as_deref(), &mut outcome)
         && at(answer, "machine_id").as_str() == Some(id)
     {
         answer.set("new_machine", json!(true));
     }
+    // The stage trace (cmuxterm-hq#7415): each step's start and length, on a reply and on a failure alike.
+    let stages = timed.stages();
+    match &mut outcome {
+        Outcome::Done(answer) => {
+            answer.set("stages_ms", stages);
+        }
+        Outcome::Failed { error, .. } => {
+            if let Some(details) = error.get_mut("details").and_then(Value::as_object_mut) {
+                details.insert("stages_ms".to_owned(), stages);
+            }
+        }
+    }
     outcome
+}
+
+/// At most this many steps in `stages_ms`; a long wait's polls past it are counted, not listed.
+const STAGES_KEPT: usize = 48;
+
+/// A [`Runner`] that times each step it runs: its words (`cloud relay-chat`), when it began and how long it took,
+/// in milliseconds since the run began.
+struct Timed<'a> {
+    inner: &'a mut dyn Runner,
+    began: Instant,
+    stages: Vec<Value>,
+    more: usize,
+}
+
+impl<'a> Timed<'a> {
+    fn new(inner: &'a mut dyn Runner) -> Self {
+        let began = inner.now();
+        Self { inner, began, stages: Vec::new(), more: 0 }
+    }
+
+    fn stages(&mut self) -> Value {
+        let total = self.inner.now().saturating_duration_since(self.began).as_millis();
+        json!({"steps": self.stages, "more_steps": self.more, "total": total})
+    }
+}
+
+impl Runner for Timed<'_> {
+    fn cmux(&mut self, args: &[String]) -> Ran {
+        let from = self.inner.now();
+        let ran = self.inner.cmux(args);
+        let to = self.inner.now();
+        if self.stages.len() < STAGES_KEPT {
+            let step = args.iter().take(2).map(String::as_str).collect::<Vec<_>>().join(" ");
+            self.stages.push(json!({
+                "step": step,
+                "at": from.saturating_duration_since(self.began).as_millis(),
+                "ms": to.saturating_duration_since(from).as_millis(),
+                "code": ran.code,
+            }));
+        } else {
+            self.more += 1;
+        }
+        ran
+    }
+
+    fn pause(&mut self, duration: Duration) {
+        self.inner.pause(duration);
+    }
+
+    fn now(&mut self) -> Instant {
+        self.inner.now()
+    }
+
+    fn fresh_name(&mut self) -> String {
+        self.inner.fresh_name()
+    }
+
+    fn prompt_id(&mut self) -> String {
+        self.inner.prompt_id()
+    }
 }
 
 /// [`run`]'s steps; `made` is the machine id this run made, once it has one.
@@ -960,6 +1033,12 @@ fn relay_chat(
         "follow_up": follow_ups(&machine_id, session),
         "sent": true,
     });
+    // The app's stage times (cmuxterm-hq#7415), those it reported.
+    for key in RELAY_STAGES {
+        if !at(&relayed, key).is_null() {
+            answer.set(key, at(&relayed, key).clone());
+        }
+    }
     if at(&relayed, "ended").as_bool() != Some(true) {
         // Still running after the app's answer: the link path waits on the session (a new one, so no turn before).
         return Relayed::Answered(wait_turn(
@@ -991,6 +1070,9 @@ fn relay_chat(
         exit,
     ))
 }
+
+/// The relay answer's stage times the CLI answer passes on: link and login, then the relay's own events, then the platform's.
+const RELAY_STAGES: [&str; 5] = ["link_login_ms", "queued_ms", "sent_ms", "started_ms", "platform_stages_ms"];
 
 /// The machine's typed error the app relayed (`CloudStartSession.relayFields`): acpmux's detail, a closed
 /// daemon's cause, the error's kind, what to do and whether a retry may work; only the fields the app sent.
