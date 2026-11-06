@@ -12,7 +12,6 @@ import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
 import { EditCounts, useEditTotals } from "./EditCounts";
 import { FailedCount } from "./FailedCount";
-import { BackgroundStatusLine, backgroundCounts } from "./BackgroundStatusLine";
 import { EditDiff } from "./EditDiff";
 import { StepThought, ThoughtRow } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
@@ -200,8 +199,6 @@ export function ToolGroupRow({
   // `contentsUnknown`), as the edited-files card does: its written text is not lines added.
   const totals = useEditTotals(items);
   const running = tools.some(isRunning);
-  // While a background command still runs, the opened steps end with how they stand there.
-  const background = useMemo(() => (kind === "commands" ? backgroundCounts(items) : undefined), [kind, items]);
   const failures = tools.filter(countsFailed).length;
   // A lone Write reads as what it wrote, "Wrote notes.md +18", not as an edit (WriteLabel.tsx).
   const write = kind === "edits" && tools.length === 1 ? writeCall(tools[0]!) : undefined;
@@ -282,6 +279,9 @@ export function ToolGroupRow({
               data-tool-group-items={disclosureKey}
             >
               {/* Every call here is a step: a failure reads as one plain line (InStep). */}
+              {/* A background command is a step like any other, its words shimmering while it runs;
+                  no line under the steps counts them (Leo, 2026-11-06: "why doesn't it just show it
+                  normally like the other ones?"). */}
               <InStep.Provider value>
                 {entries.map(({ at, key, thought }) => (
                   <Step
@@ -294,7 +294,6 @@ export function ToolGroupRow({
                   />
                 ))}
               </InStep.Provider>
-              {background && <BackgroundStatusLine counts={background} />}
             </div>
           )}
         </div>
