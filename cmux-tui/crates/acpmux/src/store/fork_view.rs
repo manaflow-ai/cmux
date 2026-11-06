@@ -93,13 +93,16 @@ impl ForkView {
                 return refs.by_fork.get(id).cloned();
             }
         }
-        // Not read yet: its stored meta says. A store that cannot read it shows its own log.
-        if let Ok(Some(meta)) = self.inner.load(id) {
-            self.note(&meta);
+        // Not read yet: its stored meta says. A meta that cannot be read now is read again next
+        // time, not taken for one that names none (review of #37020).
+        match self.inner.load(id) {
+            Ok(Some(meta)) => self.note(&meta),
+            Ok(None) => {
+                self.refs.write().unwrap_or_else(|e| e.into_inner()).known.insert(id.to_owned());
+            }
+            Err(e) => tracing::warn!(session = %id, "fork view: meta unreadable: {e:#}"),
         }
-        let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
-        refs.known.insert(id.to_owned());
-        refs.by_fork.get(id).cloned()
+        self.refs.read().unwrap_or_else(|e| e.into_inner()).by_fork.get(id).cloned()
     }
 
     fn note(&self, meta: &SessionMeta) {

@@ -1276,7 +1276,10 @@ impl LocalStore {
         crate::config::private_state_dir(&self.dir(id))?;
         crate::config::private_state_dir(&dir)?;
         let segs = self.segments(id)?;
-        let (index, path) = match segs.last() {
+        // Never segment `000000`: it holds only a fork's history, written whole and renamed in
+        // place (`history_writer`), which would replace a record appended to it (review of
+        // #37020). A log whose only segment it is goes on in `000001`.
+        let (index, path) = match segs.last().filter(|(i, _)| *i > 0) {
             Some((i, p)) => (*i, p.clone()),
             None => (1, dir.join("000001.ndjson")),
         };

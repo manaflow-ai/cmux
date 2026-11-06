@@ -316,3 +316,28 @@ fn a_failed_meta_save_leaves_the_reference_to_try_again() {
     assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
 }
+
+/// A fork whose history was written in before it logged a record of its own: its records go to
+/// segment `000001`, and writing the history again (a retry) keeps them (review of #37020: they
+/// went into `000000` and the rename replaced them).
+#[test]
+fn a_forks_own_records_never_go_into_its_history_segment() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let view = forked(Box::new(LocalStore::new(dir.clone(), 1 << 20).unwrap()), 30, 20, 0);
+    let reference = HistoryRef { session: "chat".into(), through_seq: 20 };
+    view.materialize("fork").unwrap();
+    view.append("fork", &record(21, "user_message")).unwrap();
+    view.flush_session("fork").unwrap();
+    let mut on_disk: Vec<_> = std::fs::read_dir(dir.join("fork").join("events"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|n| n.ends_with(".ndjson"))
+        .collect();
+    on_disk.sort();
+    assert_eq!(on_disk, ["000000.ndjson", "000001.ndjson"]);
+    // Written again (as after a meta save that failed): the fork's own record stays.
+    view.refs.write().unwrap().dropped.remove("fork");
+    view.refs.write().unwrap().by_fork.insert("fork".into(), reference);
+    view.materialize("fork").unwrap();
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 1));
+}
