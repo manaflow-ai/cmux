@@ -1,0 +1,99 @@
+{
+ "id": "px-sidebar-noswitch-200-video",
+ "priority": "P1",
+ "title": "Sidebar: 10 script inserts (focus false) and 10 script closes of that row at 200 rows, filmed at 120 Hz (pixel proof of the noswitch remove)",
+ "why": "SIDEBAR ROWS and R-HARNESS (STATUS 15651, 15659): the probe shows 4 of 10 noswitch-200 removes in two steps (the closing row gone one frame before the rows below close its slot). The probe reads presence from the model and positions from the committed presentation, so one video decides whether a person sees the gap. F5 waits for this.",
+ "source": "PIXEL PERFECT kit (pp/kit-sidebar-video) + ext_sidebar_film.py of SIDEBAR ROWS's kit 070164564ac",
+ "budget_seconds": 260,
+ "estimate_seconds": 200,
+ "recordings": [
+  "px-sidebar-noswitch-200"
+ ],
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "px-sidebar-noswitch"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 90% x 90% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "set-up: the window settles"
+  },
+  {
+   "do": "film_grow",
+   "count": 200,
+   "title": "200 workspaces (one terminal each) through a script's newTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "the sidebar settles"
+  },
+  {
+   "do": "video_start",
+   "name": "px-sidebar-noswitch-200",
+   "seconds": 60,
+   "require_hz": 120,
+   "title": "start the 120 Hz movie of the whole window"
+  },
+  {
+   "do": "film_presses",
+   "scenario": "noswitch-200",
+   "mode": "noswitch",
+   "pairs": 10,
+   "title": "light, 200 rows, the window keeps its workspace: 10 script inserts (focus false) + 10 closes of that row"
+  },
+  {
+   "do": "video_stop",
+   "name": "px-sidebar-noswitch-200",
+   "tail": 0.5,
+   "title": "stop the recording"
+  },
+  {
+   "do": "type",
+   "text": "echo after-check-$((40+2))",
+   "enter": true,
+   "title": "after: the terminal answers"
+  },
+  {
+   "do": "expect",
+   "title": "after: the echo shows in the app, the daemon and a frame",
+   "timeout": 10,
+   "all": [
+    {
+     "app_text_contains": "after-check-42"
+    },
+    {
+     "daemon_contains": "after-check-42"
+    },
+    {
+     "frame_text": "after-check-42"
+    }
+   ]
+  }
+ ]
+}
