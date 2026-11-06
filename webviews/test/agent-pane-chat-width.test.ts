@@ -129,10 +129,10 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
   };
 
   /// The column `--cv-column: clamp(720px, share, cap)` draws in a pane of `pane` px: its insets are on
-  /// the 4 grid (`--cv-inset`, design/grid.md 5.5), so it takes the 0-7 px left over.
+  /// whole pixels (`--cv-inset`).
   const column = (pane: number, share: number, cap: number) => {
     const span = Math.min(cap, Math.max(720, pane * share));
-    return pane - 2 * Math.max(16, 4 * Math.floor((pane - span) / 8));
+    return pane - 2 * Math.max(16, Math.round((pane - span) / 2));
   };
 
   for (const width of [1440, 1920]) {

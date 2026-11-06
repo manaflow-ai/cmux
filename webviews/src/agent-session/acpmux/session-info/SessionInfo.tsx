@@ -245,7 +245,7 @@ export const sessionInfoStage = (
     if (wide || sessionInfoPopover(pane.height, true) || !sessionInfoFits(pane.width)) return "overlay";
   }
   const room = pushedRoom(pane.width, pushedWidth(pane.width, width), column, overflow, pushes(placement));
-  return pushKeepsColumn(pane.width, room, column, pushes(placement)) ? "push" : "overlay";
+  return pushKeepsColumn(pane.width, room, column) ? "push" : "overlay";
 };
 
 /// The shell's pin on the transcript's column while Session Info pushes (sessionInfo.css).
@@ -276,17 +276,14 @@ export const findBarCramped = (chatWidth: number, clear: number) =>
 /// width it has in the whole pane (model.ts transcriptColumn): only the gutters shrink, so the column
 /// moves left and no line of the chat wraps anew. While it pushes, the page pins the column to that
 /// width (sessionInfo.css --acpmux-session-info-column), so no frame of the slide narrows it either.
-export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatColumn, allowGridRounding = false) =>
+export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatColumn) =>
   paneWidth <= 0 ||
   room <= 0 ||
   (room < paneWidth &&
-    // Push always takes an exact, user-dragged width. Its CSS pins the original column without
-    // rounding the inset, so check that width plus the two minimum page edges fits in the chat.
-    // Default placement still steps in 8s and keeps its existing exact-width guard.
-    (allowGridRounding
-      ? paneWidth - room >= transcriptColumn(paneWidth, column).width + 2 * transcriptColumn(0, column).inset
-      : transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width) &&
-    // The column itself too, not only its drawn width: the 4 grid's 0-7 px leftover can make up a
+    // A push's CSS pins the original column without rounding the inset, so an odd room keeps it too:
+    // check that width plus the two minimum page edges fits in the chat.
+    paneWidth - room >= transcriptColumn(paneWidth, column).width + 2 * transcriptColumn(0, column).inset &&
+    // The column itself too, not only its drawn width: the inset's rounding can make up a pixel of a
     // column the narrower chat shrank, and that push is one a narrower column would need (Leo,
     // 2026-11-03: "if it would need to be then session info should be an overlay").
     transcriptColumnSpan(paneWidth - room, column) === transcriptColumnSpan(paneWidth, column));
@@ -305,8 +302,6 @@ export const sessionInfoPushes = (
 /// moves right as the chat widens.
 const columnEnd = (chatWidth: number, column?: ChatColumn) => chatWidth - transcriptColumn(chatWidth, column).inset;
 
-/// A room stepped in 8px increments while the column needs only part of the panel: the column's inset is
-/// on the 4 grid (model.ts transcriptColumn, design/grid.md 5.5), so the centered column keeps its width.
 /// The room a pushed panel `panel` wide (pushedWidth) takes from the chat's right end: by default only
 /// what the gutter lacks, so the chat narrows gradually from the pane width where the gutter stops
 /// holding the panel (0 there) to the panel and its margin (Leo, 2026-11-03: "gradually pushing into the
@@ -321,12 +316,11 @@ export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn
   const end = paneWidth - panel - 2 * FLOAT_MARGIN - Math.max(0, overflow);
   if (columnEnd(paneWidth, column) <= end) return 0;
   if (paneWidth - all <= 0 || columnEnd(paneWidth - all, column) > end) return all;
-  // The least room, in steps of 8 (the column's inset is on the 4 grid, so each step moves the column's
-  // end in by about 4), whose column still ends by `end`. Rounding a pixel search up to 8 instead could
-  // land 1-3 px past it: columnEnd does not grow steadily with the chat's width. At most about 70 steps,
-  // run once per layout of the panel.
-  let room = 8;
-  while (room < all && columnEnd(paneWidth - room, column) > end) room += 8;
+  // The least room, in steps of 2 (each step moves the column's end in by 1), whose column still
+  // ends by `end`. A coarser step lets a 1 px wider panel flip between push and overlay during a drag.
+  // At most about 300 steps, run once per layout of the panel.
+  let room = 2;
+  while (room < all && columnEnd(paneWidth - room, column) > end) room += 2;
   // Once the chat would end under the panel itself (its page edge under the card), the whole room: the
   // chat's right edge, its scrollbar with it, is then the panel's left margin, as Push always draws it.
   return room >= panel ? all : room;
