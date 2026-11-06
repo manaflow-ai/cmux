@@ -267,9 +267,7 @@ enum WorkspaceGroupHandlers {
         }
         let id = CmuxNextSidebar.GroupID.make()
         let ops: [[String: Any]]
-        do throws(SidebarDocSubgroupRefusal) {
-            ops = try store.subgroupOps(parent: parent, id: id, name: name, color: .none)
-        } catch {
+        do throws(SidebarDocSubgroupRefusal) { ops = try store.subgroupOps(parent: parent, id: id, name: name, color: .none) } catch {
             throw ActionFailure.invalidTarget(error == .tooDeep ? WorkspaceVerbStrings.subgroupTooDeep : RefusalStrings.groupRequired)
         }
         do {
