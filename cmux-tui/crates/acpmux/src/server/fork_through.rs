@@ -221,8 +221,7 @@ mod tests {
         hub
     }
 
-    /// Review of #28332: a `live` fork (Fork Conversation of a working chat) names no turn, so
-    /// its refusal for a peer's chat does not say "through a turn"; a fork through a turn does.
+    /// The child's `name` survives the rebuilt `session/fork` (Try another approach labels its sibling).
     #[test]
     fn a_turn_fork_keeps_the_childs_name() {
         let top = carried_meta(
@@ -239,6 +238,8 @@ mod tests {
         assert!(carried_meta(&json!({"sessionId": "s"})).is_empty());
     }
 
+    /// Review of #28332: a `live` fork (Fork Conversation of a working chat) names no turn, so
+    /// its refusal for a peer's chat does not say "through a turn"; a fork through a turn does.
     #[tokio::test]
     async fn a_peer_chats_fork_is_refused_with_what_it_asked_for() {
         let hub = hub_with_a_peer_chat();
