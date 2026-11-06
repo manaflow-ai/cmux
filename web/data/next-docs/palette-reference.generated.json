@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1316,
+    "entries": 1317,
     "shortcuts": 189
   },
   "sections": [
@@ -7154,6 +7154,12 @@
           "title": "Check for Updates…",
           "shortcut": null,
           "command": "cmux settings check-for-updates"
+        },
+        {
+          "id": "palette.clearSearchHistory",
+          "title": "Clear Palette Search History",
+          "shortcut": null,
+          "command": "cmux settings clear-palette-history"
         },
         {
           "id": "help.documentation",

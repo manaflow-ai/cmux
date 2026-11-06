@@ -26,6 +26,8 @@ final class TerminalGridReporter {
     var isWaiting: Bool { coalescer.isWaiting }
     /// A drag's grid that waits for its size to show (asked of Ghostty, not shown yet); nil when none waits.
     private(set) var awaitingShown: TerminalGridSize?
+    /// The pointer let go while a size was in flight: that size's grid goes the moment it shows, not coalesced.
+    private var sendsAwaitedNow = false
 
     /// A drag's grid: coalesced when its size shows now (the bounds took it), else when the presenter shows it.
     func drag(_ grid: TerminalGridSize, shownNow: Bool) {
@@ -37,7 +39,22 @@ final class TerminalGridReporter {
     func shown(_ grid: TerminalGridSize?, live: Bool) {
         guard awaitingShown != nil, let grid else { return }
         awaitingShown = nil
-        if live { coalesced(grid) } else { now(grid) }
+        if live, !sendsAwaitedNow { coalesced(grid) } else { now(grid) }
+        sendsAwaitedNow = false
+    }
+
+    /// The pointer let go (a drag's mouse-up, in its turn): the newest grid goes to the program now, not when the 25 ms
+    /// window or the release's landing ends (the RESIZE OWNER's film of px-col-drag-2, STATUS 15707: the program was
+    /// whole only 4 refreshes after its pane rested). The newest shown grid is the one that waits in the window; if a newer
+    /// size is in flight, the waiting grid is older and is dropped, and that size's grid goes when its frame shows.
+    /// Sizes a release spring moves through after this coalesce again.
+    func release() {
+        guard awaitingShown == nil else {
+            coalescer.cancel()
+            sendsAwaitedNow = true
+            return
+        }
+        coalescer.flush()
     }
 
     /// The presenter cancelled the size a drag's grid waited for (the view was hidden, or left its window, before its
@@ -58,6 +75,7 @@ final class TerminalGridReporter {
     /// `grid` goes now; a grid that waits is older and is dropped. `final`: a layout spring's final grid.
     func now(_ grid: TerminalGridSize, final: Bool = false) {
         awaitingShown = nil // a size that waits to show is older than this grid; its landing sends nothing after it
+        sendsAwaitedNow = false
         sendingFinal = final
         defer { sendingFinal = false }
         coalescer.reportNow(grid)
