@@ -10,9 +10,6 @@ public nonisolated struct ChromePlacementSetting {
     public static let sidebarSidePath = ["sidebar", "side"]
     public static let spacesPositionPath = ["sidebar", "spacesPosition"]
     public static let spacesVisibilityPath = ["sidebar", "spacesVisibility"]
-    public static let tabBarPositionPath = ["tabs", "barPosition"]
-    public static let tabBarOrderPath = ["tabs", "barOrder"]
-    public static let browserToolbarPositionPath = ["browser", "toolbarPosition"]
 
     /// The title bar the window uses: `window.titlebar`, also while tab bars
     /// sit at the bottom (user 2026-10-28: no title strip there, to save
@@ -26,9 +23,9 @@ public nonisolated struct ChromePlacementSetting {
         snapshot.sidebarSide = choice(root, sidebarSidePath, fallback: .left, &snapshot.diagnostics)
         snapshot.spacesPosition = choice(root, spacesPositionPath, fallback: .bottom, &snapshot.diagnostics)
         snapshot.spacesVisibility = choice(root, spacesVisibilityPath, fallback: .hover, &snapshot.diagnostics)
-        snapshot.tabBarPosition = choice(root, tabBarPositionPath, fallback: .top, &snapshot.diagnostics)
-        snapshot.tabBarOrder = choice(root, tabBarOrderPath, fallback: .aboveToolbar, &snapshot.diagnostics)
-        snapshot.browserToolbarPosition = choice(root, browserToolbarPositionPath, fallback: .top, &snapshot.diagnostics)
+        snapshot.tabBarPosition = choice(root, tabBarPositionPath, fallback: tabBarPositionDefault, &snapshot.diagnostics)
+        snapshot.tabBarOrder = choice(root, tabBarOrderPath, fallback: tabBarOrderDefault, &snapshot.diagnostics)
+        snapshot.browserToolbarPosition = choice(root, browserToolbarPositionPath, fallback: browserToolbarPositionDefault, &snapshot.diagnostics)
         _ = PaneToolbarButtonsSetting.parse(root, diagnostics: &snapshot.diagnostics) // the app reads the root (`current`)
         _ = SidebarSurfaceSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applySidebarSurface`)
     }
@@ -56,48 +53,6 @@ public nonisolated struct ChromePlacementSetting {
                           ]),
                           default: .string(SidebarSide.left.rawValue),
                           keywords: ["sidebar", "side", "left", "right", "position", "edge", "layout"])
-    }
-
-    static func tabBarPositionDescriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(tabBarPositionPath, section: .general, group: group,
-                          title: SettingsText.keyed("settings.tabs.barPosition", "Tab Bar Position"),
-                          help: SettingsText.keyed("settings.tabs.barPosition.help",
-                                                   "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane."),
-                          kind: .choice([
-                              SettingChoice(TabBarPosition.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
-                              SettingChoice(TabBarPosition.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
-                          ]),
-                          default: .string(TabBarPosition.top.rawValue),
-                          keywords: ["tab bar", "tabs", "strip", "top", "bottom", "position", "layout", "pane"])
-    }
-
-    static func browserToolbarPositionDescriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(browserToolbarPositionPath, section: .general, group: group,
-                          title: SettingsText.keyed("settings.browser.toolbarPosition", "Browser Toolbar Position"),
-                          help: SettingsText.keyed("settings.browser.toolbarPosition.help",
-                                                   "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward."),
-                          kind: .choice([
-                              SettingChoice(ToolbarPosition.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
-                              SettingChoice(ToolbarPosition.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
-                          ]),
-                          default: .string(ToolbarPosition.top.rawValue),
-                          keywords: ["omnibar", "address bar", "toolbar", "url bar", "browser", "markdown", "top", "bottom", "position", "layout"])
-    }
-
-    static func tabBarOrderDescriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(tabBarOrderPath, section: .general, group: group,
-                          title: SettingsText.keyed("settings.tabs.barOrder", "Tab Bar and Browser Toolbar"),
-                          help: SettingsText.keyed("settings.tabs.barOrder.help",
-                                                   "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it."),
-                          summary: SettingsText.keyed("settings.tabs.barOrder.summary", "Which sits on top in a browser pane"),
-                          kind: .choice([
-                              SettingChoice(TabBarOrder.aboveToolbar.rawValue,
-                                            SettingsText.keyed("settings.choice.tabsAboveToolbar", "Tab Bar Above")),
-                              SettingChoice(TabBarOrder.belowToolbar.rawValue,
-                                            SettingsText.keyed("settings.choice.tabsBelowToolbar", "Tab Bar Below")),
-                          ]),
-                          default: .string(TabBarOrder.aboveToolbar.rawValue),
-                          keywords: ["tab bar", "tabs", "toolbar", "omnibar", "address bar", "order", "browser", "layout"])
     }
 
     static func spacesPositionDescriptor(group: SettingText) -> SettingDescriptor {

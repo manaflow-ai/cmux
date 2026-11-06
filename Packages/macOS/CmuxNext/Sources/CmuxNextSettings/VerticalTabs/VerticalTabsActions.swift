@@ -59,7 +59,7 @@ public final class VerticalTabsActions {
             if let refusal = host.verticalTabsSettingRefusal(path) { return .refused(refusal) }
             let on = !host.design.verticalTabsExpandOnHover
             host.design.verticalTabsExpandOnHover = on
-            host.writeVerticalTabsSetting("vertical tabs expand on hover setting", path, on == VerticalTabsSetting.expandOnHoverFallback ? nil : .bool(on))
+            host.writeVerticalTabsSetting("vertical tabs expand on hover setting", path, on == VerticalTabsSetting.expandOnHoverDefault ? nil : .bool(on))
             return .done
         }
         ActionTargetTitles.setState(expandOnHover, in: registry) { _ in host.design.verticalTabsExpandOnHover }

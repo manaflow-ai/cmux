@@ -82,7 +82,6 @@ public nonisolated enum SettingsSchema {
         let columns = SettingsText.keyed("settings.group.columns", "Columns")
         let quitting = SettingsText.keyed("settings.group.quit", "Quitting")
         let history = SettingsText.keyed("settings.group.history", "History")
-        let tabs = SettingsText.keyed("settings.group.tabs", "Tabs")
         return [
             SettingDescriptor(
                 TerminalCommandHistorySetting.configPath, section: .general, group: history,
@@ -208,17 +207,7 @@ public nonisolated enum SettingsSchema {
                 default: .bool(CmuxConfigSnapshot.showMenuBarIconFallback),
                 keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
             ),
-            TabSettingsSchema.newTabTemplate(group: tabs),
-            TabSettingsSchema.nativeNewTabPage(group: tabs),
-            TabSettingsSchema.newTabPosition(group: tabs),
-            TabSettingsSchema.plusButton(group: tabs),
-        ] + TabBarSettingsSchema.descriptors(group: tabs) + TabWidthSettingsSchema.descriptors(group: tabs) + [
-            TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
-            TabSettingsSchema.cmdWClosesPinnedTabs(group: tabs),
-        ] + TabSettingsSchema.verticalTabs(group: tabs) + [
-            TabSettingsSchema.hideLoneChatTab(group: tabs),
-            TabSettingsSchema.swapCmdTAndCmdN(group: tabs),
-        ] + TabSettingsSchema.closeWarnings(group: tabs) + [
+        ] + TabSettingsSchema.descriptors + [
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),
