@@ -94,7 +94,7 @@
   "motion.pane.variant": {"case": "keep", "why": "A motion comparison for pane close and expand; the standard movement is the shipped one."},
   "navigation.mouseSideButtons": {"case": "delete", "why": "On by default; the switch was only there to turn it off while new. Deleting it keeps mouse buttons 4 and 5 as back and forward."},
   "newTab.layout": {"case": "keep", "why": "A design comparison for the new tab screen; design B is the default and A is still selectable."},
-  "newTab.picksFollowLinks": {"case": "keep", "why": "A placement comparison; the default (replace the page, Leo 10-20) is chosen, and the alternative was Lawrence's ask."},
+  "newTab.picksFollowLinks": {"case": "keep", "why": "A placement comparison; the default (open where links do, Lawrence 10-19, restated 11-05) is chosen, and the alternative (replace the page) was Leo 10-20."},
   "newTab.privateChatLists": {"case": "delete", "why": "Off by default; the on path is the old per-page chat list. Delete the switch and keep the shared list."},
   "newTab.widgets": {"case": "keep", "why": "Off by default so the New Tab page stays calm (Leo 10-18); the widgets are an optional extra."},
   "notifications.attention.look": {"case": "keep", "why": "A look comparison for the notification ring; subtle is the chosen default and strong is the old ring."},
@@ -154,7 +154,7 @@
   "status.working": {"case": "keep", "why": "A look comparison for the working indicator; the spinner is the default and the breathing dot blinks."},
   "tabs.hoverPreviews": {"case": "keep", "why": "A look choice Leo asked for on 10-14 (Compact or Full); Full is the default until it becomes a real setting."},
   "tabs.loadingAnimation": {"case": "keep", "why": "A motion comparison for busy tab indicators; instant is the production default until a variant is chosen."},
-  "tabs.separators": {"case": "keep", "why": "Off until the default call is made (code comment); Lawrence removed the lines after Leo asked for them."},
+  "tabs.separators": {"case": "keep", "why": "On by Lawrence's call (11-05: a subtle line between all horizontal tabs and before +); the switch stays as a look toggle."},
   "whatsNew.design": {"case": "keep", "why": "A look comparison among What's New page designs; the sheet is the current default."},
   "window.dockedWorkspaces": {"case": "keep", "why": "A default-off prototype of docking whole workspaces to window edges; its actions refuse while off because it is unfinished."},
   "workspaces.autoName.variant": {"case": "keep", "why": "A behavior comparison for auto names (live label or persisted); persist is the default and live is still read."}

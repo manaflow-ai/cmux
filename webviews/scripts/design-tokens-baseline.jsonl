@@ -125,7 +125,6 @@
 {"file":"agent-session/acpmux/composerStates.css","kind":"spacing","property":"padding","values":{"0 10px":1,"2px 6px":1,"0 6px 0 4px":1,"0 6px 2px 12px":1,"0 6px":1,"4px 0 2px":1}}
 {"file":"agent-session/acpmux/composerStates.css","kind":"spacing","property":"right","values":{"-5px":1}}
 {"file":"agent-session/acpmux/composerStates.css","kind":"spacing","property":"top","values":{"-5px":1}}
-{"file":"agent-session/acpmux/computerUse/computerUsePreview.css","kind":"color","property":"border","values":{"1.5px solid #2d8cff":1}}
 {"file":"agent-session/acpmux/computerUse/computerUsePreview.css","kind":"duration","property":"animation","values":{"acpmux-cu-preview-click var(--cmux-motion-large, 240ms) var(--agent-ease-out, ease-out) 150ms both":1}}
 {"file":"agent-session/acpmux/computerUse/computerUsePreview.css","kind":"duration","property":"transition","values":{"left 150ms var(--agent-ease-out, ease-out), top 150ms var(--agent-ease-out, ease-out)":1}}
 {"file":"agent-session/acpmux/computerUse/computerUsePreview.css","kind":"spacing","property":"margin","values":{"-7px 0 0 -7px":1}}
