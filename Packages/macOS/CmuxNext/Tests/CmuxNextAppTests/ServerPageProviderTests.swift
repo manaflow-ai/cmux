@@ -88,7 +88,7 @@ struct ServerPageProviderTests {
 
     @Test func aTeamTheServerDoesNotOfferIsRefused() async throws {
         let (source, provider) = provider()
-        try await call(provider, ServerPageProvider.setCodeOp, ["code": MockServerScenario.offerCode])
+        try await call(provider, ServerPageProvider.setCodeOp, ["code": .string(MockServerScenario.offerCode)])
         source.deliverHeld()
         await #expect(throws: PageError.self) { try await call(provider, ServerPageProvider.setTeamOp, ["team": "team_other"]) }
         #expect(provider.model.approval.team == "team_personal")
