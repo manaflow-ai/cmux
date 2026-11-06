@@ -407,6 +407,64 @@ struct CloudRelayChatLoginTests {
         #expect(command.hasPrefix("cmux cloud start-session --target machine:" + f.machine.machineID), "\(command)")
     }
 
+    /// The signed-in account a test switches while the link step waits.
+    nonisolated final class Account: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: [String?] = ["user-1", "team-A"]
+        var now: [String?] { lock.withLock { value } }
+        func switchTo(_ account: [String?]) { lock.withLock { value = account } }
+    }
+
+    /// Runs a CLI relay chat whose link step is `link` and whose account is `account`; the login and send are recorded.
+    static func linkRun(account: Account, loginWithin: Duration = CloudStartSession.loginWithin,
+                        link: @escaping @MainActor (CloudMachineSession) async -> Bool) async throws -> [String: ActionResultValue] {
+        let f = fixture()
+        defer { f.machine.disconnect() }
+        _ = Steps.shared.take()
+        CloudStartSession.bindRelayChat(into: f.services.registry, context: AppActionContext(services: f.services), reason: { nil },
+                                        steps: .init(login: { machine, _, still in
+                                            Steps.shared.append("login")
+                                            machine.harnessLogin = Self.decision(outcome: "installed")
+                                            try still()
+                                        }, relay: { Self.relay }, loginWithin: loginWithin, link: link, account: { account.now }))
+        let invoke = try #require(f.services.registry.action(for: "cloudRelayChat")?.invoke)
+        let run = f.services.registry.capturingRun { invoke(Self.invocation(f.machine)) }
+        return try Self.fields(await run.results.first?.value)
+    }
+
+    /// The account changes while the link step is suspended: once the link answers, no login starts (it would read the new
+    /// account's user and team), nothing is sent, and the run answers `login_account_changed`.
+    @Test func anAccountChangeWhileTheLinkWaitsStartsNoLogin() async throws {
+        let account = Account()
+        let (held, release) = AsyncStream.makeStream(of: Void.self)
+        // task-owner: switches the account while the link step is held, then lets the link answer
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            account.switchTo(["user-2", "team-B"])
+            release.yield()
+        }
+        let fields = try await Self.linkRun(account: account) { _ in
+            Steps.shared.append("link")
+            for await _ in held { break }
+            return true
+        }
+        #expect(Steps.shared.take() == ["link"], "a login or send ran for another account")
+        #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_account_changed"))
+    }
+
+    /// The link answers after the run's `loginWithin` ran out: the run has already answered `login_pending` (the deadline's
+    /// code, the account being unchanged), and the link's late answer starts no login and sends nothing.
+    @Test func aLinkThatAnswersAfterTheDeadlineStartsNoLogin() async throws {
+        let fields = try await Self.linkRun(account: Account(), loginWithin: .milliseconds(100)) { _ in
+            Steps.shared.append("link")
+            try? await Task.sleep(for: .milliseconds(400))
+            return true
+        }
+        #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_pending"))
+        try await Task.sleep(for: .seconds(1))
+        #expect(Steps.shared.take() == ["link"], "the late link started a login or a send")
+    }
+
     /// The person's own run (the palette) sees the same refusal, and nothing is sent.
     @Test func thePersonsRunIsRefusedTheSameWay() async throws {
         let run = try await Self.relayChat(Self.decision(outcome: CloudCredentialTransfer.CachedLogin.none.startOutcome), origin: .user)
