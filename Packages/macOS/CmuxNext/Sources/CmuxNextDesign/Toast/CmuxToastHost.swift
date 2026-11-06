@@ -9,6 +9,13 @@ public protocol CmuxToastHosting: AnyObject {
     func move(_ toast: CmuxToastView, to slot: Int)
     /// `animated` false removes it at once (a newer toast took its place).
     func hide(_ toast: CmuxToastView, animated: Bool)
+    /// The window's toasts reached their slots (after a show, an end or a resize): the views that
+    /// reserve room for them (``CmuxToastReserving``) keep their content clear of them.
+    func settled(in window: NSWindow)
+}
+
+extension CmuxToastHosting {
+    public func settled(in window: NSWindow) {}
 }
 
 /// Toasts on the R84 `WindowOverlayHost` (`.toast` kind): above every page,
@@ -56,6 +63,31 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
                 entry.handle.update(anchor: anchor(for: entry.view, slot: entry.slot, in: entry.window))
             }
         }
+        settled(in: window)
+    }
+
+    /// Tells every view in `window` that reserves room for toasts where this host's toasts now
+    /// rest (nil: none), with the toasts' move time.
+    public func settled(in window: NSWindow) {
+        let frames = handles.values.filter { $0.window === window }.compactMap { entry -> NSRect? in
+            guard let panel = entry.view.window else { return nil }
+            return window.convertFromScreen(panel.convertToScreen(entry.view.convert(entry.view.bounds, to: nil)))
+        }
+        let rect = frames.dropFirst().reduce(frames.first) { $0?.union($1) }
+        let duration = Motion.overlays.animatesMovement ? Motion.overlays.duration(.move) : 0
+        Self.reservingViews(in: window).forEach { $0.toastsSettled(in: rect, duration: duration) }
+    }
+
+    /// Every view under `window`'s content view that reserves room for toasts, hidden ones too
+    /// (one hidden while toasts showed still hears that they went).
+    static func reservingViews(in window: NSWindow) -> [any CmuxToastReserving] {
+        var found: [any CmuxToastReserving] = []
+        var pending: [NSView] = window.contentView.map { [$0] } ?? []
+        while let view = pending.popLast() {
+            if let reserving = view as? any CmuxToastReserving { found.append(reserving) }
+            pending.append(contentsOf: view.subviews)
+        }
+        return found
     }
 
     public func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {
