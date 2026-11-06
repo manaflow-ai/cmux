@@ -115,10 +115,8 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 
 /// The request object and, after its line, the raw bytes a keyed start sends.
 pub(super) fn parse(input: &[u8]) -> Result<(Request, Zeroizing<Vec<u8>>), String> {
-    let (head, tail) = match input.iter().position(|&b| b == b'\n') {
-        Some(at) => (&input[..at], &input[at + 1..]),
-        None => (input, &[][..]),
-    };
+    let mut parts = input.splitn(2, |&b| b == b'\n');
+    let (head, tail) = (parts.next().unwrap_or_default(), parts.next().unwrap_or_default());
     let mut request: Request = serde_json::from_slice(head)
         .map_err(|_| "the request is not a cloud api request".to_owned())?;
     request.credential = request.credential.trim().to_owned();
