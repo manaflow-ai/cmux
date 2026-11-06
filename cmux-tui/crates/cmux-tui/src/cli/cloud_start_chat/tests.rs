@@ -1252,6 +1252,107 @@ fn every_step_fits_in_one_timeout_from_the_start() {
     assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
 }
 
+/// Every step that does I/O or pauses fits in the one deadline: past it nothing more runs, and a step that answers
+/// late is a timeout, never a success (the second re-review of #37159). Before the send that is
+/// `cloud.start_pending` (75) with the command to ask again; after it, `chat.wait_timeout` (3).
+#[test]
+fn a_step_that_overruns_the_deadline_ends_the_command() {
+    let secs = Duration::from_secs;
+    let on_vm_1 = |timeout: &str| {
+        request(&["--prompt", "x", "--target", "machine:vm-1", "--wait", "--timeout", timeout])
+    };
+    let pending = |fake: &Fake, outcome: Outcome| {
+        let Outcome::Failed { error, exit } = outcome else { panic!("{:?}", fake.ran) };
+        assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75), "{error}");
+        error
+    };
+
+    // The list took the whole 30 s: no machine is made in the environment.
+    let mut fake = Fake::new(vec![signed_in()]);
+    fake.costs.push(("list-machines", secs(30)));
+    let asked = request(&["--prompt", "x", "--environment", "env_1", "--wait", "--timeout", "30"]);
+    let outcome = run(&mut fake, &asked);
+    pending(&fake, outcome);
+    assert_eq!(fake.ran.len(), 1, "{:?}", fake.ran);
+
+    // start-session answered the chat after the deadline: nothing is uploaded or sent.
+    let mut fake = Fake::new(vec![signed_in(), started()]);
+    fake.costs.push(("start-session", secs(30)));
+    let outcome = run(&mut fake, &on_vm_1("30"));
+    let error = pending(&fake, outcome);
+    assert!(
+        error["details"]["again"].as_str().unwrap().contains("--target machine:vm-1"),
+        "{error}"
+    );
+    assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+
+    // start-session answered pending after the deadline: the machine list is not read for its stage.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(json!({"pending": true, "machine_name": "chat-fresh", "text": "still starting"})),
+    ]);
+    fake.costs.push(("start-session", secs(30)));
+    let outcome = run(&mut fake, &on_vm_1("30"));
+    pending(&fake, outcome);
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+
+    // The relay's turn ended, but its answer came after the deadline: a timeout, not a reply.
+    let mut fake =
+        Fake::new(vec![signed_in(), relayed(json!({"session_id": "relay-1", "reply": "4"}))]);
+    fake.costs.push(("relay-chat", secs(45)));
+    let Outcome::Failed { error, exit } = run(&mut fake, &on_vm_1("45")) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3), "{error}");
+    assert_eq!(error["details"]["answer"]["session_id"], "relay-1");
+    assert_eq!(fake.ran.len(), 2);
+
+    // A prompt that goes to a file in pieces: the first piece took the time left, so no second piece and no send.
+    let big = "a".repeat(400 * 1024);
+    let mut fake = Fake::new(vec![signed_in(), started(), exec_out("@@size 393216\n")]);
+    fake.costs.push(("exec", secs(25)));
+    let asked =
+        request(&["--prompt", &big, "--target", "machine:vm-1", "--wait", "--timeout", "30"]);
+    let outcome = run(&mut fake, &asked);
+    pending(&fake, outcome);
+    assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+
+    // The pause before asking again for a turn not started yet is what is left (1 s), not its own 2 s.
+    let not_started = "@@wait 3\n@@history\n{\"turns\":[]}\n";
+    let sent = exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n");
+    let mut fake = Fake::new(vec![signed_in(), started(), sent, exec_out(not_started)]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &on_vm_1("21")) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3), "{error}");
+    assert_eq!(fake.paused, secs(1));
+    assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
+}
+
+/// The wait on a machine the command makes itself (no environment, no --target) also gets only what is left
+/// of the deadline after the create, the start and the send.
+#[test]
+fn each_wait_on_a_new_machine_is_bounded_by_the_time_left() {
+    let running = "@@wait 3\n@@history\n{\"turns\":[{\"seq\":2,\"status\":\"running\"}]}\n";
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        exec_out(running),
+        exec_out(running),
+    ]);
+    // The list, the create, the start and the send take 20 s of the 27.
+    let asked = request(&["--prompt", "x", "--wait", "--timeout", "27"]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "chat.wait_timeout");
+    assert_eq!(fake.ran[1][1], "new-machine");
+    assert!(fake.ran[4][5].contains("acp wait sess-1 --timeout 7 "), "{:?}", fake.ran[4]);
+    assert!(fake.ran[5][5].contains("acp wait sess-1 --timeout 2 "), "{:?}", fake.ran[5]);
+    assert_eq!(fake.ran.len(), 6);
+}
+
 #[test]
 fn a_timeout_shorter_than_the_relay_window_goes_the_link_way() {
     let mut fake = Fake::new(vec![
