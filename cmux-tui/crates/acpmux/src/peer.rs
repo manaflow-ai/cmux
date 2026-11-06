@@ -265,6 +265,8 @@ pub struct Peer {
     pub(crate) cache_saved_outage: AtomicBool,
     /// A throttled row notice still needs one trailing cache write.
     pub(crate) cache_dirty: AtomicBool,
+    /// At most one non-final cache writer may be queued for this peer.
+    pub(crate) cache_write_pending: AtomicBool,
     /// This instance's outage outlived its grace and its rows went unreachable
     /// (`hub/peer_grace.rs`). Kept here, not in the notice loop, so it goes with the instance.
     pub(crate) outage_ended: AtomicBool,
@@ -385,6 +387,7 @@ impl Peer {
             cache_saved_at: AtomicU64::new(0),
             cache_saved_outage: AtomicBool::new(false),
             cache_dirty: AtomicBool::new(false),
+            cache_write_pending: AtomicBool::new(false),
             outage_ended: AtomicBool::new(false),
             purge_tombstones: Default::default(),
             health: StdMutex::new(None),

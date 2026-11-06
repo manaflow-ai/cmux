@@ -646,7 +646,7 @@ impl Hub {
                     // The list can land after clients took their snapshot (an
                     // ssh tunnel is slow to open), so tell watchers what changed.
                     // Read the old summaries under the rows lock, then do all JSON projection and
-                    // comparison work without it. The per-peer notice gate prevents another
+                    // comparison work without it. The single-consumer notice loop keeps another
                     // notice for this peer from changing the baseline while this one is built.
                     let mut old: HashMap<String, Value> = {
                         let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());

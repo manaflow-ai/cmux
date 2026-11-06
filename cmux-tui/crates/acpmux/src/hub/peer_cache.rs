@@ -63,13 +63,36 @@ impl Hub {
     /// Save `peer`'s rows, while `generation` is the instance registered
     /// under that name; unless `now`, at most once per `SAVE_EVERY_MS`.
     pub(super) fn save_peer_cache(&self, peer: &str, generation: u64, now: bool) {
-        if !now && let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) {
+        if !now {
+            let Some(p) = self.peer(peer).filter(|p| p.generation == generation) else { return };
+            // Publish dirty state before deciding whether this notice is throttled. The stop
+            // flush can therefore see a notice even when the worker has not started yet.
+            p.cache_dirty.store(true, std::sync::atomic::Ordering::SeqCst);
+            let at = now_ms();
+            let last = p.cache_saved_at.load(std::sync::atomic::Ordering::SeqCst);
+            if at.saturating_sub(last) < SAVE_EVERY_MS
+                || p.cache_write_pending.swap(true, std::sync::atomic::Ordering::AcqRel)
+            {
+                return;
+            }
+            let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) else {
+                p.cache_write_pending.store(false, std::sync::atomic::Ordering::Release);
+                return;
+            };
             let peer = peer.to_owned();
             let gate = hub.cache_write_gate.clone();
-            std::thread::spawn(move || {
-                let _gate = gate.lock().unwrap_or_else(|e| e.into_inner());
-                hub.save_peer_cache_now(&peer, generation, false);
-            });
+            let pending_peer = p.clone();
+            let spawned =
+                std::thread::Builder::new().name("acpmux-peer-cache".into()).spawn(move || {
+                    let _gate = gate.lock().unwrap_or_else(|e| e.into_inner());
+                    hub.save_peer_cache_now(&peer, generation, false);
+                    pending_peer
+                        .cache_write_pending
+                        .store(false, std::sync::atomic::Ordering::Release);
+                });
+            if spawned.is_err() {
+                p.cache_write_pending.store(false, std::sync::atomic::Ordering::Release);
+            }
             return;
         }
         self.save_peer_cache_now(peer, generation, now);
@@ -423,6 +446,59 @@ mod tests {
         }
         let writes = hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst);
         assert!(writes < 32, "writes={writes}");
+    }
+
+    #[test]
+    fn a_burst_has_at_most_one_pending_cache_writer_per_peer() {
+        let (hub, _dir) = test_hub();
+        let peer = add_idle_peer(&hub, "builder");
+        hub.cache_test_writes.store(0, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
+        hub.cache_test_write_delay_ms.store(200, std::sync::atomic::Ordering::SeqCst);
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+        );
+        for _ in 0..100_000 {
+            if hub.cache_test_write_started.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        for at in 0..32 {
+            let mut row = remote("m1", "lane");
+            row["updatedAt"] = json!(at + 10);
+            hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(vec![row]));
+        }
+        assert_eq!(hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst), 1);
+        hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+        for _ in 0..100_000 {
+            if !peer.cache_write_pending.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+            std::thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn an_immediate_stop_flushes_a_notice_before_its_worker_starts() {
+        let (hub, dir) = test_hub();
+        let peer = add_idle_peer(&hub, "builder");
+        hub.cache_test_write_delay_ms.store(200, std::sync::atomic::Ordering::SeqCst);
+        let mut changed = remote("m1", "lane");
+        changed["status"] = json!("running");
+        hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(vec![changed]));
+        assert!(peer.cache_dirty.load(std::sync::atomic::Ordering::SeqCst));
+        // This is the notice loop's shutdown flush: it only visits dirty peers, then waits for
+        // the ordered writer before returning from shutdown.
+        if peer.cache_dirty.load(std::sync::atomic::Ordering::SeqCst) {
+            hub.save_peer_cache("builder", peer.generation, true);
+        }
+        hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+        let bytes = std::fs::read(dir.path().join("peers/builder.json")).unwrap();
+        let saved: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(saved["sessions"][0]["status"], "running");
     }
 
     #[test]
