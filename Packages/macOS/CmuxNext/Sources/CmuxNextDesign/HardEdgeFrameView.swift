@@ -106,11 +106,19 @@ final class HardEdgeFrameView: NSView {
             marks.strokeColor = HardEdge.accent.cgColor
             rivets.fillColor = HardEdge.accent.cgColor
         case .hud:
-            // A second frame in the middle of the gap, parallel to every cut; a rivet on each big cut.
+            // A second frame in the middle of the gap, parallel to every cut, open at the corner
+            // under the first tab so nothing comes between the tab and the card's edge there; a
+            // rivet on each big cut.
             let width = 1 / scale, distance = (HardEdge.gap / 2 * scale).rounded() / scale + width / 2
             let rect = card.insetBy(dx: -distance, dy: -distance), framed = Self.offset(cuts, by: distance)
-            marksPath.addPath(HardEdge.path(rect, cuts: framed, flipped: false))
             let points = HardEdge.outline(rect, cuts: framed, flipped: false)
+            // Outline order runs clockwise from the top edge; the open corner is the sidebar's top one.
+            let order = sidebarLeading ? Array(0...7) : Array(2...7) + [0, 1]
+            let opening = Metrics.scale(96)
+            let first = points[order[0]], last = points[order[7]]
+            marksPath.move(to: Self.step(from: first, toward: points[order[1]], by: opening))
+            for index in order[1..<7] { marksPath.addLine(to: points[index]) } // stops short of the open corner
+            marksPath.addLine(to: Self.step(from: last, toward: points[order[6]], by: opening / 2))
             for (a, b) in [(points[7], points[0]), (points[1], points[2]), (points[3], points[4]), (points[5], points[6])]
                 where hypot(b.x - a.x, b.y - a.y) > Metrics.scale(6) {
                 rivetsPath.addPath(HardEdge.diamond(CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2), radius: HardEdge.diamondRadius - 0.5))
