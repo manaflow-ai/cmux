@@ -26,6 +26,10 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
     private var replies: [String: (count: Int, total: Double, longest: Double, bytes: Int)] = [:]
     /// Event lines by event name (a session stream item by its item kind): how many, and their bytes.
     private var eventsByName: [String: (count: Int, bytes: Int)] = [:]
+    /// Each resource's last upsert, to name the fields a repeated upsert changed (``changedFields``).
+    private var lastUpsert: [String: [String: Any]] = [:]
+    /// Per resource kind, how many repeated upserts changed each field ("(none)": the same record again).
+    private var changedFields: [String: Int] = [:]
     /// Lines the daemon sent that answer no request (events), and their bytes.
     private var events = (count: 0, bytes: 0)
 
@@ -34,9 +38,10 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
         var replies: [String: (count: Int, total: Double, longest: Double, bytes: Int)]
         var events: (count: Int, bytes: Int)
         var eventsByName: [String: (count: Int, bytes: Int)]
+        var changedFields: [String: Int]
     }
 
-    func timings() -> Timings { lock.withLock { Timings(replies: replies, events: events, eventsByName: eventsByName) } }
+    func timings() -> Timings { lock.withLock { Timings(replies: replies, events: events, eventsByName: eventsByName, changedFields: changedFields) } }
 
     init() throws {
         path = "/tmp/cntap-\(UUID().uuidString.prefix(8).lowercased()).sock"
@@ -184,6 +189,14 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
                 for change in (object?["item"] as? [String: Any])?["changes"] as? [[String: Any]] ?? [] {
                     let key = "change \(change["resource"] as? String ?? "?") \(change["op"] as? String ?? change["kind"] as? String ?? "")"
                     let size = (try? JSONSerialization.data(withJSONObject: change).count) ?? 0
+                    if let resource = change["resource"] as? String, let id = change["id"] as? String {
+                        let slot = resource + " " + id
+                        if let was = lastUpsert[slot] {
+                            let fields = Self.changed(was, change)
+                            for field in fields.isEmpty ? ["(none)"] : fields { changedFields[resource + " " + field, default: 0] += 1 }
+                        }
+                        lastUpsert[slot] = change
+                    }
                     var part = eventsByName[key] ?? (0, 0)
                     part.count += 1
                     part.bytes += size
@@ -202,6 +215,28 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
             entry.total += seconds
             entry.longest = max(entry.longest, seconds)
             replies[sent.command] = entry
+        }
+    }
+
+    /// The keys (one level into objects, `extra.x`) whose values differ between two records.
+    private static func changed(_ a: [String: Any], _ b: [String: Any]) -> [String] {
+        var out: [String] = []
+        for key in Set(a.keys).union(b.keys).sorted() where key != "seq" && key != "revision" {
+            let x = a[key], y = b[key]
+            if let x = x as? [String: Any], let y = y as? [String: Any] {
+                out += changed(x, y).map { key + "." + $0 }
+            } else if !same(x, y) {
+                out.append(key)
+            }
+        }
+        return out
+    }
+
+    private static func same(_ a: Any?, _ b: Any?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): true
+        case let (a?, b?): (a as AnyObject).isEqual(b)
+        default: false
         }
     }
 
