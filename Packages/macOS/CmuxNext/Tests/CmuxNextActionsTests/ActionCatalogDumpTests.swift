@@ -14,13 +14,13 @@ import Testing
 /// app resolves; the Rust side finds their keys in the string catalogs.
 @MainActor
 @Suite struct ActionCatalogDumpTests {
-    static let url = URL(fileURLWithPath: #filePath)
+    nonisolated static let url = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("plans/cmux-next/action-catalog.json")
 
     /// A placeholder file (`{}`) asks for a fresh dump: a fleet suite run writes it.
-    static var wantsDump: Bool {
+    nonisolated static var wantsDump: Bool {
         (try? String(contentsOf: url, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) == "{}"
     }
 
