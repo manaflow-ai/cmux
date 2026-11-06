@@ -6,7 +6,8 @@ import { WrittenArtifactButtons } from "./writtenArtifacts";
 // its disclosure right after its words, hairlines between them. Edits keep their diffs on a tree
 // guide.
 import { useFindReveal } from "./chatFind";
-import { memo, useId, useMemo, useRef, type ReactNode } from "react";
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { foldMs } from "./fold";
 import { toolFiles } from "../diff";
 import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
@@ -163,6 +164,101 @@ const Step = memo(
     (a.item === b.item || (!a.item.tool && !b.item.tool && sameThought(a.item, b.item))),
 );
 
+/// The least height a step row draws at, in px: the rows the window can show at once are its height
+/// over this.
+const STEP_MIN_PX = 24;
+
+/// Steps a reader's click draws in its own frame: as many as the window can show, never the whole of
+/// a long run. Its height alone sets the count, so the click costs the same at any length.
+export function firstStepCount(viewHeight: number): number {
+  return Math.max(1, Math.ceil(viewHeight / STEP_MIN_PX));
+}
+
+/// An opened run's step rows. Opened by the reader's click, it draws only the rows the window can
+/// show (`firstStepCount`) in the click's frame, and a box under them as tall as the rest, measured
+/// from the drawn rows' pitch before the fold reads its height (a child's layout effect runs before
+/// its parent's), so the fold opens to the run's whole height in one motion. The rest draw once the
+/// fold is over, a window's worth per task, into that box: off screen while the fold plays, and
+/// where they were reserved after it. It stops when every row is drawn, the run closes (the list
+/// unmounts with its body) or it unmounts. Opened any other way (Find, a view switch, a run that
+/// opens itself), every row draws at once (Leo, 2026-11-06: "The tool call expansion, when it has
+/// several tool calls, I think sometimes it lags a bit").
+function StepList({
+  id,
+  disclosureKey,
+  entries,
+  items,
+  kind,
+  thoughtId,
+  defer,
+  background,
+}: {
+  id: string;
+  disclosureKey: string;
+  entries: readonly StepEntry[];
+  items: readonly AcpmuxActivity[];
+  kind: ToolGroupKind;
+  thoughtId: (n: number) => string;
+  defer: boolean;
+  background: ReturnType<typeof backgroundCounts>;
+}) {
+  // The rows per task; 0 draws every row at once.
+  const [chunk] = useState(() => (defer && typeof window !== "undefined" ? firstStepCount(window.innerHeight) : 0));
+  const [shown, setShown] = useState(() => chunk || Infinity);
+  const count = Math.min(shown, entries.length);
+  const rest = entries.length - count;
+  const list = useRef<HTMLDivElement>(null);
+  const spacer = useRef<HTMLDivElement>(null);
+  // The box for the rows not drawn yet: their count at the drawn rows' pitch, set before paint.
+  useLayoutEffect(() => {
+    const box = spacer.current;
+    const steps = list.current?.querySelectorAll<HTMLElement>(":scope > .cv-step");
+    const first = steps?.[0];
+    const last = steps?.[steps.length - 1];
+    if (!box || !steps || !first || !last) return;
+    const pitch =
+      steps.length > 1
+        ? (last.getBoundingClientRect().top - first.getBoundingClientRect().top) / (steps.length - 1)
+        : last.getBoundingClientRect().height;
+    box.style.height = `${Math.max(0, rest * pitch)}px`;
+  }, [rest]);
+  // The rest, a window's worth per task, from the fold's end: one timer at a time, none once all show.
+  useEffect(() => {
+    if (rest <= 0 || !chunk) return;
+    const wait = shown === chunk ? foldMs(list.current?.closest<HTMLElement>(".cv-fold") ?? null) : 0;
+    const timer = window.setTimeout(
+      () => setShown((now) => (now + chunk >= entries.length ? Infinity : now + chunk)),
+      wait,
+    );
+    return () => window.clearTimeout(timer);
+  }, [rest, shown, chunk, entries.length]);
+  return (
+    <div
+      ref={list}
+      className="cv-tool-group is-flat cv-steps"
+      id={id}
+      data-kind={kind}
+      data-tool-group-items={disclosureKey}
+    >
+      {/* Every call here is a step: a failure reads as one plain line (InStep). */}
+      <InStep.Provider value>
+        {entries.slice(0, count).map(({ at, key, thought }) => (
+          <Step
+            key={thought < 0 ? key : thoughtId(thought)}
+            probeKey={key}
+            item={items[at]!}
+            commands={kind === "commands"}
+            thoughtId={thought < 0 ? "" : thoughtId(thought)}
+            lead={at === 0 && thought === 0}
+          />
+        ))}
+      </InStep.Provider>
+      {rest > 0 && <div ref={spacer} className="cv-steps__rest" data-steps-rest={rest} aria-hidden />}
+      {background && <BackgroundStatusLine counts={background} />}
+    </div>
+  );
+}
+
 /// Commands, reads and searches open by default, one row per call, as the Codex and Claude Code
 /// desktop apps list them; edits stay closed, since each opens to its whole diff. A finished run
 /// that is this one group (`folded`: text followed it) stays closed too, one summary line between
@@ -190,7 +286,13 @@ export function ToolGroupRow({
   const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey, (kind !== "edits" && !folded) || holdsThought, true);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
-  useFindReveal(items, () => setOpen(true));
+  // Whether the reader's click opened the run: only then do its rows past the window draw after the
+  // fold (StepList). Find opens it with every row drawn, so its match is there to show.
+  const [byClick, setByClick] = useState(false);
+  useFindReveal(items, () => {
+    setByClick(false);
+    setOpen(true);
+  });
   // Every step shows, as Claude Code desktop lists a run's: no "+K more" behind the latest few.
   const entries = useStepEntries(kind === "edits" ? [] : items);
   const detailsId = useId();
@@ -216,7 +318,10 @@ export function ToolGroupRow({
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
         ref={fold.headerRef}
-        onClick={fold.toggle}
+        onClick={() => {
+          setByClick(!open);
+          fold.toggle();
+        }}
       >
         <span className="cv-tool__icon">{groupIcon(kind)}</span>
         {write ? (
@@ -275,27 +380,16 @@ export function ToolGroupRow({
                   ]}
             </div>
           ) : (
-            <div
-              className="cv-tool-group is-flat cv-steps"
+            <StepList
               id={detailsId}
-              data-kind={kind}
-              data-tool-group-items={disclosureKey}
-            >
-              {/* Every call here is a step: a failure reads as one plain line (InStep). */}
-              <InStep.Provider value>
-                {entries.map(({ at, key, thought }) => (
-                  <Step
-                    key={thought < 0 ? key : thoughtId(thought)}
-                    probeKey={key}
-                    item={items[at]!}
-                    commands={kind === "commands"}
-                    thoughtId={thought < 0 ? "" : thoughtId(thought)}
-                    lead={at === 0 && thought === 0}
-                  />
-                ))}
-              </InStep.Provider>
-              {background && <BackgroundStatusLine counts={background} />}
-            </div>
+              disclosureKey={disclosureKey}
+              entries={entries}
+              items={items}
+              kind={kind}
+              thoughtId={thoughtId}
+              defer={byClick}
+              background={background}
+            />
           )}
         </div>
       )}

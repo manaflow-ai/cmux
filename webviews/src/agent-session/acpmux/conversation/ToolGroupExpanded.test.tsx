@@ -6,7 +6,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { appendThought, mergeToolItem } from "../direct";
 import { SubagentFold } from "../subagents/subagentFold";
-import { ToolGroupRow } from "./ToolGroupRow";
+import { firstStepCount, ToolGroupRow } from "./ToolGroupRow";
 import { ToolRows } from "./TurnRows";
 import * as toolFailure from "./toolFailure";
 import * as thoughts from "./thoughts";
@@ -332,4 +332,36 @@ test("a failed step of an opened command group opens to its command, Exit code 1
   const shellBlock = container.querySelector(".cv-shell")!;
   expect(shellBlock.querySelector(".cv-shell__exit")?.textContent).toBe("Exit code 1");
   expect(shellBlock.textContent).toContain("No such file or directory");
+});
+
+test("a click opens a long run with only a window's steps drawn, the rest reserved and drawn after the fold", async () => {
+  const items = Array.from({ length: 100 }, (_, at) => calls()[at % 13]!).map((item, at) => ({
+    ...item,
+    tool: { ...item.tool!, id: `execute-long-${at + 1}` },
+  }));
+  const container = await render(<ToolGroupRow kind="commands" items={items} disclosureKey="long-run" folded />);
+  const line = container.querySelector<HTMLButtonElement>('button[data-tool-group="long-run"]')!;
+  expect(line.getAttribute("aria-expanded")).toBe("false");
+  const first = firstStepCount(window.innerHeight);
+  expect(first).toBeLessThan(100);
+  await act(async () => line.click());
+  const steps = () => container.querySelectorAll('[data-tool-group-items="long-run"] > .cv-step').length;
+  // The click's frame draws a window's worth, and a box for the rest.
+  expect(steps()).toBe(first);
+  expect(container.querySelector("[data-steps-rest]")?.getAttribute("data-steps-rest")).toBe(String(100 - first));
+  // After the fold (none plays in a test DOM), every step is drawn and the box is gone.
+  for (let tries = 0; tries < 100 && steps() < 100; tries++)
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(steps()).toBe(100);
+  expect(container.querySelector("[data-steps-rest]")).toBeNull();
+});
+
+test("a run opened by itself (not a click) draws every step at once", async () => {
+  const items = Array.from({ length: 60 }, (_, at) => calls()[at % 13]!).map((item, at) => ({
+    ...item,
+    tool: { ...item.tool!, id: `execute-open-${at + 1}` },
+  }));
+  const container = await render(<ToolGroupRow kind="commands" items={items} disclosureKey="open-run" />);
+  expect(container.querySelectorAll('[data-tool-group-items="open-run"] > .cv-step').length).toBe(60);
+  expect(container.querySelector("[data-steps-rest]")).toBeNull();
 });
