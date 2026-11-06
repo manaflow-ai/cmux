@@ -314,19 +314,6 @@ impl DesktopIndex {
             .or_else(|| self.entries.iter().find(|e| e.id.eq_ignore_ascii_case(id)))
     }
 
-    /// The one entry whose `Exec` runs this executable name.
-    pub fn for_exe(&self, exe: &str) -> Option<&DesktopEntry> {
-        let mut hits = self.entries.iter().filter(|e| {
-            exec_argv(&e.exec)
-                .first()
-                .and_then(|p| Path::new(p).file_name().and_then(|f| f.to_str()).map(str::to_string))
-                .is_some_and(|p| p == exe)
-        });
-        let first = hits.next()?;
-        // Several entries for one binary (a launcher's modes): no guess.
-        if hits.next().is_some() { None } else { Some(first) }
-    }
-
     /// The entry for an X11 WM_CLASS (class, instance) or a Wayland app_id.
     pub fn for_class(&self, class: &str, instance: &str) -> Option<&DesktopEntry> {
         if class.is_empty() && instance.is_empty() {
@@ -421,77 +408,6 @@ pub(crate) fn exec_argv(exec: &str) -> Vec<String> {
     args
 }
 
-/// The desktop file id a process was started from, when the launcher says:
-/// the systemd scope (`app-gnome-org.gnome.TextEditor-1234.scope`,
-/// `app-flatpak-org.foo.Bar-5.scope`) or `GIO_LAUNCHED_DESKTOP_FILE`.
-pub(crate) fn desktop_id_of_pid(pid: u32) -> Option<String> {
-    if pid == 0 {
-        return None;
-    }
-    if let Ok(cg) = std::fs::read_to_string(format!("/proc/{pid}/cgroup"))
-        && let Some(id) = desktop_id_from_cgroup(&cg)
-    {
-        return Some(id);
-    }
-    let environ = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
-    for var in environ.split(|b| *b == 0) {
-        let var = String::from_utf8_lossy(var);
-        if let Some(path) = var.strip_prefix("GIO_LAUNCHED_DESKTOP_FILE=") {
-            let file = Path::new(path).file_name()?.to_str()?;
-            return Some(file.strip_suffix(".desktop").unwrap_or(file).to_string());
-        }
-    }
-    None
-}
-
-pub(crate) fn desktop_id_from_cgroup(cgroup: &str) -> Option<String> {
-    for line in cgroup.lines() {
-        for part in line.rsplit('/') {
-            let Some(rest) = part.strip_prefix("app-") else { continue };
-            let rest = rest.strip_suffix(".scope").or_else(|| rest.strip_suffix(".service"))?;
-            // app-<launcher>-<id>-<random>; the launcher may be absent
-            // (`app-org.foo.Bar-123.scope`). Escapes: `\x2d` is `-`.
-            let rest = rest.replace("\\x2d", "-");
-            let mut parts: Vec<&str> = rest.split('-').collect();
-            if parts.len() >= 2
-                && parts
-                    .last()
-                    .is_some_and(|p| p.chars().all(|c| c.is_ascii_hexdigit()) || p.starts_with('@'))
-            {
-                parts.pop();
-            }
-            if parts.len() >= 2
-                && matches!(
-                    parts[0],
-                    "gnome" | "kde" | "flatpak" | "dbus" | "xfce" | "cinnamon" | "snap"
-                )
-            {
-                parts.remove(0);
-            }
-            let id = parts.join("-");
-            if !id.is_empty() && id != "launcher" {
-                return Some(id);
-            }
-        }
-    }
-    None
-}
-
-pub(crate) fn exe_name(pid: u32) -> Option<String> {
-    if pid == 0 {
-        return None;
-    }
-    let link = std::fs::read_link(format!("/proc/{pid}/exe")).ok();
-    let name = link
-        .as_deref()
-        .and_then(|p| p.file_name())
-        .and_then(|f| f.to_str())
-        .map(|s| s.trim_end_matches(" (deleted)").to_string());
-    name.or_else(|| {
-        std::fs::read_to_string(format!("/proc/{pid}/comm")).ok().map(|s| s.trim().to_string())
-    })
-}
-
 /// Resolves app ids and names, caching the desktop file index.
 #[derive(Default)]
 pub(crate) struct AppResolver {
@@ -511,14 +427,13 @@ impl AppResolver {
         idx
     }
 
-    /// (app id, display name) for a window's process and class.
-    pub fn resolve(&self, pid: u32, class: &str, instance: &str) -> (String, String) {
+    /// (app id, display name) for a window, from what the window system
+    /// reports about it: its X11 WM_CLASS (class, instance), Wayland app_id or
+    /// accessibility app name. cmux-next never reads another process
+    /// (plans/cmux-next/pty-holder.md), so no /proc lookup.
+    pub fn resolve(&self, class: &str, instance: &str) -> (String, String) {
         let index = self.index();
-        if let Some(id) = desktop_id_of_pid(pid) {
-            let name = index.by_id(&id).map(|e| e.name.clone()).filter(|n| !n.is_empty());
-            return (id.clone(), name.unwrap_or(id));
-        }
-        if let Some(e) = index.for_class(class, instance) {
+        if let Some(e) = index.by_id(class).or_else(|| index.for_class(class, instance)) {
             let name = if e.name.is_empty() { e.id.clone() } else { e.name.clone() };
             return (e.id.clone(), name);
         }
@@ -528,28 +443,21 @@ impl AppResolver {
         if !instance.is_empty() {
             return (instance.to_string(), instance.to_string());
         }
-        let exe = exe_name(pid).unwrap_or_else(|| "unknown".into());
-        if let Some(e) = index.for_exe(&exe) {
-            let name = if e.name.is_empty() { e.id.clone() } else { e.name.clone() };
-            return (e.id.clone(), name);
-        }
-        (exe.clone(), exe)
+        ("unknown".into(), "unknown".into())
     }
 }
 
-/// Compositor and shell processes whose own accessible frames (panels,
-/// overlays) are not app windows.
-pub(crate) fn is_shell_process(pid: u32) -> bool {
+/// Compositor and shell apps whose own accessible frames (panels, overlays)
+/// are not app windows, by their accessibility app name.
+pub(crate) fn is_shell_app(app_name: &str) -> bool {
     matches!(
-        exe_name(pid).as_deref(),
-        Some(
-            "gnome-shell"
-                | "kwin_wayland"
-                | "kwin_x11"
-                | "plasmashell"
-                | "mutter"
-                | "gnome-shell-calendar-server"
-        )
+        app_name,
+        "gnome-shell"
+            | "kwin_wayland"
+            | "kwin_x11"
+            | "plasmashell"
+            | "mutter"
+            | "gnome-shell-calendar-server"
     )
 }
 

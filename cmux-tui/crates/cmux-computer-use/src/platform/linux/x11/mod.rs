@@ -377,7 +377,7 @@ impl X11Desktop {
     }
 
     fn app_of(&self, c: &Client) -> (String, String) {
-        self.apps.resolve(c.pid, &c.class, &c.instance)
+        self.apps.resolve(&c.class, &c.instance)
     }
 
     pub(crate) fn frame_obj(&self, c: &Client) -> DResult<(Arc<Atspi>, super::atspi::Frame)> {

@@ -148,7 +148,7 @@ impl Listener {
     }
 
     fn instance(&self) -> io::Result<Owned> {
-        let mut attributes = SECURITY_ATTRIBUTES {
+        let attributes = SECURITY_ATTRIBUTES {
             nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
             lpSecurityDescriptor: self.descriptor,
             bInheritHandle: 0,
@@ -167,7 +167,7 @@ impl Listener {
                 BUFFER,
                 BUFFER,
                 0,
-                &mut attributes,
+                &attributes,
             )
         };
         if handle == INVALID_HANDLE_VALUE {

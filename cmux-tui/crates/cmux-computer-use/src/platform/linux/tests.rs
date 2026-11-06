@@ -81,11 +81,6 @@ fn desktop_entries_parse() {
         Some("org.gnome.TextEditor")
     );
     assert!(index.for_class("xterm", "xterm").is_none());
-    assert_eq!(
-        index.for_exe("gnome-text-editor").map(|e| e.id.as_str()),
-        Some("org.gnome.TextEditor")
-    );
-    assert!(index.for_exe("gedit").is_none());
 }
 
 #[test]
@@ -93,20 +88,6 @@ fn exec_lines_split() {
     assert_eq!(exec_argv("gedit %U"), vec!["gedit"]);
     assert_eq!(exec_argv("\"/opt/My App/app\" --x %f"), vec!["/opt/My App/app", "--x"]);
     assert_eq!(exec_argv("sh -c \"echo 100%%\""), vec!["sh", "-c", "echo 100%"]);
-}
-
-#[test]
-fn desktop_ids_from_cgroups() {
-    let gnome = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-gnome-org.gnome.TextEditor-4211.scope\n";
-    assert_eq!(desktop_id_from_cgroup(gnome).as_deref(), Some("org.gnome.TextEditor"));
-    let flatpak =
-        "0::/user.slice/user@1000.service/app.slice/app-flatpak-org.mozilla.firefox-1234.scope";
-    assert_eq!(desktop_id_from_cgroup(flatpak).as_deref(), Some("org.mozilla.firefox"));
-    let kde = "0::/user.slice/user@1000.service/app.slice/app-org.kde.konsole-5fa1b2.scope";
-    assert_eq!(desktop_id_from_cgroup(kde).as_deref(), Some("org.kde.konsole"));
-    let escaped = "0::/app.slice/app-gnome-gnome\\x2dtext\\x2deditor-77.scope";
-    assert_eq!(desktop_id_from_cgroup(escaped).as_deref(), Some("gnome-text-editor"));
-    assert_eq!(desktop_id_from_cgroup("0::/user.slice/session-2.scope"), None);
 }
 
 #[test]
@@ -234,6 +215,7 @@ fn atspi_ids_parse_and_frames_pick() {
     let frame = |name: &str, x: f64| atspi::Frame {
         obj: atspi::Obj { bus: ":1.1".into(), path: format!("/{name}") },
         pid: 1,
+        app: "app".into(),
         name: name.into(),
         role: "frame".into(),
         extents: Some(Rect { x, y: 0.0, width: 100.0, height: 100.0 }),
@@ -270,4 +252,19 @@ fn cursor_arrow_is_cmux_blue() {
     // Far corner: transparent.
     assert!(!mask[n * n - 1]);
     assert_eq!(&px[(n * n - 1) * 4..], &[0, 0, 0, 0]);
+}
+
+#[test]
+fn shell_frames_are_not_app_windows() {
+    assert!(is_shell_app("gnome-shell"));
+    assert!(is_shell_app("plasmashell"));
+    assert!(!is_shell_app("gedit"));
+}
+
+#[test]
+fn apps_resolve_without_reading_processes() {
+    let apps = AppResolver::default();
+    assert_eq!(apps.resolve("", "").0, "unknown");
+    assert_eq!(apps.resolve("cmux-test-class-zz", "").0, "cmux-test-class-zz");
+    assert_eq!(apps.resolve("", "cmux-test-instance-zz").0, "cmux-test-instance-zz");
 }

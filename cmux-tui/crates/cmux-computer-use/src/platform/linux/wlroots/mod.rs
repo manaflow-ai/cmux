@@ -249,7 +249,7 @@ impl Desktop for WlrootsDesktop {
     fn list_apps(&self) -> DResult<Vec<App>> {
         let mut apps: Vec<App> = Vec::new();
         for w in self.raw_windows()? {
-            let (id, name) = self.apps.resolve(w.pid, &w.app_id, "");
+            let (id, name) = self.apps.resolve(&w.app_id, "");
             if let Some(a) = apps.iter_mut().find(|a| a.id == id && a.pid == w.pid) {
                 a.frontmost |= w.focused;
                 a.hidden &= !w.visible;
@@ -265,7 +265,7 @@ impl Desktop for WlrootsDesktop {
             .raw_windows()?
             .into_iter()
             .map(|w| Window {
-                app_id: self.apps.resolve(w.pid, &w.app_id, "").0,
+                app_id: self.apps.resolve(&w.app_id, "").0,
                 pid: w.pid,
                 title: w.title.clone(),
                 frame: w.rect,

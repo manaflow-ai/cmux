@@ -78,6 +78,9 @@ pub enum Coords {
 pub struct Frame {
     pub obj: Obj,
     pub pid: u32,
+    /// The accessibility name of the frame's application (`gedit`,
+    /// `org.gnome.TextEditor`, `gnome-shell`).
+    pub app: String,
     pub name: String,
     pub role: String,
     pub extents: Option<Rect>,
@@ -237,6 +240,7 @@ impl Atspi {
         let mut out = Vec::new();
         for app in self.children(&root)? {
             let pid = self.pid_of(&app.bus);
+            let app_name = self.prop_string(&app, ACC, "Name");
             let Ok(kids) = self.children(&app) else { continue };
             for obj in kids {
                 let role = self.role(&obj);
@@ -255,6 +259,7 @@ impl Atspi {
                     showing: bit(st, ST_SHOWING),
                     role,
                     pid,
+                    app: app_name.clone(),
                     obj,
                 });
             }

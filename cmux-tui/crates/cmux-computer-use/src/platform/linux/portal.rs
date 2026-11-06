@@ -145,7 +145,7 @@ impl PortalDesktop {
 
     fn frames(&self) -> DResult<Vec<Frame>> {
         let all = self.atspi()?.frames(|_| Coords::Screen)?;
-        Ok(all.into_iter().filter(|f| !super::is_shell_process(f.pid)).collect())
+        Ok(all.into_iter().filter(|f| !super::is_shell_app(&f.app)).collect())
     }
 
     fn frame(&self, window_id: &str) -> DResult<(Arc<Atspi>, Frame)> {
@@ -489,7 +489,7 @@ impl Desktop for PortalDesktop {
     fn list_apps(&self) -> DResult<Vec<App>> {
         let mut apps: Vec<App> = Vec::new();
         for f in self.frames()? {
-            let (id, name) = self.apps.resolve(f.pid, "", "");
+            let (id, name) = self.apps.resolve(&f.app, "");
             if let Some(a) = apps.iter_mut().find(|a| a.pid == f.pid) {
                 a.frontmost |= f.active;
                 continue;
@@ -505,7 +505,7 @@ impl Desktop for PortalDesktop {
             .into_iter()
             .map(|f| Window {
                 id: format!("a11y:{}", f.obj.id()),
-                app_id: self.apps.resolve(f.pid, "", "").0,
+                app_id: self.apps.resolve(&f.app, "").0,
                 pid: f.pid,
                 title: f.name,
                 // Wayland clients report positions relative to themselves.
