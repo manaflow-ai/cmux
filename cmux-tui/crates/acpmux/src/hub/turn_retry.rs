@@ -162,6 +162,14 @@ impl Hub {
             .await;
             if ours(&session) {
                 session.steer_end.send_replace(Some((turn_id, answer)));
+                return;
+            }
+            // Not carried out (a failover keeps the turn's id): the turn's next agent gets its own
+            // end, should its sign-in be refused too.
+            let mut scheduled =
+                session.sign_in_refused_turn.lock().unwrap_or_else(|e| e.into_inner());
+            if scheduled.as_deref() == Some(turn_id.as_str()) {
+                *scheduled = None;
             }
         });
     }
