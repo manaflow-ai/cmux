@@ -236,8 +236,7 @@ struct CloudStartSession {
         try still(name)
         // The folder's copy on the machine, before the session starts in it.
         var copy: (chat: String, trusted: Bool)?
-        // A Mac folder goes only to a machine this account owns: a teammate's machine would keep the copy after refusing the chat.
-        if let local = request.fromFolder { guard await CloudMove.ownerAnswer(session).vmKind == "owner" else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderNotOwned(name)) }; copy = try await copied(local, to: session, request, account: account) }
+        if let local = request.fromFolder { try await Self.requireOwned(session); copy = try await copied(local, to: session, request, account: account) } // a teammate's would keep the copy
         let cwd = copy?.chat ?? request.cwd
         try still(name)
         try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
@@ -443,8 +442,7 @@ struct CloudStartSession {
         _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session, codexPrompt: false, ask: login) // a scripted run never waits on a device code
         try still()
     }
-    /// `--from-folder`, checked before anything starts: only the person's own run (``isPersons(_:)``); a socket origin is a
-    /// claim, `cli` and `caller.terminal_id` too, so no CLI run copies. Absolute, no `--cwd`, no home or credentials.
+    /// `--from-folder`, checked before anything starts: absolute, no `--cwd`, never home or a credential folder; only the person's own run (``isPersons(_:)``).
     static func fromFolder(_ invocation: ActionInvocation, cwd: String?, home: String = NSHomeDirectory()) throws -> String? {
         guard let text = invocation["fromFolder"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
         guard !isAgent(invocation), isPersons(invocation) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderAgent) }
@@ -453,6 +451,8 @@ struct CloudStartSession {
         if let refusal = AgentPaneCloudFolderRefusal.written(folder, home: home) { throw ActionFailure(message: Self.message(refusal, folder: folder)) }
         return folder
     }
+
+    static func requireOwned(_ session: CloudMachineSession) async throws { if await CloudMove.ownerAnswer(session).vmKind != "owner" { throw ActionFailure(message: CloudStartSessionStrings.fromFolderNotOwned(session.machine.title)) } }
 
     static func message(_ refusal: AgentPaneCloudFolderRefusal, folder: String) -> String {
         switch refusal {
