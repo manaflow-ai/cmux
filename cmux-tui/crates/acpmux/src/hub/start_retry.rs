@@ -361,6 +361,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_shutdown_as_the_last_try_misses_leaves_the_turn_to_the_shutdown() {
         let (hub, s, gate) = gated(900).await;
+        // Reopened, as the prompt whose start this is reopens its stopped chat.
+        hub.set_status(&s, SessionStatus::Idle);
         hub.begin_shutdown();
         let late = RpcError::deadline_exceeded("agent_start", Duration::from_millis(900));
         let (stops, cancels) = (s.stops.load(Ordering::SeqCst), s.cancels.load(Ordering::SeqCst));
