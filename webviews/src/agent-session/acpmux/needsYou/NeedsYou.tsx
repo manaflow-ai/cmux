@@ -16,7 +16,7 @@ import { useMinuteClock } from "../clock";
 import { agentDisplayName } from "../agents";
 import { HEADER_GLYPH } from "../header/ChatHeaderTools";
 import { HeaderIcon } from "../header/HeaderIcon";
-import { useT, type StringKey, type Translate } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { shortAge } from "../sessionList";
 import { Popover } from "../../../ui/Popover";
@@ -25,46 +25,18 @@ import { onOpenNeedsYou } from "./links";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./model";
 import type { AskContext } from "./context";
 import { reply as questionReply, selection, type AgentQuestion, type QuestionReply } from "../question/model";
-import { messagePreview } from "../conversation/incomingMessage";
+import { askText, sideQuestionPrompt, type NeedsYouActions, type NeedsYouMode, type NeedsYouPlace } from "./ask";
 import "./needsYou.css";
 
-/// The Debug choice `agentPane.debug.needsYou` (data-needs-you on <html>): `pinned` (the default)
-/// draws each ask with its answers; `compact` one line per ask; `off` no badge at all. The host
-/// also writes `off` while the App Store's Needs You item is not installed
-/// (`agentPane.needsYou.enabled`, off by default): no badge, no list, and no link opens one.
-export type NeedsYouMode = "pinned" | "compact" | "off";
-
-export function needsYouMode(
-  root: { dataset: DOMStringMap } | undefined = globalThis.document?.documentElement,
-): NeedsYouMode {
-  const value = root?.dataset.needsYou;
-  return value === "off" || value === "compact" ? value : "pinned";
-}
-
-export type NeedsYouActions = {
-  /// Sends a one-click answer; rejects when acpmux refused it.
-  answer(item: NeedsYouItem, answer: NeedsYouAnswer): Promise<unknown>;
-  /// Opens the chat the ask is in, at the ask.
-  goTo(item: NeedsYouItem): void;
-  /// Opens a side session about the asking chat (`_acpmux/btw`) beside it, its first prompt the
-  /// question seeded with the ask; rejects when it could not.
-  ask(item: NeedsYouItem, question: string): Promise<unknown>;
-  /// Sends an expanded question's whole answer (every item, an Other text); rejects when it was
-  /// refused or could not be sent from here (another chat's question opens that chat instead).
-  reply?(item: NeedsYouItem, sent: QuestionReply): Promise<unknown>;
-  /// The turns before the ask, for the context stage (context.ts).
-  context?(item: NeedsYouItem): AskContext;
-  /// Opens another chat's ask at `place`: on the right (the default, as Go to source), the
-  /// workspace whose tab shows it, or a new workspace (`chat.asks.open {where}`).
-  open?(item: NeedsYouItem, place: NeedsYouPlace): void;
-  /// Whether `open` can open the ask's chat: another chat on this pane's own acpmux, never the chat
-  /// on screen (its ask is already here) or another computer's.
-  opensElsewhere?(item: NeedsYouItem): boolean;
-};
-
-/// Where the expanded row opens another chat: `right` (the default), `workspace` (jump to the tab
-/// that shows the chat, in whatever workspace or window), `newWorkspace`.
-export type NeedsYouPlace = "right" | "workspace" | "newWorkspace";
+export {
+  askText,
+  needsYouMode,
+  needsYouModeCapabilities,
+  sideQuestionPrompt,
+  type NeedsYouActions,
+  type NeedsYouMode,
+  type NeedsYouPlace,
+} from "./ask";
 
 const PLACES: readonly { place: NeedsYouPlace; label: StringKey }[] = [
   { place: "right", label: "needsYou.openRight" },
@@ -644,30 +616,4 @@ function Avatar({ item }: { item: NeedsYouItem }) {
       <AgentMark agent={item.who.harness} size={14} reserve />
     </span>
   );
-}
-
-/// The ask's line: its own text, else what its kind says (a permission asks to allow, anything
-/// else for an answer).
-export function askText(item: NeedsYouItem, t: Translate): string {
-  // A guest's held prompt reads as its text, as a question reads as its prompt.
-  if (item.kind === "held" && item.promptId) return messagePreview(item.ask);
-  if (item.kind === "held") return t("needsYou.held", { n: item.held ?? 1, peer: item.ask });
-  return item.ask || t(item.kind === "approval" ? "needsYou.waitingPermission" : "needsYou.waiting");
-}
-
-/// The side session's first prompt (`_acpmux/btw`): the ask, then the person's question, so the
-/// side session answers about this ask from the chat's conversation without the chat re-reading.
-export function sideQuestionPrompt(item: NeedsYouItem, question: string): string {
-  // l10n-allow: a prompt to the agent, never shown to the person
-  const lines = [
-    "I am about to answer an open ask from this chat and want to understand it first.",
-    `The ask (${item.kind}): ${item.ask || "waiting for my answer"}`,
-    ...(item.detail ? [`Details: ${item.detail}`] : []),
-    ...(item.question?.items[0]?.options.length
-      ? [`Choices: ${item.question.items[0].options.map((option) => option.label).join(" / ")}`]
-      : []),
-    `My question: ${question}`,
-    "Answer briefly from what this chat has done: what the agent is doing, why it asks, and what each answer would lead to.",
-  ];
-  return lines.join("\n");
 }

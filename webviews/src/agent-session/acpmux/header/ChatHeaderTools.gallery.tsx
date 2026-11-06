@@ -11,6 +11,7 @@ import type { ChatMenuItem } from "./ChatHeaderTools";
 import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
 import type { NativeRowToolsHost } from "./useNativeRowTools";
+import type { NativeRowNeedsYou } from "./nativeRowTools";
 import { NeedsYouButton } from "../needsYou/NeedsYou";
 
 type HeaderToolsProps = {
@@ -32,6 +33,7 @@ type HeaderToolsProps = {
   summary: ReactNode;
   inbox?: ReactNode;
   nativeRowTools?: NativeRowToolsHost;
+  nativeNeedsYou?: NativeRowNeedsYou;
   menu: () => ChatMenuItem[];
   onMenuOpen?: () => Promise<unknown>;
   onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<{ queued: boolean }>;
@@ -445,12 +447,21 @@ const withMachine = (machine: ChatMenuItem[]): ChatMenuItem[] => {
   return [...rows.slice(0, archive), ...machine, "separator", ...rows.slice(archive)];
 };
 
-const inbox = (
-  <NeedsYouButton
-    items={[]}
-    actions={{ answer: async () => undefined, goTo: () => undefined, ask: async () => undefined }}
-  />
-);
+const nativeNeedsYou: NativeRowNeedsYou = {
+  mode: "pinned",
+  items: [
+    {
+      id: "acpmux:gallery",
+      kind: "approval",
+      sessionId: "gallery-chat",
+      ask: "Allow the gallery command?",
+      who: { name: "Claude", chief: false },
+      answers: [{ id: "allow", label: "Allow once", tone: "allow" }],
+      permissionId: "gallery-permission",
+    },
+  ],
+  actions: { answer: async () => undefined, goTo: () => undefined, ask: async () => undefined },
+};
 
 const base: HeaderToolsProps = {
   onTerminal: () => undefined,
@@ -462,6 +473,46 @@ const base: HeaderToolsProps = {
   menu: menuRows,
   onMenuOpen: async () => undefined,
 };
+
+const nativeComparison: HeaderToolsProps = {
+  ...base,
+  inbox: <NeedsYouButton items={nativeNeedsYou.items} actions={nativeNeedsYou.actions} />,
+  nativeNeedsYou,
+  folder: "/Users/me/.cmux/worktrees/cmux/fix-login",
+  readStatus: async () => ({
+    branch: "cmux/fix-login",
+    base: "main",
+    detached: false,
+    worktree: { main_root: "/Users/me/Projects/cmux" },
+  }),
+};
+const nativeComparisonPlay =
+  (native: boolean): Play =>
+  async (ctx) => {
+    const { setHeaderState } = await import("./headerState");
+    setHeaderState({
+      pullRequest: {
+        url: "https://github.com/example/project/pull/123",
+        number: 123,
+        title: "Fix login",
+        state: "open",
+        checks: { state: "passing", passed: 3, total: 3 },
+      },
+    });
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-needs-you-button"));
+    if (native) {
+      await ctx.waitFor(() => !ctx.document.querySelector("[data-quick-action], .acpmux-header-panel-toggle"));
+      if (ctx.document.querySelector(".acpmux-header-worktree, .acpmux-header-pr"))
+        throw new Error("native row tools still rendered in the web header");
+      if (ctx.document.querySelector('button[aria-label="Chat actions"]'))
+        throw new Error("native chat overflow must not leave a duplicate DOM trigger");
+      return;
+    }
+    await ctx.waitFor(
+      () => ctx.document.querySelector(".acpmux-header-worktree") && ctx.document.querySelector(".acpmux-header-pr"),
+    );
+    ctx.find({ role: "button", name: "Chat actions" });
+  };
 
 export default componentEntry<HeaderToolsProps>({
   id: "agent-pane.header-tools",
@@ -517,26 +568,21 @@ export default componentEntry<HeaderToolsProps>({
   },
   variants: {
     "native-row-off": {
-      note: "The default web toolbar: Summary, Needs You, quick actions and the chat menu remain web controls.",
-      props: { ...base, inbox },
+      note: "The default web toolbar, with the same worktree, pull request and open ask as the native-on comparison.",
+      props: nativeComparison,
+      play: nativeComparisonPlay(false),
     },
     "native-row-tools": {
-      note: "Native row tools opt-in: Summary, quick-action icons, their customization menus and chat overflow move to the native host. Needs You keeps its web button and anchored rich list. No default changes.",
+      note: "Web side of the native opt-in: worktree, pull request, Summary, quick-action icons, their customization menus and chat overflow are host-owned. Needs You keeps its web button and anchored rich list. The gallery does not render the Swift row. No default changes.",
       props: {
-        ...base,
-        inbox,
+        ...nativeComparison,
         nativeRowTools: {
           enabled: true,
           callNative: async () => undefined,
           panel: { id: "summary", label: "Summary", toggled: false, run: () => undefined },
         },
       },
-      play: async (ctx) => {
-        await ctx.waitFor(() => !ctx.document.querySelector("[data-quick-action], .acpmux-header-panel-toggle"));
-        ctx.find({ selector: ".acpmux-needs-you-button" });
-        if (ctx.document.querySelector('button[aria-label="Chat actions"]'))
-          throw new Error("native chat overflow must not leave a duplicate DOM trigger");
-      },
+      play: nativeComparisonPlay(true),
     },
     "unified-compact": {
       note: "Chosen: one 24px target on a 26px pitch, 16px SF Symbols in the app, overflow last. The selected panel glyph uses accent ink; only the hovered button changes its hover ink. Fits the shared 28px tab row.",

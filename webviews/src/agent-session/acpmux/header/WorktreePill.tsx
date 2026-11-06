@@ -9,8 +9,9 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
-import { WorktreeApply, type Applying } from "./WorktreeApply";
-import { WorktreeRemove, type Removing } from "./WorktreeRemove";
+import { WorktreeApply } from "./WorktreeApply";
+import { WorktreeRemove } from "./WorktreeRemove";
+import { useWorktreeOps, type WorktreeOps } from "./worktreeOps";
 
 export interface HeaderWorktree {
   readonly branch: string;
@@ -71,8 +72,12 @@ export function WorktreePill({
   worktree,
   onApply,
   onRemove,
+  folder,
+  ops: suppliedOps,
 }: {
   worktree: HeaderWorktree;
+  folder?: string;
+  ops?: WorktreeOps;
   /// Apply (WorktreeApply.tsx, cx-lyqio.4); absent for a chat with nothing to apply yet.
   onApply?: (key: string) => Promise<unknown>;
   /// Remove (WorktreeRemove.tsx, cx-lyqio.5); absent for a chat without a session yet.
@@ -80,13 +85,8 @@ export function WorktreePill({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  // Where Apply stands for this branch, kept here: the popover's content unmounts on close.
-  const [apply, setApply] = useState<{ branch: string; applying: Applying }>();
-  const applying = apply?.branch === worktree.branch ? apply.applying : { step: "idle" as const };
-  const [remove, setRemove] = useState<{ branch: string; removing: Removing }>();
-  const removing = remove?.branch === worktree.branch ? remove.removing : { step: "idle" as const };
-  // A removed worktree has nothing left to apply.
-  const removed = removing.step === "removed";
+  const ownOps = useWorktreeOps(suppliedOps ? undefined : worktree, folder, onApply, onRemove);
+  const ops = suppliedOps ?? ownOps;
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
@@ -124,24 +124,8 @@ export function WorktreePill({
       >
         <div className="acpmux-pr-title">{worktree.branch}</div>
         <div className="acpmux-pr-facts">{title}</div>
-        {onApply && !removed && (
-          <WorktreeApply
-            worktree={worktree}
-            applying={applying}
-            setApplying={(next) => setApply({ branch: worktree.branch, applying: next })}
-            apply={onApply}
-            busy={removing.step === "removing"}
-          />
-        )}
-        {onRemove && (
-          <WorktreeRemove
-            worktree={worktree}
-            removing={removing}
-            setRemoving={(next) => setRemove({ branch: worktree.branch, removing: next })}
-            remove={onRemove}
-            busy={applying.step === "applying"}
-          />
-        )}
+        {ops.apply && <WorktreeApply ops={ops} />}
+        {ops.canRemove && <WorktreeRemove ops={ops} />}
       </Popover>
     </>
   );

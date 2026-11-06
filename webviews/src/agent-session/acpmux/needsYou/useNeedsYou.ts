@@ -10,7 +10,7 @@ import type { AttentionTab } from "./attentionTabs";
 import { askContext } from "./context";
 import { nextAsk, needsYouPillOn, pillAsks, type TranscriptNeedsYou } from "./JumpPill";
 import { needsYouItems, type NeedsYouAnswer, type NeedsYouItem } from "./model";
-import { needsYouMode, type NeedsYouActions, type NeedsYouMode, type NeedsYouPlace } from "./NeedsYou";
+import { needsYouMode, type NeedsYouActions, type NeedsYouMode, type NeedsYouPlace } from "./ask";
 
 type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
 
