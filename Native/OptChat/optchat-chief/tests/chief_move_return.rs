@@ -9,6 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -624,4 +625,108 @@ fn a_chief_on_a_mini_comes_back_into_the_home_it_left() {
     assert!(!src.join("state/moved.json").exists());
     assert_eq!(local_memory(&src).len(), 4);
     assert_eq!(conversation(&src).len(), 4);
+}
+
+/// A stand-in `ssh` like `fake_ssh` that kills its caller (the watcher) the first time it is
+/// asked to run `move checkpoint`: the Mac's watcher dies after the mini froze and before
+/// anything came back, a deterministic stand-in for a crash or a power loss there.
+fn fake_ssh_crashing_once(dir: &Path, remote_home: &Path) -> PathBuf {
+    let path = dir.join("fake-ssh-crash");
+    let flag = dir.join("crashed-once");
+    write(
+        &path,
+        &format!(
+            "#!/bin/sh\nwhile [ \"$1\" = -o ]; do shift 2; done\nshift\n\
+             case \"$1\" in *'move checkpoint'*) [ -e '{f}' ] || {{ : > '{f}'; kill -9 $PPID; exit 9; }} ;; esac\n\
+             cd '{h}' && HOME='{h}' exec sh -c \"$1\"\n",
+            f = flag.display(),
+            h = remote_home.display()
+        ),
+    );
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// The watcher takes the mini's request to come home, freezes the mini, and dies before the
+/// Chief is back. The request must outlive that: the next watcher carries it out, and the
+/// Chief answers here again (not frozen on the mini with nobody to bring it back).
+#[test]
+fn a_watcher_that_dies_mid_move_leaves_the_request_for_the_next_watcher() {
+    let dir = tempfile::tempdir().unwrap();
+    let probe = tempfile::tempdir().unwrap();
+    let seed_home = moved_home(probe.path(), "http://127.0.0.1:1");
+    let (base, _seen) = fake_cloud(local_memory(&seed_home));
+    let src = moved_home(dir.path(), &base);
+    let cli = fake_app_cli(dir.path(), &base);
+    let remote = dir.path().join("mini-user");
+    std::fs::create_dir_all(&remote).unwrap();
+    let remote = std::fs::canonicalize(remote).unwrap();
+    // Out to the mini first, with the plain stand-in.
+    let out = Command::new(BIN)
+        .args([
+            "move",
+            "--to",
+            "ssh:mini",
+            "--remote-bin",
+            BIN,
+            "--home",
+            src.to_str().unwrap(),
+        ])
+        .env("OPTCHAT_MOVE_CMUX", &cli)
+        .env("OPTCHAT_MOVE_SSH", fake_ssh(dir.path(), &remote))
+        .env_remove("CMUX_CLOUD_SESSION_TOKEN")
+        .output()
+        .unwrap();
+    assert_eq!(report(&out)["moved"], true);
+    let on_mini = remote.join(".cmux/chief/src");
+    write(
+        &on_mini.join("state/teleport-request.json"),
+        &json!({"to": "home", "id": "tp-crash"}).to_string(),
+    );
+    let ssh = fake_ssh_crashing_once(dir.path(), &remote);
+    let watch = || {
+        Command::new(BIN)
+            .args([
+                "move",
+                "watch",
+                "--every",
+                "1",
+                "--remote-bin",
+                BIN,
+                "--home",
+                src.to_str().unwrap(),
+            ])
+            .env("OPTCHAT_MOVE_CMUX", &cli)
+            .env("OPTCHAT_MOVE_SSH", &ssh)
+            .env_remove("CMUX_CLOUD_SESSION_TOKEN")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap()
+    };
+    // Bounded wait for each watcher to end (killed by the stand-in, or done and exited).
+    let wait = |child: &mut std::process::Child, secs: u64| {
+        let deadline = Instant::now() + Duration::from_secs(secs);
+        while child.try_wait().unwrap().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+    };
+    let mut first = watch();
+    wait(&mut first, 60);
+    assert!(dir.path().join("crashed-once").exists(), "the first watcher died mid-move");
+    assert!(
+        src.join("state/moved.json").exists(),
+        "the Chief is not home yet"
+    );
+    let mut second = watch();
+    wait(&mut second, 60);
+    assert!(
+        !src.join("state/moved.json").exists(),
+        "the next watcher brought the Chief home: the request outlived the crash"
+    );
+    assert_eq!(local_memory(&src).len(), 4);
+    assert!(!on_mini.join("state/teleport-request.json").exists());
 }
