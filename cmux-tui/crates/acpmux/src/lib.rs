@@ -14,6 +14,7 @@
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
+pub mod acp_todo_plan;
 pub mod acpmux_mcp;
 pub mod adopt;
 pub mod adopt_live;
@@ -21,6 +22,7 @@ pub mod adopt_replay;
 pub mod adopt_tools;
 pub mod agent;
 pub mod agent_displays;
+pub mod agent_guidance;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_login;
@@ -97,6 +99,7 @@ pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_http;
 pub mod model_copies;
+pub mod name_match;
 pub mod native;
 pub mod no_panic;
 pub mod offer_mcp;
@@ -147,6 +150,8 @@ mod session_scope;
 pub mod session_search;
 pub mod session_status;
 pub mod sha256;
+// The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
+pub mod shadow_admission;
 pub mod shell_words;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
@@ -165,6 +170,7 @@ pub mod tailnet;
 mod test_exec;
 #[cfg(test)]
 mod test_stack;
+pub mod touched_files;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;

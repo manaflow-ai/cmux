@@ -1613,6 +1613,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 9,
+          "min" : 1,
           "name" : "index",
           "required" : true
         }
@@ -6637,6 +6639,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 99,
+          "min" : 1,
           "name" : "index",
           "required" : true
         }
@@ -6770,6 +6774,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 9,
+          "min" : 1,
           "name" : "index",
           "required" : true
         }
@@ -8093,6 +8099,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 9,
+          "min" : 1,
           "name" : "index",
           "required" : true
         }
@@ -10686,6 +10694,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 9,
+          "min" : 1,
           "name" : "index",
           "required" : true
         }
@@ -12884,6 +12894,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 9,
+          "min" : 1,
           "name" : "index",
           "required" : true
         }
@@ -13373,6 +13385,51 @@
       "args" : [
         {
           "kind" : "string",
+          "name" : "title",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "members",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "chief",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "chat channel create",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.createChannel",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Channel…",
+      "title_key" : "action.home.createChannel",
+      "title_table" : "HomeActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
           "name" : "conversation",
           "required" : false
         },
@@ -13686,6 +13743,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 32,
+          "min" : 0,
           "name" : "style",
           "required" : false
         },
@@ -13701,6 +13760,8 @@
         },
         {
           "kind" : "int",
+          "max" : 6,
+          "min" : 0,
           "name" : "open",
           "required" : false
         },
@@ -13746,16 +13807,22 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 6,
+          "min" : 1,
           "name" : "style",
           "required" : false
         },
         {
           "kind" : "int",
+          "max" : 5,
+          "min" : 0,
           "name" : "fixture",
           "required" : false
         },
         {
           "kind" : "int",
+          "max" : 6,
+          "min" : 0,
           "name" : "phase",
           "required" : false
         }
@@ -13791,6 +13858,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 7,
+          "min" : 0,
           "name" : "state",
           "required" : false
         }
@@ -15382,6 +15451,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 9,
+          "min" : 1,
           "name" : "index",
           "required" : true
         }
@@ -23842,6 +23913,8 @@
         },
         {
           "kind" : "int",
+          "max" : 63,
+          "min" : 0,
           "name" : "index",
           "required" : true
         }
@@ -24410,6 +24483,46 @@
       "palette_suggested" : null,
       "title" : "Open Link in Browser Profile…",
       "title_key" : "action.browserProfile.openLink",
+      "title_table" : "BrowserProfileActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "url",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "name",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "browser-profile open-link-in-new",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browserProfile.openLinkInNew",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Link in New Browser Profile…",
+      "title_key" : "action.browserProfile.openLinkInNew",
       "title_table" : "BrowserProfileActions"
     },
     {
@@ -26823,6 +26936,8 @@
         },
         {
           "kind" : "int",
+          "max" : 100,
+          "min" : 0,
           "name" : "volume",
           "required" : false
         },
@@ -26881,6 +26996,8 @@
         },
         {
           "kind" : "int",
+          "max" : 100,
+          "min" : 0,
           "name" : "volume",
           "required" : false
         },
@@ -26944,6 +27061,8 @@
         },
         {
           "kind" : "int",
+          "max" : 100,
+          "min" : 0,
           "name" : "volume",
           "required" : false
         },
@@ -27330,12 +27449,7 @@
           ]
         }
       ],
-      "default_shortcut" : {
-        "key" : "i",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "palette.newAgentChat",
       "main_menu" : "file",
       "mcp" : "offered",
@@ -30286,6 +30400,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 2147483647,
+          "min" : 1,
           "name" : "surface",
           "required" : false
         },
@@ -30296,6 +30412,8 @@
         },
         {
           "kind" : "int",
+          "max" : 8,
+          "min" : 1,
           "name" : "uses",
           "required" : false
         }
@@ -30331,6 +30449,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 2147483647,
+          "min" : 1,
           "name" : "surface",
           "required" : false
         }
@@ -30455,6 +30575,8 @@
         },
         {
           "kind" : "int",
+          "max" : 2147483647,
+          "min" : 1,
           "name" : "surface",
           "required" : false
         },
@@ -30500,6 +30622,8 @@
         },
         {
           "kind" : "int",
+          "max" : 2147483647,
+          "min" : 1,
           "name" : "surface",
           "required" : false
         },
@@ -32314,6 +32438,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         },
@@ -32534,9 +32660,9 @@
           "name" : "viewer",
           "required" : false,
           "values" : [
+            "rd",
             "web",
-            "native",
-            "rd"
+            "native"
           ]
         }
       ],
@@ -32743,6 +32869,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         }
@@ -32778,6 +32906,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         }
@@ -32855,6 +32985,8 @@
         },
         {
           "kind" : "int",
+          "max" : 256,
+          "min" : 4,
           "name" : "disk",
           "required" : false
         }
@@ -33293,6 +33425,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         },
@@ -33364,6 +33498,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         }
@@ -33399,6 +33535,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         }
@@ -33434,6 +33572,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         }
@@ -33469,6 +33609,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         },
@@ -33509,6 +33651,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : false
         }
@@ -35199,6 +35343,72 @@
       "palette_suggested" : null,
       "title" : "Check for Updates…",
       "title_key" : "action.palette.checkForUpdates",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "path",
+          "required" : false
+        }
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action live-web-start",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "liveWeb.start",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Edit cmux Live…",
+      "title_key" : "action.liveWeb.start",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action live-web-stop",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "liveWeb.stop",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Stop Editing cmux Live",
+      "title_key" : "action.liveWeb.stop",
       "title_table" : "ActionCatalog"
     },
     {
@@ -37045,6 +37255,37 @@
       "palette_suggested" : null,
       "title" : "Sidebar States Playground",
       "title_key" : "action.debug.sidebarStatesPlayground",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "devOnly",
+      "cli_name" : "action debug-view-window",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.viewWindow",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open View Window",
+      "title_key" : "action.debug.viewWindow",
       "title_table" : "ActionCatalog"
     },
     {
@@ -38962,6 +39203,130 @@
     },
     {
       "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "workspace archive-other",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.archiveOtherWorkspaces",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Archive Other Workspaces",
+      "title_key" : "action.workspace.archiveOtherWorkspaces",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "workspace archive-others-in-group",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.archiveOthersInGroup",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Archive Other Workspaces in Group",
+      "title_key" : "action.workspace.archiveOthersInGroup",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "workspace archive-below",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.archiveWorkspacesBelow",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Archive Workspaces Below",
+      "title_key" : "action.workspace.archiveWorkspacesBelow",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "workspace archive-above",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.archiveWorkspacesAbove",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Archive Workspaces Above",
+      "title_key" : "action.workspace.archiveWorkspacesAbove",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "args" : [
         {
           "kind" : "enum",
           "name" : "direction",
@@ -40509,6 +40874,290 @@
       "args" : [
 
       ],
+      "cli" : "offered",
+      "cli_name" : "home open-chief-dock",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "i",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "home.openChiefDock",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Chief Dock",
+      "title_key" : "action.home.openChiefDock",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "pane move-to-dock",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.movePaneToDock",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Pane to Dock",
+      "title_key" : "action.window.movePaneToDock",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window toggle-dock",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.toggleDock",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show or Hide Dock",
+      "title_key" : "action.window.toggleDock",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window toggle-dock-tab-bar",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.toggleDockTabBar",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show or Hide Dock Tab Bar",
+      "title_key" : "action.window.toggleDockTabBar",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window focus-dock",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.focusDock",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Focus Dock",
+      "title_key" : "action.window.focusDock",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window dock-edge-left",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.dockEdgeLeft",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Dock to Left",
+      "title_key" : "action.window.dockEdgeLeft",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window dock-edge-right",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.dockEdgeRight",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Dock to Right",
+      "title_key" : "action.window.dockEdgeRight",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window dock-edge-top",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.dockEdgeTop",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Dock to Top",
+      "title_key" : "action.window.dockEdgeTop",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "window dock-edge-bottom",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.dockEdgeBottom",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Dock to Bottom",
+      "title_key" : "action.window.dockEdgeBottom",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
       "cli" : "liveInput",
       "cli_name" : "terminal select-all",
       "context_menu" : "offered",
@@ -41303,6 +41952,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 10000,
+          "min" : 0,
           "name" : "index",
           "required" : true
         }
@@ -42648,6 +43299,8 @@
         },
         {
           "kind" : "int",
+          "max" : 100000,
+          "min" : 0,
           "name" : "index",
           "required" : false
         }
@@ -43607,6 +44260,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 32,
+          "min" : 0,
           "name" : "gap",
           "required" : true
         }
@@ -43642,6 +44297,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 12,
+          "min" : 0,
           "name" : "columns",
           "required" : true
         }
@@ -43739,6 +44396,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 50,
+          "min" : 0,
           "name" : "rows",
           "required" : true
         }
@@ -44639,6 +45298,78 @@
       "palette_suggested" : null,
       "title" : "Snooze Chat for 1 Hour…",
       "title_key" : "action.sidebar.priority.snooze",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "target",
+          "name" : "chat",
+          "required" : true,
+          "target_kind" : "agent-chat"
+        }
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-priority-move-earlier",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.priority.moveEarlier",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Chat Earlier in Priority…",
+      "title_key" : "action.sidebar.priority.moveEarlier",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "target",
+          "name" : "chat",
+          "required" : true,
+          "target_kind" : "agent-chat"
+        }
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-priority-move-later",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.priority.moveLater",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Chat Later in Priority…",
+      "title_key" : "action.sidebar.priority.moveLater",
       "title_table" : "SidebarSectionActions"
     },
     {
@@ -46279,6 +47010,9 @@
       "title_table" : "ServerActions"
     },
     {
+      "args" : [
+
+      ],
       "cli" : "guiOnly",
       "cli_name" : "action server-show-panel",
       "context_menu" : "noObject",
@@ -47554,6 +48288,37 @@
       "title" : "View Hang Report",
       "title_key" : "action.diagnostics.viewHangReport",
       "title_table" : "HangReportsActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "settings clear-palette-history",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.clearSearchHistory",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Clear Palette Search History",
+      "title_key" : "action.palette.clearSearchHistory",
+      "title_table" : "SettingsActions"
     }
   ],
   "context_menu_rules" : [
@@ -57960,108 +58725,174 @@
               "order" : 12
             },
             {
-              "enabled_when" : "can_perform",
-              "id" : "palette.closeOtherWorkspaces",
-              "kind" : "action",
+              "children" : [
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "palette.closeOtherWorkspaces",
+                  "kind" : "action",
+                  "order" : 0,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspace.closeOthersInGroup",
+                  "kind" : "action",
+                  "order" : 1,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "palette.closeWorkspacesBelow",
+                  "kind" : "action",
+                  "order" : 2,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "palette.closeWorkspacesAbove",
+                  "kind" : "action",
+                  "order" : 3,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspace.closeAll",
+                  "kind" : "action",
+                  "order" : 4,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "reopenClosedWorkspace",
+                  "kind" : "action",
+                  "order" : 5,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspace.stash",
+                  "kind" : "action",
+                  "order" : 6,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "window.stash",
+                  "kind" : "action",
+                  "order" : 7,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "kind" : "separator",
+                  "order" : 8
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspace.archiveOtherWorkspaces",
+                  "kind" : "action",
+                  "order" : 9,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspace.archiveOthersInGroup",
+                  "kind" : "action",
+                  "order" : 10,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspace.archiveWorkspacesBelow",
+                  "kind" : "action",
+                  "order" : 11,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspace.archiveWorkspacesAbove",
+                  "kind" : "action",
+                  "order" : 12,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                }
+              ],
+              "folder" : "close",
+              "kind" : "folder",
               "order" : 13,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "workspace.closeOthersInGroup",
-              "kind" : "action",
-              "order" : 14,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "palette.closeWorkspacesBelow",
-              "kind" : "action",
-              "order" : 15,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "palette.closeWorkspacesAbove",
-              "kind" : "action",
-              "order" : 16,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "workspace.closeAll",
-              "kind" : "action",
-              "order" : 17,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "reopenClosedWorkspace",
-              "kind" : "action",
-              "order" : 18,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "workspace.stash",
-              "kind" : "action",
-              "order" : 19,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "window.stash",
-              "kind" : "action",
-              "order" : 20,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
+              "title" : "Close",
+              "title_key" : "menu.folder.close",
+              "title_table" : "Localizable"
             }
           ],
           "folder" : "more",

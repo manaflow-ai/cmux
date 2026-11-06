@@ -89,9 +89,9 @@ export class UserDO extends OwnerDO<UserState> {
       return true
     }
     // Ops the Worker gates on team policy (agents.allowedClasses, P17-4) never run from the socket.
-    if (frame.t === "op" && frame.op === "chief.create") {
+    if (frame.t === "op" && (frame.op === "chief.create" || frame.op === "channel.create")) {
       try {
-        ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: "chief.create goes through POST /v1/ops", retryable: false, replayed: false }))
+        ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: `${frame.op} goes through POST /v1/ops`, retryable: false, replayed: false }))
       } catch {}
       return true
     }
@@ -142,6 +142,7 @@ export class UserDO extends OwnerDO<UserState> {
       const selected = state?.hosted_default ? state.chiefs?.[state.hosted_default] : undefined
       const adopted = selected?.archived_at === null && !selected.brain_place ? selected.id : undefined
       const reply = await super.submit(entity, principal, frame)
+      if (frame.op === "channel.create") await this.promptDrained()
       // Signup already decided this fixed selection. A new Mac must adopt it as a replay;
       // claiming it was created here would let ensureHosted re-enable an owner's disabled Chief.
       return adopted ? { frames: reply.frames.map((f) => f.t === "result" && (f.value as { id?: unknown } | null)?.id === adopted ? { ...f, replayed: true } : f) } : reply
@@ -151,7 +152,20 @@ export class UserDO extends OwnerDO<UserState> {
       { t: "request-settled", tx: "", idempotency_key: key, stream: `user:${entity}`, sequence: 0, ok: false }] }
   }
   /** A Chief's own chief.create / chief.update from its Cloud brain (brain-chiefs.ts; DO RPC, no route reaches it): user-chief.ts `viaChief`. */
-  async chiefManage(entity: string, agent: string, frame: OpFrame): Promise<SubmitResult> { return super.submit(entity, { identity: `agent:${agent} via chief`, kind: "agent", agent, user: entity }, frame) }
+  async chiefManage(entity: string, agent: string, frame: OpFrame): Promise<SubmitResult> {
+    const reply = await super.submit(entity, { identity: `agent:${agent} via chief`, kind: "agent", agent, user: entity }, frame)
+    if (frame.op === "channel.create") await this.promptDrained()
+    return reply
+  }
+
+  /**
+   * A conversation this account's outbox creates or renames (a Chief's main conversation, a channel) is a prompt
+   * channel: channel.create answers once its conversation exists, so the caller adds people at once (bounded wait;
+   * the alarm retries what is left).
+   */
+  protected override promptChannel(channel: string): boolean {
+    return super.promptChannel(channel) || channel.startsWith("ConversationDO:")
+  }
 
   /** Signup's two durable self-deliveries; platform admission and placement never impersonate a client. */
   override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {

@@ -424,6 +424,11 @@ pub struct SessionMeta {
     /// once each, oldest first. A fork starts with none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pull_requests: Vec<String>,
+    /// The files this session's tool calls read and edited, by repository and path there
+    /// (`touched_files.rs`, `hub/touched.rs`): at most `touched_files::MAX_FILES`, the least
+    /// recently touched dropped first. A fork starts with none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub touched_files: Vec<crate::touched_files::TouchedFile>,
     /// The session whose agent started this one with its `start_session`
     /// tool (`hub/subsessions.rs`), with its short name and depth. `None`
     /// for a session a person or client started. Never copied to a fork.
@@ -1048,6 +1053,17 @@ pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
             Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes)?)
         }
     })
+}
+
+/// Writes the event journal a run left in `home`, if any, into that home's logs and
+/// `session.json` files, checkpoints it and retires its records: afterwards the home's `sessions/`
+/// hold every acknowledged change on their own. For code that moves or merges a home's chat
+/// folders without a daemon (the build adoption, `cmux-tui`'s `build_adopt`): a daemon that
+/// stopped without a shutdown leaves changes only its journal holds (a new chat's `session.json`
+/// is written by a checkpoint). Nothing to do without a journal. No daemon may run in `home`: the
+/// caller holds its `daemon.lock`.
+pub fn catch_up_journal(config: &StoreConfig, home: &Path) -> Result<()> {
+    journal_store::catch_up(config, home)
 }
 
 mod durability;
