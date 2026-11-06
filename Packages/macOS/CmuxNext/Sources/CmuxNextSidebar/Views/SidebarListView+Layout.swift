@@ -253,9 +253,13 @@ extension SidebarListViewComponents {
                 recycle(view)
             }
         }
+        // Only the rows this apply can draw get a frame: the ones the realization rect holds (found by y, O(log n)), the
+        // realized ones (they move to their new slots) and the reopened ones (their view goes). Any other row skips
+        // here as before, with no frame computed: frame(for:) over every listed row was O(rows) on each change (m23).
         var framesComputed = 0
         defer { SidebarPerfCounters.add(.rowFrames, framesComputed) }
-        for row in layout.rows {
+        for index in drawnRowIndices(of: layout, in: realize, reopened: reopened) {
+            let row = layout.rows[index]
             let target = frame(for: row)
             framesComputed += 1
             if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
@@ -363,6 +367,16 @@ extension SidebarListViewComponents {
                   travel: insertTravel, folding: folding)
             .run(in: self, from: old, to: layout, animated: animate)
     }
+    /// The indices into `layout.rows`, in order, of the rows an apply can draw: the rows `realize` holds (by y), the
+    /// realized rows and the `reopened` ones. Rows outside these never pass the apply's draw test (no view, a frame
+    /// outside `realize`). O(realized + log rows).
+    func drawnRowIndices(of layout: SidebarLayout, in realize: NSRect, reopened: Set<SidebarRowKey>) -> [Int] {
+        var indices = Set(realize.isNull ? 0..<0 : layout.rowIndices(from: realize.minY, to: realize.maxY))
+        for key in rowViews.keys { if let index = layout.position(of: key) { indices.insert(index) } }
+        for key in reopened { if let index = layout.position(of: key) { indices.insert(index) } }
+        return indices.sorted()
+    }
+
     /// The rows of `keys` (still opening) that `layout` moved by themselves, not with the rows around them: both
     /// rows beside each, among the rows of both layouts, changed (as `ListViewport.movedByItself`). A row an insert or
     /// a removal near it only pushes, or one whose neighbour moved away, keeps at least one of its neighbours.
