@@ -72,7 +72,7 @@ fn a_self_declared_label_has_a_distinct_thread_key_and_display() {
         ),
         Some("other"),
     );
-    assert_eq!(thread_sender(Some(&authenticated), "dot"), "dot");
+    assert_eq!(thread_sender(Some(&authenticated), "dot"), "session:dot");
 }
 
 #[test]
