@@ -40,6 +40,7 @@ struct CmdNPrebuiltWorkspaceViewTests {
                                                       within: .seconds(2), report: { "the window does not show Cmd-N's workspace" })
             let shown = try #require(services.windows.active?.workspaceContent)
             #expect(shown.contentView !== before, "Cmd-N kept the old workspace's view")
+            #expect(shown.focusedPane != nil, "the view built before the key has no pane controller")
             #expect(viewsBeforeKey.contains(ObjectIdentifier(shown.contentView)),
                     "Cmd-N built its workspace view in the key's turn: it was not in the window before the key")
             for task in work { _ = await task.value }
