@@ -91,6 +91,9 @@ struct CmdNPrebuiltWorkspaceViewTests {
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let controller = try #require(services.windows.active, "no window")
             let store = services.daemon.store
+            // From no reservation: the window's launch show may have built one already, and a fill then does nothing.
+            controller.reservedContent.drop()
+            services.agentTabs.releaseReservedWorkspace(on: store, .unshown)
             controller.reservedContent.fill()
             // The first turn that shows the reservation made with no view mounted yet: the refill is between its steps.
             let deadline = ContinuousClock.now + .seconds(20)
