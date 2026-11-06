@@ -86,7 +86,9 @@ extension Workspace {
     /// A Claude the pane's restart would not stop (inside tmux or screen, in another terminal, or
     /// detached) is refused with ``ClaudeAccountSwitchResult/agentNotOwnedByPane``, and a Claude
     /// that started in the pane while the transcript was copied with
-    /// ``ClaudeAccountSwitchRefusal/noClaudeSession``. The surface then respawns with the
+    /// ``ClaudeAccountSwitchRefusal/noClaudeSession``. When the agent-index scan that names the
+    /// session's live owners fails or times out, the switch is refused with
+    /// ``ClaudeAccountSwitchResult/agentIndexUnavailable``. The surface then respawns with the
     /// target's account keys (see ``ClaudeAccountSwitchSurfaceEnvironment``), the transcript is
     /// synced again once the old Claude has exited, and `claude --resume` is typed into the new
     /// shell once it reports a prompt. A resume that cannot be typed, or must not be because the
@@ -110,6 +112,8 @@ extension Workspace {
             return .alreadySwitching
         }
         defer { Self.claudeAccountSwitchInFlightPanelIds.remove(panelId) }
+        // Index scans this switch starts from here on can answer its first owner check.
+        let switchStartedAtUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
 
         guard let candidate = await claudeAccountSwitchCandidateSnapshot(panelId: panelId) else {
             return .notClaude
@@ -146,11 +150,15 @@ extension Workspace {
         // Restarting the pane stops only a Claude on the pane's own terminal; one in tmux or
         // detached would keep writing this session while the resumed Claude continues it.
         // Checked before the transcript is copied, so a refused switch changes nothing. The
-        // session's live owners come from an index scan started now: a cached index is only a
-        // past observation and would miss a Claude started elsewhere since. One that cannot load
-        // refuses like the index path above.
-        guard let ownersBeforeCopy = await SharedLiveAgentIndex.shared.indexRefreshingNow() else {
-            return .refused(.noClaudeSession)
+        // session's live owners come from an index that read the hook stores after this switch
+        // began (see SharedLiveAgentIndex.indexForOwnershipDecision): a cached index is only a past
+        // observation. A scan the session lookup above ran for this switch qualifies, so this
+        // check then starts none of its own; the check after the copy reads a newer one. A scan
+        // that fails or times out confirms no owner, so it refuses.
+        guard case .index(let ownersBeforeCopy) = await SharedLiveAgentIndex.shared.indexForOwnershipDecision(
+            freshAfterUptimeNanoseconds: switchStartedAtUptimeNanoseconds
+        ) else {
+            return .agentIndexUnavailable
         }
         guard let agentsBeforeCopy = claudeAccountSwitchAgentsOwnedByPane(
             panelId,
@@ -184,10 +192,10 @@ extension Workspace {
             return .transcriptUnavailable
         }
 
-        // Checked again with the agents recorded now and a new scan: they may have changed during
-        // the copy. Nothing is awaited from here to the respawn.
+        // Checked again with the agents recorded now and an index that read the hook stores after
+        // the copy: they may have changed meanwhile. Nothing is awaited from here to the respawn.
         guard let ownersAfterCopy = await SharedLiveAgentIndex.shared.indexRefreshingNow() else {
-            return .refused(.noClaudeSession)
+            return .agentIndexUnavailable
         }
         guard let replacedAgents = claudeAccountSwitchAgentsOwnedByPane(
             panelId,

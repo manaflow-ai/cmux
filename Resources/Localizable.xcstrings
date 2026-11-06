@@ -675577,6 +675577,131 @@
         }
       }
     },
+    "dialog.claudeAccountSwitch.agentIndexUnavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't check which Claude processes are running this conversation (the check failed or took too long), so the terminal was left unchanged. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux التحقق من عمليات Claude التي تشغّل هذه المحادثة (فشل التحقق أو استغرق وقتًا طويلًا جدًا)، لذا تُركت الطرفية دون تغيير. أعد المحاولة بعد لحظات."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte nicht prüfen, welche Claude-Prozesse diese Unterhaltung ausführen (die Prüfung ist fehlgeschlagen oder hat zu lange gedauert), daher wurde das Terminal nicht verändert. Versuchen Sie es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo comprobar qué procesos de Claude ejecutan esta conversación (la comprobación falló o tardó demasiado), así que la terminal no se modificó. Vuelve a intentarlo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu vérifier quels processus Claude exécutent cette conversation (la vérification a échoué ou a pris trop de temps) ; le terminal n'a donc pas été modifié. Réessayez dans un instant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの会話を実行している Claude のプロセスを確認できなかったため（確認に失敗したか、時間がかかりすぎました）、ターミナルは変更されていません。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 대화를 실행 중인 Claude 프로세스를 확인하지 못해(확인에 실패했거나 너무 오래 걸림) 터미널을 변경하지 않았습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法确认哪些 Claude 进程正在运行此对话（检查失败或耗时过长），因此终端保持不变。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法確認哪些 Claude 程序正在執行此對話（檢查失敗或耗時過長），因此終端機維持不變。請稍後再試。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao provjeriti koji Claude procesi vode ovaj razgovor (provjera nije uspjela ili je trajala predugo), pa je terminal ostao nepromijenjen. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke kontrollere, hvilke Claude-processer der kører denne samtale (kontrollen mislykkedes eller tog for lang tid), så terminalen blev ikke ændret. Prøv igen om et øjeblik."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a verificare quali processi Claude eseguono questa conversazione (la verifica non è riuscita o ha richiesto troppo tempo), quindi il terminale non è stato modificato. Riprova tra un momento."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចពិនិត្យថាដំណើរការ Claude ណាខ្លះកំពុងដំណើរការការសន្ទនានេះបានទេ (ការពិនិត្យបានបរាជ័យ ឬចំណាយពេលយូរពេក) ដូច្នេះទែមីណាល់មិនត្រូវបានផ្លាស់ប្ដូរទេ។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke sjekke hvilke Claude-prosesser som kjører denne samtalen (sjekken mislyktes eller tok for lang tid), så terminalen ble ikke endret. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł sprawdzić, które procesy Claude prowadzą tę rozmowę (sprawdzanie nie powiodło się lub trwało zbyt długo), więc terminal pozostał bez zmian. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu verificar quais processos do Claude estão executando esta conversa (a verificação falhou ou demorou demais), então o terminal não foi alterado. Tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось проверить, какие процессы Claude выполняют этот разговор (проверка не удалась или заняла слишком много времени), поэтому терминал оставлен без изменений. Повторите попытку через мгновение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ตรวจสอบไม่ได้ว่ากระบวนการ Claude ใดกำลังเรียกใช้การสนทนานี้ (การตรวจสอบล้มเหลวหรือใช้เวลานานเกินไป) เทอร์มินัลจึงไม่ถูกเปลี่ยนแปลง โปรดลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bu konuşmayı hangi Claude işlemlerinin çalıştırdığını denetleyemedi (denetim başarısız oldu ya da çok uzun sürdü), bu yüzden terminal değiştirilmedi. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося перевірити, які процеси Claude виконують цю розмову (перевірка не вдалася або тривала надто довго), тому термінал залишився без змін. Спробуйте ще раз за мить."
+          }
+        }
+      }
+    },
     "dialog.claudeAccountSwitch.previousClaudeStillRunning.message": {
       "extractionState": "manual",
       "localizations": {

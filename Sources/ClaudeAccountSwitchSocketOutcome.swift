@@ -65,6 +65,8 @@ enum ClaudeAccountSwitchSocketOutcome: Equatable, Sendable {
         case .agentRunning:
             // A response that started while the switch prepared: the same answer as the preflight's.
             return Self.agentRunningError(surfaceId: surfaceId)
+        case .agentIndexUnavailable:
+            code = "agent_index_unavailable"
         case .transcriptUnavailable:
             code = "transcript_unavailable"
         case .respawnFailed:

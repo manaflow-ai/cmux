@@ -41,6 +41,8 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     /// Claude started responding while the switch prepared, before anyone agreed to stop it; the
     /// pane was left alone.
     case agentRunning
+    /// cmux could not check which Claude processes run the conversation; the pane was left alone.
+    case agentIndexUnavailable
     /// The transcript could not be made available to `accountName`; the pane was left alone.
     case transcriptUnavailable(accountName: String)
     /// The terminal could not be restarted; the pane was left alone.
@@ -94,6 +96,8 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
             self = .alreadySwitching
         case .agentRunning:
             self = .agentRunning
+        case .agentIndexUnavailable:
+            self = .agentIndexUnavailable
         case .transcriptUnavailable:
             self = .transcriptUnavailable(accountName: requestedAccountName)
         case .respawnFailed:
@@ -260,6 +264,11 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
             return String(
                 localized: "dialog.claudeAccountSwitch.agentRunning.message",
                 defaultValue: "Claude started responding in this terminal while cmux prepared the switch, so the terminal was left unchanged. Choose the account again to stop the response and switch."
+            )
+        case .agentIndexUnavailable:
+            return String(
+                localized: "dialog.claudeAccountSwitch.agentIndexUnavailable.message",
+                defaultValue: "cmux couldn't check which Claude processes are running this conversation (the check failed or took too long), so the terminal was left unchanged. Try again in a moment."
             )
         case .transcriptUnavailable(let accountName):
             return String(
