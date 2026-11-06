@@ -1,7 +1,9 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextDesignTokens
 @testable import CmuxNextLayout
+import CmuxNextSettings
 import CmuxNextTestSupport
 import Testing
 
@@ -125,13 +127,23 @@ struct FocusRingEarnedTests {
         design.focusRing.enabled = false
         design.attention = AttentionSettings()
         #expect(design.attention.drawsAnyRing, "the unread glow is on by default")
-        #expect(FocusRingHandlers.showsAnyRing(design), "the toggle read off while the unread ring could draw")
+        #expect(design.showsAnyPaneRing, "the toggle read off while the unread ring could draw")
         design.attention.terminalRing = .none
-        #expect(!FocusRingHandlers.showsAnyRing(design))
+        #expect(!design.showsAnyPaneRing)
         design.attention.agentChatRing = .ring
-        #expect(FocusRingHandlers.showsAnyRing(design))
+        #expect(design.showsAnyPaneRing)
         design.attention.agentChatRing = .none
         design.focusRing.enabled = true
-        #expect(FocusRingHandlers.showsAnyRing(design))
+        #expect(design.showsAnyPaneRing)
+        // Off from the defaults plus the ring: every pane ring goes, live and in cmux.json.
+        design.attention = AttentionSettings()
+        let off = design.togglePaneRings()
+        #expect(!design.focusRing.enabled && !design.attention.drawsAnyRing)
+        #expect(off.map(\.0) == [["focusRing", "enabled"], ["notifications", "attention", "terminals"],
+                                  ["notifications", "attention", "agentChats"]])
+        #expect(off.map(\.1) == [.bool(false), .string("none"), .string("none")])
+        let on = design.togglePaneRings()
+        #expect(design.focusRing.enabled && !design.attention.drawsAnyRing)
+        #expect(on.map(\.1) == [.bool(true)])
     }
 }
