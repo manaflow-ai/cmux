@@ -78,7 +78,7 @@ on:
         default: false
         type: boolean
       notary_test_import_part:
-        description: nightly-next only. cx-f58x notary bisect. One diagnostic notary submission of a build with exactly this one browser-import part compiled out (cookies = CMUX_NO_COOKIE_IMPORT, safe-storage = CMUX_NO_SAFE_STORAGE_READ, history = CMUX_NO_HISTORY_IMPORT, registry = empty browser-sources.json). Every other import part stays in. Nothing is published.
+        description: nightly-next only. cx-f58x notary bisect. One diagnostic notary submission of a build with exactly this one browser-import part compiled out (cookies = CMUX_NO_COOKIE_IMPORT, safe-storage = CMUX_NO_SAFE_STORAGE_READ, history = CMUX_NO_HISTORY_IMPORT, registry = empty browser-sources.json), or full = nothing compiled out (the import exactly as it would ship, to see whether Apple's status 7000 hold is still there). Every other import part stays in. Nothing is published.
         required: false
         default: none
         type: choice
@@ -88,6 +88,7 @@ on:
           - safe-storage
           - history
           - registry
+          - full
       notary_probe_nightly_identity:
         description: nightly-next only. The production probe's run (one app notary submission, nothing published, text receipts only), signed as cmux NIGHTLY (com.cmuxterm.app.nightly, cmux.nightly.entitlements, NIGHTLY profile). The dogfood of shipping nightly-next as cmux NIGHTLY (a979).
         required: false
@@ -198,16 +199,16 @@ env:
   # SUPublicEDKey of the cmux-next track. The build refuses a
   # SPARKLE_NEXT_PRIVATE_KEY that does not derive this public key.
   NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY: IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=
-  # cx-f58x (Lawrence, 2026-10-09): Apple notarizes nightly-next only with the
-  # browser-data import compiled out. On commit 73210f2 the normal build
-  # (de5255b1) got status 7000 and the compiled-out build (52c6c12d) was
-  # Accepted. While this is `compiled-out`, every nightly-next build compiles
+  # cx-f58x: Apple held the browser-data import (status 7000, 2026-10-09) and
+  # accepted it again in run 42176643049 (notary_test_import_part=full,
+  # 2026-11-06), so `full` builds the import into every nightly-next build.
+  # `compiled-out` is the switch back: every nightly-next build then compiles
   # the import out (CMUX_NO_PASSWORD_IMPORT, CMUX_NO_BROWSER_DATA_IMPORT, empty
   # browser-sources.json), proves it, and may notarize and publish even with
-  # NIGHTLY_NEXT_NOTARY_PAUSED=1. Any other value builds the import in, and the
-  # pause then still stops that build before notarization, so a build with the
-  # import is never published while the pause is set.
-  NIGHTLY_NEXT_BROWSER_DATA_IMPORT: compiled-out
+  # NIGHTLY_NEXT_NOTARY_PAUSED=1. With the import in, the pause still stops a
+  # build before notarization, so a build with the import is never published
+  # while the pause is set.
+  NIGHTLY_NEXT_BROWSER_DATA_IMPORT: full
 
 jobs:
   decide:
@@ -737,6 +738,8 @@ jobs:
               'safe-storage': '-DCMUX_NO_SAFE_STORAGE_READ',
               history: '-DCMUX_NO_HISTORY_IMPORT',
               registry: '',
+              // Nothing out: the import as it would ship (cx-f58x: does Apple still hold it?).
+              full: '',
             };
             if (importPart !== 'none' && !(importPart in partFlags)) {
               core.setFailed(`unknown notary_test_import_part ${importPart}`);
@@ -764,7 +767,7 @@ jobs:
             let swiftImportFlags = '';
             let emptyBrowserSources = false;
             if (notaryTest && importPart !== 'none') {
-              importVariant = `no-${importPart}`;
+              importVariant = importPart === 'full' ? 'full' : `no-${importPart}`;
               swiftImportFlags = partFlags[importPart] || '';
               emptyBrowserSources = importPart === 'registry';
             } else if (notaryTest && process.env.NOTARY_TEST_PASSWORDS === 'true') {

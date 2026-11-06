@@ -164,9 +164,9 @@ public final class ComputerUseHelperDaemon {
         }
     }
 
-    /// Which helper runs. The default (driver legacy) is today's path only:
-    /// the helper v2 never starts. "upstream" in a build without the helper
-    /// v2 runs the legacy helper (`effectiveDriver`).
+    /// Which helper runs. The default (driver upstream) runs the helper v2 engine, in cmux
+    /// Remote when the daemon runs it; "upstream" in a build without the helper v2 runs the
+    /// legacy helper (`effectiveDriver`); "legacy" is the cmux-cua 0.8.12 helper.
     nonisolated static func route(_ settings: ComputerUseSettings, disabledByPolicy: Bool,
                                   upstreamInBuild: Bool = true) -> (legacy: Bool, upstream: Bool) {
         let on = settings.enabled && !disabledByPolicy

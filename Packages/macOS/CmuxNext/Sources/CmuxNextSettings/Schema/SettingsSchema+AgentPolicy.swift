@@ -60,7 +60,7 @@ extension SettingsSchema {
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
         "sidebar.showLocalMachine", "workspaceColors.indicatorStyle",
         "sidebar.controlsOnHover", // sidebar control visibility (looks only)
-        "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
+        "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side", "sidebar.style",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
@@ -189,6 +189,7 @@ extension SettingsSchema {
         "status.inferCommandBusyAfter",
         "terminal.fontFamily",
         "terminal.fontSize",
+        "terminal.term",
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
@@ -249,6 +250,9 @@ extension SettingsSchema {
         // box types only what the person writes.
         "home.chiefPetEnabled",
         "home.chiefPetMascot",
+        // Where the docked Chief sits and where its links open (layout choices, like pane placement).
+        "home.chiefDock.edge",
+        "home.chiefDock.openBeside",
         // Needs you in the agent chat header (an App Store item): a display the person can hide again.
         "agentPane.needsYou.enabled",
         // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31);
@@ -266,6 +270,8 @@ extension SettingsSchema {
         .merging(refusedTable) { first, _ in first }
         // Which agents the Chief's subagents may run on (and so whose usage they spend): the person decides.
         .merging(ChiefRoutingSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
+        // Which subagents show in the sidebar is the person's to shape, not an agent's.
+        .merging(ChiefSidebarSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
         .merging(BrowserVerificationAutofillSettingsSchema.refusedKeys) { first, _ in first }
 
@@ -295,6 +301,8 @@ extension SettingsSchema {
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
         // under the user's Return.
         "palette.aliases": .userOnly, "palette.pins": .userOnly,
+        // Whether the palette records what the person runs.
+        "palette.searchHistory": .privacy,
         "history.terminalCommands": .privacy,
         "history.commandRetentionDays": .privacy,
         "history.closed.maxGroups": .privacy,
@@ -445,7 +453,7 @@ extension SettingsSchema {
         "mobile.terminalSizing": .userOnly,
         "mobile.terminalSizingOrder": .userOnly,
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on.
-        "macScreen.systemShortcuts": .userOnly, "remote.enabled": .userOnly, "remote.endSharingOnQuit": .userOnly, // cmux Remote: the person's call
+        "macScreen.systemShortcuts": .userOnly, "remote.endSharingOnQuit": .userOnly, // cmux Remote: the person's call
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.

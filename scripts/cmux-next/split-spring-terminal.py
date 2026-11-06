@@ -75,17 +75,6 @@ if "--suite=first-click" in sys.argv:
 if "--suite=split-resize" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "split-resize-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=split-resize"])
-# `--suite=right-pane-open`: click to first content (and with --motion the transition itself) of a chat's right-side
-# opens, light and STRESS (scripts/cmux-next/right-pane-open-bench.py); scripts/measure/right-pane-open.sh's bench run
-# through this allowlisted entry. --out takes the table (--md); the app launches direct, as a fleet step needs.
-if "--suite=right-pane-open" in sys.argv:
-    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "right-pane-open-bench.py")
-    rest = [a for a in sys.argv[1:] if a != "--suite=right-pane-open"]
-    if "--out" in rest:
-        at = rest.index("--out")
-        rest[at:at + 2] = ["--md", os.path.join(rest[at + 1], "right-pane-open.md")]
-    os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
-    os.execv(sys.executable, [sys.executable, suite] + rest)
 # `--suite=cef-tab`: new Chromium and WebKit tabs, key to visible and to page pixels, light and STRESS
 # (scripts/cmux-next/cef-tab-bench.py, PL-cef-tab).
 if "--suite=cef-tab" in sys.argv:

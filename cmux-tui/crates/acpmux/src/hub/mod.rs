@@ -94,6 +94,7 @@ mod live_models;
 mod locate;
 pub mod media_handles;
 pub mod media_read;
+mod mesh_book;
 mod mesh_rows;
 pub(crate) mod native_history;
 pub(crate) mod subagent_transcript;
@@ -158,6 +159,8 @@ mod lane_report_reads;
 mod lane_report_text;
 mod lane_reports;
 mod loop_goal;
+#[cfg(test)]
+mod loop_goal_tests;
 mod mcp_connect;
 pub(crate) mod mcp_probe;
 mod meta_save;
@@ -549,6 +552,8 @@ pub struct Hub {
     /// Serialized summaries for closed sessions. Metadata commits replace the row before the
     /// next full list, so full callers do not rebuild closed-session projections.
     pub(super) closed_summary_cache: StdMutex<HashMap<String, ClosedSummaryCacheEntry>>,
+    /// The closed sessions' chat activity, built once for every chats reader (`chats/activity.rs`).
+    pub(crate) chat_activity_cache: crate::chats::ActivityCache,
     /// Closed rows built anew because their cached bytes were missing or stale (tests).
     #[cfg(test)]
     pub(super) closed_summary_builds: AtomicU64,
@@ -582,6 +587,8 @@ pub struct Hub {
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
+    /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
+    pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// Each parent's children by tag, for an approval card's label (`permissions/display.rs`).
     pub(super) child_tags: permissions::ChildTags,
     /// Leased peers by name, with the generation of the peer each lease
@@ -903,6 +910,7 @@ impl Hub {
             sessions: StdMutex::new(HashMap::new()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(HashMap::new()),
+            chat_activity_cache: Default::default(),
             #[cfg(test)]
             closed_summary_builds: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
@@ -920,6 +928,7 @@ impl Hub {
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
+            mesh_book: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
             peer_config_gen: std::sync::atomic::AtomicU64::new(0),
@@ -1465,6 +1474,8 @@ impl Hub {
 
     pub(super) fn remove_live_session_index(&self, id: &str) {
         self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        // A purged session leaves the map; a replacement may take its id.
+        self.chat_activity_cache.invalidate();
     }
 
     pub(super) fn cached_closed_summary(&self, session: &Session, with_tools: bool) -> Value {
@@ -1557,8 +1568,16 @@ impl Hub {
     // ------------------------------------------------------------ lookup
 
     pub fn sessions(&self) -> Vec<Arc<Session>> {
-        let v: Vec<_> = self.sessions.lock().unwrap().values().cloned().collect();
-        newest_first(v)
+        newest_first(self.session_handles())
+    }
+
+    /// Every session, in no order and with no metadata read.
+    pub(crate) fn session_handles(&self) -> Vec<Arc<Session>> {
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect()
+    }
+
+    pub(crate) fn session_count(&self) -> usize {
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     /// This daemon's own session `key` names: its id, its whole name, then a unique prefix of
@@ -2050,6 +2069,8 @@ impl Hub {
         ) {
             session.state_seq.fetch_add(1, Ordering::SeqCst);
         }
+        let closed = session.status() == SessionStatus::Closed;
+        self.chat_activity_cache.note(&session.id, &record.kind, closed);
         if notify {
             let event = HubEvent {
                 session_id: session.id.clone(),
@@ -2106,6 +2127,11 @@ impl Hub {
             meta.composer_draft = draft.clone();
             meta.updated_at = now_ms();
         }
+        self.chat_activity_cache.note(
+            &session.id,
+            "composer_draft",
+            session.status() == SessionStatus::Closed,
+        );
         // Answered only once the draft is in `session.json`: "the one durable shared draft".
         self.save_meta_answered(session)?;
         Ok(draft)
@@ -2275,6 +2301,13 @@ impl Hub {
         self.write_status(session, status, None);
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_reopen(&self, id: &str) -> bool {
+        let Ok(session) = self.resolve(id) else { return false };
+        let stops = session.stops.load(Ordering::SeqCst);
+        self.reopen(&session, stops)
+    }
+
     /// A stopped session starts again, for a request that came after its last stop: `stops` is
     /// [`Session::stops`] when the request came. Its status leaves Closed for Idle, logged
     /// `reopened`. False when it was not closed, or was stopped again since: it stays closed.
@@ -2327,6 +2360,12 @@ impl Hub {
         };
         self.update_live_session_index(session);
         if was != status {
+            // A closed snapshot partitions sessions by status. Invalidate on both sides of a
+            // closed transition, including reopen before its `reopened` record is appended, so a
+            // build that observed the old partition cannot publish it after the transition.
+            if was == SessionStatus::Closed || status == SessionStatus::Closed {
+                self.chat_activity_cache.invalidate();
+            }
             if let Some(link) = &link {
                 self.subsession_status(&session.id, link, was, status);
             }
