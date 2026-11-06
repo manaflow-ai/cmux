@@ -107,13 +107,24 @@ def wait_log(pattern, since, seconds):
 
 
 def seed(path, out):
-    """Two more terminals beside the first (NEXT's newSurface action), each running a long command
+    """Two terminals in a second workspace (NEXT's newSurface action), each running a long command
     and with its shell's pid in a file: a terminal kept across a restart is the same shell, so the
     same pid. Returns the files."""
-    tabs = []
-    for _ in range(2):
-        created = rpc_at(path, "action.run", {"action": "newSurface"}, timeout=30) or {}
-        tabs += [str(i) for i in created.get("created") or [] if str(i).startswith("tab_")]
+    # In their own workspace: a terminal split beside Home would leave Home's view off the full window,
+    # and its red and blue are what the snapshots count.
+    home = rpc_at(path, "snapshot.get", timeout=10) or {}
+    first = next((w.get("id") for w in (home.get("topology") or {}).get("workspaces") or [] if w.get("id")), None)
+    created = rpc_at(path, "action.run", {"action": "workspace.newAtBottom"}, timeout=30) or {}
+    workspace = next((str(i) for i in created.get("created") or [] if str(i).startswith("ws_")), None)
+    if workspace:
+        rpc_at(path, "action.run", {"action": "goToWorkspace", "args": {"workspace": workspace}}, timeout=30)
+    tabs = [str(i) for i in created.get("created") or [] if str(i).startswith("tab_")]
+    while len(tabs) < 2:
+        made = rpc_at(path, "action.run", {"action": "newSurface"}, timeout=30) or {}
+        new_tabs = [str(i) for i in made.get("created") or [] if str(i).startswith("tab_")]
+        if not new_tabs:
+            break
+        tabs += new_tabs
     time.sleep(3)
     files = []
     for n, tab in enumerate(tabs):
@@ -123,6 +134,8 @@ def seed(path, out):
                                     "args": {"text": f"echo $$ > '{pid_file}'; sleep 86400\r"}}, timeout=10)
         files.append(pid_file)
     time.sleep(2)
+    if first:
+        rpc_at(path, "action.run", {"action": "goToWorkspace", "args": {"workspace": first}}, timeout=30)
     return files
 
 
