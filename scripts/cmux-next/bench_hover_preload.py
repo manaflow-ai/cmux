@@ -595,10 +595,12 @@ def main():
     parser.add_argument("--vdisplay", type=float, default=0)
     # Milliseconds (4 or more): sample the main thread's stack in every turn over this during the sweep (debug.hangs).
     parser.add_argument("--stalls", type=float, default=0)
+    # browser.wakeTabsOnHover (hover preload, off by default in the app): 1 turns it on for this launch, 0 leaves it off.
+    parser.add_argument("--wake-on-hover", type=int, default=1, choices=[0, 1])
     args = parser.parse_args()
     phases = set(args.phases.split(","))
     # Hidden pages discard after 0.5 min (a timeout written, so the hover may restore them) and freeze after 5 s.
-    config = {"browser": {"hibernation": 0.5, "freezeHiddenTabs": 5}}
+    config = {"browser": {"hibernation": 0.5, "freezeHiddenTabs": 5, "wakeTabsOnHover": bool(args.wake_on_hover)}}
     bundle = os.path.realpath(args.app)
     signal.signal(signal.SIGTERM, bm.interrupted)
     bp.wipe_state(bundle)
