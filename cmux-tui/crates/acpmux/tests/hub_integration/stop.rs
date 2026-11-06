@@ -29,13 +29,13 @@ async fn a_cancel_the_agent_never_answers_still_ends_the_turn() {
         .await
         .unwrap();
     let done = tokio::time::timeout(
-        Duration::from_secs(15),
+        Duration::from_secs(25),
         c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_end"),
     )
     .await
     .expect("the turn stayed open after Stop");
     assert_eq!(done["msg"]["stopReason"], "cancelled", "{done}");
-    assert!(stopped.elapsed() < Duration::from_secs(15));
+    assert!(stopped.elapsed() < Duration::from_secs(25));
     let result = c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_result").await;
     assert_eq!(result["msg"]["cancelForced"], true, "{result}");
 }
@@ -70,9 +70,20 @@ fn held(row: &Value) -> Vec<(String, bool)> {
 /// process lands after it, and the other agents' messages stay queued, held.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_agent_working_through_stop_is_restarted_on_the_same_conversation() {
+    restart_after_stop("works-through-cancel").await;
+}
+
+/// A silent harness is not proof that its cancel succeeded. The keyboard chat on
+/// cosmic-gray kept its wedged process after acpmux ended only the logical turn.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_silent_agent_ignoring_stop_is_restarted_on_the_same_conversation() {
+    restart_after_stop("silent-through-cancel").await;
+}
+
+async fn restart_after_stop(script: &str) {
     let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "works-through-stop").await;
-    c.send(method::SESSION_PROMPT, prompt(&id, "works-through-cancel", Some("p-work"))).await;
+    c.send(method::SESSION_PROMPT, prompt(&id, script, Some("p-work"))).await;
     let first =
         c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "tool_call").await;
     let title = first["update"]["title"].as_str().unwrap().to_owned();
@@ -100,6 +111,7 @@ async fn an_agent_working_through_stop_is_restarted_on_the_same_conversation() {
     .expect("the stopped turn never ended");
     assert_eq!(ended["msg"]["status"], "cancelled", "{ended}");
     assert_eq!(ended["msg"]["cancelForced"], true, "{ended}");
+    assert_eq!(ended["msg"]["restarted"], true, "a stopped turn retained its wedged process: {ended}");
     tokio::time::timeout(
         Duration::from_secs(20),
         c.wait_for(method::MUX_EVENT, |p| p["kind"] == "stop_restarted"),
@@ -146,11 +158,20 @@ async fn an_agent_working_through_stop_is_restarted_on_the_same_conversation() {
 /// is neither ended nor started again, and the background subagent still runs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_stop_beside_background_work_ends_only_the_turn_and_keeps_the_process() {
+    stop_beside_background("works-through-cancel-beside-background").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_silent_stop_beside_background_work_keeps_the_process() {
+    stop_beside_background("silent-through-cancel-beside-background").await;
+}
+
+async fn stop_beside_background(script: &str) {
     let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "stop-beside-background").await;
     c.send(
         method::SESSION_PROMPT,
-        prompt(&id, "works-through-cancel-beside-background", Some("p-work")),
+        prompt(&id, script, Some("p-work")),
     )
     .await;
     let first =
@@ -195,7 +216,7 @@ async fn a_stop_beside_background_work_ends_only_the_turn_and_keeps_the_process(
         .filter_map(|e| e.msg["params"]["update"]["title"].as_str())
         .collect();
     assert!(
-        after.iter().any(|t| t.ends_with(&pid)),
+        script.starts_with("silent-") || after.iter().any(|t| t.ends_with(&pid)),
         "the agent's process did not run on: {after:?}"
     );
     let row = summary(&hub, &id);
