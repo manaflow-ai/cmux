@@ -4720,10 +4720,13 @@ a.cv-sha:focus-visible {
 /* Continue on a stopped last turn (TurnRows.tsx): a quiet text button with the footer's icon-button
    hover pill, its label then an arrow. */
 .cv-turn-actions .cv-iconbtn.cv-turn-continue {
+  height: var(--cv-footer-button);
   width: auto;
-  gap: 4px;
-  padding-inline: 6px;
+  gap: var(--grid-half-step);
+  padding-inline: var(--grid-half-step);
   margin-inline-start: -2px;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
   white-space: nowrap;
 }
 /* Try another approach (a Cloud chat's latest turn) is a labelled button too: its own width, never

@@ -256,14 +256,22 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await button.waitFor({ timeout: 10_000 });
         const fit = await button.evaluate((el) => ({
           width: el.getBoundingClientRect().width,
+          height: el.getBoundingClientRect().height,
           scroll: el.scrollWidth,
           client: el.clientWidth,
           glyph: el.querySelector("svg")?.getBoundingClientRect().width ?? 0,
+          fontSize: getComputedStyle(el).fontSize,
+          paddingInline: `${getComputedStyle(el).paddingLeft} ${getComputedStyle(el).paddingRight}`,
+          title: el.getAttribute("title"),
         }));
         console.log(`REPLY_FOOTER ${theme.file} continue ${JSON.stringify(fit)}`);
         expect(fit.width).toBeGreaterThan(40);
+        expect(Math.abs(fit.height - 24)).toBeLessThanOrEqual(TOLERANCE);
         expect(fit.scroll).toBeLessThanOrEqual(fit.client + 1);
         expect(fit.glyph).toBeLessThan(20);
+        expect(fit.fontSize).toBe("12px");
+        expect(fit.paddingInline).toBe("2px 2px");
+        expect(fit.title).toBeNull();
       } finally {
         await page.close();
       }
