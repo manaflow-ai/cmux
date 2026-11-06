@@ -72,6 +72,7 @@ version = "0.1.0"
 dependencies = [
  "cbindgen",
  "cmux-agent-pane-policy",
+ "cmux-daemon-conn-core",
  "cmux-layout-reducer-ffi",
  "cmux-motion",
  "cmux-palette-ranker",
@@ -96,6 +97,15 @@ dependencies = [
 
 [[package]]
 name = "cmux-cloud-start-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "cmux-daemon-conn-core"
 version = "0.1.0"
 dependencies = [
  "serde",

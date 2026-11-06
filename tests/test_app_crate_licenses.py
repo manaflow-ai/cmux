@@ -104,6 +104,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-cloud-start-core",
                     # NEXT Cloud's configuration rules (cmux-cloud-config).
                     "cmux-cloud-config",
+                    # The control connection rules (cmux-daemon-conn-core).
+                    "cmux-daemon-conn-core",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
                 ]
