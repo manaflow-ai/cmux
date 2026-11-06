@@ -684,14 +684,28 @@ pub fn move_to_cloud(
         }
     }
     api.set_brain(&chief, true)?;
-    let state = api.memory(&chief, &conversation)?;
-    let memory_messages = state["count"].as_u64().unwrap_or(0);
-    if memory_messages != main.len() as u64 {
-        return Err(format!(
-            "the cloud memory holds {memory_messages} messages, the checkpoint {}",
-            main.len()
-        ));
-    }
+    // From here a failed check thaws the source (migrate.rs): the hosted brain goes
+    // off again first, so one Chief answers, as after `move rollback`.
+    let checked = api.memory(&chief, &conversation).and_then(|state| {
+        let memory_messages = state["count"].as_u64().unwrap_or(0);
+        if memory_messages == main.len() as u64 {
+            Ok((state, memory_messages))
+        } else {
+            Err(format!(
+                "the cloud memory holds {memory_messages} messages, the checkpoint {}",
+                main.len()
+            ))
+        }
+    });
+    let (state, memory_messages) = match checked {
+        Ok(c) => c,
+        Err(e) => {
+            return Err(match api.brain_off(&chief) {
+                Ok(()) => e,
+                Err(off) => format!("{e}; and turning the hosted brain off failed: {off}"),
+            });
+        }
+    };
     Ok(CloudMoved {
         api: api.base.clone(),
         chief,

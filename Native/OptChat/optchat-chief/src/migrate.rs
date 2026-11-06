@@ -1260,15 +1260,16 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
     report.bytes = manifest.files.iter().map(|f| f.size).sum();
     let sha = manifest_sha(&tmp).unwrap_or_default();
     if let Target::Cloud(t) = &options.target {
+        let mut signed_in = None;
         let copied = timed(&mut report.steps, "transfer+verify", || {
             let base = crate::migrate_cloud::api_base(t)?;
             let token = crate::migrate_cloud::session_token(
                 options.session_token_file.as_deref(),
                 Some(&base),
             )?;
-            let api = crate::migrate_cloud::Api::new(base, token);
+            let api = signed_in.insert(crate::migrate_cloud::Api::new(base, token));
             let moved = crate::migrate_cloud::move_to_cloud(
-                &api,
+                api,
                 &tmp,
                 &manifest,
                 &sha,
@@ -1292,13 +1293,19 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
         };
         let to = format!("cloud:{}/{}", moved.api, moved.chief);
         report.to = to.clone();
-        report.cloud = Some(moved);
         if let Err(e) = timed(&mut report.steps, "commit", || {
             mark_moved(&home, &to, &sha).map(|()| ((), format!("source marked moved to {to}")))
         }) {
+            // The hosted brain is on: off again before this copy answers.
+            let e = match signed_in.as_ref().map(|api| api.brain_off(&moved.chief)) {
+                Some(Err(off)) => format!("{e}; and turning the hosted brain off failed: {off}"),
+                _ => e,
+            };
+            report.cloud = Some(moved);
             undo_drain(&home);
             fail!(e);
         }
+        report.cloud = Some(moved);
         report.moved = true;
         return report;
     }

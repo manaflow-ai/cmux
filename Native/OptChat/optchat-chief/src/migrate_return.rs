@@ -687,7 +687,8 @@ fn pending(template: &MoveOptions, moved_to: &str) -> Result<Option<(Request, Cl
 }
 
 /// One look at where the Chief is; a new request runs the move and is
-/// cleared (also when the move failed: `state/move.json` says why).
+/// cleared after its outcome is written (also when the move failed:
+/// `state/move.json` says why).
 fn poll_once(
     home: &Path,
     template: &MoveOptions,
@@ -701,25 +702,30 @@ fn poll_once(
         return Ok(None);
     }
     *done = Some(request.id.clone());
-    let target = request_target(&request.to, home);
-    clear();
+    let target = match request_target(&request.to, home) {
+        Ok(t) => t,
+        Err(e) => {
+            // A request no move can carry out is not tried again.
+            clear();
+            return Err(e);
+        }
+    };
     let mut options = template.clone();
     options.home = home.to_path_buf();
     options.dry_run = false;
     options.stop_host = true;
-    let report = match target {
-        Err(e) => return Err(e),
-        Ok(target) => {
-            options.target = target;
-            teleport(&options)
-        }
-    };
+    options.target = target;
+    let report = teleport(&options);
+    // The request is cleared only once its outcome is on disk: a watcher that stops
+    // mid-move leaves it for the next watcher, which carries it out from where the
+    // Chief is now (a move starts from the frozen copy each time).
     let _ = migrate::write_private(
         &home.join("state").join("move.json"),
         serde_json::to_string(&report)
             .unwrap_or_default()
             .as_bytes(),
     );
+    clear();
     match report.error {
         None => Ok(Some(format!(
             "moved to {} (request {})",
