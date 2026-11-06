@@ -78,7 +78,7 @@ fn empty(v: &Value) -> bool {
 }
 
 #[tokio::test]
-async fn cli_watch_wakes_an_external_coordinator_once_and_drops_irrelevant_turns() {
+async fn cli_watch_wakes_a_coordinator_session_once_and_drops_irrelevant_turns() {
     let mut a = Daemon::new().await;
     let coord = a.chat("coordinator").await;
     let worker = a.chat("worker").await;
