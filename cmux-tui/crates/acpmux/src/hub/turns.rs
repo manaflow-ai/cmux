@@ -1232,7 +1232,8 @@ impl Hub {
                                     super::steer_end::agent_prompt_hook(
                                         session,
                                         &child2,
-                                        json!({"sessionId": sid2, "prompt": wire}),
+                                        // Its sender and marks as on the first write.
+                                        super::prompt_sender::run_params(&sid2, json!(wire), &run),
                                         &turn_id,
                                         false,
                                         false,

@@ -166,7 +166,15 @@ def prompt_text(params):
     blocks = params.get("prompt", [])
     if os.environ.get("FAKE_ECHO_GUIDANCE") != "1":
         blocks = [b for b in blocks if not is_cmux_guidance(b)]
+    # Who wrote it (hub/prompt_attribution.rs): fixtures match the prompt, opt in to the marks.
+    if os.environ.get("FAKE_ECHO_ATTRIBUTION") != "1":
+        blocks = [b for b in blocks if not is_attribution(b)]
     return "".join(b.get("text", "") for b in blocks)
+
+
+def is_attribution(block):
+    """A mark of who wrote the prompt, which acpmux adds ahead of or around its blocks."""
+    return isinstance(block, dict) and (block.get("_meta") or {}).get("acpmux", {}).get("attribution") is True
 
 
 # The hidden guidance blocks (`context_inventory::override_block`), and only those: the

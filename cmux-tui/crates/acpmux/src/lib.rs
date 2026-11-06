@@ -26,6 +26,7 @@ pub mod agent_guidance;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_login;
+pub mod agent_text;
 pub mod agent_tools;
 mod artifacts_fs;
 pub mod artifacts_sync;

@@ -35,9 +35,33 @@ pub fn in_an_agent_harness() -> bool {
 }
 
 fn harness_in(env: impl Fn(&str) -> Option<String>) -> bool {
-    ["CLAUDECODE", "CODEX_THREAD_ID"]
-        .iter()
-        .any(|key| env(key).is_some_and(|v| !v.trim().is_empty()))
+    harness_of(env).is_some()
+}
+
+/// The harness whose shell this is, by the variable it sets in it.
+fn harness_of(env: impl Fn(&str) -> Option<String>) -> Option<&'static str> {
+    [("CODEX_THREAD_ID", "Codex"), ("CLAUDECODE", "Claude Code")]
+        .into_iter()
+        .find(|(key, _)| env(key).is_some_and(|v| !v.trim().is_empty()))
+        .map(|(_, name)| name)
+}
+
+/// The sender a send from an agent harness's own shell names when nothing else does: that
+/// harness on this machine (`Codex on big-red`), so it is that agent's message, never the
+/// person's "you · via CLI" (ask-fa4c523fa8: a Codex session's sends read as the person's). A
+/// label it gives itself, as `--from` is (the daemon records it as declared, `hub/inbox.rs`).
+pub fn harness_sender() -> Option<String> {
+    harness_label(|key| std::env::var(key).ok(), &crate::host_pressure::host_name())
+}
+
+fn harness_label(env: impl Fn(&str) -> Option<String>, host: &str) -> Option<String> {
+    if in_session(&env) {
+        return None;
+    }
+    let harness = harness_of(env)?;
+    let label =
+        if host.trim().is_empty() { harness.to_owned() } else { format!("{harness} on {host}") };
+    Some(label.chars().filter(|c| !c.is_control()).take(crate::hub::MAX_FROM_AGENT_CHARS).collect())
 }
 
 fn agent_in(named: bool, env: impl Fn(&str) -> Option<String>) -> bool {
@@ -81,6 +105,20 @@ mod tests {
         assert!(harness_in(env(&[("CODEX_THREAD_ID", "t-1")])));
         assert!(!harness_in(env(&[("CLAUDECODE", " ")])));
         assert!(!harness_in(env(&[("TERM", "xterm")])));
+    }
+
+    /// A Codex or Claude Code shell outside acpmux names its harness, never the person; one in
+    /// an acpmux session is proven by its token instead.
+    #[test]
+    fn an_agent_harness_shell_names_its_harness() {
+        let codex = [("CODEX_THREAD_ID", "t-1")];
+        assert_eq!(harness_label(env(&codex), "big-red").as_deref(), Some("Codex on big-red"));
+        let claude = [("CLAUDECODE", "1")];
+        assert_eq!(harness_label(env(&claude), "").as_deref(), Some("Claude Code"));
+        assert_eq!(harness_label(env(&[]), "big-red"), None, "the person's terminal");
+        let inside =
+            [("CODEX_THREAD_ID", "t"), ("ACPMUX_SESSION_ID", "s1"), ("ACPMUX_SESSION_TOKEN", "t")];
+        assert_eq!(harness_label(env(&inside), "big-red"), None);
     }
 
     #[test]

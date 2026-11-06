@@ -698,6 +698,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             })?;
             let from = from.or_else(|| notice.as_ref().map(|n| n.sender().to_owned()));
             prompt_id.from_agent = from.or_else(crate::cli::sender::of_this_process);
+            // Whether it was named before its harness is (below): a harness shell's send keeps
+            // the queueing and steering it had, and only gains its sender.
+            let named = prompt_id.from_agent.is_some();
+            if !named {
+                prompt_id.from_agent = crate::cli::sender::harness_sender();
+            }
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
@@ -706,7 +712,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id.notice = notice.as_ref().map(|n| n.0.clone());
             (prompt_id.pr, prompt_id.thread) = (inbox.pr, inbox.thread);
             // An agent's send and a message (--no-wait) steer; the person's waiting send queues.
-            let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
+            let agent = crate::cli::sender::from_an_agent(named);
             // An agent's send, or one with --class, goes to this daemon's outbox and returns
             // once it is on disk there; the daemon delivers it however slow the peer or loaded
             // the machine (`send_queues`).

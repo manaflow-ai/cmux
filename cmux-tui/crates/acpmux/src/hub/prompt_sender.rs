@@ -37,13 +37,15 @@ pub(super) fn prompt_params(
 }
 
 /// Adds `_meta.acpmux.sender` to `params` (a turn's prompt or a steer) when
-/// `agent` sent it.
+/// `agent` sent it, and the marks of who wrote it to its blocks.
 pub(super) fn add_sender(
     params: &mut Value,
     agent: Option<&str>,
     class: Option<&str>,
     provenance: Option<&Value>,
 ) {
+    // The agent reads who wrote it in the prompt too (`prompt_attribution.rs`).
+    super::prompt_attribution::mark(params, agent, provenance);
     let Some(name) = agent.filter(|n| !n.is_empty()) else { return };
     let mut sender = Map::new();
     sender.insert("name".into(), json!(name));
