@@ -4,11 +4,14 @@
 //! [`ENV`] (acpmux `agent_tools::UPSTREAMS_ENV`): their exact command, args
 //! and env, already scoped to the session. This server starts each one as a
 //! stdio MCP client on first use and lists its tools as
-//! `<prefix>_<tool>` (`cmux-cua` is `cua`), so `cmux_docs` finds them and a
+//! `<prefix>_<tool>` (`cmux-computer-use` is `cu`), so `cmux_docs` finds them and a
 //! `cmux_exec` script calls them through `Server::call`, under the same
 //! allowlist as every other tool. A list from an earlier start
 //! (`upstream_listing.rs`) answers `tools/list` without starting the server,
-//! so a chat that never calls one of its tools never starts it.
+//! so a chat that never calls one of its tools never starts it. The Computer
+//! Use server's list is the catalog compiled into this binary
+//! (`cmux_computer_use::tools`, through acpmux), the same one its bridge
+//! serves, so it never needs a start to be listed.
 
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Write};
@@ -19,7 +22,6 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
-use super::computer_use_gate::{self, Gate};
 use cmux_json::JsonSet as _;
 
 /// The env acpmux gives the `cmux` server: a JSON array of
@@ -104,29 +106,22 @@ pub(super) fn without_rules(description: &str) -> &str {
     description
 }
 
-/// The tool name prefix of server `name`: `cmux-cua` is `cua`.
+/// The tool name prefix of server `name`: `cmux-secrets` is `secrets`,
+/// `cmux-computer-use` is `cu` (`cu_screenshot`).
 fn prefix(name: &str) -> String {
+    if name == acpmux::computer_use::tools::SERVER_NAME {
+        return acpmux::computer_use::tools::TOOL_PREFIX.to_owned();
+    }
     let name = name.strip_prefix("cmux-").unwrap_or(name);
     name.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
         .collect()
 }
 
-/// The rules the model gets for server `spec`: cmux's own rules for its
-/// computer use server ([`acpmux::agent_tools::CUA_RULES`]) first, then the
-/// server's `initialize` instructions. The helper v2 bridge has the same name
-/// (its spec names the endpoint folder), but no target guard yet: its chats
-/// get no cmux rules, which promise one.
-pub(super) fn rules(spec: &Spec, own: Option<&str>) -> Option<String> {
-    let own = own.filter(|text| !text.trim().is_empty());
-    let v2 = spec.env.iter().any(|(key, _)| key == acpmux::cua_v2::ENDPOINT_DIR_ENV);
-    let cmux =
-        (spec.name == acpmux::cua_v2::SERVER_NAME && !v2).then_some(acpmux::agent_tools::CUA_RULES);
-    match (cmux, own) {
-        (Some(cmux), Some(own)) => Some(format!("{cmux}\n\n{own}")),
-        (Some(cmux), None) => Some(cmux.to_owned()),
-        (None, own) => own.map(str::to_owned),
-    }
+/// The rules the model gets for server `spec`: its own `initialize`
+/// instructions (the Computer Use server's are `tools::INSTRUCTIONS`).
+pub(super) fn rules(_spec: &Spec, own: Option<&str>) -> Option<String> {
+    own.filter(|text| !text.trim().is_empty()).map(str::to_owned)
 }
 
 /// One server: started on first use, again after it dies or times out.
@@ -211,6 +206,11 @@ impl Upstream {
         {
             self.instructions = rules(&self.spec, stored.instructions.as_deref());
             self.tools = Some(stored.tools);
+        }
+        if self.tools.is_none() && self.spec.name == acpmux::computer_use::tools::SERVER_NAME {
+            let catalog = acpmux::computer_use::tools::mcp_list();
+            self.tools = catalog["tools"].as_array().cloned();
+            self.instructions = rules(&self.spec, Some(acpmux::computer_use::tools::INSTRUCTIONS));
         }
         if self.tools.is_none() {
             if self.failed.as_ref().is_some_and(|(_, at)| at.elapsed() < START_BACKOFF) {
@@ -460,19 +460,11 @@ pub(super) struct ProxiedCall {
     pub inner: std::sync::Arc<std::sync::Mutex<Upstream>>,
     pub name: String,
     pub arguments: Value,
-    /// A computer use call's setup check (`computer_use_gate`).
-    pub gate: Gate,
 }
 
 impl ProxiedCall {
-    /// The server's result, or a tool error with the call's state. A
-    /// computer use call first waits for setup when it is not done.
+    /// The server's result, or a tool error with the call's state.
     pub(super) fn run(self, cap: Option<Duration>) -> Value {
-        if let Gate::Check(check) = self.gate
-            && let Some(result) = check.run()
-        {
-            return result;
-        }
         let mut upstream = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Err(message) = upstream.connect() {
             let error = json!({"code": "upstream.failed",
@@ -565,25 +557,7 @@ impl<B: super::Backend> super::Server<B> {
             return None;
         }
         let inner = proxied.inner.clone();
-        let computer_use = if proxied.name == computer_use_gate::SERVER {
-            name.strip_prefix(proxied.prefix.as_str())
-                .and_then(|rest| rest.strip_prefix('_'))
-                .map(str::to_owned)
-        } else {
-            None
-        };
         let arguments = Value::Object(arguments.clone());
-        let gate = match computer_use {
-            Some(tool) => computer_use_gate::gate(
-                &tool,
-                &arguments,
-                self.backend.app_caller(),
-                super::super::app::caller_from(|key| std::env::var(key).ok()),
-                // The time the script has left, not its whole limit.
-                self.call_deadline.map(|end| end.saturating_duration_since(Instant::now())),
-            ),
-            None => Gate::Run,
-        };
-        Some(ProxiedCall { inner, name: name.to_owned(), arguments, gate })
+        Some(ProxiedCall { inner, name: name.to_owned(), arguments })
     }
 }

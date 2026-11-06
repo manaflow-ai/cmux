@@ -1,12 +1,11 @@
-//! One X display per cmux workspace for computer use (cx-ncc.5). A client
-//! names the session's workspace in `_meta.acpmux.workspaceId` on
-//! `session/new` (and may on `session/fork`), or only in the session env's
-//! `CMUX_WORKSPACE_ID`; two different ids in one request are refused. When
-//! this daemon runs with `CMUX_AGENT_DISPLAYS=per-workspace` (a Linux cloud
-//! machine), the session's `cmux-cua` MCP server gets `CMUX_CUA_DISPLAY=:N`,
-//! one N per workspace from 100 up, kept across restarts. A session without
-//! a workspace gets no `cmux-cua` server at all, so it can never drive the
-//! shared display. With the mode off nothing changes.
+//! Per-workspace displays (cx-ncc.5) and Computer Use. A client names the
+//! session's workspace in `_meta.acpmux.workspaceId` on `session/new` (and
+//! may on `session/fork`), or only in the session env's `CMUX_WORKSPACE_ID`;
+//! two different ids in one request are refused. When this daemon runs with
+//! `CMUX_AGENT_DISPLAYS=per-workspace` (a Linux cloud machine with one X
+//! display per workspace), no session gets the Computer Use server: the
+//! machine's one worker drives the machine's desktop, never a workspace's own
+//! display, so fail closed. With the mode off every session gets it.
 //!
 //! One test function: the mode and the tools are read from this process's
 //! environment, which every test of a binary shares.
@@ -33,7 +32,6 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
 const WS_A: &str = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const WS_B: &str = "11111111-2222-4333-8444-555555555555";
-const WS_C: &str = "66666666-7777-4888-9999-aaaaaaaaaaaa";
 
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
@@ -169,20 +167,10 @@ fn names(servers: &Value) -> Vec<String> {
     flat(servers).iter().filter_map(|s| s["name"].as_str().map(str::to_owned)).collect()
 }
 
-/// `CMUX_CUA_DISPLAY` of the `cmux-cua` server in an ACP `mcpServers` list
-/// (None: the server has no such key). Panics without a `cmux-cua` server.
-fn display(servers: &Value) -> Option<String> {
-    let list = flat(servers);
-    let cua = list
-        .iter()
-        .find(|s| s["name"] == "cmux-cua")
-        .unwrap_or_else(|| panic!("no cmux-cua server: {servers}"));
-    cua["env"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|e| e["name"] == "CMUX_CUA_DISPLAY")
-        .and_then(|e| e["value"].as_str().map(str::to_owned))
+const CU: &str = "cmux-computer-use";
+
+fn has_cu(servers: &Value) -> bool {
+    names(servers).iter().any(|n| n == CU)
 }
 
 fn reason(reply: &Value) -> String {
@@ -198,11 +186,10 @@ fn fake_bin(dir: &Path, name: &str) -> PathBuf {
 }
 
 #[tokio::test]
-async fn per_workspace_mode_gives_each_workspace_its_own_display_and_none_without_one() {
+async fn per_workspace_mode_gives_no_session_computer_use() {
     let root = std::env::temp_dir().join(format!("acpmux-displays-it-{}", uuid::Uuid::now_v7()));
     let bin = root.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    fake_bin(&bin, "cmux-cua");
     fake_bin(&bin, "cmux");
     let cmux_json = root.join("cmux-next.json");
     std::fs::write(&cmux_json, "{}").unwrap();
@@ -216,9 +203,6 @@ async fn per_workspace_mode_gives_each_workspace_its_own_display_and_none_withou
             "ACPMUX_AGENT_TOOLS",
             "ACPMUX_SECRET_TOOLS",
             "ACPMUX_OFFER_TOOLS",
-            "CMUX_NEXT_CUA_V2_DIR",
-            "CMUX_NEXT_CUA_SOCKET",
-            "CMUX_CUA_DISPLAY",
             "CMUX_AGENT_DISPLAYS",
         ] {
             std::env::remove_var(key);
@@ -233,105 +217,50 @@ async fn per_workspace_mode_gives_each_workspace_its_own_display_and_none_withou
         assert_eq!(reason(&reply), "workspace.value_refused", "{bad}: {reply}");
     }
 
-    // Mode off: the computer use server as before, no display, no state file.
+    // Mode off: every session gets Computer Use, with or without a workspace.
     let with_ws = local.new_session("fake", Some(WS_A)).await;
     let servers = local.servers(&with_ws).await;
-    assert_eq!(display(&servers), None, "mode off sets no display: {servers}");
+    assert!(has_cu(&servers), "mode off: {servers}");
     let without = local.new_session("fake", None).await;
-    let servers = local.servers(&without).await;
-    assert_eq!(display(&servers), None, "mode off sets no display: {servers}");
-    assert!(!home.join("agent-displays").exists(), "mode off allocates nothing");
+    assert!(has_cu(&local.servers(&without).await));
 
     // SAFETY: as above; no session is starting concurrently.
     unsafe { std::env::set_var("CMUX_AGENT_DISPLAYS", "per-workspace") };
 
-    // Two workspaces: two displays, from the base up.
-    let a = local.new_session("fake", Some(WS_A)).await;
-    let a_display = display(&local.servers(&a).await).expect("workspace A has a display");
-    assert_eq!(a_display, ":100", "the first workspace gets the base display");
-    let b = local.new_session("fake", Some(WS_B)).await;
-    let b_display = display(&local.servers(&b).await).expect("workspace B has a display");
-    assert_ne!(a_display, b_display, "two workspaces never share a display");
-    // The same workspace (in either case) keeps its display.
-    let a2 = local.new_session("fake", Some(WS_A.to_uppercase().as_str())).await;
-    assert_eq!(display(&local.servers(&a2).await).as_deref(), Some(a_display.as_str()));
+    // Per-workspace displays: no session gets it; the rest of the tools stay.
+    for workspace in [Some(WS_A), Some(WS_B), None] {
+        let id = local.new_session("fake", workspace).await;
+        let servers = local.servers(&id).await;
+        assert!(!has_cu(&servers), "{workspace:?}: {servers}");
+        assert!(names(&servers).iter().any(|n| n == "cmux"), "the cmux server stays: {servers}");
+    }
     // A workspace named only by the session env's CMUX_WORKSPACE_ID (the
-    // Chief's subagents, uppercase) is the session's workspace too.
+    // Chief's subagents, uppercase) is accepted; two different ones are not.
     let env_a = json!({"CMUX_WORKSPACE_ID": WS_A.to_uppercase()});
     for meta in [
         json!({"harness": "fake", "env": env_a}),
-        json!({"harness": "fake", "workspaceId": null, "env": env_a}),
-        // Both, the same id in another case: accepted.
         json!({"harness": "fake", "workspaceId": WS_A, "env": env_a}),
     ] {
         let reply = local.new_reply(meta.clone()).await;
         assert!(reply.get("error").is_none(), "{meta}: {reply}");
-        let id = reply["result"]["sessionId"].as_str().unwrap().to_owned();
-        let servers = local.servers(&id).await;
-        assert_eq!(display(&servers).as_deref(), Some(a_display.as_str()), "{meta}: {servers}");
     }
-    // Two different workspaces in one request: refused.
     let env_b = json!({"CMUX_WORKSPACE_ID": WS_B});
     let reply =
         local.new_reply(json!({"harness": "fake", "workspaceId": WS_A, "env": env_b})).await;
     assert_eq!(reason(&reply), "workspace.mismatch", "{reply}");
-    // The workspace reaches the computer use server only, not the harness.
+    let a = local.new_session("fake", Some(WS_A)).await;
     let leaked = local.ask(&a, "env: ACPMUX_AGENT_WORKSPACE").await;
     assert_eq!(leaked, "ACPMUX_AGENT_WORKSPACE=", "the harness env carries no private key");
-
-    // No workspace: no computer use server, the rest of the tools stay.
-    let none = local.new_session("fake", None).await;
-    let servers = local.servers(&none).await;
-    let listed = names(&servers);
-    assert!(!listed.iter().any(|n| n == "cmux-cua"), "no workspace, no cmux-cua: {servers}");
-    assert!(listed.iter().any(|n| n == "cmux"), "the cmux server stays: {servers}");
-
-    // A fork keeps its parent's workspace unless the fork names another.
-    let fork_a = local.fork(&a, None).await;
-    assert_eq!(display(&local.servers(&fork_a).await).as_deref(), Some(a_display.as_str()));
-    let fork_b = local.fork(&a, Some(WS_B)).await;
-    assert_eq!(display(&local.servers(&fork_b).await).as_deref(), Some(b_display.as_str()));
-    // A fork naming its workspace in env only takes it over its parent's.
-    let reply =
-        local.fork_reply(&a, json!({"env": {"CMUX_WORKSPACE_ID": WS_B.to_uppercase()}})).await;
-    assert!(reply.get("error").is_none(), "{reply}");
-    let fork_env = reply["result"]["sessionId"].as_str().unwrap().to_owned();
-    assert_eq!(display(&local.servers(&fork_env).await).as_deref(), Some(b_display.as_str()));
     let reply = local.fork_reply(&a, json!({"workspaceId": WS_A, "env": env_b})).await;
     assert_eq!(reason(&reply), "workspace.mismatch", "{reply}");
+    let fork = local.fork(&a, Some(WS_B)).await;
+    assert!(!has_cu(&local.servers(&fork).await));
 
-    // Claude Code: the same display in its --mcp-config; none without a workspace.
+    // Claude Code: none in its --mcp-config either.
     let claude = local.new_session("fakeclaude", Some(WS_B)).await;
     let config = local.claude_config(&claude).await;
-    assert_eq!(
-        config["mcpServers"]["cmux-cua"]["env"]["CMUX_CUA_DISPLAY"],
-        json!(b_display),
-        "{config}"
-    );
-    let claude_none = local.new_session("fakeclaude", None).await;
-    let config = local.claude_config(&claude_none).await;
-    assert!(config["mcpServers"].get("cmux-cua").is_none(), "{config}");
+    assert!(config["mcpServers"].get(CU).is_none(), "{config}");
     assert!(config["mcpServers"].get("cmux").is_some(), "{config}");
-
-    // The allocations are a 0600 file that a restarted daemon reads again.
-    let files: Vec<PathBuf> = std::fs::read_dir(home.join("agent-displays"))
-        .unwrap()
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|x| x == "json"))
-        .collect();
-    assert_eq!(files.len(), 1, "{files:?}");
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(&files[0]).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600, "{}", files[0].display());
-    }
-    let restarted = hub();
-    let mut again = client(&restarted);
-    let b_again = again.new_session("fake", Some(WS_B)).await;
-    assert_eq!(display(&again.servers(&b_again).await).as_deref(), Some(b_display.as_str()));
-    let c = again.new_session("fake", Some(WS_C)).await;
-    let c_display = display(&again.servers(&c).await).expect("workspace C has a display");
-    assert!(c_display != a_display && c_display != b_display, "{c_display}");
 
     let _ = std::fs::remove_dir_all(&root);
 }

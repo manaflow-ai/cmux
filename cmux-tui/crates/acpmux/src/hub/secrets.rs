@@ -24,8 +24,7 @@
 //!   chat a remote device started asks for none.
 //! - The command gets a clean environment: the login environment (PATH and
 //!   friends, `login_env.rs`), HOME, USER, the locale, TMPDIR and the
-//!   secret. Never the daemon's own, which holds helper tokens an agent must
-//!   not see (`cua_socket::scrub_agent_env`).
+//!   secret. Never the daemon's own.
 //! - Any agent can reach the socket, so an ask names its chat but cannot
 //!   prove which agent made it; the card shows the chat it waits in.
 //!
@@ -306,7 +305,6 @@ impl Hub {
             }
         }
         crate::login_env::apply_tokio(&mut command);
-        crate::cua_socket::scrub_agent_env(&mut command);
         command
             .args(args)
             .current_dir(&project)

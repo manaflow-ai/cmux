@@ -599,8 +599,8 @@ def test_bundled_root_markdown_still_runs_macos() -> None:
 
 
 def test_bundled_and_executable_skill_files_run_macos() -> None:
-    # The app bundles skills/cmux-cua as a folder resource.
-    assert_areas(["skills/cmux-cua/SKILL.md"], macos=True, web=False)
+    # The app bundles skills/cmux-computer-use as a folder resource.
+    assert_areas(["skills/cmux-computer-use/SKILL.md"], macos=True, web=False)
     assert_areas(["skills/cmux-settings/scripts/cmux-settings"], macos=True, web=False)
     assert_areas(["skills/cmux-browser/agents/openai.yaml"], macos=True, web=False)
 

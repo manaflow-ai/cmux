@@ -52,6 +52,12 @@ cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
 cmux-mcp-connect.workspace = true
 cmux-link.workspace = true
+# The Computer Use tool catalog and wire types (`computer_use/`): the engine
+# only, no desktops (they run in the worker, never in acpmux).
+cmux-computer-use.workspace = true
+# The cmux-tui daemon socket path (`computer_use/client.rs`); on Windows also the
+# daemon socket itself (`cmux::local_socket`, AF_UNIX with its same-user checks).
+cmux-sdk = { path = "../../bindings/rust", default-features = false, features = ["local-socket"] }
 cmux-git.workspace = true
 cmux-worktree-care.workspace = true
 cmux-wg.workspace = true
@@ -132,7 +138,6 @@ cmux-vault-egress.workspace = true
 inotify = { version = "0.11", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
-cmux-sdk = { path = "../../bindings/rust", default-features = false, features = ["local-socket"] }
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Security",

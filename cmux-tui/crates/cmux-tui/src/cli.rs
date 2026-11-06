@@ -113,6 +113,8 @@ mod machine_server;
 use machine_server::ServerRoute;
 pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]
+mod computer_use;
+#[cfg(unix)]
 mod mcp;
 mod raw;
 #[cfg(unix)]
@@ -424,6 +426,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "device",
     "workflow",
     "remote-host",
+    "computer-use",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -559,6 +562,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
+        .or_else(|| computer_use::run_if_requested(args))
         .or_else(|| status::run_args(args))
     {
         return code;

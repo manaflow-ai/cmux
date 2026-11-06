@@ -344,7 +344,7 @@ class ReuseProducts(TestProductHandoff):
         for path in (
             "scripts/build-diff-sidecar.sh",
             "scripts/setup.sh",
-            "skills/cmux-cua/SKILL.md",
+            "skills/cmux-computer-use/SKILL.md",
             ".gitattributes",
         ):
             self.assertTrue(identity.reaches_product(path), path)

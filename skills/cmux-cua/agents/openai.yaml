@@ -1,7 +1,0 @@
-interface:
-  display_name: "cmux Computer Use"
-  short_description: "cmux Computer Use: see and use desktop apps on the person's machines from a cmux chat."
-  default_prompt: "For a task that needs an app on the person's computer or a look at their screen, use $cmux-cua (the cmux-computer-use tools), never osascript or xdotool keystrokes; input is background by default, and a refused call is reported, not retried."
-
-policy:
-  allow_implicit_invocation: true

@@ -346,7 +346,9 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::InboxThreadParams>(method::MUX_INBOX_THREAD, Request),
         untyped(method::MUX_INBOX_REPLY, Request),
         untyped(method::MUX_PERSON_ENROLL, Request),
-        untyped(method::MUX_COMPUTER_USE_ENROLL, Request),
+        untyped(method::MUX_COMPUTER_USE_CALL, Request),
+        untyped(method::MUX_COMPUTER_USE_MACHINES, Request),
+        untyped(method::MUX_COMPUTER_USE_STATE, Request),
         untyped(method::MUX_PERSON_PROVE, Request),
         untyped(method::MUX_PERSON_HOLDS, Request),
         // The person's phones and their chats (`hub/approvers.rs`, `hub/person.rs`).

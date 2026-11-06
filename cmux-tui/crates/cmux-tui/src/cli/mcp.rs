@@ -27,7 +27,6 @@ mod caller_scope;
 mod chat_tools;
 mod cloud_repo_tools;
 mod code_mode;
-mod computer_use_gate;
 mod config;
 mod keybinding_tools;
 mod live_code_tools;
@@ -227,12 +226,6 @@ pub(super) trait Backend {
         ))
     }
 
-    /// App calls that may run on another thread: a computer use call's
-    /// setup card waits with the call, not on this server's thread
-    /// (`computer_use_gate`). `None`: the call runs without the card.
-    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
-        None
-    }
     /// The app's `system.identify` (`caller`, `beside`); `None` with no caller (placement.rs).
     fn identity(&self) -> Result<Option<Value>, CallFailure> {
         Ok(None)
@@ -374,13 +367,6 @@ impl Backend for LiveBackend {
 
     fn identity(&self) -> Result<Option<Value>, CallFailure> {
         placement::app_identity(&self.global)
-    }
-
-    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
-        let global = self.global.clone();
-        Some(std::sync::Arc::new(move |method: &str, params: Value, timeout: Duration| {
-            transport::app_method(&global, method, params, timeout, None, false)
-        }))
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
@@ -655,8 +641,6 @@ pub(super) struct Server<B> {
     /// While a `cmux_exec` script runs: its time limit, which also bounds a
     /// proxied call it makes (the script holds this thread).
     call_cap: Option<Duration>,
-    /// While a `cmux_exec` script runs: when its time limit ends.
-    call_deadline: Option<Instant>,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
     /// The ids `render` returned in this process: a render may update only one of these.
@@ -682,7 +666,6 @@ impl<B: Backend> Server<B> {
             workflow_activity: None,
             upstreams: Vec::new(),
             call_cap: None,
-            call_deadline: None,
             typed: std::cell::RefCell::default(),
             notes: None,
             renders: std::collections::HashSet::new(),
@@ -923,12 +906,10 @@ impl<B: Backend> Server<B> {
             let mut tools = None;
             let mut images = Vec::new();
             self.call_cap = Some(self.script_limits.total);
-            self.call_deadline = Some(Instant::now() + self.script_limits.total);
             let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
                 self.script_request(request, &mut tools, &mut images)
             });
             self.call_cap = None;
-            self.call_deadline = None;
             let mut result = answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
             });

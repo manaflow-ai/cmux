@@ -157,8 +157,8 @@ class Scope(unittest.TestCase):
         self.assertIn(self.CRATE, dirs)
         self.assertIn("cmux-tui/crates/cmux-server", dirs)  # a direct path dependency
         self.assertIn("cmux-tui/crates/cmux-json", dirs)  # through `workspace = true`
-        self.assertIn("skills/cmux-cua/SKILL.md", files)  # include_str! from outside the crates
-        changed = ["cmux-tui/crates/cmux-json/src/lib.rs", "skills/cmux-cua/SKILL.md", "cmux-tui/Cargo.lock",
+        self.assertIn("skills/cmux-computer-use/SKILL.md", files)  # include_str! from outside the crates
+        changed = ["cmux-tui/crates/cmux-json/src/lib.rs", "skills/cmux-computer-use/SKILL.md", "cmux-tui/Cargo.lock",
                    "README.md", "webviews/src/app.tsx", "cmux-tui/crates/ghostty-vt/src/lib.rs"]
         self.assertEqual(verdict.touches(ROOT, self.CRATE, changed), changed[:3])
 

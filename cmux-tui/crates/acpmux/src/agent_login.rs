@@ -220,9 +220,6 @@ impl Cli {
                 cmd.env_remove(&k);
             }
         }
-        for key in crate::cua_socket::AGENT_SCRUBBED_ENV {
-            cmd.env_remove(key);
-        }
         cmd.env_remove("CODEX_THREAD_ID")
             .env_remove("OMPCODE")
             .env_remove("CLAUDECODE")

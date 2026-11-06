@@ -1364,10 +1364,15 @@ process keeps running.
 
 ### cmux tools in every session
 
-Every local session gets cmux's own agent tools: the `cmux-cua` MCP server (Computer Use)
-when `cmux-cua` sits next to the acpmux binary, the `cmux` MCP server with the browser REPL
-tools when `cmux.json` sets `"mcp": {"enabled": true}`, and, for Claude Code, a session-only
-plugin `cmux` with the skills `cmux:cmux-browser` and `cmux:cmux-cua`. Set
+Every local session gets cmux's own agent tools: the `cmux-computer-use` MCP server
+(`acpmux computer-use-mcp`, cmux Computer Use, built in) unless `cmux.json` sets
+`computerUse.mode` to `off`, the `cmux` MCP server with the browser REPL tools, and, for
+Claude Code, a session-only plugin `cmux` with the skills `cmux:cmux-browser` and
+`cmux:cmux-computer-use`. The Computer Use server answers `initialize` and `tools/list` from
+the catalog compiled into acpmux, so its tools are there while the worker starts or restarts;
+each call asks the cmux-tui daemon (`computer-use-endpoint`) for the worker and retries the
+same call id across a restart for up to 30 s. A call with `machine` goes to that peer daemon
+(`_acpmux/computer_use_call`, `src/server/computer_use_relay.rs`). Set
 `ACPMUX_AGENT_TOOLS=0` in the daemon's environment to turn all of them off, or in one
 profile's or preset's `env` to turn them off for that profile only. A Claude profile whose
 `argv` has `--strict-mcp-config` also gets none of them, so it keeps exactly the servers its

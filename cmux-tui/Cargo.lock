@@ -19,6 +19,7 @@ dependencies = [
  "cmux-cloud-client",
  "cmux-coderouter",
  "cmux-codex-acp",
+ "cmux-computer-use",
  "cmux-git",
  "cmux-host",
  "cmux-host-budget",

@@ -1194,7 +1194,19 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/computer_use_enroll",
+      "name": "_acpmux/computer_use_call",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/computer_use_machines",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/computer_use_state",
       "params": true,
       "result": true
     },

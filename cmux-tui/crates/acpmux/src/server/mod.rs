@@ -1951,6 +1951,7 @@ mod agent_messages;
 mod app_reply;
 mod client_request;
 mod clock_text;
+mod computer_use_relay;
 pub(crate) use clock_text::{civil_from_days, iso};
 mod change_kind;
 mod chat_windows;

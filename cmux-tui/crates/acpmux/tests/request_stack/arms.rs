@@ -86,10 +86,25 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Run(json!({"key": "0000000000000000000000000000000000000000000000000000000000000000"})),
         ),
         (
-            method::MUX_COMPUTER_USE_ENROLL,
+            method::MUX_COMPUTER_USE_CALL,
             Any(
-                json!({"socket": "$CWD/cua.sock", "agentToken": "t"}),
-                "an unsigned build refuses (invalid params) before it reads the socket",
+                json!({"machine": "nowhere", "name": "status", "session": "$S", "call_id": "c1"}),
+                "the hub has no peer of that name (unknown_machine)",
+            ),
+        ),
+        (method::MUX_COMPUTER_USE_MACHINES, Run(json!({}))),
+        (
+            method::MUX_WHO_ELSE,
+            Any(
+                json!({"sessionId": "$S"}),
+                "an arm from before this row; any answer is right here",
+            ),
+        ),
+        (
+            method::MUX_COMPUTER_USE_STATE,
+            Any(
+                json!({}),
+                "the local socket is refused: only a peer asks for this machine's state",
             ),
         ),
         (method::SESSION_NEW, Run(json!({"cwd": "$CWD", "mcpServers": []}))),

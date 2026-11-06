@@ -91,12 +91,14 @@ const BOILERPLATE: [&str; 4] = [
 
 pub(super) const INSTRUCTIONS: &str = acpmux::agent_tools::prompt_sources::CODE_MODE_INSTRUCTIONS;
 
-/// The tool family of the computer use server (`cmux-cua` folds as `cua_*`).
-pub(super) const COMPUTER_USE_FAMILY: &str = "cua";
+/// The tool family of the computer use server (`cmux-computer-use` folds as `cu_*`).
+pub(super) const COMPUTER_USE_FAMILY: &str = acpmux::computer_use::tools::TOOL_PREFIX;
 /// What `cmux_exec` says when the chat has computer use.
-pub(super) const COMPUTER_USE_NOTE: &str = " It includes cmux Computer Use: the cua_* tools see \
-    and operate the apps on the person's Mac (screenshots, clicks, typing). Use them for any \
-    task in a desktop app, never osascript or AppleScript keystrokes; `cmux.docs(\"cua\")` \
+pub(super) const COMPUTER_USE_NOTE: &str = " It includes cmux Computer Use, built into cmux \
+    (nothing to install; prefer it over any other computer-use driver): the cu_* tools see \
+    and use the apps on this computer and on the person's other machines (`machine`, \
+    list_machines), in the background, without taking their focus. Use them for any task in \
+    a desktop app, never osascript, AppleScript or xdotool keystrokes; `cmux.docs(\"cu\")` \
     lists them with their rules. Never type into a terminal or script tool, never copy app \
     data out of the app unless the person asked, and stop before a payment, a password, \
     sending a message or deleting that they did not ask for, and say what is left.";
