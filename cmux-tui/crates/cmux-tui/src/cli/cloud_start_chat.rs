@@ -388,16 +388,25 @@ pub(super) fn shell_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))
 }
 
-/// Whether an app error is the account being signed out.
+/// Whether an app error is the cmux account being signed out. A harness's own sign-in (acpmux's `auth.*`
+/// kinds, "Claude is not signed in here") is the machine's agent, never this account: `cmux cloud sign-in`
+/// does not fix it, so it keeps its own error. Beside the codes, only the app's own refusal
+/// (`CloudStrings.signInFirst`) is read from the message.
 fn signed_out(error: &Value) -> bool {
     let code = at(error, "code").as_str().unwrap_or_default();
+    let harness = |key: &str| at(error, key).as_str().is_some_and(|k| k.starts_with("auth."));
+    if harness("errorKind")
+        || harness("error_kind")
+        || (code.starts_with("auth.") && code != "auth.required")
+    {
+        return false;
+    }
     let message = at(error, "message").as_str().unwrap_or_default().to_lowercase();
     code.contains("signed_out")
         || code.contains("not_signed_in")
         || code == "auth.required"
-        || message.contains("sign in")
-        || message.contains("signed out")
-        || message.contains("not signed in")
+        || message.contains("sign in to use cloud")
+        || message.contains("cmux cloud sign-in")
 }
 
 /// Where a start the app answered `pending` for is stuck, read from the app's own machine list
@@ -898,7 +907,7 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
         return Relayed::Answered(failed(
             &code,
             message,
-            json!({"machine_id": machine_id, "relay": relayed}),
+            json!({"machine_id": machine_id, "relay": relayed, "error": typed_error(&relayed)}),
             exit,
         ));
     };
@@ -937,7 +946,32 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
         _ => 1,
     };
     let message = at(&relayed, "error_message").as_str().unwrap_or("the turn failed").to_owned();
-    Relayed::Answered(failed(code, message, json!({"answer": answer}), exit))
+    Relayed::Answered(failed(
+        code,
+        message,
+        json!({"answer": answer, "error": typed_error(&relayed)}),
+        exit,
+    ))
+}
+
+/// The machine's typed error the app relayed (`CloudStartSession.relayFields`): acpmux's detail, a closed
+/// daemon's cause, the error's kind, what to do and whether a retry may work; only the fields the app sent.
+fn typed_error(relayed: &Value) -> Value {
+    let mut typed = serde_json::Map::new();
+    for (from, to) in [
+        ("error_detail", "detail"),
+        ("error_cause", "cause"),
+        ("error_kind", "kind"),
+        ("error_recovery", "recovery"),
+    ] {
+        if let Some(text) = at(relayed, from).as_str() {
+            typed.insert(to.to_owned(), json!(text));
+        }
+    }
+    if let Some(retryable) = at(relayed, "error_retryable").as_bool() {
+        typed.insert("retryable".to_owned(), json!(retryable));
+    }
+    Value::Object(typed)
 }
 
 /// A name `cloud new-machine --name` takes (the app's `CloudMachineRequest.isPlainName`): 1-64 ASCII letters,
@@ -1245,4 +1279,4 @@ fn at<'a>(value: &'a Value, key: &str) -> &'a Value {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::cli) mod tests;

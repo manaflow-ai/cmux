@@ -30,6 +30,11 @@ struct GitHubPageProviderTests {
         let link = GitHubLink(URL(string: "https://github.com/manaflow-ai/cmux/pull/36002/files")!)
         #expect(link?.url == Self.pull)
         #expect(link?.reference == "manaflow-ai/cmux#36002")
+        // The Files tab opens the diff itself; the plain link opens the page.
+        #expect(link?.files == true)
+        #expect(link?.filesURL.absoluteString == "https://github.com/manaflow-ai/cmux/pull/36002/files")
+        #expect(GitHubLink(Self.pull)?.files == false)
+        #expect(GitHubLink(URL(string: "https://github.com/manaflow-ai/cmux/pull/36002/commits")!)?.files == false)
         for other in ["https://github.com/manaflow-ai/cmux/issues/1", "https://github.com/manaflow-ai/cmux/pull/1#issuecomment-2",
                       "https://github.com/manaflow-ai/cmux/pull/1?w=1", "https://gitlab.com/a/b/pull/1", "http://github.com/a/b/pull/1",
                       "https://github.com/manaflow-ai/cmux/commit/abc"] {
@@ -105,6 +110,18 @@ struct GitHubPageProviderTests {
         let next = PageCallContext(page: "cmux.github", userGesture: true, gestureEvent: 2)
         _ = try? await provider.call("cmux.github.diff.open", params: ["url": .string(Self.pull.absoluteString)], context: next)
         #expect(reads.count == 2)
+    }
+
+    @Test func aFilesLinkOpensItsDiffElseItsWebPage() async throws {
+        let link = try #require(GitHubLink(URL(string: Self.pull.absoluteString + "/files")!))
+        for (answer, opens) in [(Self.patch as String?, "diff"), (nil, "web"), ("not a diff", "web")] {
+            let opened: (String, String) = await withCheckedContinuation { done in
+                GitHubPageProvider.openFiles(link, read: { _ in answer }, openDiff: { done.resume(returning: ("diff", $0)) },
+                                             openWeb: { done.resume(returning: ("web", $0.absoluteString)) })
+            }
+            #expect(opened.0 == opens)
+            #expect(opened.1 == (opens == "diff" ? Self.patch : Self.pull.absoluteString + "/files"))
+        }
     }
 
     @Test func otherOpsAndLinksAreRefused() async {

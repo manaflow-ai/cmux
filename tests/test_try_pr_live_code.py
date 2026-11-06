@@ -19,6 +19,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Greeting.swift"
+# Another CmuxNext module: the live code build makes every one of them patchable.
+DESIGN_FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Shade.swift"
 SCRIPTS = ["scripts/cmux-next/try-pr.sh", "scripts/cmux-next/side-instance.sh", "scripts/cmux-next/live_apply.py",
            "scripts/live-code/patch.py"]
 BASE_SWIFT = 'struct Greeting {\n    func text() -> String {\n        return "hello"\n    }\n}\n'
@@ -69,8 +71,9 @@ class TryPrLiveCodeTests(unittest.TestCase):
         for rel in SCRIPTS:
             (work / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / rel, work / rel)
-        (work / APP_FILE).parent.mkdir(parents=True)
-        (work / APP_FILE).write_text(BASE_SWIFT)
+        for rel in (APP_FILE, DESIGN_FILE):
+            (work / rel).parent.mkdir(parents=True)
+            (work / rel).write_text(BASE_SWIFT)
         git(work, "add", "-A")
         git(work, *ident, "commit", "-q", "-m", "base")
         self.base = git(work, "rev-parse", "HEAD")
@@ -92,11 +95,16 @@ class TryPrLiveCodeTests(unittest.TestCase):
         self.build = build
         filelist = self.tmp / "CmuxNextApp.SwiftFileList"
         filelist.write_text(f"{build / APP_FILE}\n{self.tmp}/DerivedData/resource_bundle_accessor.swift\n")
+        design_list = self.tmp / "CmuxNextDesign.SwiftFileList"
+        design_list.write_text(f"{build / DESIGN_FILE}\n")
         self.log = self.tmp / "reload.log"
         self.log.write_text(
             f"builtin-SwiftDriver -- swiftc -module-name CmuxNextApp -Onone @{filelist}\n"
             f"{tc}/swift-frontend -frontend -c -primary-file {build / APP_FILE} -module-name CmuxNextApp "
-            f"-target arm64-apple-macos14 -Onone -enable-testing -o {self.tmp}/x.o\n")
+            f"-target arm64-apple-macos14 -Onone -enable-testing -o {self.tmp}/x.o\n"
+            f"builtin-SwiftDriver -- swiftc -module-name CmuxNextDesign -Onone @{design_list}\n"
+            f"{tc}/swift-frontend -frontend -c -primary-file {build / DESIGN_FILE} -module-name CmuxNextDesign "
+            f"-target arm64-apple-macos14 -Onone -enable-testing -o {self.tmp}/y.o\n")
         self.app = self.tmp / "cmux DEV live.app"
         (self.app / "Contents").mkdir(parents=True)
         with open(self.app / "Contents/Info.plist", "wb") as f:
@@ -157,6 +165,18 @@ class TryPrLiveCodeTests(unittest.TestCase):
         self.assertEqual(len(list(self.live.glob("patch-*.dylib"))), 1)
         self.assertEqual(len(self.worktrees()), 1, "the scratch worktree is removed")
 
+    def test_a_body_change_in_another_cmuxnext_module_loads_with_its_own_command(self):
+        self.push_pr(lambda w: (w / DESIGN_FILE).write_text(BASE_SWIFT.replace('"hello"', '"design from the PR"')))
+        self.answer_patches()
+        out = self.try_pr()
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("swift-live", out.stdout)
+        self.assertRegex(out.stdout, r"live code: applied patch-\d+-\d+\.dylib")
+        recorded = self.record.read_text()
+        self.assertIn(DESIGN_FILE, recorded)
+        self.assertIn("design from the PR", recorded)
+        self.assertNotIn(APP_FILE, recorded)
+
     def test_a_refused_patch_falls_back_to_the_dev_build(self):
         self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"')))
         self.answer_patches(word="refused")
@@ -200,7 +220,7 @@ class TryPrLiveCodeTests(unittest.TestCase):
         self.push_pr(edit)
         out = self.try_pr("--no-build")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
-        self.assertIn("only edits to CmuxNextApp's existing Swift files; not: Packages/macOS/CmuxNext/Sources/CmuxNextApp/Extra.swift", out.stdout)
+        self.assertIn("only edits to the CmuxNext modules' existing Swift files; not: Packages/macOS/CmuxNext/Sources/CmuxNextApp/Extra.swift", out.stdout)
         self.assertIn("so a dev build", out.stdout)
         self.assertFalse(self.record.exists(), "nothing was compiled")
         self.assertEqual(len(self.worktrees()), 1)

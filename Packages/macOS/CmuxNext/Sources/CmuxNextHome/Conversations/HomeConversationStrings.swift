@@ -85,6 +85,8 @@ enum HomeConversationStrings {
 
     /// The main Chief's tag in the list.
     static var mainChief: String { String(localized: "home.list.chief.main", defaultValue: "Main", bundle: .module) }
+    /// The tag after a channel's name in the Home list (plans/cmux-next/chief-channels-DESIGN.md).
+    static var channelTag: String { String(localized: "home.list.channel", defaultValue: "Channel", bundle: .module) }
     /// A Chief that runs on this Mac.
     static var placeThisMac: String { String(localized: "home.list.chief.thisMac", defaultValue: "This Mac", bundle: .module) }
     /// A Chief that runs in the cloud (the Hosted Chief).

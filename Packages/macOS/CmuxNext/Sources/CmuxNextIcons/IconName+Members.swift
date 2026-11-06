@@ -314,6 +314,7 @@ extension IconName {
     nonisolated public static let toolRead = IconName("tool.read")
     nonisolated public static let toolSearch = IconName("tool.search")
     nonisolated public static let toolShell = IconName("tool.shell")
+    nonisolated public static let toolThought = IconName("tool.thought")
     nonisolated public static let toolWeb = IconName("tool.web")
     nonisolated public static let tools = IconName("tools")
     nonisolated public static let transcriptSummary = IconName("transcript.summary")

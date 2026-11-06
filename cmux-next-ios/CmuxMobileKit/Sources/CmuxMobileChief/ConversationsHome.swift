@@ -237,7 +237,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                stamp: stamp, identifier: "home.chief", place: .cloud) { cloudTileMenu }
                 case .macChief:
                     sessionRow(sources.mac, name: String(localized: "Chief"), tag: chiefTag(main: !sources.isCloudReady, place: macTag),
-                               stamp: stamp, identifier: "home.chief.mac", place: .mac) { callChiefItem }
+                               stamp: stamp, identifier: "home.chief.mac", place: .mac) { CallChiefItem(chief: sources.mac) }
                 }
             }
             if !searching, feed.problem != nil || homeIsOffline {
@@ -422,15 +422,13 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The Mac's row menu, the actions that are the person's list state:
     /// Pin or Unpin, Mark as Read or Mark as Unread; Chief's row also calls Chief.
     private func rowMenu(_ row: MacHomeRow) -> some View {
-        HomeRowMenu(id: row.id, isMacChief: isMacChief(row), isPinned: row.isPinned, isUnread: row.unreadCount > 0, feed: feed,
+        HomeRowMenu(id: row.id, isMacChief: isMacChief(row), macChief: sources.mac, isPinned: row.isPinned, isUnread: row.unreadCount > 0, feed: feed,
                     delete: askToDelete)
     }
 
-    private var callChiefItem: some View { CallChiefItem() }
-
     @ViewBuilder private var cloudTileMenu: some View {
         let cloud = sources.cloud
-        callChiefItem
+        CallChiefItem(chief: cloud)
         if cloud.conversationID != nil {
             Button(cloud.isMuted ? "Show Alerts" : "Hide Alerts", systemImage: cloud.isMuted ? "bell" : "bell.slash") {
                 cloud.setMuted(!cloud.isMuted)
@@ -645,6 +643,8 @@ struct HomeRowSwipeButtons: View {
 struct HomeRowMenu: View {
     let id: String
     let isMacChief: Bool
+    /// The Mac Chief its Call Chief calls (the row is the Mac Chief's).
+    var macChief: ChiefSession = ChiefSources.shared.mac
     let isPinned: Bool
     let isUnread: Bool
     let feed: MacHomeFeed
@@ -654,7 +654,7 @@ struct HomeRowMenu: View {
     var body: some View {
         // Settings → Long-Press Menus: the items the person hid stay out.
         let hidden = CmuxMobileMenuCustomization.hidden()
-        if isMacChief { CallChiefItem() }
+        if isMacChief { CallChiefItem(chief: macChief) }
         if !hidden.contains("homeRow.pin") {
             Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin") {
                 theme.haptics.selection()
@@ -676,10 +676,12 @@ struct HomeRowMenu: View {
     }
 }
 
-/// A live voice call with Chief (``ChiefCallLauncher``).
+/// A live voice call with this row's Chief, and only it (``ChiefCallLauncher``).
 struct CallChiefItem: View {
+    let chief: ChiefSession
+
     var body: some View {
-        Button("Call Chief", systemImage: "phone") { ChiefCallLauncher.shared.call() }
+        Button("Call Chief", systemImage: "phone") { ChiefCallLauncher.shared.call(chief) }
             .accessibilityIdentifier("home.chief.call")
     }
 }

@@ -3,6 +3,7 @@ import type { Env } from "./env.ts"
 import { PAIRING_TTL_MS } from "./domains/pairing.ts"
 import { InviteOwner, ownerSchema, type OwnerBegin } from "./pair-invite-owner.ts"
 import { InviteStore, inviteSchema, type InviteArrival, type InvitePeek, type InviteRedeem, type InviteVoidReason } from "./pair-invite-store.ts"
+import { machineJoinFrame, machineJoinLive, type PairMachineJoin } from "./pair-machine-join.ts"
 import { networkLocator, networkMatchesPairing, sameApproval, type PairingApproval, type ServerNetworkEnrollment } from "./server-pair-network.ts"
 
 export interface PairingRecord {
@@ -51,6 +52,7 @@ type Row = {
   invited_by: string | null
   invited_team: string | null
   refused: string | null
+  machine_join: string | null
 }
 
 /** What a box waiting on a code whose invite was voided hears. */
@@ -80,7 +82,7 @@ export class PairingDO extends DurableObject<Env> {
     )
     // Additive, private state on old PairingDOs. No secret enters an owner ledger or projection.
     const columns = new Set(ctx.storage.sql.exec<{ name: string }>("PRAGMA table_info(pairing)").toArray().map((c) => c.name))
-    for (const column of ["approval", "network_enrollment", "invite", "invited_by", "invited_team", "refused"]) if (!columns.has(column)) ctx.storage.sql.exec(`ALTER TABLE pairing ADD COLUMN ${column} TEXT`)
+    for (const column of ["approval", "network_enrollment", "invite", "invited_by", "invited_team", "refused", "machine_join"]) if (!columns.has(column)) ctx.storage.sql.exec(`ALTER TABLE pairing ADD COLUMN ${column} TEXT`)
     inviteSchema(ctx.storage.sql)
     ownerSchema(ctx.storage.sql)
     this.invites = new InviteStore(ctx)
@@ -197,7 +199,7 @@ export class PairingDO extends DurableObject<Env> {
    * approval); every other approver is refused. Single-threaded per object, so
    * two concurrent approvals cannot both pass.
    */
-  async claim(code: string, approver: string, now: number, approval?: PairingApproval): Promise<{ ok: true; record: PairingRecord; result: PairingResult | null; network: ServerNetworkEnrollment | null } | { ok: false; reason: "unknown" | "claimed" | "not_inviter" }> {
+  async claim(code: string, approver: string, now: number, approval?: PairingApproval): Promise<{ ok: true; record: PairingRecord; result: PairingResult | null; network: ServerNetworkEnrollment | null; machine_join: PairMachineJoin | null } | { ok: false; reason: "unknown" | "claimed" | "not_inviter" }> {
     const r = this.row(now)
     if (!r || r.code !== code) return { ok: false, reason: "unknown" }
     // A box that came in through an invite is approved by the person who made the invite, into its team.
@@ -209,7 +211,23 @@ export class PairingDO extends DurableObject<Env> {
     if (approval && r.result !== null && (JSON.parse(r.result) as PairingResult).team !== approval.team) return { ok: false, reason: "claimed" }
     if (r.approver === null) this.ctx.storage.sql.exec(`UPDATE pairing SET approver = ? WHERE id = 1`, approver)
     if (approval && r.approval === null) this.ctx.storage.sql.exec(`UPDATE pairing SET approval = ? WHERE id = 1`, JSON.stringify(approval))
-    return { ok: true, record: this.record(r), result: r.result ? (JSON.parse(r.result) as PairingResult) : null, network: r.network_enrollment ? JSON.parse(r.network_enrollment) : null }
+    return { ok: true, record: this.record(r), result: r.result ? (JSON.parse(r.result) as PairingResult) : null, network: r.network_enrollment ? JSON.parse(r.network_enrollment) : null, machine_join: r.machine_join ? JSON.parse(r.machine_join) : null }
+  }
+
+  /**
+   * Pin the box's join token (pair-machine-join.ts) before install/host writes, as reserveNetwork pins its grant: a
+   * retried approval hands the box the token it was first given, never a second machine. Private to this object
+   * and the box's collect socket, like the network grant.
+   */
+  async reserveMachineJoin(code: string, thumbprint: string, approver: string, join: PairMachineJoin, now: number): Promise<{ ok: true; join: PairMachineJoin } | { ok: false }> {
+    const row = this.row(now)
+    if (!row || row.code !== code || row.approver !== approver || !equal(row.thumbprint, thumbprint) || row.result !== null) return { ok: false }
+    // A live pinned token wins; an expired one (never sent: no result yet) is replaced.
+    const pinned: PairMachineJoin | null = row.machine_join ? JSON.parse(row.machine_join) : null
+    if (pinned && machineJoinLive(pinned, now)) return { ok: true, join: pinned }
+    if (!machineJoinLive(join, now)) return { ok: false }
+    this.ctx.storage.sql.exec(`UPDATE pairing SET machine_join = ? WHERE id = 1`, JSON.stringify(join))
+    return { ok: true, join }
   }
 
   /** Pin the first valid secret before install/host writes. A lost RPC reply reuses the stored secret. */
@@ -232,7 +250,8 @@ export class PairingDO extends DurableObject<Env> {
     if (approval && (approval.team !== result.team || (approval.mesh !== null && (!grant || !networkMatchesPairing(grant, this.record(row), approval, now) || JSON.stringify(result.network) !== JSON.stringify(networkLocator(grant)))))) return null
     if (grant && (!approval?.mesh || !result.network)) return null
     if (result.network && !grant) return null
-    return JSON.stringify({ t: "paired", ...result, ...(grant ? { network_enrollment: grant } : {}) })
+    const join: PairMachineJoin | null = row.machine_join ? JSON.parse(row.machine_join) : null
+    return JSON.stringify({ t: "paired", ...result, ...(grant ? { network_enrollment: grant } : {}), ...(join && machineJoinLive(join, now) ? { machine_join: machineJoinFrame(join) } : {}) })
   }
 
   /**

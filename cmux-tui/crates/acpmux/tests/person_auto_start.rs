@@ -567,6 +567,26 @@ async fn auto_start_the_default_full_access_never_widens_a_caller_session_that_a
     assert_eq!(mode(&mut agent, child["sessionId"].clone()).await, "full-access", "{child}");
 }
 
+/// A running chat may move to the start mode of new chats (`hub/start_mode.rs`, full access by
+/// default) without the person: the person already chose that level for every new chat (user,
+/// 2026-11-04: "set EVERY running ACP chat ... to bypass permissions (yolo) now, not only new
+/// sessions"). Any other mode that does not ask stays the person's to set.
+#[tokio::test]
+async fn auto_start_a_running_chat_moves_to_the_configured_start_mode_without_the_person() {
+    let d = Daemon::start("live");
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    let s = app.ok("session/new", new_params(&d, json!({"harness": "wide"}))).await;
+    let id = s["sessionId"].clone();
+    app.ok("session/set_mode", json!({"sessionId": id, "modeId": "strict"})).await;
+    assert_eq!(mode(&mut app, id.clone()).await, "strict", "{s}");
+    let mut cli = Rpc::plain(&d.socket).await;
+    let r = cli.call("session/set_mode", json!({"sessionId": id, "modeId": "full-access"})).await;
+    assert!(r.get("error").is_none(), "the configured start mode was refused: {r}");
+    assert_eq!(mode(&mut cli, id.clone()).await, "full-access", "{r}");
+    let r = cli.call("session/set_mode", json!({"sessionId": id, "modeId": "yolo"})).await;
+    assert_eq!(reason(&r), REASON, "a mode that is not the start mode: {r}");
+}
+
 /// An adopt that finds a session already running never moves it to the
 /// caller's mode: a caller in a no-ask mode that names another running
 /// session's conversation with `ifLive: "open"` is refused, and that
