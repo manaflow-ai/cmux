@@ -158,14 +158,14 @@ final class AppServices {
         weak var objectMenu: NSMenu?
     }
     #endif
-    /// The Machines section's hub-joined machines (`cmux machine list`); signed out, no service: a read empties them.
+    /// The Machines section's hub-joined machines (`cmux machine list`); signed out or switched account or team: emptied, then read.
     private(set) lazy var joinedMachines = JoinedMachineStore(service: { [weak self] in
         guard let self else { return nil }
         #if DEBUG
         if let fixture = self.debugFixtures.joinedMachines { return fixture }
         #endif
         return self.cloud.auth.isSignedIn ? MachineJoinService.app(self) : nil
-    }).following(signIn: { [weak self] in self?.cloud.auth.isSignedIn ?? false })
+    }).following(account: { [weak self] in self?.cloud.auth.accountKey })
     /// This Mac's join consent (Settings > Devices' switches, the one-time sheet): all labs.machineJoin still gates.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)
     /// The app's latest key or mouse input and whether it was the person's (HID system), over the app's one
@@ -210,7 +210,7 @@ final class AppServices {
     let resizes = ResizeCoordinator()
     /// Browser tabs each pane also lists (`browser.page.mirror`): one live page shown in a second pane.
     let tabMirrors = TabMirrors()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes, memoryPressure: memoryPressure)  // first read in init (no IUO)
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.window_record` and `--record-launch`'s recordings.
     let windowRecord = DebugWindowRecord()
@@ -421,7 +421,7 @@ final class AppServices {
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch, heldKeyReplay: heldKeyReplay)  // first read in init (no IUO)
     /// Where a creation hold's keys run again (``HeldKeyReplay``): `AppDelegate` passes `NSApp.sendEvent`.
     private let heldKeyReplay: HeldKeyReplay
-    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
+    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, memoryPressure: memoryPressure)  // first read in init (no IUO)
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// The wallpaper choices, built off main and kept current by folder events (BackdropCatalogStore).

@@ -18,7 +18,11 @@
 //!
 //! The thread reconnects with backoff (1 s doubling to 30 s), minting a fresh
 //! bearer each time, and pings every 20 s; a socket with no answer for 60 s
-//! is dropped and dialed again.
+//! is dropped and dialed again. A wake from a pause ([`Relay::resumed`], or
+//! the wall clock leaping between pings) drops the socket and dials again at
+//! once, on a fresh HTTPS connection: the thread's own clock stood still
+//! through the pause, so the old socket looks alive here while the platform
+//! may send the next chat down it. Running chats carry on to the new socket.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -39,6 +43,8 @@ pub const PROTOCOL: &str = "cmux.machine-relay/1";
 const PING_EVERY: Duration = Duration::from_secs(20);
 const DEAD_AFTER: Duration = Duration::from_secs(60);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+/// Failed dials after a resume that its running chats wait out for the next socket.
+const RESUME_REDIALS: u8 = 3;
 /// Chats run at once; the platform holds at most 8 per machine.
 const MAX_CHATS: usize = 8;
 const MAX_PROMPT_BYTES: usize = 256 * 1024;
@@ -227,6 +233,12 @@ pub fn final_event(exit: Option<i32>, stdout: &str, stderr: &str) -> Value {
 
 /// [`final_event`], where `cut` says the send's output passed [`MAX_SEND_OUT`]: its object is not whole, so
 /// `done` carries no `reply` (the streamed `text` events stand) and says so with `reply_cut`.
+///
+/// A failure keeps acpmux's type: its `--json` error envelope (`cli/errors.rs`, the last stderr line) gives the
+/// `detail` (`daemon_closed`, `trust_required`, ...), acpmux's own `code`, `retryable`, the `errorKind` and a closed
+/// daemon's `cause` (`panicked`, `crashed`, `socket_left`, ...: acpmux `client::closed_cause`) and its `recovery`, so a
+/// closed daemon, a refused permission and an auth failure stay told apart past the relay (hq#7086). Only short
+/// code-shaped words go up beside acpmux's sentence; stderr with no envelope stays a plain failure.
 pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) -> Value {
     if exit == Some(0) {
         if cut {
@@ -242,6 +254,22 @@ pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) 
         }
         return done;
     }
+    let line = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+    let envelope = serde_json::from_str::<Value>(line)
+        .ok()
+        .and_then(|v| v.get("error").cloned())
+        .filter(|e| e.get("code").is_some_and(Value::is_string));
+    let word = |key: &str| {
+        envelope
+            .as_ref()
+            .and_then(|e| e.pointer(key))
+            .and_then(Value::as_str)
+            .filter(|w| code_like(w))
+    };
+    // A signal leaves no exit status: the envelope's own exit decides then.
+    let exit = exit.or_else(|| {
+        envelope.as_ref().and_then(|e| e.get("exit")).and_then(Value::as_i64).map(|x| x as i32)
+    });
     // acpmux's exit codes (cli/errors.rs `Code`).
     let code = match exit {
         Some(3) => "chat.timeout",
@@ -249,8 +277,38 @@ pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) 
         Some(5) => "chat.permission_denied",
         _ => "chat.failed",
     };
-    let line = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
-    json!({"kind": "error", "code": code, "message": line.chars().take(300).collect::<String>()})
+    let message =
+        envelope.as_ref().and_then(|e| e.get("message")).and_then(Value::as_str).unwrap_or(line);
+    let mut event = json!({"kind": "error", "code": code, "message": message.chars().take(300).collect::<String>()});
+    if let (Some(e), Some(o)) = (&envelope, event.as_object_mut()) {
+        for (from, to) in [
+            ("/code", "acpmux_code"),
+            ("/detail", "detail"),
+            ("/errorKind", "error_kind"),
+            ("/data/cause", "cause"),
+        ] {
+            if let Some(w) = word(from) {
+                o.insert(to.to_owned(), json!(w));
+            }
+        }
+        if let Some(retryable) = e.get("retryable").and_then(Value::as_bool) {
+            o.insert("retryable".to_owned(), json!(retryable));
+        }
+        // What to do about it (acpmux `recovery.rs`): acpmux's own sentence, bounded as the message is.
+        if let Some(recovery) =
+            e.get("recovery").and_then(Value::as_str).filter(|r| !r.trim().is_empty())
+        {
+            o.insert("recovery".to_owned(), json!(recovery.chars().take(300).collect::<String>()));
+        }
+    }
+    event
+}
+
+/// A short code (`daemon_closed`, `auth.signed_out`): never a sentence, a path or a value.
+fn code_like(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_.-".contains(&b))
 }
 
 /// `https://x` to `wss://x/v1/cloud/machines/{machine}/relay`.
@@ -315,6 +373,7 @@ impl Runner {
 /// rebind must not leave the old machine's socket taking chats).
 pub struct Relay {
     stop: watch::Sender<bool>,
+    resumed: watch::Sender<u64>,
 }
 
 impl Drop for Relay {
@@ -362,10 +421,17 @@ impl Relay {
         log: fn(&str),
     ) -> std::io::Result<Relay> {
         let (stop, stopping) = watch::channel(false);
+        let (resumed, resumes) = watch::channel(0);
         std::thread::Builder::new()
             .name("cmux-host-relay".to_owned())
-            .spawn(move || run(client, runner, now_wall_ms, log, stopping))?;
-        Ok(Relay { stop })
+            .spawn(move || run(client, runner, now_wall_ms, log, stopping, resumes))?;
+        Ok(Relay { stop, resumed })
+    }
+
+    /// The machine woke from a pause (`HostEvent::Resumed`): the socket is dropped and dialed again at once, its
+    /// chats carried on, and the bearer minted on a fresh HTTPS connection.
+    pub fn resumed(&self) {
+        self.resumed.send_modify(|n| *n = n.wrapping_add(1));
     }
 }
 
@@ -375,6 +441,7 @@ fn run<H: Http>(
     now_wall_ms: fn() -> u64,
     log: fn(&str),
     mut stop: watch::Receiver<bool>,
+    mut resumes: watch::Receiver<u64>,
 ) {
     if !child_waits_work() {
         return log(
@@ -391,17 +458,41 @@ fn run<H: Http>(
     };
     let mut backoff = Duration::from_secs(1);
     let mut last_error = String::new();
+    let mut seen = *resumes.borrow();
+    let mut link = Link::default();
+    // Failed dials a resume's chats may wait out for the next socket; past them, they end as on any drop.
+    let mut carry = 0u8;
     while !*stop.borrow() {
+        // A resume while no socket was up: the pooled HTTPS connection is as stale as the socket was.
+        if *resumes.borrow() != seen {
+            seen = *resumes.borrow();
+            client.reset_transport();
+        }
         let outcome = match client.token(now_wall_ms()) {
-            Ok(token) => match rt.block_on(or_stop(&mut stop, serve(&url, &token, &runner))) {
-                Some(outcome) => outcome,
-                None => break,
-            },
+            Ok(token) => {
+                let serving =
+                    serve(&url, &token, &runner, &mut link, &mut resumes, seen, now_wall_ms);
+                match rt.block_on(or_stop(&mut stop, serving)) {
+                    Some(outcome) => outcome,
+                    None => break,
+                }
+            }
             Err(e) => Err(format!("token: {e}")),
         };
         match outcome {
+            Ok(Ended::Resumed) => {
+                log("relay: the machine resumed; dialing again");
+                seen = *resumes.borrow();
+                client.reset_transport();
+                backoff = Duration::from_secs(1);
+                carry = RESUME_REDIALS;
+                continue;
+            }
             // A socket that was up resets the backoff.
-            Ok(()) => backoff = Duration::from_secs(1),
+            Ok(Ended::Dropped) => {
+                backoff = Duration::from_secs(1);
+                carry = 0;
+            }
             Err(e) => {
                 if e != last_error {
                     log(&format!("relay: {e}"));
@@ -410,20 +501,40 @@ fn run<H: Http>(
                 backoff = (backoff * 2).min(Duration::from_secs(30));
             }
         }
-        pause(&rt, &mut stop, backoff);
+        // Every other end drops the socket's chats: the platform ended their streams with it (host_gone), and a
+        // cancel for them could only come down that socket. A dial that fails just after a resume (the network
+        // may still be waking) keeps them for the next, a few times.
+        if carry > 0 {
+            carry -= 1;
+        } else {
+            link = Link::default();
+        }
+        pause(&rt, &mut stop, &mut resumes, seen, backoff);
     }
     // Dropping the runtime drops every chat task left, which kills its acpmux children (kill_on_drop).
 }
 
-/// Waits out `backoff` on the relay thread's own runtime, unless `stop` comes first. The timer is made inside the
-/// runtime: this thread is in none, and a `Sleep` made here panics, which ended the relay for good.
-fn pause(rt: &tokio::runtime::Runtime, stop: &mut watch::Receiver<bool>, backoff: Duration) {
+/// Waits out `backoff` on the relay thread's own runtime, unless `stop` or a resume past `seen` comes first. The
+/// timer is made inside the runtime: this thread is in none, and a `Sleep` made here panics, which ended the relay
+/// for good.
+fn pause(
+    rt: &tokio::runtime::Runtime,
+    stop: &mut watch::Receiver<bool>,
+    resumes: &mut watch::Receiver<u64>,
+    seen: u64,
+    backoff: Duration,
+) {
     rt.block_on(async {
-        or_stop(stop, tokio::time::sleep(backoff)).await;
+        or_stop(stop, async {
+            tokio::select! {
+                () = tokio::time::sleep(backoff) => {}
+                Ok(_) = resumes.wait_for(|n| *n != seen) => {}
+            }
+        })
+        .await;
     });
 }
 
-/// One connection, until it drops. `Ok` once it was up.
 /// The running chats of one socket; dropping it aborts them, which kills their acpmux children (kill_on_drop).
 #[derive(Default)]
 struct Chats(HashMap<String, tokio::task::AbortHandle>);
@@ -436,7 +547,46 @@ impl Drop for Chats {
     }
 }
 
-async fn serve(url: &str, token: &str, runner: &Runner) -> Result<(), String> {
+/// A socket's chats and the frames they queued for it. Only a resume carries them to the next socket.
+struct Link {
+    chats: Chats,
+    tx: mpsc::Sender<String>,
+    rx: mpsc::Receiver<String>,
+}
+
+impl Default for Link {
+    fn default() -> Link {
+        // Bounded: a slow socket holds the chats' readers back (and so acpmux's output) instead of queueing
+        // without end.
+        let (tx, rx) = up_queue();
+        Link { chats: Chats::default(), tx, rx }
+    }
+}
+
+/// How a socket that was up ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Ended {
+    Dropped,
+    /// The machine woke from a pause; its chats go on to the next socket.
+    Resumed,
+}
+
+/// Whether the wall clock leapt past [`DEAD_AFTER`] between two ping ticks: the machine was paused (a missed
+/// `Resumed`), since this thread's own clock does not run through a pause.
+fn slept_through(last_wall_ms: u64, now_wall_ms: u64) -> bool {
+    now_wall_ms.saturating_sub(last_wall_ms) > DEAD_AFTER.as_millis() as u64
+}
+
+/// One connection, until it drops, the machine resumes (a resume past `seen`) or `link` ends.
+async fn serve(
+    url: &str,
+    token: &str,
+    runner: &Runner,
+    link: &mut Link,
+    resumes: &mut watch::Receiver<u64>,
+    seen: u64,
+    now_wall_ms: fn() -> u64,
+) -> Result<Ended, String> {
     let mut request = url.into_client_request().map_err(|e| format!("request: {e}"))?;
     let bearer =
         HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| "bearer".to_owned())?;
@@ -451,17 +601,16 @@ async fn serve(url: &str, token: &str, runner: &Runner) -> Result<(), String> {
             e => format!("connect: {e}"),
         })?;
     let (mut sink, mut stream) = ws.split();
-    // Bounded: a slow socket holds the chats' readers back (and so acpmux's output) instead of queueing without end.
-    let (tx, mut rx) = up_queue();
-    // Every return ends the chats of this socket: the platform ended their streams with it (host_gone), and a
-    // cancel for them can only come down this socket.
-    let mut chats = Chats::default();
+    let Link { chats, tx, rx } = link;
     let mut ping = tokio::time::interval(PING_EVERY);
     let mut heard = tokio::time::Instant::now();
+    let mut ticked_wall = now_wall_ms();
     loop {
         tokio::select! {
+            // Dropping the socket without a close: after a pause it is likely dead, and a close could hang on it.
+            Ok(_) = resumes.wait_for(|n| *n != seen) => return Ok(Ended::Resumed),
             msg = stream.next() => {
-                let Some(Ok(msg)) = msg else { return Ok(()) };
+                let Some(Ok(msg)) = msg else { return Ok(Ended::Dropped) };
                 heard = tokio::time::Instant::now();
                 let Message::Text(text) = msg else { continue };
                 match parse_down(text.as_str()) {
@@ -488,15 +637,20 @@ async fn serve(url: &str, token: &str, runner: &Runner) -> Result<(), String> {
                 }
             }
             Some(frame) = rx.recv() => {
-                if sink.send(Message::text(frame)).await.is_err() { return Ok(()) }
+                if sink.send(Message::text(frame)).await.is_err() { return Ok(Ended::Dropped) }
             }
             _ = ping.tick() => {
+                let wall = now_wall_ms();
+                if slept_through(ticked_wall, wall) {
+                    return Ok(Ended::Resumed);
+                }
+                ticked_wall = wall;
                 if heard.elapsed() > DEAD_AFTER {
                     let _ = sink.close().await;
-                    return Ok(());
+                    return Ok(Ended::Dropped);
                 }
                 if sink.send(Message::text(json!({"v": 1, "t": "ping"}).to_string())).await.is_err() {
-                    return Ok(());
+                    return Ok(Ended::Dropped);
                 }
             }
         }
@@ -575,8 +729,9 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::Sender<String>) {
                         .unwrap_or_else(|| session_name(&chat))
                 }
                 Ok(out) => {
+                    // The create's own exit: a `no_session` or a refused permission keeps its code.
                     let err = String::from_utf8_lossy(&out.stderr).into_owned();
-                    return send(final_event(Some(1), "", &err)).await;
+                    return send(final_event(out.status.code(), "", &err)).await;
                 }
                 Err(e) => return send(final_event(None, "", &format!("acpmux: {e}"))).await,
             }
@@ -654,3 +809,7 @@ const TAIL_GRACE: Duration = Duration::from_millis(300);
 #[cfg(test)]
 #[path = "relay_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "relay_resume_tests.rs"]
+mod resume_tests;

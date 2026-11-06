@@ -331,6 +331,18 @@ class GalleryHealthPathRouting(unittest.TestCase):
         run = step("Choose the entries to render")["run"]
         self.assertIn("scripts/gallery-matrix/unplaced.py ../.github/workflows/gallery-health.yml", run)
 
+    def test_an_untraced_webviews_asset_or_string_catalog_renders_every_entry(self) -> None:
+        # A string catalog gen-strings.mjs compiles and an asset no import traces reach no entry, but they
+        # change what pages show, so they render every entry; a placed asset renders only its entries.
+        paths = triggers()["pull_request"]["paths"]
+        placed = "webviews/src/agent-session/acpmux/mascots/ChiefMascotFox.png"
+        touched = {"all": False, "entries": ["a"], "reasons": {"a": [placed]}}
+        for path in ("webviews/src/agent-session/acpmux/Localizable.xcstrings",
+                     "webviews/src/pages/import-history/Localizable.xcstrings",
+                     "webviews/src/agent-session/acpmux/mascots/ChiefMascotOwl.png"):
+            self.assertEqual(unplaced_tool.unplaced(paths, [path], touched), [path])
+        self.assertEqual(unplaced_tool.unplaced(paths, [placed], touched), [])
+
     def test_a_dispatch_renders_every_entry(self) -> None:
         # The nightly full render of the base: a main-side dispatcher starts it on feat-cmux-next, since a
         # schedule on this branch never fires.

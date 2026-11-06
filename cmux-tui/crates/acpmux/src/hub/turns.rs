@@ -1539,6 +1539,8 @@ impl Hub {
             }
             // The turn's wrap-up answer, taken whatever the turn's end (`wrap_up_suggestion.rs`).
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
+            // Its todo calls still held go with it (`acp_todo_plan.rs`).
+            crate::acp_todo_plan::forget(&session.id);
             match &result {
                 Ok(v) => {
                     self.note_reply_refusal(session);

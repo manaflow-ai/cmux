@@ -520,7 +520,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // the resumable import jobs. Pure model, no UI.
         .target(
             name: "CmuxNextImportSuggestions",
-            dependencies: ["CmuxNextBrowserImport"],
+            dependencies: ["CmuxNextBrowserImport", "CmuxNextCompat"],
             resources: [
                 .process("Resources"),
             ],
@@ -537,7 +537,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextImportCards",
             dependencies: ["CmuxNextActions", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign",
-                           "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings", "CmuxNextSidebar"],
+                           "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings", "CmuxNextSidebar",
+                           "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1636,7 +1637,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (plans/cmux-next/tab-lifecycle.md). Pure values; no engine, no I/O.
         .target(
             name: "CmuxNextHibernation",
-            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextSettings"],
+            dependencies: ["CmuxNextBridge", "CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The browser's engine-neutral half: tab and engine values, intents, capability protocols, omnibox

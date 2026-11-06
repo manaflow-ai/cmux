@@ -40,6 +40,9 @@ pub struct FrameState<'a> {
     pub local_app_token: Option<&'a str>,
     /// The daemon's mode field names (P1), when known.
     pub mode_fields: Option<&'a BTreeSet<String>>,
+    /// The connection is a chat on another machine (`AgentPaneTransport
+    /// .remoteWire`): its `session/new` starts no session on this Mac.
+    pub remote_wire: bool,
     pub scope: &'a dyn PaneScope,
     pub options: &'a PermissionOptions,
 }
@@ -141,6 +144,9 @@ pub struct Facts {
     /// `confirmHarnessEnable`); refused with [`Refusal::HarnessNotConfirmed`]
     /// when the user does not enable it.
     pub harness_enable: bool,
+    /// A `session/new` on this Mac (not a remote wire's): a send's gesture
+    /// goes on to its first prompt (Swift `startCredit`).
+    pub starts_local_session: bool,
 }
 
 impl Facts {
@@ -153,6 +159,34 @@ impl Facts {
             && self.attach_session.is_none()
             && !self.foreign_source
             && !self.harness_enable
+            && !self.starts_local_session
+    }
+
+    /// The facts as JSON, in the layout of `tests/cases/check.json`'s
+    /// `expect.facts` (the app reads this through [`crate::ffi`]).
+    pub fn to_json(&self) -> Value {
+        let setting = self.setting.as_ref().map(|s| {
+            let asked = match &s.asked {
+                SettingAsk::Mode(v) => serde_json::json!({"mode": v}),
+                SettingAsk::Option { id, value } => {
+                    serde_json::json!({"option": {"id": id, "value": value}})
+                }
+            };
+            serde_json::json!({
+                "session_id": s.session_id, "config_id": s.config_id, "value": s.value, "asked": asked,
+            })
+        });
+        let pick =
+            self.pick.as_ref().map(|p| serde_json::json!({"method": p.method, "params": p.params}));
+        serde_json::json!({
+            "is_first": self.is_first, "method": self.method, "page_id": self.page_id,
+            "ticket": self.ticket, "other_meta": self.other_meta, "pick": pick,
+            "session_id": self.session_id, "needs_gesture": self.needs_gesture,
+            "needs_path_check": self.needs_path_check, "setting": setting,
+            "attach_session": self.attach_session, "foreign_source": self.foreign_source,
+            "handoff_id": self.handoff_id, "harness_enable": self.harness_enable,
+            "starts_local_session": self.starts_local_session, "free": self.free(),
+        })
     }
 }
 
@@ -266,6 +300,7 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
             facts.handoff_id = params.get("handoffId").and_then(Value::as_str).map(str::to_owned);
         }
         facts.harness_enable = method.as_deref() == Some("_acpmux/harness_enable");
+        facts.starts_local_session = method.as_deref() == Some("session/new") && !state.remote_wire;
     }
     if let Some(requested) = requested_setting(&frame) {
         let value = requested.value.clone().unwrap_or_else(|| config_value_text(&frame));
