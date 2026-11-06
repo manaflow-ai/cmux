@@ -1,7 +1,8 @@
 //! Screenshots: a window through PrintWindow (works when covered), a
-//! display through BitBlt of the screen. The agent cursor overlay is
-//! excluded from capture (WDA_EXCLUDEFROMCAPTURE), so it never shows in the
-//! agent's own screenshots.
+//! display through BitBlt of the screen. Window shots never contain the
+//! agent cursor (PrintWindow draws only the target). Display shots can: the
+//! overlay asks for WDA_EXCLUDEFROMCAPTURE, but on Windows Server 2022 with
+//! the basic display adapter the arrow still showed in a BitBlt shot.
 
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{

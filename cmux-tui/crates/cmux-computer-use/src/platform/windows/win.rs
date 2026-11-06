@@ -242,6 +242,28 @@ fn is_app_window(hwnd: HWND) -> bool {
     }
 }
 
+/// Window classes that take typed text: Win32 edit and rich edit
+/// controls (all versions) and Scintilla.
+fn is_text_input_class(class: &str) -> bool {
+    let c = class.to_ascii_lowercase();
+    c == "edit" || c.starts_with("richedit") || c == "scintilla"
+}
+
+/// The visible text-input child windows of `top`.
+pub fn text_input_children(top: HWND) -> Vec<HWND> {
+    let mut state = Enum { windows: Vec::new() };
+    // SAFETY: the callback only pushes into `state`, which outlives the call.
+    let _ = unsafe {
+        EnumChildWindows(Some(top), Some(collect), LPARAM(&mut state as *mut Enum as isize))
+    };
+    state
+        .windows
+        .into_iter()
+        // SAFETY: plain query.
+        .filter(|&h| unsafe { IsWindowVisible(h) }.as_bool() && is_text_input_class(&class_name(h)))
+        .collect()
+}
+
 /// Visible top-level app windows, front to back.
 pub fn top_level_windows(names: &NameCache) -> DResult<Vec<Listed>> {
     let mut state = Enum { windows: Vec::new() };

@@ -2,9 +2,12 @@
 //! click-through, always-on-top window that never activates, on a UI
 //! thread of its own. It glides between the points the engine reports
 //! (ease-out; a jump when the person turned off Windows animations), and
-//! hides after [`crate::cursor::IDLE_HIDE`] without events. The window is
-//! excluded from screen capture, so the agent's own screenshots never
-//! show it. One cursor per machine: it follows the latest session.
+//! hides after [`crate::cursor::IDLE_HIDE`] without events. The window asks
+//! to be excluded from screen capture (WDA_EXCLUDEFROMCAPTURE); Windows does
+//! not honor that everywhere (a live run on Windows Server 2022 with the
+//! basic display adapter still showed it in a display shot), so display
+//! screenshots may contain it. One cursor per machine: it follows the
+//! latest session.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -330,7 +333,7 @@ fn run(shared: Arc<Shared>) {
         ) else {
             return;
         };
-        // Windows 10 2004+: never in any capture, ours included.
+        // Windows 10 2004+ where the display stack honors it.
         let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
         shared.hwnd.store(hwnd.0 as usize, Ordering::Release);
         let now = Instant::now();

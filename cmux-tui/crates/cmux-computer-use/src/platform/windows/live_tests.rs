@@ -98,8 +98,7 @@ fn live_desktop_end_to_end() {
         evidence(name, &frame::encode_png(a.width as u32, a.height as u32, &rgba).expect("png"));
     }
 
-    // The cursor overlay, shown before the display shot (it is excluded
-    // from capture, so the shot must not show it).
+    // The cursor overlay, created before the display shot.
     let cursor = super::cursor_overlay();
     let display = d.capture(&CaptureTarget::Display(None)).expect("display capture");
     assert!(display.width > 0 && display.height > 0);
@@ -182,8 +181,7 @@ fn live_desktop_end_to_end() {
     });
     std::thread::sleep(Duration::from_millis(400));
     png("notepad-after.png", &d.capture(&CaptureTarget::Window(w.id.clone())).expect("capture"));
-    // The screen with the cursor on it, through GDI's screen DC: the overlay
-    // is excluded from capture, so this proves the exclusion as well.
+    // The screen with the agent cursor on it, through GDI's screen DC.
     png("display-with-cursor.png", &d.capture(&CaptureTarget::Display(None)).expect("capture"));
     evidence("notepad-text.txt", edit_text(&d, &w).as_bytes());
 

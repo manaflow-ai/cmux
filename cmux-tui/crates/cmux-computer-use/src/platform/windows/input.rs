@@ -50,8 +50,12 @@ fn post(hwnd: HWND, msg: u32, w: usize, l: isize) -> DResult<()> {
         .map_err(|e| DesktopError::Failed(format!("could not post to the window: {e}")))
 }
 
-/// The child of `top` with the keyboard focus, else `top`.
-pub fn focus_of(top: Hwnd) -> Hwnd {
+/// The child of `top` with the keyboard focus. A window that was never
+/// activated (an app we started with SW_SHOWNOACTIVATE, or one the person
+/// never clicked) has no focus window yet; then the window's only visible
+/// text-input child takes the keys, and with none or several we refuse
+/// instead of typing into the frame (which drops them) or a guess.
+pub fn focus_of(top: Hwnd) -> DResult<Hwnd> {
     let (_, tid) = win::pid_of(top.get());
     let mut info =
         GUITHREADINFO { cbSize: size_of::<GUITHREADINFO>() as u32, ..Default::default() };
@@ -59,10 +63,19 @@ pub fn focus_of(top: Hwnd) -> Hwnd {
     if unsafe { GetGUIThreadInfo(tid, &mut info) }.is_ok() && !info.hwndFocus.is_invalid() {
         // SAFETY: plain query.
         if unsafe { GetAncestor(info.hwndFocus, GA_ROOT) } == top.get() {
-            return Hwnd::from(info.hwndFocus);
+            return Ok(Hwnd::from(info.hwndFocus));
         }
     }
-    top
+    let inputs = win::text_input_children(top.get());
+    match inputs.as_slice() {
+        [only] => Ok(Hwnd::from(*only)),
+        [] => Err(DesktopError::Unsupported(
+            "the window has no focused control and no text field of its own; pass the element_id of the field (from get_ui_tree)".into(),
+        )),
+        _ => Err(DesktopError::Unsupported(
+            "the window has no focused control and several text fields; pass the element_id of the one to type into".into(),
+        )),
+    }
 }
 
 /// The deepest visible child of `top` under the screen point, and the point
@@ -387,7 +400,7 @@ pub fn press_keys(top: Hwnd, combo: &KeyCombo, delivery: Delivery) -> DResult<Ac
         send(&inputs)?;
         return Ok(ActionOutcome::delivered("send_input"));
     }
-    let target = focus_of(top).get();
+    let target = focus_of(top)?.get();
     let shift = combo.modifiers.contains(&Modifier::Shift);
     let alt = combo.modifiers.contains(&Modifier::Alt);
     if let Some(m) = combo

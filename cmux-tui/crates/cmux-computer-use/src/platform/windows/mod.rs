@@ -164,7 +164,7 @@ impl Desktop for WindowsDesktop {
             return input::type_foreground(hwnd, text);
         }
         let target = match element_id {
-            None => input::focus_of(hwnd),
+            None => input::focus_of(hwnd)?,
             Some(element) => match self.uia.text_target(hwnd, element)? {
                 uia::TextTarget::Window(child) => child,
                 uia::TextTarget::AppendValue => return self.uia.append_value(hwnd, element, text),

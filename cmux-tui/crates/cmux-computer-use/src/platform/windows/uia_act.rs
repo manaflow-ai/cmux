@@ -276,7 +276,7 @@ impl Uia {
                     return Ok(TextTarget::Window(Hwnd::from(own)));
                 }
                 if el.CurrentHasKeyboardFocus().is_ok_and(|f| f.as_bool()) {
-                    return Ok(TextTarget::Window(super::input::focus_of(hwnd)));
+                    return Ok(TextTarget::Window(super::input::focus_of(hwnd)?));
                 }
                 if let Some(p) = pattern::<IUIAutomationValuePattern>(&el, UIA_ValuePatternId)
                     && !p.CurrentIsReadOnly().is_ok_and(|r| r.as_bool())
