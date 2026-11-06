@@ -203,7 +203,8 @@ public final class TooltipPresenter {
     /// view's area takes no part (`isClear`): a hover control cleared by paint over a row must not hide the row's own
     /// tooltip under it, as a hidden one did not.
     static func pick(_ trackers: [TooltipTracker]) -> TooltipTracker? {
-        return underPointer(trackers).max { $0.depth < $1.depth }.flatMap { $0.repeatsVisibleLabel ? nil : $0 }
+        let drawn = trackers.filter { $0.view.map { !isClear($0) } ?? false }
+        return underPointer(drawn).max { $0.depth < $1.depth }.flatMap { $0.repeatsVisibleLabel ? nil : $0 }
     }
 
     /// The view or an ancestor draws nothing (opacity 0): a hover control cleared by paint (the sidebar row's x and ⋮,
