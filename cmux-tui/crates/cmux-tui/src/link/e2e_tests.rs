@@ -52,7 +52,7 @@ fn mesh(node: Node) -> MeshOverlay {
         }],
         mtu: super::state::LINK_MTU,
     };
-    MeshOverlay::new(WgMesh::start(config, node.socket).unwrap(), Zeroizing::new(node.private))
+    MeshOverlay::new(WgMesh::start(config, node.socket).unwrap())
 }
 
 async fn within<T>(future: impl Future<Output = T>) -> T {
