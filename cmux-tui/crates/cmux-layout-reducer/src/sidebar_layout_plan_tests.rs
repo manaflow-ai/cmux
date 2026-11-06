@@ -407,6 +407,32 @@ fn built_in_home_and_app_store_become_apps_keeping_id_place_and_span() {
 }
 
 #[test]
+fn the_app_ref_migration_keeps_a_label_and_newer_keys() {
+    let mut home = item("itm_home", "built_in", "home", true, None);
+    home.extra.insert("label".into(), json!("Home"));
+    home.extra.insert("future".into(), json!({"k": 1}));
+    let mut top = Section::new("sec_top", Region::Top, Look::BuiltIn, Content::Items);
+    top.items = vec![home.clone()];
+    let document = doc(vec![top, defaults().sections[1].clone()]);
+    let migrated = apply_all(&document, &app_ref_migration_ops(&document));
+    let moved = &section(&migrated, "sec_top").unwrap().items[0];
+    assert_eq!(moved.reference, ItemRef::new("app", "cmux/home"));
+    assert_eq!(moved.extra, home.extra);
+}
+
+#[test]
+fn a_label_is_cut_on_grapheme_clusters() {
+    // 199 letters, then a family emoji of several scalars: the emoji is the 200th character.
+    let label = format!("{}👨‍👩‍👧x", "a".repeat(199));
+    let Some(Op::SectionAdd { section, .. }) =
+        pin_op(&defaults(), &workspace("a"), Some(&label), "i")
+    else {
+        panic!()
+    };
+    assert_eq!(section.items[0].extra["label"], json!(format!("{}👨‍👩‍👧", "a".repeat(199))));
+}
+
+#[test]
 fn retired_built_ins_are_removed() {
     let mut top = Section::new("sec_x", Region::Top, Look::BuiltIn, Content::Items);
     top.items = vec![

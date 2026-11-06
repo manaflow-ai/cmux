@@ -12,6 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::sidebar_layout::{
     self, Alignment, Arrangement, ArrangementLayout, Content, Document, Item, ItemRef, Look, Op,
@@ -77,10 +78,11 @@ pub fn is_on_top(document: &Document, reference: &ItemRef) -> bool {
     })
 }
 
-/// The label the app stores with an item: at most 200 characters, none when empty.
+/// The label the app stores with an item: at most 200 characters (grapheme
+/// clusters, Swift's `String.prefix`), none when empty.
 fn labelled(mut item: Item, label: Option<&str>) -> Item {
     if let Some(label) = label {
-        let label: String = label.chars().take(MAX_LABEL_CHARS).collect();
+        let label: String = label.graphemes(true).take(MAX_LABEL_CHARS).collect();
         if !label.is_empty() {
             item.extra.insert("label".into(), Value::String(label));
         }
@@ -611,7 +613,8 @@ pub fn sections_migration_ops(document: &Document) -> Vec<Op> {
 }
 
 /// The ops that turn built-in Home and App Store items into app items
-/// (R63/R64). Each item keeps its id, place, label visibility and span.
+/// (R63/R64). Each item keeps its id, place and every other field (label
+/// visibility, span, label, keys from a newer client); only its ref changes.
 pub fn app_ref_migration_ops(document: &Document) -> Vec<Op> {
     let mut ops = Vec::new();
     for section in &document.sections {
@@ -624,12 +627,10 @@ pub fn app_ref_migration_ops(document: &Document) -> Vec<Op> {
             else {
                 continue;
             };
+            let mut moved = old.clone();
+            moved.reference = ItemRef::new("app", app);
             ops.push(remove(&old.id));
-            ops.push(Op::ItemAdd {
-                item: item(&old.id, "app", app, old.shows_label, old.span),
-                section: section.id.clone(),
-                index: slot(index),
-            });
+            ops.push(Op::ItemAdd { item: moved, section: section.id.clone(), index: slot(index) });
         }
     }
     ops
