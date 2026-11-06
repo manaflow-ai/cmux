@@ -861,6 +861,32 @@ mod tests {
     }
 
     #[test]
+    fn a_session_changed_receipt_notice_finishes_without_relocking_peers() {
+        let (hub, _dir) = test_hub();
+        let peer = add_idle_peer(&hub, "builder");
+        let mut session = remote("m1", "lane");
+        session["sessionReceipt"] =
+            crate::session_identity::SessionReceipt::new("builder", "m1", None, 1).to_value();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let applying = {
+            let hub = hub.clone();
+            let generation = peer.generation;
+            std::thread::spawn(move || {
+                hub.apply_peer_notice(
+                    "builder",
+                    generation,
+                    PeerNotice::SessionChanged { session, kind: "status".into(), seq: 1 },
+                );
+                done_tx.send(()).unwrap();
+            })
+        };
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("session_changed receipt notice re-locked the peers mutex");
+        applying.join().unwrap();
+    }
+
+    #[test]
     fn held_ask_release_after_sessions_does_not_reenter_a_notice_lock() {
         let (hub, _dir) = test_hub();
         let peer = add_idle_peer(&hub, "builder");
