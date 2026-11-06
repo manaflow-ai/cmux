@@ -345,9 +345,15 @@ class HostedLightJobsGuardTests(unittest.TestCase):
         result = self.run_guard(text, {"runner": "ubuntu-24.04", "why": "x"})
         self.assertNotEqual(result.returncode, 0, result.stdout)
 
-    def test_the_declared_screen_stream_eval_stub_passes_on_main(self) -> None:
-        runners = json.loads((WORKFLOW.parents[2] / ".github/runners.json").read_text())
-        self.assertIn("screen-stream-eval.yml:eval", runners["hosted_light_jobs"])
+    def test_a_declared_job_whose_selector_could_pick_another_runner_fails(self) -> None:
+        # A dispatch input or variable could name macos-15 at run time; only the declared label, or the reviewed
+        # fast-checks admission selector (an allowlisted Blacksmith label or the declared one), may be its runs-on.
+        for runner in ("${{ inputs.runner || 'ubuntu-24.04' }}", "${{ vars.X || 'ubuntu-24.04' }}",
+                       "${{ github.event_name == 'push' && 'ubuntu-24.04' || inputs.runner }}"):
+            with self.subTest(runner=runner):
+                result = self.run_guard(self.workflow(runner=runner), {"runner": "ubuntu-24.04", "why": "x"})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("FAIL:", result.stdout)
 
 
 if __name__ == "__main__":

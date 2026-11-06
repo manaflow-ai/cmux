@@ -58,10 +58,6 @@
     "fast-checks.yml:admit": {
       "runner": "ubuntu-24.04",
       "why": "Read-only live runner admission; no source snapshot or arbitrary test command"
-    },
-    "screen-stream-eval.yml:eval": {
-      "runner": "ubuntu-24.04",
-      "why": "Registration stub with if: false; it only gives main the workflow name feat-cmux-next's screen stream eval is dispatched by, and never runs"
     }
   },
   "pools": {
