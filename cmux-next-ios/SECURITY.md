@@ -886,6 +886,38 @@ Round 3 review notes (accepted, said here):
 - Live (round 3, rig `cmux-mobile-p3-153f3482`): every group action read back from the Mac's
   `list-personal` (`verify/parity-mac.md`, `groups`).
 
+## `acpmux`: allowing a peer's prompt from the phone (cmux#37301)
+
+A chat this Mac opened on one of its acpmux peers (`--host`) asks for approval on
+the peer, and the peer checks the person, not this Mac. The Mac app's own key was
+already enrolled there (`acpmux host enroll`, the peer's `mac-approvers.json`);
+now the phones this Mac pairs are enrolled with it, so a paired phone can give the
+same one-time Allow.
+
+The trust rule:
+
+- **Who enrolls a phone.** Only `host enroll` or `machine doctor --fix` run on this
+  Mac, over the person's own ssh, as for the Mac's key. No RPC adds a key on the
+  peer. It enrolls exactly the phones this Mac's app pairs (their public approval
+  keys, from `_acpmux/approvers_set`), each under
+  `phone:<12 hex of SHA-256 of this Mac's device id>:<phone id>`, and removes ids
+  under that prefix that this Mac no longer pairs; another Mac's phones are left alone.
+- **What a phone signs there.** The enrolled Mac's message
+  (`acpmux-mac-approver-decision-v1`): the peer's daemon run, the phone's id there,
+  the session, the permission, the tool call, the option, the nonce, the expiry
+  (at most 300 s) and the answers digest. The phone signs it only after the person
+  unlocks the approval key, as for its own Mac's prompts.
+- **What it counts for.** A one-time allow of a tool's ask, a question or the
+  folder-trust card, once (the peer's spent nonces): never a lasting allow, a plan
+  or a mode switch. An id under `phone:` never signs a policy raise on a peer,
+  since a phone raises none on its own Mac.
+- **Removal.** Unpairing a phone here takes it off a peer at the next `host enroll`
+  or `machine doctor --fix` (doctor warns until then); `host approvals rm ID` on
+  the peer removes it at once, and `host approvals unenroll PEER` takes this Mac's phones with it.
+- **Unowned objects and local state.** The peer counts the signature only for its
+  own pending prompt; the phone reads nothing new, and the Mac forwards the answer
+  unchanged.
+
 ## `acpmux`: messages larger than one link frame
 
 The link splits a write above 256 KiB into several data frames. hostd now
