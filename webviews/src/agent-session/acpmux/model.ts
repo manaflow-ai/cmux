@@ -28,6 +28,7 @@ import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
 import type { NextStepAsk } from "./conversation/nextStepAsk";
+import { webSources } from "./conversation/webSourceList";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
@@ -1454,8 +1455,10 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
     case "move":
     case "fileChange":
     case "search":
-    case "fetch":
       return toolRowHeight();
+    // A web call's sources chip draws one 24px line under it, 4px below (WebSources.tsx).
+    case "fetch":
+      return toolRowHeight() + (webSources(tool).length ? 28 : 0);
     default:
       return 26;
   }

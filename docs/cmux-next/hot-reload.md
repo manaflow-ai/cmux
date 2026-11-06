@@ -221,8 +221,10 @@ all take the dev build instead, and the script says which one it was. The build'
 `CMUXCommit`, which reload.sh, the fleet and the nightly stamp. A build marked `CMUXCommitDirty` (tracked files had
 local changes) or one that records no commit takes the dev build too. Only Debug and bench builds load patches
 today, so the installed nightly still takes the dev build. `scripts/measure/try-pr-live-code.sh` runs the whole
-path on a fleet Mac: a live code bench build, a PR that turns Home red (it applies, captured before and after) and
-one that calls a method only its newer base has (it takes the dev build).
+path on a fleet Mac: a live code bench build, a PR that turns Home red and insets Home's transcript so the red
+shows around it (it applies, captured before and after), and one that calls a method only its newer base has (it
+takes the dev build). At 0f92b5e9 the first PR applied 10.87 s after try-pr started (compile 4.1 s, link 0.24 s,
+70 functions, a 135 ms load into the running copy), and its red went from 6 to 180,171 pixels with no relaunch.
 `scripts/measure/try-pr-side-instance.sh` times a set of PRs from the command to the PR's page
 loading in the side instance.
 

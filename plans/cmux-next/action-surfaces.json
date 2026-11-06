@@ -13859,6 +13859,55 @@
         {
           "kind" : "int",
           "max" : 7,
+          "min" : 1,
+          "name" : "variant",
+          "required" : false
+        },
+        {
+          "kind" : "int",
+          "max" : 1,
+          "min" : 0,
+          "name" : "row",
+          "required" : false
+        },
+        {
+          "kind" : "bool",
+          "name" : "dark",
+          "required" : false
+        }
+      ],
+      "cli" : "devOnly",
+      "cli_name" : "action home-compare-table-playground",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.compareTablePlayground",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Before\/After Table Playground",
+      "title_key" : "action.home.compareTablePlayground",
+      "title_table" : "HomeActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "int",
+          "max" : 7,
           "min" : 0,
           "name" : "state",
           "required" : false

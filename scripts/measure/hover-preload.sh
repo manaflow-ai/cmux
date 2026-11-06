@@ -87,7 +87,7 @@ elif [[ -n "$base_ref" ]]; then
 fi
 [[ -n "$base_app" ]] && echo "hover-preload: OFF app built ($base_desc)"
 app="$(build "$tag")"
-echo "hover-preload: ref $head_sha"
+echo "hover-preload: ref $head_sha host $(hostname -s) macOS $(sw_vers -productVersion 2>/dev/null || echo ?)"
 # A fleet step has no LaunchServices session: run the app binary itself (bench_memory.launch).
 IFS=, read -r -a arm_list <<<"$arms"
 index=0 failed=0

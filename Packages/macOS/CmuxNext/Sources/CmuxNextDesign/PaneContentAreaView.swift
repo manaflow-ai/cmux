@@ -12,7 +12,7 @@ import QuartzCore
 ///
 /// A container in it (``PaneMotionHoldFollowing``: a terminal's host, a browser's chrome; FRAME OWNER S3) takes the
 /// area's bounds in every frame instead and hears the hold once, so its own ground covers the pane; only its producer
-/// keeps its size (a terminal's surface follows too with `motion.frameOwner.terminals` on, cmux-ad m6).
+/// keeps its size (a terminal's surface follows too, cmux-ad m6 and m18).
 public final class PaneContentAreaView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -103,6 +103,16 @@ public final class PaneContentAreaView: NSView {
                 follower.frame = bounds
                 follower.needsLayout = true // its ground, toolbar and producer placement, in this frame's layout pass
             }
+        }
+    }
+
+    /// Draw ahead (cmux-ad m26): the area will be `sizeChange` larger (negative: smaller) at the next refresh of its pane's
+    /// spring; each shown follower hears its size then (it follows the area's bounds).
+    public func drawAhead(sizeChange: CGSize) { // perf-hot: 1ms motion-frame
+        guard hold != nil, sizeChange != .zero else { return }
+        let next = CGSize(width: max(0, bounds.width + sizeChange.width), height: max(0, bounds.height + sizeChange.height))
+        for case let follower as any PaneMotionHoldFollowing in subviews where !follower.isHidden && handed.contains(ObjectIdentifier(follower)) {
+            follower.drawAhead(nextHostSize: next)
         }
     }
 

@@ -2034,6 +2034,47 @@
       "title" : "Reactions Can Wake the Chief",
       "type" : "boolean"
     },
+    "chief.subagentSidebar" : {
+      "default" : "auto",
+      "description" : "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Subagents in the Sidebar",
+      "type" : "string"
+    },
+    "chief.subagentSidebarHideWords" : {
+      "default" : [
+
+      ],
+      "description" : "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Hide Tasks That Mention",
+      "type" : "array"
+    },
+    "chief.subagentSidebarMinWords" : {
+      "default" : 50,
+      "description" : "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter.",
+      "maximum" : 1000,
+      "minimum" : 0,
+      "title" : "Show Tasks Longer Than",
+      "type" : "number"
+    },
+    "chief.subagentSidebarShowWords" : {
+      "default" : [
+
+      ],
+      "description" : "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Show Tasks That Mention",
+      "type" : "array"
+    },
     "cloud.agentsStartWithoutAsking" : {
       "default" : true,
       "description" : "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.",
@@ -4006,6 +4047,17 @@
       "description" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
+    },
+    "sidebar.groupHeader.background" : {
+      "default" : "auto",
+      "description" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
+      "enum" : [
+        "auto",
+        "glass",
+        "solid"
+      ],
+      "title" : "Group Background",
+      "type" : "string"
     },
     "sidebar.groupHeader.memberCount" : {
       "default" : false,
