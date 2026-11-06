@@ -17,6 +17,10 @@ pub(super) enum Why {
     EnvFile,
     /// A private key or certificate store (`id_rsa*`, `*.pem`, `*.key`, ...).
     KeyFile,
+    /// A folder of keys and logins ([`credential`]: `.ssh`, `.aws`, `.config/gh`, ...).
+    CredentialFolder,
+    /// A file of tokens or passwords ([`credential`]: `.netrc`, `.cargo/credentials.toml`, ...).
+    CredentialFile,
     SymlinkInside,
     SymlinkOutside,
     /// A symlink to nothing.
@@ -44,7 +48,9 @@ impl Why {
     /// The category, a stable code the App may group by.
     pub(super) fn kind(self) -> &'static str {
         match self {
-            Self::EnvFile | Self::KeyFile => "secret",
+            Self::EnvFile | Self::KeyFile | Self::CredentialFolder | Self::CredentialFile => {
+                "secret"
+            }
             Self::SymlinkInside
             | Self::SymlinkOutside
             | Self::SymlinkBroken
@@ -63,6 +69,8 @@ impl Why {
         match self {
             Self::EnvFile => "secret: .env files are shared only on purpose",
             Self::KeyFile => "secret: key files are shared only on purpose",
+            Self::CredentialFolder => "secret: credential folders are shared only on purpose",
+            Self::CredentialFile => "secret: credential files are shared only on purpose",
             Self::SymlinkInside => "a symlink (to a place inside the folder)",
             Self::SymlinkOutside => "a symlink (to a place outside the folder)",
             Self::SymlinkBroken => "a symlink (to nothing)",
@@ -170,6 +178,57 @@ pub(super) fn secret(name: &str) -> Option<Why> {
         .any(|prefix| lower.starts_with(prefix))
         || [".pem", ".p12", ".pfx", ".key"].iter().any(|suffix| lower.ends_with(suffix));
     key.then_some(Why::KeyFile)
+}
+
+/// Folders of keys and logins by name (lower case), at any depth (as
+/// `link/access_cli.rs` `SECRET_FOLDERS`; the App's
+/// `AgentPaneCloudFolderRefusal.secretFolders` refuses home's as a whole).
+const CREDENTIAL_FOLDERS: &[&str] = &[
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".kube",
+    ".azure",
+    "gcloud",
+    ".gem",
+    ".terraform.d",
+    ".password-store",
+];
+
+/// Folders of logins only in their parent: `(parent, name)`, gh's tokens
+/// (`.config/gh/hosts.yml`).
+const CREDENTIAL_SUBFOLDERS: &[(&str, &str)] = &[(".config", "gh")];
+
+/// Files of tokens or passwords by name, anywhere.
+const CREDENTIAL_NAMES: &[&str] =
+    &[".netrc", "_netrc", ".npmrc", ".pypirc", ".git-credentials", ".pgpass"];
+
+/// Files of tokens only in their folder: `(folder, name prefix)`. A
+/// project's `.cargo/config.toml` and `.docker/` files go.
+const CREDENTIAL_FILES: &[(&str, &str)] =
+    &[(".cargo", "credentials"), (".docker", "config.json"), (".config", "hub")];
+
+/// Whether `relative` (a folder when `folder`) is, or is in, a folder of
+/// keys and logins, or is a file of tokens or passwords: never copied
+/// (gh's `hosts.yml`, Cargo's `credentials.toml`, `.netrc`, ...).
+pub(super) fn credential(relative: &str, folder: bool) -> Option<Why> {
+    let names: Vec<String> = relative.split('/').map(str::to_ascii_lowercase).collect();
+    let folders = if folder { names.len() } else { names.len().saturating_sub(1) };
+    for (index, name) in names.iter().enumerate() {
+        let parent = index.checked_sub(1).map(|at| names[at].as_str());
+        if index < folders {
+            if CREDENTIAL_FOLDERS.contains(&name.as_str())
+                || CREDENTIAL_SUBFOLDERS.iter().any(|(p, n)| parent == Some(*p) && name == n)
+            {
+                return Some(Why::CredentialFolder);
+            }
+        } else if CREDENTIAL_NAMES.contains(&name.as_str())
+            || CREDENTIAL_FILES.iter().any(|(p, n)| parent == Some(*p) && name.starts_with(n))
+        {
+            return Some(Why::CredentialFile);
+        }
+    }
+    None
 }
 
 /// Whether the folder `name` in `dir` is a dependency or build folder its

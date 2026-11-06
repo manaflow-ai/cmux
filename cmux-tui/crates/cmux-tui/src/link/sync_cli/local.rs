@@ -3,7 +3,7 @@
 //!
 //! In a git working copy (its top folder; a subfolder is refused): the
 //! files `git ls-files --cached --others --exclude-standard` names (tracked,
-//! and untracked ones that are not ignored, minus untracked `.env*` files,
+//! and untracked ones that are not ignored, minus untracked `.env*` and credential files,
 //! which are shared only on purpose), plus the repository itself as
 //! `.git/`, so the branch, HEAD, index, stash and uncommitted changes
 //! arrive exactly. What goes of the repository is allow-listed
@@ -23,7 +23,8 @@
 //!
 //! Outside git, every regular file of the folder goes, except for a chat's
 //! copy the dependency and build folders its project rebuilds on the
-//! machine ([`skips::heavy`]) and secrets (`.env*`, key files: [`skips::secret`]).
+//! machine ([`skips::heavy`]) and secrets (`.env*`, key files: [`skips::secret`];
+//! credential folders and files at any depth: [`skips::credential`]).
 //! A symlink whose target stays inside the folder goes as a symlink
 //! ([`super::links`]); other symlinks, special files and names the machine
 //! cannot hold (control characters, over 255 bytes, not UTF-8) are skipped. Every skip is
@@ -165,7 +166,11 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
     };
     set.git = true;
     for (path, untracked) in working_files(folder, &mut set.skipped)? {
-        if untracked && path.rsplit('/').next().is_some_and(|name| name.starts_with(".env")) {
+        // An untracked credential file never goes either (tracked ones were committed on purpose).
+        if untracked
+            && (path.rsplit('/').next().is_some_and(|name| name.starts_with(".env"))
+                || skips::credential(&path, false).is_some())
+        {
             set.skipped += 1;
             continue;
         }
@@ -510,12 +515,17 @@ fn walk_plain(set: &mut LocalSet, rules: Rules, top: &Path, dir: &Path) -> anyho
         }
         let name = relative.rsplit('/').next().unwrap_or(relative);
         if entry.file_type()?.is_dir() {
-            if rules == Rules::Copy && skips::heavy(dir, name) {
+            if let Some(why) = skips::credential(relative, true).filter(|_| rules == Rules::Copy) {
+                set.skips.note(&format!("{relative}/"), why);
+            } else if rules == Rules::Copy && skips::heavy(dir, name) {
                 set.skips.note(&format!("{relative}/"), Why::Heavy);
             } else {
                 walk_plain(set, rules, top, &path)?;
             }
-        } else if let Some(why) = skips::secret(name).filter(|_| rules == Rules::Copy) {
+        } else if let Some(why) = skips::secret(name)
+            .or_else(|| skips::credential(relative, false))
+            .filter(|_| rules == Rules::Copy)
+        {
             set.skips.note(relative, why);
         } else {
             add(set, relative.to_string(), &path)?;
