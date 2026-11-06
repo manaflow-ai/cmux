@@ -9,7 +9,7 @@ import { JSDOM } from "jsdom";
 // Exercise the production callback with React's real priority queues, without mounting the
 // whole agent pane. In particular, an updater is not interchangeable with its eager result.
 const source = readFileSync(
-  process.env.CMUX_TEST_DRAWN_SOURCE ?? new URL("../src/agent-session/acpmux/App.tsx", import.meta.url),
+  process.env.CMUX_TEST_DRAWN_SOURCE ?? new URL("../src/agent-session/acpmux/VirtualTranscript.tsx", import.meta.url),
   "utf8",
 );
 const comparison = source.slice(source.indexOf("function sameDrawn("), source.indexOf("/// RowFrame redraws"));

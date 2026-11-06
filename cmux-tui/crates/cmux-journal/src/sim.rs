@@ -124,6 +124,8 @@ struct Fs {
     crash_after_failure: Option<u64>,
     /// Each read evicts the dropped pages it read (`SimStorage::evict_dropped_pages_after_read`).
     evict_after_read: bool,
+    /// The next sync stops once under way (`SimStorage::hold_next_sync`).
+    sync_hold: Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
 }
 
 /// What an operation does: run, fail once, or crash the process.
@@ -150,6 +152,7 @@ impl Fs {
             fail_sync: None,
             crash_after_failure: None,
             evict_after_read: false,
+            sync_hold: None,
         }
     }
 
@@ -199,8 +202,18 @@ impl Fs {
     }
 }
 
-/// Sleeps the sync delay with the lock released; `None` when the process crashed meanwhile.
+/// Sleeps the sync delay with the lock released, after a hold if one was asked for
+/// (`SimStorage::hold_next_sync`); `None` when the process crashed meanwhile.
 fn slow_sync<'a>(mut guard: MutexGuard<'a, Fs>, fs: &'a Mutex<Fs>) -> Option<MutexGuard<'a, Fs>> {
+    if let Some((arrived, release)) = guard.sync_hold.take() {
+        drop(guard);
+        let _ = arrived.send(());
+        let _ = release.recv();
+        guard = lock(fs);
+        if guard.crashed {
+            return None;
+        }
+    }
     let delay = guard.sync_delay;
     if !delay.is_zero() {
         drop(guard);
@@ -246,6 +259,17 @@ impl SimStorage {
     /// Each later sync sleeps `delay` first.
     pub fn set_sync_delay(&self, delay: Duration) {
         lock(&self.fs).sync_delay = delay;
+    }
+
+    /// The next sync stops once under way, with the process's lock released: it says so on the
+    /// returned receiver, then waits until the returned sender sends or is dropped. A test knows
+    /// from it that the writer is inside a sync, with no timer. A crash meanwhile
+    /// ([`SimStorage::restart`]) fails that sync when it goes on.
+    pub fn hold_next_sync(&self) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        let (arrived_tx, arrived) = std::sync::mpsc::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        lock(&self.fs).sync_hold = Some((arrived_tx, release_rx));
+        (arrived, release)
     }
 
     pub fn is_crashed(&self) -> bool {

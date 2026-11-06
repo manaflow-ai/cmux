@@ -145,10 +145,7 @@ struct CloudStartChat {
         report(.init(name: "folder", folder: folderName, machine: name, size: size))
         // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
         // copy finished opens its chat without copying again, which would overwrite what it changed.
-        let copy: (CloudMoveCLI.Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool))
-        // A personal send on a non-production sign-in copies through the content-addressed store (the
-        // platform's `/v1/sync/blobs`, served in development), as its plan reads the platform.
-        let storeAccess = try? await ((account.last ?? nil) == nil && !services.cloud.auth.configuration.isProductionAuth ? services.cloud.auth.tokens().access : nil)
+        let copy: (CloudMoveCLI.Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)), storeAccess = await services.cloud.auth.startChatStoreAccess(account: account)
         do {
             // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again on its new link (CloudOutdatedMachine);
             // the copy's progress lines go to the clone row as they come, about 4 a second (SeedProgress.feed).
@@ -222,19 +219,17 @@ struct CloudStartChat {
             anchor = found
         } else {
             anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
-            if services.cloud.configuration.linkSource == .appServer {
-                guard let pane = anchor.pane.resourceID?.rawValue else {
-                    throw CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title))
-                }
-                _ = try Self.checked(await cli.startChatTargetPane(key: start.key, account: CloudStartCore().accountText(origin.account), machine: machine.machineID, pane: pane))
+            guard let pane = anchor.pane.resourceID?.rawValue else {
+                throw CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title))
             }
+            _ = try Self.checked(await cli.startChatTargetPane(key: start.key, account: CloudStartCore().accountText(origin.account), machine: machine.machineID, pane: pane))
         }
         if let copy { services.cloud.movedChats.copied(copy) }
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(start.seed(cwd: cwd)),
                                                  idempotencyKey: tabKey)
         let opened = try await pending.value()
         await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(
-            appLink: machine.appLink, link: machine.link).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
+            appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)
         for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
         services.agentTabs.pageChats.cloudStarted[opened.key] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace,

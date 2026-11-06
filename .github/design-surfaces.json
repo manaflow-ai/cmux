@@ -2,6 +2,24 @@
   "about": "Which source paths make up each UI surface, and the design spec that surface follows (one spec per surface, in leo-workspace design/<surface>.md). scripts/ci/pr_design_spec_check.py warns, never fails, when a pull request changes a surface's paths and its description does not cite the spec. leo-workspace tools/prior_art.py reads this map to list a surface's open and recently merged PRs before work starts. A path is a file or a directory (everything under it). Tests and gallery files are left out: changing them changes no design. Keep paths current when files move; the check warns about a mapped path that no longer exists.",
   "version": 1,
   "surfaces": {
+    "theming": {
+      "spec": "leo-workspace design/theming.md",
+      "aliases": ["theming", "theme preview", "ricing", "wallpaper palette", "appearance propagation"],
+      "paths": [
+        "Packages/Shared/CmuxTheme/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Themes/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/ThemeBridge.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/TerminalThemeSetting.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Accent.swift",
+        "webviews/src/theme/",
+        "webviews/src/gallery/theme/",
+        "webviews/src/agent-session/shared/theme.ts",
+        "webviews/src/pages/settings/components/ThemeStudio.tsx",
+        "webviews/src/pages/settings/components/ThemePicker.tsx",
+        "webviews/src/pages/settings/components/ThemePreview.tsx"
+      ]
+    },
     "tooltips": {
       "spec": "leo-workspace design/overlay-surfaces.md",
       "aliases": ["tooltip", "hover preview", "tooltip hierarchy"],
@@ -174,6 +192,21 @@
       "paths": [
         "webviews/src/agent-session/acpmux/threadMinimap/",
         "webviews/src/agent-session/acpmux/chatMinimap/"
+      ]
+    },
+    "notifications": {
+      "spec": "leo-workspace design/notifications.md",
+      "aliases": ["toast", "notice", "warning", "banner", "ask card", "error card", "snackbar"],
+      "paths": [
+        "webviews/src/ui/Notice.tsx",
+        "webviews/src/ui/NoticeStack.tsx",
+        "webviews/src/ui/notice.css",
+        "webviews/src/agent-session/acpmux/NoticeSlot.tsx",
+        "webviews/src/agent-session/acpmux/toolCards/",
+        "webviews/src/agent-session/acpmux/HostError.tsx",
+        "webviews/src/pages/cloud/Notices.tsx",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneToolCard.swift"
       ]
     },
     "feature-tips": {

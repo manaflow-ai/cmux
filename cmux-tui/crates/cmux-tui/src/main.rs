@@ -109,6 +109,20 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+#[cfg(unix)]
+mod staged_update;
+// The staged swap probes builds through cmux-remote, a unix-only dependency:
+// elsewhere nothing is ever staged and no notice waits.
+#[cfg(not(unix))]
+mod staged_update {
+    pub(crate) fn promote_own_binary() -> Option<std::path::PathBuf> {
+        None
+    }
+
+    pub(crate) fn startup_notice() -> Option<&'static str> {
+        None
+    }
+}
 mod startup_env;
 #[cfg(all(test, unix))]
 mod test_exec;
@@ -1768,6 +1782,12 @@ fn warm_seeded_deps(folder: &Path) {
 pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
+    // SAFETY: still the first statements of main: one thread. Under a test,
+    // name the test process for every process this one starts (cx-leo45).
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    unsafe {
+        cmux_tui_core::test_owner::adopt();
+    }
     // Before any mode can serve `identify` or `ping`, or run acpmux.
     cmux_tui_core::server::install_build_stamp(build_stamp());
     cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
@@ -2562,6 +2582,7 @@ fn run_server(
     #[cfg(unix)]
     if trusted_carrier {
         Session::Local(mux.clone()).ensure_initial(None)?;
+        ensure_cloud_work_folder();
     }
     // Background mux workers can report reconnect diagnostics before an
     // interactive client attaches. Install the non-terminal sink as soon as
@@ -2582,6 +2603,7 @@ fn run_server(
     // source/working-tree checks keep local development installs untouched.
     let _plugin_auto_update = plugin_manager::start_auto_update();
     mux.configure_browser_host(&socket_path);
+    mux.configure_remote_host(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
@@ -2926,6 +2948,20 @@ fn start_local_owner_event_loop_with_completion(
 /// trusted listener on for a daemon whose baked launch line predates the flag
 /// (cmux Cloud machines healed in place). Only an exact truthy value counts.
 #[cfg(unix)]
+/// A Cloud machine's default chat folder (`~/work`, what `cmux cloud start-chat --cwd` and the move
+/// use), made at daemon start when the image did not: a machine from an older image had none, and
+/// every chat there was refused for want of a folder. Best effort; a failure leaves it to the caller.
+#[cfg(unix)]
+fn ensure_cloud_work_folder() {
+    let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else { return };
+    let work = Path::new(&home).join("work");
+    if !work.is_dir()
+        && let Err(error) = std::fs::create_dir_all(&work)
+    {
+        eprintln!("cmux-tui: could not make {}: {error}", work.display());
+    }
+}
+
 fn remote_ws_trusted_carrier_from_env() -> bool {
     std::env::var("CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER")
         .map(|value| matches!(value.trim(), "1" | "true" | "yes"))
@@ -3095,6 +3131,21 @@ fn start_detached_owner_session(
     let progress = local_owner::RestoreProgress::new(&report);
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline, &progress) {
         anyhow::bail!("{}", messages.ensure_failed(&error));
+    }
+    // The owner was started from a staged build this call installed: this
+    // client still runs the old image, so the new file attaches instead.
+    #[cfg(unix)]
+    if let Some(binary) = staged_update::promoted() {
+        match staged_update::run_installed(binary) {
+            Ok(code) => client_log::exit(code),
+            Err(error) => {
+                client_log::warn("staged-update", &format!("run the installed build: {error}"));
+            }
+        }
+    }
+    #[cfg(unix)]
+    if let Some(notice) = staged_update::notice_for_owner(&socket_path) {
+        staged_update::set_startup_notice(notice);
     }
     let remote = RemoteSession::connect_session(&socket_path, spec.socket_is_derived)
         .context("connect the interactive client to its detached session owner")?;

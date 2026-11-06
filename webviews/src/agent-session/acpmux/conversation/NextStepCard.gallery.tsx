@@ -2,7 +2,7 @@
 // A tagged ask at the end of a turn (nextStepAsk.ts) as a card with its answers as buttons. Five
 // looks: box (shipped, Claude desktop's next-step box: a bordered card, the first answer filled in
 // the text colour with ⌘↩, as the question card's Submit), recap (the recap card's accent yes and
-// bare text answers, RecapCard.tsx), inline (no card: the question and the buttons under the
+// bare text answers), inline (no card: the question and the buttons under the
 // prose), consent (the consent card's buttons at the end of the row, ChatGPT's) and list (the
 // answers stacked as rows, the question card's). Each look in its pending and answered states, with Yes and No, and with a list of answers.
 import type React from "react";

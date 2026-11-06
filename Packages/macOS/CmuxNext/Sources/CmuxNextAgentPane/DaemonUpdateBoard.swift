@@ -290,7 +290,7 @@ public final class DaemonUpdateBoard {
     public nonisolated static func line(_ state: DaemonUpdateEvent.State) -> String {
         switch state {
         case .updating:
-            String(localized: "agentPane.daemonUpdate.updating", defaultValue: "Updating to this Mac's build…", bundle: .module)
+            String(localized: "agentPane.daemonUpdate.updating", defaultValue: "Updating to this Mac's version…", bundle: .module)
         case .retrying:
             String(localized: "agentPane.daemonUpdate.retrying", defaultValue: "Update will try again soon", bundle: .module)
         case .offline:
@@ -340,7 +340,7 @@ public final class DaemonUpdateBoard {
     nonisolated static func headline(_ event: DaemonUpdateEvent) -> String {
         if case .failed(_, true) = event.state {
             return String(format: String(localized: "agentPane.daemonUpdate.notice.rolledBackHeadline",
-                                         defaultValue: "%@ kept its previous build", bundle: .module), event.displayName)
+                                         defaultValue: "%@ is still on its previous version", bundle: .module), event.displayName)
         }
         return String(format: String(localized: "agentPane.daemonUpdate.notice.headline", defaultValue: "Couldn't update %@",
                                      bundle: .module), event.displayName)
@@ -361,7 +361,7 @@ public final class DaemonUpdateBoard {
                                   bundle: .module), event.displayName, reason)
         case .failed(let reason, true):
             String(format: String(localized: "agentPane.daemonUpdate.notice.rolledBack",
-                                  defaultValue: "%1$@ kept its previous build: %2$@", bundle: .module), event.displayName, reason)
+                                  defaultValue: "%1$@ is still on its previous version: %2$@", bundle: .module), event.displayName, reason)
         default: nil
         }
     }

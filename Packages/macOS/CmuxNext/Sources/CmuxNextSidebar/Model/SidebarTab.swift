@@ -62,6 +62,9 @@ public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
     /// The machine the tab runs on when it is not its workspace's (a remote terminal's session);
     /// nil when the tab runs where its workspace does. The hover card names the workspace's otherwise.
     public var machine: String?
+    /// A terminal whose idle shell was freed (`park-tabs`, `workspaces.freeing.*`): it starts
+    /// again in its folder when its workspace is shown. The hover card counts these.
+    public var isFreed = false
 
     public init(id: TabID, title: String, kind: SidebarTabKind = .terminal, isUnread: Bool = false, brand: String? = nil,
                 favicon: SidebarFavicon? = nil, folder: String? = nil, state: StatusIndicatorState = .idle,

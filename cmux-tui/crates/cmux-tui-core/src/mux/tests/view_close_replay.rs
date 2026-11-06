@@ -21,13 +21,13 @@ fn closing_a_view_preserves_terminal_side_tables_until_explicit_close() {
         Some(first.id),
     )
     .unwrap();
-    assert_eq!(mux.list_agents(Some(first.id), None).len(), 1);
+    assert_eq!(settled(&mux).list_agents(Some(first.id), None).len(), 1);
     assert!(mux.surface_notification(first.id).is_some());
 
     mux.close_surface(first.id).unwrap();
 
-    assert_eq!(mux.list_agents(Some(first.id), None).len(), 1);
-    assert_eq!(mux.list_agents(None, None).len(), 1);
+    assert_eq!(settled(&mux).list_agents(Some(first.id), None).len(), 1);
+    assert_eq!(settled(&mux).list_agents(None, None).len(), 1);
     assert!(mux.surface_notification(first.id).is_some());
     assert!(mux.surface(first.id).is_some());
     assert!(mux.with_state(|state| state.surfaces.contains_key(&second.id)));
@@ -44,7 +44,7 @@ fn closing_a_view_preserves_terminal_side_tables_until_explicit_close() {
     assert_eq!(detached_report.session.as_deref(), Some("detached-hook"));
 
     mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
-    assert!(mux.list_agents(None, None).is_empty());
+    assert!(settled(&mux).list_agents(None, None).is_empty());
     assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
     assert_eq!(
         crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"]

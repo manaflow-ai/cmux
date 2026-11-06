@@ -106,6 +106,8 @@ enum AgentPaneContextMenu {
         var openSession: ((String, Bool) -> Void)?
         /// A chat part's Go to Chat, nil when no tab shows the chat (``AgentPaneOfferOpen/goTo(_:sender:in:)``).
         var goToSession: ((String, Bool) -> (@MainActor () -> Void)?)?
+        /// A chat part's rows after those: the chat's sidebar row menu (``AgentPaneModel/sessionMenuItems``).
+        var sessionItems: ((String) -> [NSMenuItem])?
         var search: (String) -> Void = { _ in }
         /// One of the page's own menu actions (`window.cmuxAcpmuxActions`) by name.
         var page: (String, [String: String]) -> Void = { _, _ in }
@@ -249,9 +251,20 @@ enum AgentPaneContextMenu {
         } else if let copyImage {
             image.append(copyImage)
         }
-        let part = target?.part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open,
-                                       linkItems: actions.linkItems, pathItems: actions.pathItems,
-                                       openSession: actions.openSession, goToSession: actions.goToSession) ?? []
+        // A chat part's rows lead (Open on Right, Go to Chat), then that chat's sidebar row rows in their
+        // own group, then the rest of the part (an agent link's link rows).
+        let session = target?.part?.session
+        let chatPart = session.map { AgentPaneMenuPart(session: $0, sender: target?.part?.sender ?? false) }
+        var otherPart = target?.part
+        otherPart?.session = nil
+        let items = { (part: AgentPaneMenuPart?) in
+            part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open,
+                        linkItems: actions.linkItems, pathItems: actions.pathItems,
+                        openSession: actions.openSession, goToSession: actions.goToSession) ?? []
+        }
+        let opens = items(chatPart)
+        let row = session.flatMap { actions.sessionItems?($0) } ?? []
+        let part = items(otherPart)
         var copies = edits
         var message: [NSMenuItem] = []
         var links: [NSMenuItem] = []
@@ -299,7 +312,7 @@ enum AgentPaneContextMenu {
         } else {
             header = []
         }
-        add([header, image, part, copies, message, links, chat, inspectElement.map { [$0] } ?? inspect.map { [$0] } ?? []], to: menu)
+        add([header, image, opens, row, part, copies, message, links, chat, inspectElement.map { [$0] } ?? inspect.map { [$0] } ?? []], to: menu)
     }
 
     /// Adds the non-empty groups, split by separators.

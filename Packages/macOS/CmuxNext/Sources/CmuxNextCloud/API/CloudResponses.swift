@@ -27,9 +27,3 @@ public struct CloudSnapshot: Sendable, Hashable, Decodable {
         name = try c.decodeIfPresent(String.self, forKey: .name)
     }
 }
-
-/// `POST /api/vm/{id}/open-port`.
-public struct CloudPortLink: Sendable, Hashable, Decodable {
-    public var url: String
-    public var openUrl: String?
-}

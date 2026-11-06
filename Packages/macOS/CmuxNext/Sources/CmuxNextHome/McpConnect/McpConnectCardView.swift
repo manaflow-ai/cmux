@@ -1,4 +1,5 @@
 public import SwiftUI
+import CmuxNextDesign
 
 /// The MCP connect card in one of its looks (``McpConnectCardStyle``). Every look shows the same
 /// facts and the same controls; only the arrangement differs.
@@ -20,8 +21,8 @@ public struct McpConnectCardView: View {
         content
             .padding(style == .compactRow ? 10 : 14)
             .frame(maxWidth: 520, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: style == .bubble ? 16 : 10, style: .continuous).fill(colors.surface))
-            .overlay(RoundedRectangle(cornerRadius: style == .bubble ? 16 : 10, style: .continuous)
+            .background(RoundedRectangle(cornerRadius: style == .bubble ? 16 : Metrics.surfaceCornerRadius, style: .continuous).fill(colors.surface))
+            .overlay(RoundedRectangle(cornerRadius: style == .bubble ? 16 : Metrics.surfaceCornerRadius, style: .continuous)
                 .strokeBorder(borderColor, lineWidth: 1))
             .environment(\.colorScheme, colors.isDark ? .dark : .light)
             .accessibilityElement(children: .contain)

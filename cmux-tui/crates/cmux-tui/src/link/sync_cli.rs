@@ -837,7 +837,10 @@ fn push_inner(
     for (path, revisions) in &left.written {
         let Some(relative) = path.strip_prefix(&prefix) else { continue };
         if !plain_relative(relative)
-            || previous.files.get(relative).is_some_and(|pushed| revisions.contains(&pushed.revision))
+            || previous
+                .files
+                .get(relative)
+                .is_some_and(|pushed| revisions.contains(&pushed.revision))
         {
             continue;
         }
@@ -939,7 +942,13 @@ fn push_inner(
     // Through the store, the machine fetches first; what it did not write
     // goes over the link below, like every other write.
     let fetched = if via_store {
-        Some(send_through_store(&mut remote, remote_root, &deferred, tally.done, &mut tally.progress)?)
+        Some(send_through_store(
+            &mut remote,
+            remote_root,
+            &deferred,
+            tally.done,
+            &mut tally.progress,
+        )?)
     } else {
         None
     };

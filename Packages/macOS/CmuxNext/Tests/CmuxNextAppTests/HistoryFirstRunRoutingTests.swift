@@ -55,6 +55,32 @@ struct HistoryFirstRunRoutingTests {
         #expect(page.made == 1, "closing the first presentation must not open another")
     }
 
+    /// A showcase launch (scene captures) is a fresh home: the page over Home parked its workspace,
+    /// so `debug.showcase.seed` found no pane and every `scene:*` capture failed to seed.
+    @Test func aShowcaseLaunchKeepsItsWorkspaceShown() throws {
+        _ = NSApplication.shared
+        let suite = "cmux-history-showcase-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let services = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"]))
+        let page = HistoryPage()
+        services.pages.register(page)
+        services.windows.ordersWindowsIn = false
+        let store = services.machines.local.store
+        let identity = try PlacementStaleRowsTests.identity(mixedOrder: false)
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+        store.apply(snapshot: PlacementStaleRowsTests.tree(["first"], personal: ["first"]))
+        let controller = try #require(services.windows.openWindow(workspaces: ["first"]))
+        defer { controller.teardown(); controller.window?.close() }
+        controller.state.page = .home
+
+        services.onboarding.showHistoryAtFirstRun(isFirstRun: true, defaults: defaults)
+        #expect(controller.shownTopPage != .page(.importHistory))
+        #expect(page.made == 0)
+        #expect(!defaults.bool(forKey: "home.firstRun.historyImportShown"), "a showcase run never consumes the offer")
+    }
+
     @Test func anExistingInstallationNeverGetsFirstRunHistory() throws {
         let suite = "cmux-history-upgrade-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
