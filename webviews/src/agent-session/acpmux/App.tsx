@@ -3448,7 +3448,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           (owner: string) => (text: string) =>
             restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
               ? answerThrough(callNative)(text)
-              : Promise.reject(new Error("chat changed"))
+              : Promise.reject(new Error("chat changed")) // l10n-allow: an error code for the card, never shown
         )(restartChat),
       }),
       // A context-full failure's Compact sends the agent's own /compact as Continue sends its prompt,
