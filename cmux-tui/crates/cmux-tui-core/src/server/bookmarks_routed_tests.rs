@@ -238,7 +238,9 @@ fn a_retried_source_removal_never_deletes_a_folder_made_since() {
     let items = json!([{"title": "A", "url": "https://a.test", "folder_path": []}]);
     ok(send(&mux, &conn, "bookmarks.import_source", params(items), Some("r2")));
     // The first request's retry replays: the new folder stays.
-    ok(send(&mux, &conn, "bookmarks.import_source", params(json!([])), Some("r1")));
+    let retry = ok(send(&mux, &conn, "bookmarks.import_source", params(json!([])), Some("r1")));
+    assert_eq!((retry["replayed"].clone(), retry["deleted"].clone()), (json!(true), json!([])));
+    assert_eq!(retry["skipped"], 0, "{retry}");
     let listing =
         ok(send(&mux, &conn, "bookmarks.list", json!({"browser_profile_id": "default"}), None));
     assert_eq!(titles(&listing), ["Imported from Chrome", "A"]);
@@ -263,6 +265,11 @@ fn a_batch_with_a_maximum_length_key_runs_and_replays() {
     assert!(again["results"].as_array().unwrap().iter().all(|result| result["replayed"] == true));
     assert_eq!(super::op_key(&key, 0).len(), "sha256:".len() + 64 + 2);
     assert_eq!(super::op_key("short", 3), "short.3");
+    // A key shaped like a hashed one is hashed too: it never collides with another key's hash.
+    let hashed = super::op_key(&key, 0);
+    let lookalike = hashed.trim_end_matches(".0");
+    assert_ne!(super::op_key(lookalike, 0), hashed);
+    assert!(super::op_key(lookalike, 0).starts_with("sha256:"));
     mux.shutdown();
 }
 

@@ -23,8 +23,9 @@
 //!   (mutation): the file into one new folder at the end of the bar.
 //! - `bookmarks.import_source {browser_profile_id, title, source_key, items}`
 //!   (mutation): one browser source's folder, replaced in place; no items
-//!   removes it. `{root_ids, count, added, duplicates, skipped}` (`skipped`:
-//!   items whose URL the store would refuse).
+//!   removes it. `{root_ids, count, added, duplicates, skipped, replayed}`
+//!   (`skipped`: items whose URL the store would refuse); a removal also has
+//!   `deleted`.
 
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -47,6 +48,8 @@ const MAX_LIMIT: usize = 1000;
 const MAX_OPS: usize = 256;
 /// The ledger's bound on a replay key (`validate_identifier`).
 const MAX_KEY_BYTES: usize = 128;
+/// The prefix of a hashed per-op key ([`op_key`]).
+const HASHED_KEY_PREFIX: &str = "sha256:";
 /// Most bytes of a search or rank query.
 const MAX_QUERY_BYTES: usize = 1024;
 /// The replay origin of routed bookmark ops.
@@ -200,16 +203,23 @@ pub(super) fn routed(
             if import.items.is_empty() {
                 // No items: the source's folder goes (a re-import of an emptied source). The
                 // lookup, the delete and the replay record are one transaction.
-                let mutation = WorkspaceMutation::new(key, REPLAY_ORIGIN, actor.clone())
+                let mutation = WorkspaceMutation::new(key, REPLAY_ORIGIN, actor)
                     .map_err(|error| failure(operation, &error, None))?;
                 let (profile, source_key) = (&import.browser_profile_id, &import.source_key);
-                mux.bookmarks_mutation(|registry| {
-                    let outcome =
-                        registry.remove_bookmark_source(&mutation, profile, source_key)?;
-                    Ok(((), outcome.changed))
-                })
-                .map_err(|error| failure(operation, &error, None))?;
-                return Ok(json!({"root_ids": [], "count": 0, "added": 0, "duplicates": 0}));
+                let (mut result, _) = mux
+                    .bookmarks_mutation(|registry| {
+                        let outcome =
+                            registry.remove_bookmark_source(&mutation, profile, source_key)?;
+                        Ok((outcome.result, outcome.changed))
+                    })
+                    .map_err(|error| failure(operation, &error, None))?;
+                if let Some(object) = result.as_object_mut() {
+                    for field in ["count", "added", "duplicates", "skipped"] {
+                        object.insert(field.into(), json!(0));
+                    }
+                    object.insert("root_ids".into(), json!([]));
+                }
+                return Ok(result);
             }
             let plan = import_plan::source(
                 &import.browser_profile_id,
@@ -240,13 +250,15 @@ pub(super) fn routed(
 /// the same keys.
 fn op_key(key: &str, index: usize) -> String {
     let plain = format!("{key}.{index}");
-    if plain.len() <= MAX_KEY_BYTES {
+    // A caller's key that already looks hashed is hashed too, so a plain key
+    // never equals another key's hashed form.
+    if plain.len() <= MAX_KEY_BYTES && !key.starts_with(HASHED_KEY_PREFIX) {
         return plain;
     }
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(key.as_bytes());
     let hex = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-    format!("sha256:{hex}.{index}")
+    format!("{HASHED_KEY_PREFIX}{hex}.{index}")
 }
 
 fn parse<T: DeserializeOwned>(params: Value) -> Result<T, ResourceError> {
