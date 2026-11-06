@@ -58,7 +58,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
 #[test]
 fn parse_refuses_what_start_session_would() {
     for words in [
-        vec![],
+        vec!["--prompt", ""],
         vec!["--prompt", "  "],
         vec!["--prompt", "x", "--cwd", "relative"],
         vec!["--prompt", "x", "--agent", "Claude Code"],
@@ -90,6 +90,24 @@ fn parse_takes_the_harness_login() {
     }
     assert_eq!(request(&["--prompt", "x", "--login=machine"]).login.as_deref(), Some("machine"));
     assert_eq!(request(&["--prompt", "x"]).login, None);
+}
+
+/// Leo (2026-11-06): "Like with an initial ... prompts. Or not?": with no --prompt the command starts the chat
+/// and sends nothing. An empty --prompt is still a mistake, not "no prompt".
+#[test]
+fn parse_takes_no_prompt() {
+    for words in [vec![], vec!["--name", "dev"], vec!["--wait", "--login", "none"]] {
+        assert!(
+            matches!(parse(&strings(&words), || Ok(String::new())), Ok(Parsed::Run(_))),
+            "{words:?}"
+        );
+    }
+    assert!(parse(&strings(&["--prompt", ""]), || Ok(String::new())).is_err());
+    assert!(parse(&strings(&["--prompt", "-"]), || Ok(" \n".to_owned())).is_err());
+    assert_eq!(
+        again_command(&request(&["--agent", "codex"]), &Machine::Named("chat-1".into())),
+        "cmux cloud start-chat --name chat-1 --agent codex --json"
+    );
 }
 
 #[test]
@@ -332,6 +350,58 @@ fn without_wait_it_answers_once_the_prompt_is_sent() {
     assert!(answer.get("reply").is_none());
     assert_eq!(fake.ran[1][3], "dev");
     assert_eq!(fake.ran.len(), 3);
+}
+
+/// No prompt: start-session alone, with or without --wait (there is no turn to wait on). No relay chat, no
+/// new-machine first, no exec: the answer is the chat's ids, how long it took to be ready, and how to send
+/// the first message.
+#[test]
+fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
+    for wait in [false, true] {
+        let mut fake = Fake::new(vec![signed_in(), started()]);
+        let mut words = vec!["--login", "machine"];
+        if wait {
+            words.push("--wait");
+        }
+        let Outcome::Done(answer) = run(&mut fake, &request(&words)) else {
+            panic!("{:?}", fake.ran)
+        };
+        assert_eq!(
+            fake.ran,
+            vec![
+                strings(&["cloud", "list-machines", "--json"]),
+                strings(&[
+                    "cloud",
+                    "start-session",
+                    "--name",
+                    "chat-fresh",
+                    "--agent",
+                    "claude",
+                    "--login",
+                    "machine",
+                    "--json"
+                ]),
+            ]
+        );
+        for (key, value) in [
+            ("machine_id", "vm-1"),
+            ("machine_name", "chat-fresh"),
+            ("target", "machine:vm-1"),
+            ("session_id", "sess-1"),
+            ("workspace_id", "ws_1"),
+            ("tab_id", "tab-1"),
+            ("agent", "claude"),
+        ] {
+            assert_eq!(answer[key], value, "{key}");
+        }
+        assert_eq!(answer["sent"], false);
+        // Two steps of the fake's five seconds each, from the command's start.
+        assert_eq!(answer["ready_ms"], 10_000);
+        assert!(answer.get("reply").is_none());
+        let send = answer["follow_up"]["send"].as_str().unwrap();
+        assert!(send.contains("acp send --no-wait sess-1"), "{send}");
+        assert!(send.starts_with("cmux cloud exec --target machine:vm-1 "), "{send}");
+    }
 }
 
 #[test]
