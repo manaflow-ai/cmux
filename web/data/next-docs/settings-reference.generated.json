@@ -557,7 +557,7 @@
           "title": "Computer Use Driver",
           "help": "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
           "kind": "choice",
-          "default": "legacy",
+          "default": "upstream",
           "group": "Computer Use",
           "values": [
             "legacy",
@@ -1079,20 +1079,20 @@
           ]
         },
         {
+          "key": "palette.searchHistory",
+          "title": "Remember Palette Searches",
+          "help": "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Command Palette"
+        },
+        {
           "key": "picker.pinned",
           "title": "Pinned Folders",
           "help": "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths.",
           "kind": "folder_list",
           "default": [],
           "group": "Folder Picker"
-        },
-        {
-          "key": "remote.enabled",
-          "title": "Use cmux Remote",
-          "help": "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts.",
-          "kind": "toggle",
-          "default": false,
-          "group": "cmux Remote"
         },
         {
           "key": "remote.endSharingOnQuit",

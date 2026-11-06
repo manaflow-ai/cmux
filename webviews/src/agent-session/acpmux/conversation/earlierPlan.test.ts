@@ -1,5 +1,5 @@
 // The todo list from before the person's last message (turns.ts earlierTurnPlan, withEarlierPlan):
-// Claude desktop's pinned task list keeps the earlier list in sight until the agent writes a new one.
+// The earlier list stays in sight until the agent writes a new one.
 import { expect, test } from "bun:test";
 import type { AcpmuxPlanEntry, AcpmuxRow } from "../model";
 import { earlierTurnPlan, withEarlierPlan } from "./turns";
@@ -43,6 +43,13 @@ test("a cleared list ends the carry-over", () => {
 
 test("a list a later turn cleared does not carry over", () => {
   expect(earlierTurnPlan([row("user"), { ...stopped(), planCleared: true }, row("user")])).toBeUndefined();
+});
+
+test("another session's turn after the person's gets no carry-over", () => {
+  const incoming = row("user", { incoming: { kind: "message" } as AcpmuxRow["incoming"] });
+  expect(
+    earlierTurnPlan([row("user"), stopped(), row("user"), row("assistant"), incoming, row("assistant")]),
+  ).toBeUndefined();
 });
 
 test("another session's message is not the person's", () => {
