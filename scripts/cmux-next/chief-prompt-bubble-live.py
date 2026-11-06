@@ -182,8 +182,11 @@ def open_tab(session):
     ran = rpc("action.run", {"action": "agent.openSessionTab", "args": {"session": session}, "focus": True}, timeout=60)
     tab = ((ran or {}).get("result") or {}).get("tab")
     print("open tab", session, json.dumps(ran)[:600], flush=True)
-    if tab:  # a script's run may leave the new tab behind the pane's current one: show it, as a click does
-        focused = rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab}", "focus": True}, timeout=30)
+    if tab:
+        # The run answers before the app's store lists the new tab, so its own reveal (and a tab.focus
+        # sent at once) can miss it and leave it behind the pane's current tab: show it once it is known.
+        focus = lambda: rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab}", "focus": True}, timeout=30) or {}
+        focused = wait(lambda: (lambda r: r if "error" not in r else None)(focus()), 20, 0.5) or focus()
         print("show tab", tab, json.dumps(focused)[:400], flush=True)
     shown = wait(lambda: (lambda s: s if s.get("sessionId") == session else None)(pane("chat_state") or {}), 30, 0.5)
     state = pane("chat_state") or {}
