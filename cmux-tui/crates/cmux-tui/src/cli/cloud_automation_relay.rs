@@ -102,7 +102,6 @@ pub(super) async fn relay(input: &[u8]) -> Value {
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::io::{Read as _, Write as _};
     use std::net::TcpListener;
     use std::sync::{Arc, Mutex};
 

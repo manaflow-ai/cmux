@@ -102,6 +102,8 @@ struct App {
     events: mpsc::UnboundedReceiver<Value>,
     credential: Option<&'static str>,
     next: u64,
+    /// Events read while waiting for another one, in order.
+    backlog: Vec<Value>,
 }
 
 impl App {
@@ -111,7 +113,7 @@ impl App {
         tokio::spawn(serve(lines, move |event: Value| {
             let _ = sender.send(event);
         }));
-        Self { input, events, credential, next: 0 }
+        Self { input, events, credential, next: 0, backlog: Vec::new() }
     }
 
     fn send(&self, command: Value) {
@@ -122,8 +124,11 @@ impl App {
         self.send(json!({"t": "start", "api": api, "app_version": "1.0"}));
     }
 
-    /// The next event named `kind` (answering token asks on the way).
+    /// The next event named `kind` (answering token asks on the way); others wait in the backlog.
     async fn next(&mut self, kind: &str) -> Value {
+        if let Some(index) = self.backlog.iter().position(|event| event["event"] == kind) {
+            return self.backlog.remove(index);
+        }
         let wait = async {
             loop {
                 let event = self.events.recv().await.expect("engine ended");
@@ -136,6 +141,7 @@ impl App {
                 if event["event"] == kind {
                     return event;
                 }
+                self.backlog.push(event);
             }
         };
         tokio::time::timeout(std::time::Duration::from_secs(10), wait).await.expect(kind)
@@ -148,12 +154,17 @@ impl App {
             command[key] = value.clone();
         }
         self.send(command);
-        loop {
+        let id = self.next;
+        let mut other = Vec::new();
+        let reply = loop {
             let reply = self.next("reply").await;
-            if reply["id"] == self.next {
-                return reply;
+            if reply["id"] == id {
+                break reply;
             }
-        }
+            other.push(reply);
+        };
+        self.backlog.extend(other);
+        reply
     }
 }
 
