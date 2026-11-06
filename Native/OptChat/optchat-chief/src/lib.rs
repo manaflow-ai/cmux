@@ -76,6 +76,7 @@ pub mod screen_share;
 pub mod session_dir;
 pub mod settle_status;
 pub mod show;
+pub mod sidebar_choice;
 pub mod single_flight;
 pub mod skills;
 pub mod spawn_route;

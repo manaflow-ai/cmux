@@ -4379,6 +4379,12 @@ export class AcpmuxDirectClient {
     return this.git("git.diff", { scope, include_patch: true, ...narrow });
   }
 
+  /// The totals of one git scope of the selected session's repository, with no patch: Session Info's
+  /// Changes row (session-info/changeCounts.ts).
+  gitDiffCounts(scope: string): Promise<unknown> {
+    return this.git("git.diff", { scope, include_patch: false });
+  }
+
   /// The selected session's branch, upstream and how far it is ahead and behind.
   gitStatus(): Promise<unknown> {
     return this.git("git.status", {});

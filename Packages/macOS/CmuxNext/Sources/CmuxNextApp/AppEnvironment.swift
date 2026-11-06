@@ -129,15 +129,15 @@ struct AppEnvironment: Sendable {
     /// connection, new workspaces, the compat CLI): the filtered login
     /// environment, ``terminalEnvironment``, then Ghostty's shell integration
     /// from the config applied at spawn time, so `reload-config` affects
-    /// the next terminal.
-    func terminalEnvironmentProvider() -> @Sendable () async -> [String: String] {
+    /// the next terminal. `prefersGhosttyTerm` reads `terminal.term` per terminal.
+    func terminalEnvironmentProvider(prefersGhosttyTerm: @escaping @MainActor @Sendable () -> Bool) -> @Sendable () async -> [String: String] {
         let resources = ghosttyResources
         let binary = ghosttyBinary
         return TerminalEnvironment.instance.shared(overrides: terminalEnvironment, integration: {
             await MainActor.run {
                 Self.shellIntegration(GhosttyRuntime.shared.shellIntegrationSettings, resources: resources, binary: binary)
             }
-        }, cli: Self.bundledCLI(appResources: Bundle.main.resourceURL?.path, resolvesShellIntegration: resolvesShellIntegration))
+        }, cli: Self.bundledCLI(appResources: Bundle.main.resourceURL?.path, resolvesShellIntegration: resolvesShellIntegration), prefersGhosttyTerm: prefersGhosttyTerm)
     }
 
     /// The bundled `cmux` for this app's terminals: `<Resources>/bin`, and

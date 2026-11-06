@@ -370,14 +370,16 @@ function Columns({
     () => (found ? searchGroups(found, list, families.current) : undefined),
     [found, list, families],
   );
-  // Rows a search lists twice under one name (two routes of one model) also name their model id.
-  const twins = useMemo(() => twinRows(groups ?? []), [groups]);
   // The list: a search's matches under their family's name, else the tab's models, then its Legacy ones.
   const rows: QuickModel[] = groups
     ? groups.flatMap((group) => group.rows)
     : shown && !shown.fork
       ? [...shown.models, ...shown.more]
       : [];
+  // Rows listed twice under one name (two routes of one model, a search's or a tab's) show their
+  // model id under the name, so the variants read apart (Lawrence 2026-11-05).
+  // One pass over the listed rows; `rows` is rebuilt each render.
+  const twins = twinRows(groups ?? [{ id: "", name: "", rows }]);
   const legacyFrom = groups || !shown ? rows.length : shown.models.length;
   const isRunning = (model: QuickModel) =>
     model.family === families.current && (model.id === current || runsOffers(model, current));
@@ -869,7 +871,7 @@ function Columns({
           model.name,
           query ? model.harness : undefined,
           model.hint ?? model.provider,
-          twins.has(model) ? model.id : undefined,
+          model.id !== model.name ? model.id : undefined,
         ]
           .filter(Boolean)
           .join(" · ")}
@@ -878,7 +880,14 @@ function Columns({
           pickModel(index);
         }}
       >
-        <span className="acpmux-cols-name">{model.name}</span>
+        {twins.has(model) ? (
+          <span className="acpmux-cols-text">
+            <span className="acpmux-cols-name">{model.name}</span>
+            <span className="acpmux-cols-id">{model.id}</span>
+          </span>
+        ) : (
+          <span className="acpmux-cols-name">{model.name}</span>
+        )}
         {model.tag && <span className="acpmux-cols-tag">{model.tag}</span>}
         {stars && (
           <button
@@ -938,6 +947,7 @@ function Columns({
     onClick: () => void,
     body: React.ReactNode,
     kind: "radio" | "switch" = "radio",
+    title?: string,
   ) => {
     tuneIndex += 1;
     const index = tuneIndex;
@@ -949,6 +959,8 @@ function Columns({
         aria-disabled={disabled ? true : undefined}
         className="acpmux-cols-row"
         data-hl={col === 2 && index === tuneHl ? "" : undefined}
+        // tooltip-allow: names the provider's route (its model id), which tells same-named models apart.
+        title={title}
         onPick={() => {
           if (disabled) return;
           setCol(2);
@@ -1279,6 +1291,8 @@ function Columns({
                         <span className="acpmux-cols-name">{offer.provider}</span>
                         <span className="acpmux-cols-check">{offer === runningOffer && <CheckIcon />}</span>
                       </>,
+                      "radio",
+                      `${offer.provider} · ${offer.id}`,
                     ),
                   )}
                   {fastShown && (

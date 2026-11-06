@@ -2034,6 +2034,47 @@
       "title" : "Reactions Can Wake the Chief",
       "type" : "boolean"
     },
+    "chief.subagentSidebar" : {
+      "default" : "auto",
+      "description" : "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Subagents in the Sidebar",
+      "type" : "string"
+    },
+    "chief.subagentSidebarHideWords" : {
+      "default" : [
+
+      ],
+      "description" : "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Hide Tasks That Mention",
+      "type" : "array"
+    },
+    "chief.subagentSidebarMinWords" : {
+      "default" : 50,
+      "description" : "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter.",
+      "maximum" : 1000,
+      "minimum" : 0,
+      "title" : "Show Tasks Longer Than",
+      "type" : "number"
+    },
+    "chief.subagentSidebarShowWords" : {
+      "default" : [
+
+      ],
+      "description" : "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Show Tasks That Mention",
+      "type" : "array"
+    },
     "cloud.agentsStartWithoutAsking" : {
       "default" : true,
       "description" : "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.",
@@ -5114,6 +5155,16 @@
       },
       "title" : "Program Link Rules",
       "type" : "array"
+    },
+    "terminal.term" : {
+      "default" : "xterm-256color",
+      "description" : "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac.",
+      "enum" : [
+        "xterm-256color",
+        "xterm-ghostty"
+      ],
+      "title" : "Terminal Type (TERM)",
+      "type" : "string"
     },
     "ui.animations.bounce" : {
       "default" : "none",

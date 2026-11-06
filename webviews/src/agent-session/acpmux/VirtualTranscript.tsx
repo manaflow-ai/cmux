@@ -128,7 +128,9 @@ import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
 import { useChatDisplay } from "./chatDisplay";
 import { type Folds } from "./conversation/viewFolds";
-import { SUBAGENT_DONE } from "./subagents/subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_OF } from "./subagents/subagentRows";
+import { SubagentOfRow } from "./subagents/SubagentGroup";
+import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
@@ -1900,6 +1902,20 @@ export function VirtualTranscript({
     flushSync(roomTaken);
   }, []);
   const thread = useRef<HTMLDivElement>(null);
+  // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
+  // its row lies at rest: the scroller's top in the stage (under the header) and the thread's own top
+  // padding. Read when it comes and as the view resizes, never per streamed token.
+  const pinnedPill = paneRows[0]?.kind === SUBAGENT_OF ? paneRows[0] : undefined;
+  const pinned = pinnedPill !== undefined;
+  const [pinAt, setPinAt] = useState({ top: 0, pad: 0 });
+  useLayoutEffect(() => {
+    const scroller = ref.current;
+    if (!pinned || !scroller || !thread.current) return;
+    const style = thread.current.ownerDocument.defaultView?.getComputedStyle(thread.current);
+    const pad = Number.parseFloat(style?.paddingTop ?? "") || 0;
+    const top = scroller.offsetTop + pad;
+    setPinAt((now) => (now.top === top && now.pad === pad ? now : { top, pad }));
+  }, [pinned, height]);
   /// The footer of the turn the pointer is over (a turnSummary row's id).
   const pointedTurn = useRef<string | undefined>(undefined);
   /// Pointerover bubbles from every markdown descendant: moving between spans inside the same row
@@ -3961,7 +3977,17 @@ export function VirtualTranscript({
           // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
           // scroll a row into view above it.
           data-docked={dockSpace > 0 || undefined}
-          style={dockSpace > 0 ? ({ "--acpmux-dock-space": `${dockSpace}px` } as React.CSSProperties) : undefined}
+          // A subagent's view keeps its "Subagent of" pill pinned over the top (pinnedPill below): rows
+          // pass out of sight under it.
+          data-pinned-top={pinnedPill ? "" : undefined}
+          style={
+            dockSpace > 0 || pinnedPill
+              ? ({
+                  ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
+                  ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
+                } as React.CSSProperties)
+              : undefined
+          }
         >
           {showMinimap && (
             <ThreadMinimap
@@ -4102,6 +4128,13 @@ export function VirtualTranscript({
             style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
           >
             {afterLatest}
+          </div>
+        )}
+        {pinnedPill && (
+          // Lucas, 2026-11-06: "the "subagent of ..." text on the subagent page is sticky and always at the
+          // top". Outside the scroller, so its soft edge never fades the pill; the row's own slot stays.
+          <div className="acpmux-pinned-top" style={{ top: pinAt.top + topInset }}>
+            <SubagentOfRow row={pinnedPill} />
           </div>
         )}
         {jumpButton && (

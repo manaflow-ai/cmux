@@ -77,4 +77,36 @@ struct LayoutParkedLiveTests {
         let shown = try #require(root.screenViews["s1"]?.paneFrames["p1"])
         #expect(shown.rect == shown.targetRect, "the pane rests at its full size")
     }
+
+    /// A screen switch still sliding when its workspace parks lands in the park with the panes: the motion that ends
+    /// there is the whole layout's, and the show finds nothing left to slide.
+    @Test func aScreenSwitchSlidingWhenItsWorkspaceParksLandsInThePark() throws {
+        let provider = Panes()
+        let model = LayoutModel(screens: [LayoutScreen(id: "s1", name: "s1", layout: .splits(.leaf("p1"))),
+                                          LayoutScreen(id: "s2", name: "s2", layout: .splits(.leaf("p2")))],
+                                activeScreenID: "s1", focusedPane: "p1")
+        let root = LayoutRootView(model: model, contentProvider: provider)
+        root.context.reduceMotionOverride = false
+        let container = Container(frame: NSRect(x: 0, y: 0, width: 1200, height: 800))
+        root.frame = container.bounds
+        container.addSubview(root)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        window.contentView = container
+        root.layoutSubtreeIfNeeded()
+        root.driver.isManual = true
+        model.selectScreen("s2")
+        root.syncWithModel()
+        #expect(root.advanceFrame(1.0 / 120), "the switch slides")
+        let sliding = try #require(root.screenFrames["s2"])
+        #expect(sliding.rect != sliding.targetRect)
+        container.park(true)
+        #expect(!root.isInLayoutMotion)
+        for (id, frame) in root.screenFrames {
+            #expect(frame.rect == frame.targetRect && frame.alpha.value == frame.alpha.target, "\(id) still slides after the park")
+        }
+        container.park(false)
+        #expect(!root.advanceFrame(1.0 / 120), "the show restarted a slide")
+    }
 }
