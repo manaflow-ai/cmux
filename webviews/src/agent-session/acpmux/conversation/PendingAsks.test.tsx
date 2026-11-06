@@ -10,6 +10,9 @@ import type { AcpmuxRow } from "../model";
 import { nextStepAsk } from "./nextStepAsk";
 import { PendingAsks } from "./PendingAsks";
 import { askKey, dismissAsk, dismissedAsks, shownAsks } from "./waitingAskStore";
+import { NextStepRow } from "../rows/NextStepRow";
+import { TurnActionsContext } from "./turnActions";
+import { NEXT_STEP, turnView, turnViewFrom, waitingAsks } from "./turns";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -105,4 +108,46 @@ test("Dismiss names the card, and the chat keeps it across a reload", async () =
   // Read back as a reload reads it: the card leaves the pinned list in that chat only.
   expect(shownAsks([asked], dismissedAsks("s1"))).toEqual([]);
   expect(shownAsks([asked], dismissedAsks("s2"))).toEqual([asked]);
+});
+
+// The order the coordinator's chat logged on 2026-11-06: its turn ended on a tagged question, a
+// peer agent's message started a turn of its own, then the person answered through the card. The
+// answer never reached acpmux: the card had gone back into the prose.
+test("question, a peer message's turn, then the answer through the card reaches the chat", async () => {
+  let at = 0;
+  const line = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}) =>
+    ({ id, version: 1, at: (at += 1000), kind, ...extra }) as AcpmuxRow;
+  const text = "Read the lock path.\n\n[taste] Do you mean computer use, still working while the Mac is locked?";
+  const rows = [
+    line("p1", "user", { text: "Why does it stop on lock?" }),
+    line("a1", "assistant", { text }),
+    line("s1", "turnSummary", { status: "completed" }),
+    line("m1", "user", {
+      text: "Pushed abc123.",
+      untyped: true,
+      incoming: { kind: "message", message: { name: "peer-lane", text: "Pushed abc123.", raw: "Pushed abc123." } },
+    } as Partial<AcpmuxRow>),
+    line("a2", "assistant", { text: "Noted." }),
+    line("s2", "turnSummary", { status: "completed" }),
+  ];
+  const inTranscript = turnView(rows, new Set()).find((row) => row.kind === NEXT_STEP);
+  expect(inTranscript).toBeDefined();
+  const pinned = waitingAsks(turnViewFrom(rows, new Set()));
+  expect(pinned).toHaveLength(1);
+  const sent: string[] = [];
+  const answer = (said: string) => (sent.push(said), Promise.resolve());
+  const container = await render(
+    <TurnActionsContext.Provider value={{ answer }}>
+      <NextStepRow row={inTranscript!} onToggleActivity={() => undefined} expanded={false} />
+      <PendingAsks asks={pinned} onAnswer={answer} onDismiss={() => undefined} />
+    </TurnActionsContext.Provider>,
+  );
+  const [inline, pinnedYes] = buttons(container).filter((b) => b.textContent?.includes("Yes"));
+  await act(async () => inline!.click());
+  await act(async () => pinnedYes!.click());
+  expect(sent).toEqual(["Yes", "Yes"]);
+  // Once sent, the person's prompt settles the card in the transcript and leaves the pinned list.
+  const answered = [...rows, line("p2", "user", { text: "Yes" })];
+  expect(turnView(answered, new Set()).find((row) => row.kind === NEXT_STEP)?.nextStep?.answer).toBe("Yes");
+  expect(waitingAsks(turnViewFrom(answered, new Set()))).toEqual([]);
 });
