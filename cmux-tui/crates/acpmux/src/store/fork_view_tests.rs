@@ -202,3 +202,48 @@ fn compacting_the_chat_writes_the_history_into_the_fork_first() {
     assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
     assert_eq!(shown(&view), before, "the fork shows its history as it was");
 }
+
+/// A fork of a fork read by a view that has not listed the store yet (a daemon opening one chat
+/// by id at startup) still shows both histories: each meta is read before its reference is used
+/// (review of #37020: the first fork's reference was unknown, so its chat's history was left out).
+#[test]
+fn a_fork_of_a_fork_read_before_any_list_shows_both_histories() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let view = forked(Box::new(LocalStore::new(dir.clone(), 1 << 20).unwrap()), 30, 20, 4);
+    let reference = HistoryRef { session: "fork".into(), through_seq: 24 };
+    view.save(&meta("grandchild", Some(reference))).unwrap();
+    view.append("grandchild", &record(25, "user_message")).unwrap();
+    drop(view);
+
+    let fresh = ForkView::new(Box::new(LocalStore::new(dir, 1 << 20).unwrap()));
+    let mut want = expected(20, 4);
+    want.push(25);
+    assert_eq!(seqs(&fresh.events("grandchild", 0, usize::MAX).unwrap()), want);
+}
+
+/// Two writes of one fork's history at once (the chat deleted while its fork's files are read)
+/// write it once (review of #37020: each wrote it, and the fork showed it twice).
+#[test]
+fn a_forks_history_is_written_once_however_many_ask() {
+    let view = std::sync::Arc::new(forked(Box::new(MemoryStore::default()), 30_000, 20_000, 4));
+    let writers: Vec<_> = (0..4)
+        .map(|_| {
+            let view = view.clone();
+            std::thread::spawn(move || view.materialize("fork").unwrap())
+        })
+        .collect();
+    writers.into_iter().for_each(|w| w.join().unwrap());
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20_000, 4));
+}
+
+/// A meta read before the history was written in and noted after it never brings the reference
+/// back (review of #37020: the fork then hid the history it holds).
+#[test]
+fn a_stale_meta_noted_after_the_write_names_no_reference() {
+    let view = forked(Box::new(MemoryStore::default()), 30, 20, 4);
+    let stale = view.inner.load("fork").unwrap().unwrap();
+    view.materialize("fork").unwrap();
+    view.note(&stale);
+    assert!(view.reference("fork").is_none());
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
+}

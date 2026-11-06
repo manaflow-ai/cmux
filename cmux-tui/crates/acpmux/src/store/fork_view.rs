@@ -52,12 +52,29 @@ pub trait HistoryWriter {
 /// [`HistoryRef`] shown with its chat's history ([module docs](self)).
 pub struct ForkView {
     inner: Box<dyn Store>,
-    /// Each referencing fork's reference, from its meta as the store saved or listed it.
-    refs: RwLock<HashMap<String, HistoryRef>>,
-    /// Held by `materialize` while it drops a reference and by a save of a meta that names one,
-    /// from its check to its write: a save that read the reference first cannot write it back
-    /// after the drop (review of #37020: after a restart the fork named its deleted chat again).
+    /// What this view knows of the references ([`Refs`]).
+    refs: RwLock<Refs>,
+    /// Held by `materialize` for the whole write, so one fork's history is written once, and by a
+    /// save of a meta that names a reference, from its check to its write: a save that read the
+    /// reference first cannot write it back after the drop (review of #37020: after a restart
+    /// the fork named its deleted chat again; two writes of one fork's history raced).
     dropping: std::sync::Mutex<()>,
+}
+
+/// Every reference is read from a session's stored meta before it is used, and once dropped it
+/// never comes back: a meta loaded before the drop and noted after it names it no more.
+#[derive(Default)]
+struct Refs {
+    /// Each referencing fork's reference.
+    by_fork: HashMap<String, HistoryRef>,
+    /// The sessions whose meta this view has read: any other is read before its reference is
+    /// asked for, so a fork of a fork opened before the store's full list reads through both
+    /// (review of #37020).
+    known: std::collections::HashSet<String>,
+    /// Forks whose history was written into their logs, with the seq it was shown through.
+    dropped: HashMap<String, u64>,
+    /// Whether the whole store was listed: before then, `forks_of` lists it first.
+    listed: bool,
 }
 
 fn is_history(kind: &str) -> bool {
@@ -66,18 +83,33 @@ fn is_history(kind: &str) -> bool {
 
 impl ForkView {
     pub fn new(inner: Box<dyn Store>) -> Self {
-        Self { inner, refs: RwLock::new(HashMap::new()), dropping: Default::default() }
+        Self { inner, refs: Default::default(), dropping: Default::default() }
     }
 
     fn reference(&self, id: &str) -> Option<HistoryRef> {
-        self.refs.read().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
+        {
+            let refs = self.refs.read().unwrap_or_else(|e| e.into_inner());
+            if refs.known.contains(id) {
+                return refs.by_fork.get(id).cloned();
+            }
+        }
+        // Not read yet: its stored meta says. A store that cannot read it shows its own log.
+        if let Ok(Some(meta)) = self.inner.load(id) {
+            self.note(&meta);
+        }
+        let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
+        refs.known.insert(id.to_owned());
+        refs.by_fork.get(id).cloned()
     }
 
     fn note(&self, meta: &SessionMeta) {
         let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
+        refs.known.insert(meta.id.clone());
         match &meta.history_from {
-            Some(r) => refs.insert(meta.id.clone(), r.clone()),
-            None => refs.remove(&meta.id),
+            Some(r) if !refs.dropped.contains_key(&meta.id) => {
+                refs.by_fork.insert(meta.id.clone(), r.clone())
+            }
+            _ => refs.by_fork.remove(&meta.id),
         };
     }
 
@@ -85,6 +117,8 @@ impl ForkView {
     /// chat goes, or before its files are read or moved as files. Nothing for a session that
     /// references none. A failure leaves the reference as it was.
     pub fn materialize(&self, id: &str) -> Result<()> {
+        let _dropping = self.dropping.lock().unwrap_or_else(|e| e.into_inner());
+        // Read under the lock: a write that ran first left none.
         let Some(reference) = self.reference(id) else { return Ok(()) };
         let Some(mut writer) = self.inner.history_writer(id)? else {
             anyhow::bail!("this store cannot hold a fork's history");
@@ -106,20 +140,26 @@ impl ForkView {
             return Err(e);
         }
         writer.commit()?;
-        let _dropping = self.dropping.lock().unwrap_or_else(|e| e.into_inner());
+        {
+            let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
+            refs.dropped.insert(id.to_owned(), reference.through_seq);
+            refs.by_fork.remove(id);
+        }
         if let Some(mut meta) = self.inner.load(id)? {
             meta.history_from = None;
             meta.history_kept_through = Some(reference.through_seq);
             self.inner.save(&meta)?;
         }
-        self.refs.write().unwrap_or_else(|e| e.into_inner()).remove(id);
         Ok(())
     }
 
     /// The forks that reference `id`'s history.
-    fn forks_of(&self, id: &str) -> Vec<String> {
+    fn forks_of(&self, id: &str) -> Result<Vec<String>> {
+        if !self.refs.read().unwrap_or_else(|e| e.into_inner()).listed {
+            self.list()?;
+        }
         let refs = self.refs.read().unwrap_or_else(|e| e.into_inner());
-        refs.iter().filter(|(_, r)| r.session == id).map(|(fork, _)| fork.clone()).collect()
+        Ok(refs.by_fork.iter().filter(|(_, r)| r.session == id).map(|(f, _)| f.clone()).collect())
     }
 }
 
@@ -127,6 +167,7 @@ impl Store for ForkView {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         let metas = self.inner.list()?;
         metas.iter().for_each(|m| self.note(m));
+        self.refs.write().unwrap_or_else(|e| e.into_inner()).listed = true;
         Ok(metas)
     }
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
@@ -153,10 +194,16 @@ impl Store for ForkView {
         }
         let _dropping = self.dropping.lock().unwrap_or_else(|e| e.into_inner());
         let mut meta = meta.clone();
-        if self.reference(&meta.id).is_none()
-            && let Some(stored) = self.inner.load(&meta.id)?
+        let dropped =
+            self.refs.read().unwrap_or_else(|e| e.into_inner()).dropped.get(&meta.id).copied();
+        if let Some(through) = dropped {
+            meta.history_from = None;
+            meta.history_kept_through = Some(through);
+        } else if let Some(stored) = self.inner.load(&meta.id)?
             && stored.history_from.is_none()
+            && stored.history_kept_through.is_some()
         {
+            // Written in by another process (an earlier daemon): its meta on disk says so.
             meta.history_from = None;
             meta.history_kept_through = stored.history_kept_through;
         }
@@ -370,18 +417,18 @@ impl Store for ForkView {
     /// Retention trims a chat's records in place: the forks that show them get them first, as
     /// they were (review of #37020: a fork lost the long tool output a copy had kept).
     fn commit_compaction(&self, id: &str, staged: Staged) -> Result<bool> {
-        for fork in self.forks_of(id) {
+        for fork in self.forks_of(id)? {
             self.materialize(&fork)?;
         }
         self.inner.commit_compaction(id, staged)
     }
     /// A chat that forks reference goes only once each holds its history itself.
     fn delete(&self, id: &str) -> Result<()> {
-        for fork in self.forks_of(id) {
+        for fork in self.forks_of(id)? {
             self.materialize(&fork)?;
         }
         self.inner.delete(id)?;
-        self.refs.write().unwrap_or_else(|e| e.into_inner()).remove(id);
+        self.refs.write().unwrap_or_else(|e| e.into_inner()).by_fork.remove(id);
         Ok(())
     }
     /// Its files as files: a fork's history is in them first. None when it cannot be written
