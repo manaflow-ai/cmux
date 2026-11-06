@@ -703,13 +703,18 @@ export class HarnessSwitch {
     // Each prompt goes with its own ticket: the first one's send took (#23031), or the one the
     // composer bound at the Enter of a send it held for its files. One without a ticket falls back
     // to the port's normal live-gesture path.
+    // A prompt that joins while they resolve gets its own collected too, before any goes.
     const tickets = new Map<Queued, string | undefined>();
-    await Promise.all(
-      intent.queued.map(async (prompt) => {
-        if (prompt.ticket?.port === port) tickets.set(prompt, await prompt.ticket.value);
-      }),
-    );
-    if (this.intent !== intent || this.port !== port) return;
+    for (;;) {
+      const missing = intent.queued.filter((prompt) => !tickets.has(prompt));
+      if (!missing.length) break;
+      await Promise.all(
+        missing.map(async (prompt) => {
+          tickets.set(prompt, prompt.ticket?.port === port ? await prompt.ticket.value : undefined);
+        }),
+      );
+      if (this.intent !== intent || this.port !== port) return;
+    }
     const queued = intent.queued;
     intent.queued = [];
     this.intent = undefined;

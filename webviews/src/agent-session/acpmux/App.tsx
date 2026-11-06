@@ -199,6 +199,7 @@ import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
 import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
 import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwner } from "./trustRefusalRoute";
 import { heldPrompts, type SendGesture } from "./heldPrompt";
+import { bindsHeldSendNow } from "./heldSendBinding";
 import { StartingSends, type StartingSend } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { Inspector, type ExportOutcome } from "./Inspector";
@@ -9643,10 +9644,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}
             // A send the composer holds for its files (a pasted screenshot still being read) binds
-            // its Enter or click now, for the chat shown: a New Tab's start spends that gesture itself.
+            // its Enter or click now only when it goes straight to the chat open now: a chat start,
+            // a harness switch (deferred included), a Cloud start or wake and a sandbox run spend
+            // that gesture themselves first (heldSendBinding.ts).
             onBindSendGesture={() => {
               const client = directClient.current;
-              return client?.selectedSession ? client.bindSendGesture() : undefined;
+              const route = {
+                openChat: client?.selectedSession,
+                switchPending: harnessSwitch.view().intent !== undefined,
+                startsChat: Boolean(projectDraft && !snapshot.sessionId),
+                cloudStart: cloudPicked,
+                cloudWake: Boolean(cloudWakeChat && cloudRecovery.state !== "deleted"),
+                sandbox: sandboxing || sandboxPickedNotOffered || (sandboxHoldsChat && !sandboxDraftMoved),
+              };
+              return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
             }}
             onSend={(text, chips, steer, gesture) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
