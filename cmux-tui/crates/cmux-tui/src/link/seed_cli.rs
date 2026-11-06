@@ -309,8 +309,8 @@ impl<'a> Machine<'a> {
                 return Err(SeedError {
                     identify_failure: Some(failure.code()),
                     ..SeedError::new(
-                        "sync_failed",
-                        format!("the machine at {} did not answer", socket.display()),
+                        machine_gate::NOT_ANSWERING,
+                        format!("the machine did not answer identify ({})", failure.code()),
                     )
                 });
             }

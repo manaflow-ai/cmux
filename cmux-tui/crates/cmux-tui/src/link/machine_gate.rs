@@ -29,6 +29,9 @@ pub(super) const OUTDATED: &str = "machine_outdated";
 /// connection that does not carry it): updating it would change nothing, so
 /// the answer names the capability instead of "update the machine".
 pub(super) const CAPABILITY_MISSING: &str = "machine_capability_missing";
+/// The error code of a machine whose daemon did not answer `identify` (its link may be
+/// coming back): the copy never started, so the app may copy once more on the link it has.
+pub(crate) const NOT_ANSWERING: &str = "machine_not_answering";
 /// How long the whole `identify` may take, however the daemon trickles it.
 const IDENTIFY_BUDGET: Duration = Duration::from_secs(5);
 /// How long the whole answer to any other request may take.
