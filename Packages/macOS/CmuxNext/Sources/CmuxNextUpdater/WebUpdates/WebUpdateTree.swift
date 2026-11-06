@@ -17,7 +17,6 @@ nonisolated public struct WebUpdateTree: Sendable {
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane",
         "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
         "Resources/markdown-viewer/webviews-app",
         "Native/OptChat/optchat-chief/inspector/index.html",
     ]

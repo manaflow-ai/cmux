@@ -1,8 +1,9 @@
 //! The palette ranker equality corpus through the C ABI.
 //!
 //! `tests/corpus/palette-corpus.json` holds real palette requests and the answers of the
-//! TypeScript ranker this crate replaced, taken from its native bridge
-//! (`webviews/scripts/palette-ranker-corpus.ts`). Each request goes through the same C calls the
+//! TypeScript ranker this crate replaced, taken from its native bridge before it was deleted, so
+//! the corpus is now a fixed record: a ranking change that moves an answer on purpose rewrites
+//! the case's `expected` with the new answer and says why in the commit. Each request goes through the same C calls the
 //! macOS app makes: install a snapshot's entries once per version, then one rank call per query.
 //! Every ordered result, score and highlight must be identical.
 

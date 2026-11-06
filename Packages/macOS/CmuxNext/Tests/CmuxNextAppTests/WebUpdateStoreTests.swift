@@ -23,7 +23,6 @@ import Testing
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/.DS_Store": "x",
         "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/web-abi.json": "{\"abi\": 2}\n",
         "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/settings/index.html": "s\n",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js": "r\n",
         "Native/OptChat/optchat-chief/inspector/index.html": "i\n",
     ]
     static let treeDigest = "645e75a54a960ed3afb77b27adf24ceea07e735eaa2cee5920eab8bfdeb9adb7"

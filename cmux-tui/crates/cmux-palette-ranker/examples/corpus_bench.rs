@@ -30,8 +30,8 @@ fn main() -> Result<(), String> {
         .iter()
         .map(|case| {
             let set = &sets[case["set"].as_str().unwrap_or("")];
-            let version =
-                (case["inline"].as_bool() != Some(true)).then(|| set["version"].as_i64().unwrap_or(0));
+            let version = (case["inline"].as_bool() != Some(true))
+                .then(|| set["version"].as_i64().unwrap_or(0));
             (version, serde_json::to_vec(&case["request"]).unwrap_or_default())
         })
         .collect();

@@ -2,12 +2,12 @@
 //!
 //! One implementation of the palette's match tiers, typo correction, user
 //! aliases and pins, learned picks and frecency, so every host (the macOS
-//! app over the C ABI in [`ffi`], browser pages and other frontends) ranks a
-//! query the same way. It is a 1:1 port of the TypeScript ranker
-//! (`webviews/src/palette/ranker.ts`): the same scores, the same order and
-//! the same JSON request and response shapes. The checked-in corpus
-//! (`tests/corpus/`) holds that ranker's answers and the behavior test
-//! replays it through the C ABI.
+//! app over the C ABI in [`ffi`], web pages through the daemon) ranks a query
+//! the same way. It began as a 1:1 port of the TypeScript ranker, which was
+//! deleted once this crate measured 3.5x faster on the same requests; the
+//! checked-in corpus (`tests/corpus/`) holds that ranker's answers and the
+//! behavior test replays it through the C ABI. `tests/eval.rs` holds the
+//! ranking quality floors (plans/cmux-next/palette-ranking.md section 3).
 //!
 //! Known differences, all on input the app never sends or for the better:
 //! lowercasing here uses no locale, where JavaScriptCore's

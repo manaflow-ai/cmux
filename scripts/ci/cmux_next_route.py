@@ -233,7 +233,7 @@ BUNDLE_INPUTS = (
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh", "scripts/check-webviews-bun-version.sh",
     "scripts/cmux-next/build-agent-pane-web.sh", "scripts/cmux-next/build-pages-web.sh",
-    "scripts/cmux-next/build-agent-activity-web.sh", "scripts/cmux-next/build-palette-ranker.sh",
+    "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/build-optchat-inspector-web.sh",
     "scripts/cmux-next/build-web-bundles.sh", "scripts/cmux-next/web-bundle-key.py",
     # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
