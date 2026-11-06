@@ -30,6 +30,10 @@ use super::*;
 /// How long a foreground shell runs before it goes to the background.
 pub(super) const AUTO_BACKGROUND_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// How long a foreground call of the chat's own turn has run before the person's message waiting
+/// behind it moves it to the background (module docs).
+pub(super) const MESSAGE_BACKGROUND_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// The daemon's env knob for [`AUTO_BACKGROUND_AFTER`] (seconds; `0` turns it off).
 pub const AUTO_BACKGROUND_ENV: &str = "ACPMUX_AUTO_BACKGROUND_SECS";
 
@@ -78,6 +82,12 @@ fn declared_timeout(update: &Value) -> Option<std::time::Duration> {
 }
 
 impl Hub {
+    /// How long a foreground call runs before the person's waiting message moves it; None turns
+    /// it off (tests shorten it).
+    pub fn set_message_background_after(&self, after: Option<std::time::Duration>) {
+        *self.message_background_after.lock().unwrap_or_else(|e| e.into_inner()) = after;
+    }
+
     /// How long a foreground shell runs before it goes to the background; None turns it off
     /// (tests shorten it).
     pub fn set_auto_background_after(&self, after: Option<std::time::Duration>) {
