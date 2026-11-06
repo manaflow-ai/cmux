@@ -10,7 +10,7 @@ import CoreGraphics
 /// - after the end: the element moves after the motion landed (a layout jump once the animation ended).
 /// Built for the frame-owner path's manual 120 Hz ticks (`LayoutRootView.advanceFrame`); dropped frames are the
 /// films' and benches' to count, not this check's.
-struct MotionFrameTrace {
+struct MotionTargetTrace {
     struct Sample {
         var position: CGFloat
         /// The largest move of the element's container's edges since the frame before; nil when the element is itself a

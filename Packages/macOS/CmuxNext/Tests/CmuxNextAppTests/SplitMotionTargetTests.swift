@@ -15,11 +15,11 @@ import Testing
 /// that shrank always rode its top, so a prompt on the last row of a full screen snapped up at the first frame.
 ///
 /// Each case runs the motion frame by frame (120 Hz ticks of the frame owner) and checks the spec's targets
-/// (``MotionFrameTrace``): the prompt row and the pane's edges never move away from where they rest, the prompt never
+/// (``MotionTargetTrace``): the prompt row and the pane's edges never move away from where they rest, the prompt never
 /// moves more in a frame than its pane's edges do, and nothing moves after the landing.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
-struct SplitMotionFrameTraceTests {
+struct SplitMotionTargetTraceTests {
     typealias Rig = PaneGroundCoversPaneTests.Rig
 
     static let stack = PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.stack)
@@ -84,8 +84,8 @@ struct SplitMotionFrameTraceTests {
 
     /// Records `pane`'s prompt row and its pane's edges from the frame before `change` to the landing, then where they
     /// rest after one more layout pass.
-    static func trace(_ pane: PaneID, _ rig: Rig, _ change: () throws -> Void) throws -> MotionFrameTrace {
-        var trace = MotionFrameTrace()
+    static func trace(_ pane: PaneID, _ rig: Rig, _ change: () throws -> Void) throws -> MotionTargetTrace {
+        var trace = MotionTargetTrace()
         var edges = try Self.edges(pane, rig)
         func sample() throws {
             let now = try Self.edges(pane, rig)
@@ -149,7 +149,7 @@ struct SplitMotionFrameTraceTests {
         await terminal.io.nextWrite()
     }
 
-    static func report(_ name: String, _ trace: MotionFrameTrace) {
+    static func report(_ name: String, _ trace: MotionTargetTrace) {
         print("motion-trace: \(name): \(trace.summary)")
     }
 }
