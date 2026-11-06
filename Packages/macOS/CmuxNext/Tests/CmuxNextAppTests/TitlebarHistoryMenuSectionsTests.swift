@@ -185,10 +185,6 @@ struct TitlebarHistoryMenuSectionsTests {
             #expect(closed.title.hasPrefix("Docs — https://"))
             #expect(closed.title.hasSuffix(".html"))
         }
-        for note in [TitlebarHistoryClosedSection.empty, .unavailable] {
-            let menu = TitlebarHistoryMenu.make([], closed: note, choose: { _ in }, showAll: nil)
-            #expect(menu.items.allSatisfy { TitlebarHistoryMenu.titleWidth($0.title) <= TitlebarHistoryMenu.closedMinWidth })
-        }
         let long = TitlebarHistoryClosedRow(id: "daemon:closed_2", kind: .terminalTab, title: String(repeating: "x", count: 200), detail: "~")
         #expect(TitlebarHistoryMenu.closedTitle(long, fitting: 10_000).count == TitlebarHistoryMenu.closedTitleLength)
     }

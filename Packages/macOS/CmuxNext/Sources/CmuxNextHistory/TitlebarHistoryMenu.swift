@@ -140,8 +140,10 @@ public struct TitlebarHistoryMenu {
     static func closedRows(_ closed: TitlebarHistoryClosedSection, icons: Bool, width: CGFloat,
                            target: TitlebarHistoryMenuTarget) -> [NSMenuItem] {
         switch closed {
-        case .empty: return [note(fitting(width) { clip(HistoryStrings.menuNothingClosed, to: $0, middle: false) })]
-        case .unavailable: return [note(fitting(width) { clip(HistoryStrings.menuClosedUnavailable, to: $0, middle: false) })]
+        // The notes are our own short copy, shown whole: cut, they would say nothing. Their width is the
+        // string's, never a person's data.
+        case .empty: return [note(HistoryStrings.menuNothingClosed)]
+        case .unavailable: return [note(HistoryStrings.menuClosedUnavailable)]
         case .rows(let rows):
             return rows.prefix(closedLimit).map { closedRow in
                 let row = NSMenuItem(title: closedTitle(closedRow, fitting: width), action: #selector(TitlebarHistoryMenuTarget.pickClosed(_:)), keyEquivalent: "")
