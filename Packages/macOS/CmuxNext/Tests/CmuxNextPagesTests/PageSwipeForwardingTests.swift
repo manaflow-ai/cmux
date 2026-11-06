@@ -44,12 +44,33 @@ struct PageSwipeForwardingTests {
         #expect(data["back"]?.boolValue == true && data["forward"]?.boolValue == false && data["inverted"]?.boolValue == false)
 
         var navigated: [Bool] = []
-        router.historyNavigate = { navigated.append($0); return true }
-        let answer = await router.handle(["t": "call", "id": 2, "op": .string(PageNativeOp.historyNavigate), "params": ["back": true]])
+        router.historyNavigate = { back, gesture in navigated.append(back); return gesture == 7 }
+        let answer = await router.handle(["t": "call", "id": 2, "op": .string(PageNativeOp.historyNavigate), "params": ["back": true, "g": 7]])
         #expect(answer["value"]?["navigated"]?.boolValue == true && navigated == [true])
+        // A commit must name its gesture.
+        let unnamed = await router.handle(["t": "call", "id": 4, "op": .string(PageNativeOp.historyNavigate), "params": ["back": true]])
+        #expect(unnamed["t"]?.stringValue != "ok" && navigated == [true], "\(unnamed)")
         var released: [Int] = []
         router.swipeRelease = { released.append($0) }
         _ = await router.handle(["t": "call", "id": 3, "op": .string(PageNativeOp.swipeRelease), "params": ["g": 7]])
         #expect(released == [7])
+    }
+
+    /// Only the live gesture's page may run Back / Forward, once, soon after its last event
+    /// (review F2 at c0da1520: a page could run it after its gesture ended, or from a stale page).
+    @Test func onlyTheLiveGestureCommitsAndOnlyOnce() {
+        let pages = (NSObject(), NSObject())
+        let page = ObjectIdentifier(pages.0)
+        let other = ObjectIdentifier(pages.1)
+        var gate = PageSwipeCommitGate()
+        #expect(!gate.take(page: page, gesture: 1, at: 0), "nothing forwarded yet")
+        gate.open(page: page, gesture: 3, at: 10)
+        #expect(!gate.take(page: other, gesture: 3, at: 10.1), "another page")
+        #expect(!gate.take(page: page, gesture: 2, at: 10.1), "an earlier gesture")
+        #expect(gate.take(page: page, gesture: 3, at: 10.2))
+        #expect(!gate.take(page: page, gesture: 3, at: 10.3), "a second commit of the same gesture")
+        gate.open(page: page, gesture: 4, at: 20)
+        gate.touch(at: 21)
+        #expect(!gate.take(page: page, gesture: 4, at: 21 + PageSwipeCommitGate.window + 0.1), "too long after its last event")
     }
 }

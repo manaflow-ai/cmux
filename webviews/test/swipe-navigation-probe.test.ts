@@ -91,6 +91,19 @@ describe("what keeps a horizontal gesture", () => {
     expect(keepsSwipe(at("o"), "back", quiet)).toBe(false);
   });
 
+  test("the app's own anti-bounce rule on the root lets the swipe through (shared/desktop.css)", () => {
+    page(`<main><p id=t>hello</p></main>`);
+    // An engine expands the shorthand; jsdom does not, so set the longhand it computes too.
+    const rules = ["overscroll-behavior", "overscroll-behavior-x"];
+    for (const el of [doc.documentElement, doc.body]) for (const rule of rules) el.style.setProperty(rule, "none");
+    try {
+      expect(keepsSwipe(at("t"), "back", quiet)).toBe(false);
+      expect(keepsSwipe(at("t"), "forward", quiet)).toBe(false);
+    } finally {
+      for (const el of [doc.documentElement, doc.body]) for (const rule of rules) el.style.removeProperty(rule);
+    }
+  });
+
   test("a page that recently took horizontal wheels keeps it", () => {
     page(`<p id=t>carousel</p>`);
     expect(keepsSwipe(at("t"), "back", { now: 10_000, preventedAt: 9_700 })).toBe(true);
