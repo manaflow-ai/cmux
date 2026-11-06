@@ -2,8 +2,8 @@
 """structural-rebuild.py's log reading and edit, with no build: the timing summary and the driver's receipt come
 out of a reload log (not an earlier build's receipt), the edit adds one stored property inside HomeHostView, and a
 run refuses a source file with local edits; a SIGTERM during a reload unwinds and ends the reload's process
-group."""
-import importlib.util, json, os, signal, subprocess, sys, tempfile
+group, SIGKILLing a member that ignores SIGTERM."""
+import importlib.util, json, os, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -74,13 +74,51 @@ with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
     run = subprocess.Popen([sys.executable, "-c", driver], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     assert "started" in run.stdout.readline()
     child = int((Path(tmp) / "child.pid").read_text())
+    sent = time.monotonic()
     run.send_signal(signal.SIGTERM)
     _, err = run.communicate(timeout=60)
     assert run.returncode == 1 and "ended by signal" in err, (run.returncode, err)
+    # reload.sh takes the cleanup's SIGTERM at once: the run does not sit out the grace and SIGKILL it.
+    assert time.monotonic() - sent < 10, f"cleanup took {time.monotonic() - sent:.1f} s"
     assert (Path(tmp) / "unwound").read_text() == "yes"
     try:
         os.kill(child, 0)
         raise AssertionError(f"the reload's child {child} outlived the run")
     except ProcessLookupError:
         pass
+# A process in the reload's group that ignores SIGTERM is SIGKILLed after the grace, even once reload.sh is gone.
+with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
+    (Path(tmp) / "scripts").mkdir()
+    reload_sh = Path(tmp) / "scripts/reload.sh"
+    reload_sh.write_text("#!/bin/sh\n(trap '' TERM; exec sleep 300) &\necho $! > child.pid\necho started\nwait\n")
+    reload_sh.chmod(0o755)
+    driver = (f"import importlib.util, signal, sys\n"
+              f"spec = importlib.util.spec_from_file_location('sr', {str(ROOT / 'scripts/measure/structural-rebuild.py')!r})\n"
+              f"sr = importlib.util.module_from_spec(spec); spec.loader.exec_module(sr)\n"
+              f"sr.ROOT = {tmp!r}\nsr.GROUP_GRACE_S = 1\n"
+              f"signal.signal(signal.SIGTERM, sr.exit_on_signal)\n"
+              f"sr.reload('', {tmp!r}, 0)\n")
+    run = subprocess.Popen([sys.executable, "-c", driver], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    assert "started" in run.stdout.readline()
+    child = int((Path(tmp) / "child.pid").read_text())
+    run.send_signal(signal.SIGTERM)
+    _, err = run.communicate(timeout=60)
+    assert "ended by signal" in err, (run.returncode, err)
+    try:
+        os.kill(child, 0)
+        os.kill(child, signal.SIGKILL)
+        raise AssertionError(f"the reload's child {child}, which ignores SIGTERM, outlived the run")
+    except ProcessLookupError:
+        pass
+# macOS answers killpg with EPERM once the group holds only zombies: the cleanup takes that as gone, not an error
+# that would cut it short and replace the stop that started it.
+class Gone:
+    pid = 4242
+    def poll(self):
+        return 0
+real_killpg, sr.os.killpg = sr.os.killpg, lambda pgid, sig: (_ for _ in ()).throw(PermissionError(1, "EPERM"))
+try:
+    sr.end_group(Gone())
+finally:
+    sr.os.killpg = real_killpg
 print("structural-rebuild.test.py: ok")

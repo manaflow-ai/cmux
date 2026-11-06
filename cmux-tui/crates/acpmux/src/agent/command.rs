@@ -146,6 +146,10 @@ pub(crate) fn harness_command(
     if !remote_environment {
         crate::login_env::restore_machine_tokio(&mut cmd);
     }
+    // Every other harness's login, from the daemon's env, the login shell or
+    // machine env (`foreign_login.rs`). The profile's env, applied below, may
+    // still set one on purpose. The agent is the one its command line runs.
+    super::foreign_login::scrub(&mut cmd, name, profile);
     // Caller context, herdr-style: the agent knows which session it is.
     for (k, _) in std::env::vars_os() {
         if k.to_string_lossy().starts_with("ACPMUX_") {
@@ -789,5 +793,55 @@ mod tests {
         .unwrap();
         assert!(!marker.exists(), "remote launch probed profile-controlled systemd-run");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A daemon started with Claude Code's login in its env gave it to Codex,
+    /// which wrote it to `~/.codex/shell_snapshots` (machine-vault-e2e,
+    /// 2026-11-04). Each harness loses the other's login, whatever env set it;
+    /// its own, and a value its profile sets on purpose, still pass.
+    #[test]
+    fn an_agent_never_inherits_another_harness_login() {
+        use crate::config::HarnessKind;
+        let profile = |kind, argv: &str, env: serde_json::Value| {
+            let mut p: HarnessProfile =
+                serde_json::from_value(serde_json::json!({"argv": [argv], "env": env})).unwrap();
+            p.kind = kind;
+            p
+        };
+        let removed = |p: &HarnessProfile, key: &str| {
+            let cmd = harness_command("local", p, &std::env::temp_dir(), None, None).unwrap();
+            cmd.as_std().get_envs().any(|(k, v)| k == key && v.is_none())
+        };
+        let codex = profile(HarnessKind::Acp, "codex-acp", serde_json::json!({}));
+        let claude = profile(HarnessKind::ClaudeStdio, "claude", serde_json::json!({}));
+        for key in ["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY"] {
+            assert!(removed(&codex, key), "Codex inherits {key}");
+            // Not `removed`: inside a Claude Code shell the nested scrub removes these too.
+            assert!(
+                !super::super::foreign_login::foreign_login_keys("claude").any(|k| k == key),
+                "Claude Code loses its own {key}"
+            );
+        }
+        for key in ["OPENAI_API_KEY", "CODEX_HOME"] {
+            assert!(removed(&claude, key), "Claude Code inherits {key}");
+            assert!(!removed(&codex, key), "Codex loses its own {key}");
+        }
+        // OpenCode signs in with provider keys, never with another harness's sign-in.
+        let opencode = profile(HarnessKind::Acp, "opencode", serde_json::json!({}));
+        assert!(removed(&opencode, "CLAUDE_CODE_OAUTH_TOKEN") && removed(&opencode, "CODEX_HOME"));
+        // Not `removed`: inside a Claude Code shell the nested scrub removes ANTHROPIC_* too.
+        let opencode_loses = |key: &str| {
+            super::super::foreign_login::foreign_login_keys("opencode").any(|k| k == key)
+        };
+        assert!(!opencode_loses("ANTHROPIC_API_KEY") && !opencode_loses("OPENAI_API_KEY"));
+        // A value the profile sets is the person's choice and passes.
+        let chosen =
+            profile(HarnessKind::Acp, "codex-acp", serde_json::json!({"ANTHROPIC_API_KEY": "own"}));
+        let cmd = harness_command("local", &chosen, &std::env::temp_dir(), None, None).unwrap();
+        let env = command_env(&cmd);
+        assert_eq!(
+            env.iter().find(|(k, _)| k == "ANTHROPIC_API_KEY").map(|(_, v)| v.as_str()),
+            Some("own")
+        );
     }
 }

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 578,
+  "count": 597,
   "sections": [
     {
       "id": "general",
@@ -246,6 +246,38 @@
             "standard",
             "ask"
           ]
+        },
+        {
+          "key": "agents.guidance.claude",
+          "title": "cmux Guidance for Claude Code",
+          "help": "New Claude Code chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Guidance and Skills"
+        },
+        {
+          "key": "agents.guidance.codex",
+          "title": "cmux Guidance for Codex",
+          "help": "New Codex chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Guidance and Skills"
+        },
+        {
+          "key": "agents.guidance.otherAgents",
+          "title": "cmux Guidance for Other Agents",
+          "help": "Other agents (Gemini, OpenCode and the ones you added) get the same guidance about how cmux shows their work.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Guidance and Skills"
+        },
+        {
+          "key": "agents.guidance.userSkills",
+          "title": "Your Skills in Every Chat",
+          "help": "Skills you put in ~/.config/cmux/skills, one folder each with a SKILL.md, reach every new agent chat.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Guidance and Skills"
         },
         {
           "key": "agents.modelRouter.model",
@@ -525,7 +557,7 @@
           "title": "Computer Use Driver",
           "help": "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
           "kind": "choice",
-          "default": "legacy",
+          "default": "upstream",
           "group": "Computer Use",
           "values": [
             "legacy",
@@ -1047,20 +1079,20 @@
           ]
         },
         {
+          "key": "palette.searchHistory",
+          "title": "Remember Palette Searches",
+          "help": "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Command Palette"
+        },
+        {
           "key": "picker.pinned",
           "title": "Pinned Folders",
           "help": "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths.",
           "kind": "folder_list",
           "default": [],
           "group": "Folder Picker"
-        },
-        {
-          "key": "remote.enabled",
-          "title": "Use cmux Remote",
-          "help": "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts.",
-          "kind": "toggle",
-          "default": false,
-          "group": "cmux Remote"
         },
         {
           "key": "remote.endSharingOnQuit",
@@ -1485,6 +1517,14 @@
           }
         },
         {
+          "key": "updates.liveWebReload",
+          "title": "Live Web Reload",
+          "help": "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Updates"
+        },
+        {
           "key": "updates.meteredNetwork",
           "title": "On Metered Networks",
           "help": "While downloads wait, a found update shows on Settings and one click downloads it.",
@@ -1547,6 +1587,14 @@
           ]
         },
         {
+          "key": "updates.whatsNewInstall",
+          "title": "Install Versions from What's New",
+          "help": "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Updates"
+        },
+        {
           "key": "window.titlebar",
           "title": "Titlebar",
           "help": "Minimal has no titlebar strip; the top row moves the window.",
@@ -1605,6 +1653,47 @@
           "kind": "toggle",
           "default": true,
           "group": "Sidebar"
+        },
+        {
+          "key": "workspaces.freeing.agents",
+          "title": "Free Idle Agents",
+          "help": "Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Hibernation"
+        },
+        {
+          "key": "workspaces.freeing.enabled",
+          "title": "Free Idle Terminals",
+          "help": "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Hibernation"
+        },
+        {
+          "key": "workspaces.freeing.idleMinutes",
+          "title": "Free Terminals After",
+          "help": "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day).",
+          "kind": "number",
+          "default": 1440,
+          "group": "Hibernation",
+          "range": {
+            "min": 60,
+            "max": 43200,
+            "unit": "minutes"
+          }
+        },
+        {
+          "key": "workspaces.freeing.runningCommands",
+          "title": "Running Commands",
+          "help": "What happens to a command that still runs in a workspace that frees its terminals.",
+          "kind": "choice",
+          "default": "never",
+          "group": "Hibernation",
+          "values": [
+            "never",
+            "relaunch"
+          ]
         },
         {
           "key": "workspaces.hibernation.enabled",
@@ -1732,6 +1821,28 @@
             "max": 28,
             "unit": "points"
           }
+        },
+        {
+          "key": "agentPane.display.font.ui",
+          "title": "Chat Interface Font",
+          "help": "The font of the whole chat: replies, the composer, cards and menus.",
+          "kind": "choice",
+          "default": "inter-tuned",
+          "group": "Agent Chat",
+          "values": [
+            "inter-tuned",
+            "inter",
+            "verdana",
+            "roboto",
+            "plex",
+            "source-sans",
+            "geist",
+            "cmux-sans",
+            "hanken",
+            "atkinson",
+            "system-ui",
+            "system-ui-tight"
+          ]
         },
         {
           "key": "agentPane.display.fullWidth",
@@ -3178,7 +3289,7 @@
         {
           "key": "layout.paneCornerRadius",
           "title": "Corner Radius",
-          "help": "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
+          "help": "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding.",
           "kind": "number",
           "default": null,
           "group": "Panes",
@@ -3442,7 +3553,21 @@
           "group": "Sidebar",
           "values": [
             "none",
-            "folder"
+            "folder",
+            "recents"
+          ]
+        },
+        {
+          "key": "sidebar.groupHeader.background",
+          "title": "Group Background",
+          "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Sidebar",
+          "values": [
+            "auto",
+            "glass",
+            "solid"
           ]
         },
         {
@@ -4311,6 +4436,18 @@
           "kind": "string_list",
           "default": [],
           "group": "Opening Links"
+        },
+        {
+          "key": "terminal.term",
+          "title": "Terminal Type (TERM)",
+          "help": "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac.",
+          "kind": "choice",
+          "default": "xterm-256color",
+          "group": "Compatibility",
+          "values": [
+            "xterm-256color",
+            "xterm-ghostty"
+          ]
         }
       ]
     },
@@ -5382,6 +5519,14 @@
           "group": "Passwords"
         },
         {
+          "key": "browser.wakeTabsOnHover",
+          "title": "Wake Tabs on Hover",
+          "help": "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Memory"
+        },
+        {
           "key": "media.pictureInPicture.enabled",
           "title": "Picture in Picture",
           "help": "Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected.",
@@ -5434,6 +5579,48 @@
           "kind": "toggle",
           "default": true,
           "group": "Reactions"
+        },
+        {
+          "key": "chief.subagentSidebar",
+          "title": "Subagents in the Sidebar",
+          "help": "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Subagents",
+          "values": [
+            "auto",
+            "always",
+            "never"
+          ]
+        },
+        {
+          "key": "chief.subagentSidebarHideWords",
+          "title": "Hide Tasks That Mention",
+          "help": "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Subagents"
+        },
+        {
+          "key": "chief.subagentSidebarMinWords",
+          "title": "Show Tasks Longer Than",
+          "help": "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter.",
+          "kind": "number",
+          "default": 50,
+          "group": "Subagents",
+          "range": {
+            "min": 0,
+            "max": 1000,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "chief.subagentSidebarShowWords",
+          "title": "Show Tasks That Mention",
+          "help": "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Subagents"
         },
         {
           "key": "diagnostics.hangReports",
@@ -5502,6 +5689,28 @@
             "imessage",
             "theme"
           ]
+        },
+        {
+          "key": "home.chiefDock.edge",
+          "title": "Dock Edge",
+          "help": "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick.",
+          "kind": "choice",
+          "default": "left",
+          "group": "Chief Dock",
+          "values": [
+            "left",
+            "right",
+            "top",
+            "bottom"
+          ]
+        },
+        {
+          "key": "home.chiefDock.openBeside",
+          "title": "Keep Chief Docked When Opening Workspaces",
+          "help": "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Chief Dock"
         },
         {
           "key": "home.chiefEngine",
@@ -6209,14 +6418,6 @@
       "title": "Advanced",
       "rows": [
         {
-          "key": "labs.classicHome",
-          "title": "Classic Home",
-          "help": "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Labs"
-        },
-        {
           "key": "labs.liveCode",
           "title": "Live Code",
           "help": "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts.",
@@ -6226,8 +6427,8 @@
         },
         {
           "key": "labs.machineJoin",
-          "title": "Join Any Machine with One Line",
-          "help": "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them.",
+          "title": "Screen Sharing for Joined Machines",
+          "help": "Shows this Mac's Screen sharing and Control switches in Settings > Devices once it has joined your machines. Both stay off until you turn them on.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

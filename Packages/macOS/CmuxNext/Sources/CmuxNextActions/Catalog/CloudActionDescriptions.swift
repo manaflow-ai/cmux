@@ -207,22 +207,18 @@ nonisolated enum CloudActionDescriptions {
             `cmux cloud new-terminal-on-machine --target machine:<id> --focus` opens and shows a workspace.
             """,
         "cloudOpenDesktop": """
-            Shows the machine's desktop (--target machine:<id>) in a new workspace on this Mac: its noVNC \
-            page in a browser tab, reached over this Mac's Cloud tunnel with no port opened here (--viewer \
-            web, the default). Refused when the machine has no desktop or address, or the browser is \
-            unavailable. Answers at once with no fields, before the page loads.
+            Shows the machine's desktop (--target machine:<id>) in a new workspace on this Mac. For a \
+            machine that reports a desktop the default is --viewer rd: the agent's display as a live \
+            video stream over this Mac's link to the machine, opened watching (Take over in the pane \
+            gives you the mouse and keyboard, Hand back returns them). --viewer web shows the noVNC page \
+            in a browser tab over this Mac's Cloud tunnel, the default for a machine without a desktop \
+            report. Refused when the machine has no desktop, or the viewer cannot reach it. Answers at \
+            once with no fields, before the desktop shows.
             """,
         "cloudRenameMachine": """
             Renames the machine (--target machine:<id> --name <name>; an empty name clears it). Answers at \
             once, before the rename is done. Without --name it asks the person for the name in the app, so a \
             script or agent passes --name.
-            """,
-        "cloudShareMachine": """
-            Shares app-started chats on a team machine (--target machine:<id>) with a teammate \
-            (--teammate <user id>), or takes the share back (--revoke). Only the machine's creator or a \
-            team admin may change shares. Without --teammate it answers the machine's teammates as \
-            `teammates` [{user_id, name, shared}]; in the app it opens a page of them, where Return \
-            shares or stops sharing.
             """,
         "cloudKillMachine": """
             Deletes the machine (--target machine:<id>) and everything on it. Destructive: a CLI or agent \
@@ -237,7 +233,7 @@ nonisolated enum CloudActionDescriptions {
             Returns no fields.
             """,
         "cloudCopyLink": """
-            Opens a port of the machine (--port) through cmux Cloud and copies its link to the clipboard. \
+            Makes the platform's expiring share link for a port of the machine (--port) and copies it to the clipboard. \
             Not a CLI verb.
             """,
         "cloudCopyPort": """

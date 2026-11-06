@@ -59,8 +59,9 @@ export default agentPaneEntry({
         const selector = ".acpmux-workflow-phase__agents .acpmux-workflow-agent__button:not(:disabled)";
         await ctx.waitFor(() => ctx.document.querySelector(selector));
         await ctx.click({ selector });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
-        const row = ctx.document.querySelector(".cv-subagent-of")?.closest<HTMLElement>("[data-row-id]");
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of-slot"));
+        // The pill is pinned over the transcript's top; its row keeps only its room (the slot).
+        const row = ctx.document.querySelector(".cv-subagent-of-slot")?.closest<HTMLElement>("[data-row-id]");
         const request = workflowPaneRequest(row?.dataset.rowId?.replace(/:of$/, ""));
         if (request?.sessionId !== snapshot.sessionId || !request?.runId || !request.agentId)
           throw new Error("Workflow click lost its transcript identity");

@@ -469,6 +469,27 @@ fn vm_receiver_client_read_projects_only_public_generated_fields() {
     assert_eq!(snapshot.native_policy().peers[0].services, vec![Service::Ssh]);
 }
 
+#[test]
+fn vm_receiver_client_read_maps_a_desktop_peer_service() {
+    let (mut client, wg, _) = setup(|p, _| {
+        p["value"]["peers"][0]["services"] = json!(["daemon", "ssh", "desktop"]);
+    });
+    let snapshot = client.receiving_policy(&wg, NOW).unwrap();
+    assert_eq!(
+        snapshot.native_policy().peers[0].services,
+        vec![Service::Daemon, Service::Ssh, Service::Desktop]
+    );
+    let (mut client, wg, _) = setup(|p, _| {
+        p["value"]["peers"][0]["services"] = json!(["desktop"]);
+    });
+    let snapshot = client.receiving_policy(&wg, NOW).unwrap();
+    assert_eq!(snapshot.native_policy().peers[0].services, vec![Service::Desktop]);
+    for bad in [json!(["desktop", "desktop"]), json!(["daemon", "desktop"]), json!(["screen"])] {
+        let (mut client, wg, _) = setup(|p, _| p["value"]["peers"][0]["services"] = bad.clone());
+        assert!(client.receiving_policy(&wg, NOW).is_err(), "{bad}");
+    }
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn vm_receiver_client_read_rechecks_private_files_after_network_without_rebinding() {

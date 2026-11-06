@@ -91,6 +91,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     let media = HomeMedia()
     /// Thumbnails of the pictures agent tables name by path or web address.
     let tablePictures = HomeTablePictures()
+    /// The shimmer over table pictures that are still loading.
+    let tableShimmer = HomeTableShimmer()
     /// Inline video playback in the bubbles.
     let video = HomeVideo()
     /// Prepared attachments in the field by content hash (the chips are
@@ -162,7 +164,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let media = self.media
         let tablePictures = self.tablePictures
         core.media = { [weak media] key in
-            HomeTablePictures.handles(key) ? tablePictures.asset(key) : media?.asset(key)
+            // A table picture still loading gives its loading mark: its cell holds a skeleton of its size.
+            HomeTablePictures.handles(key) ? tablePictures.asset(key) ?? tablePictures.loadingMark(key) : media?.asset(key)
         }
         if let linkPreviews { core.links = { [weak linkPreviews] in linkPreviews?.cached($0) } }
         controller.intents = self
@@ -170,6 +173,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         liveLine.onTick = { [weak self] in self?.turnPopover?.refresh() }
         liveLine.onClose = { [weak self] in self?.turnPopover?.close() }
         video.controller = controller
+        tableShimmer.controller = controller
         // A finished picture redraws only the rows that show it (not every attachment row shown).
         media.onReady = { [weak self] hash in self?.refreshAttachments(only: hash) }
         tablePictures.onReady = { [weak self] source in self?.refreshTablePictures(source: source) }
@@ -299,6 +303,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // A token moves rows (the inline videos follow) and changes nothing else this side tracks:
         // no attachment, title, summary, read cursor or older page work per token.
         video.place()
+        tableShimmer.place()
         passStep("video", &mark)
         if streamOnly { return }
         if titleChanged { applyHeader() }
@@ -703,6 +708,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
             guard names, let message = store.state.message(id) else { continue }
             redrawTableCards(item, id: id, in: message)
         }
+        tableShimmer.place()
     }
 
     /// A table card whose pictures changed (one became ready) draws again with them, in place.
@@ -923,10 +929,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func rowsPlaced() {
         video.place()
+        tableShimmer.place()
     }
 
     func scrolled() {
         video.place()
+        tableShimmer.place()
         if let previews = linkPreviews?.previews {
             // My link cards that scrolled in with no title (also from HomeStore): a cached title,
             // else the guarded parser.

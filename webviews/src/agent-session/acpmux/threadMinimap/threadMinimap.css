@@ -340,15 +340,15 @@
   will-change: transform;
   box-sizing: border-box;
   /* The edge is an inset shadow one device pixel wide (--cmux-hairline, #20713); appearance.borders
-     none clears it through --acpmux-minimap-rim. Glass, as the chat's other hover cards (the link
-     preview, the tooltips): the tooltip tint over the shared blur, never an opaque fill (Leo
-     2026-10-21). Reduce Transparency turns the tint into the solid popup surface and the blur off
-     (pages/shared/desktop.css). */
+     none clears it through --acpmux-minimap-rim. Glass, the popover level as the chat's other hover
+     cards (the link preview, a session's card; glass.css GLASS LEVELS), never an opaque fill (Leo
+     2026-10-21). Reduce Transparency turns the fill into the solid popup surface (below) and the blur
+     off (pages/shared/desktop.css). */
   padding: var(--ds-space-2);
   border-radius: var(--ds-radius-xl);
-  background: var(--tooltip-tint, var(--surface-popup, var(--acpmux-minimap-card)));
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
+  background: color-mix(in srgb, var(--glass-surface, var(--acpmux-minimap-base)) var(--ds-glass-popover-tint), transparent);
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
   box-shadow:
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
     var(--elevation-2);
@@ -357,6 +357,15 @@
   letter-spacing: var(--text-body--letter-spacing);
   -webkit-font-smoothing: antialiased;
   cursor: default;
+}
+/* Reduce Transparency: the solid popup surface. */
+:root[data-reduce-transparency] .acpmux-minimap__card {
+  background: var(--surface-popup, var(--acpmux-minimap-card));
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-minimap__card {
+    background: var(--surface-popup, var(--acpmux-minimap-card));
+  }
 }
 /* The sender of another session's message, above its words: secondary text, one line. */
 .acpmux-minimap__from {

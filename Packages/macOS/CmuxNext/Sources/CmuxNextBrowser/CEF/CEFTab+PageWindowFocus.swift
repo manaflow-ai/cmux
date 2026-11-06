@@ -10,8 +10,9 @@ extension CEFTab {
     /// The page's host has an area. An empty host is ordered out by the fork, as a hidden one is.
     var pageWindowHostHasArea: Bool { !container.bounds.isEmpty }
 
-    /// Whether the page's window can hold the keys now: shown, with an area, and a browser (``ChildPageFocus``).
-    public var canTakeKeys: Bool { isShown && pageWindowHostHasArea && browserID != nil }
+    /// Whether the page's window can hold the keys now: shown since before this turn, with an area, and a browser
+    /// (``ChildPageFocus``).
+    public var canTakeKeys: Bool { isShown && pageWindowHostHasArea && !appearedThisTurn && browserID != nil }
 
     /// Keeps a focus ask the page cannot take now; granted once it can (``grantPendingFocusIfShown()``).
     public func keepFocusAsk() { pendingFocus = true }
@@ -25,5 +26,20 @@ extension CEFTab {
     func pageWindowHostDidResize(wasEmpty: Bool) {
         guard wasEmpty, pageWindowHostHasArea, pendingFocus else { return }
         AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
+    }
+
+    /// The page's view became shown (it entered a window, or it or an ancestor was unhidden: a Cmd-N workspace built
+    /// before the key, a tab or workspace switch). A focus ask in this turn is kept and granted once, after this turn's
+    /// frame commits: the fork orders the page window in and the grant makes it key, and inside the turn that change
+    /// came before the first frame and held it (Time Profiler, cmux22: the grant and the window order-in, 10 ms of the
+    /// swap turn). A page shown before this turn (a pane switch) still takes focus at once. The keys typed meanwhile
+    /// stay held for the page's field (`NewTabInputCoordinator`).
+    func pageDidAppear() {
+        guard !appearedThisTurn else { return }
+        appearedThisTurn = true
+        AfterFrameCommit().run { [weak self] in
+            self?.appearedThisTurn = false
+            self?.grantPendingFocusIfShown()
+        }
     }
 }

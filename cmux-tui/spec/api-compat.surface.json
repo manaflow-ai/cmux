@@ -4994,6 +4994,9 @@
           "\"vt-state\""
         ]
       },
+      "/history_rows_omitted": {
+        "ty": "uint64"
+      },
       "/kitty_graphics_state": {
         "ty": "object"
       },
@@ -7178,6 +7181,10 @@
           "bytes",
           "render"
         ]
+      },
+      "/replay_history_rows": {
+        "ty": "uint32",
+        "nullable": true
       },
       "/rows": {
         "ty": "uint16",
@@ -12203,6 +12210,16 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "request:terminal-last-command": {
+      "/surface": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/terminal_id": {
+        "ty": "string",
+        "nullable": true
       }
     },
     "request:terminal-ports": {
@@ -21238,6 +21255,34 @@
       },
       "/data/surface": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:terminal-last-command": {
+      "/data/last_command": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/last_command/command": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/last_command/ended_at_ms": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/last_command/exit_code": {
+        "ty": "int32",
+        "required": true,
+        "nullable": true
+      },
+      "/data/last_command/started_at_ms": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/terminal_id": {
+        "ty": "string",
         "required": true
       }
     },

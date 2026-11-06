@@ -9,6 +9,7 @@ import { collectSecret, collectSecretValid } from "./pair-collect.ts"
 import { beginWithInvite, invitePairedNotify, type BegunPairing } from "./pair-invite-routes.ts"
 import { fail, isHumanSession, pairingStub, pairLimited, type OpReply } from "./pair-op-reply.ts"
 import type { PairingInvite, PairingRecord, PairingResult } from "./pairing-do.ts"
+import { machineJoinLive, mintPairMachineJoin } from "./pair-machine-join.ts"
 import { issuePairNetwork, nativeMesh, nativeServerName, networkLocator, type PairingApproval, type PairNetworkTransport } from "./server-pair-network.ts"
 
 /**
@@ -185,6 +186,19 @@ export const pairApprove = async (
     if (!reserved.ok) return fail(op, frame.idempotency_key, "auth.forbidden", "pairing network approval changed or expired")
     network = reserved.grant
   }
+  // The box's machine credential (pair-machine-join.ts): a join token for the approver, pinned on the record and
+  // pushed with the result, which the box redeems as `acpmux host join` does. Before any install/host write.
+  // A pinned token that expired before this retry (the box never got it: no result yet) is replaced by a fresh one.
+  let machineJoin = claimed.machine_join && machineJoinLive(claimed.machine_join, Date.now()) ? claimed.machine_join : null
+  if (!machineJoin) {
+    const minted = await mintPairMachineJoin(env, { team, user: principal.user!, name })
+    if (!minted.ok) return fail(op, frame.idempotency_key, minted.code, minted.message, minted.retryable)
+    if (minted.join) {
+      const reserved = await stub.reserveMachineJoin(code, rec.thumbprint, principal.user!, minted.join, Date.now())
+      if (!reserved.ok) return fail(op, frame.idempotency_key, "owner.unreachable", "pairing changed while its machine credential was made, try again", true)
+      machineJoin = reserved.join
+    }
+  }
   const reg = await submit("cloud:UserDO", pairingServerPrincipal(principal, team), {
     op: "install.register_server",
     // The approver's SSO team was resolved fresh for this approval (http.ts), so it counts as seen now.
@@ -198,7 +212,8 @@ export const pairApprove = async (
   const enrolled = await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).enrollServer(
     team,
     principal,
-    { install, name, platform: rec.info.platform, wg_public_key: rec.wg_public_key, ...(network ? { network: networkLocator(network) } : {}) },
+    // The join token's id (not a secret) goes with the server, so its revoke also revokes the machine the token made.
+    { install, name, platform: rec.info.platform, wg_public_key: rec.wg_public_key, ...(network ? { network: networkLocator(network) } : {}), ...(machineJoin ? { machine_join_token: machineJoin.join_token_id } : {}) },
     `pair:${code}:${rec.thumbprint}:host`
   )
   if (!enrolled.ok) {

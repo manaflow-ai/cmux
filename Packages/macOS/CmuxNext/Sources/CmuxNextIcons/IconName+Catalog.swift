@@ -316,6 +316,7 @@ extension IconName {
         .toolRead,
         .toolSearch,
         .toolShell,
+        .toolThought,
         .toolWeb,
         .tools,
         .transcriptSummary,
