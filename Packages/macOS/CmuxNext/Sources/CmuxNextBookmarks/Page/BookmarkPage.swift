@@ -176,7 +176,16 @@ public final class BookmarkPageHostProvider: PageProvider {
         return "data:image/png;base64," + png.base64EncodedString()
     }
 
-    /// Tells the page when a favicon or a stored folder icon lands, while it listens (no polling).
+    /// What the page follows while it listens: its profile (a top page's follows its window's
+    /// workspace), the icon revision, and the app tree's row count.
+    private struct Followed: Equatable, Sendable {
+        var profile: String
+        var iconRevision: Int
+        var rows: Int
+    }
+
+    /// Tells the page when its profile changes (it re-reads its state) and when a favicon or a
+    /// stored folder icon lands, while it listens (no polling).
     private func followIcons() {
         guard iconObservation == nil, let host else { return }
         // task-owner: lives while the page listens (stopFollowingIcons); event-driven (Observation)
@@ -184,12 +193,17 @@ public final class BookmarkPageHostProvider: PageProvider {
             var first = true
             // A row the app's tree gets after the page listed it has its icon now: the tree's
             // count is followed too, so the page asks again for the icons it was told were missing.
-            for await _ in ObservationStream({ [weak self, weak host] in
-                [host?.bookmarkIconRevision ?? 0, self.flatMap { page in host?.bookmarkTree(page.profile).count } ?? 0]
+            for await followed in ObservationStream({ [weak self, weak host] in
+                let profile = self?.profile ?? ""
+                return Followed(profile: profile, iconRevision: host?.bookmarkIconRevision ?? 0,
+                                rows: host?.bookmarkTree(profile).count ?? 0)
             }) {
-                // The stream's first value is the state at subscribe, not a change.
-                if first { first = false; continue }
-                self?.post("icons")
+                guard let self else { return }
+                let moved = servedProfile.map { $0 != followed.profile } ?? false
+                // The stream's first value is the state at subscribe: only a profile the page did
+                // not read yet is news then.
+                if first { first = false; if moved { post("state") }; continue }
+                post(moved ? "state" : "icons")
             }
         }
     }
