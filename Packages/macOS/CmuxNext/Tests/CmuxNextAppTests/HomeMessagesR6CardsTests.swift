@@ -33,12 +33,17 @@ struct HomeMessagesR6CardsTests {
                                               .init(id: "deny", label: "Deny")], allowsOther: false)])
     }
 
-    /// A started store on the mock owner, with one permission question posted by its Chief.
-    static func rig() async throws -> (MockHomeSource, HomeStore, Message) {
+    /// A started store on the mock owner, with one permission question posted by its Chief. The mock's
+    /// conversations are Cloud ones (`ConversationSummary.owner` defaults to `.cloud`); only a local
+    /// Chief's card is actionable (native `decideApproval`), so the Chief chat is made local first,
+    /// as MessagesLabHome's `HomeApprovalCardTests` do.
+    static func rig(owner: ConversationSummary.Owner = .local) async throws -> (MockHomeSource, HomeStore, Message) {
         let source = MockHomeSource(options: MockHomeSource.Options(chiefHistory: 1, latency: .zero, replyDelay: .seconds(3600)))
         let store = HomeStore(source: source)
         store.start()
-        for _ in 0..<20_000 where !(store.isOnline && store.summary(conversation) != nil) { await Task.yield() }
+        await source.setOwner(owner, in: conversation)
+        for _ in 0..<20_000 where !(store.isOnline && store.summary(conversation)?.owner == owner) { await Task.yield() }
+        #expect(store.summary(conversation)?.owner == owner)
         let chief = await source.chief.id
         let seq = try #require(await source.post([.question(question())], from: chief, in: conversation, key: IdempotencyKey("approval-\(UUID().uuidString)")))
         let message = try #require(try await source.history(of: conversation, before: seq + 1, limit: 1).first)
@@ -94,6 +99,16 @@ struct HomeMessagesR6CardsTests {
         #expect(try await approvals.call(HomeMessagesApprovals.op, Self.fields(message, allow: true), context: click) == failed)
         #expect(try await approvals.call(HomeMessagesApprovals.op, Self.fields(message, allow: true), context: click) == failed)
         #expect(decider.calls.count == 1, "one click answers at most once")
+    }
+
+    @Test func aCloudConversationsCardIsNeverAnswered() async throws {
+        let (_, store, message) = try await Self.rig(owner: .cloud)
+        defer { store.stop() }
+        let decider = Decider()
+        let approvals = HomeMessagesApprovals(store: store, decider: decider)
+        #expect(try await approvals.call(HomeMessagesApprovals.op, Self.fields(message, allow: true), context: Self.click())
+                == .object(["note": .string("failed"), "ended": .bool(false)]))
+        #expect(decider.calls.isEmpty, "only a local Chief's card answers acpmux")
     }
 
     @Test func anExpiredRequestEndsTheCard() async throws {
