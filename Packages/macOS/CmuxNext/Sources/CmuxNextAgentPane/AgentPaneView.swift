@@ -274,7 +274,7 @@ public final class AgentPaneView: NSView {
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
         pageResources?.themeKey = { [weak self] in
             guard let self else { return nil }
-            return performWithTheme { AgentPageEvent.theme(themeTokens, surface: surfaceKind)?.value["key"]?.stringValue }
+            return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["key"]?.stringValue }
         }
         model.tabRow.supportsNativeTools = pageEvents != nil
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in

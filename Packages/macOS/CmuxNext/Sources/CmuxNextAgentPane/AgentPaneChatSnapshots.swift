@@ -95,7 +95,9 @@ public final class AgentPaneChatSnapshots {
         if method == "chat.snapshot.get" { return await snapshot(for: session) ?? .null }
         guard pageGeneration == AgentPaneTailCache.shared.generation else { return .null }
         body["sessionId"] = nil
-        remember(body["html"] == nil ? nil : .object(body), for: session)
+        // Typed: an untyped `nil` could read as `JSONValue.null` (ExpressibleByNilLiteral).
+        let kept: JSONValue? = if case .string? = body["html"] { .object(body) } else { .none }
+        remember(kept, for: session)
         return .null
     }
 
