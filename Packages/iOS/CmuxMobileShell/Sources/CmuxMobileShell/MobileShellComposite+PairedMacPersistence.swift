@@ -197,11 +197,27 @@ extension MobileShellComposite {
                         )
                     }
                 }
-                await self.clearHiddenMacDeviceID(
+                // The store write can suspend while a newer connection hides
+                // this pairing. Run the visibility clear on the same per-
+                // computer mutation queue as hide/unhide, and re-check the
+                // connection generation inside that queue. Otherwise a stale
+                // reconnect can erase the newer hidden marker after its own
+                // upsert completes.
+                guard await self.clearHiddenMacDeviceIDAfterCurrentWrite(
                     ticket.macDeviceID,
                     instanceTag: instanceTag,
-                    scope: scope
-                )
+                    scope: scope,
+                    ifStillCurrent: ifStillCurrent
+                ) else {
+                    accepted = false
+                    self.recordAppEvent(
+                        .pairedMacStoreWriteFailed,
+                        correlationID: ticket.macDeviceID,
+                        startedAt: startedAt,
+                        failure: .superseded
+                    )
+                    return
+                }
                 self.hasKnownPairedMac = true
             } catch {
                 accepted = false
