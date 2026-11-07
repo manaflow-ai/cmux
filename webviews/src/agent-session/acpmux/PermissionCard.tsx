@@ -583,7 +583,7 @@ export function PermissionCard({
           <div className="acpmux-permission-feedback-actions">
             <button type="button" aria-keyshortcuts="Escape" disabled={writing.sending} onClick={closeFeedback}>
               {t("permission.feedbackCancel")}
-              <Keycap>Esc</Keycap>
+              <Keycap>{DENY_KEY.keys[0]}</Keycap>
             </button>
             <button
               type="submit"
