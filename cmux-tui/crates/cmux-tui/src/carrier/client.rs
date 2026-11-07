@@ -48,6 +48,8 @@ pub(super) struct Dialed {
     pub multiplexer: Arc<ServiceMultiplexer>,
     /// The daemon stream, opened before the dial reports success.
     pub mux: OpenedMuxControl,
+    /// The grant's `vmk`, when it has one.
+    pub vmk: Option<super::contract::Vmk>,
 }
 
 /// What one dial needs.
@@ -265,7 +267,7 @@ async fn attempt(
             ));
         }
     };
-    Ok(Dialed { connection, multiplexer, mux })
+    Ok(Dialed { connection, multiplexer, mux, vmk: answer.vmk })
 }
 
 /// The step a failed resume names: a provider error is the relay's (or the
