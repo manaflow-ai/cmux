@@ -146,7 +146,13 @@ fn exchange(
 ) -> Result<Vec<u8>, CloudError> {
     let Dialed { child, mut stdin, stdout } =
         open_dial(&target.binary, &dial_args(&target.host, &target.socket), &target.env, children)
-            .map_err(|code| unavailable(format!("cmux link refused: {}", code.as_str())))?;
+            .map_err(|refusal| {
+                unavailable(format!(
+                    "cmux link refused: {}{}",
+                    refusal.code.as_str(),
+                    refusal.detail.map(|d| format!(" ({d})")).unwrap_or_default()
+                ))
+            })?;
     let written = stdin.write_all(line.as_bytes()).and_then(|()| stdin.flush());
     drop(stdin);
     written.map_err(|e| unavailable(format!("the daemon link closed: {e}")))?;

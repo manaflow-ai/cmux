@@ -2,14 +2,17 @@
 // rather than the shell line (Leo, 2026-11-03, on tray lines reading `glaeda-gh wait run
 // manaflow-ai/cmux/41762593154 --until done --timeout 3000 2>...`: "we should be able to parse these
 // more... like instead of raw things, we should be able to deterministically/heuristically have
-// stuff").
+// stuff"; then: "tho isn't glaeda-gh mostly me? we can prob genearlize more stuff").
 //
 // A command is named, in this order, by:
 // 1. what its call says it does: Claude's Bash `description`, which acpmux keeps on the process
 //    (`BackgroundCommand.description`); Codex sends no such words;
-// 2. the first rule of `COMMAND_RULES` that matches the program it runs ("Waiting on cmux#34769
-//    checks", "Fleet tests · Playwright", "Waiting 9m 20s");
-// 3. its program and main argument (`cargo test`, `npm run lint`, `script.py`).
+// 2. the first configured rule that matches: the rules and presets a person lists under
+//    `agentPane.display.commandLabels` in cmux-next.json (commandLabelSettings.ts), in their order;
+// 3. the first rule of `COMMAND_RULES` that matches the program it runs. These know only command
+//    shapes anyone runs (waits, test runners, builds and installs, git, `gh pr`, curl, docker,
+//    `ssh HOST CMD`), never one team's own tools: those live in presets (commandRulePresets.ts);
+// 4. its program and main argument (`cargo test`, `npm run lint`, `script.py`).
 // The whole command stays the line's tooltip, and its expanded tail says it in full. A rule may also
 // give the line an icon and a link (a pull request, a run), which a description does not remove.
 //
@@ -25,20 +28,25 @@ import { commandWorkLabel } from "./commandWorkLabel";
 /// A place a command is about: a pull request or a workflow run.
 export type CommandLink = { url: string };
 
-/// What one rule makes of a command.
-type RuleRead = {
-  /// The line's words: a pane string and its values.
-  key: StringKey;
-  values?: StringValues;
-  link?: CommandLink;
-};
+/// What one rule makes of a command: a pane string and its values (a built-in or preset rule), or
+/// the words a person wrote (a rule from cmux-next.json).
+export type RuleRead = (
+  | {
+      key: StringKey;
+      values?: StringValues;
+      /// A command run inside this one (`ssh HOST CMD`): its own label goes in `values.label`.
+      inner?: string;
+    }
+  | { text: string }
+) & { link?: CommandLink };
 
 /// One rule: the program it is about, how it reads the program's words, and the icon its lines take.
 export type CommandRule = {
   /// A stable name, for tests and the gallery.
   id: string;
   /// The program (the first word, a path's basename): only words whose program this is are read.
-  program: string | readonly string[];
+  /// None reads every command (a configured rule with only a pattern).
+  program?: string | readonly string[];
   icon: string;
   /// The rule's reading of the program's words (the program first), or undefined when it does not
   /// apply.
@@ -236,10 +244,10 @@ function mainProgram(command: string): { words: string[]; setup: string } {
   return { words: kept.slice(at), setup };
 }
 
-// ---- The rules -----------------------------------------------------------------------------------
+// ---- Helpers rules share (commandRulePresets.ts reads with them too) ------------------------------
 
 /// A flag's value: `--key v` or `--key=v` (any of `names`).
-function flag(words: readonly string[], ...names: string[]): string | undefined {
+export function flag(words: readonly string[], ...names: string[]): string | undefined {
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index]!;
     for (const name of names) {
@@ -252,7 +260,7 @@ function flag(words: readonly string[], ...names: string[]): string | undefined 
 
 /// The arguments that are not flags, after the program and `skip` subcommand words. A flag in
 /// `valued` takes the next word as its value.
-function positionals(words: readonly string[], skip: number, valued: ReadonlySet<string> = new Set()): string[] {
+export function positionals(words: readonly string[], skip: number, valued: ReadonlySet<string> = new Set()): string[] {
   const out: string[] = [];
   for (let index = 1 + skip; index < words.length; index += 1) {
     const word = words[index]!;
@@ -266,13 +274,13 @@ function positionals(words: readonly string[], skip: number, valued: ReadonlySet
   return out;
 }
 
-const OWNER_REPO = /^([\w.-]+)\/([\w.-]+)$/;
-const github = (owner: string, repo: string, path: string): CommandLink => ({
+export const OWNER_REPO = /^([\w.-]+)\/([\w.-]+)$/;
+export const github = (owner: string, repo: string, path: string): CommandLink => ({
   url: `https://github.com/${owner}/${repo}/${path}`,
 });
 
 /// A pull request named as `N`, `#N`, `owner/repo#N` or its URL, with the repo `-R` names.
-function pullRequest(
+export function pullRequest(
   target: string | undefined,
   repoFlag: string | undefined,
 ): { number: string; owner?: string; repo?: string } | undefined {
@@ -287,8 +295,9 @@ function pullRequest(
   return repo ? { owner: repo[1], repo: repo[2], number } : { number };
 }
 
-const prName = (pr: { number: string; repo?: string }) => (pr.repo ? `${pr.repo}#${pr.number}` : `#${pr.number}`);
-const prLink = (pr: { number: string; owner?: string; repo?: string }) =>
+export const prName = (pr: { number: string; repo?: string }) =>
+  pr.repo ? `${pr.repo}#${pr.number}` : `#${pr.number}`;
+export const prLink = (pr: { number: string; owner?: string; repo?: string }) =>
   pr.owner && pr.repo ? github(pr.owner, pr.repo, `pull/${pr.number}`) : undefined;
 
 /// Seconds in a `sleep` duration: `90`, `1.5`, `5m`, `2h`, `1d`.
@@ -304,52 +313,61 @@ const waiting = (seconds: number | undefined): RuleRead | undefined =>
     ? undefined
     : { key: "commandRules.waiting", values: { time: formatDuration(seconds * 1000) } };
 
-/// A file or path as its short name: `test/composer-quiet.test.tsx` is `composer-quiet`.
+/// A file or path as its short name: `test/composer-quiet.test.tsx` is `composer-quiet`,
+/// `tests/test_api.py` is `test_api`.
 const shortName = (path: string) =>
-  (path.split("/").pop() ?? path).replace(/\.(?:test|spec)\.[cm]?[jt]sx?$/, "").replace(/\.[cm]?[jt]sx?$/, "");
+  (path.split("/").filter(Boolean).pop() ?? path)
+    .replace(/::.*$/, "")
+    .replace(/\.(?:test|spec)\.[cm]?[jt]sx?$/, "")
+    .replace(/\.(?:[cm]?[jt]sx?|py)$/, "");
 
-const titleCase = (word: string) => word.charAt(0).toUpperCase() + word.slice(1);
+export const titleCase = (word: string) => word.charAt(0).toUpperCase() + word.slice(1);
 
-/// `name` is the program `words` run (a path's basename).
-const programOf = (words: readonly string[]) => (words[0] ?? "").split("/").pop() ?? "";
+/// The program `words` run (a path's basename).
+export const programOf = (words: readonly string[]) => (words[0] ?? "").split("/").pop() ?? "";
 
 const testOrBuild = (testing: boolean, target: string | undefined): RuleRead =>
   target
     ? { key: testing ? "commandRules.testing" : "commandRules.building", values: { target } }
     : { key: testing ? "commandRules.testingAll" : "commandRules.buildingAll" };
 
-/// The rules, first match wins. Each reads only the words of the one program a command runs.
+const installing = (target: string | undefined): RuleRead =>
+  target ? { key: "commandRules.installing", values: { target } } : { key: "commandRules.installingDeps" };
+
+/// A URL's host: `https://api.example.com/x` is `api.example.com`.
+const hostOf = (url: string | undefined) =>
+  url ? /^(?:[a-z][\w+.-]*:\/\/)?(?:[^@/]*@)?([^/:?#]+)/i.exec(url)?.[1] : undefined;
+
+// ---- The rules -----------------------------------------------------------------------------------
+
+/// The built-in rules, first match wins. Each reads only the words of the one program a command
+/// runs, and each knows a command shape anyone runs; a team's own tools are a preset
+/// (commandRulePresets.ts) a person turns on in cmux-next.json.
 export const COMMAND_RULES: readonly CommandRule[] = [
   {
-    // `glaeda-gh wait run OWNER/REPO/RUN_ID ...`, `glaeda-gh wait pr OWNER/REPO N` (or `OWNER/REPO#N`).
-    id: "glaeda-wait",
-    program: "glaeda-gh",
-    icon: "status.inprogress",
+    // `sleep 560`, `sleep 5m`.
+    id: "sleep",
+    program: "sleep",
+    icon: "history",
+    read: (words) =>
+      waiting(
+        words.slice(1).reduce<number | undefined>((sum, word) => {
+          const seconds = sleepSeconds(word);
+          return seconds === undefined || sum === undefined ? undefined : sum + seconds;
+        }, 0),
+      ),
+  },
+  {
+    // `python3 -c "import time; time.sleep(560)"`, as agents wait without a shell `sleep`.
+    id: "python-sleep",
+    program: ["python", "python3"],
+    icon: "history",
     read: (words) => {
-      if (words[1] !== "wait") return undefined;
-      const [target, extra] = positionals(
-        words,
-        2,
-        new Set(["--until", "--timeout", "--sha", "--rescue-grace", "--author", "--match", "--since", "--contains"]),
-      );
-      if (words[2] === "run") {
-        const run =
-          /^([\w.-]+)\/([\w.-]+)\/(\d+)$/.exec(target ?? "") ??
-          /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/actions\/runs\/(\d+)/.exec(target ?? "");
-        if (!run) return { key: "commandRules.waitChecks", values: { target: "CI" } };
-        return {
-          key: "commandRules.waitChecks",
-          values: { target: run[2]! },
-          link: github(run[1]!, run[2]!, `actions/runs/${run[3]}`),
-        };
-      }
-      if (words[2] === "pr") {
-        const repo = OWNER_REPO.exec(target ?? "");
-        const pr = pullRequest(repo ? extra : target, repo ? target : undefined);
-        if (!pr) return { key: "commandRules.waitChecks", values: { target: "CI" } };
-        return { key: "commandRules.waitChecks", values: { target: prName(pr) }, link: prLink(pr) };
-      }
-      return undefined;
+      const code = flag(words, "-c");
+      const seconds = code ? /\btime\.sleep\(\s*(\d+(?:\.\d+)?)\s*\)/.exec(code)?.[1] : undefined;
+      return seconds && /^\s*(?:import time\s*[;\n]\s*)?time\.sleep\([^)]*\)\s*;?\s*$/.test(code!)
+        ? waiting(Number(seconds))
+        : undefined;
     },
   },
   {
@@ -383,106 +401,153 @@ export const COMMAND_RULES: readonly CommandRule[] = [
     },
   },
   {
-    // `cmux-ci test --setup playwright ... -- CMD`, `cmux-ci run --key ...-34769-...`,
-    // `cmux-ci compile-check`.
-    id: "cmux-ci",
-    program: "cmux-ci",
-    icon: "cloud",
+    // `git push [-u] origin HEAD:refs/heads/x`, `git pull`, `git fetch`, `git commit -m x`,
+    // `git clone URL`.
+    id: "git",
+    program: "git",
+    icon: "git.branch",
     read: (words): RuleRead | undefined => {
-      if (words[1] === "test") {
-        const setup = flag(words, "--setup");
-        if (setup) return { key: "commandRules.fleetTestsOf", values: { what: titleCase(setup) } };
-        const dash = words.indexOf("--");
-        const inner = dash < 0 ? [] : programWords(words.slice(dash + 1).join(" "));
-        const program = programOf(inner);
-        // A script run through a shell names nothing worth the line.
-        if (!program || ["bash", "sh", "zsh"].includes(program)) return { key: "commandRules.fleetTests" };
-        const detail = inner[1] && !inner[1].startsWith("-") ? `${program} ${inner[1]}` : program;
-        const crate = program === "cargo" ? flag(inner, "-p", "--package") : undefined;
-        return { key: "commandRules.fleetTestsOf", values: { what: crate ? `${detail} ${crate}` : detail } };
+      // `git -C DIR push`.
+      const at = words[1] === "-C" ? 3 : 1;
+      const sub = words[at];
+      if (sub === "push") {
+        const args = positionals(words, at, new Set(["-o", "--push-option", "--repo"]));
+        const ref = args[1]
+          ?.split(":")
+          .pop()
+          ?.replace(/^refs\/heads\//, "");
+        return ref && ref !== "HEAD" && !ref.startsWith("+")
+          ? { key: "commandRules.pushingBranch", values: { branch: ref } }
+          : { key: "commandRules.pushing" };
       }
-      if (words[1] === "run") {
-        // A PR number inside the run's key: `sr2c-ctx-34769-$(date +%s)`.
-        const pr = /(?:^|[-_/#])(\d{4,6})(?=$|[-_/])/.exec(flag(words, "--key") ?? "")?.[1];
-        return pr
-          ? { key: "commandRules.fleetRunFor", values: { target: `#${pr}` } }
-          : { key: "commandRules.fleetRun" };
+      if (sub === "pull") return { key: "commandRules.pulling" };
+      if (sub === "fetch") return { key: "commandRules.fetching" };
+      if (sub === "commit") return { key: "commandRules.committing" };
+      if (sub === "clone") {
+        const source = positionals(words, at, new Set(["-b", "--branch", "--depth", "--filter", "-o", "--origin"]))[0];
+        const name = source
+          ?.replace(/\/+$/, "")
+          .split(/[/:]/)
+          .pop()
+          ?.replace(/\.git$/, "");
+        return name ? { key: "commandRules.cloning", values: { target: name } } : undefined;
       }
-      if (words[1] === "compile-check") return { key: "commandRules.fleetCompile" };
       return undefined;
     },
   },
   {
-    // `sleep 560`, `sleep 5m`.
-    id: "sleep",
-    program: "sleep",
-    icon: "history",
-    read: (words) =>
-      waiting(
-        words.slice(1).reduce<number | undefined>((sum, word) => {
-          const seconds = sleepSeconds(word);
-          return seconds === undefined || sum === undefined ? undefined : sum + seconds;
-        }, 0),
-      ),
-  },
-  {
-    // `python3 -c "import time; time.sleep(560)"`, as agents wait without a shell `sleep`.
-    id: "python-sleep",
-    program: ["python", "python3"],
+    // `until [ -s /tmp/x/review.out ]; do sleep 5; done; cat ...`, `while ! test -f done.txt; ...`:
+    // a loop that waits for a file. Claude's Monitor calls wait this way.
+    id: "wait-for-file",
+    program: ["until", "while"],
     icon: "history",
     read: (words) => {
-      const code = flag(words, "-c");
-      const seconds = code ? /\btime\.sleep\(\s*(\d+(?:\.\d+)?)\s*\)/.exec(code)?.[1] : undefined;
-      return seconds && /^\s*(?:import time\s*[;\n]\s*)?time\.sleep\([^)]*\)\s*;?\s*$/.test(code!)
-        ? waiting(Number(seconds))
-        : undefined;
+      const test = words.findIndex((word) => word === "[" || word === "[[" || word === "test");
+      if (test < 0) return undefined;
+      const at = words.findIndex((word, index) => index > test && /^-[efsd]$/.test(word));
+      const file = at < 0 ? undefined : words[at + 1];
+      if (!file || file === "]" || file === "]]") return undefined;
+      return { key: "commandRules.waitingForFile", values: { file: file.split("/").filter(Boolean).pop() ?? file } };
     },
   },
   {
-    // `git push [-u] origin HEAD:refs/heads/x`, `git push`.
-    id: "git-push",
-    program: "git",
-    icon: "git.branch",
-    read: (words) => {
-      // `git -C DIR push`.
-      const at = words[1] === "-C" ? 3 : 1;
-      if (words[at] !== "push") return undefined;
-      const args = positionals(words, at, new Set(["-o", "--push-option", "--repo"]));
-      const ref = args[1]
-        ?.split(":")
-        .pop()
-        ?.replace(/^refs\/heads\//, "");
-      return ref && ref !== "HEAD" && !ref.startsWith("+")
-        ? { key: "commandRules.pushingBranch", values: { branch: ref } }
-        : { key: "commandRules.pushing" };
-    },
-  },
-  {
-    // `cargo test -p acpmux`, `cargo build -p cmux-tui`, `cargo nextest run -p x`.
+    // `cargo test -p acpmux`, `cargo build -p cmux-tui`, `cargo nextest run -p x`, `cargo install x`.
     id: "cargo",
     program: "cargo",
     icon: "mode.build",
     read: (words) => {
       const sub = words.find((word, index) => index > 0 && !word.startsWith("-") && !word.startsWith("+"));
+      if (sub === "install") return installing(positionals(words, 1).find((word) => word !== "install"));
       const testing = sub === "test" || sub === "nextest";
       if (!testing && sub !== "build" && sub !== "check" && sub !== "clippy") return undefined;
       return testOrBuild(testing, flag(words, "-p", "--package"));
     },
   },
   {
-    // `bun test test/foo.test.tsx`, `bun run test`.
-    id: "bun-test",
-    program: "bun",
+    // `bun test test/foo.test.tsx`, `npm test`, `pnpm run test`, `yarn build`, `npm ci`,
+    // `bun add x`.
+    id: "js",
+    program: ["bun", "npm", "pnpm", "yarn"],
     icon: "mode.build",
     read: (words) => {
-      if (words[1] === "run" && words[2] === "test") return testOrBuild(true, undefined);
-      if (words[1] !== "test") return undefined;
-      const file = positionals(words, 1, new Set(["--timeout", "-t", "--test-name-pattern"]))[0];
-      return testOrBuild(true, file ? shortName(file) : undefined);
+      const [sub, script] = [words[1], words[2]];
+      if (sub === "test" || ((sub === "run" || sub === "run-script") && script === "test")) {
+        const file =
+          sub === "test" ? positionals(words, 1, new Set(["--timeout", "-t", "--test-name-pattern"]))[0] : undefined;
+        return testOrBuild(true, file ? shortName(file) : undefined);
+      }
+      if (sub === "build" || (sub === "run" && script === "build")) return testOrBuild(false, undefined);
+      if (sub === "install" || sub === "i" || sub === "ci" || sub === "add") {
+        return installing(sub === "ci" ? undefined : positionals(words, 1)[0]);
+      }
+      // `yarn` alone installs.
+      if (programOf(words) === "yarn" && words.length === 1) return installing(undefined);
+      return undefined;
     },
   },
   {
-    // `xcodebuild -scheme cmux test`, `xcodebuild -scheme X build`.
+    // `pytest tests/test_api.py`, `python3 -m pytest -q`, `python3 -m pip install x`.
+    id: "python",
+    program: ["pytest", "python", "python3"],
+    icon: "mode.build",
+    read: (words) => {
+      const module = programOf(words) === "pytest" ? "pytest" : flag(words, "-m");
+      const from = programOf(words) === "pytest" ? 0 : words.indexOf("-m") + 1;
+      const rest = words.slice(from);
+      if (module === "pytest") {
+        const file = positionals(rest, 0, new Set(["-k", "-m", "-n", "--maxfail", "-p"]))[0];
+        return testOrBuild(true, file ? shortName(file) : undefined);
+      }
+      if (module === "pip" && rest[1] === "install") return installing(positionals(rest, 1, new Set(["-r"]))[0]);
+      return undefined;
+    },
+  },
+  {
+    // `pip install -r requirements.txt`, `brew install x`, `apt-get install -y x`.
+    id: "install",
+    program: ["pip", "pip3", "brew", "apt", "apt-get", "uv"],
+    icon: "package",
+    read: (words) => {
+      const at = programOf(words) === "uv" && words[1] === "pip" ? 2 : 1;
+      if (words[at] !== "install" && !(programOf(words) === "uv" && words[1] === "sync")) return undefined;
+      return installing(positionals(words, at, new Set(["-r", "--requirement", "-c"]))[0]);
+    },
+  },
+  {
+    // `go test ./...`, `go test ./pkg/x`, `go build ./cmd/x`.
+    id: "go",
+    program: "go",
+    icon: "mode.build",
+    read: (words) => {
+      if (words[1] !== "test" && words[1] !== "build") return undefined;
+      const target = positionals(words, 1, new Set(["-run", "-o", "-tags", "-timeout", "-count", "-p"]))[0];
+      const named = target && !target.startsWith("./...") && target !== "." ? shortName(target) : undefined;
+      return testOrBuild(words[1] === "test", named);
+    },
+  },
+  {
+    // `swift test --filter X`, `swift build -c release`.
+    id: "swift",
+    program: "swift",
+    icon: "mode.build",
+    read: (words) =>
+      words[1] === "test" || words[1] === "build"
+        ? testOrBuild(words[1] === "test", flag(words, "--filter", "--product", "--target"))
+        : undefined,
+  },
+  {
+    // `make`, `make -j8 all`, `make test`.
+    id: "make",
+    program: ["make", "gmake"],
+    icon: "mode.build",
+    read: (words) => {
+      const target = positionals(words, 0, new Set(["-C", "-f", "-j"])).find((word) => !word.includes("="));
+      if (target === "test" || target === "check") return testOrBuild(true, undefined);
+      return testOrBuild(false, target && target !== "all" ? target : undefined);
+    },
+  },
+  {
+    // `xcodebuild -scheme cmux-unit test`, `xcodebuild -scheme X build`.
     id: "xcodebuild",
     program: "xcodebuild",
     icon: "mode.build",
@@ -512,12 +577,139 @@ export const COMMAND_RULES: readonly CommandRule[] = [
       );
     },
   },
+  {
+    // `curl -fsSL https://api.example.com/x`, `wget URL`.
+    id: "http",
+    program: ["curl", "wget"],
+    icon: "link.web",
+    read: (words) => {
+      const url = words.slice(1).find((word) => /^https?:\/\//i.test(word));
+      const host = hostOf(url);
+      return host ? { key: "commandRules.fetchingFrom", values: { host } } : undefined;
+    },
+  },
+  {
+    // `docker build -t app .`, `docker run --rm img`, `docker compose up -d`, `docker pull img`.
+    id: "docker",
+    program: ["docker", "podman", "docker-compose"],
+    icon: "package",
+    read: (words) => {
+      const valued = new Set([
+        "-t",
+        "--tag",
+        "-f",
+        "--file",
+        "-e",
+        "--env",
+        "-v",
+        "--volume",
+        "-p",
+        "--publish",
+        "--name",
+        "-w",
+        "--workdir",
+        "--network",
+        "--platform",
+        "--entrypoint",
+        "-u",
+        "--user",
+        "--build-arg",
+      ]);
+      if (words[1] === "build" || (words[1] === "buildx" && words[2] === "build")) {
+        const tag = flag(words, "-t", "--tag");
+        return testOrBuild(false, tag ? tag.split(":")[0] : undefined);
+      }
+      if (words[1] === "run") {
+        const image = positionals(words, 1, valued)[0];
+        return image ? { key: "commandRules.runningImage", values: { image: image.split("@")[0]! } } : undefined;
+      }
+      if (words[1] === "pull") return positionals(words, 1)[0] ? { key: "commandRules.pulling" } : undefined;
+      if ((words[1] === "compose" && words[2] === "up") || (programOf(words) === "docker-compose" && words[1] === "up"))
+        return { key: "commandRules.startingContainers" };
+      return undefined;
+    },
+  },
+  {
+    // `ssh mini-3 'cd x && make test'`: the inner command's label on its host.
+    id: "ssh",
+    program: ["ssh", "mosh"],
+    icon: "machine.remote",
+    read: (words) => {
+      const valued = new Set([
+        "-p",
+        "-i",
+        "-o",
+        "-l",
+        "-F",
+        "-J",
+        "-L",
+        "-R",
+        "-D",
+        "-W",
+        "-E",
+        "-b",
+        "-c",
+        "-m",
+        "-S",
+        "-O",
+        "-Q",
+        "-w",
+        "-e",
+        "-I",
+        "-B",
+      ]);
+      let index = 1;
+      while (index < words.length && words[index]!.startsWith("-")) index += valued.has(words[index]!) ? 2 : 1;
+      const target = words[index];
+      if (!target) return undefined;
+      const host = target.replace(/^[^@]*@/, "");
+      const inner = words
+        .slice(index + 1)
+        .join(" ")
+        .trim();
+      return inner
+        ? { key: "commandRules.onHost", values: { host }, inner }
+        : { key: "commandRules.connecting", values: { host } };
+    },
+  },
 ];
 
-const BY_PROGRAM = new Map<string, CommandRule[]>();
-for (const rule of COMMAND_RULES)
-  for (const program of typeof rule.program === "string" ? [rule.program] : rule.program)
-    BY_PROGRAM.set(program, [...(BY_PROGRAM.get(program) ?? []), rule]);
+/// The rules by program, and those that read every program, in order.
+type RuleIndex = { byProgram: Map<string, CommandRule[]>; any: CommandRule[] };
+
+function indexRules(rules: readonly CommandRule[]): RuleIndex {
+  const index: RuleIndex = { byProgram: new Map(), any: [] };
+  for (const rule of rules) {
+    if (rule.program === undefined) {
+      index.any.push(rule);
+      continue;
+    }
+    for (const program of typeof rule.program === "string" ? [rule.program] : rule.program)
+      index.byProgram.set(program, [...(index.byProgram.get(program) ?? []), rule]);
+  }
+  return index;
+}
+
+const BUILT_IN = indexRules(COMMAND_RULES);
+const INDEXES = new WeakMap<readonly CommandRule[], RuleIndex>();
+const indexOf = (rules: readonly CommandRule[]) => {
+  let index = INDEXES.get(rules);
+  if (!index) INDEXES.set(rules, (index = indexRules(rules)));
+  return index;
+};
+
+/// The first rule of `index` that reads `words`. Rules for this program and rules for every program
+/// keep their listed order between them.
+function firstRead(index: RuleIndex, words: readonly string[]): { rule: CommandRule; read: RuleRead } | undefined {
+  const candidates = index.any.length
+    ? [...(index.byProgram.get(programOf(words)) ?? []), ...index.any]
+    : (index.byProgram.get(programOf(words)) ?? []);
+  for (const rule of candidates) {
+    const read = rule.read(words);
+    if (read) return { rule, read };
+  }
+  return undefined;
+}
 
 /// The longest fallback word; a longer one ends in an ellipsis.
 const WORD_MAX = 32;
@@ -539,40 +731,73 @@ export function fallbackLabel(words: readonly string[]): string | undefined {
   return parts.map(clip).join(" ");
 }
 
-/// What a rule makes of a command's program, if one knows it.
-export function ruleOf(command: string): { rule: CommandRule; read: RuleRead; setup: string } | undefined {
+/// What a rule makes of a command's program, if one knows it: the configured rules (`configured`,
+/// commandLabelSettings.ts) first, then the built-in ones.
+export function ruleOf(
+  command: string,
+  configured: readonly CommandRule[] = [],
+): { rule: CommandRule; read: RuleRead; setup: string } | undefined {
   const { words, setup } = mainProgram(command);
-  for (const rule of BY_PROGRAM.get(programOf(words)) ?? []) {
-    const read = rule.read(words);
-    if (read) return { rule, read, setup };
-  }
-  return undefined;
+  const match = (configured.length ? firstRead(indexOf(configured), words) : undefined) ?? firstRead(BUILT_IN, words);
+  return match ? { ...match, setup } : undefined;
 }
 
-/// What the tray shows for a command: its call's description, else a rule's words, else its program
-/// and main argument; the rule's icon and link either way.
+/// The most words a description may have and still be only a nickname for the command ("hold",
+/// "review result"): such a one is not enough on its own.
+const TERSE_WORDS = 2;
+
+/// A description, or, when it is only a word or two (Claude's Monitor calls, which an agent names
+/// "hold" or "review result"), what the command does first and the agent's name for it after:
+/// "Waiting 14m · hold" (Leo, 2026-11-04, on a tray of lines reading "Command hold": "wtf are these
+/// holds"). A long description stays as it is; so does a short one when the command says no more
+/// (Claude named the task only by its description, which then stands for the command too).
+function describedLabel(description: string, command: string, reading: string | undefined): string {
+  if (description.split(/\s+/).length > TERSE_WORDS) return description;
+  if (!reading || command.trim() === description) return description;
+  if (reading.toLowerCase() === description.toLowerCase()) return reading;
+  return `${reading} · ${description}`;
+}
+
+/// How deep `ssh a ssh b ...` reads before the inner command is named as it is.
+const INNER_DEPTH = 3;
+
+/// What the tray shows for a command: its call's description, else a configured or built-in rule's
+/// words, else its program and main argument; the rule's icon and link either way.
 export function commandRead(
   t: Translate,
   command: { command: string; description?: string },
   fallbackIcon = "terminal",
+  configured: readonly CommandRule[] = [],
+  depth = 0,
 ): CommandRead {
-  const match = ruleOf(command.command);
+  const match = ruleOf(command.command, configured);
   const description = command.description?.trim();
+  // A command run inside this one (`ssh HOST CMD`) is named by the same rules.
+  const inner: CommandRead | undefined =
+    match && "key" in match.read && match.read.inner !== undefined
+      ? depth < INNER_DEPTH
+        ? commandRead(t, { command: match.read.inner }, fallbackIcon, configured, depth + 1)
+        : { label: match.read.inner, icon: fallbackIcon }
+      : undefined;
   // A setup step's substitution runs work (`SHA=$(git rev-parse HEAD); cmux-ci run …`): it stays
   // named before the rule's words, as commandWorkLabel.ts names it (#34679). One in the program's
   // own arguments (`--key x-$(date +%s)`) is part of what the rule reads.
   const setupWork = match?.setup ? commandWorkLabel(match.setup) : undefined;
-  const ruled = match ? t(match.read.key, match.read.values) : undefined;
-  const label =
-    description ||
+  const ruled = !match
+    ? undefined
+    : "text" in match.read
+      ? match.read.text
+      : t(match.read.key, inner ? { ...match.read.values, label: inner.label } : match.read.values);
+  const reading =
     (ruled && setupWork ? `${setupWork} · ${ruled}` : ruled) ||
     commandWorkLabel(command.command.trim()) ||
-    fallbackLabel(programWords(command.command)) ||
-    command.command;
+    fallbackLabel(programWords(command.command));
+  const label = description ? describedLabel(description, command.command, reading) : reading || command.command;
+  const link = match?.read.link ?? inner?.link;
   return {
     label,
-    icon: match?.rule.icon ?? fallbackIcon,
-    ...(match?.read.link ? { link: match.read.link } : {}),
+    icon: (inner && inner.icon !== fallbackIcon ? inner.icon : match?.rule.icon) ?? fallbackIcon,
+    ...(link ? { link } : {}),
     ...(match ? { rule: match.rule.id } : {}),
   };
 }

@@ -91,6 +91,42 @@ export function markHeightFold(node: Element, ms: number): void {
 
 const always = () => true;
 
+/// The folds playing now, each with the step that lands it at once (`settleFoldsIn`). Only folds in
+/// flight are here: each leaves when it ends, so a walk is O(folds playing), never O(rows).
+const settling = new Map<HTMLElement, () => void>();
+
+/// Lands every fold playing inside `root` at once: an open at its full height, a close shut. The
+/// transcript calls it when the reader takes the view during a fold at the very bottom, so the rest
+/// of a closing body's shrink cannot clamp their short scroll up back to the end.
+export function settleFoldsIn(root: Element): void {
+  for (const [node, settle] of settling) if (root.contains(node)) settle();
+}
+
+/// A gap between two painted frames this long means the page is missing frames: about three at 60 Hz.
+export const FOLD_DROP_MS = 50; // motion-allow: a frame-drop threshold, not an animation's duration
+
+/// Lands `node`'s fold at its end on the first frame that comes `FOLD_DROP_MS` or more after the one
+/// before it (Leo, 2026-11-06, on a recording under heavy load: "way too discontinuous", "jittery").
+/// Under load a height fold skips most of its frames and each one that paints jumps the rows around
+/// it; the end state at once reads as one step. Its own frame loop runs only while `node`'s fold is in
+/// `settling`, so it stops when the fold ends, settles or turns back (a new fold starts its own).
+function settleOnDroppedFrames(node: HTMLElement): void {
+  const view = node.ownerDocument.defaultView;
+  if (!view?.requestAnimationFrame) return;
+  const settle = settling.get(node);
+  let last: number | undefined;
+  const step = (now: number) => {
+    if (settling.get(node) !== settle) return;
+    if (last !== undefined && now - last >= FOLD_DROP_MS) {
+      settle?.();
+      return;
+    }
+    last = now;
+    view.requestAnimationFrame(step);
+  };
+  view.requestAnimationFrame(step);
+}
+
 /// The resize each box is playing (`playResize`), so a resize that ends late lets go of only its own.
 const resizing = new WeakMap<HTMLElement, Animation>();
 
@@ -216,6 +252,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
   const cancelRunning = () => {
     const animation = running.current;
     running.current = undefined;
+    if (ref.current) settling.delete(ref.current);
     if (!animation) return;
     animation.onfinish = null;
     animation.oncancel = null;
@@ -290,6 +327,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
         const settledRest = () => {
           if (running.current !== rest) return;
           running.current = undefined;
+          settling.delete(node);
           stopWatching();
           unwatchMotion();
           clipFold(node, false);
@@ -305,6 +343,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       stopWatching();
       unwatchMotion();
       running.current = undefined;
+      settling.delete(node);
       if (open) {
         clipFold(node, false);
         return;
@@ -316,6 +355,25 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     };
     animation.onfinish = settled;
     animation.oncancel = settled;
+    // Lands this fold now, whichever animation (this one or a late size's) is playing: its handlers
+    // go first, so the box is pinned shut or let go in this same task, before any paint.
+    settling.set(node, () => {
+      const playing = running.current;
+      settling.delete(node);
+      if (!playing) return;
+      playing.onfinish = null;
+      playing.oncancel = null;
+      running.current = undefined;
+      stopWatching();
+      unwatchMotion();
+      playing.cancel();
+      if (open) clipFold(node, false);
+      else {
+        pin(node, 0);
+        setClosing(false);
+      }
+    });
+    settleOnDroppedFrames(node);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of `open` plays the fold
   }, [open]);
   useLayoutEffect(

@@ -167,7 +167,9 @@ class Scope(unittest.TestCase):
         outside = [path for path in files if not path.startswith("cmux-tui/")]
         self.assertTrue(outside)
         paths = workflow_paths((ROOT / ".github/workflows/cmux-tui-spec.yml").read_text())
-        self.assertEqual(set(paths), {"push", "pull_request"})
+        # Pull requests carry no paths: feat-cmux-next requires the clippy job, so the workflow runs on every
+        # one and its `changes` job routes them by these `push` paths (.github/scripts/cmux-tui-spec-changed.py).
+        self.assertEqual(set(paths), {"push"})
         for event, globs in paths.items():
             for path in outside + [p.rstrip("/") + ("/x" if p.endswith("/") else "") for p in verdict.ALWAYS]:
                 with self.subTest(event=event, path=path):

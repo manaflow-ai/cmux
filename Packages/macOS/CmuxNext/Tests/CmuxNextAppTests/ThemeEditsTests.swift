@@ -10,7 +10,7 @@ import Testing
 /// changes Nord itself. The config cmux hands Ghostty loads the theme, then its edits, so an edited
 /// token wins; the edits are the theme's wherever it applies, a pair takes its variant's, a bad
 /// entry is dropped with a diagnostic, and a previewed edit shows live.
-@MainActor @Suite(.serialized) struct ThemeEditsTests {
+@MainActor @Suite(.serialized, .ghosttyOverrides) struct ThemeEditsTests {
     func make(_ json: String) async throws -> (SettingsController, URL) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-theme-edits-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

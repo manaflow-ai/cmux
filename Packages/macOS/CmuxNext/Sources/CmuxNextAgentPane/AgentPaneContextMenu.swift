@@ -9,6 +9,8 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var text: String
     /// An agent reply's Markdown source; nil for a prompt (it is plain text already).
     var markdown: String?
+    /// A reply's date and time, already formatted in the pane's language.
+    var replyTime: String?
     /// The fork point of the message's turn (its summary's acpmux event); nil when acpmux does not
     /// serve forks or the turn has not ended.
     var forkSeq: Int?
@@ -26,10 +28,11 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     /// The code block, command, path or link under the pointer (webviews conversation/menuParts.ts).
     var part: AgentPaneMenuPart?
 
-    init(text: String, markdown: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
+    init(text: String, markdown: String? = nil, replyTime: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
          links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil) {
         self.text = text
         self.markdown = markdown
+        self.replyTime = replyTime
         self.forkSeq = forkSeq
         self.sideChat = sideChat
         self.retryRowId = retryRowId
@@ -53,6 +56,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         guard !text.isEmpty || hasImage || part != nil else { return nil }
         self.text = text
         markdown = (object["markdown"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        replyTime = (object["replyTime"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         forkSeq = (object["forkSeq"] as? NSNumber).map(\.intValue)
         sideChat = (object["sideChat"] as? NSNumber)?.boolValue ?? false
         retryRowId = (object["retryRowId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -98,6 +102,12 @@ enum AgentPaneContextMenu {
         var linkItems: ((URL) -> [NSMenuItem])? = nil
         /// A path part's rows after Open (``LinkMenu``); nil (or a nil answer): Copy Path.
         var pathItems: ((String) -> [NSMenuItem]?)? = nil
+        /// A chat part's Open on Right: the click's `chat.offer.open` (``AgentPaneOfferOpen``).
+        var openSession: ((String, Bool) -> Void)?
+        /// A chat part's Go to Chat, nil when no tab shows the chat (``AgentPaneOfferOpen/goTo(_:sender:in:)``).
+        var goToSession: ((String, Bool) -> (@MainActor () -> Void)?)?
+        /// A chat part's rows after those: the chat's sidebar row menu (``AgentPaneModel/sessionMenuItems``).
+        var sessionItems: ((String) -> [NSMenuItem])?
         var search: (String) -> Void = { _ in }
         /// One of the page's own menu actions (`window.cmuxAcpmuxActions`) by name.
         var page: (String, [String: String]) -> Void = { _, _ in }
@@ -241,8 +251,20 @@ enum AgentPaneContextMenu {
         } else if let copyImage {
             image.append(copyImage)
         }
-        let part = target?.part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open,
-                                       linkItems: actions.linkItems, pathItems: actions.pathItems) ?? []
+        // A chat part's rows lead (Open on Right, Go to Chat), then that chat's sidebar row rows in their
+        // own group, then the rest of the part (an agent link's link rows).
+        let session = target?.part?.session
+        let chatPart = session.map { AgentPaneMenuPart(session: $0, sender: target?.part?.sender ?? false) }
+        var otherPart = target?.part
+        otherPart?.session = nil
+        let items = { (part: AgentPaneMenuPart?) in
+            part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open,
+                        linkItems: actions.linkItems, pathItems: actions.pathItems,
+                        openSession: actions.openSession, goToSession: actions.goToSession) ?? []
+        }
+        let opens = items(chatPart)
+        let row = session.flatMap { actions.sessionItems?($0) } ?? []
+        let part = items(otherPart)
         var copies = edits
         var message: [NSMenuItem] = []
         var links: [NSMenuItem] = []
@@ -282,7 +304,15 @@ enum AgentPaneContextMenu {
         }
         // Empty space (no message, no image, nothing to edit) gets the chat's own menu, its sections kept.
         let chat = target == nil && edits.isEmpty && image.isEmpty ? chatMenu.filter { $0.menu == nil } : []
-        add([image, part, copies, message, links, chat, inspectElement.map { [$0] } ?? inspect.map { [$0] } ?? []], to: menu)
+        let header: [NSMenuItem]
+        if target?.markdown != nil, let time = target?.replyTime {
+            let item = NSMenuItem(title: time, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            header = [item]
+        } else {
+            header = []
+        }
+        add([header, image, opens, row, part, copies, message, links, chat, inspectElement.map { [$0] } ?? inspect.map { [$0] } ?? []], to: menu)
     }
 
     /// Adds the non-empty groups, split by separators.
@@ -423,5 +453,13 @@ enum AgentPaneMenuStrings {
 
     static var openInSideChat: String {
         String(localized: "agentPane.menu.openInSideChat", defaultValue: "Open in Side Chat", bundle: .module)
+    }
+
+    static var openOnRight: String {
+        String(localized: "agentPane.menu.openOnRight", defaultValue: "Open on Right", bundle: .module)
+    }
+
+    static var goToChat: String {
+        String(localized: "agentPane.menu.goToChat", defaultValue: "Go to Chat", bundle: .module)
     }
 }

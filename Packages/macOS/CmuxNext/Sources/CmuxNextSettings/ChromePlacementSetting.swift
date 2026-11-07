@@ -14,11 +14,10 @@ public nonisolated struct ChromePlacementSetting {
     public static let tabBarOrderPath = ["tabs", "barOrder"]
     public static let browserToolbarPositionPath = ["browser", "toolbarPosition"]
 
-    /// The title bar the window uses: `window.titlebar`, including while tab
-    /// bars sit at the bottom. An explicit minimal choice keeps the panes at
-    /// the top without the workspace-name strip; the traffic lights then sit
-    /// on the sidebar's header, or the main pane starts below their row
-    /// (`WindowTitlebar.cardTopInset`).
+    /// The title bar the window uses: `window.titlebar`, also while tab bars
+    /// sit at the bottom (user 2026-10-28: no title strip there, to save
+    /// space). The traffic lights then sit on the sidebar's header, or the
+    /// main pane starts below their row (`WindowTitlebar.cardTopInset`).
     public static func effectiveTitlebar(_ snapshot: CmuxConfigSnapshot) -> TitlebarStyle {
         snapshot.titlebar
     }

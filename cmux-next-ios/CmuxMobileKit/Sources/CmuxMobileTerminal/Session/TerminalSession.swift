@@ -173,6 +173,11 @@ public protocol TerminalSession: AnyObject {
     /// Clear Screen and Scrollback where the terminal runs, so every view of it clears
     /// (the Mac's Cmd-K, `clear-history`). A full-screen app is left as it is.
     func clearHistory() async throws
+    /// The reader scrolled up to the oldest row the screen holds: a session
+    /// that attached with the latest screen first brings older rows (a Mac
+    /// terminal, `attach-replay-history-rows-v1`). Called as often as the page
+    /// scrolls there; the session decides. Others ignore it.
+    func loadOlderHistory()
 }
 
 extension TerminalSession {
@@ -195,6 +200,8 @@ extension TerminalSession {
     public var clearsHistory: Bool { false }
 
     public func clearHistory() async throws {}
+
+    public func loadOlderHistory() {}
 
     public var hostGridOwnerName: String? { nil }
 }

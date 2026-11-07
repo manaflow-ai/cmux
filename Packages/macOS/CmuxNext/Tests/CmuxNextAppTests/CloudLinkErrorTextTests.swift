@@ -22,6 +22,28 @@ struct CloudLinkErrorTextTests {
         #expect(CloudAppLinks.endedMessage(error).contains("Connect"), "\(CloudAppLinks.endedMessage(error))")
     }
 
+    /// A NEXT Nightly's Cloud chat failed with only "Disconnected from the Cloud machine. Click Connect
+    /// to connect again.": the link's reason was dropped here and logged at info, which a shipped build
+    /// doesn't keep. The reason now reads in the message (and so in the CLI's failure).
+    @Test func aDroppedLinkSaysWhyInItsOwnWords() {
+        #expect(CloudAppLinks.endedMessage(CloudLinkError.disconnected(reason: "receiver refused: Authority"))
+            == CloudStrings.linkDisconnected(because: "receiver refused: Authority"))
+        #expect(CloudAppLinks.endedMessage(CloudLinkError.disconnected(reason: "receiver refused: Authority")).contains("Authority"))
+        #expect(CloudAppLinks.endedMessage(CloudLinkError.disconnected(reason: "connection ended.")) == CloudStrings.linkDisconnected(because: "connection ended"))
+    }
+
+    @Test(arguments: ["", "  ", "disconnected", "Disconnected.", "down"])
+    func aDropWithNoReasonReadsAsBefore(reason: String) {
+        #expect(CloudAppLinks.endedMessage(CloudLinkError.disconnected(reason: reason)) == CloudStrings.linkDisconnected)
+    }
+
+    @Test func anotherErrorSaysWhatItWas() {
+        struct Timeout: LocalizedError { var errorDescription: String? { "the daemon did not answer within 120 s" } }
+        struct Opaque: Error {}
+        #expect(CloudAppLinks.endedMessage(Timeout()) == CloudStrings.linkDisconnected(because: "the daemon did not answer within 120 s"))
+        #expect(CloudAppLinks.endedMessage(Opaque()) == CloudStrings.linkDisconnected)
+    }
+
     @Test func unsupportedSaysToUpdateCmux() {
         #expect(CloudAppLinks.endedMessage(CloudLinkError.unsupported) == CloudStrings.linkUnsupported)
         #expect(CloudLinkError.unsupported.description.contains("Update cmux"))

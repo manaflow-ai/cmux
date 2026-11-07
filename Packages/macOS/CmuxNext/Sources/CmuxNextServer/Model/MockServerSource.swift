@@ -12,6 +12,8 @@ public final class MockServerSource: ServerSource {
     public var echoImmediately = true
     /// The time the mock stamps on resolves and new codes.
     public var clock: () -> Date
+    /// The pending server a lookup of ``MockServerScenario/offerCode`` finds (screenshots name their own).
+    public var candidate = MockServerScenario.candidate
 
     private var sink: (@MainActor (ServerSourceEvent) -> Void)?
     private var held: [ServerIntent] = []
@@ -70,7 +72,7 @@ public final class MockServerSource: ServerSource {
                 snapshot.pairing = .unpaired(MockServerScenario.offer(now: clock()))
             }
         case let .lookupCode(code):
-            let found = code == MockServerScenario.offerCode ? MockServerScenario.candidate : nil
+            let found = code == MockServerScenario.offerCode ? candidate : nil
             sink?(.candidate(found))
             if found == nil { reject = "No server is waiting with that code." }
         case .approveCode, .openHealth:

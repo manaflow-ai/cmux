@@ -36,7 +36,9 @@ extension LiveCoordinator {
             // Probe it before deciding that `isReady` means it can still be read.
             if session.acpmux.isReady {
                 do {
-                    _ = try await session.acpmux.request("_acpmux/watch", .object(["enabled": .bool(true)]), timeout: .seconds(5))
+                    // One row: the probe reads no list, and a whole one (25 MB on a busy Mac)
+                    // never came within the timeout.
+                    _ = try await session.acpmux.request("_acpmux/watch", .object(["enabled": .bool(true), "limit": .number(1)]), timeout: .seconds(5))
                     return
                 } catch is CancellationError {
                     return

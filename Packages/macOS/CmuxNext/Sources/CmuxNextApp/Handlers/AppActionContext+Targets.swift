@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextLayout
 import os
 
@@ -21,6 +22,9 @@ extension AppActionContext {
     func observeRefusals() {
         let registry = registry
         let services = services
+        // A refusal that says to sign in to cmux offers Sign In on its toast (msg 3790).
+        let signIn = CmuxSignInOffer(registry: registry, isSignedIn: { services.cloud.isSignedIn })
+        services.refusalHUD.signInOffer = { signIn.offer(for: $0) }
         registry.refusalObserver = { reason, quiet in
             Self.logger.notice("action refused: \(reason, privacy: .public)")
             guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }

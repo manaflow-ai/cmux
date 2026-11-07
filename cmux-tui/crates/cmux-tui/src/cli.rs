@@ -39,10 +39,22 @@ mod billing;
 mod caller_browser;
 mod capability_cache;
 #[cfg(unix)]
+mod chat_send;
+#[cfg(unix)]
+mod chat_start;
+#[cfg(unix)]
 mod chief;
 mod chief_target;
 #[cfg(unix)]
+mod cloud_api;
+#[cfg(unix)]
+mod cloud_automation_relay;
+#[cfg(unix)]
 mod cloud_client_session;
+#[cfg(unix)]
+mod cloud_environment;
+#[cfg(unix)]
+mod cloud_hands;
 mod cloud_help;
 #[cfg(unix)]
 mod cloud_machine_io;
@@ -71,9 +83,13 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+#[cfg(unix)]
+mod inference_gateway;
 mod internal;
 mod launch_credential;
 mod lifecycle;
+#[cfg(unix)]
+mod live_code;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
@@ -98,6 +114,8 @@ mod machine_doctor;
 #[cfg(unix)]
 mod machine_join;
 #[cfg(unix)]
+mod machine_link;
+#[cfg(unix)]
 pub(crate) use machine_join::{
     CallError as PlatformCallError, Platform, device_credential as joined_machine_credential,
     platform_origin, rows_for_devices as joined_machine_rows,
@@ -109,6 +127,8 @@ pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]
 mod mcp;
 mod raw;
+#[cfg(unix)]
+mod remote_host;
 mod resolve;
 mod scope_help;
 mod screen_help;
@@ -403,8 +423,21 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 /// the parser whose `help <scope>` knows only its own scopes, so `cmux help
 /// agents` answered "unknown resource scope".
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
-    "agents", "chats", "harness", "remote", "script", "host", "github", "avatar", "chief", "setup",
-    "device", "workflow",
+    "agents",
+    "chats",
+    "harness",
+    "remote",
+    "script",
+    "host",
+    "github",
+    "avatar",
+    "chief",
+    "setup",
+    "device",
+    "workflow",
+    "remote-host",
+    "chat",
+    "vm",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -475,7 +508,24 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
-    // `vm add|revoke|rotate|doctor` is `machine …` (`vm` is `machine`'s old name).
+    // `device revoke|rotate|doctor|vault` and `device SELECTOR show` are `machine …` (`machine`
+    // is `device`'s old name); a VM verb under `device` is `cmux vm`'s.
+    #[cfg(unix)]
+    let device_alias_args;
+    #[cfg(unix)]
+    let args = match vm::device_alias(args) {
+        Some(vm::DeviceRoute::Machine(rewritten)) => {
+            device_alias_args = rewritten;
+            device_alias_args.as_slice()
+        }
+        Some(vm::DeviceRoute::Vm(verb)) => {
+            let output = parse_globals(args).map(|(global, _)| global.output).unwrap_or_default();
+            let message = format!("cmux: {}", vm::device_vm_refusal(&verb));
+            return app::failure("usage.invalid", &message, output, 2);
+        }
+        None => args,
+    };
+    // `vm add|revoke|rotate|doctor` is `machine …` (`vm` was `machine`'s old name).
     #[cfg(unix)]
     let alias_args;
     #[cfg(unix)]
@@ -485,6 +535,31 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             alias_args.as_slice()
         }
         None => args,
+    };
+    // `login` and `logout` are `vm sign-in` and `vm sign-out`, which the Cloud alias below runs.
+    #[cfg(unix)]
+    let account_args;
+    #[cfg(unix)]
+    let args = match auth_token::account_alias(args) {
+        Some(rewritten) => {
+            account_args = rewritten;
+            account_args.as_slice()
+        }
+        None => args,
+    };
+    // `vm VERB` is `cloud VERB` for every Cloud verb (`cmux cloud` is now `cmux vm`).
+    #[cfg(unix)]
+    let cloud_args;
+    #[cfg(unix)]
+    let args = match vm::cloud_alias(args) {
+        Some(rewritten) => {
+            cloud_args = rewritten;
+            cloud_args.as_slice()
+        }
+        None => {
+            vm::cloud_rename_note(args);
+            args
+        }
     };
     // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
     #[cfg(unix)]
@@ -497,6 +572,12 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `chat send SESSION` and `chat --resume SESSION`: the next prompt to a running agent chat,
+    // wherever it runs (chat_send.rs); `chat send --to` stays the message below.
+    #[cfg(unix)]
+    if let Some(code) = chat_send::run_if_requested(args) {
+        return code;
+    }
     // `chat send` from a coding agent is the agent's message, not the owner's
     // (chief/chat_scope.rs): a Chief's chat is sent here, any other chat runs
     // the app action with its text labelled.
@@ -512,23 +593,32 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         None => args,
     };
     #[cfg(unix)]
-    if let Some(code) = mcp::run_if_requested(args)
+    if let Some(code) = chat_start::run_if_requested(args)
+        .or_else(|| mcp::run_if_requested(args))
         .or_else(|| workflow::run_if_requested(args))
         .or_else(|| agents::run_if_requested(args))
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| inference_gateway::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
+        .or_else(|| auth_token::whoami_if_requested(args))
+        .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
+        .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
+        .or_else(|| cloud_api::run_if_requested(args))
+        .or_else(|| cloud_hands::run_if_requested(args))
+        .or_else(|| cloud_automation_relay::run_if_requested(args))
+        .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
@@ -536,6 +626,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
+        .or_else(|| remote_host::run_if_requested(args))
         .or_else(|| status::run_args(args))
     {
         return code;
@@ -801,7 +892,7 @@ fn parse_command(
             ["server", action, ..]
                 if matches!(
                     *action,
-                    "start" | "ensure" | "status" | "stats" | "stop" | "reload-config"
+                    "start" | "ensure" | "status" | "stats" | "stop" | "restart" | "reload-config"
                 ) =>
             {
                 Some(format!("server {action}"))
@@ -1135,18 +1226,11 @@ fn print_scope_help(scope: Option<&str>, surface: Surface) {
     let catalog = crate::localization::catalog();
     let text = match (scope, surface) {
         (Some("machine"), Surface::Cmux) => {
-            Cow::Owned(format!("{MACHINE_CATALOG_HELP}\n{}", surface::MACHINE_VM_HELP))
+            Cow::Owned(format!("{MACHINE_CATALOG_HELP}\n{}", surface::VM_POINTER))
         }
         (Some(scope), _) => scope_help(scope),
-        (None, Surface::Cmux) => {
-            let root = catalog.local_server.cmux_root_help;
-            let cloud = if root.contains("SCOPES") {
-                "  cloud         Run Cloud machine actions (`cmux cloud --help`)\n"
-            } else {
-                "  cloud         Cloud マシンのアクション (`cmux cloud --help`)\n"
-            };
-            Cow::Owned(root.replacen("  room", &format!("{cloud}  room"), 1))
-        }
+        // The root help lists `vm` itself, with `cloud` as its old name, in each language.
+        (None, Surface::Cmux) => Cow::Borrowed(catalog.local_server.cmux_root_help),
         (None, Surface::CmuxTui) => Cow::Owned(root_help(&catalog.local_server)),
     };
     let mut stdout = io::stdout().lock();
@@ -1172,8 +1256,9 @@ fn scope_help_for(
         "server status" => Cow::Borrowed(catalog.local_server.status_help),
         "server stats" => Cow::Borrowed(catalog.local_server.stats_help),
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
+        "server restart" => Cow::Borrowed(catalog.local_server.restart_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
-        "machine" => Cow::Owned(format!("{MACHINE_HELP}\n{}", surface::MACHINE_VM_HELP)),
+        "machine" => Cow::Owned(format!("{MACHINE_HELP}\n{}", surface::VM_POINTER)),
         "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
         "client" => Cow::Borrowed(CLIENT_HELP),
         "workspace" => Cow::Borrowed(WORKSPACE_HELP),

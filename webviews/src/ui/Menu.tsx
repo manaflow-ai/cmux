@@ -36,6 +36,8 @@ export interface MenuProps {
     model: NativePopupDescription;
     onEvent?(event: NativePopupEvent): void;
     onDismiss?(): void;
+    /** The host refused to draw the rows; when set, the menu stays open for the owner's fallback. */
+    onRefused?(): void;
   };
   onOpenChange?(open: boolean): void;
   onOpenChangeComplete?(open: boolean): void;
@@ -85,7 +87,8 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
       native?.onEvent?.(event);
       if (action && !action.keepOpen) setMenuOpen(false);
     },
-    onDismiss: () => {
+    onDismiss: (reason) => {
+      if (reason === "refused" && native?.onRefused) return native.onRefused();
       if (open === undefined) setInternalOpen(false);
       onOpenChange?.(false);
       native?.onDismiss?.();
@@ -484,16 +487,29 @@ function anchorElement(anchor: MenuPopupProps["anchor"], popup: HTMLElement | nu
 
 export interface MenuItemProps {
   className?: string;
+  /** Stable action id for automation and gallery fixtures. */
+  "data-value"?: string;
   disabled?: boolean;
   shortcut?: ReactNode;
+  onPointerMove?(event: PointerEvent<HTMLElement>): void;
+  onPointerEnter?(event: PointerEvent<HTMLElement>): void;
+  onPointerLeave?(event: PointerEvent<HTMLElement>): void;
+  onMouseEnter?(event: MouseEvent<HTMLElement>): void;
+  onMouseLeave?(event: MouseEvent<HTMLElement>): void;
   onSelect?(event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>): void;
   children: ReactNode;
 }
 
 export function MenuItem({
   className,
+  "data-value": dataValue,
   disabled,
   shortcut,
+  onPointerMove,
+  onPointerEnter,
+  onPointerLeave,
+  onMouseEnter,
+  onMouseLeave,
   onSelect,
   closeOnClick,
   expanded,
@@ -512,12 +528,20 @@ export function MenuItem({
   return (
     <BaseMenu.Item
       className={cx("ui-menu-item", className)}
+      {...(dataValue === undefined ? {} : { "data-value": dataValue })}
       disabled={disabled}
       {...(closeOnClick === undefined ? {} : { closeOnClick })}
       {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
       {...(controls ? { "aria-controls": controls } : {})}
       {...(closeOnClick === false ? { "data-keeps-open": "" } : {})}
-      onPointerMove={(event) => context?.movePointer(event)}
+      onPointerMove={(event) => {
+        context?.movePointer(event);
+        onPointerMove?.(event);
+      }}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       onPointerUp={(event) => {
         if (disabled) return;
         if (context?.activatePointer(event, () => onSelect?.(event), closeOnClick === false)) {
@@ -635,9 +659,9 @@ export function MenuRadioItem({
   );
 }
 
-export function MenuGroup({ label, children }: { label: string; children: ReactNode }) {
+export function MenuGroup({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
-    <BaseMenu.Group className="ui-menu-group">
+    <BaseMenu.Group className={cx("ui-menu-group", className)}>
       <BaseMenu.GroupLabel className="ui-menu-group-label">{label}</BaseMenu.GroupLabel>
       {children}
     </BaseMenu.Group>

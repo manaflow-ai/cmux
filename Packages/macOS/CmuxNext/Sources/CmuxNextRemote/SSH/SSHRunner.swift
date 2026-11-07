@@ -7,6 +7,11 @@ public struct SSHProcessResult: Sendable {
     public var status: Int32
     public var stdout: String
     public var stderr: String
+
+    /// The last line of `stderr` (what a failed remote command said last), or nil when it is empty.
+    public var lastStderrLine: String? {
+        stderr.split(separator: "\n").last.map(String.init)
+    }
 }
 
 /// Runs one short process to completion: an ssh with a script on stdin (the

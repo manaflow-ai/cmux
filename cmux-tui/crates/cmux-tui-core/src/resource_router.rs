@@ -271,6 +271,9 @@ fn dispatch_resource_request(
         OperationOwner::Config => config::dispatch(mux, request),
         OperationOwner::OpenUrl => open_url::dispatch(mux, request),
         OperationOwner::Stash => crate::state::stash_router::dispatch(mux, request),
+        OperationOwner::ConductorImport => {
+            crate::state::conductor_import_router::dispatch(mux, request)
+        }
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,

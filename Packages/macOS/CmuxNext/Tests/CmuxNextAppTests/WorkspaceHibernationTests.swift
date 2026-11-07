@@ -34,6 +34,11 @@ import Testing
         func cancel() { isScheduled = false }
     }
 
+    /// Levels the subscriber got (main actor).
+    final class Reads {
+        var count = 0
+    }
+
     final class Clock {
         var now = WorkspaceHibernationTests.start
         func advance(minutes: Double) { now = now.addingTimeInterval(minutes * 60) }
@@ -125,5 +130,33 @@ import Testing
         #expect(host.hibernatedCalls.isEmpty)
         hibernation.pressureDidChange(.critical)
         #expect(host.hibernatedCalls == ["a"])
+    }
+
+    /// The kernel may never send this process its pressure event (Nov 4: `normal` for minutes at warning and
+    /// critical), so each pass first reads the level (``MemoryPressureEvents/refresh()``) and plans with it in the same pass, once.
+    @Test func aPassReadsTheLevelFirstAndPlansWithItOnce() {
+        let host = Host(["a", "b"])
+        let clock = Clock()
+        let source = ManualMemoryPressureSource()
+        let events = MemoryPressureEvents(source: source)
+        let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+                                               deadline: Deadline(), memoryPressure: events, now: { clock.now })
+        let reads = Reads()
+        // What the App's subscriber does: each level reaches the workspace hibernation.
+        let registration = events.observe { level in
+            reads.count += 1
+            hibernation.pressureDidChange(level)
+        }
+        host.shown = ["a", "b"]
+        hibernation.noteShown(["a", "b"])
+        host.shown = ["b"]
+        hibernation.noteShown(["b"])
+        clock.advance(minutes: 2)
+        source.level = .critical // the kernel's level; it sent this process no event
+        hibernation.pass()
+        #expect(hibernation.pressure == .critical, "the pass planned with the stale level")
+        #expect(host.hibernatedCalls == ["a"])
+        #expect(reads.count == 1, "the pass did not read the level once")
+        withExtendedLifetime((events, registration)) {}
     }
 }

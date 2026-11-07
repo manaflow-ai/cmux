@@ -5,7 +5,8 @@ import glob, json, os, shutil, subprocess
 ITEMS = {
     "apt-lists": ["/var/lib/apt/lists/*"],
     "apt-cache": ["/var/cache/apt/*.bin", "/var/cache/apt/archives/*.deb", "/var/cache/apt/archives/partial/*"],
-    "npm-cache": ["/root/.npm", "/home/cmux/.npm"],
+    # The work user's npm cache content stays (dep-cache.ts bakes it); its logs and anything else go.
+    "npm-cache": ["/root/.npm", "/home/cmux/.npm/*", "/home/cmux/.npm/.[!.]*"],
     # The dev tree's Zig package cache stays (bake.ts --dev-tree); nothing else under ~/.cache does.
     "user-caches": ["/root/.cache", "/home/cmux/.cache/*", "/home/cmux/.cache/.[!.]*", "/root/.bun/install/cache"],
     "tmp": ["/tmp/*", "/tmp/.[!.]*", "/var/tmp/*"],
@@ -14,7 +15,7 @@ ITEMS = {
     # A clone gets its own kind at its bind or team enroll (cmux-host VM_KIND_FILE).
     "vm-kind": ["/etc/cmux/vm-kind"],
 }
-KEEP = {"/home/cmux/.cache/zig", "/var/lib/apt/lists/partial", "/var/lib/apt/lists/lock", "/var/cache/apt/archives/partial", "/var/cache/apt/archives/lock"}
+KEEP = {"/home/cmux/.cache/zig", "/home/cmux/.npm/_cacache", "/var/lib/apt/lists/partial", "/var/lib/apt/lists/lock", "/var/cache/apt/archives/partial", "/var/cache/apt/archives/lock"}
 
 def size(p: str) -> int:
     if os.path.islink(p):

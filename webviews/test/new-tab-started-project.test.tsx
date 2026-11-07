@@ -218,7 +218,7 @@ test("with no started chat, or one whose folder the host no longer lists, the ne
 });
 
 test("the New Tab context's started project reaches the page, a relative or home folder never", async () => {
-  const { newTabHost } = await import("../src/agent-session/acpmux/NewTabPage");
+  const { newTabHost } = await import("../src/agent-session/acpmux/newTabModel");
   expect(newTabHost({ newTab: { startedProject: PICKED } })?.startedProject).toBe(PICKED);
   expect(newTabHost({ newTab: { startedProject: "briefs/2026-10-20-gui-push" } })?.startedProject).toBeUndefined();
   expect(newTabHost({ newTab: { startedProject: HOME } })?.startedProject).toBeUndefined();
@@ -314,10 +314,14 @@ test("a project list that answered empty accepts no chat or started folder", asy
   expect(classic.folder).toBe(HOME);
 });
 
-test("classic New Tab keeps Add project open while a native browse is pending", async () => {
+test("classic New Tab: a second Add folder… while the host's panel is open asks nothing, and its pick lands", async () => {
   const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
   let resolveBrowse!: (cwd: string | undefined) => void;
-  const browse = () => new Promise<string | undefined>((resolve) => (resolveBrowse = resolve));
+  let calls = 0;
+  const browse = () => {
+    calls += 1;
+    return new Promise<string | undefined>((resolve) => (resolveBrowse = resolve));
+  };
   act(() => root?.unmount());
   root = (await import("react-dom/client")).createRoot(host);
   await act(async () =>
@@ -332,32 +336,27 @@ test("classic New Tab keeps Add project open while a native browse is pending", 
       />,
     ),
   );
-  const pressOption = async (label: string) => {
-    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-      (element) => element.textContent?.trim() === label,
-    );
-    expect(option, `missing option ${label}`).toBeTruthy();
-    await act(async () =>
-      option!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0, detail: 1 })),
-    );
-  };
-  const openNativeBrowse = async () => {
+  const addFolder = async () => {
     const trigger = host.querySelector<HTMLButtonElement>(".acpmux-context-chip.acpmux-project-button")!;
     await act(async () => {
       trigger.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
       trigger.click();
     });
-    await pressOption("New project");
-    await pressOption("This Mac");
-    await pressOption("Local folder");
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (element) => element.textContent?.trim() === "Add folder…",
+    );
+    expect(option, "missing option Add folder…").toBeTruthy();
+    await act(async () =>
+      option!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0, detail: 1 })),
+    );
     await act(async () => Promise.resolve());
   };
 
-  await openNativeBrowse();
-  expect(resolveBrowse).toBeTypeOf("function");
-  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click());
-  await openNativeBrowse();
-  expect(document.querySelector(".acpmux-add-project-dialog")).not.toBeNull();
+  await addFolder();
+  expect(calls).toBe(1);
+  expect(document.querySelector(".acpmux-add-project-dialog")).toBeNull();
+  await addFolder();
+  expect(calls).toBe(1);
   await act(async () => resolveBrowse("/work/late"));
-  expect(document.querySelector(".acpmux-add-project-dialog")).not.toBeNull();
+  expect(host.querySelector(".acpmux-project-button")?.textContent).toContain("late");
 });

@@ -1,0 +1,207 @@
+/* A notice (ui/Notice.tsx; leo-workspace design/notifications.md). One card for the four kinds:
+   the toast surface role's glass (--surface-toast-*, ui/glass/glass.css), our colours, never a
+   capsule, never an opaque fill (Reduce Transparency is the one opaque path, through .ui-glass).
+   The kind shows in a small mark and, for an error, its title; the card itself stays quiet: no red
+   slab, no tinted border (Leo 2026-10-29 on recovery cards; Codex's "Weekly limit reached" card is
+   the reference: a coloured mark and title, a plain body, buttons at the trailing edge).
+   Every size reads the design scale and the type scale, which follow --cmux-interface-scale, so a
+   notice keeps its proportions at every density. It opens and closes in one frame: no fade-in, as
+   menus and popovers have none (rulings.md). */
+.ui-notice {
+  --ui-notice-ink: var(--agent-text, var(--cmux-text, CanvasText));
+  --ui-notice-ink-2: var(--agent-soft, var(--cmux-text-secondary, GrayText));
+  --ui-notice-mark: var(--ui-notice-ink-2);
+  --glass-tint: var(--surface-toast-veil);
+  --glass-elevation: 0 0 transparent;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--ds-space-2);
+  box-sizing: border-box;
+  min-width: 0;
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--surface-toast-radius);
+  color: var(--ui-notice-ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* A field inside (a tool card's secret) still selects and replaces its text. */
+.ui-notice :is(input, textarea) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.ui-notice[data-kind="error"] {
+  --ui-notice-mark: var(--ds-color-danger);
+}
+.ui-notice[data-kind="warning"] {
+  --ui-notice-mark: var(--ds-color-attention);
+}
+.ui-notice[data-kind="ask"] {
+  --ui-notice-mark: var(--agent-accent, var(--cmux-accent, currentColor));
+}
+
+/* An inline notice is a card on the grid (leo-workspace design/grid.md 5.6): padding 12, radius 12,
+   its action row 8 under the text, all scaled by the interface scale. */
+.ui-notice[data-placement="inline"] {
+  gap: var(--grid-gap, var(--ds-space-2));
+  padding: var(--grid-cards-padding, var(--ds-space-3));
+  border-radius: var(--grid-cards-radius, var(--ds-radius-xl));
+}
+
+/* A toast over the surface lifts off it; an inline or banner notice sits on its surface. */
+.ui-notice[data-placement="stack"] {
+  --glass-elevation: var(--elevation-2);
+  width: max-content;
+  max-width: min(420px, calc(100vw - var(--ds-space-5)));
+}
+.ui-notice[data-placement="banner"] {
+  border-radius: 0;
+  padding-inline: var(--ds-space-4);
+}
+
+/* The × is last in the DOM (after the answers) and drawn at the first row's trailing edge. */
+.ui-notice-main,
+.ui-notice-extra,
+.ui-notice-foot {
+  grid-column: 1 / -1;
+}
+.ui-notice:has(> .ui-notice-dismiss) > .ui-notice-main {
+  grid-column: 1;
+}
+.ui-notice-main {
+  grid-row: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+/* The mark keeps to the first line's centre: its box is one line tall. */
+.ui-notice-lead {
+  flex: none;
+  display: grid;
+  place-items: center;
+  height: var(--text-body--line-height);
+  color: var(--ui-notice-mark);
+}
+
+.ui-notice-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding-block: var(--ds-space-1);
+}
+
+.ui-notice-title {
+  font-weight: var(--weight-emphasis, 600);
+  overflow-wrap: anywhere;
+}
+.ui-notice[data-kind="error"] .ui-notice-title {
+  color: var(--ds-color-danger);
+}
+
+.ui-notice-message {
+  color: var(--ui-notice-ink-2);
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* A notice with only a message reads it in full ink. */
+.ui-notice-text > .ui-notice-message:only-child {
+  color: var(--ui-notice-ink);
+}
+
+.ui-notice-link {
+  text-decoration: none;
+}
+
+.ui-notice-dismiss {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  color: var(--ui-notice-ink-2);
+}
+
+.ui-notice-extra {
+  display: flex;
+  min-width: 0;
+}
+
+/* The footer: the checkmark at the leading edge, the buttons at the trailing edge (Claude's
+   proposal card: Options left, Do it here and Start right). */
+.ui-notice-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.ui-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1);
+  margin-inline-start: auto;
+}
+
+.ui-notice-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: 24px;
+  color: var(--ui-notice-ink-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  cursor: default;
+}
+.ui-notice-check:hover {
+  color: var(--ui-notice-ink);
+}
+.ui-notice-check-box {
+  --ui-notice-check-size: 14px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--ui-notice-check-size);
+  height: var(--ui-notice-check-size);
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-notice-ink) 36%, transparent);
+  background: transparent;
+  color: var(--cmux-on-accent, Canvas);
+}
+.ui-notice-check-box[data-checked] {
+  box-shadow: none;
+  background: var(--agent-accent, var(--cmux-accent, currentColor));
+}
+.ui-notice-check-box:focus-visible {
+  outline: 1.5px solid var(--ui-ring, currentColor);
+  outline-offset: 2px;
+}
+
+/* The stack: bottom centre over its surface, newest at the bottom, above the composer when the host
+   says where that is (--ui-notice-stack-bottom). It takes no room in the layout, so nothing under it
+   moves when a toast comes or goes. */
+.ui-notice-stack {
+  position: absolute;
+  inset-inline: 0;
+  bottom: var(--ui-notice-stack-bottom, var(--ds-space-5));
+  z-index: var(--layer-toast, 900);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding-inline: var(--ds-space-3);
+  pointer-events: none;
+}
+.ui-notice-stack > * {
+  pointer-events: auto;
+}

@@ -4,7 +4,7 @@
 // The ways to reply to part of a reply (SelectionReply.tsx): the right-click menu alone, a chip over
 // the selection (shipped), the chip as a glyph, and a Reply button on every message's row.
 import { agentPaneEntry } from "../../../gallery/format";
-import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
 
 const PHRASE = "retry only on 429 and 503";
@@ -40,10 +40,30 @@ async function selectPhrase(ctx: PlayContext, chip: boolean) {
   if (chip) await ctx.waitFor(() => doc.querySelector(".cv-selection-reply"));
 }
 
-const variant = (look: string, note: string, play: (ctx: PlayContext) => Promise<void>) => ({
+// The reply right under a sent message's "Sent to <session>" line, so the chip's usual spot over
+// the selection's end is that line (Leo, 2026-11-05: "this is a bad reply").
+const sentRows = [
+  rows[0],
+  activity(
+    [
+      tool("SendMessage", "other", "completed", {
+        inputSummary: JSON.stringify({
+          to: "Debug Cloud release lane",
+          message: "Which statuses does the fetch helper retry?",
+        }),
+        output: "delivered to Debug Cloud release lane\n",
+      }),
+    ],
+    6,
+    { id: "gallery-reply-sent" },
+  ),
+  ...rows.slice(1),
+];
+
+const variant = (look: string, note: string, play: (ctx: PlayContext) => Promise<void>, snapshot = chat(rows)) => ({
   note,
   theme: { selectionReply: look },
-  snapshot: chat(rows),
+  snapshot,
   play,
 });
 
@@ -62,6 +82,12 @@ export default agentPaneEntry({
       "chip",
       "Shipped: a Reply chip over the selection's end, as Claude and ChatGPT; it quotes the selection into the composer.",
       (ctx) => selectPhrase(ctx, true),
+    ),
+    "chip-under-sent-line": variant(
+      "chip",
+      'The chip takes a spot with no text under it: here past the "Sent to" line over the selection, never on it.',
+      (ctx) => selectPhrase(ctx, true),
+      chat(sentRows),
     ),
     "chip-icon-only": variant("icon", "The same chip as a quote glyph alone.", (ctx) => selectPhrase(ctx, true)),
     "row-reply-button": variant(

@@ -129,6 +129,8 @@ public final class TabStripView: NSView {
     public internal(set) var isCrowded = false
     /// ``isCrowded`` changed; the pane's "…" (``PaneToolbarView/strip``) follows it.
     public var onCrowdedChange: ((Bool) -> Void)?
+    /// ``TabStripModel/holdsOneTab`` at the last sync: its change lays the pane out again (`syncFromModel`).
+    var laidOutOneTab: Bool?
     /// `result` indexed by tab (`slotIndex`), built on first use after each layout.
     var slotIndexCache: TabSlotIndex?
     /// The strip moves whose Core Animation transaction has not completed (`applyFrames`, `moveEnded`).
@@ -165,6 +167,9 @@ public final class TabStripView: NSView {
     var lastSyncedInput: ModelSnapshot?
     var lastStyle: TabStripStyle?
     var lastViewportWidth: CGFloat = -1
+    /// What the cells' frames were last written from (`applyFrames`, `followWidth`): a width change that keeps it and
+    /// every slot writes no cell (SMOOTH-STRIP). Nil: a cell may sit elsewhere (an opening tab's start, `place`).
+    var framedCells: FramedCells?
     /// Drag autoscroll steps on the window's one `MotionClock`; nothing else in the strip does.
     weak var motionClock: MotionClock?
     var observationTask: Task<Void, Never>?
@@ -426,6 +431,7 @@ public final class TabStripView: NSView {
         // What changed while out of sight lands at once in its final place: nobody saw it move.
         if modelChangedWhileHidden {
             modelChangedWhileHidden = false
+            layOutPaneIfOneTabChanged()
             sync(fromModel: true, animating: false)
         }
         hoverCards.register(hoverCard)
@@ -508,24 +514,30 @@ public final class TabStripView: NSView {
             // FRAME OWNER S1: the width is the pane's of this frame tick (a window resize, a split, a pane spring), so the tabs
             // take it at once, with no move of their own; a close in flight keeps its own move and its closing tab (cx-y2uf5).
             // A narrower strip (a split) keeps the selected tab in view.
-            relayout(animated: false, keepsSelectedInView: viewport < lastViewportWidth, keepsClosing: true)
+            followWidth(narrower: viewport < lastViewportWidth)
             lastViewportWidth = viewport
         } else {
             applyFrames()
         }
     }
 
+    /// Its own tracking area only where no layout screen serves it (``PanePointerFollowing``, `TabStripView+Pointer`): in a
+    /// pane the screen's one area delivers its pointer, so a strip that moves with its pane costs AppKit no tracking-area
+    /// work (RESIZE MAIN BUDGET, PaneMotionPointerAreasTests).
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
+        trackingArea = nil
+        if !isServedByPanePointerArea {
+            let area = NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(area)
+            trackingArea = area
+        }
         closingWatch.updateTracking()
     }
 

@@ -141,7 +141,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // A tapped disclosure in a row holds its line while it opens or closes (DisclosureReveal).
         list.context.foldHold = TranscriptFoldHold(
             begin: { [weak self] in self?.holdForDisclosure() },
-            end: { [weak self] in self?.endFoldHold() }
+            end: { [weak self] in self?.endFoldHold() },
+            swap: { [weak self] in self?.list.showSettlingRows() },
+            resize: { [weak self] in self?.list.resizeForFold() }
         )
         if let dock {
             dockHost?.rootView = Self.measuring(dock, alignment: .bottom) { _ in }

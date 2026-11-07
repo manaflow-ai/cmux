@@ -105,10 +105,9 @@ fn pre_tool_wait_releases_only_after_sync_completes() {
     let sync = Sync::begin(&repo).unwrap();
     let (started_tx, started_rx) = std::sync::mpsc::channel();
     let (finished_tx, finished_rx) = std::sync::mpsc::channel();
-    let target = repo.clone();
     let waiter = std::thread::spawn(move || {
         started_tx.send(()).unwrap();
-        wait_ready(&target, std::time::Duration::from_secs(2)).unwrap();
+        wait_ready(&repo, std::time::Duration::from_secs(2)).unwrap();
         finished_tx.send(()).unwrap();
     });
     started_rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap();

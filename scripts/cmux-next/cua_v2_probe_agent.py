@@ -142,6 +142,17 @@ def strip_images(call):
 def probe(servers):
     report = {"mcp_servers": servers, "steps": []}
     entry = next((s for s in servers or [] if s.get("name") == "cmux-cua"), None)
+    if entry is None:
+        # acpmux now hands agents `cmux mcp serve`, which proxies cmux-cua as an upstream
+        # (CMUX_MCP_UPSTREAMS); start that same upstream entry, as the proxy does.
+        for server in servers or []:
+            for pair in server.get("env") or []:
+                if pair.get("name") != "CMUX_MCP_UPSTREAMS":
+                    continue
+                for upstream in json.loads(pair.get("value") or "[]"):
+                    if upstream.get("name") == "cmux-cua":
+                        entry = dict(upstream, env=[{"name": k, "value": v} for k, v in (upstream.get("env") or {}).items()])
+                        report["cua_via_upstream"] = server.get("command")
     report["cua_server"] = entry
     if not entry:
         report["error"] = "acpmux gave this session no cmux-cua MCP server"

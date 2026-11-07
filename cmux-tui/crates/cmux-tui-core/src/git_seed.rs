@@ -53,6 +53,22 @@ pub const GIT_SEED_EXPORT_COMMANDS: [&str; 1] = ["git.seed.export"];
 
 static SERVICE: OnceLock<GitSeedService> = OnceLock::new();
 
+/// Run after a seed checks out a folder (the binary's own: cmux-tui warms the
+/// folder's dependencies from the cache, `acpmux machine deps warm`). Set once.
+static AFTER_SEED: OnceLock<fn(&std::path::Path)> = OnceLock::new();
+
+/// Sets what runs after every seed that succeeded, with its folder. It must
+/// return at once (start work in the background); the first call wins.
+pub fn on_seeded(hook: fn(&std::path::Path)) {
+    let _ = AFTER_SEED.set(hook);
+}
+
+pub(crate) fn seeded(folder: &std::path::Path) {
+    if let Some(hook) = AFTER_SEED.get() {
+        hook(folder);
+    }
+}
+
 /// Test seam, debug builds only: `CMUX_TEST_GIT_SEED_GITHUB=<absolute dir>`
 /// makes the daemon's seeds clone `https://github.com/OWNER/NAME.git` from
 /// `file://<dir>/OWNER/NAME.git`, with no GitHub path

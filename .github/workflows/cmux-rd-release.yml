@@ -1,0 +1,196 @@
+name: cmux-rd release
+
+# Linux release of cmux-rd, the remote desktop host of NEXT Cloud machines
+# (cmux-tui/crates/cmux-rd-host, its own Cargo workspace). A cmux-rd-vX.Y.Z tag
+# on feat-cmux-next (or a dispatch naming one) builds x86_64-unknown-linux-gnu
+# with the release features (openh264 + link: no bench, no x264) and publishes
+# a GitHub release cmux-rd-vX.Y.Z with
+# cmux-rd-X.Y.Z-x86_64-unknown-linux-gnu.tar.gz and checksums.txt (sha256),
+# covered by a build-provenance attestation. The archive holds bin/cmux-rd,
+# LICENSE (GPL-3.0-or-later) and THIRD_PARTY_LICENSES.md, generated from the
+# exact crate tree of the build. Cisco's OpenH264 is never bundled: the host
+# downloads it from Cisco on the machine (`cmux-rd openh264-install`).
+on:
+  push:
+    tags:
+      - "cmux-rd-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag cmux-rd-vX.Y.Z (must exist, on feat-cmux-next, and match the crate version)"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: cmux-rd-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  # The VM image's glibc is the floor; zig links against this version.
+  GLIBC_FLOOR: "2.31"
+  TARGET: x86_64-unknown-linux-gnu
+  FEATURES: openh264,link
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: build x86_64-unknown-linux-gnu
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Version (the tag must match the crate and sit on feat-cmux-next)
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^cmux-rd-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "bad tag $RELEASE_TAG" >&2; exit 1; }
+          version="$(python3 cmux-tui/crates/cmux-rd-host/scripts/release.py version "$RELEASE_TAG")"
+          sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          if ! git merge-base --is-ancestor "$sha" origin/feat-cmux-next; then
+            echo "tag $RELEASE_TAG ($sha) is not on feat-cmux-next" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # Zig is the linker (cargo-zigbuild) so the binary links against the glibc floor.
+      - name: Init ghostty-next submodule (sets the Zig version)
+        run: git submodule update --init --depth 1 ghostty-next
+
+      - name: Resolve Zig version
+        id: zig
+        shell: bash
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.zig.outputs.version }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install cargo-zigbuild
+        shell: bash
+        run: |
+          rustup target add "$TARGET"
+          cargo install --locked cargo-zigbuild@0.20.0
+
+      - name: Tests
+        shell: bash
+        run: cargo test --locked --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml --no-default-features --features "$FEATURES"
+
+      - name: Build
+        id: build
+        shell: bash
+        env:
+          CMUX_BUILD_SHA: ${{ steps.version.outputs.sha }}
+        run: |
+          set -euo pipefail
+          cargo zigbuild --release --locked --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml \
+            --no-default-features --features "$FEATURES" --bin cmux-rd --target "${TARGET}.${GLIBC_FLOOR}"
+          # The target directory as cargo resolves it (a runner may set CARGO_TARGET_DIR).
+          target_dir="$(cargo metadata --format-version 1 --no-deps --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')"
+          bin="$target_dir/$TARGET/release/cmux-rd"
+          test -x "$bin"
+          echo "bin=$bin" >> "$GITHUB_OUTPUT"
+          # No glibc symbol newer than the floor.
+          newest="$(objdump -T "$bin" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -n 1)"
+          echo "newest glibc symbol: $newest (floor $GLIBC_FLOOR)"
+          [[ "$(printf '%s\n%s\n' "$newest" "$GLIBC_FLOOR" | sort -V | tail -n 1)" == "$GLIBC_FLOOR" ]]
+          # Never a codec in the binary: no x264, no OpenH264 compiled from source. The full
+          # symbol table (static and dynamic; the release profile keeps symbols) must name no
+          # codec function, and no x264 version banner may be in the data. The names
+          # WelsCreateSVCEncoder/WelsCreateDecoder and "openh264" do appear as strings: the
+          # host looks Cisco's library up by name at run time, so those are not grepped as text.
+          symbols="$(nm --defined-only "$bin" | wc -l)"
+          [[ "$symbols" -gt 1000 ]] || { echo "nm sees only $symbols symbols (stripped?); cannot check codecs" >&2; exit 1; }
+          if { nm --defined-only "$bin"; nm -D --defined-only "$bin"; } | grep -E ' [A-Za-z] (x264_|WelsCreateSVCEncoder|WelsCreateDecoder|WelsInitEncoderExt|WelsEncoderEncodeExt|DecodeFrame2)'; then
+            echo "the release binary defines an H.264 codec function" >&2
+            exit 1
+          fi
+          if strings -a "$bin" | grep -i -E 'x264 - core|x264_encoder_open|libx264'; then
+            echo "the release binary contains x264" >&2
+            exit 1
+          fi
+
+      - name: Notices (the exact crate tree of the build)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo tree --locked --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml \
+            --no-default-features --features "$FEATURES" -e normal,no-proc-macro \
+            --target "$TARGET" --prefix none -f "{p}" > "$RUNNER_TEMP/cargo-tree.txt"
+          python3 cmux-tui/crates/cmux-rd-host/scripts/release.py notices \
+            --cargo-tree "$RUNNER_TEMP/cargo-tree.txt" --out "$RUNNER_TEMP/THIRD_PARTY_LICENSES.md" \
+            --cache "$RUNNER_TEMP/notices-cache"
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 cmux-tui/crates/cmux-rd-host/scripts/release.py package \
+            "${{ steps.build.outputs.bin }}" \
+            "$RUNNER_TEMP/THIRD_PARTY_LICENSES.md" "${{ steps.version.outputs.version }}" dist
+          (cd dist && sha256sum ./*.tar.gz | sed 's# \./# #' > checksums.txt && cat checksums.txt)
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-rd-release-files
+          retention-days: 1
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rd-release-files
+          path: dist
+      - name: Attest
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: dist/*.tar.gz
+      - name: Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+          SHA: ${{ needs.build.outputs.sha }}
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum -c checksums.txt)
+          notes="cmux-rd $VERSION for $TARGET (glibc $GLIBC_FLOOR or later), built from https://github.com/${GITHUB_REPOSITORY}/commit/${SHA} with features $FEATURES.
+
+          The archive holds bin/cmux-rd, LICENSE (GPL-3.0-or-later) and THIRD_PARTY_LICENSES.md. It contains no H.264 codec: run \`cmux-rd openh264-install\` on the machine to download Cisco's OpenH264 from Cisco (pinned SHA-256)."
+          # Published assets are never replaced: a re-run fails on an asset that is already there
+          # (it only adds what a partial upload left out).
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" dist/*.tar.gz dist/checksums.txt
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
+            --title "cmux-rd $VERSION" --notes "$notes" dist/*.tar.gz dist/checksums.txt

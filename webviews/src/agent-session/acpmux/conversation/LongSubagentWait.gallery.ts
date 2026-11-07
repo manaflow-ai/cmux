@@ -69,6 +69,37 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    thinking: {
+      note: "Past the first step with nothing streaming and no own time: Thinking 1h 24m 7s, the turn's clock beside the word, no dot and no word total (#34866).",
+      snapshot: chat(
+        [
+          prompt(),
+          activity([tool("git log --oneline -5", "execute", "completed", { command: "git log --oneline -5" })], 3),
+          assistant("The signing step waits on a single runner.", 2),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "ran-command": {
+      note: "A command that just finished: its own 0s on its words, then the turn's clock after the dot, 4px each side and one dim tone, as in Leo's capture of the running-step line (2026-11-03: \"same here it's annoying to look at\").",
+      snapshot: chat(
+        [
+          prompt(),
+          plan(),
+          activity(
+            [
+              tool("cat /tmp/copy/message.md | head -30", "execute", "completed", {
+                command: "cat /tmp/copy/message.md | head -30",
+                startedAt: minutesAgo(0.2),
+                endedAt: minutesAgo(0.2) + 300,
+              }),
+            ],
+            0.2,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
     writing: {
       note: "The reply paused mid-stream a moment ago: Writing, with the turn's clock. (One that paused past 5 s reads Thinking again.)",
       snapshot: chat(

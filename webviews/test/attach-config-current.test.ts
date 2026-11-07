@@ -121,7 +121,8 @@ test("a reopened goal uses its persisted state, then follows completion and clea
   expect(shownGoal()?.status).toBe("paused");
   daemon.push(event(3, goal("complete")));
   await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(shownGoal()?.status).toBe("complete");
+  // Codex's legacy `complete` reaches the strip as the shared lifecycle's `done` (goal.ts).
+  expect(shownGoal()?.status).toBe("done");
   daemon.push(event(4, null));
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(shownGoal()).toBeUndefined();

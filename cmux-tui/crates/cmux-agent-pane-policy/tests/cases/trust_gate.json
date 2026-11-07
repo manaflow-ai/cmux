@@ -1,5 +1,5 @@
 {
- "description": "AGENT-TRUST-GATE: what a cmux host must do so acpmux's folder-trust gate (cmux-tui/crates/acpmux/src/server/trust_gate.rs `gated`: LocalApp and Web origins are gated, a peer only for `_meta.acpmux.via` app or web) holds for the agent pane. The host makes the pane LocalApp-origin (the token goes into the first frame only, after the rules read the page's frame: AcpmuxPaneMethods.swift `decide`, `withLocalAppToken`; AgentPaneTransport+Check.swift `checkOne`), the page cannot write the token or a forward mark (P1: AcpmuxPaneMethods.swift `knownParams`, `breaksParamsRule`), Trust needs a gesture and Don't trust does not (`gestureRules`, `needsGesture`), and the gate's refusals reach the page as acpmux wrote them (AcpmuxRequestIds.swift `toPage`: only `replyShapes` methods are rebuilt), where direct.ts `isTrustRefusal` reads data.reason.",
+ "description": "AGENT-TRUST-GATE: what a cmux host must do so acpmux's folder-trust gate (cmux-tui/crates/acpmux/src/server/trust_gate.rs `gated`: LocalApp and Web origins are gated, a peer only for `_meta.acpmux.via` app or web) holds for the agent pane. The host makes the pane LocalApp-origin (the token goes into the first frame only, after the rules read the page's frame: AcpmuxPaneMethods.swift `decide`, `withLocalAppToken`; AgentPaneTransport+Check.swift `checkOne`), the page cannot write the token or a forward mark (P1: AcpmuxPaneMethods.swift `knownParams`, `breaksParamsRule`), every peer trust write needs a gesture; local Trust needs one and local Don't trust does not (`gestureRules`, `needsGesture`), and the gate's refusals reach the page as acpmux wrote them (AcpmuxRequestIds.swift `toPage`: only `replyShapes` methods are rebuilt), where direct.ts `isTrustRefusal` reads data.reason.",
  "frames": [
   {
    "name": "trust gate: the first initialize gets the host's LocalApp token (LocalApp origin, gated)",
@@ -382,6 +382,33 @@
     }
    },
    "breaks": false
+  },
+  {
+   "name": "trust gate: acp.trust.get may select a peer before session creation",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.get",
+    "id": 12,
+    "params": {
+     "cwd": "/x",
+     "peer": "dev-box"
+    }
+   },
+   "breaks": false
+  },
+  {
+   "name": "trust gate: acp.trust.set may select a peer before session creation",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 12,
+    "params": {
+     "cwd": "/x",
+     "peer": "dev-box",
+     "level": "trusted"
+    }
+   },
+   "breaks": false
   }
  ],
  "gestures": [
@@ -494,6 +521,80 @@
    },
    "denies": [],
    "needs": true
+  },
+  {
+   "name": "trust gate: peer trusted write needs a gesture",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 1,
+    "params": {
+     "cwd": "/x",
+     "peer": "dev-box",
+     "level": "trusted"
+    }
+   },
+   "denies": [],
+   "needs": true
+  },
+  {
+   "name": "trust gate: peer untrusted write needs a gesture",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 1,
+    "params": {
+     "cwd": "/x",
+     "peer": "dev-box",
+     "level": "untrusted"
+    }
+   },
+   "denies": [],
+   "needs": true
+  },
+  {
+   "name": "trust gate: peer unknown write needs a gesture",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 1,
+    "params": {
+     "cwd": "/x",
+     "peer": "dev-box",
+     "level": "unknown"
+    }
+   },
+   "denies": [],
+   "needs": true
+  },
+  {
+   "name": "trust gate: even an invalid peer selector requires a write gesture",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 1,
+    "params": {
+     "cwd": "/x",
+     "peer": null,
+     "level": "untrusted"
+    }
+   },
+   "denies": [],
+   "needs": true
+  },
+  {
+   "name": "trust gate: reading peer trust needs none",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.get",
+    "id": 1,
+    "params": {
+     "cwd": "/x",
+     "peer": "dev-box"
+    }
+   },
+   "denies": [],
+   "needs": false
   }
  ],
  "unfiltered": [

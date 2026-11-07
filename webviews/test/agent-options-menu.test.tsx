@@ -105,7 +105,7 @@ const codex = (configOptions: unknown[]): Summary => ({
   configOptions,
 });
 
-async function render(summary: Summary, sent: string[]) {
+async function render(summary: Summary, sent: string[], extra: Record<string, unknown> = {}) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -121,6 +121,7 @@ async function render(summary: Summary, sent: string[]) {
     canLoadOlder: false,
     catalog: [],
     summary,
+    ...extra,
   } as unknown as Snapshot;
   root ??= createRoot(host);
   await act(async () => {
@@ -234,6 +235,19 @@ test("a custom harness collaboration option stays available in Options", async (
     sent,
   );
   expect(host.querySelector<HTMLElement>("[data-menu=options]")?.textContent).toContain("Collaboration mode: Default");
+});
+
+test("a chat still opening draws no Options from the last session's summary", async () => {
+  const thinking = [option("thinking", ["off", "on"], { name: "Thinking" })];
+  // The pane opened chat s2 while the summary still describes s1 (another chat's switch).
+  await render(codex(thinking), [], { sessionId: "s2" });
+  expect(host.querySelector("[data-menu=options]")).toBeNull();
+  // A chat switching harness also carries its old session's options.
+  await render(codex(thinking), [], { sessionId: "s1", switching: { phase: "starting" } });
+  expect(host.querySelector("[data-menu=options]")).toBeNull();
+  // Once its own summary is attached, Options is back.
+  await render(codex(thinking), [], { sessionId: "s1" });
+  expect(host.querySelector("[data-menu=options]")?.textContent).toContain("Thinking");
 });
 
 test("a session with no extra option shows no Options chip", async () => {

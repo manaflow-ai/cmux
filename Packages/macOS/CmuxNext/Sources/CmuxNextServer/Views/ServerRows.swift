@@ -1,5 +1,6 @@
 import CmuxNextIcons
 import SwiftUI
+import CmuxNextDesign
 
 /// A row that shows a gray wash on hover and runs `action` on click.
 struct HoverRow<Content: View>: View {
@@ -13,7 +14,7 @@ struct HoverRow<Content: View>: View {
             .padding(.horizontal, 8)
             .frame(minHeight: ServerMetrics.rowHeight)
             .contentShape(Rectangle())
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(hovering && action != nil ? colors.hover : .clear))
+            .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius, style: .continuous).fill(hovering && action != nil ? colors.hover : .clear))
             .onHover { hovering = $0 }
         if let action {
             Button(action: action) { row }.buttonStyle(.plain)

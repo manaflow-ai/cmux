@@ -38,11 +38,64 @@ struct CloudMachineRepoTests {
         }
     }
 
-    @Test func anythingButAPlainGitHubRepositoryIsRefused() {
-        for spec in ["", "cmux", "o/r/x", "https://gitlab.com/o/r", "https://github.com/o", "https://github.com:8443/o/r",
-                     "https://github.com/o/r?x=1", "file:///tmp/r", "evilgithub.com:o/r", "o/-r", "o/.r", "o/r;rm -rf ~", "o/r b"] {
+    @Test func anythingButAPlainGitHubRepositoryOrHttpsGitURLIsRefused() {
+        for spec in ["", "cmux", "o/r/x", "https://github.com/o", "https://github.com:8443/o/r",
+                     "https://github.com/o/r?x=1", "file:///tmp/r", "evilgithub.com:o/r", "o/-r", "o/.r", "o/r;rm -rf ~", "o/r b",
+                     // Off GitHub: https only, a plain host, no port, query or odd path.
+                     "http://gitlab.com/o/r", "ssh://git@gitlab.com/o/r.git", "git@gitlab.com:o/r.git", "https://gitlab.com/r",
+                     "https://gitlab.com:8443/o/r", "https://localhost/o/r", "https://10.0.0.1/o/r", "https://-x.com/o/r",
+                     "https://gitlab.com/o/r?x=1", "https://gitlab.com/o/.r", "https://gitlab.com/-/r", "https://gitlab.com/o/r/-/blob/x"] {
             #expect(throws: CloudMachineRepo.Invalid.unrecognized, "\(spec)") { try CloudMachineRepo.parse(spec) }
         }
+    }
+
+    /// Leo, 2026-11-05: "there's presumably other services, like there's GitLab or whatever".
+    @Test func anotherHostsHttpsURLClonesWithItsGroupPathAndRef() throws {
+        let repo = try CloudMachineRepo.parse("https://gitlab.com/gitlab-org/gitlab-test.git")
+        #expect(repo == CloudMachineRepo(owner: "gitlab-org", name: "gitlab-test", host: "gitlab.com"))
+        #expect(!repo.isGitHub)
+        #expect(repo.url == "https://gitlab.com/gitlab-org/gitlab-test.git")
+        #expect(repo.directory == "work/gitlab-test")
+        #expect(repo.spec == "https://gitlab.com/gitlab-org/gitlab-test")
+        let nested = try CloudMachineRepo.parse("https://GitLab.com/group/sub/project/-/tree/release/1.x")
+        #expect(nested == CloudMachineRepo(owner: "group/sub", name: "project", ref: "release/1.x", host: "gitlab.com"))
+        #expect(try CloudMachineRepo.parse("https://codeberg.org/o/r@v2").ref == "v2")
+        #expect(throws: CloudMachineRepo.Invalid.credentialsInURL) { try CloudMachineRepo.parse("https://oauth2:glpat-x@gitlab.com/o/r") }
+        #expect(throws: CloudMachineRepo.Invalid.invalidRef) { try CloudMachineRepo.parse("https://gitlab.com/o/r/-/tree/a..b") }
+        let record = try #require(try JSONSerialization.jsonObject(with: repo.record) as? [String: String])
+        #expect(record["host"] == "gitlab.com")
+    }
+
+    @Test func anotherHostIsNeverOfferedTheMachinesGitHubCredentials() throws {
+        let step = try CloudMachineRepo.parse("https://gitlab.com/o/r").step
+        #expect(step.contains("github=0"))
+        #expect(step.contains(#"if [ "$github" = 1 ] && [ -x "$HOME/.local/bin/lane-gh-credential" ]"#))
+        #expect(step.contains(#"if [ "$github" = 1 ] && [ -S /run/cmux-vm-agent/agent.sock ]"#))
+        #expect(try CloudMachineRepo.parse("o/r").step.contains("github=1"))
+    }
+
+    @Test func anotherHostUsesOnlyItsOwnSealedToken() throws {
+        let step = try CloudMachineRepo.parse("https://gitlab.com/o/r").step
+        #expect(step.contains(#"host='gitlab.com'; key="credential.https://$host""#))
+        #expect(step.contains(#"if [ "$github" = 0 ] && [ -f "$HOME/.config/cmux/git-hosts/$host" ]"#))
+        #expect(step.contains(#"cmux-gitlab) helper="!'$cm' gitlab credential" ;;"#))
+    }
+
+    @Test func aCheckoutClonedThroughCmuxKeepsItsHelperForPush() throws {
+        let step = CloudMachineRepo(owner: "o", name: "r").step
+        let keep = try #require(step.range(of: #"if { [ "$cred" = cmux-github ] || [ "$cred" = cmux-gitlab ]; }"#))
+        let cloned = try #require(step.range(of: "status=cloned"))
+        let result = try #require(step.range(of: #"sha=$(g -C "$dir" rev-parse"#))
+        #expect(cloned.upperBound < keep.lowerBound && keep.upperBound < result.lowerBound)
+        #expect(step.contains(#"git -C "$dir" config --local --add "$key.helper" """#), "a global helper is dropped first")
+        #expect(step.contains(#"git -C "$dir" config --local --add "$key.helper" "$helper""#), "the helper, never a token")
+    }
+
+    @Test func anotherHostThatDoesNotCloneFailsInsteadOfWaitingForGitHub() throws {
+        let step = try CloudMachineRepo.parse("https://gitlab.com/o/r").step
+        let failed = try #require(step.range(of: #"[ "$github" = 1 ] || die "#))
+        let needs = try #require(step.range(of: "status=needs_github; result"))
+        #expect(failed.upperBound < needs.lowerBound, "off GitHub the step exits failed before it would say needs_github")
     }
 
     @Test func aRefThatNeedsQuotingIsRefused() {
@@ -67,13 +120,14 @@ struct CloudMachineRepoTests {
 
     @Test func theStepResetsEveryOtherHelperAndWritesNoToken() throws {
         let step = CloudMachineRepo(owner: "o", name: "r", ref: "main").step
-        let reset = try #require(step.range(of: "git -c credential.helper= -c core.askPass= ")), chosen = try #require(step.range(of: "-c \"credential.https://github.com.helper=$helper\""))
+        let reset = try #require(step.range(of: "git -c credential.helper= -c core.askPass= ")), chosen = try #require(step.range(of: #"-c "$key.helper=$helper""#))
         #expect(chosen.lowerBound < reset.lowerBound, "g puts the chosen helper after the reset in git's argv, so the reset does not clear it")
         #expect(step.contains("export GIT_TERMINAL_PROMPT=0 GIT_TRACE_REDACT=1 GIT_TRACE=0 GIT_TRACE_CURL=0"), "no inherited request trace reaches the log")
         #expect(step.contains("GIT_TRACE2=0 GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0"), "nor a configured trace2 target")
         #expect(step.contains("--includes --get-all credential.https://github.com.helper"))
         #expect(step.contains("export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1"), "no configured username (a token) or helper after the lane helper is read")
-        #expect(step.contains("-c credential.username= -c credential.https://github.com.username="))
+        #expect(step.contains(#"host='github.com'; key="credential.https://$host""#))
+        #expect(step.contains(#"-c credential.username= -c "$key.username=""#))
         #expect(step.contains("unset GIT_ASKPASS SSH_ASKPASS GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT"))
         #expect(step.contains(#"lane="!$HOME/.local/bin/lane-gh-credential""#), "only the lane bootstrap's exact helper, never one that only names it")
         #expect(step.contains(#"grep -qxF -- "$lane""#))

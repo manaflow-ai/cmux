@@ -29,6 +29,8 @@ extension SidebarModel {
         var options = SidebarLayoutOptions()
         options.filterMatches = filterMatches
         options.grouping = settledGrouping()
+        // Every project is a stop, as every row past the row limit is: the order ignores Show more.
+        options.openShowMore = [.projects]
         // The session tree moves a started workspace under its parent: the numbers follow the drawn order.
         options.sessionTree = SidebarSessionTree.shared.drawn?.shape
         // The sidebar document draws its sections in the list: a block's items are stops where the block draws.

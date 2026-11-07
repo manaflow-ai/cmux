@@ -361,7 +361,7 @@ struct CheckpointsScreen: View {
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try again") { Task { await reload() } }
+                    RetryButton("Try Again") { await reload() }
                 }
             case .loaded(let checkpoints):
                 List {
@@ -499,7 +499,7 @@ struct HandoffScreen: View {
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try again") { Task { await reload() } }
+                    RetryButton("Try Again") { await reload() }
                 }
             case .loaded(let targets):
                 List {
@@ -676,6 +676,8 @@ struct HandoffReviewScreen: View {
                     .autocorrectionDisabled()
                 Toggle("I saved the working changes, including the files I need to keep.", isOn: $attested)
                     .font(.callout)
+                    // Green when on, not the chat's neutral tint (a white track in Dark Mode).
+                    .toggleStyle(.cmuxMobileSwitch)
             } header: {
                 Text("Repository checkpoint")
             } footer: {
