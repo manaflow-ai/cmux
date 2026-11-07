@@ -341,9 +341,9 @@ impl Drop for StderrTail {
 
 /// One line of diagnostic text with anything that may be a secret replaced
 /// by `[REDACTED]`: a run of 20 or more token characters (base64, base64url,
-/// hex, JWT) that mixes letters and digits and is not a path (it does not
-/// start with `/` or `.`), the value after `Bearer`, and the
-/// value of a `key=value` or `key: value` whose key names a secret.
+/// hex, JWT) that mixes letters and digits (a path with digits goes too:
+/// base64 can start with `/`), the value after `Bearer`, and the value of a
+/// `key=value`, `key: value` or JSON `"key": "value"` whose key names a secret.
 fn redact_token_shaped(text: &str) -> String {
     const SECRET_KEYS: [&str; 7] =
         ["token", "ticket", "secret", "password", "authorization", "credential", "key"];
@@ -351,15 +351,20 @@ fn redact_token_shaped(text: &str) -> String {
         character.is_ascii_alphanumeric()
             || matches!(character, '-' | '_' | '.' | '~' | '+' | '/' | '=')
     }
+    // The key as written, without the quotes and brackets of JSON or a
+    // structured log (`{"password":` is the key `password`).
+    fn bare(key: &str) -> &str {
+        key.trim_matches(|character| matches!(character, '"' | '\'' | '{' | '[' | '(' | ','))
+    }
     fn secret_key(key: &str) -> bool {
-        let key = key.to_ascii_lowercase();
+        let key = bare(key).to_ascii_lowercase();
         SECRET_KEYS.iter().any(|secret| key.contains(secret))
     }
     // A key that is itself a secret's name (`ticket`, `Password`,
     // `access_token`, `api_key`), not a label that mentions one
     // (`carrier-ticket`): every value after it is redacted, however short.
     fn exact_secret_key(key: &str) -> bool {
-        let key = key.to_ascii_lowercase();
+        let key = bare(key).to_ascii_lowercase();
         SECRET_KEYS.iter().any(|secret| key == *secret || key.ends_with(&format!("_{secret}")))
     }
     let line: String = text
@@ -383,14 +388,18 @@ fn redact_token_shaped(text: &str) -> String {
     for word in line.split_whitespace() {
         let follows_key = std::mem::take(&mut after_key);
         let follows_exact_key = std::mem::take(&mut after_exact_key);
-        if std::mem::take(&mut after_bearer) || follows_exact_key || (follows_key && value_like(word))
-        {
+        if std::mem::take(&mut after_bearer) {
             words.push("[REDACTED]".to_owned());
             continue;
         }
-        if word.eq_ignore_ascii_case("bearer") {
+        // `Bearer` first, so `Authorization: Bearer abc` redacts `abc`.
+        if bare(word).eq_ignore_ascii_case("bearer") {
             after_bearer = true;
             words.push(word.to_owned());
+            continue;
+        }
+        if follows_exact_key || (follows_key && value_like(word)) {
+            words.push("[REDACTED]".to_owned());
             continue;
         }
         if let Some(index) = word.find(['=', ':'])
@@ -410,8 +419,7 @@ fn redact_token_shaped(text: &str) -> String {
         let flush = |run: &mut String, redacted: &mut String| {
             let mixed = run.chars().any(|character| character.is_ascii_digit())
                 && run.chars().any(|character| character.is_ascii_alphabetic());
-            let path = run.starts_with(['/', '.']);
-            if run.len() >= 20 && mixed && !path {
+            if run.len() >= 20 && mixed {
                 redacted.push_str("[REDACTED]");
             } else {
                 redacted.push_str(run);
@@ -2486,6 +2494,20 @@ mod tests {
         assert_eq!(
             redact_token_shaped("relay-ticket: command timed out"),
             "relay-ticket: command timed out"
+        );
+        // #37670 second review F1: `Bearer` after an authorization key, a
+        // base64 value starting with `/`, and JSON secret fields.
+        assert_eq!(
+            redact_token_shaped("Authorization: Bearer abc"),
+            "Authorization: Bearer [REDACTED]"
+        );
+        assert_eq!(
+            redact_token_shaped("token /9j4AAQSkZJRgABAQ1Ab3c+x/YZ answered"),
+            "token [REDACTED] answered"
+        );
+        assert_eq!(
+            redact_token_shaped(r#"{"password": "hunter2", "ticket":"t0ps3cret"}"#),
+            r#"{"password": [REDACTED] "ticket":[REDACTED]"#
         );
     }
 
