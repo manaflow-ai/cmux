@@ -1,9 +1,9 @@
 // A memoized part of the pane keeps what its parent hands it while that is the same. The pane
-// (App.tsx AcpmuxPane) renders on every snapshot, a running command's output update among them, and
-// builds most of what it hands its header and Session Info inline: new callbacks, new option
-// objects, new elements and new lists of the same things. Each made the part render again with
-// nothing in it changed (bench/delta-renders.bench.ts: the header and Session Info rendered once per
-// output update). stableHandlers.ts does this for the composer's `on*` props; this goes through
+// (App.tsx AcpmuxPane) renders on every snapshot it draws (a running command's output alone goes to
+// liveToolOutput.ts instead) and builds most of what it hands its header and Session Info inline: new
+// callbacks, new option objects, new elements and new lists of the same things. Each made the part
+// render again with nothing in it changed (bench/delta-renders.bench.ts: the header and Session Info
+// rendered once per output update before liveToolOutput.ts, and still on every other pane render). stableHandlers.ts does this for the composer's `on*` props; this goes through
 // every prop, into plain objects, arrays and elements:
 //   - a function anywhere in the props is one function per place that calls the latest one there
 //     (its presence still counts: a function that comes or goes is a change);

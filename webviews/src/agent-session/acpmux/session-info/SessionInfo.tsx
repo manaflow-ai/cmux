@@ -723,8 +723,7 @@ export function useSessionInfo({
   const shown = roomyShown && !(narrow && !asked);
   // What the panel lists of the rows, read here as the pane renders, and what else it is handed,
   // each the same value while it holds the same things: the panel (SessionInfoPresence, memoized)
-  // renders when what it shows changed, not on every snapshot (a running command's output update
-  // drew it once per update: bench/delta-renders.bench.ts).
+  // renders when what it shows changed, not on every pane render (bench/delta-renders.bench.ts).
   const lists = useSessionInfoLists({
     drawn: shown,
     snapshot,

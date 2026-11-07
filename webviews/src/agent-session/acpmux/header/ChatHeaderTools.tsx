@@ -159,9 +159,9 @@ export function guardedChatMenu(items: ChatMenuItem[], current: () => boolean): 
 }
 
 /// The header's tools, drawn again only when what the pane hands them changes. The pane renders on
-/// every snapshot (a running command's output update among them) and builds the header's callbacks,
-/// its native row's options, the Needs you button and the menu inline, so the header rendered once
-/// per output update with nothing in it changed (bench/delta-renders.bench.ts). Its props go through
+/// every snapshot it draws and builds the header's callbacks, its native row's options, the Needs you
+/// button and the menu inline, so the header rendered on each pane render with nothing in it changed
+/// (bench/delta-renders.bench.ts). Its props go through
 /// stableProps.ts: a callback is a stable function that calls the pane's newest one, an option object
 /// or element with the same parts is the one given before. The menu's rows and the summary button are
 /// read while the header renders, so they are read here on each pane render and hand over a change.

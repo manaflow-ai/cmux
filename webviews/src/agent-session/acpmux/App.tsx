@@ -2376,7 +2376,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return started.names;
   }, [snapshot.rows]);
   // The same set while it holds the same calls: it is read by memoized parts (Session Info, the
-  // summary card), and the rows it is read from are new on every update, a command's output too.
+  // summary card), and the rows it is read from are new on every snapshot the pane draws.
   const askedToolCalls = useSameValue(
     useMemo(
       () => pendingToolCalls(snapshot),
