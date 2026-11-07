@@ -268,6 +268,9 @@
    lines continue across stacked parts). */
 .acpmux-newtab{--acpmux-newtab-mark:26px}
 .acpmux-newtab-box{border-radius:22px;background:color-mix(in srgb,var(--acpmux-composer-bg) var(--ds-glass-popover-tint),transparent);-webkit-backdrop-filter:var(--ds-glass-popover-blur);backdrop-filter:var(--ds-glass-popover-blur);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-2)}
+/* Reduce Transparency: the New Tab box is the solid composer surface, as the composer card is (glass.css). */
+:root[data-reduce-transparency] .acpmux-newtab-box{background:var(--acpmux-composer-solid,var(--cmux-surface-solid,Canvas))}
+@media (prefers-reduced-transparency:reduce){.acpmux-newtab-box{background:var(--acpmux-composer-solid,var(--cmux-surface-solid,Canvas))}}
 /* The field row's one-line height: the row and the prompt editor in it share it (--acpmux-newtab-row). */
 .acpmux-newtab{--acpmux-newtab-row:56px}
 .acpmux-newtab-row{display:flex;align-items:center;gap:10px;min-height:var(--acpmux-newtab-row);padding:0 8px 0 18px;cursor:text}

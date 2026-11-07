@@ -964,5 +964,6 @@ pub mod shown_resize;
 pub mod sidebar_doc;
 pub mod sidebar_drag;
 pub mod sidebar_drop;
+pub mod sidebar_edits;
 pub mod sidebar_face;
 pub mod sidebar_layout;
