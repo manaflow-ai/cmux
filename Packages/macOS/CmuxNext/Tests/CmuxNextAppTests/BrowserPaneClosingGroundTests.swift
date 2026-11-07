@@ -38,11 +38,18 @@ import Testing
         return [srgb.redComponent, srgb.greenComponent, srgb.blueComponent, srgb.alphaComponent].map { ($0 * 255).rounded() }
     }
 
-    @Test func aPagePaneClosesOnThePagesOwnBackground() {
+    @Test func aPagePaneClosesOnThePagesOwnBackground() async throws {
         let pane = Pane()
         defer { pane.tearDown() }
-        // The fixture page's yellow, as the page's background read (`WebKitTab.samplePageBackdrop`) left it.
-        pane.page.pageBackdropARGB = 0xFFFF_FF00
+        // The fixture page's yellow, read when it loads (`WebKitTab.samplePageBackdrop`).
+        let webView = pane.page.webView
+        webView.loadHTMLString("<html style=\"background: rgb(255, 255, 0)\"><body>page</body></html>",
+                               baseURL: URL(string: "https://ground.example/"))
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(10))
+        while Self.rgb(pane.pane.paneGroundColor) != [255, 255, 0, 255], clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(Self.rgb(pane.pane.paneGroundColor) == [255, 255, 0, 255])
     }
 

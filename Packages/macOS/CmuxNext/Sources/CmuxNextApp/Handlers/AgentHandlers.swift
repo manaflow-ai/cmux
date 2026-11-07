@@ -406,15 +406,10 @@ enum AgentHandlers {
         // A new row is as tall as the agent's row (New Row's G3 rule).
         let rowHeight = pane.workspace?.layoutModel.newRowHeight(below: pane.layoutPaneID) ?? 1000
         let logger = context.daemon.logger
-        let refusals = context.services.refusalHUD
-        let windows = context.services.windows
+        let refusals = context.services.refusalHUD, windows = context.services.windows
         let repair = context.services.emptyWorkspaces
         // A fork into a new workspace is placed like Cmd-N: in the current group (cx-caoh).
-        let key = WorkspaceKey.generate()
-        if destination == .workspace || destination == .window {
-            let windows = context.services.windows
-            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
-        }
+        let key = destination == .workspace || destination == .window ? NewWorkspacePlacements.placedKey(in: windows) : WorkspaceKey.generate()
         Task {
             do {
                 // The shell line first: an acpmux fork that fails opens no empty terminal.
