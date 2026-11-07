@@ -124,7 +124,8 @@ test("the table draws with Copy, columns that fit their text and labeled rows", 
       <Markdown>{source}</Markdown>
     </ArtifactContext.Provider>,
   );
-  expect(html).toContain('class="cv-table-tools ui-glass"');
+  // Bare buttons on the corner, no glass pill (code-toolbar-buttons.test.ts).
+  expect(html).toContain('class="cv-table-tools"');
   expect(html).toContain('aria-label="Copy table"');
   expect(html).toContain('class="cv-table cv-table--labeled"');
   expect(html.match(/width="14" height="14"/g)).toHaveLength(2);

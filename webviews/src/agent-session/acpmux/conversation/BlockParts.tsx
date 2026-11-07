@@ -2,6 +2,7 @@
 // a call's output): Wrap lines in its header beside Copy, the first `PREVIEW_LINES` lines under a
 // fade with "Show all N lines" below, and lines drawn one block each, so a wrapped line hangs under
 // its first row.
+import { cornerAction } from "./cornerActions";
 import { memo, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useT } from "../i18n";
 import { useBlockWrap, type BlockKind } from "./blockWrap";
@@ -13,7 +14,7 @@ import { SIDEWAYS_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 export const PREVIEW_LINES = 8;
 
 /// The header's Wrap lines toggle for a block of `kind` (every block of the kind follows it).
-export function WrapButton({ kind, className = "cv-codeblock__action" }: { kind: BlockKind; className?: string }) {
+export function WrapButton({ kind, className = cornerAction() }: { kind: BlockKind; className?: string }) {
   const t = useT();
   const [wrap, toggle] = useBlockWrap(kind);
   return (

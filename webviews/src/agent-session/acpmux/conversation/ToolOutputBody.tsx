@@ -99,7 +99,7 @@ export const ToolOutput = memo(function ToolOutput({
         <span className="cv-tool-output__actions" data-find-skip="">
           {!rendered && <WrapButton kind="output" />}
           {ownCopy && experimentArm(hoverActions) === "all" && (
-            <CopyButton text={raw.text ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
+            <CopyButton text={raw.text ?? ""} label={t("turn.copy")} />
           )}
         </span>
         {rendered ? (
