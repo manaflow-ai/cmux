@@ -470,6 +470,12 @@ public final class AgentPaneView: NSView {
         if model.composer.dictationSource == .macos, let window, window.firstResponder !== webView {
             window.makeFirstResponder(webView)
         }
+        // A session of cmux's own that still runs ends first, as the mic's click ends it, whatever
+        // the source is now.
+        if !dictation.phase.isStartable {
+            dictation.toggle(from: event)
+            return
+        }
         switch model.dictationHandoff.handOff(model.composer) {
         case nil: return
         case .ownDictation: dictation.toggle(from: event)

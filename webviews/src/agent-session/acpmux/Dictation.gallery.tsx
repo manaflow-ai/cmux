@@ -201,7 +201,7 @@ export default componentEntry<Props>({
       props: { initialState: "idle", initialNotice: null },
       play: async (ctx) => {
         await ctx.contextMenu({ role: "button", name: "Dictate" });
-        await ctx.click({ role: "menuitem", name: "Dictate with ChatGPT" });
+        await ctx.click({ role: "menuitemcheckbox", name: "Dictate with ChatGPT" });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mic[data-source="chatgpt"] img') !== null);
       },
       note: "Picking ChatGPT in the menu puts its icon on the mic in place, with no layout change.",

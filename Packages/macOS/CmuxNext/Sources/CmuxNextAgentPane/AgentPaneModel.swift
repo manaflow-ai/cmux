@@ -734,7 +734,11 @@ public final class AgentPaneModel {
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)
             return AgentPaneReply.success()
-        case .dictationHandoff: return dictationHandoff.reply(composer)
+        case .dictationHandoff:
+            // It posts keys into whichever app is in front: only for a real click or key in the pane,
+            // never for page script alone (the old bridge has no call context, so it spends gesture credit).
+            guard userGesture || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            return dictationHandoff.reply(composer)
         case .watchMicrophone(let on):
             guard let onWatchMicrophone else { return Self.unsupported("dictation.watchMicrophone") }
             onWatchMicrophone(on)
