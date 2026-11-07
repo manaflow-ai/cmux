@@ -173,7 +173,13 @@ import Testing
     /// cookies came over, Show Import Cookies Banner changes nothing: the setting stays and no card shows.
     @Test func theShowActionAsksNothingAfterAnImport() async throws {
         let h = try await make()
-        defer { h.tearDown() }
+        // The app's service saves the import record in the standard defaults: put it back for the next tests.
+        let key = BrowserImportOfferState.defaultsKey
+        let saved = UserDefaults.standard.data(forKey: key)
+        defer {
+            h.tearDown()
+            if let saved { UserDefaults.standard.set(saved, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) }
+        }
         try await h.settings.set(.bool(false), at: Self.cookieBannerPath)
         h.services.onboarding.browserImportOffer.importFinished(ImportCounts(cookies: 3))
         #expect(h.services.registry.perform("browser.showCookieImportBanner", invocation: ActionInvocation(origin: .cli)))

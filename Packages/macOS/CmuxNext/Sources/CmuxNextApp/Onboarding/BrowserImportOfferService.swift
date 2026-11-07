@@ -126,7 +126,7 @@ final class BrowserImportOfferService {
         shownThisLaunch = false
         guard let entry = services?.cache.browsers.values.first(where: { $0.chrome.map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } == true }),
               services?.browserImportEnabled == true, page(entry).isPersonal else { return }
-        findBrowsers { [weak self, weak entry] found in if let self, let chrome = entry?.chrome { show(on: chrome, browsers: found) } }
+        findBrowsers { [weak self, weak entry] found in if let self, !state.imported, let chrome = entry?.chrome { show(on: chrome, browsers: found) } }
     }
 
     /// Off, the card on screen goes; on again, the next finished page may offer it this launch.
