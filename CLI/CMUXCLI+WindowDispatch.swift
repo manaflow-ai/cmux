@@ -41,7 +41,7 @@ extension CMUXCLI {
                 == "surface.read_selection" {
             return false
         }
-        if normalizedCommand == "surface", commandArgs.first?.lowercased() == "resume" {
+        if normalizedCommand == "surface", ["resume", "icon"].contains(commandArgs.first?.lowercased() ?? "") {
             return false
         }
         if Self.commandDefersSocketConnectionUntilRequest(command: command, commandArgs: commandArgs) {

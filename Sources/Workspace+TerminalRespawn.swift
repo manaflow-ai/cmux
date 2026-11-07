@@ -77,6 +77,7 @@ extension Workspace {
             additionalEnvironment[key] = value
         }
 
+        surfaceIconLeases.reset(panelID: panelId)
         oldPanel.unfocus()
         oldPanel.hostedView.setVisibleInUI(false)
         TerminalWindowPortalRegistry.detach(hostedView: oldPanel.hostedView)

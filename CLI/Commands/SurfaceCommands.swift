@@ -161,6 +161,7 @@ struct SurfaceCommand: SharedLegacyFacadeCommand {
             SurfaceNewTerminalCommand.self,
             SurfaceNewDisplayCommand.self,
             SurfaceResumeGroupCommand.self,
+            SurfaceIconGroupCommand.self,
             SurfaceSizeCommand.self,
             SurfaceParticipantsCommand.self,
             SurfaceSizeToMeCommand.self,
@@ -336,6 +337,39 @@ enum SurfaceResumeSubcommands {
         SurfaceResumeSetCommand.self,
         SurfaceResumeClearCommand.self,
     ]
+}
+
+/// The explicit-UUID, non-focus surface-icon lease namespace.
+struct SurfaceIconGroupCommand: SharedLegacyFacadeCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "icon",
+        subcommands: [SurfaceIconSetCommand.self, SurfaceIconClearCommand.self],
+        helpNames: []
+    )
+}
+
+struct SurfaceIconTargetOptions: ParsableArguments {
+    @Option(name: .customLong("workspace")) var workspaceID: String?
+    @Option(name: .customLong("surface")) var surfaceID: String?
+    @Option(name: .customLong("owner")) var ownerID: String?
+    @Option(name: .customLong("lease-token")) var leaseToken: String?
+    @Option(name: .customLong("revision")) var revision: String?
+}
+
+struct SurfaceIconSetCommand: SharedLegacyFacadeCommand {
+    @OptionGroup var target: SurfaceIconTargetOptions
+    @Option(name: .customLong("pid")) var pid: String?
+    @Option(name: .customLong("process-start")) var processStart: String?
+    @Option(name: .customLong("asset-file"), completion: .file()) var assetFile: String?
+    @Option(name: .customLong("ttl")) var ttl: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "set", helpNames: [])
+}
+
+struct SurfaceIconClearCommand: SharedLegacyFacadeCommand {
+    @OptionGroup var target: SurfaceIconTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "clear", helpNames: [])
 }
 
 /// The selector every `surface resume` verb accepts.
