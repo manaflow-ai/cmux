@@ -150,6 +150,26 @@ import Testing
         #expect(first?["id"]?.stringValue == "", "a reload after the close drew the closed editor again")
     }
 
+    /// Review of #37299 at c21ec81 (F1): the editor draws in the sidebar's theme at full strength, as the native
+    /// bubble did, in each room it opens in, not in its own panel's or the last room's.
+    @Test func theEditorDrawsInTheSidebarsTheme() throws {
+        let service = GroupEditorService()
+        let parent = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        defer { parent.closeAfterTest() }
+        let anchor = PopupAnchor(rect: CGRect(x: 240, y: 650, width: 100, height: 30), edge: .leading)
+        for _ in 0 ..< 2 {
+            let sidebar = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 600))
+            let scope = ThemeScope(level: .room)
+            scope.root(sidebar)
+            service.present(Self.group, items: Self.items, anchor: anchor, parent: parent, themeAnchor: sidebar,
+                            ordersFront: false, events: Self.events(Record()))
+            let panel = try #require(service.panel)
+            #expect(panel.themeScope === scope.fullStrength, "the editor drew outside the sidebar's theme")
+            service.dismiss()
+        }
+    }
+
     /// Review of #37299 at d0f9d91 (F1): a page that reloads while the editor is open gets the typed name back,
     /// so the field shows what the close will commit.
     @Test func aReloadWhileOpenGetsTheTypedName() async throws {
