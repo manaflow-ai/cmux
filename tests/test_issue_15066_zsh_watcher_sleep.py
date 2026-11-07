@@ -190,9 +190,6 @@ def watcher_fixture(tmp: Path, fake_bin: Path, log: Path) -> tuple[dict[str, str
     server.listen(1)
     ready_dir = tmp / "sleep-ready"
     ready_dir.mkdir(exist_ok=True)
-    zselect_ready_file = tmp / "zselect-ready"
-    zselect_ready_file.unlink(missing_ok=True)
-
     repo = tmp / "repo"
     (repo / ".git").mkdir(parents=True)
     (repo / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
@@ -207,7 +204,6 @@ def watcher_fixture(tmp: Path, fake_bin: Path, log: Path) -> tuple[dict[str, str
             "CMUX_NO_GIT_WATCH": "",
             "_CMUX_WATCHER_IDENTITY_INTERVAL": "1",
             "CMUX_FAKE_SLEEP_READY_DIR": str(ready_dir),
-            "CMUX_ZSELECT_READY_FILE": str(zselect_ready_file),
         }
     )
     # The caller owns the socket and repository for the lifetime of the shell.
@@ -229,9 +225,10 @@ if [[ "$CMUX_TEST_FORCE_NO_ZSELECT" == 1 ]]; then
 fi
 source "$1"
 if (( _CMUX_HAS_ZSELECT )); then
+    zmodload zsh/system
     functions[_cmux_test_sleep_impl]=$functions[_cmux_sleep_cs]
     _cmux_sleep_cs() {
-        print -r -- ready >> "$CMUX_ZSELECT_READY_FILE"
+        : > "$CMUX_FAKE_SLEEP_READY_DIR/zs-$sysparams[pid]"
         _cmux_test_sleep_impl "$@"
     }
 fi
@@ -254,8 +251,8 @@ git_pid="$_CMUX_GIT_HEAD_WATCH_PID"
 if (( _CMUX_HAS_ZSELECT )); then
     ready=0
     for (( attempt = 0; attempt < 80; attempt++ )); do
-        ready_count="$(wc -l < "$CMUX_ZSELECT_READY_FILE" 2>/dev/null)"
-        if (( ready_count >= 2 )); then
+        if [[ -e "$CMUX_FAKE_SLEEP_READY_DIR/zs-$pr_pid" &&
+              -e "$CMUX_FAKE_SLEEP_READY_DIR/zs-$git_pid" ]]; then
             ready=1
             break
         fi
