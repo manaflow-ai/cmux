@@ -22,7 +22,7 @@ import {
   type AcpmuxRow,
 } from "./model";
 import { turnView } from "./conversation/turns";
-import { COLLAPSED_PROMPT_LINES, pasteChipHeight, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
+import { COLLAPSED_PROMPT_LINES, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "./transcriptGrid";
 import { BUBBLE } from "./transcriptSpacing";
@@ -326,31 +326,32 @@ test("a Chief's waiting steer keeps Send now in its existing action row", () => 
 // bubble leaves its line, transcriptSpacing.ts BUBBLE), with its 28px hover row under it and the
 // 8px message gap. Estimated any taller, the row shrinks once drawn and the rows below jump up.
 // Before: a prompt was estimated at its whole text, 2,000 lines tall.
-test("a 2,000-line prompt is estimated at its collapsed height, at most ten lines", () => {
+test("a 2,000-line prompt is estimated at its collapsed height, at most twenty lines", () => {
   const { lineHeight } = currentChatMetrics();
   const padding = BUBBLE.oneLine - lineHeight;
   const text = Array.from({ length: 2000 }, (_, index) => `line ${index + 1}`).join("\n");
   const [long] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
   expect(long).toBeCloseTo(padding + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT, 5);
-  expect(long!).toBeLessThan(padding + 10.5 * lineHeight + 24 + 28 + 8);
+  expect(long!).toBeLessThan(padding + 20.5 * lineHeight + 24 + 28 + 8);
 });
 
-test("a prompt of ten lines or fewer is estimated whole, with no Show more line", () => {
+test("a prompt of twenty lines or fewer is estimated whole, with no Show more line", () => {
   const { lineHeight } = currentChatMetrics();
   const text = Array.from({ length: 3 }, (_, index) => `line ${index + 1}`).join("\n\n");
   const [short] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
   expect(short!).toBeLessThan(BUBBLE.oneLine - lineHeight + COLLAPSED_PROMPT_LINES * lineHeight + 28 + 8);
 });
 
-// A pasted block (`pasted` ranges, the card in PromptText.tsx) is one closed card, however long the
-// paste, and the prompt's own words around it.
-test("a prompt with a 2,300-line paste is its typed line and one card", () => {
+// A paste is part of the message's one text body (ask-14d16a6247): a long one is estimated as the
+// prompt's folded lines and its Show more, as typed text is.
+test("a prompt with a 2,300-line paste drawn as text is estimated at the prompt's fold", () => {
+  const { lineHeight } = currentChatMetrics();
   const typed = "Why does this fail?";
   const paste = Array.from({ length: 2300 }, (_, index) => `frame ${index}`).join("\n");
   const text = `${typed}\n${paste}`;
   const pasted = [{ start: typed.length + 1, end: text.length }];
   const [height] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
-  expect(height).toBeCloseTo(BUBBLE.oneLine + pasteChipHeight(currentChatMetrics().lineHeight), 5);
+  expect(height).toBeCloseTo(BUBBLE.oneLine - lineHeight + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT, 5);
 });
 
 // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx), so it is

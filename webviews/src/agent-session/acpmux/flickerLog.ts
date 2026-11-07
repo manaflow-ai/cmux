@@ -38,7 +38,10 @@ export class FlickerLog {
   constructor(
     private readonly send: Send,
     private readonly now: () => number = Date.now,
-    private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = setTimeout,
+    // Wrapped: a bare `setTimeout` called as this field's method throws "Illegal invocation" in
+    // Chromium, which took down the transcript on its first mount in the pane's dev page.
+    private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = (run, ms) =>
+      setTimeout(run, ms),
   ) {}
 
   record(kind: string, fields: Record<string, string | number | boolean> = {}): void {

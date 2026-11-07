@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { promptBlocks } from "../attachments";
 import { agentText, readsAsAgent } from "../agentText";
-import { PasteChip } from "../conversation/PromptText";
+import { PastedText } from "../conversation/PromptText";
 import { markPastes, marksPaste, remember } from "./pasteMarks";
 
 const HANDOFF = "From Codex:\nHandoff: the probe is red.\n\nDo not merge or deploy.\n\nTrace-ID: ask-77";
@@ -106,7 +106,7 @@ function render(text: string): HTMLElement {
   const host = dom.window.document.getElementById("root")!;
   act(() => {
     root = createRoot(host);
-    root.render(<PasteChip rowId="row" index={0} text={text} needle="" onOpen={() => {}} />);
+    root.render(<PastedText text={text} collapsed={false} />);
   });
   return host;
 }
@@ -123,15 +123,15 @@ afterEach(() => {
   saved.clear();
 });
 
-test("a pasted handoff's card names the agent it reads as, never the person", () => {
+// A handoff stands apart from the person's words with a "Pasted from" line over it, so it never
+// passes as theirs (ask-fa4c523fa8), and no card (ask-14d16a6247); a text drawn apart with no agent
+// signal (a text file's body) is bare text.
+test("a pasted handoff drawn apart names its agent over it, with no card; other text is bare", () => {
   const host = render(HANDOFF);
-  const card = host.querySelector(".cv-user__paste-card")!;
-  expect(card.getAttribute("data-agent")).toBe("rule");
-  expect(host.querySelector(".cv-user__paste-name")?.textContent).toBe("Pasted from Codex");
-});
-
-test("a plain paste's card stays Pasted text", () => {
-  const host = render("line one\nline two\nline three");
-  expect(host.querySelector(".cv-user__paste-card")?.hasAttribute("data-agent")).toBe(false);
-  expect(host.querySelector(".cv-user__paste-name")?.textContent).toBe("Pasted text");
+  expect(host.querySelector(".cv-user__paste-card")).toBeNull();
+  expect(host.querySelector(".cv-user__pasted-from")?.textContent).toBe("Pasted from Codex");
+  expect(host.querySelector(".cv-user__pasted")?.textContent).toContain("Do not merge or deploy.");
+  const plain = render("line one\nline two\nline three");
+  expect(plain.querySelector(".cv-user__pasted-from")).toBeNull();
+  expect(plain.querySelector(".cv-user__pasted")?.textContent).toBe("line one\nline two\nline three");
 });

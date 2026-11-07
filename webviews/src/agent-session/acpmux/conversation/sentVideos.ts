@@ -6,6 +6,7 @@
 // note and stays the file chip it was.
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { attachmentPath } from "../FileAttachment";
+import { lengthOf } from "../composer/videoPrompt";
 
 /// A video a prompt sent, as its bubble draws it (SentVideoTile.tsx).
 export type SentVideo = {
@@ -30,7 +31,8 @@ export function sentVideosOf(
     ...(row.text?.split("\n") ?? []),
     ...(row.inlineParts ?? []).flatMap((part) => (part.kind === "text" ? part.text.split("\n") : [])),
   ];
-  if (!lines.some((line) => line.startsWith("Frames from the video "))) return [];
+  const chips = composerVideos(row);
+  if (!lines.some((line) => line.startsWith("Frames from the video "))) return chips;
   const images: PromptImage[] = [
     ...(row.images ?? []),
     ...(row.inlineParts ?? []).filter((part): part is PromptContentPart & PromptImage => part.kind === "image"),
@@ -43,7 +45,11 @@ export function sentVideosOf(
     const path = videoPath(row, name);
     if (!path) return [];
     seen.add(name);
-    const poster = images.find((image) => image.name?.startsWith(`${name} frame at `));
+    // The composer's own poster bytes while it has them, so the tile the prompt landed with keeps
+    // its picture through acpmux's echo instead of waiting on a read of its first frame.
+    const poster =
+      chips.find((chip) => chip.name === name && chip.path === path)?.poster ??
+      images.find((image) => image.name?.startsWith(`${name} frame at `));
     return [
       {
         name,
@@ -55,6 +61,27 @@ export function sentVideosOf(
       },
     ];
   });
+}
+
+/// The videos the pane's own row sent, read from the composer's chips (their poster, length and
+/// size, composer/videoAttachments.ts): the row the pane draws the moment it sends has no frames
+/// note (its text is what the bubble reads), so without them the tile popped in only with acpmux's
+/// echo (Leo, 2026-11-07: "it just sort of needs to readjust and pop up for the video preview").
+function composerVideos(row: Pick<AcpmuxRow, "retryAttachments">): SentVideo[] {
+  return (row.retryAttachments ?? []).flatMap((chip): SentVideo[] =>
+    chip.kind === "link" && chip.path && chip.video
+      ? [
+          {
+            name: chip.name,
+            path: chip.path,
+            length: lengthOf(chip.video.durationMs),
+            width: chip.video.width,
+            height: chip.video.height,
+            poster: { id: `${chip.id}:poster`, mimeType: "image/jpeg", src: chip.video.poster },
+          },
+        ]
+      : [],
+  );
 }
 
 /// The path of the video `name` a row sent: its link part (acpmux's record), or before the echo

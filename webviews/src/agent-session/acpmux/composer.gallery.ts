@@ -1064,7 +1064,7 @@ export default agentPaneEntry({
     // Leo (2026-10-21), as in Claude: a huge paste is a chip with its first words and line count,
     // the prompt as typed; a click puts it back in the prompt, × removes it (pastedText.ts).
     "text-pasted": {
-      note: "A 130-line paste (780 words, over the 750-word limit): a Pasted text card (its first lines faded, Pasted text · 130 lines and its characters) over the typed prompt, × on hover.",
+      note: "A 600-line paste (3,600 words, over the 3,500-word limit): a Pasted text card (its first lines faded, Pasted text · 600 lines and its characters) over the typed prompt, × on hover.",
       ready: { draft: "Why does the build fail?" },
       snapshot: chat(finished),
       play: async (ctx) => {
@@ -1073,7 +1073,7 @@ export default agentPaneEntry({
         const view = ctx.document.defaultView!;
         const data = new view.DataTransfer();
         const log = Array.from(
-          { length: 130 },
+          { length: 600 },
           (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
         );
         data.setData("text/plain", log.join("\n"));
@@ -1095,7 +1095,7 @@ export default agentPaneEntry({
         const view = ctx.document.defaultView!;
         const data = new view.DataTransfer();
         const log = Array.from(
-          { length: 130 },
+          { length: 600 },
           (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
         );
         data.setData("text/plain", ["Ran a command, read a file", ...log].join("\n"));
@@ -1165,13 +1165,13 @@ export default agentPaneEntry({
     // the paste", "if you paste that and then paste again, then you don't have to click it. It just
     // does it." The same block pasted again opens its chip, as a click does (pastedChips.ts).
     "text-pasted-again": {
-      note: "The same 130-line log pasted twice: the second paste opens the first's Pasted text chip, its text in the prompt after the typed words, and no second chip.",
+      note: "The same 600-line log pasted twice: the second paste opens the first's Pasted text chip, its text in the prompt after the typed words, and no second chip.",
       ready: { draft: "Why does the build fail? " },
       snapshot: chat(finished),
       play: async (ctx) => {
         const view = ctx.document.defaultView!;
         const log = Array.from(
-          { length: 130 },
+          { length: 600 },
           (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
         ).join("\n");
         const paste = () => {
