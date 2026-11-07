@@ -3,6 +3,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import {
+  inboxMessages,
   inboxNotice,
   joinNotices,
   mergeInboxNotices,
@@ -126,4 +127,13 @@ test("a bare sender name keeps its record's label and session", () => {
   expect(thread.from).toEqual(["gcp-agent-lane-2/lock-proof-routes"]);
   expect(thread.sender).toMatchObject({ label: sender.label, session: "s-9" });
   expect(thread.messages![0]!.sender).toMatchObject({ label: sender.label, session: "s-9" });
+});
+
+test("an opened thread names each sender by its plain name, not the agent's words", () => {
+  // `_acpmux/inbox_thread` gives `fromName` for the transcript; `from` is what the agent reads.
+  const opened = [{ from: "dot (self-declared, unauthenticated)", fromName: "dot", text: "hello", at: 1 }];
+  // The agent's words still mark it unverified (the row's marker, never words in the name).
+  expect(inboxMessages(opened)).toEqual([{ from: "dot", text: "hello", at: 1, unverified: true }]);
+  // A daemon from before `fromName`: its `from` as given.
+  expect(inboxMessages([{ from: "lane-a", text: "hi" }])).toEqual([{ from: "lane-a", text: "hi" }]);
 });

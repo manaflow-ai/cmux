@@ -1264,6 +1264,33 @@ mod sender_tests {
         assert_eq!(proven["actorId"], "user-1");
     }
 
+    /// A relay's MACHINE/SESSION past `fromAgent`'s length (review of #37652, F1): the record
+    /// keeps the whole name and is a verified relay sender; the name it gives the sender label
+    /// fits `fromAgent`, so the send is never refused for it.
+    #[test]
+    fn a_long_relayed_name_is_recorded_whole_and_named_within_from_agent() {
+        let relayed = |session: &str| json!({"_meta": {"acpmux": {"fromRelay": {"by": "lane-gh", "machine": "vm-1", "session": session}}}});
+        let session = format!("cloud-start-matrix-{}", "x".repeat(60));
+        let bound = relay_sender(&relayed(&session)).unwrap();
+        let relay = bound.relay.clone().unwrap();
+        assert_eq!(relay.session.as_deref(), Some(session.as_str()));
+        let name = relay.name();
+        assert_eq!(name.chars().count(), crate::hub::MAX_FROM_AGENT_CHARS);
+        assert!(format!("vm-1/{session}").starts_with(&name), "{name}");
+        let label = json!({"_meta": {"acpmux": {"fromAgent": name}}});
+        assert_eq!(crate::hub::declared_sender(&label).unwrap(), Some(name.clone()));
+        let stamped =
+            stamp_sender(stamp_declared(named_sender(&name, "t"), Some(&name)), Some(&bound));
+        let record = sender_record(Some(&stamped), None, None);
+        assert_eq!(
+            (&record["verification"], &record["relay"]["session"]),
+            (&json!("verified"), &json!(session))
+        );
+        // A short one is named whole; a session past what a relay record holds is no record.
+        assert_eq!(relay_sender(&relayed("coord")).unwrap().relay.unwrap().name(), "vm-1/coord");
+        assert_eq!(relay_sender(&relayed(&"x".repeat(MAX_FIELD_BYTES + 1))), None);
+    }
+
     #[test]
     fn sender_records_keep_a_relay_author_and_forwarder_distinct() {
         let provenance = json!({
