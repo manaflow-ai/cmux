@@ -121,14 +121,38 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             ));
         }
     };
-    let mut runner = SelfRunner { globals: forwarded_globals(&global) };
-    let outcome = run(&mut runner, &request);
-    Some(report(&outcome, global.output))
+    Some(start(&global, &request))
+}
+
+/// Runs `request` with this binary's own app verbs and prints the answer: `cloud start-chat`
+/// and `cmux chat --vm` (chat_start.rs) are the same run.
+pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
+    let mut runner = SelfRunner { globals: forwarded_globals(global) };
+    let outcome = run(&mut runner, request);
+    report(&outcome, global.output)
+}
+
+/// Whether the app is signed in to cmux Cloud now, as its own machine list answers
+/// (`cloud list-machines`, the first step of every start). An unreadable answer is signed out.
+pub(super) fn app_signed_in(global: &GlobalArgs) -> bool {
+    let mut runner = SelfRunner { globals: forwarded_globals(global) };
+    let ran = runner.cmux(&words(&["cloud", "list-machines", "--json"]));
+    step_result(&ran)
+        .is_ok_and(|listed| listed.pointer("/account/signed_in") != Some(&Value::Bool(false)))
 }
 
 /// `rest` without the output flags the global scan left in it, which set `output`. A value of
 /// one of this command's own flags (`--prompt --json`) stays a value.
 pub(super) fn lift_output(rest: &[String], output: &mut OutputMode) -> Vec<String> {
+    lift_output_of(rest, output, TAKES_VALUE)
+}
+
+/// [`lift_output`] for a command whose flags in `takes_value` take the next word as their value.
+pub(super) fn lift_output_of(
+    rest: &[String],
+    output: &mut OutputMode,
+    takes_value: &[&str],
+) -> Vec<String> {
     let mut words = Vec::new();
     let mut value_next = false;
     for word in rest {
@@ -142,7 +166,7 @@ pub(super) fn lift_output(rest: &[String], output: &mut OutputMode) -> Vec<Strin
             "--jsonl" => *output = OutputMode::JsonLines,
             "--quiet" => *output = OutputMode::Quiet,
             _ => {
-                value_next = TAKES_VALUE.contains(&word.as_str());
+                value_next = takes_value.contains(&word.as_str());
                 words.push(word.clone());
             }
         }

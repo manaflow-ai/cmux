@@ -525,6 +525,8 @@ usage: cmux cloud start-chat --prompt TEXT [--agent AGENT] [--cwd DIR]
 
 Starts an agent chat on a Cloud machine and sends it a prompt, in one step.
 The chat opens as a tab in the machine's workspace in the cmux app.
+This is `cmux chat --vm MACHINE|machine:ID|new` (`cmux chat --help`), by its
+older name; both run the same start.
 
   --prompt TEXT      What to send (`-` reads it from stdin)
   --agent AGENT      claude (default), codex, ...
