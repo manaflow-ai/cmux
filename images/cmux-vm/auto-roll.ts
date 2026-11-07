@@ -39,6 +39,9 @@ export const AUTO_PREFIX = "cloud-native-auto-";
 export const KEEP_AUTO = 6;
 /** The Worker refuses a longer list and then disables every approved image (src/upstream/live-images.ts). */
 export const MAX_ENTRIES = 32;
+/** Cloudflare refuses a Worker text binding over 5.1 kB (code 10054), so the whole deploy fails (cmux-vm runs
+ * 42361417513 and 42361837374: staging's 26 entries were 6.0 kB). Bytes of the binding's value, the list's JSON. */
+export const MAX_BYTES = 5_120;
 export const SERVICES = {
   production: ["cloud-platform-production", "ci-product-smoke"],
   staging: ["cloud-platform-dev", "cloud-platform-staging"],
@@ -89,6 +92,8 @@ export function validate(images: BootImage[], env: string): void {
   };
   if (!Array.isArray(images)) fail("not a list");
   if (images.length > MAX_ENTRIES) fail(`${images.length} entries, at most ${MAX_ENTRIES}`);
+  const bytes = Buffer.byteLength(JSON.stringify(images), "utf8");
+  if (bytes > MAX_BYTES) fail(`${bytes} bytes, at most ${MAX_BYTES} (Cloudflare's text binding limit)`);
   if (new Set(images.map((i) => i.id)).size !== images.length) fail("duplicate ids");
   for (const i of images) {
     const keys = Object.keys(i).sort().join(",");
