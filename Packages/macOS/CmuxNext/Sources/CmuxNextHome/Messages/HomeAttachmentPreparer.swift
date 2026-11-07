@@ -1,7 +1,7 @@
 public import CmuxHomeCore
 public import CmuxNextSettings
 import CmuxNextCompat
-import Foundation
+public import Foundation
 
 /// The Messages page's photos and videos go through the host's own preparation before they upload
 /// (`cmux.home.messages.attachments.prepare.*`), as the native composer's did
@@ -42,10 +42,10 @@ public final class HomeAttachmentPreparer {
     private var order: [String] = []
 
     public init(store: HomeStore, keepLocation: @escaping @MainActor () -> Bool,
-                directory: URL = FileManager.default.temporaryDirectory.appending(path: "cmux-home-prepare", directoryHint: .isDirectory)) {
+                directory: URL? = nil) {
         self.store = store
         self.keepLocation = keepLocation
-        self.directory = directory
+        self.directory = directory ?? FileManager.default.temporaryDirectory.appending(path: "cmux-home-prepare", directoryHint: .isDirectory)
     }
 
     public enum Failure: Error, Equatable {
@@ -83,8 +83,8 @@ public final class HomeAttachmentPreparer {
             sessions[id] = Session(input: named, name: session.name, mimeType: session.mimeType, byteCount: session.byteCount,
                                    written: session.written)
             let prepared = try await store.prepareAttachment(fileURL: named, keepLocation: false)
-            let changed = prepared.ref.mimeType != session.mimeType || prepared.ref.name != session.name
-                || !(await Self.same(named, prepared.fileURL))
+            let same = await Self.same(named, prepared.fileURL)
+            let changed = prepared.ref.mimeType != session.mimeType || prepared.ref.name != session.name || !same
             guard changed else { return .object(["changed": .bool(false)]) }
             sessions[id]?.prepared = prepared.fileURL
             return .object(["changed": .bool(true), "name": .string(prepared.ref.name), "mimeType": .string(prepared.ref.mimeType),
