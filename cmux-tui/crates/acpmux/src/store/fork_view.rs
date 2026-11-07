@@ -48,6 +48,20 @@ pub trait HistoryWriter {
     fn commit(self: Box<Self>) -> Result<()>;
 }
 
+/// The chat's folder, for a move that replaces it whole: none when the chat has none on disk, and
+/// an error when it has one the store would not give (a fork whose history could not be written
+/// into it, `ForkView::session_dir`), since a move into it would add the incoming log to the old
+/// one (review of #37020).
+pub fn folder_to_replace(store: &dyn Store, id: &str) -> Result<Option<PathBuf>> {
+    if let Some(dir) = store.session_dir(id) {
+        return Ok(Some(dir));
+    }
+    if store.session_path(id).is_some_and(|path| std::fs::symlink_metadata(path).is_ok()) {
+        anyhow::bail!("its history could not be written into its folder; try the move again");
+    }
+    Ok(None)
+}
+
 /// The store the hub reads and writes through: `inner`, with every fork that names a
 /// [`HistoryRef`] shown with its chat's history ([module docs](self)).
 pub struct ForkView {

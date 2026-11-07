@@ -295,6 +295,9 @@ impl Store for FailingSave {
     fn delete(&self, id: &str) -> Result<()> {
         self.0.delete(id)
     }
+    fn session_dir(&self, id: &str) -> Option<PathBuf> {
+        self.0.session_dir(id)
+    }
     fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         self.0.history_writer(id)
     }
@@ -303,6 +306,23 @@ impl Store for FailingSave {
 /// The history written in, then its meta's save failing: the reference stands, the chat is kept,
 /// and the next try finishes the job (review of #37020: the reference was dropped here but not on
 /// disk, so after a restart the written history was never read).
+/// A move that replaces a fork whose history could not be written into its folder stops: the
+/// view gives no folder, and the old one is still on disk, so an import would append the incoming
+/// log into it (review of #37020, transfer_in.rs).
+#[test]
+fn a_fork_whose_history_is_not_written_is_not_replaced_by_a_move() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let failing = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let store = FailingSave(LocalStore::new(dir, 1 << 20).unwrap(), failing.clone());
+    let view = forked(Box::new(store), 30, 20, 4);
+    failing.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(view.session_dir("fork").is_none());
+    assert!(folder_to_replace(&view, "fork").is_err(), "a move would write into the old folder");
+    failing.store(false, std::sync::atomic::Ordering::SeqCst);
+    let folder = folder_to_replace(&view, "fork").unwrap().expect("the fork's folder");
+    assert!(folder.exists());
+}
+
 #[test]
 fn a_failed_meta_save_leaves_the_reference_to_try_again() {
     let dir = tempfile::tempdir().unwrap().keep();

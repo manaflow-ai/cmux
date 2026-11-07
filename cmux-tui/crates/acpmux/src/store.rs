@@ -25,7 +25,7 @@ pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
 pub use kind_index::INDEXED_KINDS;
 mod fork_view;
-pub use fork_view::{ForkView, HISTORY_KINDS, HistoryRef, HistoryWriter};
+pub use fork_view::{ForkView, HISTORY_KINDS, HistoryRef, HistoryWriter, folder_to_replace};
 mod shared_value;
 mod text_index;
 pub use shared_value::SharedValue;

@@ -582,7 +582,12 @@ impl Hub {
             }
             self.retire_transfer_instance(old).await?;
         }
-        let source_store = if replacing_durable { self.store.session_dir(id) } else { None };
+        let source_store = if replacing_durable {
+            crate::store::folder_to_replace(self.store.as_ref(), id)
+                .map_err(|e| transfer_error("store", format!("chat {id}: {e}")))?
+        } else {
+            None
+        };
         let source_store_backup = if let Some(source_store) = source_store.as_ref() {
             let backup = source_store
                 .parent()
