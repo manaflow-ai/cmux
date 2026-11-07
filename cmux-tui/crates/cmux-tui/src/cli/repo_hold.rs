@@ -136,10 +136,7 @@ pub(crate) fn hold_run(dir: &Path, cmd: &[String], held: impl FnOnce()) -> i32 {
         }
     };
     if head_allowed(&dir) {
-        if let Err(error) = sync.head_ready() {
-            // The barrier stays syncing: a start waits for the whole checkout, as before.
-            eprintln!("cmux repo hold: cannot mark the head of {}: {error}", dir.display());
-        }
+        sync.head_ready();
     }
     held();
     let Some((program, args)) = cmd.split_first() else { return 2 };
