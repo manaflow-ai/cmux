@@ -153,6 +153,36 @@ struct WorkspaceCloseTabsContextMenuTests {
     }
 
     @Test
+    func agentAtRestDoesNotNeedCloseConfirmation() throws {
+        try withCleanClosedHistory {
+            let fixture = try makeWorkspaceWithFourConfirmingTabs()
+            let panelId = try #require(fixture.workspace.panelIdFromSurfaceId(fixture.tabIds[2]))
+            fixture.workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+
+            let expectations: [(AgentHibernationLifecycleState, Bool)] = [
+                (.running, true),
+                (.backgroundWorkPending, true),
+                (.idle, false),
+                (.needsInput, false),
+            ]
+            for (lifecycle, confirms) in expectations {
+                fixture.workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: lifecycle)
+                #expect(fixture.workspace.panelNeedsConfirmClose(panelId: panelId) == confirms, "\(lifecycle)")
+            }
+
+            // The workspace and window prompts ask the same per-panel question.
+            let others = fixture.tabIds.filter { $0 != fixture.tabIds[2] }
+            for tabId in others {
+                let otherPanelId = try #require(fixture.workspace.panelIdFromSurfaceId(tabId))
+                fixture.workspace.updatePanelShellActivityState(panelId: otherPanelId, state: .promptIdle)
+            }
+            #expect(!fixture.workspace.needsConfirmClose())
+            fixture.workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+            #expect(fixture.workspace.needsConfirmClose())
+        }
+    }
+
+    @Test
     func middleClickUsesTheInlineCloseWarningPath() async throws {
         try await withCleanClosedHistory {
             let fixture = try makeWorkspaceWithFourConfirmingTabs()
