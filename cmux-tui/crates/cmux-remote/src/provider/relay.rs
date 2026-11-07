@@ -2342,7 +2342,7 @@ mod tests {
         assert_eq!(
             error.to_string(),
             format!(
-                "relay credential source command was unsuccessful (exit status: 3); \
+                "transport provider failed: relay credential source command was unsuccessful (exit status: 3); \
                  stderr: {} bytes, codes carrier.unavailable",
                 line.len() + 1
             )
