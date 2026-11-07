@@ -88,12 +88,12 @@ extension AppActions {
                 services.registry.refuse(RefusalStrings.homeAttachNoFile(path))
             }
         })
-        // Reply to Selection (Cmd-Shift-R on Home, the palette): the same path as the transcript's menu item.
+        // Reply to Selection (Cmd-Shift-R on Home, the palette): a native transcript's, else the Messages page's (pageCommands.ts `home.messages.replyToSelection`).
         registry.bind("home.replyToSelection") {
-            guard let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window), view.replyToSelection() else {
-                services.registry.refuse(RefusalStrings.homeReplyNoSelection)
-                return
-            }
+            if let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window) { return view.replyToSelection() ? () : services.registry.refuse(RefusalStrings.homeReplyNoSelection) }
+            // task-owner: one page call; ends with its answer (bounded by HomeMessagesPage.answerDeadline); plain Task: it inherits the action's main actor
+            let reply: @MainActor (HomeMessagesPage?) -> Void = { page in Task { if await page?.ask("home.messages.replyToSelection")?.objectValue?["replied"]?.boolValue != true { services.registry.refuse(RefusalStrings.homeReplyNoSelection) } } }
+            if services.home.dock.isClassic { if let page = homePage(services) { reply(page) } } else { withDock(services) { reply($0.messages) } }
         }
         // The Home page's New Message, Invite, New Chief, Archive Chief and Open Conversation.
         bindHomeConversations(services)
