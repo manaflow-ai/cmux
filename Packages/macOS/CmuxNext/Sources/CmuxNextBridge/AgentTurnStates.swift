@@ -499,6 +499,9 @@ public final class AgentTurnStateStore {
 
     // MARK: Reads
 
+    /// Each acpmux peer's row of session id `session` (chats of other machines), by peer.
+    public func peerRows(_ session: String) -> [String: AgentPeerRow] { sessions[session]?.peers ?? [:] }
+
     /// The turn state of the session an agent chat tab shows.
     public func state(for ref: AgentSessionRef) -> AgentTurnState? { local(ref)?.state }
 

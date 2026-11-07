@@ -118,4 +118,30 @@ struct RemoteThinkingChatRingTests {
                 "a peer row on the second page read as not working")
         #expect(turns.watching)
     }
+
+    /// A peer's purge removes that peer's row: rows of purged sessions do not pile up over the
+    /// app's life, and another peer's row of the same id stays.
+    @Test func aPeersPurgeRemovesItsRow() throws {
+        let turns = AgentTurnStateStore()
+        let feed = AgentTurnStateFeed(socketPath: "/nonexistent/remote-thinking-purge.sock", turns: turns, lanes: AgentLaneStore())
+        func read(_ line: String) throws -> AgentTurnStateFeed.Message { try #require(AgentTurnStateFeed.Message(line: Data(line.utf8))) }
+        feed.handle(try read(#"{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"gone","indicator":"working","peer":"lab"},{"sessionId":"gone","indicator":"working","peer":"elsewhere"}]}}"#))
+        #expect(Set(turns.peerRows("gone").keys) == ["lab", "elsewhere"])
+        feed.handle(try read(#"{"jsonrpc":"2.0","method":"_acpmux/session_changed","params":{"sessionId":"gone","kind":"purged","peer":"lab"}}"#))
+        #expect(Set(turns.peerRows("gone").keys) == ["elsewhere"], "a purged peer row stayed in the store")
+    }
+
+    /// A push for one peer's row while a paged watch result is read keeps only that row: the
+    /// page's rows of other peers with the same session id still apply.
+    @Test func aPeerPushWhilePagingKeepsOnlyItsOwnRow() throws {
+        let turns = AgentTurnStateStore()
+        let feed = AgentTurnStateFeed(socketPath: "/nonexistent/remote-thinking-paging-peer.sock", turns: turns, lanes: AgentLaneStore())
+        func read(_ line: String) throws -> AgentTurnStateFeed.Message { try #require(AgentTurnStateFeed.Message(line: Data(line.utf8))) }
+        feed.handle(try read(#"{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"shared","indicator":"working","peer":"lab"},{"sessionId":"shared","indicator":"working","peer":"elsewhere"}],"nextCursor":"k1"}}"#))
+        feed.handle(try read(#"{"jsonrpc":"2.0","method":"_acpmux/session_changed","params":{"sessionId":"shared","peer":"elsewhere","session":{"sessionId":"shared","indicator":"idle","peer":"elsewhere"}}}"#))
+        feed.handle(try read(#"{"jsonrpc":"2.0","id":4,"result":{"sessions":[],"nextCursor":null}}"#))
+        let ref = AgentSessionRef(host: "registry:remote-thinking", session: "shared")
+        #expect(turns.isWorking(ref, isChatMachine: { $0 == "lab" }), "a push for another peer dropped lab's row from the page")
+        #expect(!turns.isWorking(ref, isChatMachine: { $0 == "elsewhere" }), "the page's older row overwrote the newer push")
+    }
 }
