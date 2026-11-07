@@ -29,9 +29,22 @@ impl Terminal {
         // The READY prefix holds the PROMPT_REDRAW record and costs the
         // active screens only; the history comes only when a clear waits.
         let ready = self.encode_snapshot(SnapshotPhase::Ready).ok()?;
-        if !snapshot_records(&ready).any(|record| record.tag == tag::PROMPT_REDRAW) {
+        let Some(pending) =
+            snapshot_records(&ready).find(|record| record.tag == tag::PROMPT_REDRAW)
+        else {
             // Only a resize puts a clear off, and none waits now.
             self.prompt_clear_may_wait = false;
+            return None;
+        };
+        // The record starts with the grid the shell drew at (u16 columns,
+        // u16 rows). Back at that grid, the clear will do nothing
+        // (`settlePromptRedraw`), so the live screen is already the settled
+        // one: a bounce the shell never answered, which can wait until the
+        // person types, costs no copy.
+        let drawn = pending.payload().get(..4)?;
+        let drawn_grid =
+            (u16::from_le_bytes([drawn[0], drawn[1]]), u16::from_le_bytes([drawn[2], drawn[3]]));
+        if drawn_grid == (self.cols(), self.rows()) {
             return None;
         }
         let complete = self.encode_snapshot(SnapshotPhase::Complete).ok()?;
@@ -45,7 +58,13 @@ impl Terminal {
             )
         })
         .ok()?;
-        Some(copy)
+        // The replay plans its Kitty rows and history window on this
+        // terminal's rows and lays the text out on the copy's: they must be
+        // the same rows (the clear only blanks cells and moves the cursor).
+        let live_rows = self.scrollbar().map(|scrollbar| scrollbar.total);
+        let copy_rows =
+            self.with_replay_grid(Some(&copy), |term| term.scrollbar().map(|s| s.total));
+        (live_rows == copy_rows).then_some(copy)
     }
 
     /// Run `layout` with this terminal's grid, formatter and cursor reads
