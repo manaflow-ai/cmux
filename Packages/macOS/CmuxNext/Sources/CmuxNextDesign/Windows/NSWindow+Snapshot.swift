@@ -202,7 +202,15 @@ extension NSWindow {
         capture: @escaping @Sendable (WindowOverlaysCapturePlan) -> WindowOverlaysCapture? = { NSWindow.capture($0) }
     ) async -> WindowOverlaysCapture? {
         guard let plan = overlaysCapturePlan(cuttingOverlays: cuttingOverlays) else { return nil }
-        return capture(plan)
+        return await Self.capturedOffMain(plan, capture: capture)
+    }
+
+    /// `capture(plan)` off the main actor.
+    @concurrent
+    nonisolated static func capturedOffMain(
+        _ plan: WindowOverlaysCapturePlan, capture: @Sendable (WindowOverlaysCapturePlan) -> WindowOverlaysCapture?
+    ) async -> WindowOverlaysCapture? {
+        capture(plan)
     }
 
     /// What ``compositedImageWithOverlays(cuttingOverlays:capture:)`` captures, read from AppKit on
