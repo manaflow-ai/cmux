@@ -1521,6 +1521,8 @@ An empty group now keeps only its header at rest. The header's existing + appear
   drag empties still keeps its drop row in the dragged rows' place. An empty document section the drag does not
   empty draws nothing, as at rest.
 - Tests: `SidebarDragStartKeepsRowsTests` (list and document), red commit first.
+- A block tile's drag opens the zone too; a Pinned that keeps items opens none (the drop goes among its items); the
+  half-row threshold is the height of the row the zone opens above (density, status and detail lines).
 
 ## Reviewed behavior-only commits
 

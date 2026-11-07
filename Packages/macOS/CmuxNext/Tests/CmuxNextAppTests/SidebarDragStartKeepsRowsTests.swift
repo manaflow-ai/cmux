@@ -15,14 +15,14 @@ import Testing
 
     /// An empty Pinned over five loose rows: on the list's own sections, or (`document`) on the sidebar document with
     /// Home's block on top, as the nightly draws it.
-    static func list(document: Bool) -> (SidebarListView, NSWindow) {
+    static func list(document: Bool, pins: [LayoutItem] = []) -> (SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let rows = SidebarSection(kind: .machine(machine), nodes: loose.map { .workspace(SidebarWorkspace(id: $0, title: $0.rawValue)) })
         let model: SidebarModel
         let list: SidebarListView
         if document {
             let top = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, arrangement: .list, items: [home])
-            let pinned = SidebarLayoutDocument.pinnedSection(items: [])
+            let pinned = SidebarLayoutDocument.pinnedSection(items: pins)
             model = SidebarModel(sections: [
                 SidebarSection(kind: .custom(SidebarCustomSection(id: top.id.rawValue)), nodes: []),
                 SidebarSection(kind: .custom(SidebarCustomSection(id: pinned.id.rawValue)), nodes: []),
@@ -31,9 +31,9 @@ import Testing
             list = SidebarListView(model: model)
             var metrics = SidebarRegionMetrics.standard
             metrics.trailingTrim = SidebarStyle.rowTrailingTrim
-            list.blocks = SidebarListBlocks(sections: [top.id.rawValue: top, pinned.id.rawValue: pinned], infos: [home.id: .fallback(for: home)],
+            list.blocks = SidebarListBlocks(sections: [top.id.rawValue: top, pinned.id.rawValue: pinned], infos: Dictionary(uniqueKeysWithValues: ([home] + pins).map { ($0.id, SidebarItemInfo.fallback(for: $0)) }),
                                             collapsed: [], look: .quiet, metrics: metrics, drawsLines: false, appHeights: [:])
-            let keys = [home.id.rawValue, top.id.rawValue, pinned.id.rawValue, "sec_m_local"] + loose.map { "itm_" + $0.rawValue }
+            let keys = [home.id.rawValue, top.id.rawValue, pinned.id.rawValue, "sec_m_local"] + pins.map(\.id.rawValue) + loose.map { "itm_" + $0.rawValue }
             model.docDrag = SidebarDocDrag(item: { key in
                 if case let .workspace(id) = key { return "itm_" + id.rawValue }
                 return nil
@@ -130,7 +130,7 @@ import Testing
         let dragged = Self.dragged
         let before = Self.ys(list, except: [dragged])
         let (drag, start) = try Self.lift(list)
-        let zone = try #require(drag.pinZone, "no zone to open for an empty Pinned")
+        let zone = try #require(drag.pinZone?.span, "no zone to open for an empty Pinned")
         let origin = try #require(list.displayed.row(for: dragged)).y
         let above = Self.ys(list, except: [dragged]).filter { $0.value >= zone.lowerBound - 0.5 && $0.value < origin }
         let first = try #require(above.min { $0.value < $1.value }, "no row above the lifted one")
@@ -160,6 +160,25 @@ import Testing
             list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
         }
         #expect(!drag.reachesPinned && !Self.zoneShows(list), "the zone stayed open with the pointer back under it")
+        list.cancelDrag()
+    }
+
+    /// A Pinned that keeps items opens no zone: a drag up past its block draws no "Drop here to pin" row under it.
+    @Test func aPinnedWithItemsOpensNoZone() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        let pin = LayoutItem(id: LayoutItemID("itm_pin"), ref: .workspace("local:ws-pin"))
+        let (list, window) = Self.list(document: true, pins: [pin])
+        defer { window.close() }
+        let (drag, start) = try Self.lift(list)
+        #expect(drag.pinZone == nil, "a Pinned with items has a zone to open")
+        var y = start.y
+        while y > 2 {
+            y = max(2, y - 6)
+            list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
+            #expect(!list.displayed.rows.contains { $0.key == .emptySection(.custom(SidebarLayoutDocument.pinnedSectionID.rawValue)) },
+                    "a drop row shows under a Pinned with items at y \(y)")
+        }
         list.cancelDrag()
     }
 }

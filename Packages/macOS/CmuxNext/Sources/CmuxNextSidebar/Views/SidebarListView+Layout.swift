@@ -109,7 +109,10 @@ extension SidebarListViewComponents {
         // empty Pinned opens one only as the drag reaches the top edge (`SidebarPinZone`).
         if let blocks, let moving = shownDrag?.docItems.map(Set.init) {
             o.emptyDocSections = Set(blocks.sections.filter { !$0.value.items.isEmpty && $0.value.items.allSatisfy { moving.contains($0.id.rawValue) } }.keys)
-            if shownDrag?.reachesPinned == true { o.emptyDocSections.insert(SidebarDocStore.pinnedSection) }
+            // Only an empty Pinned (or one the drag empties) opens a zone: one that keeps items takes the drop among them.
+            if shownDrag?.reachesPinned == true, blocks.sections[SidebarDocStore.pinnedSection]?.items.allSatisfy({ moving.contains($0.id.rawValue) }) ?? true {
+                o.emptyDocSections.insert(SidebarDocStore.pinnedSection)
+            }
         }
         guard let drag = shownDrag else { return o }
         o.showEmptyPinned = drag.reachesPinned

@@ -1,15 +1,14 @@
 import AppKit
 
 /// An empty Pinned's drop zone (its header and its "Drop here to pin" row) opens only where the drag goes: as the
-/// pointer, moving up, reaches the top half of the list's first row (or above it), the zone opens there on the drag's
+/// pointer, moving up, reaches the top half of the row the zone opens above (or above it), the zone opens there on the drag's
 /// spring like any other gap, and it closes once the pointer leaves it by half a row. A drag's start moves no row
 /// (Leo 2026-11-07: "it's super weird how when you drag ANY workspace, it shifts imediately due to that").
 @MainActor enum SidebarPinZone {
     /// Opens or closes the zone for the pointer at `point` (list coordinates); a change shows at once, as a target
     /// change would, and the drag's base and document geometry are made again with the zone in or out.
     static func update(_ list: SidebarListView, _ drag: SidebarListDrag, at point: NSPoint) {
-        guard let zone = drag.pinZone else { return }
-        let half = list.metrics.rowHeight / 2
+        guard let (zone, half) = drag.pinZone else { return }
         let reaches = drag.reachesPinned ? point.y < zone.upperBound + half : drag.movingUp && point.y < zone.lowerBound + half
         guard reaches != drag.reachesPinned else { return }
         drag.reachesPinned = reaches
@@ -27,7 +26,9 @@ import AppKit
         drag.reachesPinned = false
         let rows = open.rows.filter { isZone($0.key) }
         guard let top = rows.map(\.y).min(), let bottom = rows.map(\.maxY).max() else { return }
-        drag.pinZone = top...bottom
+        // The row the zone opens above, at its own height (density, a status or detail line), not the standard row's.
+        let under = list.displayed.rows.first { $0.y >= top - 0.5 && !drag.hiddenKeys.contains($0.key) }
+        drag.pinZone = (top...bottom, (under?.height ?? list.metrics.rowHeight) / 2)
     }
 
     static func isZone(_ key: SidebarRowKey) -> Bool {
