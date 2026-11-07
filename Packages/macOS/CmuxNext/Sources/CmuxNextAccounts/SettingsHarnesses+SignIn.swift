@@ -15,12 +15,14 @@ extension SettingsHarnesses: AgentSignInSource {
     /// answered with no row for it did not find it). A daemon that answered no health lists them
     /// all, their sign-in unknown. Named by the profile's display name, else the name cmux lists
     /// for the id ("Claude Code"), else the id. A harness the check did not find that cmux can
-    /// install (Claude Code, Codex) is listed as not installed, for the step's Install.
+    /// install (Claude Code, Codex) is listed as not installed, for the step's Install; one with no
+    /// row only when the daemon answered the list.
     var signInRows: [OnboardingAgent] {
         let listed: [OnboardingAgent] = rows.compactMap { row in
             guard row.kind != "terminal", row.problem == nil else { return nil }
             let health = health[row.id]
-            let missing = healthAnswered && health?["path"]?.stringValue == nil && health?["version"]?.stringValue == nil
+            // Missing only by a current answer: rows and health kept from before a failed read prove nothing now.
+            let missing = listAnswered && healthAnswered && health?["path"]?.stringValue == nil && health?["version"]?.stringValue == nil
             if missing, OnboardingAgent.installPages[row.id] == nil { return nil }
             let known = AgentBrandCatalog.agents.first { $0.id == row.id.lowercased() }
             return OnboardingAgent(id: row.id, name: row.name ?? known?.name ?? row.id,
@@ -28,8 +30,9 @@ extension SettingsHarnesses: AgentSignInSource {
                                    auth: health?["auth"]?.stringValue.flatMap(OnboardingAgent.Auth.init(rawValue:)) ?? .unknown,
                                    installed: !missing)
         }
-        // acpmux lists Claude Code or Codex only once it finds them: one it lists no row for is not here,
-        // and the step offers to install it.
+        // acpmux lists Claude Code or Codex only once it finds them: one its answer has no row for is not
+        // here, and the step offers to install it. With no answer, nothing is known to be missing.
+        guard listAnswered else { return listed }
         let absent = OnboardingAgent.installPages.keys.sorted().filter { id in !rows.contains { $0.id == id } }.map { id in
             OnboardingAgent(id: id, name: AgentBrandCatalog.agents.first { $0.id == id }?.name ?? id,
                             brand: AgentBrandCatalog.brand(for: id)?.rawValue, auth: .unknown, installed: false)

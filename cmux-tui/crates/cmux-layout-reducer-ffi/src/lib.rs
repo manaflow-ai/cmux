@@ -6,6 +6,8 @@
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
 //! row or dock shows, what a hidden pane leaves, where a moved tab or
 //! workspace lands),
+//! auto-archive's plan (`auto_archive_plan`: which idle workspaces are due
+//! and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
 //! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_harness_login`,
@@ -18,6 +20,8 @@
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer),
+//! `cmux-cloud-tasks`' follower of the app's cloud tasks (`cloud_task_*`: one
+//! step per event, the saved list, a hand-off's status and times),
 //! the machine bootstrap, machine config and create retry rules
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
 //! `cloud_create_*`, `cloud_power_retries`),
@@ -48,6 +52,7 @@ pub mod close_focus;
 pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
+mod cloud_task;
 pub mod drag_handle;
 pub mod focus;
 mod imessage;
@@ -176,6 +181,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_layout::respond(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"auto_archive_plan" => {
+                use cmux_layout_reducer::auto_archive;
+                let request: auto_archive::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
             }
             b"sidebar_edits" => {
                 let request: sidebar_edits::Request =
@@ -395,6 +406,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
             }
+            operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
             operation if cloud_bootstrap::handles(operation) => {
                 cloud_bootstrap::respond(operation, request)?
             }
