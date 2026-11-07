@@ -21,6 +21,8 @@ import CmuxNextTestSupport
             pageInfo.windows.closeAll()
             tab.close()
         }
+        // Each window's page reports its height at once, so the window opens in the call.
+        pageInfo.windows.makeWebContent = { _ in SizedWebContent() }
         let site = PageInfoSite(state: tab.state)
         pageInfo.windows.showCertificate([], site: site, failure: nil)
         pageInfo.perform(.siteSettings)
@@ -60,4 +62,13 @@ import CmuxNextTestSupport
         #expect(webView?.window == nil)
         if let webView { #expect(WebViewRetirement.isPageClosed(webView) == false) }
     }
+}
+
+/// A Page Info window's page that reports a height for every state it is given.
+@MainActor private final class SizedWebContent: BrowserChromeWebContent {
+    let view = NSView()
+    var onMessage: ((String, [String: Any]) -> Void)?
+    func push(_ state: [String: Any]) { onMessage?("size", ["height": 240]) }
+    func focus() {}
+    func close() { onMessage = nil }
 }

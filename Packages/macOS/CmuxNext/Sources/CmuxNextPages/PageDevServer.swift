@@ -55,6 +55,9 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.settings",
         "cmux.stats",
         "cmux.tasks",
+        "cmux.site-settings",
+        "cmux.site-data",
+        "cmux.certificate",
     ]
 
     /// The agent chat's page host (`cmux.agent`), which the server serves at `/agent-pane/` (the
