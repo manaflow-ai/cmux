@@ -169,6 +169,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_browser_dialog_output.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_browser_input_files_cli.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
