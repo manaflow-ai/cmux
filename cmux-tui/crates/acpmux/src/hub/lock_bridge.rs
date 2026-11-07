@@ -260,7 +260,9 @@ impl Hub {
                     tracing::info!("lock bridge: released (no session runs or waits)");
                 }
                 let mut state = BRIDGE.state.lock().unwrap_or_else(|e| e.into_inner());
-                state["holding"] = json!(false);
+                if let Some(state) = state.as_object_mut() {
+                    state.insert("holding".to_owned(), json!(false));
+                }
             }
         });
     }
