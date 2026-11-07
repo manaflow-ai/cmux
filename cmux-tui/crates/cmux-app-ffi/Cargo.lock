@@ -140,6 +140,7 @@ dependencies = [
  "cmux-focus-core",
  "cmux-imessage",
  "cmux-layout-reducer",
+ "cmux-tasks-core",
  "serde",
  "serde_json",
 ]
@@ -189,6 +190,15 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-tasks-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

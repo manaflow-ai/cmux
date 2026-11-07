@@ -180,6 +180,10 @@ export function applyEvent(mirror: Mirror, event: TaskEvent): Mirror {
     case "settings": {
       const { entity: _entity, ...settings } = value;
       next.settings = settings;
+      // A new key prefix reaches every task's key.
+      if (settings.key_prefix !== mirror.settings.key_prefix) {
+        next.tasks = new Map([...mirror.tasks].map(([id, task]) => [id, normalize(task, next)]));
+      }
       break;
     }
     default:

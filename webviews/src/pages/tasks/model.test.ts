@@ -58,6 +58,18 @@ describe("mirror", () => {
     expect(m.tasks.get("task_1")?.title).not.toBe("renamed");
   });
 
+  test("a settings event with a new key prefix renames every key", () => {
+    const m = mirror();
+    const next = applyEvent(m, {
+      seq: 43,
+      tx: "s",
+      kind: "settings",
+      change: { type: "upsert", value: { entity: "settings", ...m.settings, key_prefix: "OPS" } },
+    });
+    expect(next.tasks.get("task_3")?.key).toBe("OPS-3");
+    expect(m.tasks.get("task_3")?.key).toBe("CMX-3");
+  });
+
   test("a decimal sequence sent as a string still orders", () => {
     const m = fromSnapshot({ ...sampleSnapshot(), seq: "7" as unknown as number });
     expect(m.seq).toBe(7);

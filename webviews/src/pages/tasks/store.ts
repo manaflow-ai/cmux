@@ -98,6 +98,8 @@ export class TasksStore {
   private starting?: Promise<void>;
   /** A resync came while a read was in flight: read once more after it. */
   private readAgain = false;
+  /** An event subscribe is in flight. */
+  private subscribing = false;
 
   constructor(
     private readonly client: PageClient | null,
@@ -165,6 +167,9 @@ export class TasksStore {
     if (!client || !this.running) return;
     const lifetime = this.lifetime;
     if (!this.unsubscribe) {
+      // One subscribe at a time: a connection change during one waits for it, then reads.
+      if (this.subscribing) return;
+      this.subscribing = true;
       try {
         const unsubscribe = await client.subscribe<TasksChanged>(TasksOps.changed, (data) => {
           if (lifetime === this.lifetime) this.onChanged(data);
@@ -178,6 +183,8 @@ export class TasksStore {
         );
         this.scheduleRetry();
         return;
+      } finally {
+        if (lifetime === this.lifetime) this.subscribing = false;
       }
     }
     await this.read();
@@ -189,6 +196,7 @@ export class TasksStore {
     this.starting = undefined;
     this.readAgain = false;
     this.reading = false;
+    this.subscribing = false;
     this.cancelRetry();
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.onVisibility);
     this.unsubscribe?.();

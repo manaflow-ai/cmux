@@ -208,6 +208,21 @@ describe("TasksStore", () => {
     stop();
   });
 
+  test("a connection change during a subscribe makes no second subscription", async () => {
+    const provider = new MockTasksProvider();
+    provider.failSubscribes = 1;
+    const { store, timers } = await started(provider);
+    expect(store.getSnapshot().connection).toBe("unreachable");
+    // The retry and a reconnect start together; only one subscribes.
+    const pending = timers.fire();
+    provider.setHostConnected(false);
+    provider.setHostConnected(true);
+    await pending;
+    await tick();
+    expect(provider.subscriberCount).toBe(1);
+    expect(store.getSnapshot().connection).toBe("connected");
+  });
+
   test("a second start waits for the one in flight", async () => {
     const provider = new MockTasksProvider();
     const store = new TasksStore(provider, { visible: () => true });
