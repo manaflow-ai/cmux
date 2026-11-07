@@ -409,6 +409,15 @@ class JobLogEndpoint(unittest.TestCase):
         text = f"2026-10-30T12:00:00.000Z ##[error]No build-fleet verdict for `\t{HEAD}`"
         self.assertIsNotNone(excuse.no_verdict(text))
 
+    def test_a_byte_order_mark_never_hides_a_line(self):
+        # GitHub's job log can start a section with U+FEFF, which str.strip() keeps: a ws-check run's
+        # WS_CHECK_RESULT line came back as "\ufeffWS_CHECK_RESULT=..." and the base red read as unreported
+        # (cmuxterm-hq run 42391652834, 2026-11-07).
+        raw = "2026-11-07T16:38:25.8020289Z ok\n\ufeff2026-11-07T16:38:25.8257495Z WS_CHECK_RESULT={}"
+        self.assertEqual(excuse.lines_of(raw), ["ok", "WS_CHECK_RESULT={}"])
+        cli = "checks\tUNKNOWN STEP\t\ufeff2026-11-07T16:38:25.8257495Z WS_CHECK_RESULT={}"
+        self.assertEqual(excuse.lines_of(cli), ["WS_CHECK_RESULT={}"])
+
     def test_raw_log_tabs_preserve_the_entire_error(self):
         text = "2026-10-30T12:00:00.000Z ##[error]\tnew\tcompile failure"
         self.assertEqual(excuse.lines_of(text), ["##[error]\tnew\tcompile failure"])
@@ -523,6 +532,9 @@ if mode == "big":
     line = "2026-10-30T12:00:00.000Z " + "x" * 1000 + "\\n"
     sys.stdout.write(line * (41 * 1024 * 1024 // len(line)) + "2026-10-30T12:00:00.000Z tail\\n")
     sys.exit(0)
+if mode == "bom":
+    print("2026-10-30T12:00:00.000Z ok\\n\\ufeff2026-10-30T12:00:01.000Z WS_CHECK_RESULT={}")
+    sys.exit(0)
 print("2026-10-30T12:00:00.000Z \\x1b[31mred\\x1b[0m log")
 """
 
@@ -555,6 +567,11 @@ class PortableGhLog(unittest.TestCase):
         route = f"repos/{REPO}/actions/jobs/7/logs"
         self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}"])
         self.assertEqual(excuse.lines_of(raw), ["red log"])
+
+    def test_a_byte_order_mark_in_a_job_log_is_dropped_on_read(self):
+        raw = self.read("bom")
+        self.assertNotIn("\ufeff", raw)
+        self.assertEqual(excuse.lines_of(raw), ["ok", "WS_CHECK_RESULT={}"])
 
     def test_old_gh_falls_back_without_the_flag(self):
         self.assertIn("red", self.read("old"))
@@ -3801,7 +3818,8 @@ class WsCheckGitHub:
         # Paths each diff changes: the PR's (main...HEAD) and the base's from the merge-base to OLDER (a fix).
         self.pr_files, self.fix_files, self.fix_status = ["tools/guards.py"], ["tools/test_lane_place.py"], "ahead"
 
-    def verdict(self, sha, run_id, red, *, state="failure", steps=77, description=None, at="2026-11-05T04:44:24Z"):
+    def verdict(self, sha, run_id, red, *, state="failure", steps=77, description=None, at="2026-11-05T04:44:24Z",
+                seconds=""):
         """SHA's ws-check: STATE, run RUN_ID, its red steps RED ({step: [printed lines]})."""
         failed = list(red)
         self.statuses[sha] = [{"context": "ws-check", "state": state, "updated_at": at,
@@ -3819,7 +3837,7 @@ class WsCheckGitHub:
                  "skipped 0, gh calls 0)"]
         for step, printed in red.items():
             lines += [f"##[group]{step}", *printed, "##[endgroup]",
-                      f"ws-check step FAILED: {step} (exit 1, ran 4, skipped 0, gh calls 0)"]
+                      f"ws-check step FAILED: {step} (exit 1, ran 4, skipped 0, gh calls 0{seconds})"]
         lines.append("WS_CHECK_RESULT=" + json.dumps({"failed": failed, "head": sha, "ok": not failed, "steps": steps,
                                                        "suites": 9, "tests_ran": 400, "tests_skipped": 0}))
         self.logs[run_id * 10 + 1] = "\n".join(f"2026-11-05T04:39:27.9954759Z {line}" for line in lines)
@@ -3888,6 +3906,13 @@ class WsCheckPerTest(unittest.TestCase):
                       f"main {self.gh.TIP[:12]} too", audit)
         # Named as a check, the same.
         self.assertEqual(self.judge(checks=["ws-check"]), audit)
+
+    def test_a_step_line_with_its_seconds_is_read(self):
+        # leo-workspace#3746 (2026-11-07) ends each step line with its time, "(exit 1, ..., gh calls 0, 62.1 s)";
+        # read as "names no exit code", no ws-check red could be excused (leo-workspace#3745).
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()}, seconds=", 62.1 s")
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()}, seconds=", 0.4 s")
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
 
     def test_a_test_failing_on_main_too_is_excused_by_name(self):
         red = {self.RELAY: self.relay_lint(), self.DEPLOY: self.ws_deploy("test_units_that_never_let_go")}
@@ -4713,6 +4738,43 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             self.judge()
         self.assertEqual(len(self.graphql), 1)
 
+    def test_a_covered_pin_beside_a_red_the_base_shares_is_set_aside(self):
+        # cmux#37767 at 525bb16f: a step-A Rust change whose job also carried a red the base had too. The base never has
+        # the pin error, so comparing it with the base refused a PR the pin rule covers.
+        shared = "##[error]red check: Localized strings are complete"
+        self.gh.logs[1] = self.pin_log(shared)
+        self.gh.jobs[2]["conclusion"] = "failure"
+        self.gh.logs[2] = log(self.JOB, self.ROLLUP, shared, "##[error]Process completed with exit code 1.")
+        self.pr_files(*self.RUST)
+        [line] = self.judge()
+        self.assertIn("fails the same way", line)
+        self.assertIn("red check: Localized strings are complete", line)
+        self.assertNotIn("app FFI sources changed since the pinned source:", line.split("; set aside")[0])
+        self.assertTrue(line.endswith(
+            f"; set aside '{self.PIN}' (\"error: the app FFI sources changed since the pinned source\"): #37292 "
+            "changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: a step-A Rust change, "
+            "pinned by the release its merge publishes"), line)
+
+    def test_a_covered_pin_beside_a_red_the_base_lacks_is_refused(self):
+        self.gh.logs[1] = self.pin_log("##[error]red check: Localized strings are complete")
+        self.gh.jobs[2]["conclusion"] = "failure"
+        self.gh.logs[2] = log(self.JOB, self.ROLLUP, "##[error]red check: Swift files are formatted",
+                              "##[error]Process completed with exit code 1.")
+        self.pr_files(*self.RUST)
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next .*Localized strings are complete"):
+            self.judge()
+
+    def test_an_uncovered_pin_beside_a_red_the_base_shares_is_still_refused(self):
+        # The set-aside needs the path rule or a published base pin: a Swift change's pin error never leaves.
+        shared = "##[error]red check: Localized strings are complete"
+        self.gh.logs[1] = self.pin_log(shared)
+        self.gh.jobs[2]["conclusion"] = "failure"
+        self.gh.logs[2] = log(self.JOB, self.ROLLUP, shared, "##[error]Process completed with exit code 1.")
+        self.pr_files(*self.RUST, "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarClient.swift")
+        self.source = None
+        with self.assertRaisesRegex(excuse.Refused, "its app FFI pin is red, and #37292 changes Swift"):
+            self.judge()
+
     def test_a_rollup_that_never_named_the_pin_is_another_red(self):
         # Review of 0e1e7204: the rollup failed before its "red check:" line, so something else broke it.
         self.gh.logs[1] = self.pin_log().replace(f"##[error]red check: {self.PIN}", "Reading the step outcomes")
@@ -4731,6 +4793,178 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         with self.assertRaises(excuse.Refused):
             self.judge()
         self.assertEqual(self.graphql, [])
+
+
+
+GALLERY = "health (1)"
+RENDER_STEP, REPLAY_STEP = "Render the gallery and judge it", "Judge the red states against the base"
+GALLERY_STATE = "agent-pane.subagent-tray#restart-on-hover"
+PILL_ASKS = ("SyntaxError: Export named 'pillAsks' not found in module "
+             "'/home/runner/_work/cmux/cmux/webviews/src/agent-session/acpmux/needsYou/JumpPill.tsx'.")
+OLDER_SHA, OLDEST_SHA = "c" * 40, "d" * 40
+
+
+def gallery_job(job_id, run_id, sha, *, failed=REPLAY_STEP, render="success"):
+    steps = [("Checkout", "success"), ("Choose the entries to render", "success"),
+             (RENDER_STEP, render), (REPLAY_STEP, "skipped"),
+             ("Record what was rendered", "success")]
+    return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": GALLERY, "status": "completed",
+            "conclusion": "failure" if failed else "success",
+            "steps": [{"name": step, "status": "completed",
+                       "conclusion": "failure" if step == failed else conclusion} for step, conclusion in steps]}
+
+
+def health(*states, reason="did not render: never reported ready after 30000 ms"):
+    return json.dumps({"fresh": [{"state": state, "reason": reason} for state in states], "known": [], "slow": []})
+
+
+class GalleryGitHub(FakeGitHub):
+    """A gallery health shard of run 10 whose base replay crashed loading base BASE_SHA. feat-cmux-next's gallery
+    health runs: 30 at BASE_SHA (the break: its render wrote no health.json), 20 at OLDER_SHA (2 h older, red on the
+    same state), 25 at OLDEST_SHA (60 h older, past the window)."""
+
+    def __init__(self):
+        super().__init__()
+        self.jobs = {1: gallery_job(1, 10, HEAD), 3: gallery_job(3, 30, BASE_SHA), 2: gallery_job(2, 20, OLDER_SHA),
+                     4: gallery_job(4, 25, OLDEST_SHA)}
+        self.logs = {1: "\n".join(f"{GALLERY}\t{step}\t2026-11-07T15:48:15.0000000Z {line}" for step, line in (
+            (RENDER_STEP, f"- {GALLERY_STATE}: did not render: never reported ready after 30000 ms"),
+            (REPLAY_STEP, "##[group]Run set -euo pipefail"),
+            (REPLAY_STEP, f"replaying on base {BASE_SHA}: {GALLERY_STATE}"),
+            (REPLAY_STEP, PILL_ASKS),
+            (REPLAY_STEP, "##[error]Process completed with exit code 1."),
+            ("Record what was rendered", "##[group]Run set -euo pipefail")))}
+        self.base_runs = [{"id": run, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                           "conclusion": "failure", "head_sha": sha, "created_at": f"2026-11-07T{hour}:00:00Z"}
+                          for run, sha, hour in ((30, BASE_SHA, 15), (20, OLDER_SHA, 13), (25, OLDEST_SHA, 1))]
+        # by artifact id (run * 10): the head's, and each base run's
+        self.health = {100: health(GALLERY_STATE), 300: None, 250: health(GALLERY_STATE),
+                       200: health(GALLERY_STATE, reason="did not render: never reported ready after 31000 ms")}
+        now = excuse.datetime.fromisoformat("2026-11-07T15:00:00+00:00")
+        self.commits = [{"sha": sha, "parents": [{"sha": parent}],
+                         "commit": {"committer": {"date": (now - excuse.timedelta(hours=hours)).isoformat()}}}
+                        for sha, parent, hours in ((BASE_SHA, OLDER_SHA, 0), (OLDER_SHA, OLDEST_SHA, 2),
+                                                   (OLDEST_SHA, "e" * 40, 60))]
+        self.artifact_reads: list[int] = []
+        for job_id in (2, 3, 4):  # a base run red on a push: no base to compare with
+            self.logs[job_id] = log(GALLERY, REPLAY_STEP, "##[error]gallery health is red on this push, "
+                                                                         "which has no base to compare with")
+
+    def json(self, route, *, paginate=False):
+        if route == f"repos/{REPO}/actions/runs/10":
+            self.routes.append(route)
+            return {"id": 10, "workflow_id": 7, "name": "gallery health", "path": ".github/workflows/gallery-health.yml"}
+        if route.startswith(f"repos/{REPO}/commits?sha={BASE_SHA}&"):
+            self.routes.append(route)
+            return copy.deepcopy(self.commits) if route.endswith("&page=1") else []
+        if "/artifacts?" in route:
+            self.routes.append(route)
+            run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
+            # artifact id: the run id times ten
+            return {"artifacts": [{"id": run * 10, "name": "gallery-health-1", "expired": False}]}
+        return super().json(route, paginate=paginate)
+
+    def artifact_file(self, repo, artifact, member):
+        assert member == "health.json", member
+        self.artifact_reads.append(artifact)
+        return self.health[artifact]
+
+    def run(self, args):
+        raise excuse.Refused("no GraphQL here")
+
+
+class GalleryBaseLoadCrash(unittest.TestCase):
+    """A gallery health shard whose base replay crashed loading the base is judged per state against the newest older
+    base run with a whole verdict (gallery_crash_verdict)."""
+
+    def judge(self, github):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_crashed_base_replay_falls_back_to_an_older_base_verdict(self):
+        github = GalleryGitHub()
+        lines = "\n".join(self.judge(github))
+        self.assertIn(f"excused '{GALLERY}': its base replay crashed loading feat-cmux-next {BASE_SHA[:12]}", lines)
+        self.assertIn("Export named 'pillAsks' not found", lines)
+        # run 30 (the break itself) gave no whole result; run 20 is the fallback, named
+        self.assertIn(f"against feat-cmux-next {OLDER_SHA[:12]} (run 20)", lines)
+        self.assertIn(GALLERY_STATE, lines)
+        self.assertEqual(github.artifact_reads, [100, 300, 200])
+
+    def test_a_red_state_the_fallback_base_renders_is_its_own(self):
+        github = GalleryGitHub()
+        github.health[200] = health("agent-pane.other#state")
+        with self.assertRaisesRegex(excuse.Refused, rf"so judged against feat-cmux-next {OLDER_SHA[:12]} \(run 20\)"
+                                                    rf": 1 red state\(s\) render or are red another way"):
+            self.judge(github)
+
+    def test_a_crash_on_the_pull_request_side_is_never_excused(self):
+        github = GalleryGitHub()
+        # The head itself does not load: its render wrote no per-state result, so the replay never starts.
+        github.logs[1] = "\n".join(f"{GALLERY}\t{step}\t2026-11-07T15:48:15.0000000Z {line}" for step, line in (
+            (RENDER_STEP, PILL_ASKS),
+            (REPLAY_STEP, "##[group]Run set -euo pipefail"),
+            (REPLAY_STEP, "##[error]the render step failed but health.json names no red state")))
+        with self.assertRaises(excuse.Refused) as refused:
+            self.judge(github)
+        self.assertNotIn("base replay crashed", str(refused.exception))
+        self.assertEqual(github.artifact_reads, [])
+
+    def test_a_replay_red_without_a_load_error_is_not_a_crash(self):
+        github = GalleryGitHub()
+        github.logs[1] = github.logs[1].replace(PILL_ASKS, "::error title=gallery health::1 red state(s) render or "
+                                                           "are red another way on base bbbbbbbbbbbb: x")
+        with self.assertRaises(excuse.Refused) as refused:
+            self.judge(github)
+        self.assertNotIn("base replay crashed", str(refused.exception))
+        self.assertEqual(github.artifact_reads, [])
+
+    def test_no_whole_base_verdict_in_the_window_refuses(self):
+        github = GalleryGitHub()
+        github.health[200] = json.dumps({"error": "gallery health could not render: SyntaxError"})
+        with self.assertRaisesRegex(excuse.Refused, "base replay crashed loading .*; no feat-cmux-next commit in the "
+                                                    "last 50 first-parent commits or 48 h"):
+            self.judge(github)
+        self.assertNotIn(250, github.artifact_reads)  # run 25 is 60 h older: past the window, never read
+
+    def test_a_base_run_red_before_its_verdict_step_is_no_fallback(self):
+        github = GalleryGitHub()
+        github.jobs[2] = gallery_job(2, 20, OLDER_SHA, failed="Choose the entries to render", render="skipped")
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next commit in the last 50"):
+            self.judge(github)
+
+
+    def test_an_artifact_is_read_from_its_zip_and_held_to_its_cap(self):
+        import zipfile
+        with tempfile.TemporaryDirectory() as where:
+            archive = Path(where) / "a.zip"
+            with zipfile.ZipFile(archive, "w") as out:
+                out.writestr("health.json", health(GALLERY_STATE))
+                out.writestr("shots/one.png", b"\0" * 4096)
+            gh = Path(where) / "gh"
+            gh.write_text(f"#!/bin/sh\ncat '{archive}'\n")
+            gh.chmod(0o755)
+            with unittest.mock.patch.dict(os.environ, {"PATH": f"{where}:{os.environ['PATH']}"}):
+                reader = excuse.GitHub()
+                self.assertEqual(json.loads(reader.artifact_file(REPO, 7, "health.json"))["fresh"][0]["state"],
+                                 GALLERY_STATE)
+                self.assertIsNone(reader.artifact_file(REPO, 7, "missing.json"))
+                with unittest.mock.patch.object(excuse, "ARTIFACT_MAX_BYTES", 100):
+                    with self.assertRaisesRegex(excuse.Refused, "artifact 7 is over"):
+                        reader.artifact_file(REPO, 7, "health.json")
+
+    def test_an_artifact_download_that_stalls_ends_at_its_deadline(self):
+        # gh itself stalls, and a gh wrapper (the agent hosts' shim) whose child holds stdout stalls
+        for script in ("exec sleep 30", "sleep 30\nexit 0"):
+            with self.subTest(script=script), tempfile.TemporaryDirectory() as where:
+                gh = Path(where) / "gh"
+                gh.write_text(f"#!/bin/sh\n{script}\n")  # sends nothing
+                gh.chmod(0o755)
+                with unittest.mock.patch.dict(os.environ, {"PATH": f"{where}:{os.environ['PATH']}"}), \
+                        unittest.mock.patch.object(excuse, "ARTIFACT_SECONDS", 0.2):
+                    started = excuse.time.monotonic()
+                    with self.assertRaisesRegex(excuse.Refused, "took over 0.2 seconds"):
+                        excuse.GitHub().artifact_file(REPO, 7, "health.json")
+                    self.assertLess(excuse.time.monotonic() - started, 5)
 
 
 if __name__ == "__main__":

@@ -378,7 +378,10 @@ function promptOf(
     return {
       kind: "message",
       message: {
-        name: signed?.name ?? name,
+        // The recorded session names the line; only an app/persona label (`[from APP › PERSONA]`)
+        // names its own sender, since a plain signature can't override the recorded name. With no
+        // recorded name (the raw `from` address), the signature still reads better than the address.
+        name: signed && (signed.app || name === provenance.from) ? signed.name : name,
         ...(signed?.app && { app: signed.app }),
         ...(signed?.persona && { persona: signed.persona }),
         ...(provenance.kind === "lane_report"
@@ -461,7 +464,10 @@ function promptOf(
     return {
       kind: "message",
       message: {
-        name: signed?.name ?? name,
+        // The recorded session names the line; only an app/persona label (`[from APP › PERSONA]`)
+        // names its own sender, since a plain signature can't override the recorded name. With no
+        // recorded name (the raw `from` address), the signature still reads better than the address.
+        name: signed && (signed.app || name === provenance.from) ? signed.name : name,
         ...(signed?.app && { app: signed.app }),
         ...(signed?.persona && { persona: signed.persona }),
         ...(sessionId && { sessionId }),

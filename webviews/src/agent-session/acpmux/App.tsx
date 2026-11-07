@@ -63,7 +63,7 @@ import { setNowPlaying } from "./newtab/nowPlaying";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
-import type { AllChatsPage } from "./newtab/AllChatsList";
+import type { AllChatsPage } from "./newtab/allChatsListModel";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
@@ -215,7 +215,7 @@ import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { type SummaryBackgroundTask, transcriptBackground } from "./summary/sessionSummary";
-import { openSourceFile } from "./session-info/SourcesSection";
+import { openSourceFile } from "./session-info/sourcesSectionModel";
 import { useSessionInfo } from "./session-info/SessionInfo";
 import { setRemoteControl, toggleRemoteControl, useRemoteControl } from "./remoteControl";
 import {
@@ -560,7 +560,8 @@ import { BACKGROUND_NOTICE_TEXT, useBackgroundNotice } from "./conversation/back
 import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { ownMachineFolders, type ExtraFolderDraft } from "./extraFolders";
-import { type FolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
+import { WorktreeFailure } from "./startFolder";
+import { type FolderAsk, confirmFolder, newWorktree, pickFolder } from "./startFolderModel";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
@@ -2285,17 +2286,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
   // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
-  // screencapture's own pick and answers the PNG; a cancelled pick answers no data, and a capture
-  // that would not fit the image cap answers `tooLarge` with its name.
+  // screencapture's own pick and answers the PNG, at any size; a cancelled pick answers no data.
   const captureScreen = useCallback(async (mode: "screen" | "window") => {
     const shot = await callNative<{
       name?: string;
       mimeType?: string;
       data?: string;
-      tooLarge?: boolean;
       source?: unknown;
     } | null>("composer.capture", { mode }).catch(() => null);
-    if (shot?.tooLarge) return { name: shot.name ?? "Screenshot.png", reason: "tooLarge" } as const;
     if (!shot?.data) return undefined;
     const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
     // cmux took it: its chip wears cmux's icon (composer/attachmentSources.ts).
@@ -11206,6 +11204,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       }}
                       sessionInfo={sessionInfo.button}
                       inbox={<NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />}
+                      inboxRelevant={needsYou.items.length > 0}
+                      newButton={
+                        quick
+                          ? undefined
+                          : {
+                              available: {
+                                sideChat: sideChat !== undefined,
+                                // chat.newHere needs a started chat that is not a Cloud chat (canMove, as the folder menu's
+                                // New Chat) and its folder; another machine's only when absolute.
+                                newTab: canMove && chatCwd !== undefined && (!remoteChat || chatCwd.startsWith("/")),
+                              },
+                              make: (kind) => {
+                                if (kind === "terminal") newTerminal();
+                                else if (kind === "browser") newBrowser();
+                                else if (kind === "sideChat") sideChat?.onSelect?.();
+                                // The New Tab page beside the chat, in the chat's folder: it starts a chat or opens anything else.
+                                else if (chatCwd) ignoreFailure(callNative("chat.newHere", { cwd: chatCwd }));
+                              },
+                            }
+                      }
                       summary={sessionInfo.on ? null : (native) => <SummaryButton card={summaryCard} native={native} />}
                       menu={chatMenu}
                       onMenuOpen={() => Promise.all([readTabState(), readChatMini()])}
