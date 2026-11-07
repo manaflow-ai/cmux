@@ -431,8 +431,15 @@ finished=0
 # results still come back.
 deadline=$(( started_at + budget_s - 300 ))
 [[ "$suite" != arena ]] && (( deadline > $(date +%s) + 5400 )) && deadline=$(( $(date +%s) + 5400 ))
+# A progress line every 5 minutes: the guest's eval.log stays in the guest until it ends, and the
+# controller stops a measurement that prints nothing for 45 minutes (CMUX_CI_MEASURE_SILENT_MAX).
+next_progress=$(( $(date +%s) + 300 ))
 while (( $(date +%s) < deadline )); do
   guest_n 'test -f ~/cu-eval/eval.status' 2>/dev/null && { finished=1; break; }
+  if (( $(date +%s) >= next_progress )); then
+    next_progress=$(( $(date +%s) + 300 ))
+    note "still running: $(guest_n 'n=$(wc -l <~/cu-eval/artifacts/cu-driver-eval/arena/trials.jsonl 2>/dev/null || echo 0); echo "$n trials; $(tail -1 ~/cu-eval/eval.log 2>/dev/null | cut -c1-160)"' 2>/dev/null)"
+  fi
   sleep 10
 done
 guest_n 'cat ~/cu-eval/eval.log' >"$out/eval.log" 2>/dev/null
