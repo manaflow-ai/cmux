@@ -3023,7 +3023,11 @@ class PackageFixedOnBase(unittest.TestCase):
 
     def test_a_swift_package_declared_in_an_unread_form_is_refused(self):
         for manifest, said in (('.package(path: macPath)', "Package.swift:1 declares a package dependency"),
-                               ('.package(path: #"../../macOS/CmuxNext"#)', "raw or multiline string literal")):
+                               ('.package(path: #"../../macOS/CmuxNext"#)', "raw, multiline or interpolated"),
+                               # An interpolation's quote would end the literal early and a `/*` in it would then
+                               # blank the rest, the next dependency with it (review of 4a2a357a, F1).
+                               ('let note = "\\(String("/*"))"\n.package(path: "../../macOS/CmuxNext")',
+                                "raw, multiline or interpolated")):
             files = dict(KIT_FILES)
             files["Packages/iOS/CmuxTabsKit/Package.swift"] = manifest
             with self.subTest(manifest=manifest), self.assertRaisesRegex(excuse.Refused, said):

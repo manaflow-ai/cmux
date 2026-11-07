@@ -1620,8 +1620,8 @@ SWIFT_PACKAGE_TOKEN = re.compile(r"\.package\b")
 
 def swift_without_comments(text: str) -> str | None:
     """TEXT with its Swift comments (`//` to the line end, `/* */` nested as Swift nests them) blanked, plain string
-    literals kept whole (a url's `//` is not a comment); None when it has a raw (`#"`) or multiline literal, which this
-    reader does not parse."""
+    literals kept whole (a url's `//` is not a comment); None when it has a raw (`#"`), multiline or interpolated
+    (`\\(`) literal, which this reader does not parse: an interpolation's own quotes would end the literal early."""
     out, i, n = [], 0, len(text)
     while i < n:
         if text.startswith('"""', i) or text.startswith('#"', i):
@@ -1629,6 +1629,8 @@ def swift_without_comments(text: str) -> str | None:
         if text[i] == '"':
             j = i + 1
             while j < n and text[j] not in '"\n':
+                if text.startswith("\\(", j):
+                    return None
                 j += 2 if text[j] == "\\" else 1
             out.append(text[i:j + 1])
             i = j + 1
@@ -1765,7 +1767,8 @@ def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]
         # this rule cannot see, so it refuses.
         code = swift_without_comments(manifest)
         if code is None:
-            raise Refused(f"{where}/Package.swift has a raw or multiline string literal, which this rule does not read")
+            raise Refused(f"{where}/Package.swift has a raw, multiline or interpolated string literal, which this rule "
+                          "does not read")
         known = {found.start() for pattern in (SWIFT_PATH_PACKAGE, SWIFT_URL_PACKAGE) for found in pattern.finditer(code)}
         if unread := [found.start() for found in SWIFT_PACKAGE_TOKEN.finditer(code) if found.start() not in known]:
             line = code.count("\n", 0, unread[0]) + 1
