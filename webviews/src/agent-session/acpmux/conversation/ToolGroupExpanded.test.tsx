@@ -400,6 +400,45 @@ for (const agentFamily of ["claude", "codex"])
       expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(false);
     });
 
+test("an opened mixed run keeps a command's returned image and printed screenshot", async () => {
+  const shot = "data:image/png;base64,iVBORw0KGgo=";
+  const row: AcpmuxRow = {
+    id: "mixed-capture",
+    kind: "activity",
+    at: 1,
+    version: 1,
+    settled: true,
+    foldRun: true,
+    items: [
+      {
+        kind: "tool",
+        text: "Read notes.md",
+        tool: { id: "read-notes", title: "Read notes.md", kind: "read", status: "completed", output: "notes" },
+      },
+      {
+        kind: "tool",
+        text: "screencapture",
+        tool: {
+          id: "capture-shell",
+          title: "Bash",
+          kind: "execute",
+          status: "completed",
+          command: "screencapture /tmp/shot.png",
+          output: "Saved /tmp/shot.png",
+          images: [shot],
+        },
+      },
+    ],
+  };
+  const container = await render(<ToolRows row={row} sessionId="mixed-capture" />);
+  await act(async () => container.querySelector<HTMLButtonElement>("button.cv-tool")!.click());
+  const steps = container.querySelector("[data-mixed-tool-steps]")!;
+  // As base draws a run's command (ToolRow): its images show under its row, opened or not.
+  const strip = steps.querySelector(".cv-tool-images");
+  expect(strip).not.toBeNull();
+  expect(strip!.querySelector(`img[src="${shot}"]`)).not.toBeNull();
+});
+
 test("a finished turn whose only work is hidden discovery folds nothing under Worked for", async () => {
   const { mixedToolRunFixture } = await import("./mixedToolRunFixture");
   const { turnView, WORKED } = await import("./turns");
