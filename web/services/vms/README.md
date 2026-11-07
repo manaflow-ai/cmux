@@ -513,6 +513,19 @@ the gateway maps an absent method to `VmOperationUnsupportedError` (an honest 50
 `MockVMProvider` (`drivers/mock.ts`) is the interface's second implementer and the test
 double for provider-contract tests.
 
+The `capabilities.fork` flag advertises **native provider fork support**,
+while the Cloud `POST /api/vm/:id/fork` workflow can still copy a machine by
+snapshot + create when native fork is unavailable or would inherit an
+unusable model-plane credential or restricted egress. The fork route returns
+`forkMethod: "native-live" | "snapshot-create" | "unknown"`; this describes
+the operation that actually allocated the child. New fork rows persist
+`cmuxForkMethod` alongside the initial idempotency reservation, so a replay
+and later VM inventory read recover it. Older rows without the marker answer
+`"unknown"` on a fork replay and omit `forkMethod` from inventory.
+A `snapshotId: null` response alone can never prove a native fork, since
+cached snapshot-based retries also omit that snapshot ID. Clients should
+render unknown as unresolved provenance, without inferring memory semantics.
+
 ## TLS edge: port previews and credential injection
 
 The current port-preview and model-plane paths have different trust boundaries:

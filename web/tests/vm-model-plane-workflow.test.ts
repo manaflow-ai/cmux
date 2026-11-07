@@ -473,10 +473,24 @@ describe("fork model plane", () => {
   test.each([false, true])("a fork gets its own inline rule even when a native fork is exposed: %s", async (native) => {
     const creates: CreateOptions[] = [];
     const provisioned: string[] = [];
+    let reservedMethod: unknown;
+    let finalizedMethod: unknown;
     const source = row({ id: "source-row", providerVmId: "source-vm", status: "running" });
+    const fake = fakeRepo({ usageEvents: [], failed: [] });
     const input = { ...createInput, teamIds: ["team-mp"], providerVmId: "source-vm", modelPlane: fakeModelPlane({ provisioned, revoked: [] }) };
     const result = await Effect.runPromise(forkVm(input).pipe(Effect.provide(layer(
-      { ...fakeRepo({ usageEvents: [], failed: [] }), findUserVm: () => Effect.succeed(source) },
+      {
+        ...fake,
+        findUserVm: () => Effect.succeed(source),
+        beginCreate: (request) => {
+          reservedMethod = request.forkMethod;
+          return fake.beginCreate(request);
+        },
+        markCreateRunning: (request) => {
+          finalizedMethod = request.providerMetadata?.cmuxForkMethod;
+          return fake.markCreateRunning(request);
+        },
+      },
       {
         ...fakeProviders({ creates }),
         snapshot: () => Effect.succeed({ id: "source-copy", createdAt: 0 }),
@@ -484,6 +498,9 @@ describe("fork model plane", () => {
       },
     ))));
     expect(result.fork.providerVmId).toBe("provider-vm-mp");
+    expect(result.forkMethod).toBe("snapshot-create");
+    expect(reservedMethod).toBe("snapshot-create");
+    expect(finalizedMethod).toBe("snapshot-create");
     expect(provisioned).toEqual([ROW_ID]);
     expect(creates[0]?.image).toBe("source-copy");
     expect(creates[0]?.edgeRules).toEqual(MATERIALS.edgeRules);

@@ -107,6 +107,8 @@ export async function POST(
       const result = run.value;
       return jsonResponse({
         snapshotId: result.snapshot?.id ?? null,
+        // Idempotent replays can report unknown; null snapshotId alone says nothing about native forking.
+        forkMethod: result.forkMethod,
         id: result.fork.providerVmId,
         provider: result.fork.provider,
         image: result.fork.image,
