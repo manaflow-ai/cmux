@@ -44,6 +44,9 @@ pub const MAX_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const TERM_GRACE: Duration = Duration::from_secs(5);
 /// How long the killed group may take to be reaped before it counts as still running.
 const KILL_SETTLE: Duration = Duration::from_secs(2);
+/// How long sudo may take to print its prompt before stdin closes with no password: past it,
+/// sudo asked for none (or is stuck), and an empty stdin is what the command gets.
+const PROMPT_WAIT: Duration = Duration::from_secs(if cfg!(test) { 10 } else { 20 });
 const MAX_ARGS: usize = 256;
 const MAX_ARG_BYTES: usize = 4096;
 const MAX_REASON_CHARS: usize = 500;
@@ -196,8 +199,12 @@ impl Hub {
     }
 }
 
-/// Runs `sudo -S -k -p '' -- argv` with `password` on its stdin, then `sudo -k`. The password is
-/// zeroed when this returns.
+/// Runs `sudo -S -k -p MARKER -- argv`, answers sudo's own prompt with `password`, then runs
+/// `sudo -k`. The password is zeroed when this returns.
+///
+/// The password goes to stdin only once sudo has printed `MARKER`, a prompt unique to this run,
+/// on stderr (`answer_prompt`). A sudo that asks for none (a `NOPASSWD` rule) prints no prompt and
+/// hands its stdin to the command, which then reads an empty stdin, never the password.
 async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
     let mut command = tokio::process::Command::new(sudo);
     command.env_clear();
@@ -208,8 +215,9 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
     }
     // A fixed PATH: sudo's own secure_path decides the command's; this one is only sudo's.
     command.env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+    let marker = prompt_marker();
     command
-        .args(["-S", "-k", "-p", "", "--"])
+        .args(["-S", "-k", "-p", &marker, "--"])
         .args(&ask.argv)
         .current_dir("/")
         .stdin(std::process::Stdio::piped())
@@ -227,21 +235,16 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
                           "stderr": format!("could not start sudo: {e}")});
         }
     };
-    if let Some(mut stdin) = child.stdin.take() {
-        let mut line = Zeroizing::new(Vec::with_capacity(password.len() + 1));
-        line.extend_from_slice(password.as_bytes());
-        line.push(b'\n');
-        // A sudo that exited first (a refused rule) closes the pipe: what it prints says why.
-        let _ = stdin.write_all(&line).await;
-        let _ = stdin.shutdown().await;
-    }
     let pid = child.id();
-    let cap = MAX_OUTPUT_BYTES + password.len();
-    let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
-    let reads =
-        tokio::spawn(
-            async move { tokio::join!(read_capped(stdout, cap), read_capped(stderr, cap)) },
-        );
+    let cap = MAX_OUTPUT_BYTES + password.len() + marker.len();
+    let (stdin, stdout, stderr) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
+    let answer = password.clone();
+    let reads = tokio::spawn(async move {
+        tokio::join!(
+            read_capped(stdout, cap),
+            answer_prompt(stderr, stdin, marker.into_bytes(), answer, cap)
+        )
+    });
     let mut left_running = false;
     let status = match tokio::time::timeout(ask.timeout, child.wait()).await {
         Ok(status) => Some(status),
@@ -284,6 +287,78 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
         "stdout": mask_within(out, &password, MAX_OUTPUT_BYTES),
         "stderr": stderr,
     })
+}
+
+/// A prompt no command prints by chance: sudo's `-p`, so its appearance on stderr means sudo
+/// itself waits for the password.
+fn prompt_marker() -> String {
+    let mut bytes = [0u8; 16];
+    // A clock-derived marker still works if the OS has no randomness: it only has to be one no
+    // command prints by chance.
+    if getrandom::fill(&mut bytes).is_err() {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+        bytes = now.map(|d| d.as_nanos()).unwrap_or_default().to_le_bytes();
+    }
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    format!("[acpmux-sudo-{hex}]")
+}
+
+/// Reads sudo's stderr. When sudo's prompt (`marker`) shows, the password line goes to its stdin
+/// once and stdin closes, so a second prompt (a wrong password) reads end of file and sudo gives
+/// up. When no prompt shows within `PROMPT_WAIT`, stdin closes with nothing written: sudo asked
+/// for no password, and the command gets an empty stdin. Returns stderr, capped, without the
+/// marker.
+async fn answer_prompt(
+    stderr: Option<tokio::process::ChildStderr>,
+    mut stdin: Option<tokio::process::ChildStdin>,
+    marker: Vec<u8>,
+    password: Zeroizing<String>,
+    cap: usize,
+) -> (Vec<u8>, bool) {
+    use tokio::io::AsyncReadExt;
+    let (mut kept, mut cut) = (Vec::new(), false);
+    let Some(mut stderr) = stderr else { return (kept, cut) };
+    let deadline = tokio::time::Instant::now() + PROMPT_WAIT;
+    let mut chunk = [0u8; 8192];
+    loop {
+        let read = if stdin.is_some() {
+            tokio::select! {
+                read = stderr.read(&mut chunk) => read,
+                () = tokio::time::sleep_until(deadline) => {
+                    stdin = None;
+                    continue;
+                }
+            }
+        } else {
+            stderr.read(&mut chunk).await
+        };
+        let n = match read {
+            Ok(0) | Err(_) => break,
+            Ok(n) => n,
+        };
+        let room = cap - kept.len();
+        cut |= n > room;
+        // Only the new bytes and the marker's length before them can complete it.
+        let from = kept.len().saturating_sub(marker.len());
+        kept.extend_from_slice(&chunk[..n.min(room)]);
+        let prompted = kept[from..].windows(marker.len()).any(|w| w == marker.as_slice());
+        if let Some(mut pipe) = stdin.take_if(|_| prompted) {
+            let mut line = Zeroizing::new(Vec::with_capacity(password.len() + 1));
+            line.extend_from_slice(password.as_bytes());
+            line.push(b'\n');
+            // A sudo that exited first closes the pipe: what it printed says why.
+            let _ = pipe.write_all(&line).await;
+            let _ = pipe.shutdown().await;
+        }
+    }
+    let mut clean = Vec::with_capacity(kept.len());
+    let mut rest = kept.as_slice();
+    while let Some(at) = rest.windows(marker.len()).position(|w| w == marker.as_slice()) {
+        clean.extend_from_slice(&rest[..at]);
+        rest = &rest[at + marker.len()..];
+    }
+    clean.extend_from_slice(rest);
+    (clean, cut)
 }
 
 /// Sends `sig` to the process group sudo leads (its pid, `process_group(0)`).

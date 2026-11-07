@@ -460,7 +460,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// retries (a harness record, never `transcript`), so a retrying turn says so; and its
     /// `bookmarks` record, so a bookmark or pin made on the Mac shows here.
     static let chatKinds: JSONValue = .array(
-        ["transcript", "queue_updated", "queue_order", "queue_paused", "queue_resumed", "claude.system.api_retry", "bookmarks"].map { .string($0) })
+        ["transcript", "queue_updated", "queue_order", "queue_paused", "queue_resumed", "claude.system.api_retry", "bookmarks",
+         "elevation_request", "elevation_decision"].map { .string($0) })
 
     init(hub: AcpmuxHub, sessionID: String, summary: AgentSessionSummary) {
         self.hub = hub

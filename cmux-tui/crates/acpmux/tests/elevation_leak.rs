@@ -206,7 +206,7 @@ impl Drop for Daemon {
     }
 }
 
-/// A stand-in sudo: the run reads one password line, refuses a wrong one, and runs the argv
+/// A stand-in sudo: the run prints its `-p` prompt to stderr, reads one password line, refuses a wrong one, and runs the argv
 /// after `--`; every call's arguments go to `calls`.
 fn fake_sudo(dir: &Path) -> PathBuf {
     let path = dir.join("bin").join("sudo");
@@ -217,6 +217,7 @@ fn fake_sudo(dir: &Path) -> PathBuf {
             r#"#!/bin/sh
 echo "$*" >> '{calls}'
 [ "$1" = "-k" ] && exit 0
+printf '%s' "$4" >&2
 IFS= read -r pw
 if [ "$pw" != '{SENTINEL}' ]; then echo "sudo: incorrect password" >&2; exit 1; fi
 while [ "$1" != "--" ]; do shift; done
@@ -318,7 +319,8 @@ async fn the_password_reaches_sudo_and_no_persisted_surface() {
     // command that printed it would have it masked.
     assert_eq!(result["stdout"].as_str().unwrap().trim_end(), "root-output", "{result}");
     let calls = std::fs::read_to_string(tools.join("calls")).unwrap();
-    assert!(calls.lines().next().unwrap().starts_with("-S -k -p  -- sh -c"), "{calls}");
+    let first = calls.lines().next().unwrap();
+    assert!(first.starts_with("-S -k -p [acpmux-sudo-") && first.contains("] -- sh -c"), "{calls}");
     assert_eq!(calls.lines().last(), Some("-k"), "no `sudo -k` after the run: {calls}");
     person.note("_acpmux/event", |p| p["kind"] == "elevation_decision").await;
 
@@ -418,6 +420,15 @@ async fn a_phone_approves_a_sudo_card_with_its_signature_once() {
 
     let mut agent = Rpc::connect(&d.socket).await;
     let mut phone = Rpc::connect(&d.socket).await;
+    // The phone attaches with the kinds the iPhone app asks for (`AcpmuxHub.chatKinds`), so the
+    // card reaches it live, not only the Mac (review F2 of e4f5ef1).
+    phone
+        .call(
+            "_acpmux/attach",
+            json!({"sessionId": id, "kinds": ["transcript", "elevation_request", "elevation_decision"],
+                   "eventStream": true}),
+        )
+        .await;
     let asked = agent
         .send(
             "_acpmux/elevation_request",
@@ -425,6 +436,13 @@ async fn a_phone_approves_a_sudo_card_with_its_signature_once() {
         )
         .await;
     let card = person.note("_acpmux/event", |p| p["kind"] == "elevation_request").await;
+    let seen = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        phone.note("_acpmux/event", |p| p["kind"] == "elevation_request"),
+    )
+    .await
+    .expect("the phone's attach got no elevation card");
+    assert_eq!(seen["msg"]["secretId"], card["msg"]["secretId"], "{seen}");
     let card_id = card["msg"]["secretId"].as_str().unwrap().to_owned();
     let nonce = card["msg"]["decisionNonce"].as_str().unwrap().to_owned();
     let instance = card["msg"]["personInstance"].as_str().unwrap().to_owned();

@@ -25,6 +25,14 @@ import Testing
         #expect(records.map(old).isEmpty)
     }
 
+    /// The phone asks for the card's records on attach and live; acpmux sends a client only the
+    /// kinds it names, so without them the card never shows on the phone.
+    @Test func theChatSubscribesToTheCardsRecords() {
+        let kinds = AcpmuxSessionSource.chatKinds.arrayValue ?? []
+        #expect(kinds.contains(.string("elevation_request")))
+        #expect(kinds.contains(.string("elevation_decision")))
+    }
+
     @Test func theCommandReadsAsSudoGetsIt() {
         let ask = AgentElevationAsk(id: "c", argv: ["echo", "a b", "it's", "/var/db"], reason: "", host: "",
                                     timeoutSecs: nil, nonce: "", instance: "")
