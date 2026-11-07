@@ -16,18 +16,14 @@ import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import {
-  AttachmentChip,
-  InstantPreview,
-  RetryButton,
-  UploadProgress,
-  type PendingAttachment,
-} from "./attachmentIntake";
+import { AttachmentChip, InstantPreview, RetryButton, UploadProgress } from "./attachmentIntake";
+import type { PendingAttachment } from "./attachmentIntakeModel";
 import { keptThumb } from "./imagePool";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { reordered } from "./stripReorder";
-import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
+import { TextAttachmentCard } from "./TextAttachmentCard";
+import { pastedSize } from "./textAttachmentCardModel";
 import { RemoveGlyph } from "./RemoveGlyph";
 import { chipRef } from "../conversation/sendMorph";
 
