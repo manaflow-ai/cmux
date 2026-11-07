@@ -10,6 +10,8 @@ import Foundation
 public protocol BookmarkPageHost: AnyObject, Sendable {
     func bookmarkProfile(ofTab key: String) -> String
     func bookmarkTree(_ profile: String) -> BookmarkTree
+    /// `profile`'s tree as the home daemon stores it now (the app's tree may lag a change).
+    func bookmarkOwnerTree(_ profile: String) async throws -> BookmarkTree
     var bookmarkFolderIconsSupported: Bool { get }
     /// A URL bookmark's favicon (fetched when missing), nil while it loads or without one.
     func bookmarkFavicon(_ node: BookmarkNode, profile: String) -> CGImage?
@@ -18,7 +20,6 @@ public protocol BookmarkPageHost: AnyObject, Sendable {
     /// Read under observation: changes when a favicon or a stored folder icon lands.
     var bookmarkIconRevision: Int { get }
     func openBookmark(_ node: BookmarkNode, profile: String, disposition: BookmarkOpenDisposition, fromTab key: String)
-    func openAllBookmarks(in folder: String, profile: String, fromTab key: String)
 }
 
 public extension PageDescriptor {
@@ -41,7 +42,8 @@ public extension PageDescriptor {
 ///   icons that were missing). One event per main-actor turn.
 /// - `icons {ids}`: `{icons: {id: dataURL}, masks: [id]}`, the favicons and folder icons of the rows
 ///   on screen; an id in `masks` is a symbol drawn as a template the page tints.
-/// - `open {bookmark, disposition}` and `openAll {folder}`: as from the bookmarks bar.
+/// - `open {bookmark, url?, disposition}` and `openAll {folder}`: as from the bookmarks bar, on the
+///   daemon's row (the app's tree serves `open` only when it holds the same row the page shows).
 @MainActor
 public final class BookmarkPageHostProvider: PageProvider {
     public static let prefix = "cmux.bookmarkPage."
@@ -83,7 +85,14 @@ public final class BookmarkPageHostProvider: PageProvider {
         case Self.prefix + "icons":
             return icons(params["ids"]?.arrayValue?.compactMap(\.stringValue) ?? [])
         case Self.prefix + "open":
-            guard let node = node(params["bookmark"]) else { throw PageError(code: "cmux.bookmarkPage.not_found", message: op) }
+            // The page shows the daemon's rows: the app's tree serves only when it has the same row.
+            let id = params["bookmark"]?.stringValue ?? ""
+            let shown = params["url"]?.stringValue
+            var node = host.bookmarkTree(profile).node(id)
+            if node == nil || (shown != nil && node?.url?.absoluteString != shown) {
+                node = try await ownerTree(host).node(id)
+            }
+            guard let node else { throw PageError(code: "cmux.bookmarkPage.not_found", message: op) }
             let disposition: BookmarkOpenDisposition = switch params["disposition"]?.stringValue {
             case "newTab": .newTab
             case "backgroundTab": .backgroundTab
@@ -92,10 +101,15 @@ public final class BookmarkPageHostProvider: PageProvider {
             host.openBookmark(node, profile: profile, disposition: disposition, fromTab: tabKey)
             return .object([:])
         case Self.prefix + "openAll":
-            guard let node = node(params["folder"]), node.isFolder else {
+            // Open All reads the folder's children from the daemon, never a lagging copy.
+            let tree = try await ownerTree(host)
+            guard let id = params["folder"]?.stringValue, let folder = tree.node(id), folder.isFolder else {
                 throw PageError(code: "cmux.bookmarkPage.not_found", message: op)
             }
-            host.openAllBookmarks(in: node.id, profile: profile, fromTab: tabKey)
+            // The first in a new tab, the rest behind it, as the bar's Open All.
+            for (index, node) in tree.children(of: folder.id).filter({ !$0.isFolder }).enumerated() {
+                host.openBookmark(node, profile: profile, disposition: index == 0 ? .newTab : .backgroundTab, fromTab: tabKey)
+            }
             return .object([:])
         default:
             throw PageError.unknownOp(op)
@@ -127,8 +141,10 @@ public final class BookmarkPageHostProvider: PageProvider {
         post("state")
     }
 
-    private func node(_ id: JSONValue?) -> BookmarkNode? {
-        id?.stringValue.flatMap { host?.bookmarkTree(profile).node($0) }
+    private func ownerTree(_ host: any BookmarkPageHost) async throws -> BookmarkTree {
+        do { return try await host.bookmarkOwnerTree(profile) } catch {
+            throw PageError(code: "cmux.bookmarkPage.unavailable", message: String(describing: error))
+        }
     }
 
     private func icons(_ ids: [String]) -> JSONValue {

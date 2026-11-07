@@ -2,8 +2,8 @@
 // on a newer revision of its profile only, drops stale search replies, makes one apply per action,
 // keeps the editor open on a bad URL or a refusal, and reveals a node in its folder.
 import { expect, test } from "bun:test";
-import { MockBookmarksProvider, sampleBookmarks } from "../src/pages/bookmarks/mockProvider";
-import { BookmarksStore } from "../src/pages/bookmarks/store";
+import { MockBookmarksProvider, longBookmarks, sampleBookmarks } from "../src/pages/bookmarks/mockProvider";
+import { BookmarksStore, MAX_APPLY_OPS } from "../src/pages/bookmarks/store";
 import { BookmarkOps, HostOps, type Bookmark } from "../src/pages/bookmarks/types";
 import type { PageClient } from "../src/pages/shared/pageClient";
 
@@ -189,4 +189,16 @@ test("an icons change asks again only for the rows that had no icon", async () =
   expect(provider.calls.filter((call) => call.op === HostOps.icons).length).toBe(2);
   // An icons change never re-reads the tree.
   expect(provider.calls.filter((call) => call.op === BookmarkOps.list).length).toBe(1);
+});
+
+test("a selection past one apply's bound is said, not sent", async () => {
+  const provider = new MockBookmarksProvider(longBookmarks(MAX_APPLY_OPS + 1));
+  const store = new BookmarksStore(provider, { tooManyMessage: "too many" });
+  await store.start();
+  const ids = provider.listing.filter((node) => node.kind === "url").map((node) => node.id);
+  await store.deleteSelection(ids);
+  expect(applies(provider)).toHaveLength(0);
+  expect(store.getSnapshot().notice?.message).toBe("too many");
+  await store.deleteSelection(ids.slice(0, MAX_APPLY_OPS));
+  expect(applies(provider)).toHaveLength(1);
 });

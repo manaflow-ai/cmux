@@ -23,6 +23,7 @@ export function mountBookmarksPage(root: HTMLElement, client: PageClient | null 
   const strings = createStrings(table);
   const store = new BookmarksStore(client, {
     newFolderTitle: strings.t("folder.new"),
+    tooManyMessage: strings.t("page.tooMany"),
     onRevealed: () => history.replaceState(history.state, "", "#/"),
   });
   // A page opened to show one bookmark starts at `#/?reveal=<id>`: shown once the tree lands.

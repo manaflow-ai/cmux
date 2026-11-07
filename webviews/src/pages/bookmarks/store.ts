@@ -94,6 +94,8 @@ export interface BookmarksStoreOptions {
   newFolderTitle?: string;
   /** A reveal asked before the tree arrived was shown (the page drops its `#/?reveal=` route). */
   onRevealed?: (id: string) => void;
+  /** Said when a selection needs more ops than one apply takes (`page.tooMany`). */
+  tooManyMessage?: string;
 }
 
 const EMPTY_TREE = buildTree([]);
@@ -382,7 +384,7 @@ export class BookmarksStore {
   }
 
   async open(node: Bookmark, disposition: Disposition): Promise<void> {
-    await this.host(HostOps.open, { bookmark: node.id, disposition });
+    await this.host(HostOps.open, { bookmark: node.id, ...(node.url ? { url: node.url } : {}), disposition });
   }
 
   async openAll(folder: Bookmark): Promise<void> {
@@ -451,7 +453,7 @@ export class BookmarksStore {
 
   async deleteSelection(ids: readonly string[] = this.snapshot.selection): Promise<void> {
     const ops = deleteOps(this.snapshot.tree, ids);
-    if (ops.length === 0) return;
+    if (ops.length === 0 || this.tooMany(ops.length)) return;
     const gone = new Set(ids);
     this.set({ selection: this.snapshot.selection.filter((id) => !gone.has(id)) });
     await this.apply(ops);
@@ -471,7 +473,17 @@ export class BookmarksStore {
 
   private async move(dragged: readonly string[], place: { parent: string; index: number }): Promise<void> {
     const ops = moveOps(this.snapshot.tree, dragged, place);
-    if (ops.length > 0) await this.apply(ops);
+    if (ops.length > 0 && !this.tooMany(ops.length)) await this.apply(ops);
+  }
+
+  /** One apply takes at most `MAX_APPLY_OPS` ops (the daemon's bound): a larger selection is
+   * said, not sent. */
+  private tooMany(count: number): boolean {
+    if (count <= MAX_APPLY_OPS) return false;
+    this.set({
+      notice: { kind: "failed", message: this.options.tooManyMessage ?? `Select at most ${MAX_APPLY_OPS} items.` },
+    });
+    return true;
   }
 
   // Native steps: the app's file panels, its browser import sheet and its icon picker.
@@ -579,6 +591,9 @@ export class BookmarksStore {
     for (const listener of this.listeners) listener();
   }
 }
+
+/** Most ops one `cmux.bookmarks.apply` takes (the daemon's `MAX_OPS`). */
+export const MAX_APPLY_OPS = 256;
 
 function noticeOf(error: unknown): Notice {
   const message = error instanceof Error ? error.message : String(error);
