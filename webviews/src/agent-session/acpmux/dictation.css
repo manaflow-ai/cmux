@@ -156,11 +156,11 @@
   0%, 100% { transform: scaleY(0.35); }
   50% { transform: scaleY(1); }
 }
-/* Static status indicators, motion off or Reduce Motion: the bars hold still at three heights. */
-:root:is([data-status-indicators="static"], [data-agent-motion="off"], [data-agent-motion="reduced"]) .acpmux-mic-outside > span {
+/* Static status indicators, the agent's or the app's motion off or reduced, or Reduce Motion: the bars hold still at three heights. */
+:root:is([data-status-indicators="static"], [data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-mic-outside > span {
   animation: none;
 }
-:root:is([data-status-indicators="static"], [data-agent-motion="off"], [data-agent-motion="reduced"]) .acpmux-mic-outside > span:nth-child(2) {
+:root:is([data-status-indicators="static"], [data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-mic-outside > span:nth-child(2) {
   transform: scaleY(0.8);
 }
 @media (prefers-reduced-motion: reduce) {

@@ -159,7 +159,9 @@ public final class MicrophoneActivity {
     static func readState(devices: [AudioObjectID]) -> State {
         if #available(macOS 14.2, *) { return processState() }
         let running = devices.contains { value($0, kAudioDevicePropertyDeviceIsRunningSomewhere, UInt32(0)).map { $0 != 0 } ?? false }
-        return running ? State(active: true, bundleId: nil, name: nil) : .idle
+        // Before 14.2 a running device names no process: while cmux's own dictation holds the
+        // microphone, the input may be cmux's, so nothing is shown rather than a false outside mark.
+        return running && !DictationMicrophoneClaims.shared.isHeld ? State(active: true, bundleId: nil, name: nil) : .idle
     }
 
     @available(macOS 14.2, *)
@@ -174,19 +176,10 @@ public final class MicrophoneActivity {
         for process in processes {
             guard value(process, kAudioProcessPropertyIsRunningInput, UInt32(0)) == 1,
                   let pid = value(process, kAudioProcessPropertyPID, pid_t(0)), pid != own else { continue }
+            // The app by its pid: no CFString property read whose ownership could be got wrong.
             let app = NSRunningApplication(processIdentifier: pid)
-            return State(active: true, bundleId: bundleId(of: process) ?? app?.bundleIdentifier, name: app?.localizedName)
+            return State(active: true, bundleId: app?.bundleIdentifier, name: app?.localizedName)
         }
         return .idle
-    }
-
-    @available(macOS 14.2, *)
-    private static func bundleId(of process: AudioObjectID) -> String? {
-        var address = address(kAudioProcessPropertyBundleID)
-        var name: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-        guard AudioObjectGetPropertyData(process, &address, 0, nil, &size, &name) == noErr,
-              let text = name?.takeRetainedValue() as String?, !text.isEmpty else { return nil }
-        return text
     }
 }
