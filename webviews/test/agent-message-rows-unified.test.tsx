@@ -68,8 +68,9 @@ afterEach(async () => {
   saved.clear();
 });
 
-async function render(node: ReactNode): Promise<HTMLElement> {
+async function render(node: ReactNode, setup?: (window: JSDOM["window"]) => void): Promise<HTMLElement> {
   const container = installDom();
+  setup?.(dom!.window);
   await act(async () => {
     root = createRoot(container);
     root.render(node);
@@ -438,4 +439,47 @@ test("an inbox delivery takes its session from the sender record when the thread
   const sessions = children.map((r) => (r.incoming?.kind === "message" ? r.incoming.message.sessionId : undefined));
   expect(sessions).toEqual(["sess-a", "sess-b", "sess-c"]);
   expect(children[2]?.inboxThread?.fromSession).toBe("sess-c");
+});
+
+test("a thread whose preview was cut inside the broker's head stays an expandable row that reads its message", async () => {
+  const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
+  const { MessageRow } = await import("../src/agent-session/acpmux/rows/MessageRow");
+  const { isVisiblyEmptyMessage } = await import("../src/agent-session/acpmux/conversation/visibleMessage");
+  // acpmux cut the thread's preview at 120 characters, inside the label's head, and sent no messages.
+  const whole = relayed("The whole message.", "12345678", "vm/lane");
+  const prompt = incomingPrompt("[inbox] New messages from other agents in 1 thread.", {
+    client: "acpmux",
+    _meta: {
+      provenance: {
+        kind: "inbox_notice",
+        threads: [
+          { threadId: "from:vm/lane", from: ["vm/lane"], new: 1, preview: whole.slice(0, 120), promptIds: ["p1"] },
+        ],
+      },
+    },
+  });
+  if (prompt?.kind !== "inbox") throw new Error("not an inbox notice");
+  const row: AcpmuxRow = { id: "inbox-cut", version: 1, at: 1, kind: "user", incoming: prompt };
+  const child = flattenInboxRows([row]).find((r) => r.inboxThread)!;
+  expect(child.inboxThread?.threadId).toBe("from:vm/lane");
+  const reads: string[] = [];
+  const container = await render(
+    <MessageRow row={child} onToggleActivity={() => undefined} expanded={false} />,
+    (window) => {
+      (window as unknown as Record<string, unknown>).cmuxAcpmuxActions = {
+        "chat.inbox.thread": async ({ threadId }: { threadId: string }) => {
+          reads.push(threadId);
+          return [{ promptId: "p1", from: "vm/lane", text: whole }];
+        },
+      };
+    },
+  );
+  await act(async () => undefined);
+  expect(container.querySelector(".cv-agentmsg")).not.toBeNull();
+  expect(reads).toEqual(["from:vm/lane"]);
+  // The turn keeps it too (turns.ts drops visibly empty messages).
+  expect(isVisiblyEmptyMessage(child)).toBe(false);
+  expect(container.textContent).not.toContain("[message");
+  await openAll(container);
+  expect(container.querySelector(".cv-received__text")?.textContent).toBe("The whole message.");
 });
