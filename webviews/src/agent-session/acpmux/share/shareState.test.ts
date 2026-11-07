@@ -83,7 +83,10 @@ test("Copy link reuses the page's live viewer link, and Restricted revokes every
       { ...base, shareId: "v2", role: "view" },
     ]),
   );
-  expect(calls.filter(([op]) => op === "revoke").map(([, p]) => p)).toEqual([{ shareId: "v1" }, { shareId: "v2" }]);
+  expect(calls.filter(([op]) => op === "revoke").map(([, p]) => p)).toEqual([
+    { shareId: "v1", session: "chat" },
+    { shareId: "v2", session: "chat" },
+  ]);
   // After Restricted the kept link is gone: the next Anyone makes a new one.
   await client.viewerLink(live);
   expect(calls.filter(([op]) => op === "link")).toHaveLength(2);
@@ -113,5 +116,13 @@ test("a viewer link that also holds invite records is still Anyone, and Restrict
   expect(view.general).toBe("anyone");
   const revoked: unknown[] = [];
   await shareClient("chat", async (op, params) => void (op === "revoke" && revoked.push(params))).restrict(view);
-  expect(revoked).toEqual([{ shareId: "v" }]);
+  expect(revoked).toEqual([{ shareId: "v", session: "chat" }]);
+});
+
+test("every op names the chat it is for", async () => {
+  const seen: unknown[] = [];
+  const client = shareClient("chat-a", async (_op, params) => void seen.push(params));
+  await client.invite("@sam", "view");
+  await client.state().catch(() => undefined);
+  expect(seen).toEqual([{ account: "@sam", role: "view", session: "chat-a" }, { session: "chat-a" }]);
 });

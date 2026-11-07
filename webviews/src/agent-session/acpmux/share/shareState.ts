@@ -105,7 +105,10 @@ export function forgetShareLinks(): void {
   madeLinks.clear();
 }
 
-export function shareClient(sessionId: string, call: ShareCall = nativeShareCall) {
+export function shareClient(sessionId: string, host: ShareCall = nativeShareCall) {
+  // Every op names the chat it is for: the host refuses one whose tab shows another chat by now, so
+  // a step (a role change's two calls included) never lands on a chat the person did not share.
+  const call: ShareCall = (op, params = {}) => host(op, { ...params, session: sessionId });
   return {
     async state(): Promise<ShareView> {
       const answer = (await call("state")) as { shares?: ChatShare[] } | undefined;
