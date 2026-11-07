@@ -3415,6 +3415,35 @@ button.cv-video-frames__frame:focus-visible {
    gallery's card/tree/zebra looks keep their own rules; `guide` is the replaced look (cmux#32363):
    the steps' glyphs and a quiet guide between the icon and text columns, kept inside the
    transcript row because paint containment clips any outside guide. */
+/* The compact grouped sheet (Leo, 2026-11-04: "the iOS app renders these things better than the
+   desktop app") is the gallery's `ios-sheet` look: a card surface, each step's kind icon, its words
+   in the text tone and its chevron at rest. ShellBlock, EditDiff and ToolImages keep the useful
+   command, output tail, diff or capture they already present. */
+:root[data-tool-steps-look="ios-sheet"] .cv-steps {
+  margin: 0;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
+  border-radius: 8px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--cv-card-fill) 72%, transparent);
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step {
+  padding: 0;
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step + .cv-step {
+  border-top: 0;
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step > .cv-tool > .cv-tool__icon {
+  visibility: visible;
+  color: var(--cv-text-muted);
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step > .cv-tool,
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step > .cv-tool > :is(.cv-tool__text, .cv-command__text) {
+  color: var(--cv-text);
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
+  color: var(--cv-text-muted);
+  opacity: 1;
+}
 :root[data-tool-steps-look="guide"] .cv-tool-group.is-flat.cv-steps {
   position: relative;
 }
