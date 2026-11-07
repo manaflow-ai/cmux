@@ -1,0 +1,129 @@
+name: Cloud journey (production, hourly)
+
+# The NEXT Cloud journey (scripts/cmux-next/cloud-journey.ts) against production: sign in as the production agent
+# test account, create a machine, pass a Claude login the way the Mac app does (CloudCredentialTransfer's preflight,
+# fs/write and installer), start Claude Code under acpmux, send a chat, read the reply back, delete the machine.
+#
+# Two models:
+# - stub, every hour: everything is real (account, machine, acpmux, the Claude Code binary, the login copy) except
+#   the model endpoint, the shared model stub (tests/fixtures/model-stub) on the machine's loopback. The login
+#   passed is a made-up setup-token shape. The reply must carry the stub's nonce, every model request must carry the
+#   passed login (the credential hop), and one Bash tool call must make the round trip. No Claude secret is used.
+#   probe.json is the cmuxterm-hq probes.py row `cloud-chat-replies-production` (ok with the send-to-reply ms).
+# - real, every six hours (the canary): CLAUDE_CODE_OAUTH_TOKEN, the login machine-vault-e2e.yml gives its daemons,
+#   and the real model.
+#
+# A red run opens one issue per model, or rewrites the open one's body; the next green run of that model closes it.
+# Secrets: the production agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in the cmux-next-cloud-journey
+# environment (they shadow the repository's pair, the dev Stack account, which production rejects), and for the real
+# model the repository's CLAUDE_CODE_OAUTH_TOKEN. They reach the one run step through env; the journey sends them only
+# in headers and request bodies and scrubs them from its output.
+#
+# The schedule registers from main; the scripts it runs always come from feat-cmux-next, never a pull request's head:
+# the job holds the production account and a Claude login, so no unreviewed code runs with them. Try a change with
+# `bun scripts/cmux-next/cloud-journey.ts --backend prod --model stub --credentials FILE` before it lands.
+on:
+  schedule:
+    - cron: "17 * * * *"
+    - cron: "47 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      model:
+        description: stub (no Claude secret) or real (CLAUDE_CODE_OAUTH_TOKEN)
+        type: choice
+        options: [stub, real]
+        default: stub
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-journey-prod-${{ github.event.schedule || 'dispatch' }}
+  cancel-in-progress: false
+
+jobs:
+  journey:
+    # Only main's own definition gets the production account: the schedule, or a dispatch of main. A dispatch of
+    # another branch would run that branch's copy of this file with the environment's secrets.
+    if: github.repository_owner == 'manaflow-ai' && (github.event_name == 'schedule' || github.ref == 'refs/heads/main')
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [stub, real]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    environment: cmux-next-cloud-journey
+    permissions:
+      contents: read
+      issues: write
+    env:
+      # This leg runs on the hourly tick (stub), the six-hourly tick (real), a dispatch (its input).
+      SELECTED: ${{ (github.event_name == 'schedule' && (github.event.schedule == '17 * * * *') == (matrix.model == 'stub')) || (github.event_name == 'workflow_dispatch' && inputs.model == matrix.model) }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: env.SELECTED == 'true'
+        with:
+          persist-credentials: false
+          ref: feat-cmux-next
+          sparse-checkout: |
+            scripts/cmux-next
+            Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
+            tests/fixtures/model-stub
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: env.SELECTED == 'true'
+        with:
+          bun-version: "1.4.4"
+      - name: Cloud journey (prod, ${{ matrix.model }} model)
+        id: journey
+        if: env.SELECTED == 'true'
+        # Leaves the job time to upload the artifact and open the issue.
+        timeout-minutes: 25
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          MODEL: ${{ matrix.model }}
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/cloud-journey"
+          mkdir -p "$out"
+          probe=cloud-chat-replies-production
+          [ "$MODEL" = stub ] || probe=cloud-chat-replies-production-real-model
+          bun scripts/cmux-next/cloud-journey.ts --backend prod --model "$MODEL" --out "$out" --probe-out "$out/probe.json" --probe "$probe" --skip sync,pause
+          code=$?
+          { echo "### Production, $MODEL model"; echo; cat "$out/summary.md" 2>/dev/null || echo "(no summary written)"; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
+      - name: Keep the step table and the probe row
+        if: always() && env.SELECTED == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cloud-journey-prod-${{ matrix.model }}
+          path: ${{ runner.temp }}/cloud-journey
+          if-no-files-found: ignore
+          retention-days: 14
+      # One issue per model: opened on the first red, its body rewritten on later reds (no comment per hour), closed
+      # by the next green. A timed-out or cancelled journey counts as red. Only main's own runs touch it.
+      - name: Open, update or close the red-journey issue
+        if: always() && env.SELECTED == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          OUTCOME: ${{ steps.journey.outcome }}
+          MODEL: ${{ matrix.model }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="Cloud journey (production, $MODEL model) is red"
+          open="$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
+            --jq "map(select(.title == \"$title\"))[0].number // \"\"")"
+          if [ "$OUTCOME" = success ]; then
+            if [ -n "$open" ]; then gh issue close "$open" --comment "Green again: a production chat reply was read back ([run]($RUN_URL))."; fi
+            exit 0
+          fi
+          # shellcheck disable=SC2016 # backticks are Markdown, not a command
+          body="$(printf 'The production Cloud journey (`.github/workflows/cloud-journey-prod.yml`, %s model) failed.\n\nLatest red run: %s (its summary has the step table; `probe.json` in its artifact names the failed step).\n\nUpdated %s. The next green run closes this issue.\n' "$MODEL" "$RUN_URL" "$(date -u +%Y-%m-%dT%H:%MZ)")"
+          if [ -n "$open" ]; then
+            gh issue edit "$open" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

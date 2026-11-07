@@ -46,8 +46,10 @@ check("github.rest.git.getRef" not in text and "github.rest.actions.list" not in
       "every dispatcher read must go through the App token client")
 check(re.search(r"await github\.rest\.actions\.createWorkflowDispatch\(\{\s*owner,\s*repo,\s*workflow_id: workflow,", text) is not None,
       "the DEV build dispatch must stay on GITHUB_TOKEN")
-check(re.search(r"await api\.rest\.actions\.createWorkflowDispatch\(\{\s*owner,\s*repo,\s*workflow_id: 'cmux-next-dev-daily.yml'", text) is not None,
+check(re.search(r"await call\(\(client\) => client\.rest\.actions\.createWorkflowDispatch\(\{\s*owner,\s*repo,\s*workflow_id: 'cmux-next-dev-daily.yml'", text) is not None,
       "the publisher dispatch must use the App token client")
+check("api.rest." not in text,
+      "every App-token call must go through call(), which falls back to GITHUB_TOKEN when the App is rate limited")
 check("run.head_sha === sha" in text and "activeOrSucceeded" in text,
       "the exact-SHA dedupe guard must remain in the dispatcher")
 check("run.conclusion === 'success'" in text and "run.status" in text,
@@ -60,8 +62,17 @@ sign_text = sign_job.group(1) if sign_job else ""
 check("id: read-token" in sign_text and "private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}" in sign_text
       and "permission-actions: read" in sign_text and "permission-actions: write" not in sign_text,
       "the signer must read the source run with the read-only manaflow-glaeda-route token")
-check("GH_TOKEN: ${{ github.token }}" not in sign_text,
-      "every signer source-run read must try the App token before GITHUB_TOKEN")
+# The reads pass github.token and gh_app_token.sh sends each as the App first,
+# falling back to github.token on a refusal (runs 41245804266, 41245954158 failed
+# when the App's own budget ran out and a bare App token had no fallback).
+check("bash .gh-tooling/scripts/ci/gh_app_token.sh --install" in sign_text
+      and "GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}" in sign_text
+      and "GH_FALLBACK_TOKEN: ${{ github.token }}" in sign_text,
+      "every signer source-run read must try the App token, then GITHUB_TOKEN, through gh_app_token.sh")
+check("steps.read-token.outputs.token ||" not in sign_text,
+      "a signer read that passes the App token itself gets no GITHUB_TOKEN fallback")
+check(sign_text.find("gh_app_token.sh --install") < sign_text.find("- name: Resolve the source run"),
+      "the gh token wrapper must be installed before the first source-run read")
 check("- name: Wait for the API budget before publishing" in publish_text,
       "the release writes must wait for the shared budget instead of failing on it")
 for call in ("ghw release upload", "ghw release edit", 'ghw api "repos/$GH_REPO/compare/'):
@@ -203,6 +214,31 @@ const github = { rest: {
     createWorkflowDispatch: async (args) => { calls.push(['dispatch', args.workflow_id, args.inputs]); },
   },
 } };
+// fixture.app: 'ok' (an App client that answers like github), 'limited' (every
+// call is HTTP 403 with the budget spent) or 'broken' (403 that is no rate limit).
+const appClient = { rest: {
+  git: { getRef: async (args) => app('getRef', () => github.rest.git.getRef(args)) },
+  actions: Object.fromEntries(Object.entries(github.rest.actions).map(([name, fn]) =>
+    [name, async (args) => app(name, () => fn(args))])),
+} };
+async function app(name, answer) {
+  calls.push(['app', name]);
+  if (fixture.app === 'limited') {
+    const error = new Error('API rate limit exceeded for installation.');
+    error.status = 403;
+    error.response = { headers: { 'x-ratelimit-remaining': '0' } };
+    throw error;
+  }
+  if (fixture.app === 'broken') {
+    const error = new Error('Resource not accessible by integration');
+    error.status = 403;
+    error.response = { headers: { 'x-ratelimit-remaining': '4000' } };
+    throw error;
+  }
+  return answer();
+}
+const getOctokit = () => appClient;
+if (fixture.app) process.env.APP_TOKEN = 'app-token';
 const core = { notice: () => {}, warning: () => {}, info: () => {} };
 const context = { repo: { owner: 'o', repo: 'r' }, payload: { repository: { default_branch: 'main' } } };
 (async () => {
@@ -222,14 +258,16 @@ def app_job(conclusion):
             {"name": "cmux-next path routing", "conclusion": "success"}]
 
 
-def run(source_runs, jobs, publish_runs=()):
+def run(source_runs, jobs, publish_runs=(), app=None, expect_failure=False):
     fixture = {"tip": TIP, "sourceRuns": list(source_runs), "publishRuns": list(publish_runs),
-               "jobs": {str(k): v for k, v in jobs.items()}}
+               "jobs": {str(k): v for k, v in jobs.items()}, "app": app}
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "fixture.json").write_text(json.dumps(fixture))
         (Path(tmp) / "run.js").write_text(HARNESS.replace("SCRIPT", script_body()))
         result = subprocess.run(["node", str(Path(tmp) / "run.js"), str(Path(tmp) / "fixture.json")],
                                 capture_output=True, text=True)
+    if expect_failure:
+        return result.returncode != 0
     if result.returncode != 0:
         failures.append(f"the script failed:\n{result.stderr}")
         return []
@@ -294,6 +332,24 @@ finished["created_at"] = active_run(22, "2" * 40, 60)["created_at"]
 calls = run([finished], {22: app_job("failure")})
 check(built(calls) == [TIP], f"a finished DEV build must not space the next one, got {built(calls)}")
 check(run([], {}) and built(run([], {})) == [TIP], "with no DEV build running the tip is built")
+
+# The App token reads and hands over the publisher when its budget lasts.
+calls = run([dev_run(9, "9" * 40, "success")], {9: app_job("success")}, app="ok")
+check(published(calls) == ["9"] and ["app", "getRef"] in calls,
+      f"with a working App token the dispatcher must read through it, got {calls}")
+
+# 2026-11-01: the App's 5000/h was spent and every tick failed on its first read
+# while GITHUB_TOKEN sat unused. The tick now moves to GITHUB_TOKEN and still
+# publishes the built app and asks for the tip.
+calls = run([dev_run(10, "a" * 40, "success")], {10: app_job("success")}, app="limited")
+check(published(calls) == ["10"] and built(calls) == [TIP],
+      f"a rate-limited App token must fall back to GITHUB_TOKEN, got {calls}")
+check([c for c in calls if c[0] == "app"] == [["app", "getRef"]],
+      f"after one rate-limited call the rest of the tick must skip the App token, got {calls}")
+
+# A 403 that is not a rate limit (a permission problem) still fails the tick.
+check(run([], {}, app="broken", expect_failure=True) is True,
+      "a non-rate-limit App error must fail the dispatcher, not fall back silently")
 
 # No finished run has an app: nothing is published.
 calls = run([dev_run(7, "7" * 40, "failure"), dev_run(6, "6" * 40, "failure")],

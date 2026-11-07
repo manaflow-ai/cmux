@@ -56,6 +56,9 @@ LABEL_PREFIX_NAMES = ("ROOT_PREFIX", "SIDE_PREFIX", "GUI_PREFIX", "RUNNER_LABEL_
 # on feat-cmux-next: the trusted promote mini, the daemon tests' slot and the
 # cmux-tui-pin-* pushes' daemon pool).
 EXTRA_OWNED_VARIABLES = frozenset({"CI_NEXT_PROMOTE_POOL", "CI_NEXT_DAEMON_POOL", "CI_PIN_DAEMON_POOL"})
+# Held to a label shape by the policy, but no owned Mac: runner_pools.py admits only ephemeral Blacksmith
+# labels and a pool's declared GitHub-hosted ones, so the rescue has nothing to move for a job reading it.
+BLACKSMITH_ONLY_VARIABLES = frozenset({"RUNNER_POOLS"})
 # (caller, reusable workflow) calls whose picker never places the call on an
 # owned pool, so the caller does not inherit the reusable workflow's owned job.
 OFF_POOL_CALLS = {
@@ -194,14 +197,19 @@ def sign_table(source: str) -> dict[str, tuple[str, ...]]:
     raise ValueError(f"{RESCUE_SCRIPT} defines no {SIGN_TABLE_NAME}")
 
 
+def sign_jobs(workflow_text: str) -> dict[str, str]:
+    """Every sign, verify or DMG job of a nightly.yml (by its id), wherever it runs, with its runs-on. A branch whose
+    nightly runs only on owned Macs (feat-cmux-next since d5997935ef7) still has these jobs, but none of them is a
+    sign_stall_candidates() job, so an empty candidate list there is not a detector that stopped matching."""
+    spec = _load(workflow_text).get("jobs") or {}
+    return {str(key): str(job.get("runs-on") or "") for key, job in spec.items()
+            if isinstance(job, dict) and SIGN_STALL_JOB_ID.search(str(key))}
+
+
 def sign_stall_candidates(workflow_text: str) -> dict[str, str]:
     """The jobs of a nightly.yml (either branch's) the signing-stall rescue must cover, with their runs-on."""
-    spec = _load(workflow_text).get("jobs") or {}
     found: dict[str, str] = {}
-    for key, job in spec.items():
-        if not isinstance(job, dict) or not SIGN_STALL_JOB_ID.search(str(key)):
-            continue
-        runs_on = str(job.get("runs-on") or "")
+    for key, runs_on in sign_jobs(workflow_text).items():
         bare = OUTAGE_MACOS_FALLBACK.sub("", runs_on)
         if BLACKSMITH_MACOS.search(bare) or "MACOS_RUNNER_26" in bare:
             found[str(key)] = runs_on
@@ -282,7 +290,7 @@ class Markers:
         switch = constants.get("OWNED_VARIABLE")
         if not isinstance(switch, str):
             raise ValueError(f"{tree}: {POOL_SCRIPT} no longer defines OWNED_VARIABLE")
-        self.variables = frozenset({switch, *policy_variables(policy), *EXTRA_OWNED_VARIABLES})
+        self.variables = frozenset({switch, *policy_variables(policy), *EXTRA_OWNED_VARIABLES}) - BLACKSMITH_ONLY_VARIABLES
         self.variable = re.compile(r"\bvars\.(" + "|".join(sorted(map(re.escape, self.variables))) + r")\b")
 
     @functools.cache

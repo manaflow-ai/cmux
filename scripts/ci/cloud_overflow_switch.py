@@ -9,9 +9,9 @@ lands on. On 2026-09-29 Blacksmith stopped starting jobs org-wide from about
 variables at the owned pools and GitHub-hosted Linux by hand.
 
 ci-cloud-overflow-probe.yml runs this every 10 minutes. Its `probe` jobs ask
-for each Blacksmith Linux size in PROBE_LABELS (32 and 16 vCPU), one job per
+for each Blacksmith Linux size in PROBE_LABELS (4 and 16 vCPU), one job per
 label, and only print a line. This script, in the `watch` job on Blacksmith
-macOS, waits for them:
+Linux (its own bounded CI_TRUSTED_RUNNER selector, 2 or 8 vCPU, never a probe size), waits for them:
 
 - Every probe starts within PROBE_MINUTES of being queued: Blacksmith serves.
   If this switch turned overflow off (the CI_CLOUD_OVERFLOW_SAVED record
@@ -88,21 +88,22 @@ RECORD_VARIABLE = "CI_CLOUD_OVERFLOW_SAVED"
 OVERRIDES_VARIABLE = "CI_CLOUD_FAILOVER"
 PAID_OVERFLOW_VARIABLE = "CI_PAID_MACOS_OVERFLOW"
 CLOUD_PREFIX = pr_runner_pool.EPHEMERAL_PREFIX  # "blacksmith-"
-# What the probe asks for: the Blacksmith Linux sizes compiles run on, every
-# one of them (the workflow's probe matrix restates this). Overflow goes off
+# What the probe asks for: every member of the linux pool in .github/runners.json
+# (tests/test_ci_runner_pools.py; the workflow's probe matrix restates this). Overflow goes off
 # only when none of them starts its probe; one that starts means Blacksmith
 # serves. A single probed label is a pin: on 2026-10-28 the 4 vCPU label
 # alone queued past 5 minutes at 21:59Z, 22:13Z, 22:53Z and 23:30Z while the
 # other sizes started jobs, and each time the whole fleet failed over.
-PROBE_LABELS = ("blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
+PROBE_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
 # Where Linux overflow goes while the probed label stalls: another Blacksmith
 # Linux size, never GitHub-hosted Ubuntu. CI_TRUSTED_RUNNER's readers accept
 # only ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
 # takes 2 vCPU.
 LINUX_FAILOVER = "blacksmith-16vcpu-ubuntu-2404"
 TRUSTED_FAILOVER = "blacksmith-2vcpu-ubuntu-2404"
-# When the probed label is that failover itself, the next size over.
-ALTERNATE_FAILOVERS = {LINUX_FAILOVER: "blacksmith-32vcpu-ubuntu-2404",
+# When the probed label is that failover itself, the other size: a probed one, so
+# toward_started() can pick it, and one the bounded LINUX_RUNNER selectors accept.
+ALTERNATE_FAILOVERS = {LINUX_FAILOVER: "blacksmith-4vcpu-ubuntu-2404",
                        TRUSTED_FAILOVER: "blacksmith-4vcpu-ubuntu-2404"}
 # The only Blacksmith labels CI_TRUSTED_RUNNER's readers accept.
 TRUSTED_BLACKSMITH_LABELS = frozenset({"blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"})
@@ -304,8 +305,9 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None],
 
     With `started` (the labels whose probes started in this run), a Linux
     variable goes back only onto a label whose probe started: an older
-    record's before (blacksmith-4vcpu-ubuntu-2404 from when that one label was
-    the probe, or unset, whose readers fall back to an unprobed literal) may
+    record's before (a size no longer probed, such as blacksmith-32vcpu-ubuntu-2404
+    before the linux pool went smallest first, or unset, whose readers fall back
+    to an unprobed literal) may
     still be stalled, and once the record is deleted nothing would see it.
     Such a variable stays where it is. A GitHub-hosted label is never put back.
     """
@@ -521,27 +523,51 @@ def stuck_job(jobs: Iterable[Mapping[str, Any]], now: dt.datetime, minutes: int,
     return min(stuck, key=lambda item: item[0])[1] if stuck else None
 
 
+REFUSED_CODES = frozenset({401, 403, 429})
+
+
 class GitHub:
-    def __init__(self, token: str, repo: str) -> None:
+    """REST client. With `fallback_token`, reads go out on `token` (the watch's cmux-bot installation token,
+    whose pool is its own) and a refused read is asked once more on the fallback (the workflow token, which
+    shares the repository's 1,000/h pool with every workflow); writes always use the fallback, so who
+    cancels and re-runs a run is unchanged. Without it, everything uses `token`, as before."""
+
+    def __init__(self, token: str, repo: str, fallback_token: str | None = None) -> None:
         self.repo = repo
-        self.headers = {
+        self.token = token
+        self.fallback_token = (fallback_token or "").strip() or None
+
+    def _headers(self, token: str) -> dict[str, str]:
+        return {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "cmux-ci-cloud-overflow-switch",
         }
 
-    def request(self, method: str, path: str, body: Any | None = None) -> Any:
-        data = json.dumps(body).encode() if body is not None else None
-        headers = dict(self.headers)
+    def _send(self, method: str, path: str, data: bytes | None, token: str) -> Any:
+        headers = self._headers(token)
         if data is not None:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", data=data, headers=headers,
                                          method=method)
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read()
+            return json.loads(raw) if raw else {}
+
+    def request(self, method: str, path: str, body: Any | None = None) -> Any:
+        data = json.dumps(body).encode() if body is not None else None
+        read = method == "GET"
+        token = self.token if read or self.fallback_token is None else self.fallback_token
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                raw = response.read()
-                return json.loads(raw) if raw else {}
+            try:
+                return self._send(method, path, data, token)
+            except urllib.error.HTTPError as error:
+                if not (read and self.fallback_token and token != self.fallback_token
+                        and error.code in REFUSED_CODES):
+                    raise
+                # A refused GET did nothing: ask the workflow token once.
+                return self._send(method, path, data, self.fallback_token)
         except urllib.error.HTTPError as error:
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
         except urllib.error.URLError as error:
@@ -737,7 +763,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         if not token or not repo or not run_id:
             print("cloud-overflow-switch: GH_TOKEN, GH_REPO and GITHUB_RUN_ID are required", file=sys.stderr)
             return 2
-        api = GitHub(token, repo)
+        api = GitHub(token, repo, env.get("GH_FALLBACK_TOKEN"))
     if switch is None and (env.get("SWITCH_TOKEN") or "").strip():
         switch = GitHub(str(env["SWITCH_TOKEN"]).strip(), repo)
     minutes = probe_minutes(env.get("PROBE_MINUTES"))
