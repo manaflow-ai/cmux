@@ -28,7 +28,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { setTrayTucked, type TrayHandleSide } from "../chatDisplay";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { subagentStatus } from "../summary/SubagentStatusList";
+import { subagentStatus } from "../summary/subagentStatusListModel";
 import type { TrayItem } from "./runningTray";
 import { composerHatLook } from "./composerHat.experiment";
 import { asksPerson } from "./trayAttention";
