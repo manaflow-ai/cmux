@@ -250,3 +250,17 @@ test("a closed toast fades where it was", () => {
   const copy = doc.querySelector<HTMLElement>("[data-toast-exiting]");
   expect(copy?.style.top).toBe("-40px");
 });
+
+// Review 6 of #37289 (F1): the stack was anchored only at its floor, so long Details on several toasts in
+// a short window pushed the older toasts' buttons above the page, where it clips them. The stack spans
+// the page above its floor with its toasts at the bottom, and a toast that does not fit gives up the
+// height of its Details (which scroll), never its title row and buttons.
+test("every toast's buttons stay on the page however tall the stack is", () => {
+  const css = readFileSync(new URL("./toasts.css", import.meta.url), "utf8");
+  const rule = (selector: string) => css.match(new RegExp(`(?:^|\\n)${selector} \\{([^}]*)\\}`))?.[1] ?? "";
+  expect(rule("\\.cmux-toasts")).toContain("top: 0;");
+  expect(rule("\\.cmux-toasts")).toContain("justify-content: flex-end;");
+  expect(rule("\\.cmux-toast")).toContain("min-height: 0;");
+  expect(rule("\\.cmux-toast-row")).toContain("flex: none;");
+  expect(rule("\\.cmux-toast-detail")).toContain("min-height: 0;");
+});
