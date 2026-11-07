@@ -9,6 +9,7 @@ extension PullRequestPollService {
     func applyWorkspacePullRequestRefreshResults(
         _ results: [WorkspacePullRequestRefreshResult],
         repoResults: [String: WorkspacePullRequestRepoFetchResult],
+        deliveryStatuses: [WorkspaceGitProbeKey: PullRequestDeliveryStatus] = [:],
         requestedKeys: [WorkspaceGitProbeKey],
         now: Date,
         reason: String,
@@ -109,7 +110,15 @@ extension PullRequestPollService {
                         url: url,
                         status: status,
                         branch: resolvedPullRequest.branch,
-                        isStale: false
+                        isStale: false,
+                        deliveryStatus: deliveryStatuses[key] ?? {
+                            guard let priorPullRequest,
+                                  priorPullRequest.number == resolvedPullRequest.number,
+                                  priorPullRequest.url == url else {
+                                return nil
+                            }
+                            return priorPullRequest.deliveryStatus
+                        }()
                     )
                 )
                 let resolvedBranch = GitMetadataService.normalizedBranchName(resolvedPullRequest.branch)
@@ -165,7 +174,8 @@ extension PullRequestPollService {
                             url: currentPullRequest.url,
                             status: currentPullRequest.status,
                             branch: currentPullRequest.branch,
-                            isStale: true
+                            isStale: true,
+                            deliveryStatus: currentPullRequest.deliveryStatus
                         )
                     )
                 }
