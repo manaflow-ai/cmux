@@ -841,6 +841,41 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
         self.assertEqual(log.read_text(), "# Log\n\nTitle\n=======\n<<<<<<< see docs\n- first\n- y\n- x\n")
 
+        # An inserted line as long as the driver's own markers is content too.
+        long_line = ">" * 51 + " documentation\n"
+        self.git("checkout", "--quiet", "-b", "long-x", base)
+        log.write_text("# Log\n\n- first\n" + long_line)
+        self.commit_all("long x")
+        self.git("checkout", "--quiet", "-b", "long-y", base)
+        log.write_text("# Log\n\n- first\n- y\n")
+        self.commit_all("long y")
+        merged = self.git("merge", "--no-edit", "long-x", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(log.read_text(), "# Log\n\n- first\n- y\n" + long_line)
+
+        # TOML: a key one side appends to the last table stays in that table when the other
+        # side appends a new table; keys and tables on both sides stay a conflict.
+        toml = self.repo / "tests/test-execution.d/demo.toml"
+        toml.parent.mkdir(parents=True, exist_ok=True)
+        self.git("checkout", "--quiet", "-b", "toml-base", base)
+        toml.write_text('[[test]]\npath = "a"\n')
+        self.commit_all("toml base")
+        toml_base = self.git("rev-parse", "HEAD").stdout.strip()
+        toml.write_text('[[test]]\npath = "a"\n\n[[test]]\npath = "b"\n')
+        self.commit_all("toml table")
+        self.git("checkout", "--quiet", "-b", "toml-key", toml_base)
+        toml.write_text('[[test]]\npath = "a"\nserial = true\n')
+        self.commit_all("toml key")
+        merged = self.git("merge", "--no-edit", "toml-base", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(toml.read_text(), '[[test]]\npath = "a"\nserial = true\n\n[[test]]\npath = "b"\n')
+        self.git("checkout", "--quiet", "-b", "toml-both", toml_base)
+        toml.write_text('[[test]]\npath = "a"\nx = 1\n[[test]]\npath = "c"\n')
+        self.commit_all("toml both")
+        clash = self.git("merge", "--no-edit", "toml-key", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.git("merge", "--abort")
+
         # The same line changed two ways is still the author's conflict.
         self.git("checkout", "--quiet", "-b", "other", base)
         lib.write_text("pub mod a;\n\nfn shared() { other() }\n")

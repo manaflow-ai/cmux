@@ -21,6 +21,7 @@ exits 1 when a conflict remains.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 
@@ -44,16 +45,52 @@ def merge_file(ours: str, base: str, theirs: str, path: str, size: int) -> tuple
     return result.stdout, result.returncode
 
 
-# git writes its markers this long for the parse, so a line of the file that looks like
-# a seven-character marker (a Markdown `=======` underline) is never read as one.
-PARSE_MARKER = 51
+# git writes its markers for the parse longer than any run of marker characters that
+# starts a line in the three inputs, so a line of the file that looks like a marker
+# (a Markdown `=======` underline) is never read as one.
+MIN_PARSE_MARKER = 51
+MARKER_RUN = re.compile(rb"^([<|=>])\1*", re.MULTILINE)
 
 
-def settle(text: bytes, size: int) -> tuple[bytes, int, int]:
-    """Resolve both-sides-inserted hunks in merge-file output written with PARSE_MARKER
+def parse_marker_size(*paths: str) -> int:
+    longest = 0
+    for path in paths:
+        with open(path, "rb") as handle:
+            for match in MARKER_RUN.finditer(handle.read()):
+                longest = max(longest, len(match.group(0)))
+    return max(MIN_PARSE_MARKER, longest + 1)
+
+
+def is_toml_header(line: bytes) -> bool:
+    return line.lstrip().startswith(b"[") and not line.lstrip().startswith(b"[]")
+
+
+def toml_union(ours: list[bytes], theirs: list[bytes]) -> list[bytes] | None:
+    """Both insertions in TOML: key lines before a side's first table header belong to the
+    table above the hunk, so they go first; tables follow. None when both sides insert such
+    keys and a table, where no order keeps every key in its own table."""
+    def split(block):
+        for index, line in enumerate(block):
+            if is_toml_header(line):
+                return block[:index], block[index:]
+        return block, []
+
+    def has_keys(lines):
+        return any(line.strip() and not line.lstrip().startswith(b"#") for line in lines)
+
+    (our_lead, our_tables), (their_lead, their_tables) = split(ours), split(theirs)
+    if has_keys(our_lead) and has_keys(their_lead) and (our_tables or their_tables):
+        return None
+    if not our_tables and not their_tables:
+        return ours + theirs
+    return our_lead + their_lead + our_tables + their_tables
+
+
+def settle(text: bytes, size: int, marker: int, toml: bool = False) -> tuple[bytes, int, int]:
+    """Resolve both-sides-inserted hunks in merge-file output written with `marker`-long
     markers; return the text (remaining conflicts rewritten with `size` markers), how many
     conflicts remain, and how many hunks were read."""
-    start, mid_base, mid, end = (c * PARSE_MARKER for c in (b"<", b"|", b"=", b">"))
+    start, mid_base, mid, end = (c * marker for c in (b"<", b"|", b"=", b">"))
     out_start, out_mid, out_end = (c * size for c in (b"<", b"=", b">"))
     out: list[bytes] = []
     remaining = hunks = 0
@@ -100,7 +137,17 @@ def settle(text: bytes, size: int) -> tuple[bytes, int, int]:
             for block in (sections["ours"], sections["theirs"]):
                 if block and not block[-1].endswith(b"\n"):
                     block[-1] += b"\n"
-                out.extend(block)
+            joined = (toml_union(sections["ours"], sections["theirs"]) if toml
+                      else sections["ours"] + sections["theirs"])
+            if joined is None:
+                out.append(out_start + b" ours\n")
+                out.extend(sections["ours"])
+                out.append(out_mid + b"\n")
+                out.extend(sections["theirs"])
+                out.append(out_end + b" theirs\n")
+                remaining += 1
+            else:
+                out.extend(joined)
         i = j + 1
     return b"".join(out), remaining, hunks
 
@@ -132,11 +179,12 @@ def main(argv: list[str]) -> int:
         return 2
     base, ours, theirs, path = argv[1:5]
     size = int(argv[5]) if len(argv) == 6 else 7
-    merged, status = merge_file(ours, base, theirs, path, PARSE_MARKER)
+    marker = parse_marker_size(base, ours, theirs)
+    merged, status = merge_file(ours, base, theirs, path, marker)
     if status == 0:
         result, remaining = merged, 0
     else:
-        result, remaining, hunks = settle(merged, size)
+        result, remaining, hunks = settle(merged, size, marker, toml=path.endswith(".toml"))
         # git's exit status is its conflict count: a parse that read a different number
         # of hunks, or a result that does not parse, keeps git's own conflict instead.
         if hunks != status or (remaining == 0 and not parses(path, result)):

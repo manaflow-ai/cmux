@@ -165,6 +165,12 @@ jobs:
           git config merge.cmux-baseline-v1.driver "$baseline"
           git config merge.cmux-capabilities-v1.driver "$capabilities"
           git config merge.cmux-insertions-v1.driver "$insertions"
+          # Git reads merge attributes from the checked-out PR, so a head older than a
+          # driver's .gitattributes line would line-merge that path. The trusted base's
+          # attributes go in info/attributes, which wins over the tree's.
+          attributes="$(git rev-parse --git-path info/attributes)"
+          mkdir -p "$(dirname "$attributes")"
+          cp ../trusted/.gitattributes "$attributes"
           # The previous step fetched this exact base SHA and verified the
           # common ancestor, so merge here uses only the selected history.
           if git merge --no-commit --no-ff "$BASE_SHA" >/dev/null 2>&1; then
