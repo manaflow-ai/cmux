@@ -155,6 +155,11 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
 .acpmux-shell[data-tab-row]{background:linear-gradient(transparent var(--acpmux-tab-row-height),var(--agent-page-bg) var(--acpmux-tab-row-height)),linear-gradient(transparent var(--acpmux-tab-row-height),var(--cmux-surface-background,transparent) var(--acpmux-tab-row-height))}
 .acpmux-header[data-tab-row]{position:relative;z-index:var(--layer-sticky);flex:0 0 var(--acpmux-tab-row-height);height:var(--acpmux-tab-row-height);padding:0 var(--acpmux-tab-row-inset) 0 0;background:transparent;pointer-events:none}
 .acpmux-header[data-tab-row] .acpmux-header-status-slot{visibility:hidden}
+/* With no native "…" at the row's end (a chat's pane: --acpmux-tab-row-inset 0), the tools' last button centers on the
+   pane's trailing control column (header/tabRow.ts trailingColumn, the tab bar's and the browser toolbar's ⋮ column), so
+   it and its pressed fill sit inside the pane's rounded corner instead of flush with its edge (#37412). The padding is
+   on the measured tools box, so the width the page reports (useTabRowTools) holds it and the tabs give it up. */
+.acpmux-header[data-tab-row] .acpmux-handoff-header-tools{padding-inline-end:max(0px,calc(var(--acpmux-tab-row-column,0px) - var(--acpmux-header-tool-size,var(--grid-pill,24px)) / 2))}
 /* In the tab row the warning leads the tools (ChatHeaderInlineStatus): the slot is under the tabs. */
 .acpmux-status.acpmux-status--inline{position:static;inset:auto;flex:0 1 auto;max-width:160px;height:26px;padding:0 4px}
 .acpmux-header[data-tab-row] .acpmux-handoff-header-tools{pointer-events:auto}
