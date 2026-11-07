@@ -120,13 +120,12 @@ struct NewTabSuccession {
             if pane.stripModel.selectedID == provisional, let handed { pane.pendingSelect.surface = handed }
         }
         let key = ObjectIdentifier(pane.pane), now = ContinuousClock.now
-        // A stand-in the store replaced: the open that showed it, and one going after it, now name the daemon's tab.
-        let opens = (active[key] ?? []).filter { now < $0.deadline }.map { $0.resolving(pane.pane) }
+        let opens = (active[key] ?? []).filter { now < $0.deadline }.map { $0.resolving(pane.pane) } // stand-ins the store replaced: the daemon's tabs
         var snapshot = snapshot, items = snapshot.items, kept: [NewTabSuccession] = [], claimed = Set(opens.compactMap(\.claimed))
         var unpaired = arrived.map(\.id).filter { !claimed.contains($0) } // stand-ins swapped in one snapshot (no answer named them yet): in order
-        var placed: [ObjectIdentifier: StripTabID] = [:] // each open's tab in this pass, for the ones that follow it
+        var placed: [ObjectIdentifier: StripTabID] = [:], became: [StripTabID: StripTabID] = [:] // each open's tab, by open and by stand-in, for the ones after it
         for (index, var open) in opens.enumerated() {
-            if let leader = open.follows.flatMap({ placed[ObjectIdentifier($0)] }) { (open.before, open.follows) = (leader, nil) }
+            if let leader = open.follows.flatMap({ placed[ObjectIdentifier($0)] }) ?? open.before.flatMap({ became[$0] }) { (open.before, open.follows) = (leader, nil) }
             // Its own tab, else its surface; the newest also by the store's tab after a provisional one or the tab being selected.
             let newest = index == opens.count - 1, known = Set(open.known), tabs = pane.pane.tabs.filter { !known.contains($0.id) }
             let mine = open.claimed.flatMap { id in tabs.first { $0.id == id.rawValue } ?? (left.contains(id) ? unpaired.first.flatMap { next in tabs.first { $0.id == next.rawValue } } : nil) }
@@ -140,6 +139,7 @@ struct NewTabSuccession {
                 kept.append(open)
                 continue
             }
+            if let shown = open.claimed { became[shown] = item.id } // a stand-in swapped before the store names it (`resolving`)
             (open.claimed, _) = (item.id, claimed.insert(item.id))
             if open.surface != tab.surface { open.found(tab.surface) }
             var others = items.filter { $0.id != item.id && $0.id != open.page }
