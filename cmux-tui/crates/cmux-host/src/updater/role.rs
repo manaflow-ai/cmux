@@ -73,7 +73,7 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 /// queued restarts, and by a stop while it bumps [`GENERATION`]: once a stop
 /// returns, no worker flips or restarts anything; a stop that comes during
 /// one waits for it (a rename and a few `--no-block` systemctl calls).
-static COMMIT: Mutex<()> = Mutex::new(());
+pub(super) static COMMIT: Mutex<()> = Mutex::new(());
 
 /// Until when no flip runs (see [`CONNECT_HOLD`]); set by the role, read by its worker.
 static HELD_UNTIL: Mutex<Option<Instant>> = Mutex::new(None);
@@ -89,7 +89,11 @@ pub(super) fn hold_left(held: Option<Instant>, now: Instant) -> Option<Duration>
     held.and_then(|held| held.checked_duration_since(now)).filter(|left| !left.is_zero())
 }
 
-fn hold_connects() {
+/// Under [`COMMIT`]: a flip whose last look already passed finishes first
+/// (its restarts are queued in milliseconds), and every later look sees this
+/// hold.
+pub(super) fn hold_connects() {
+    let _commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
     let mut held = HELD_UNTIL.lock().unwrap_or_else(|e| e.into_inner());
     *held = Some(extended_hold(*held, Instant::now()));
 }
