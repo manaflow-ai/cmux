@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Markdown } from "./conversation/Markdown";
-import { toolIcon } from "./conversation/ToolRow";
+import { toolIcon } from "./conversation/toolRowModel";
 import { useT } from "./i18n";
 import { Keycap } from "./Keycap";
 import type { AcpmuxPermission } from "./model";
@@ -22,8 +22,6 @@ import {
   type PermissionKeyAction,
 } from "./permissions/prompt";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
-
-export { permissionOptionKind } from "./permissions/prompt";
 
 type PermissionOption = AcpmuxPermission["options"][number];
 

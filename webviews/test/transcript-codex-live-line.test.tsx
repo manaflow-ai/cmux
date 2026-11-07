@@ -9,7 +9,7 @@ import type { ReactElement } from "react";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
-import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/workingForModel";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { THINKING, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { shortCommand } from "../src/agent-session/acpmux/conversation/shortCommand";

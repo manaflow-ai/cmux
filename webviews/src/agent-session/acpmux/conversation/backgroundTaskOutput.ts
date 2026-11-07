@@ -7,7 +7,7 @@
 // The registry serves only this Mac's clients and keeps output for Claude Code's shells only.
 import { createContext, useContext, useEffect, useState } from "react";
 import { visibleInterval } from "../../../ui/pageClock";
-import { stripAnsi } from "./toolOutput";
+import { stripAnsi } from "./toolOutputModel";
 
 /// How much of the end of a task's output an opened note reads.
 export const BACKGROUND_TAIL_BYTES = 16 * 1024;

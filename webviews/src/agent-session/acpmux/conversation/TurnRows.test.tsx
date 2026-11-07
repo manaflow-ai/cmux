@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { toolGroups } from "./toolGroups";
 import { renderToStaticMarkup } from "react-dom/server";
-import { runStretches, ToolRows, shouldFoldToolRun } from "./TurnRows";
+import { runStretches, ToolRows } from "./TurnRows";
+import { shouldFoldToolRun } from "./turnRowsModel";
 import { Globe, MultiTool } from "./icons";
 
 const command = (id: string, text: string): AcpmuxActivity => ({

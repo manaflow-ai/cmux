@@ -56,6 +56,7 @@ import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/mod
 import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, getMarkdown, replaceAll } from "@milkdown/kit/utils";
+import { FADE_BAND_PX } from "./markdownFieldModel";
 
 /// What the composer drives the field with, in place of a textarea's DOM API.
 export type MarkdownFieldHandle = {
@@ -384,12 +385,6 @@ const COMMIT_RETURN_MS = 500;
 /** Return or keypad Enter, also when an input method reports its key as "Process". */
 const isReturnKey = (event: KeyboardEvent) =>
   event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter";
-/// The soft band at a long draft's scrolled edges (markdownField.css reads it as
-/// `--acpmux-md-fade-band`). The caret reveal keeps the caret this far from the field's edge, so the
-/// caret's line never sits in the fade. The attachment row above the prompt fades its scrolled sides
-/// by the same band (composer/attachmentIntake.tsx).
-export const FADE_BAND_PX = 18;
-
 /** The document as the prompt's markdown, keeping the spaces typed at its end and the empty reply
  * paragraph needed on restore. A field with placed attachments writes the person's own text shaped
  * like a token escaped (composer/inlineNode.ts withTextMarksEscaped): only its nodes write tokens. */

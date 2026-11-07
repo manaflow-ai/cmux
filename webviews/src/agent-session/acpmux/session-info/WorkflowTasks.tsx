@@ -15,14 +15,14 @@
 // An agent names its model only where it is not the workflow's. A running agent is a spinner, never
 // a pulsing dot.
 import { Fragment, useId, useLayoutEffect, useRef, useState } from "react";
-import { compactTokens } from "../conversation/CompactionNote";
+import { compactTokens } from "../conversation/compactionNoteModel";
 import { Spinner } from "../conversation/icons";
 import { Markdown } from "../conversation/Markdown";
 import { formatDuration } from "../conversation/turns";
 import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 import { modelName, phaseAgents, tally, workflowDetailRequest, type Tally } from "../summary/foldWorkflows";
 import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "../summary/workflow";
 import {
@@ -36,7 +36,8 @@ import {
   type WorkflowCommands,
 } from "../summary/workflowView";
 import { commandLabel, sendLabel, type BackgroundCommand } from "./processes";
-import { COMMAND_STATE, StopButton } from "./TasksSection";
+import { StopButton } from "./TasksSection";
+import { COMMAND_STATE } from "./tasksSectionModel";
 import { TASK_ICONS } from "./taskIcons";
 import "./sessionInfo.css";
 import "./WorkflowTasks.css";

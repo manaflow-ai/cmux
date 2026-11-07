@@ -16,7 +16,7 @@ import { McpCallRows } from "../src/agent-session/acpmux/conversation/McpCallRow
 import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
-import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

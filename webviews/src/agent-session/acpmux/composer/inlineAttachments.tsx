@@ -16,10 +16,12 @@ import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { AttachmentChip, RetryButton, UploadProgress, type PendingAttachment } from "./attachmentIntake";
+import { AttachmentChip, RetryButton, UploadProgress } from "./attachmentIntake";
+import { type PendingAttachment } from "./attachmentIntakeModel";
 import { keptThumb } from "./imagePool";
 import { reordered } from "./stripReorder";
-import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
+import { TextAttachmentCard } from "./TextAttachmentCard";
+import { pastedSize } from "./textAttachmentCardModel";
 import { RemoveGlyph } from "./RemoveGlyph";
 
 type Options = {

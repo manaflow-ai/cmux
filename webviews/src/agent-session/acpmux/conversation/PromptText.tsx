@@ -20,22 +20,25 @@ import {
   headParts,
   promptParts,
 } from "./promptCollapse";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { cancelResize, foldMotion, foldMs, markHeightFold, playResize } from "./fold";
 import { holdHeader } from "./useAnchoredCollapse";
 import { Markdown } from "./Markdown";
-import { SoftBroken, softBreaks } from "./softBreaks";
+import { SoftBroken } from "./softBreaks";
+import { softBreaks } from "./softBreaksModel";
 import { isPromptMarkdown } from "./promptMarkdown";
-import { githubRefLabel, UrlChip, withForeignFiles } from "../chips/LinkChips";
+import { UrlChip } from "../chips/LinkChips";
+import { withForeignFiles } from "../chips/linkedText";
+import { githubRefLabel } from "../chips/linkChipsModel";
 import { foreignFileIds, textLinks } from "../chips/paths";
 import { deeplinks } from "../composer/deeplinks";
 import { SkillWordsContext } from "./skillWords";
-import { withSkillWords } from "./SkillWord";
+import { withSkillWords } from "./withSkillWords";
 import { Bot, ChevronDown } from "./icons";
 import { agentText } from "../agentText";
 import { experimentArm } from "../../../experiments/experiment";
 import { pastedAgentLook } from "./pastedAgentLook.experiment";
-import { pastedSize } from "../composer/TextAttachmentCard";
+import { pastedSize } from "../composer/textAttachmentCardModel";
 
 export function PromptText({
   rowId,

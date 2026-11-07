@@ -17,11 +17,12 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { useNearViewport } from "../useNearViewport";
 import { artifactFrameURL, artifactGallery, artifactNeedsRun } from "./artifactSandbox";
-import { CodeBlock, languageLabel } from "./CodeBlock";
+import { CodeBlock } from "./CodeBlock";
+import { languageLabel } from "./codeBlockModel";
 import { CopyButton } from "./CopyButton";
 import { OpenPreview } from "./OpenPreview";
 import { renderFrameCSS } from "./renderBase";
-import { useRenderFrame } from "./RenderCard";
+import { useRenderFrame } from "./renderCardModel";
 import {
   INLINE_PREVIEW_EXPANDED_MAX_HEIGHT,
   INLINE_PREVIEW_MAX_HEIGHT,

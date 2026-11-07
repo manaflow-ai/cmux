@@ -2,12 +2,8 @@ import React, { useCallback, useImperativeHandle, useRef, useState, type RefObje
 import { type ComposerAttachment, inlineCopyId, inlineTokenIds } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  type MadeFile,
-  type PendingAttachment,
-} from "./composer/attachmentIntake";
+import { AttachmentStrip } from "./composer/attachmentIntake";
+import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";

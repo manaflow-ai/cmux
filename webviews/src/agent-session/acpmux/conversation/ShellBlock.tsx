@@ -11,21 +11,15 @@
 import { memo, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { useT } from "../i18n";
 import { useBlockWrap } from "./blockWrap";
-import {
-  lineCount,
-  Lines,
-  PreviewMore,
-  SIDEWAYS_SCROLLER,
-  usePreview,
-  useSidewaysEdge,
-  WrapButton,
-} from "./BlockParts";
+import { Lines, PreviewMore, WrapButton } from "./BlockParts";
+import { lineCount, SIDEWAYS_SCROLLER, usePreview, useSidewaysEdge } from "./blockPartsModel";
 import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
 import { moreBelow, useMoreBelowOn } from "./moreBelow";
 import { SHELL_ROLE_COLOR, shellTokens } from "./shellHighlight";
-import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
+import { OutputMore } from "./toolOutput";
+import { previewedOutput, useOutput } from "./toolOutputModel";
 
 export function ShellBlock({
   id,

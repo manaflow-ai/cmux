@@ -2,12 +2,12 @@
 import { componentEntry } from "../../gallery/format";
 import type { ChatAccounts } from "./chatAccounts";
 import type { ModelPickerProps } from "./modelPickerLayout";
-import type { UsedLook } from "./QuickModelMenu";
+import type { UsedLook } from "./quickModelMenuModel";
 import type { Play } from "../../gallery/play";
 import { BUNDLED_MODEL_CATALOG } from "./modelCatalogData";
 import { topModelsFor } from "./topModels";
 import { mergeModelCatalog } from "./modelCatalog";
-import { type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
+import { type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
 import { SOL_SEARCH_CATALOG, SOL_SEARCH_QUERY } from "../../gallery/fixtures/modelSearch";
 
 /// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context.

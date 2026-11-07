@@ -10,7 +10,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
-import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/workingForModel";
 import { THINKING, trayWaitAgents, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import longWait from "../src/agent-session/acpmux/conversation/LongSubagentWait.gallery";

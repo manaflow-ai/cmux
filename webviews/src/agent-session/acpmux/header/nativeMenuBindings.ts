@@ -1,5 +1,5 @@
 import type { ContextMenuItem } from "../../../ui/ContextMenu";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 import { boundedNativeText, type NativeRowMenuItem } from "./nativeRowTools";
 
 export interface NativeMenuBinding {

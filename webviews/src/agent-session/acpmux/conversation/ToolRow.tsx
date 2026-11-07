@@ -4,12 +4,13 @@ import { WrittenArtifactButtons } from "./writtenArtifacts";
 // output (under its input's labeled fields, ToolDetail.tsx), Shell block, diff, or the card of what a
 // read or file search found (FileResultCard.tsx) below once opened.
 import { useFindReveal } from "./chatFind";
-import { memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toolFiles } from "../diff";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
-import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
+import { ReplyMedia } from "../chips/ReplyMedia";
+import { mediaKind } from "../chips/replyMediaModel";
 import { pathName } from "../chips/paths";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
 import { toolKind } from "../toolNames";
@@ -25,43 +26,25 @@ import { RowShimmer } from "./ShimmerText";
 import { toolDuration } from "./toolGroups";
 import { cleanText } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { useRowDisclosure } from "./transcriptDisclosure";
+import { useRowDisclosure } from "./transcriptDisclosureModel";
 import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
 import { ToolDetail } from "./ToolDetail";
 import { FileResultCard } from "./FileResultCard";
 import { fileCard } from "./fileResults";
 import { inputFields, opensToFields } from "./toolInputFields";
-import { WriteLabel, writeCall } from "./WriteLabel";
+import { WriteLabel } from "./WriteLabel";
+import { writeCall } from "./writeLabelModel";
 import { WebSources } from "./WebSources";
 import { webSources, withoutLinks } from "./webSourceList";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
-import { RepoRecoveryCard, repoRecoveryFor } from "./RepoRecoveryCard";
-import { failureWord, InlineFailureCause, ToolFailureCause, useInStep } from "./ToolFailureCause";
-import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
-
-/// ACP tool kinds (`ToolKind`) to row glyphs.
-export function toolIcon(kind?: string): ReactNode {
-  switch (kind) {
-    case "read":
-      return <OpenBook />;
-    case "edit":
-    case "delete":
-    case "move":
-    case "fileChange":
-      return <Pencil size={16} />;
-    case "search":
-      return <Magnifier />;
-    case "execute":
-      return <TerminalSquare />;
-    case "fetch":
-      return <Globe size={16} />;
-    default:
-      return <ToolGroup size={16} />;
-  }
-}
-
+import { RepoRecoveryCard } from "./RepoRecoveryCard";
+import { repoRecoveryFor } from "./repoRecoveryCardModel";
+import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, useInStep } from "./toolFailureCauseModel";
+import { Check, ChevronRight } from "./icons";
+import { toolIcon } from "./toolRowModel";
 /// One tool call. A call with output opens it below; a
 /// shell call opens to its Shell block, with the command line even before any output, and an
 /// edit opens to its diff.

@@ -11,7 +11,8 @@ import { foldMs, markHeightFold } from "./fold";
 import { toolFiles } from "../diff";
 import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
-import { EditCounts, useEditTotals } from "./EditCounts";
+import { EditCounts } from "./EditCounts";
+import { useEditTotals } from "./editCountsModel";
 import { FailedCount } from "./FailedCount";
 import { EditDiff } from "./EditDiff";
 import { StepThought, ThoughtRow } from "./ThoughtRow";
@@ -20,12 +21,15 @@ import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./ico
 import { isQuietThought, isThought } from "./thoughts";
 import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
-import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
+import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosureModel";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { WriteLabel, writeCall } from "./WriteLabel";
+import { WriteLabel } from "./WriteLabel";
+import { writeCall } from "./writeLabelModel";
 import { ToolLabel } from "./ToolVerb";
 import { toolFailure } from "./toolFailure";
-import { failureWord, InlineFailureCause, InStep, ToolFailureCause } from "./ToolFailureCause";
+import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, InStep } from "./toolFailureCauseModel";
+import { firstStepCount, stepProbe } from "./toolGroupRowModel";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -43,15 +47,6 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
 /// One drawn step of an opened group: the call or thought at `at` in the group's items, and a
 /// thought's number among the group's thoughts (-1 for a call), which names it wherever it draws.
 type StepEntry = { at: number; key: string; thought: number };
-
-/// Test probes: how many times the group built its step list and each step drew, and `hold`, which
-/// takes each deferred draw of an opened run's rows (StepList) to run when the test says. Unset in
-/// the app.
-export const stepProbe: {
-  build?: () => void;
-  render?: (key: string) => void;
-  hold?: (draw: () => void) => void;
-} = {};
 
 /// The group's step entries, rebuilt only when its shape changes (a call or thought joins, or one
 /// takes another's place), never when a call already listed streams output: the transcript replaces
@@ -168,16 +163,6 @@ const Step = memo(
     a.probeKey === b.probeKey &&
     (a.item === b.item || (!a.item.tool && !b.item.tool && sameThought(a.item, b.item))),
 );
-
-/// The least height a step row draws at, in px: the rows the window can show at once are its height
-/// over this.
-const STEP_MIN_PX = 24;
-
-/// Steps a reader's click draws in its own frame: as many as the window can show, never the whole of
-/// a long run. Its height alone sets the count, so the click costs the same at any length.
-export function firstStepCount(viewHeight: number): number {
-  return Math.max(1, Math.ceil(viewHeight / STEP_MIN_PX));
-}
 
 /// The height a step not drawn yet is given: the median distance between the drawn steps' tops, so
 /// the lead thought drawn in full, or a failure's or image's taller row, does not set it. Rows that

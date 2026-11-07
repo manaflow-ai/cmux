@@ -10,7 +10,8 @@ import type { Play } from "../../../gallery/play";
 import type { AcpmuxBackgroundTask } from "../model";
 import { BackgroundTaskNote } from "./BackgroundTaskNote";
 import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./backgroundTaskOutput";
-import { resetTranscriptDisclosure, TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Props = {
   task: AcpmuxBackgroundTask;

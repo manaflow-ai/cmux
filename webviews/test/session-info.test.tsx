@@ -25,8 +25,9 @@ import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { resetChangesStatuses } from "../src/agent-session/acpmux/session-info/changesStatus";
+import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import {
-  SessionInfo,
   sessionInfoTopOffset,
   sessionInfoOverChat,
   sessionInfoPushes,
@@ -39,8 +40,7 @@ import {
   sessionInfoFits,
   FLOAT_MARGIN,
   pushes,
-  useSessionInfo,
-} from "../src/agent-session/acpmux/session-info/SessionInfo";
+} from "../src/agent-session/acpmux/session-info/sessionInfoModel";
 import {
   SESSION_INFO_WIDTH,
   sessionInfoState,
@@ -56,7 +56,7 @@ import {
   type StartedSession,
 } from "../src/agent-session/acpmux/started/startedSessions";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
-import { openSourceFile } from "../src/agent-session/acpmux/session-info/SourcesSection";
+import { openSourceFile } from "../src/agent-session/acpmux/session-info/sourcesSectionModel";
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";

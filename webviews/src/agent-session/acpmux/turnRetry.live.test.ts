@@ -8,7 +8,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { TURN_RETRY, type AcpmuxRow } from "./model";
 import { THINKING, withRetry } from "./conversation/turns";
-import { retryParts } from "./conversation/Thinking";
+import { retryParts } from "./conversation/thinkingModel";
 import { readTurnRetry } from "./direct";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });

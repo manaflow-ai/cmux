@@ -10,13 +10,14 @@ import { componentEntry } from "../../../gallery/format";
 import { tool } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { SubagentDoneLine } from "../subagents/SubagentDoneLine";
-import { SubagentNavContext } from "../subagents/SubagentGroup";
+import { SubagentNavContext } from "../subagents/subagentGroupModel";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { agentMessage } from "./agentMessages";
 import { MessageCard } from "./MessageCard";
 import { AcpmuxSendLine } from "./SentMessageLine";
 import { ToolGroupRow } from "./ToolGroupRow";
-import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Props = { recipient: "chip" | "link" | "plain"; open?: boolean };
 
