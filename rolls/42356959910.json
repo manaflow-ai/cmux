@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42356959910",
+  "recorded_at": "2026-11-07T08:53:55Z",
+  "reason": "cmux-tui 3ad6baf8ae6e changes the image's cmux-tui (pinned 12d3c55690c2)",
+  "dry_run": false,
+  "cmux_tui": "3ad6baf8ae6e402727696e1f9c91e7da22ada862",
+  "fixes": [
+    {
+      "sha": "b127f368c58a0d78bb644baa844a5d1c9d473452",
+      "mergedAt": "2026-11-07T00:33:40-08:00",
+      "subject": "cmux-action-catalog: Open Chief Dock is Show/Hide Chief, as the app's catalog has it since 23f42b1 (#37578)"
+    },
+    {
+      "sha": "4d9677068823db943e0948a88b26092d3f6410e9",
+      "mergedAt": "2026-11-07T00:16:50-08:00",
+      "subject": "cmux automation: --watch triggers, --if conditions, guardrails and a test dry run (#37557)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T08:53:55Z",
+    "snapshot_id": "sh-1fa9814fa4c342f6812838fe2f2f9384",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42356959910): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b4d373c4e82e947d066e856952fc41597392cca3",
+    "image": "cloud-native-auto-3ad6baf8-42356959910-1",
+    "revision": "ci-42356959910-1",
+    "at": "2026-11-07T08:53:55Z"
+  },
+  "rolled_back": false
+}
