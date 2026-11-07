@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42369685090",
+  "recorded_at": "2026-11-07T11:54:06Z",
+  "reason": "cmux-tui 7a2437eeeeb3 changes the image's cmux-tui (pinned 1df296dc05b9)",
+  "dry_run": false,
+  "cmux_tui": "7a2437eeeeb35a74236198ee1b5881a0d154a554",
+  "fixes": [
+    {
+      "sha": "7a2437eeeeb35a74236198ee1b5881a0d154a554",
+      "mergedAt": "2026-11-07T03:33:03-08:00",
+      "subject": "Agent chat: View Prompt opens a Context screen with the chat's whole prompt and editable guidance (#36988)"
+    },
+    {
+      "sha": "70b1a514b797b220e64e5432cb0ba041d97ff7ad",
+      "mergedAt": "2026-11-07T11:20:17Z",
+      "subject": "Cloud carrier: cmux carrier serve, the dial behind a Unix socket, and vmk on the dial (#37278)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T11:54:06Z",
+    "snapshot_id": "sh-e92f8c5a4da24ff1bd1e663fd22700d0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42369685090): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a80c22d9a3e02ef39d5aaf6a08c410072351ef02",
+    "image": "cloud-native-auto-7a2437ee-42369685090-1",
+    "revision": "ci-42369685090-1",
+    "at": "2026-11-07T11:54:06Z"
+  },
+  "rolled_back": false
+}
