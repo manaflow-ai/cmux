@@ -773,6 +773,47 @@
   }
  },
  {
+  "name": "a browse naming no folder still waits for the path check",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":15,\"method\":\"_acpmux/browse\",\"params\":{\"hidden\":true}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 15,
+    "method": "_acpmux/browse",
+    "params": {
+     "hidden": true
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/browse",
+    "page_id": "15",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": true,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": false
+   }
+  }
+ },
+ {
   "name": "a remote wire's session/new starts no session on this Mac",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"session/new\",\"params\":{\"cwd\":\"/x\"}}",
   "state": {

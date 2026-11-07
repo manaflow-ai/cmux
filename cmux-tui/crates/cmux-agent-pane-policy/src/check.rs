@@ -325,7 +325,8 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
 }
 
 /// Whether the frame waits for the host's folder check (`AcpmuxPathPolicy
-/// .needsCheck`): a `session/new`, or params that name a folder key at any
+/// .needsCheck`): a `session/new`, an `_acpmux/browse` (its daemon lists the
+/// home folder when it names none), or params that name a folder key at any
 /// depth.
 pub fn needs_path_check(object: &Map<String, Value>) -> bool {
     fn names_folder(value: &Value) -> bool {
@@ -337,7 +338,7 @@ pub fn needs_path_check(object: &Map<String, Value>) -> bool {
             _ => false,
         }
     }
-    object.get("method").and_then(Value::as_str) == Some("session/new")
+    matches!(object.get("method").and_then(Value::as_str), Some("session/new" | "_acpmux/browse"))
         || object.get("params").is_some_and(names_folder)
 }
 

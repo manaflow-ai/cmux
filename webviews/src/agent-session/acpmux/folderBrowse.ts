@@ -88,6 +88,8 @@ export type BrowseView = {
   more?: number;
   truncated?: BrowseReply["truncated"];
   failure?: BrowseFailure;
+  /// The next page failed: `more` is kept for a retry, and scrolling asks no more until then.
+  moreFailed?: boolean;
 };
 
 const EMPTY: BrowseView = { path: null, parent: null, entries: [], loading: false, loadingMore: false };
@@ -122,11 +124,12 @@ export class FolderBrowse {
   }
 
   /// The next page of the directory shown, once; a page that arrives after the person moved on is dropped.
-  more(): void {
-    const { more, loading, loadingMore, path } = this.view;
-    if (more === undefined || loading || loadingMore) return;
+  /// After a page failed, only `retry` (the person's Try Again) asks for it again.
+  more(retry = false): void {
+    const { more, loading, loadingMore, moreFailed, path } = this.view;
+    if (more === undefined || loading || loadingMore || (moreFailed && !retry)) return;
     const generation = this.generation;
-    this.set({ ...this.view, loadingMore: true });
+    this.set({ ...this.view, loadingMore: true, moreFailed: false });
     this.ask(path, more).then(
       (reply) => {
         if (generation !== this.generation) return;
@@ -134,8 +137,8 @@ export class FolderBrowse {
       },
       () => {
         if (generation !== this.generation) return;
-        // The rows already shown stay; the end of the list is not offered again.
-        this.set({ ...this.view, loadingMore: false, more: undefined, truncated: this.view.truncated });
+        // The rows already shown stay, and the failed page stays offered to try again.
+        this.set({ ...this.view, loadingMore: false, moreFailed: true });
       },
     );
   }

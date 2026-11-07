@@ -89,4 +89,29 @@ struct AgentPaneFolderBrowseRelayTests {
         }
         #expect(try error("something.else")["data"] == nil)
     }
+
+    /// A browse of this Mac that names no folder would list the home folder past every root: it
+    /// always waits for the folder check, which refuses it; one inside a root goes.
+    @Test func aLocalBrowseMustNameAFolderInsideTheRoots() throws {
+        let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().path
+        let scope = AcpmuxPathPolicy.Scope(roots: [root], fillCwd: root, workspaceID: "0f8a2c1e-5b3d-4e6f-9a7b-1c2d3e4f5a6b")
+        for params: [String: Any] in [["hidden": true], ["peer": "", "hidden": true], [:]] {
+            let frame = try Self.browse(params)
+            #expect(AcpmuxPathPolicy.needsCheck(frame), "\(params)")
+            guard case .failure(let refusal) = AcpmuxPathPolicy.checkNow(frame, scope: scope) else {
+                Issue.record("a local browse with no folder went out: \(params)")
+                continue
+            }
+            #expect(refusal.error == .pathInvalid)
+        }
+        guard case .success = AcpmuxPathPolicy.checkNow(try Self.browse(["path": root, "dirsOnly": true]), scope: scope) else {
+            Issue.record("a browse of a folder inside the roots was refused")
+            return
+        }
+        // A peer's top level names no folder and goes: that machine lists only its own roots.
+        guard case .success = AcpmuxPathPolicy.checkNow(try Self.browse(["peer": "devbox"]), scope: scope) else {
+            Issue.record("a peer's top level was refused")
+            return
+        }
+    }
 }

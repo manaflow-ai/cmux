@@ -96,6 +96,29 @@ test("pages: the next page is asked once, from the reply's offset, and appended"
   expect(asked.length).toBe(2);
 });
 
+test("a failed page stays offered: scrolling asks no more, Try Again asks it once", async () => {
+  const { asked, browse } = machine();
+  browse.open("/home/leo");
+  asked[0]!.resolve(reply("/home/leo", [dir("a"), dir("b")], { total: 3, nextOffset: 2 }));
+  await settle();
+  browse.more();
+  asked[1]!.reject({ code: -32000, reason: "peer_disconnected" });
+  await settle();
+  expect(browse.view.entries.map((e) => e.name)).toEqual(["a", "b"]);
+  expect(browse.view.more).toBe(2);
+  expect(browse.view.moreFailed).toBe(true);
+  // The list's scroll keeps asking for the end; it waits for the person instead.
+  browse.more();
+  expect(asked.length).toBe(2);
+  browse.more(true);
+  expect(asked.length).toBe(3);
+  expect(asked[2]!.params.offset).toBe(2);
+  asked[2]!.resolve(reply("/home/leo", [dir("c")], { total: 3, offset: 2 }));
+  await settle();
+  expect(browse.view.entries.map((e) => e.name)).toEqual(["a", "b", "c"]);
+  expect(browse.view.moreFailed).toBeFalsy();
+});
+
 test("a page that arrives after the person moved on is dropped", async () => {
   const { asked, browse } = machine();
   browse.open("/home/leo");

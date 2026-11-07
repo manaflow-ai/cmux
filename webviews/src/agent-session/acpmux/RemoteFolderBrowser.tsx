@@ -236,6 +236,16 @@ export function RemoteFolderBrowser({
         )}
       </div>
       {view.truncated && <p className="acpmux-location-note acpmux-browse-note">{t("composer.browseTruncated")}</p>}
+      {view.moreFailed && (
+        <button
+          type="button"
+          className="acpmux-location-note acpmux-browse-note acpmux-browse-retry"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => browse.more(true)}
+        >
+          {t("composer.browseMoreFailed")}
+        </button>
+      )}
       <hr className="ui-separator" />
       <button
         type="button"

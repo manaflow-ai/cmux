@@ -1692,6 +1692,8 @@
 .acpmux-browse-chevron { display: inline-flex; flex: none; color: var(--agent-muted); opacity: 0; }
 .acpmux-browse-row[data-highlighted] .acpmux-browse-chevron { opacity: 1; }
 .acpmux-browse-note { flex: none; margin: 4px 0 0; padding: 0 8px; color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-browse-retry { border: 0; background: none; text-align: start; cursor: pointer; }
+.acpmux-browse-retry:hover { color: var(--agent-text); }
 .acpmux-browse-use { flex: none; }
 .acpmux-browse-use:disabled { color: var(--agent-muted); }
 /* The list's own content, measured when the browser takes its place; it adds no box of its own. */
