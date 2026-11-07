@@ -29,7 +29,8 @@ visible_ms, confirmed_ms and key_ms:
          apart): each press after a shown terminal, its shell prompt
          (1 s), 0.4 s after the press before the undo, and 0.3 s after it, so the Ctrl-` stand-in and the New Tab
          page spare are ready
-  quick  two quick presses (`--quick-runs`, default 6, per command): the command's key through `debug.key` (not
+  quick  two quick presses (`--quick-runs`, default 6, per command; new_browser too: a press that misses the
+         spare page, `spare_page_taken` per timed press of new_browser and split_browser): the command's key through `debug.key` (not
          timed), then at once the timed press, with no wait for a stand-in or spare to refill
   cold   cold, no wait (`--cold-launches`, default 2, launches per command): the app quits and launches again, and
          the timed press is the launch's first, as soon as a terminal is focused (no shell prompt wait, no warm-up)
@@ -77,6 +78,8 @@ parser.add_argument("--arms", default=None,
                     help="the arms to time (bench_arms.py; default warm,quick,cold, or warm alone with --budget-frames: a "
                          "budget run judges the warm rows only, so its time and its pass or fail do not change)")
 parser.add_argument("--quick-runs", type=int, default=6, help="quick arm: pairs of presses per command")
+parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
+                    help="a Debug Settings value for this run (repeatable), e.g. browserPage.loadingBackground=false: the arms of an A/B")
 parser.add_argument("--cold-launches", type=int, default=2, help="cold arm: launches per command, each timing its first press")
 parser.add_argument("--link-url", default="", help="link_right's page (default: a local file page in the scratch folder)")
 parser.add_argument("--out", default="/tmp")
@@ -134,7 +137,8 @@ if set(ARMS) - set(bench_arms.ARMS):
     parser.error(f"--arms: one of {', '.join(bench_arms.ARMS)}")
 # The key of each command, for the quick arm's first (untimed) press.
 KEYS = {"split_right": ("d", ["command"]), "split_down": ("d", ["command", "shift"]), "new_tab": ("t", ["command"]),
-        "new_terminal": ("`", ["control"]), "new_workspace": ("n", ["command"])}
+        "new_terminal": ("`", ["control"]), "new_workspace": ("n", ["command"]),
+        "new_browser": ("l", ["command", "shift"])}
 
 
 def run(*args, timeout=30):
@@ -158,6 +162,19 @@ def rpc(method, params=None, timeout=30):
         return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
     except (OSError, ValueError) as error:
         return {"error": str(error)}
+
+
+# Commands whose new Chromium page may take the spare page made ahead (CEFSpareWindow): each timed press of one records
+# `spare_page_taken`, so a report shows hits and misses apart (a miss pays Chromium's tab_add on the main thread).
+SPARE_COMMANDS = ("new_browser", "split_browser")
+
+
+def spare_pages_taken():
+    """`debug.cef` spare_pages_taken: spare pages a new tab took in this process; None without Chromium or a reply.
+    Read only outside a timed window (the report runs on the main thread)."""
+    reply = rpc("debug.cef")
+    value = reply.get("spare_pages_taken") if isinstance(reply, dict) else None
+    return value if isinstance(value, int) else None
 
 
 def wait(check, seconds, step=0.25):
@@ -286,8 +303,16 @@ def arm_quick(window):
                 continue
             before = len(panes())
             name, modifiers = KEYS[command]
+            taken = spare_pages_taken() if command in SPARE_COMMANDS else None
             rpc("debug.key", {"key": name, "modifiers": modifiers, "window": window})
-            rows.append(timed(command, "quick", index, arm="quick"))
+            row = timed(command, "quick", index, arm="quick")
+            if command in SPARE_COMMANDS:
+                # The untimed first press takes a waiting spare; none is made again within milliseconds (the warmup's
+                # idle wait), so the timed press misses: the press a miss costs. The pair's takes are kept (0 or 1).
+                after = spare_pages_taken()
+                row["spare_page_taken"] = None if taken is None or after is None else False
+                row["spare_pages_taken_by_pair"] = None if taken is None or after is None else after - taken
+            rows.append(row)
             time.sleep(0.4)  # test harness: let the creations' shells start before closing them
             # The first of the two results, then the second (undo waits for one terminal pane again).
             if command == "new_workspace":
@@ -341,6 +366,8 @@ def bench(phase, window):
     if not ensure_terminal():
         sys.exit("no focused terminal: " + json.dumps(panes())[:800])
     for command in COMMANDS:
+        # The spare counter before each press is the one after the press before (an undo takes no spare).
+        taken = spare_pages_taken() if command in SPARE_COMMANDS else None
         for index in range(opts.runs):
             if command != "new_workspace" and not ready(command):
                 sys.exit("no focused start pane: " + json.dumps(panes())[:800])
@@ -348,6 +375,10 @@ def bench(phase, window):
             if opts.hang_stacks:
                 rpc("debug.hangs", {"clear": True})
             result = timed(command, phase, index)
+            if command in SPARE_COMMANDS:
+                after = spare_pages_taken()
+                result["spare_page_taken"] = None if taken is None or after is None else after > taken
+                taken = after
             rows.append(result)
             time.sleep(0.4)  # test harness: let the creation's shell start before closing it
             if opts.hang_stacks:
@@ -439,6 +470,14 @@ def summary(rows):
                 "page_p95": pct([r.get("page_ms") for r in sel], .95),
                 "page_max": pct([r.get("page_ms") for r in sel], 1),
             }
+            hits = [r for r in sel if r.get("spare_page_taken") is True]
+            misses = [r for r in sel if r.get("spare_page_taken") is False]
+            if hits or misses:
+                out[f"{phase}/{command}"].update({
+                    "spare_hits": len(hits), "spare_misses": len(misses),
+                    "page_hit_p50": pct([r.get("page_ms") for r in hits], .5),
+                    "page_miss_p50": pct([r.get("page_ms") for r in misses], .5),
+                    "page_miss_p95": pct([r.get("page_ms") for r in misses], .95)})
     return out
 
 
@@ -479,6 +518,13 @@ def main():
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
     if opts.hang_stacks:
         env.update({"CMUX_NEXT_HANG_THRESHOLD_MS": "8", "CMUX_NEXT_AGENT_PANE_MOCK": "1", "ACPMUX_AGENT_LAUNCH": "deny"})
+    if opts.tunable:
+        # A Debug Settings value per run (as cef-tab-bench.py): the arms of an A/B on one build.
+        tunables = os.path.join(SCRATCH, "debug-tunables.json")
+        values = {k: json.loads(v) for k, v in (item.split("=", 1) for item in opts.tunable)}
+        json.dump({"version": 1, "values": values}, open(tunables, "w"))
+        env["CMUX_NEXT_DEBUG_TUNABLES_FILE"] = tunables
+        print(f"tunables: {values}", flush=True)
     def launch():
         global app, SOCKET
         # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
