@@ -1398,6 +1398,21 @@ fn team_receipt_line(receipt: &Value) -> String {
     format!("{state} to {canonical}; startWork={decision} (acpmux send --status mesh:{id})")
 }
 
+/// `--relay NAME --relayed-from MACHINE[/SESSION] [--relayed-harness FAMILY]` as the daemon reads
+/// them (`_meta.acpmux.fromRelay` and `fromHarness`, `prompt_provenance::relay_sender`).
+fn relay_fields(relay: crate::cli::command::SendRelay) -> Option<Value> {
+    let (by, from) = (relay.relay?, relay.relayed_from?);
+    let (machine, session) = match from.split_once('/') {
+        Some((machine, session)) => (machine.to_owned(), Some(session.to_owned())),
+        None => (from, None),
+    };
+    let mut fields = json!({"fromRelay": {"by": by, "machine": machine, "session": session}});
+    if let Some(harness) = relay.relayed_harness {
+        fields.set("fromHarness", json!(harness));
+    }
+    Some(fields)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1500,19 +1515,4 @@ mod tests {
         assert!(!new_requires_tty(true, true, false, false, false));
         assert!(new_requires_tty(false, true, false, false, true));
     }
-}
-
-/// `--relay NAME --relayed-from MACHINE[/SESSION] [--relayed-harness FAMILY]` as the daemon reads
-/// them (`_meta.acpmux.fromRelay` and `fromHarness`, `prompt_provenance::relay_sender`).
-fn relay_fields(relay: crate::cli::command::SendRelay) -> Option<Value> {
-    let (by, from) = (relay.relay?, relay.relayed_from?);
-    let (machine, session) = match from.split_once('/') {
-        Some((machine, session)) => (machine.to_owned(), Some(session.to_owned())),
-        None => (from, None),
-    };
-    let mut fields = json!({"fromRelay": {"by": by, "machine": machine, "session": session}});
-    if let Some(harness) = relay.relayed_harness {
-        fields.set("fromHarness", json!(harness));
-    }
-    Some(fields)
 }
