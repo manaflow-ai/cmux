@@ -3,10 +3,6 @@ import CmuxNextDesign
 /// Settings > Home (the Home tab's conversations). One group of
 /// `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum HomeSettingsSchema {
-    /// Rows an agent may set (looks only): the Chief chat's bubble style and whether it shows the Feed.
-    static let agentSettableKeys: Set<String> = Set([HomeChiefBubbleStyleSetting.key, HomeFeedRowsSetting.key]
-        + HomeBubbleColorsSetting.roles.map { (HomeBubbleColorsSetting.configPath + [$0]).joined(separator: ".") })
-
     static var descriptors: [SettingDescriptor] {
         let attachments = SettingsText.keyed("settings.group.attachments", "Attachments")
         return [
