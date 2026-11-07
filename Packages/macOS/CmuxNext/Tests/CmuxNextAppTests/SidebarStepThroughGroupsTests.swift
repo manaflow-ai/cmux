@@ -75,6 +75,8 @@ import Testing
 
     /// Runs `body` with `sidebar.doneFold` on and `sidebar.groupRowLimit` at `limit`, then restores both.
     private static func withFolds(limit: Double = 0, _ body: () throws -> Void) rethrows {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all) // an unregistered tunable keeps its default
         TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
         TunableStore.shared.set(SidebarTunables.groupRowLimit.key, .number(limit))
         defer {
