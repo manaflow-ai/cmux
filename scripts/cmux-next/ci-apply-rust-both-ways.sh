@@ -65,7 +65,9 @@ failed=0
 for pair in "$@"; do
   n=$((n + 1))
   base="${pair%%:*}" head="${pair##*:}" tag="$n-${head:0:12}"
-  if ! git -C "$root" fetch -q --no-tags --depth=200 origin "$base" "$head"; then
+  depth=()  # --depth only in a checkout that is already shallow, so a full clone stays full
+  [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=200)
+  if ! git -C "$root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "$base" "$head"; then
     printf '%s\t%s\tfetch-failed\n' "$base" "$head" >> "$out/results.tsv"; failed=1; continue
   fi
   wt="$work/wt-$n"

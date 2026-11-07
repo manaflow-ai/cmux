@@ -313,7 +313,9 @@ struct TabStripFollowsPaneTickTests {
         for pane in panes {
             let grids = try await PaneContentPolicyTests.grids(pane, rig)
             let final = try #require(try PaneContentPolicyTests.surface(pane, in: rig).fittedGrid)
-            #expect(grids == [final], "\(pane) asked its PTY for \(grids), not its final grid \(final) once")
+            // RESIZE P0 7: the grid of the first landed frame goes at once; these frames run in one turn, so no refresh ends a window and the rest go as the final grid.
+            #expect(grids.last == final && grids.count <= 2 && Set(grids).count == grids.count,
+                    "\(pane) asked its PTY for \(grids), not at most its first frame's grid and then its final grid \(final)")
         }
     }
 
