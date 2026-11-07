@@ -187,36 +187,46 @@ test("shown again after a tab switch, the focus goes back to the first text fiel
   expect(dom!.window.document.activeElement).toBe(field);
 });
 
-test("a host update keeps the secure text the person typed, and each edit gives it to the host", async () => {
+test("a host update keeps the text the person typed, secure or not, and each edit gives it to the host", async () => {
   const login: DialogState = {
     ...quit,
     layout: "standard",
-    fields: [{ kind: "text", id: "password", label: "Password", secure: true }],
-    values: { password: "" },
+    fields: [
+      { kind: "text", id: "user", label: "User", secure: false },
+      { kind: "text", id: "password", label: "Password", secure: true },
+    ],
+    values: { user: "", password: "" },
   };
   const { host, presses, edits } = await render(login);
+  const user = host.querySelector('[data-field="user"]') as HTMLInputElement;
   const field = host.querySelector('[data-field="password"]') as HTMLInputElement;
+  const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
   act(() => {
-    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(user, "leo");
+    user.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  act(() => {
     setter.call(field, "hunter2");
     field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
   });
   // The host answers its own keys and automation's presses with what it has (review 7 of #37296).
-  expect(edits.at(-1)).toEqual({ password: "hunter2" });
+  expect(edits.at(-1)).toEqual({ user: "leo", password: "hunter2" });
   // A key the host answered moves the focus: a new state, with the host's own (empty) values.
   await act(async () => {
     root!.render(
       <OverlayDialog
-        dialog={{ ...login, values: { password: "" }, focus: { serial: 1, backward: false } }}
+        dialog={{ ...login, values: { user: "", password: "" }, focus: { serial: 1, backward: false } }}
         onPress={(button, values) => presses.push({ button, values })}
         onEdit={(values) => edits.push(values)}
         onLayout={() => {}}
       />,
     );
   });
+  // Review 32 of #37296 (F1): the ordinary field kept its text too.
+  expect(user.value).toBe("leo");
   expect(field.value).toBe("hunter2");
   act(() => (host.querySelector('[data-button="keep"]') as HTMLButtonElement).click());
-  expect(presses.at(-1)?.values).toEqual({ password: "hunter2" });
+  expect(presses.at(-1)?.values).toEqual({ user: "leo", password: "hunter2" });
 });
 
 test("buttons that do not fit on one line stack, and stay on one line when they fit (#29984)", async () => {

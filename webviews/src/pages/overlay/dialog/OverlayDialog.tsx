@@ -33,28 +33,23 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout, onPainted }: 
   const card = useRef<HTMLDivElement | null>(null);
   // The card mounts in the dialog's portal, after this component's own commit: effects follow the node.
   const [cardNode, setCardNode] = useState<HTMLDivElement | null>(null);
-  // The secure fields: what the person typed there stays over a host update that lags the edit.
-  const secure = new Set(dialog.fields.flatMap((field) => (field.kind === "text" && field.secure ? [field.id] : [])));
-  // The values the person typed win over the host's until the host sends a new dialog or sets a value.
-  // A host update that is not a set value (a focus move, a re-show) keeps the secure text typed, even
-  // one sent before the host had the edit.
-  const [values, setValues] = useState(dialog.values);
+  // What the person typed wins over the host's values until the host sends a new dialog or sets a value
+  // (a new values serial): a host update that lags the edit (a focus move, a re-show) keeps every field
+  // typed, a secure one or not (review 32 of #37296).
   const serial = dialog.valuesSerial ?? 0;
-  const [hostValues, setHostValues] = useState({ id: dialog.id, serial, values: dialog.values });
-  if (hostValues.values !== dialog.values || hostValues.id !== dialog.id || hostValues.serial !== serial) {
-    const typed = hostValues.id === dialog.id && hostValues.serial === serial ? values : {};
-    setHostValues({ id: dialog.id, serial, values: dialog.values });
-    setValues({
-      ...dialog.values,
-      ...Object.fromEntries(Object.entries(typed).filter(([key]) => secure.has(key))),
-    });
-  }
+  const [typed, setTyped] = useState<{ id: number; serial: number; values: Record<string, DialogValue> }>({
+    id: dialog.id,
+    serial,
+    values: {},
+  });
+  const own = typed.id === dialog.id && typed.serial === serial ? typed.values : {};
+  if (own !== typed.values) setTyped({ id: dialog.id, serial, values: {} });
+  const values = { ...dialog.values, ...own };
   const edit = (id: string, value: DialogValue) => {
-    const next = { ...values, [id]: value };
-    setValues(next);
+    setTyped({ id: dialog.id, serial, values: { ...own, [id]: value } });
     // Every value, a secure field's too: the host answers keys and automation presses with what it
     // has, as it read the native fields before.
-    onEdit(next);
+    onEdit({ ...values, [id]: value });
   };
   const press = (button: string) => onPress(button, values);
 
