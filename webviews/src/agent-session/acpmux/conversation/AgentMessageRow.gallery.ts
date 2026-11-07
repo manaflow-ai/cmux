@@ -367,7 +367,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-agentmsg__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-agentmsg__card"));
-        await ctx.click({ selector: ".cv-received .cv-disclosure__toggle" });
+        await ctx.click({ selector: ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"));
       },
     },
@@ -389,7 +389,9 @@ export default agentPaneEntry({
         if (ctx.document.querySelector(head)?.getAttribute("aria-expanded") === "false")
           await ctx.click({ selector: head });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 4);
-        for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received .cv-disclosure__toggle"))
+        for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(
+          ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)",
+        ))
           toggle.click();
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text").length >= 4);
       },

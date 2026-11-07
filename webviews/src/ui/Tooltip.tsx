@@ -47,9 +47,15 @@ export interface TooltipProps {
   shortcut?: string;
   /** Extra classes on the popup (a hover card's own look, as `ui-card`). */
   className?: string;
+  /**
+   * A selector inside the control that the popup sits at, when the control is wider than what it
+   * names (a transcript-wide row whose hover belongs at its words, as `data-tooltip-anchor` does for
+   * a title tooltip). The whole control still opens it.
+   */
+  anchor?: string;
 }
 
-export function Tooltip({ label, detail, children, side = "top", shortcut, className }: TooltipProps) {
+export function Tooltip({ label, detail, children, side = "top", shortcut, className, anchor }: TooltipProps) {
   const container = usePortalContainer();
   const host = usePopupHost();
   const [trigger, setTrigger] = useState<HTMLElement | null>(null);
@@ -57,7 +63,8 @@ export function Tooltip({ label, detail, children, side = "top", shortcut, class
   // No room in the page (a tiny pane): past the window's edge, as a Mac tooltip (popupHost.ts). A
   // hover card (`ui-card`) wraps its lines, so its width never sends it there.
   const wraps = /(^|\s)ui-card(\s|$)/.test(className ?? "");
-  useEscapingPopup(host, popup, () => trigger, {
+  const placed = () => (anchor && trigger?.querySelector<HTMLElement>(anchor)) || trigger;
+  useEscapingPopup(host, popup, placed, {
     side,
     align: "start",
     gap: UI_TOOLTIP_GAP * (popup ? tooltipScale(popup.ownerDocument) : 1),
@@ -66,9 +73,14 @@ export function Tooltip({ label, detail, children, side = "top", shortcut, class
   });
   return (
     <BaseTooltip.Root>
-      <BaseTooltip.Trigger ref={host ? setTrigger : undefined} render={children} />
+      <BaseTooltip.Trigger ref={host || anchor ? setTrigger : undefined} render={children} />
       <BaseTooltip.Portal container={container}>
-        <BaseTooltip.Positioner className="ui-positioner" side={side} sideOffset={tooltipGap}>
+        <BaseTooltip.Positioner
+          className="ui-positioner"
+          side={side}
+          sideOffset={tooltipGap}
+          {...(anchor && { anchor: () => placed() })}
+        >
           <BaseTooltip.Popup ref={setPopup} className={cx("ui-tooltip ui-glass", className)}>
             {shortcut && <span className="ui-tooltip-hint">{shortcut}</span>}
             {typeof label === "string" || typeof label === "number" ? (

@@ -81,7 +81,7 @@ const FILES_HOST: ChipHostFixture = {
 };
 /// Each received message's own line (its DisclosureRow toggle); inside an opened "Received N
 /// messages" row, each message keeps its own line.
-const RECEIVED_LINE = ".cv-received .cv-disclosure__toggle";
+const RECEIVED_LINE = ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)";
 /// Received lines next to each other gather in one "Received N messages" row (#32720), closed, whose
 /// lines show once it opens: opens it when the stage draws one, then waits for a line.
 const RECEIVED_ROW = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
@@ -168,7 +168,7 @@ const alternate =
 /// B: the line fades out at its end instead of an ellipsis, and says how many lines follow.
 const fadeCount = alternate(
   `.cv-received__preview { text-overflow: clip; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
-.cv-received .cv-disclosure__toggle > .cv-rotor { display: none; }
+.cv-received .cv-disclosure__toggle > .cv-rotor, .cv-received .cv-agentmsg__chevron { display: none; }
 .cv-received__more-count { flex: none; color: var(--cv-text-dim); font-size: var(--text-control); opacity: 0.8; }`,
   (preview, text) => {
     const more = text.split("\n").filter((part) => part.trim()).length - 1;

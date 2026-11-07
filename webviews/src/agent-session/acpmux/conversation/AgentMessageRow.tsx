@@ -16,7 +16,7 @@
 // name. The caller owns whether it is open, so each kind keeps that across the virtualized
 // transcript its own way; the line stays on its pixel while the card grows or shrinks under it
 // (useAnchoredCollapse.ts), and a caller that wants the fold to play says when (`animates`).
-import { useId, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { ChevronRight } from "./icons";
 import { clipMessagePreview } from "./clipMessagePreview";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
@@ -128,6 +128,13 @@ export function AgentMessageRow({
     animates: animates ?? never,
     fadeIn: false,
   });
+  // A click on the line (its words, its chevron) that closes the message hands focus to the toggle,
+  // the line's one control, so focus inside the closing card (a reply's editor) is never dropped.
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const closeToToggle = () => {
+    if (open) toggleRef.current?.focus({ preventScroll: true });
+    collapse.toggle();
+  };
   const marker = unverified && <UnverifiedMark className={rowLook === "corner" ? "is-corner" : undefined} />;
   // Single (the default, messageLineLook.ts): the first line on the row, after the name; the
   // stacked gallery version puts it under the row, on its own line.
@@ -153,7 +160,7 @@ export function AgentMessageRow({
         className={`cv-tool cv-agentmsg__line${live ? " is-live" : " is-strong"}${lineClassName ? ` ${lineClassName}` : ""}`}
         {...lineAttributes}
         {...{ [HEADER_TOGGLE_ATTRIBUTE]: "" }}
-        onClick={headerToggleClick(collapse.toggle)}
+        onClick={headerToggleClick(closeToToggle)}
       >
         <span className="cv-tool__icon cv-agentmsg__icon">
           {icon}
@@ -189,6 +196,7 @@ export function AgentMessageRow({
           {detail}
           {inline && " "}
           <button
+            ref={toggleRef}
             type="button"
             className="cv-agentmsg__toggle"
             aria-expanded={open}

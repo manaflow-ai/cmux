@@ -135,10 +135,15 @@ button.cv-agentmsg__name:focus-visible {
   > .cv-agentmsg__chevron {
   color: var(--cv-text);
 }
-/* Shut and stacked, the toggle holds no words: it takes back the line's gap before it, so the chevron
-   sits right after the recipient's chip, as after any row's words (transcript-chevron-after-label). */
+/* Shut and stacked, or opened (the first line is in the card then), the toggle holds no words: it
+   takes back the line's gap before it, so the chevron sits right after the sender's or recipient's
+   chip, as after any row's words (transcript-chevron-after-label). */
 .acpmux-row .cv-agentmsg:not([data-open]) .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
   margin-inline-start: calc(-1 * var(--grid-gap) - 0.5 * var(--ds-space-1));
+}
+/* Opened, the sender's chip ends the words: its own end padding stands in for the rest of the gap. */
+.acpmux-row .cv-agentmsg.cv-received[data-open] .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
+  margin-inline-start: calc(-1 * var(--grid-gap) - 1.5 * var(--ds-space-1));
 }
 /* Stacked or opened, the toggle holds no words and has no box of its own: the line, which the
    pointer already toggles, shows its focus. */
@@ -409,4 +414,13 @@ button.cv-agentmsg__name:focus-visible {
 .cv-agentmsg__sentence > .cv-received__sender {
   flex: 0 0.0001 auto;
   min-width: 0;
+}
+/* A received line is the tool rows' fixed 22px line (conversation.css `.cv-received >
+   .cv-agentmsg__line`), opened or not: its sender's chip stays on that line, whole while it fits,
+   as the received line always drew it, so the chevron follows the name (transcript-chevron-after-label). */
+.cv-agentmsg.cv-received[data-open] :is(.cv-agent-tag__label, .cv-agentmsg__name) {
+  white-space: nowrap;
+}
+.cv-agentmsg.cv-received[data-open] button.cv-agent-tag.is-open {
+  height: var(--cv-tool-row-height);
 }

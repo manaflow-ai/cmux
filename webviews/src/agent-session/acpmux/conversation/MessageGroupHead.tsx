@@ -114,7 +114,9 @@ export function MessageGroupHead({
   return (
     <>
       {hover ? (
-        <Tooltip label={hover} side="top" className="ui-card cv-group-hover__popup">
+        // At the row's words, as its title tooltip was (Leo, 2026-11-03: "this hover preview is in
+        // the wrong place!"); the whole row, its mark too, opens it.
+        <Tooltip label={hover} side="top" className="ui-card cv-group-hover__popup" anchor=".cv-tool__text">
           {head}
         </Tooltip>
       ) : (
