@@ -18,6 +18,7 @@ import { FirstRunPanel } from "../cards/firstRun/FirstRunPanel";
 import { chiefIntroText, FIRST_RUN_OPS, starterPrompts } from "../cards/firstRun/firstRunModel";
 import { HEADER_PANELS, headerPanelItems } from "../cards/header/HeaderPanelBar";
 import { cardStrings } from "../cards/strings";
+import { pageDebug } from "../debugCommands";
 import type { MessagesNav, NavState } from "../nav";
 import { closeNewMessage } from "../pageCommands";
 import { hostActions, type GroupInfoActions } from "../sheets/actions";
@@ -82,7 +83,13 @@ export function MessagesDetail(props: MessagesDetailProps) {
   const actions = useMemo(() => hostActions(host ?? NO_HOST, words.sheets), [host, words.sheets]);
   const appearance = useHostStream(host, DetailOps.appearance, parseAppearance, DEFAULT_APPEARANCE);
   const panels = useHostStream(host, DetailOps.headerPanels, parseHeaderPanels, NO_HEADER_PANELS);
-  const firstRun = useHostStream(host, DetailOps.firstRun, parseFirstRun, NO_FIRST_RUN);
+  const hostFirstRun = useHostStream(host, DetailOps.firstRun, parseFirstRun, NO_FIRST_RUN);
+  // DEBUG captures (debugCommands.ts `fixture`): an intro on the shown Chief, New Message's fixture people.
+  const debug = useSyncExternalStore(pageDebug.subscribe, pageDebug.getSnapshot);
+  const firstRun = useMemo(
+    () => (debug.intro ? { ...hostFirstRun, introKind: debug.intro } : hostFirstRun),
+    [hostFirstRun, debug.intro],
+  );
   const dictation = useHostDictation(host);
   // Photos and videos go through the app's preparation before they upload (location removed
   // unless Settings > Home keeps it), as the native composer's did. No host (a browser): as they are.
@@ -240,7 +247,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
             nav.composeShows(existingConversation(draft, rows, me?.id) ?? undefined);
             nav.setComposeDraft(draft);
           }}
-          contacts={contacts.contacts}
+          contacts={debug.contacts ?? contacts.contacts}
           rows={rows}
           {...(me ? { me: me.id } : {})}
           actions={actions.compose}

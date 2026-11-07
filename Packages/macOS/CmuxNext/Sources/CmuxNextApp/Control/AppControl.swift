@@ -199,9 +199,9 @@ final class AppControl {
                 return .value(DebugFocus.report(services: services))
             },
             // Home per window and the local conversation projection (home.md).
-            .mainActor("debug.home") { [weak services] _ in
-                guard let services else { return .value(.null) }
-                return .value(DebugHome.report(services: services))
+            .async("debug.home") { [weak services] _ in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                return await DebugHome.reportWithPages(services: services)
             },
             // My pending and refused sends with the reason (no screenshot needed).
             .mainActor("debug.home.delivery") { [weak services] _ in
@@ -306,9 +306,9 @@ final class AppControl {
         #if DEBUG || CMUX_BENCH_HOOKS
         // Deliberately blocks the main thread (watchdog and bench self-test).
         service.router.register([
-            .mainActor("debug.home.drive") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugHomeNativeFixture.drive(call.params, services: services))
+            .async("debug.home.drive") { [weak services] call in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                return await DebugHomeNativeFixture.drive(call.params, services: services)
             },
             .mainActor("debug.window_record") { [weak services] call in
                 guard let services else { return .value(.null) }

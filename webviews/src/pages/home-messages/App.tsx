@@ -24,6 +24,7 @@ import { HomeIcon } from "../home-channels/icons";
 import type { HomeChannelsStore } from "../home-channels/store";
 import type { Strings } from "../shared/i18n";
 import type { PageClient } from "../shared/pageClient";
+import { documentDom, pageDebug, useDebugCommands, withFixture } from "./debugCommands";
 import { ConversationList, DRAFT_ROW } from "./list/ConversationList";
 import { clampWidth, COMPACT_BELOW, HEADER, WIDTH } from "./list/layout";
 import { holdsOneConversation, listModel, visibleConversations } from "./list/model";
@@ -72,7 +73,12 @@ export function MessagesApp({
   // Deleted from the list (Delete Conversation…): off it until a newer message.
   const [hidden, setHidden] = useState<HiddenConversations>(NONE_HIDDEN);
   useEffect(() => messages.subscribeHidden(setHidden), [messages]);
-  const listed = useMemo(() => visibleConversations(snapshot.conversations, hidden), [snapshot.conversations, hidden]);
+  // DEBUG captures' fixture rows and look (debugCommands.ts; empty unless the app's DEBUG verbs ask).
+  const debug = useSyncExternalStore(pageDebug.subscribe, pageDebug.getSnapshot);
+  const listed = useMemo(
+    () => withFixture(visibleConversations(snapshot.conversations, hidden), debug),
+    [snapshot.conversations, hidden, debug],
+  );
   // The page getting the keyboard gives it to the message box (or New Message's To:).
   useEffect(() => followPageFocus(window, document, nav), [nav]);
   const [query, setQuery] = useState("");
@@ -125,7 +131,7 @@ export function MessagesApp({
     const kept = Number(widthStorage?.getItem(WIDTH_KEY));
     return Number.isFinite(kept) && kept > 0 ? kept : undefined;
   });
-  const wanted = own ?? WIDTH.standard;
+  const wanted = debug.width ?? own ?? WIDTH.standard;
   const listWidth = clampWidth(wanted, pageWidth - WIDTH.divider);
   const folded =
     holdsOneConversation(model, { requests: view.requests.length }) &&
@@ -181,6 +187,19 @@ export function MessagesApp({
     [shown, snapshot.highlight],
   );
   usePageCommands(host, { store, nav, model }, selection, { composing, ready: !snapshot.loading });
+  const debugContext = {
+    store,
+    nav,
+    model,
+    messages,
+    strings,
+    debug: pageDebug,
+    setUnreadOnly,
+    dom: documentDom,
+    now: Date.now,
+  };
+  useDebugCommands(host, debugContext);
+  const listSelected = debug.selected ?? snapshot.selected;
   // A reconnect's new store opens what showed last (nav.restorable).
   useEffect(() => {
     if (shown) nav.lastShown = shown;
@@ -247,7 +266,7 @@ export function MessagesApp({
             <ConversationList
               model={model}
               width={shownWidth}
-              {...(composing ? { selected: DRAFT_ROW } : snapshot.selected ? { selected: snapshot.selected } : {})}
+              {...(composing ? { selected: DRAFT_ROW } : listSelected ? { selected: listSelected } : {})}
               query={query}
               onQuery={setQuery}
               unreadOnly={unreadOnly}
