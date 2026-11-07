@@ -37,7 +37,9 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     /// Re-applies the star's size when the density or `browser.omnibar.*` sizes change.
     private let density = DensityBinding()
 
-    private func applyImage(size: CGFloat = OmnibarStyle.trailingIconSize) {
+    /// The star draws at `OmnibarStyle.starIconSize`: the toolbar glyph side, so its ink box is the back
+    /// arrow's and the Extensions puzzle's, clamped to the button's frame.
+    private func applyImage(size: CGFloat = OmnibarStyle.starIconSize) {
         image.image = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: size)
     }
 
@@ -64,7 +66,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         density.update { [weak self] in
             guard let self else { return }
             // Read the size even while hidden, so the loop keeps following it.
-            let size = OmnibarStyle.trailingIconSize
+            let size = OmnibarStyle.starIconSize
             if state != .hidden { applyImage(size: size) }
         }
         density.start()

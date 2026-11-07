@@ -201,14 +201,15 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     await page.close();
   });
 
-  test("a loading tile spins and its × takes it away for good", async () => {
+  test("a loading tile's × takes it away for good", async () => {
     const page = await newChat();
     await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
     await makeScreenshots(page, 1);
     await pasteScreenshots(page);
     const loading = page.locator(LOADING);
     await loading.waitFor();
-    expect(await loading.locator(".acpmux-md-inline-spinner").count()).toBe(1);
+    // Its indicator comes only once the read passes 400 ms (composer/pasteLoading.tsx, whose own
+    // timer composer-paste-instant.test.tsx checks); a read here can end sooner, so × goes at once.
     await loading.locator(".acpmux-md-inline-remove").click();
     expect(await loading.count()).toBe(0);
     // Its read ending later brings nothing back: nothing on the page says when a cancelled read

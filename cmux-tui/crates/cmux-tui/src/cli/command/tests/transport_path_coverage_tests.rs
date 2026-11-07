@@ -293,6 +293,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "palette_usage.import"
                         | "palette_usage.hide"
                         | "palette_usage.forget"
+                        // A page's palette ranks its rows with it; the
+                        // CLI has no palette.
+                        | "palette.rank"
                         // Stash (stash-v1) is the app's native OneTab; the
                         // CLI has no stash verbs yet.
                         | "stash.create"

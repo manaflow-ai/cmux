@@ -30,7 +30,8 @@
     {"id": "notices", "note": "Settings > Chief's Notices row: it opens Notifications, which holds the Chief's notices."},
     {"id": "contextMenus", "note": "Settings > Menus: every right-click menu's rows, arranged by the person (ContextMenuLayout)."},
     {"id": "server", "note": "Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet address (plans/cmux-next/server-updates-DESIGN.md section 10)."},
-    {"id": "cloudEnvironments", "note": "Settings > Accounts > Cloud Environments: the team's environments, Build, Delete and Add (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`."}
+    {"id": "cloudEnvironments", "note": "Settings > Accounts > Cloud Environments: the team's environments, Build, Delete and Add (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`."},
+    {"id": "sharedLinks", "note": "Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks."}
   ],
   "section_actions": {
     "general": ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates", "liveWeb.start", "liveWeb.stop", "palette.clearSearchHistory"],
@@ -425,6 +426,7 @@
           "id": "privacy",
           "title": {"key": "settings.category.privacy", "text": "Privacy and Security"},
           "symbol": "hand.raised",
+          "lead": ["sharedLinks"],
           "groups": [
             {"title": {"key": "settings.pageGroup.localData", "text": "Data on This Mac"}, "keys": [
               "history.terminalCommands", "home.attachments.keepLocation"

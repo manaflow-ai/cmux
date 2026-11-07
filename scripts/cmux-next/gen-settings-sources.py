@@ -283,6 +283,16 @@ SECTIONS = [
                   "mutedWorkspaces": ("mutedWorkspacesDescriptors", "NotificationPreferences"),
                   "sounds": ("soundDescriptors", "NotificationSoundPreferences")},
     },
+    {
+        "source": "schemas/settings/source/machines.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Machines.generated.swift",
+        "type": "MachineSettingsSchema",
+        "lists": {"computerUse": ("computerUse", "ComputerUseSettings"), "freeModel": ("freeModel", "FreeModelSettings"),
+                  "sshLinks": ("sshLinks", "SSHLinkHostsSetting"), "cloud": ("cloud", "CloudNewWorkspaceSetting"),
+                  "mobile": ("mobile", "MobileSettings"), "macScreen": ("macScreen", "MacScreenSettings"),
+                  "macScreenDebug": ("macScreenDebug", "MacScreenDebugSettings"), "remote": ("remote", "RemoteSettings"),
+                  "deviceHub": ("deviceHub", "DeviceHubSettings"), "imessage": ("imessage", "CmuxConfigSnapshot")},
+    },
 ]
 SYMBOL = __import__("re").compile(r"^[a-z0-9]+(\.[a-z0-9]+)*$")
 UNITS = {"points", "milliseconds", "seconds", "minutes", "days", "count", "fraction"}
