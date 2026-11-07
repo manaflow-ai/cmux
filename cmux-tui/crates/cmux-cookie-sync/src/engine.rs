@@ -88,9 +88,11 @@ pub enum Reason {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Report {
-    /// These domains differ from the baseline: re-import them, then commit.
+    /// These domains differ from the baseline: re-import them, then commit
+    /// with this report's `generation`.
     Changed {
         source: String,
+        generation: u64,
         changed: Vec<String>,
         removed: Vec<String>,
         rows: u64,
@@ -165,9 +167,10 @@ fn thread_cpu() -> Option<Duration> {
 struct State {
     source: Source,
     baseline: Option<Fingerprint>,
-    /// The last reported fingerprint that differs from the baseline, saved
-    /// as the baseline by `commit`.
-    pending: Option<Fingerprint>,
+    /// The last reported fingerprint that differs from the baseline, with
+    /// its report's generation; `commit` of that generation saves it as the
+    /// baseline.
+    pending: Option<(u64, Fingerprint)>,
     active: bool,
 }
 
@@ -176,6 +179,8 @@ struct State {
 pub struct Core {
     state_dir: PathBuf,
     states: Vec<State>,
+    /// The last `changed` report's generation (they count up from 1).
+    generation: u64,
 }
 
 impl Core {
@@ -191,7 +196,7 @@ impl Core {
                 active: true,
             })
             .collect();
-        Self { state_dir: config.state_dir.clone(), states }
+        Self { state_dir: config.state_dir.clone(), states, generation: 0 }
     }
 
     pub fn len(&self) -> usize {
@@ -265,9 +270,12 @@ impl Core {
             state.pending = None;
             return Some(Report::Scanned { source, rows, hosts, scan_ms, cpu_ms, reason });
         }
-        state.pending = Some(scan.fingerprint);
+        self.generation = self.generation.saturating_add(1);
+        let generation = self.generation;
+        state.pending = Some((generation, scan.fingerprint));
         Some(Report::Changed {
             source,
+            generation,
             changed: difference.changed,
             removed: difference.removed,
             rows,
@@ -278,17 +286,21 @@ impl Core {
         })
     }
 
-    /// The app imported the last change reported for `id`: it becomes the
-    /// baseline (saved). False when `id` is unknown, nothing is pending, or
-    /// the baseline could not be saved (then the change stays pending and is
-    /// reported again).
-    pub fn commit(&mut self, id: &str) -> bool {
+    /// The app imported the `changed` report of `id` with `generation`: its
+    /// fingerprint becomes the baseline (saved). False when `id` is unknown,
+    /// that report is not the source's latest (a later report, which also
+    /// holds its domains, is the one to commit), a later scan found the store
+    /// back at the baseline, or the baseline could not be saved (then the
+    /// change stays pending and is reported again).
+    pub fn commit(&mut self, id: &str, generation: u64) -> bool {
         let Some(state) = self.states.iter_mut().find(|state| state.source.id == id) else {
             return false;
         };
-        let Some(pending) = state.pending.take() else { return false };
-        if baseline::save(&self.state_dir, id, &pending).is_err() {
-            state.pending = Some(pending);
+        let Some((pending_generation, pending)) = state.pending.take() else { return false };
+        if pending_generation != generation
+            || baseline::save(&self.state_dir, id, &pending).is_err()
+        {
+            state.pending = Some((pending_generation, pending));
             return false;
         }
         state.baseline = Some(pending);
@@ -321,8 +333,8 @@ impl CookieSync {
     }
 
     /// See [`Core::commit`].
-    pub fn commit(&self, id: &str) -> bool {
-        lock(&self.core).commit(id)
+    pub fn commit(&self, id: &str, generation: u64) -> bool {
+        lock(&self.core).commit(id, generation)
     }
 }
 
@@ -429,6 +441,11 @@ fn run(config: &Config, core: &Mutex<Core>, mut watch: FileWatch, mut sink: Sink
                 watched: &mut Vec<BTreeSet<PathBuf>>|
      -> Option<Report> {
         let database = lock(core).database(index).map(Path::to_path_buf)?;
+        // Rearm before the read: a replaced file's writes during the read
+        // land on the new watch and schedule the next scan.
+        if let Some(files) = watched.get_mut(index) {
+            refresh(watch, files, &database, rearm.remove(&index));
+        }
         let (outcome, cost) = measure(&database);
         let (report, active) = {
             let mut core = lock(core);
@@ -436,11 +453,7 @@ fn run(config: &Config, core: &Mutex<Core>, mut watch: FileWatch, mut sink: Sink
             (report, core.database(index).is_some())
         };
         schedule.scanned(index, started.elapsed());
-        if active {
-            if let Some(files) = watched.get_mut(index) {
-                refresh(watch, files, &database, rearm.remove(&index));
-            }
-        } else {
+        if !active {
             schedule.remove(index);
             let files = watched.get_mut(index).map(std::mem::take).unwrap_or_default();
             for path in files {

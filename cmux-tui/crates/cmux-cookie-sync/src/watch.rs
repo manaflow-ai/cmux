@@ -24,6 +24,10 @@ pub(crate) enum Wake {
     /// renamed (its watch must be made again on the path).
     Changed { paths: Vec<PathBuf>, moved: bool },
     /// The watcher lost events: every source may have changed.
+    #[cfg_attr(
+        target_os = "macos",
+        allow(dead_code, reason = "kqueue loses no events: each watch coalesces its own")
+    )]
     Rescan,
     /// The watch cannot go on (a short reason, no path).
     #[cfg_attr(

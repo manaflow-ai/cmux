@@ -29,7 +29,7 @@ typedef struct CmuxCookieSync CmuxCookieSync;
  Called on the sync's own thread with one report's JSON (UTF-8, `len`
  bytes, valid only during the call), `ctx` as given to
  `cmux_cookie_sync_new`. Reports, by `kind`:
- `{"kind":"changed","source","changed":[domain],"removed":[domain],"rows","hosts","scan_ms","cpu_ms","reason"}`,
+ `{"kind":"changed","source","generation","changed":[domain],"removed":[domain],"rows","hosts","scan_ms","cpu_ms","reason"}`,
  `{"kind":"scanned","source","rows","hosts","scan_ms","cpu_ms","reason"}`,
  `{"kind":"gone","source"}`, `{"kind":"failed","source","reason"}`;
  `reason` of a scan is `launch`, `watch` or `baseline`; `cpu_ms` may be null.
@@ -61,16 +61,21 @@ CmuxCookieSync *cmux_cookie_sync_new(const uint8_t *config_ptr,
                                      void *ctx);
 
 /*
- The app imported the last change reported for source `source_id`
- (UTF-8): it becomes that source's saved baseline. False when the id is
- unknown, no change is pending, or the baseline could not be saved (the
- change is then reported again on the next scan or launch).
+ The app imported the `changed` report of source `source_id` (UTF-8) with
+ `generation` (the report's own): its cookies become that source's saved
+ baseline. False when the id is unknown, the report is not the source's
+ latest (commit the later one, which holds its domains too), a later scan
+ found nothing changed, or the baseline could not be saved (the change is
+ then reported again on the next scan or launch).
 
  # Safety
 
  `sync` is null or a live handle; `source_id` with its length is readable.
  */
-bool cmux_cookie_sync_commit(const CmuxCookieSync *sync, const uint8_t *source_id_ptr, size_t source_id_len);
+bool cmux_cookie_sync_commit(const CmuxCookieSync *sync,
+                             const uint8_t *source_id_ptr,
+                             size_t source_id_len,
+                             uint64_t generation);
 
 /*
  Stops the sync's thread, waits for it (at most the scan in progress) and
