@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42405943835",
+  "recorded_at": "2026-11-07T19:30:24Z",
+  "reason": "cmux-tui 75a7f6d4ef72 changes the image's cmux-tui (pinned 39f871989244)",
+  "dry_run": false,
+  "cmux_tui": "75a7f6d4ef72805c82d7b9a38d583e3ed1441e3c",
+  "fixes": [
+    {
+      "sha": "75a7f6d4ef72805c82d7b9a38d583e3ed1441e3c",
+      "mergedAt": "2026-11-07T11:08:01-08:00",
+      "subject": "Queue after a failed turn keeps going by itself; an inbox notice is never your queued prompt (#36821)"
+    },
+    {
+      "sha": "be7f9b6982a2a06a615339a481755bfe300dea3f",
+      "mergedAt": "2026-11-07T18:27:41Z",
+      "subject": "chore(next): base autofix at 56c3427cb645"
+    },
+    {
+      "sha": "56c3427cb645e5b2288e69909b1851afd113fe5d",
+      "mergedAt": "2026-11-07T18:26:49Z",
+      "subject": "chore(next): base autofix at 102a433c848e"
+    },
+    {
+      "sha": "e563000a9f6aa41698ebda826f47f86feee860bd",
+      "mergedAt": "2026-11-07T10:26:38-08:00",
+      "subject": "acpmux: Codex chats get the suggested next prompt too, behind the same switch (#33436)"
+    },
+    {
+      "sha": "102a433c848ea7cc578f1f320618aa4952a7298a",
+      "mergedAt": "2026-11-07T10:23:59-08:00",
+      "subject": "cmux NEXT: an agent's workspace goes below the workspace that made it (created_by) (#37515)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T19:30:24Z",
+    "snapshot_id": "sh-19022afe0341466cbba50a84404d6ce4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42405943835): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3887c173ccf3411f21d4fc2a5bbd13ff3bd8a236",
+    "image": "cloud-native-auto-75a7f6d4-42405943835-1",
+    "revision": "ci-42405943835-1",
+    "at": "2026-11-07T19:30:24Z"
+  },
+  "rolled_back": false
+}
