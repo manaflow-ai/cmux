@@ -16,6 +16,7 @@ import React, {
 } from "react";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
+import { chatPlace } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, thisMacName } from "./environments";
 import { restoreForkSource } from "./handoff/restoreForkSource";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
@@ -578,7 +579,8 @@ import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { BtwNotes } from "./aside/btwNotes";
 import { askBtwQuestion } from "./btwCapability";
-import { isFastModeOption } from "./heldOptions";
+import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isFastModeOption } from "./heldOptions";
+import { clearHeldFork, prepareHeldFork, sendHeldFork } from "./forkHold";
 import { setSuggestedTasks } from "./offer/offersShown";
 import { OfferDefaultsContext, offerDefaults, offerPicks } from "./offer/offerChoice";
 import { offerWorktree } from "./offer/offerWorktree";
@@ -1190,16 +1192,10 @@ function DefaultComposerChips({
       }
       // A started chat forks to another harness through Continue In… (Leo 2026-10-22: "need to be
       // able to switch to different harnesses, can expose as fork"): the chat menu's own path, its
-      // review in this tab, then the new chat in a tab of its own. Not while a turn or queue runs.
-      {...(!startsChat && snapshot.canHandoff
-        ? {
-            fork: {
-              to: (harness: string) => void callNative("chat.handoff.prepare", { harness }).catch(() => undefined),
-              // Continue In…'s own check: no fork while a review is open or no harness can take it.
-              ready: canContinueIn(snapshot),
-            },
-          }
-        : {})}
+      // review in this tab, then the new chat in a tab of its own. A pick of another harness's model
+      // only holds it (forkHold.ts); the next message forks (Leo 2026-11-06: "it should only need to
+      // necessarily fork when you enter a message on that new model"), the composer's send.
+      {...(!startsChat && snapshot.canHandoff ? { fork: true } : {})}
       {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
@@ -5647,6 +5643,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...snapshot,
       commands: mergedCommands(snapshot.commands, enabledCmuxActions),
       ...(keptStopping && { stopping: true as const }),
+      // The Quick Composer's send never forks (it has no review to show), so its model menu
+      // holds no pick of another harness either (review of #37196: it drew the hold, then sent
+      // the message to this chat).
+      ...(quick && { canHandoff: false }),
     };
     // Prompts still waiting for a new chat to take them follow acpmux's queue, then the prompts the
     // folder's trust holds (trustHeld.ts).
@@ -7379,9 +7379,35 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           },
           // The review shows in this tab while the tab stays the chat's; Start opens the new chat in
           // its own tab and brings this one back to the chat.
-          "chat.handoff.prepare": async ({ harness }) => {
+          // From the composer's send with a held pick of another harness's model (forkHold.ts), it also
+          // lands that model on the new chat (it runs that harness now, so in place, as a model pick
+          // does) and adds the typed message to the review's context; a model or message that did
+          // not land fails the send, which keeps the message and the pick (prepareHeldFork).
+          "chat.handoff.prepare": async ({ harness, model, effort, fast, message }) => {
             harnessSwitch.cancel();
-            return client.continueIn(String(harness));
+            return prepareHeldFork(
+              {
+                harness: String(harness),
+                ...(typeof model === "string" && model ? { model } : {}),
+                ...(typeof effort === "string" && effort ? { effort } : {}),
+                ...(fast === true ? { fast: true } : {}),
+                ...(typeof message === "string" ? { message } : {}),
+              },
+              {
+                continueIn: (target) => client.continueIn(target),
+                pickModel: (picked, target) => harnessSwitch.pickModel(picked, { sessionId: target }),
+                options: async (target, picked) => {
+                  if (client.selectedSession !== target) return;
+                  if (picked.effort) await client.setConfig(HELD_EFFORT_ID, picked.effort).catch(() => undefined);
+                  if (picked.fast) await client.setConfig(HELD_FAST_ID, HELD_FAST_ON).catch(() => undefined);
+                },
+                record: () => client.handoff.state.record,
+                refresh: () => client.refreshHandoff(),
+                save: (review) => client.saveHandoff(review),
+                // The review drew the draft before the message joined it: it draws it again.
+                saved: () => setReviewReload((value) => value + 1),
+              },
+            );
           },
           "chat.handoff.get": () => client.refreshHandoff(),
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
@@ -9681,6 +9707,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               }
               // Until acpmux connects nothing takes a prompt; the composer keeps it.
               if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+              // A held pick of another harness's model (forkHold.ts; Leo 2026-11-06: "it should only
+              // need to necessarily fork when you enter a message on that new model"): this message
+              // forks the chat there through Continue In…, whose review it joins, and the model lands
+              // on the new chat. The composer keeps the message until the review is ready, and keeps
+              // it when the fork can't start (a turn running, a review open) or fails. Images can't
+              // join the review's text, so a message with them stays too.
+              if (snapshot.sessionId && surfaceRef.current !== "quick") {
+                // A chat that can no longer hand off (its host lost the support) drops the pick.
+                if (!snapshot.canHandoff) clearHeldFork(snapshot.sessionId);
+                const forked = sendHeldFork(snapshot.sessionId, text, {
+                  images: chips?.length ?? 0,
+                  ready: canContinueIn(snapshot),
+                  prepare: (params) => callNative<string | undefined>("chat.handoff.prepare", params),
+                  // The composer leaves with the chat: its prompt is not the source chat's draft now.
+                  sent: (source) => writePersistedDraft(source, ""),
+                });
+                if (forked !== undefined) return forked;
+              }
               // Shell mode's chips carry their commands' output as it is now.
               const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
               // The folder's trust holds prompts: this one waits in the pane and goes after Trust
@@ -10216,6 +10260,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 : sessionInfoSummary,
               machineName,
               peerKinds: snapshot.peerKinds,
+              place: chatPlace(snapshot),
               repository: githubRepository,
               cloudRepositoryAvailable,
               onOpenFolder:
