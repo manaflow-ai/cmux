@@ -571,8 +571,8 @@ class ScriptBehavior(unittest.TestCase):
         self.seed = seed
         self.log = self.tmp / "gates.jsonl"
 
-    def script(self, repo: Path, *args: str, fail: str = "") -> subprocess.CompletedProcess:
-        env = {**os.environ, "FAKE_LOG": str(self.log), "FAKE_FAIL": fail,
+    def script(self, repo: Path, *args: str, fail: str = "", ref: str = "") -> subprocess.CompletedProcess:
+        env = {**os.environ, "FAKE_LOG": str(self.log), "FAKE_FAIL": fail, "GITHUB_REF": ref,
                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
         return subprocess.run([sys.executable, str(SCRIPT), *args, "--repo", str(repo)],
@@ -985,6 +985,21 @@ class ScriptBehavior(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
                 self.assertRegex(result.stdout + result.stderr, rf"(?m)^.*{re.escape(red)}.*fail")
+
+    def test_a_formatting_gate_red_names_the_pr_autofix_command(self):
+        # #37986: PR autofix had already formatted changes.ts, but its push job never runs on a
+        # pull_request event, so the lane saw only the red. The red now names the command that applies it.
+        work, out = self.prepared()
+        for red in ("web lint", "prepush gate"):
+            with self.subTest(red=red):
+                result = self.script(work, "run", "--base", self.tip, "--web", "true", fail=red,
+                                     ref="refs/pull/37986/merge")
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("::notice title=fast gates: PR autofix::", result.stdout)
+                self.assertIn("scripts/cmux-next/pr-autofix apply 37986", result.stdout)
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", fail="crash ratchet")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn("pr-autofix", result.stdout)
 
     def test_no_web_change_skips_web_lint_only(self):
         work, out = self.prepared()
