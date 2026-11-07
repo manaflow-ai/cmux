@@ -22,7 +22,7 @@ fn cache() -> &'static Mutex<HashMap<usize, &'static str>> {
 /// The catalog JSON for the language at `index`, built once.
 fn catalog_text(index: usize) -> &'static str {
     let mut cache = cache().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    *cache.entry(index).or_insert_with(|| Box::leak(crate::json::catalog(index).into_boxed_str()))
+    cache.entry(index).or_insert_with(|| Box::leak(crate::json::catalog(index).into_boxed_str()))
 }
 
 #[unsafe(no_mangle)]

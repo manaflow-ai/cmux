@@ -90,7 +90,7 @@ import Testing
             "yields_to_terminal": KeyBindingDefaults.yieldsToTerminal.map(\.rawValue).sorted(),
             "yields_to_web_content": KeyBindingDefaults.yieldsToWebContent.map(\.rawValue).sorted(),
             "text_input_keys": KeyBindingDefaults.textInputKeys.map { ActionSurfaceExport.wireShortcut($0) }
-                .sorted { "\($0)" < "\($1)" },
+                .sorted { sortKey($0) < sortKey($1) },
         ]
         let palette: [String: Any] = [
             "daily": ActionDescriptor.paletteDailyActions.map(\.rawValue).sorted(),
@@ -111,6 +111,11 @@ import Testing
         ]
         let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         return (String(data: data, encoding: .utf8) ?? "") + "\n"
+    }
+
+    /// A wire shortcut's order in a set: its key, then its modifiers.
+    static func sortKey(_ wire: [String: Any]) -> String {
+        "\(wire["key"] as? String ?? "")\u{0}\((wire["modifiers"] as? [String] ?? []).joined(separator: ","))"
     }
 
     static func encodeBinding(_ binding: KeyBinding) -> Any {

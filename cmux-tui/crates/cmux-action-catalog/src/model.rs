@@ -3,19 +3,33 @@
 
 /// A string the app shows, in English, with the string-table key its translations are filed
 /// under (`strings::lookup`). An empty key is text that is never translated (a symbol name, a
-/// product name). `arg` fills the one `%@` or `%lld` of a format string.
+/// product name). `arg` fills the one `%@` or `%lld` of a format string. `strip` is a
+/// translated prefix taken out of the resolved text (a density's name without "Density: ").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Text {
     pub table: &'static str,
     pub key: &'static str,
     pub en: &'static str,
     pub arg: Option<&'static str>,
+    /// The prefix's table, key and English.
+    pub strip: Option<(&'static str, &'static str, &'static str)>,
 }
 
 impl Text {
     /// Text that is the same in every language.
     pub const fn raw(en: &'static str) -> Self {
-        Text { table: "", key: "", en, arg: None }
+        Text { table: "", key: "", en, arg: None, strip: None }
+    }
+
+    /// This text with a translated prefix removed.
+    pub const fn without(
+        mut self,
+        table: &'static str,
+        key: &'static str,
+        en: &'static str,
+    ) -> Self {
+        self.strip = Some((table, key, en));
+        self
     }
 }
 

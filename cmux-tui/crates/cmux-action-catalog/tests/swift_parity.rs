@@ -68,7 +68,17 @@ fn english_catalog_equals_the_swift_dump() {
             }
         }
     }
+    // A set in Swift: compare it in one order.
+    let sort = |v: &mut Value| {
+        if let Some(keys) = v["key_binding_defaults"]["text_input_keys"].as_array_mut() {
+            keys.sort_by_key(|k| {
+                (k["key"].as_str().unwrap_or("").to_owned(), k["modifiers"].to_string())
+            });
+        }
+    };
+    sort(&mut swift);
     let mut rust = cmux_action_catalog::json::catalog_value(0);
+    sort(&mut rust);
     rust.as_object_mut().expect("an object").remove("locale");
     if let Some(difference) = first_difference("$", &rust, &swift) {
         panic!("the Rust catalog differs from the Swift dump: {difference}");
@@ -110,7 +120,7 @@ fn action_list_export_matches() {
             .default_shortcut
             .as_ref()
             .map_or(Value::Null, cmux_action_catalog::json::shortcut);
-        if action.shortcut_family == Some("digits") {
+        if action.shortcut_family == Some("digits") && !shortcut.is_null() {
             shortcut["family"] = serde_json::json!("digits");
         }
         assert_eq!(row["default_shortcut"], shortcut, "{id}");

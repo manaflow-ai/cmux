@@ -165,6 +165,14 @@ fn binding_list(values: &[Binding]) -> Value {
     values.iter().map(binding).collect()
 }
 
+/// The keys that type into a text field, by key and then modifiers (a set: the order is the
+/// dump's, so both sides compare).
+fn text_input_keys() -> Vec<Value> {
+    let mut keys: Vec<Value> = bindings::TEXT_INPUT_KEYS.iter().map(shortcut).collect();
+    keys.sort_by_key(|k| (k["key"].as_str().unwrap_or("").to_owned(), k["modifiers"].to_string()));
+    keys
+}
+
 /// The whole catalog in the language at `locale`, as a JSON value.
 pub fn catalog_value(locale: usize) -> Value {
     let legacy: Map<String, Value> =
@@ -223,7 +231,7 @@ pub fn catalog_value(locale: usize) -> Value {
             "yields_to_code_editor": bindings::YIELDS_TO_CODE_EDITOR,
             "yields_to_terminal": bindings::YIELDS_TO_TERMINAL,
             "yields_to_web_content": bindings::YIELDS_TO_WEB_CONTENT,
-            "text_input_keys": bindings::TEXT_INPUT_KEYS.iter().map(shortcut).collect::<Vec<_>>(),
+            "text_input_keys": text_input_keys(),
         },
         "palette": {
             "daily": palette::DAILY,

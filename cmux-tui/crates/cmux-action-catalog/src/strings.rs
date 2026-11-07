@@ -76,9 +76,16 @@ pub fn resolve(text: &Text, index: usize) -> String {
     } else {
         lookup(text.table, text.key, index).unwrap_or(text.en)
     };
-    match text.arg {
+    let value = match text.arg {
         Some(arg) => fill(format, arg),
         None => format.to_owned(),
+    };
+    match text.strip {
+        Some((table, key, en)) => {
+            let prefix = if index == 0 { en } else { lookup(table, key, index).unwrap_or(en) };
+            value.replace(prefix, "")
+        }
+        None => value,
     }
 }
 
