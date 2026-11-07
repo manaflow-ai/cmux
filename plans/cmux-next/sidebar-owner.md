@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: the Updated card's hover preview, review follow-ups of #37615 (Leo: "a quick access scroll through of
+  what's new"). A card that a higher-priority card hides in the slot clears its hover and tells its page the pointer
+  left (`SidebarUpdatedCardHost.isHidden`), so the preview closes, hands its room back, and the card comes back
+  closed. With motion reduced or off the room goes back as the preview closes, with no 240 ms wait. The preview lists
+  every change (no 40-row cap), a build's commits only when it has no reviewed entries, and no generic "Fixes and
+  improvements" row in any language. Regression: `UpdatedCardHoverPreviewTests`, webviews
+  `updated-card-hover-preview.test.tsx`.
 - 2026-11-07: after the upgrade the Updated card's host holds no height the two-line card remembered (64 and 77 pt
   under the old `cmux.sidebar.updatedCard.height[s]` keys): the composer-height card remembers its own under `.v2`
   keys and the old ones go at the first write, so the host is the 48 pt card from its first frame (review F1 of
