@@ -16,6 +16,7 @@ import React, {
 } from "react";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
+import { chatPlace } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, thisMacName } from "./environments";
 import { restoreForkSource } from "./handoff/restoreForkSource";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
@@ -10216,6 +10217,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 : sessionInfoSummary,
               machineName,
               peerKinds: snapshot.peerKinds,
+              place: chatPlace(snapshot),
               repository: githubRepository,
               cloudRepositoryAvailable,
               onOpenFolder:
