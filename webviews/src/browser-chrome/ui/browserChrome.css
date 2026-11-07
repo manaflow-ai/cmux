@@ -46,7 +46,9 @@
   margin-inline-start: var(--bc-spacing);
 }
 
-/* BUTTONS: 28 pt squares with 20 pt icons; gray hover and press fills in an 8 pt rounded square. */
+/* BUTTONS: 28 pt squares with 20 pt glyph boxes; gray hover and press fills in an 8 pt rounded
+   square. Every glyph in the row (buttons, chip, star) draws at one ink size and line weight,
+   centered on its box (toolbarGlyph.tsx), so the boxes place them and never size them. */
 .bc-button {
   position: relative;
   display: inline-flex;
@@ -77,6 +79,10 @@
 .bc-star:focus-visible {
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
   outline-offset: -1px;
+}
+.bc-glyph {
+  display: block;
+  flex: none;
 }
 .bc-progress-ring {
   position: absolute;
@@ -323,9 +329,13 @@
     opacity: 0;
   }
 }
+/* The monogram disc is the glyphs' size, not the star's box: a filled disc reads larger than an
+   outline, so it is 1.25 times their ink (15 pt at Standard), on the same center line. */
 .bc-badge-profile {
-  width: var(--bc-trailing-box);
+  width: var(--bc-badge-size, var(--bc-trailing-box));
+  height: var(--bc-badge-size, var(--bc-trailing-box));
   padding: 0;
+  font-size: calc(var(--bc-badge-size, var(--bc-trailing-box)) * 0.64);
   background: var(--bc-profile, var(--ds-color-muted));
   color: var(--ds-color-surface);
   font-weight: var(--weight-emphasis);

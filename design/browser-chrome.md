@@ -51,16 +51,18 @@ The suggestion card hangs from the bar. Page Info is a popup anchored at the chi
 | part | value | native source |
 | --- | --- | --- |
 | bar height, suggestion row height | 28 | `OmnibarMetrics.barHeight` |
-| toolbar button | 28 square, icon 20, hover radius 8 | `buttonSize`, `toolbarIconSize`, `buttonCornerRadius` |
+| toolbar button | 28 square, glyph box 20, hover radius 8 | `buttonSize`, `toolbarIconSize`, `buttonCornerRadius` |
+| every glyph in the row | 12 ink, 1.5 lines, centered on its box (see Icons) | 0.6 of `toolbarIconSize`, the pack's fit |
 | between buttons | 3 | `basePadding` |
 | Reload to bar, bar to extensions | 6 | `barMargin` |
 | toolbar side inset | 2 | `paneChromeInset` (pill top) |
 | gap under the row | 2 | `chromeGap` |
 | bar radius | 8 | `Metrics.cornerRadius` |
-| chip | 24 square (bar less 2 each side), 2 from the bar's start, radius 6, glyph 16 | `chipSize`, `chipLeading`, `chipCornerRadius` |
+| chip | 24 square (bar less 2 each side), 2 from the bar's start, radius 6, glyph box 16 | `chipSize`, `chipLeading`, `chipCornerRadius` |
 | chip label | 2 after the glyph, 6 before the chip end, 14 text | `PageInfoChipButton.layout` |
 | address text | 14, 5 after the chip, 8 before the end | `textLeading`, `trailingPadding` |
-| star | 20 box, 18 glyph | `trailingIconSize` + 2 |
+| star | 20 box, glyph box 18 | `trailingIconSize` + 2 |
+| profile monogram | 15 disc, 4 before the star's box | 1.2 x the glyph ink |
 | suggestion card | the bar's width, rows inset 4, 2 above each row, 4 at the end, row radius 4 | `rowSideInset`, `rowGap`, `cardBottomPadding` |
 | suggestion row | glyph 16 on the chip's center, text on the address text's column | `SuggestionRowView` |
 | Page Info card | 320 wide, padding 6, radius 8 | `bubbleWidth`, `inset / 2` |
@@ -71,6 +73,30 @@ The suggestion card hangs from the bar. Page Info is a popup anchored at the chi
 
 Comfortable density (34 pt bar and buttons, 15 pt text) is not drawn yet; the numbers live in
 `TOOLBAR_METRICS` and the `--pi-*` block, so it is one change in each.
+
+## Icons
+
+Every glyph in the toolbar row is one family: Back, Forward, Reload, the chip's icon, the star, the
+Extensions puzzle, the trailing buttons and More all draw Chrome's icons (More: the pane's one
+vertical ellipsis) at one ink size and one line weight, each centered on its box
+(`ui/toolbarGlyph.tsx`). The boxes only place the glyphs; they never size them.
+
+- Ink: the glyph's longer side is 0.6 of the density's toolbar icon size (12 at Standard, 13.2 at
+  Comfortable), the icon pack's own fit (the back arrow's 14.4 of 24 in
+  `design/icons/chromium/manifest.json`), so the row draws what the window's other top icons draw.
+  The puzzle and the star are the arrows' size, with no trim of their own. Lines: 1.5 (Chrome's
+  1.5 dp at that scale). A filled drawing is scaled to the ink, then outlined until its lines reach
+  the weight. Stop and the small Downloads square keep the weight and stay smaller, as they are
+  drawn.
+- The profile monogram is a disc 1.25 times the ink (15 at Standard), on the same center line.
+- Why: drawn at one size, Chrome's drawings come out as different sizes, because each is drawn on
+  its own part of the canvas. The arrows were 12 px of ink, the chip 13, the star 14.4 and the
+  puzzle 16, sitting a pixel above the row's center.
+
+The gallery's Glyphs option compares the rule (`family`) with a smaller omnibar set (`text`, 11.5)
+and a heavier one (`bold`, 14 with 1.75 lines). `family` keeps the arrows where they were and
+brings every other glyph to them; `text` makes the chip and star look like a different set from
+the buttons, and `bold` crowds the 28 pt buttons.
 
 ## States
 
