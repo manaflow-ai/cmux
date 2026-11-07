@@ -5,11 +5,15 @@
 //! failed or interrupted sync leaves a non-ready byte, including after restart.
 //! This is coordination between cooperating processes, not a security sandbox.
 //!
-//! The marker's byte: `0` syncing or failed, `h` the head is in place while the
-//! rest still arrives, `1` ready. Only a harness start whose every tool call is
-//! gated on [`wait_ready`] may go ahead at `h` ([`Probe::HeadReady`]): its first
-//! prompt then waits on the repository's head (its root and instruction files),
-//! not on the whole checkout, while its tools still wait for all of it.
+//!
+//! Beside the marker, `<marker>.head` says the head is in place: a producer holds
+//! it exclusively from before it takes the marker until [`Sync::head_ready`], so
+//! a reader that finds the marker locked and the head lock free sees
+//! [`Probe::HeadReady`]. A lock, not a byte: a producer that died after its head
+//! leaves nothing a later sync's reader could take for its own head. Only a
+//! harness start whose every tool call is gated on [`wait_ready`] may go ahead at
+//! the head: its first prompt then waits on the repository's root and instruction
+//! files, not on the whole checkout, while its tools still wait for all of it.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -22,7 +26,11 @@ use sha2::{Digest, Sha256};
 
 /// A producer must hold this before its first change, and mark ready only after
 /// every checkout, submodule and LFS operation has completed successfully.
-pub struct Sync(File);
+pub struct Sync {
+    marker: File,
+    /// The head lock, held until [`Sync::head_ready`].
+    head: Option<File>,
+}
 
 /// Shared locks stay held through the caller's write, preventing a new seed
 /// from starting between the readiness check and the actual filesystem write.
@@ -64,6 +72,12 @@ pub fn wait_ready(path: &Path, timeout: Duration) -> io::Result<()> {
             }
         }
     }
+}
+
+fn head_marker(folder: &Path) -> io::Result<PathBuf> {
+    let mut path = marker(folder)?.into_os_string();
+    path.push(".head");
+    Ok(PathBuf::from(path))
 }
 
 fn marker(folder: &Path) -> io::Result<PathBuf> {
@@ -126,6 +140,10 @@ fn wait_lock(file: &File, mode: i32) -> io::Result<()> {
 impl Sync {
     /// `folder` must have its parent canonicalized by the producer's sandbox.
     pub fn begin(folder: &Path) -> io::Result<Self> {
+        // The head lock first: from the moment this sync holds the marker, no reader
+        // may take the head as in place. A reader holds it only for one probe.
+        let head = open(&head_marker(folder)?, true)?;
+        wait_lock(&head, libc::LOCK_EX)?;
         let mut file = open(&marker(folder)?, true)?;
         if !lock(&file, libc::LOCK_EX)? {
             return Err(io::Error::new(io::ErrorKind::WouldBlock, "repository is in use"));
@@ -138,30 +156,30 @@ impl Sync {
         file.write_all(b"0")?;
         file.set_len(1)?;
         file.sync_data()?;
-        Ok(Self(file))
+        Ok(Self { marker: file, head: Some(head) })
     }
 
     /// The head is in place and the rest of the checkout still arrives: a reader
     /// that may start before the whole checkout sees [`Probe::HeadReady`]. The
-    /// lock stays held, so every [`wait_ready`] still waits. A producer that dies
-    /// after this leaves the barrier incomplete, as before it. Mark it only when the
-    /// head holds no harness setting that runs a command as the harness starts (a
-    /// `.claude/settings*.json` with hooks): that start would run it on a partial
-    /// checkout.
-    pub fn head_ready(&mut self) -> io::Result<()> {
-        self.0.seek(SeekFrom::Start(0))?;
-        self.0.write_all(b"h")?;
-        self.0.sync_data()
+    /// marker stays locked, so every [`wait_ready`] still waits, and a producer that
+    /// dies after this leaves the barrier incomplete, as before it. Mark it only
+    /// when the head holds no harness setting that runs a command as the harness
+    /// starts (a `.claude/settings*.json` with hooks): that start would run it on a
+    /// partial checkout.
+    pub fn head_ready(&mut self) {
+        // Closing the descriptor releases its flock.
+        self.head = None;
     }
 
     /// A failed durability step leaves the barrier incomplete.
     pub fn complete(mut self) -> io::Result<()> {
-        self.0.seek(SeekFrom::Start(0))?;
-        self.0.write_all(b"1")?;
-        if let Err(error) = self.0.sync_data() {
-            let _ = self.0.seek(SeekFrom::Start(0));
-            let _ = self.0.write_all(b"0");
-            let _ = self.0.sync_data();
+        let file = &mut self.marker;
+        file.seek(SeekFrom::Start(0))?;
+        file.write_all(b"1")?;
+        if let Err(error) = file.sync_data() {
+            let _ = file.seek(SeekFrom::Start(0));
+            let _ = file.write_all(b"0");
+            let _ = file.sync_data();
             return Err(error);
         }
         Ok(())
@@ -208,10 +226,9 @@ pub fn probe(path: &Path) -> io::Result<Probe> {
             Err(error) => return Err(error),
         };
         if !lock(&file, libc::LOCK_SH)? {
-            // Read under the producer's lock: one byte, so a read sees `0` or `h`
-            // whole, and an outer folder still syncing past its head wins below.
-            let mut state = [0];
-            if file.read(&mut state)? == 1 && state[0] == b'h' {
+            // Syncing; past its head when its producer let go of the head lock. An
+            // outer folder still syncing short of its head wins below.
+            if head_in_place(folder)? {
                 head_only = true;
                 continue;
             }
@@ -227,6 +244,18 @@ pub fn probe(path: &Path) -> io::Result<Probe> {
         return Ok(Probe::HeadReady);
     }
     Ok(Probe::Ready(Ready(held)))
+}
+
+/// Whether a syncing folder's producer said its head is in place: its head lock is free.
+fn head_in_place(folder: &Path) -> io::Result<bool> {
+    let head = match open(&head_marker(folder)?, false) {
+        Ok(head) => head,
+        // A producer from before head locks: it never marks a head.
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    // Released when `head` closes at the end of this call.
+    lock(&head, libc::LOCK_SH)
 }
 
 impl Drop for Ready {
