@@ -2098,6 +2098,21 @@ class WebShardBaseVerdict(unittest.TestCase):
             self.judge(gh)
         self.assertFalse([route for route in gh.routes if "cmux-next-web.yml" in route], gh.routes)
 
+    def test_a_pr_into_main_never_reads_cmux_next_web(self):
+        # cmux-next web runs on pushes to feat-cmux-next only; a dispatch of it on `main` is no evidence for main.
+        gh = WebShardBaseGitHub()
+        json = gh.json
+
+        def answer(route, *, paginate=False):
+            route = route.replace("branch=main", "branch=feat-cmux-next").replace("/compare/main...",
+                                                                               "/compare/feat-cmux-next...")
+            return json(route, paginate=paginate)
+
+        gh.json = answer
+        with self.assertRaisesRegex(excuse.Refused, "no main verdict at or after this PR's merge-base yet"):
+            excuse.judge(REPO, "main", HEAD, [10], gh)
+        self.assertFalse([route for route in gh.routes if "cmux-next-web.yml" in route], gh.routes)
+
     def test_a_run_with_no_workflow_path_reads_only_its_own_workflow(self):
         gh = WebShardBaseGitHub()
         json = gh.json
@@ -2114,7 +2129,7 @@ class WebShardBaseVerdict(unittest.TestCase):
     def test_each_base_caller_runs_the_same_called_job_on_base_pushes(self):
         yaml = excuse.yaml_module()
         self.assertTrue(excuse.BASE_WORKFLOW_FOR)
-        for (pr_file, job_id), base_file in excuse.BASE_WORKFLOW_FOR.items():
+        for (branch, pr_file, job_id), base_file in excuse.BASE_WORKFLOW_FOR.items():
             pr = yaml.safe_load((excuse.WORKFLOWS / pr_file).read_text())
             pushed = yaml.safe_load((excuse.WORKFLOWS / base_file).read_text())
             pr_job, pushed_job = pr["jobs"][job_id], pushed["jobs"][job_id]
@@ -2125,9 +2140,9 @@ class WebShardBaseVerdict(unittest.TestCase):
                 self.assertEqual(excuse._check_matcher(job_id, job, where), {"exact": [], "prefixes": [f"{job_id} / "]})
             # The base caller runs on pushes to the base; the PR caller does not (else its own runs would be read).
             pushes = (pushed.get(True, pushed.get("on")) or {}).get("push") or {}
-            self.assertIn("feat-cmux-next", pushes.get("branches") or [])
+            self.assertIn(branch, pushes.get("branches") or [])
             pr_pushes = (pr.get(True, pr.get("on")) or {}).get("push") or {}
-            self.assertNotIn("feat-cmux-next", pr_pushes.get("branches") or [] if isinstance(pr_pushes, dict) else [])
+            self.assertNotIn(branch, pr_pushes.get("branches") or [] if isinstance(pr_pushes, dict) else [])
 
 
 class RollupsFromNeeds(unittest.TestCase):

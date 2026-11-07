@@ -301,11 +301,13 @@ OTHER_REPO_ROLLUPS = {
 # requests only; on feat-cmux-next the same ci-web.yml runs from cmux-next-web.yml's `web` job, under the same
 # 'web / ...' check names. ci.yml's newest feat-cmux-next run was a 2026-10-06 dispatch, so every web shard red on a
 # PR was judged against that month-old pass and refused as having no verdict at or after its merge-base (cmux#37667's
-# 'web / Web tests (1/4)', red on the base in cmux-next web run 42358745538). Keyed by (the PR run's workflow file,
-# the caller job id whose '<id> / ' prefix the check carries), the value is the base workflow file whose job of the
-# same id calls the same reusable workflow on pushes to the base. tests/test_base_red_excuse.py checks each entry
-# against the workflows. Its verdict is read only when the PR run's own workflow has none at or after the merge-base.
-BASE_WORKFLOW_FOR = {("ci.yml", "web"): "cmux-next-web.yml"}
+# 'web / Web tests (1/4)', red on the base in cmux-next web run 42358745538). Keyed by (the base branch, the PR run's
+# workflow file, the caller job id whose '<id> / ' prefix the check carries), the value is the workflow file whose job
+# of the same id calls the same reusable workflow on pushes to that base branch, and only that one: a PR into `main`
+# never reads cmux-next web, whose runs on `main` (a dispatch) are no base evidence. tests/test_base_red_excuse.py
+# checks each entry against the workflows. Its verdict is read only when the PR run's own workflow has none at or
+# after the merge-base.
+BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
@@ -2532,15 +2534,16 @@ def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> N
         key=lambda run: run.get("created_at") or "", reverse=True)
 
 
-def base_caller(repo: str, run: dict, name: str) -> str | None:
-    """The workflow file that runs job NAME on base pushes when RUN's own workflow (a pull-request-only caller of the
-    same reusable workflow) does not (BASE_WORKFLOW_FOR); None for any other job, repo or unread workflow path."""
+def base_caller(repo: str, base: str, run: dict, name: str) -> str | None:
+    """The workflow file that runs job NAME on pushes to BASE when RUN's own workflow (a pull-request-only caller of
+    the same reusable workflow) does not (BASE_WORKFLOW_FOR); None for any other job, base, repo or unread workflow
+    path."""
     path = run.get("path") if isinstance(run, dict) else None
     if repo != HOME_REPO or not isinstance(path, str) or not path.startswith(".github/workflows/"):
         return None
     file = path.removeprefix(".github/workflows/").split("@", 1)[0]
-    return next((caller for (pr_file, job_id), caller in BASE_WORKFLOW_FOR.items()
-                 if pr_file == file and name.startswith(f"{job_id} / ")), None)
+    return next((caller for (branch, pr_file, job_id), caller in BASE_WORKFLOW_FOR.items()
+                 if branch == base and pr_file == file and name.startswith(f"{job_id} / ")), None)
 
 
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
@@ -2621,7 +2624,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # The newest base run where this job has a verdict decides whether it is red on the base.
         verdicts = base_verdicts(repo, base, workflow, name, github, base_runs, base_jobs, job_reads, suites)
         base_run, base_job = next(verdicts, (None, None))
-        if ((caller := base_caller(repo, workflow_info, name)) is not None
+        if ((caller := base_caller(repo, base, workflow_info, name)) is not None
                 and (base_run is None or before_merge_base(repo, base, sha, base_run, github, merge_bases))):
             # The PR run's workflow has no base verdict at or after the merge-base: the workflow that runs the same
             # called job on base pushes may (BASE_WORKFLOW_FOR). Its verdict decides only when it is at or after the
