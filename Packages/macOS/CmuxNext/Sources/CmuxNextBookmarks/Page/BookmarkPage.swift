@@ -62,6 +62,8 @@ public final class BookmarkPageHostProvider: PageProvider {
     private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var pending: Set<String> = []
     private var servedProfile: String?
+    /// The gesture the last open spent (`PageCallContext.gestureEvent`).
+    private var spentGesture: TimeInterval?
     private var iconObservation: Task<Void, Never>?
 
     public init(host: any BookmarkPageHost, tabKey: String) {
@@ -85,7 +87,7 @@ public final class BookmarkPageHostProvider: PageProvider {
         case Self.prefix + "icons":
             return icons(params["ids"]?.arrayValue?.compactMap(\.stringValue) ?? [])
         case Self.prefix + "open":
-            try Self.requireGesture(context)
+            try spendGesture(context)
             // The page shows the daemon's rows: the app's tree serves only when it has the same row.
             let id = params["bookmark"]?.stringValue ?? ""
             let shown = params["url"]?.stringValue
@@ -102,7 +104,7 @@ public final class BookmarkPageHostProvider: PageProvider {
             host.openBookmark(node, profile: profile, disposition: disposition, fromTab: tabKey)
             return .object([:])
         case Self.prefix + "openAll":
-            try Self.requireGesture(context)
+            try spendGesture(context)
             // Open All reads the folder's children from the daemon, never a lagging copy.
             let tree = try await ownerTree(host)
             guard let id = params["folder"]?.stringValue, let folder = tree.node(id), folder.isFolder else {
@@ -143,12 +145,14 @@ public final class BookmarkPageHostProvider: PageProvider {
         post("state")
     }
 
-    /// Opening a bookmark (a saved privileged URL, its last-used time) is the person's own act: a
-    /// real click or key in the page view, or a native sheet they approved; page script alone never.
-    private static func requireGesture(_ context: PageCallContext) throws {
-        guard context.userGesture || context.isConfirmedUser else {
+    /// Opening a bookmark (a saved privileged URL, its last-used time) is the person's own act:
+    /// each real click or key in the page view opens once; page script alone, or a second call on
+    /// the same gesture, opens nothing.
+    private func spendGesture(_ context: PageCallContext) throws {
+        guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
             throw PageError(code: PageNativeOp.userOnlyCode, message: BookmarkStrings.personOnlyFromPage)
         }
+        spentGesture = event
     }
 
     private func ownerTree(_ host: any BookmarkPageHost) async throws -> BookmarkTree {

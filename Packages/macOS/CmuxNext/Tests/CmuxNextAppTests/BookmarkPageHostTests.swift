@@ -40,23 +40,25 @@ struct BookmarkPageHostTests {
     }
 
     let context = PageCallContext(page: PageDescriptor.bookmarks.id)
-    /// A call right after the person's click or key in the page view.
-    let clicked = PageCallContext(page: PageDescriptor.bookmarks.id, userGesture: true, gestureEvent: 1)
+    /// A call right after the person's click or key `n` in the page view.
+    func clicked(_ n: TimeInterval) -> PageCallContext {
+        PageCallContext(page: PageDescriptor.bookmarks.id, userGesture: true, gestureEvent: n)
+    }
 
     @Test func openUsesTheDaemonsRowWhenTheAppsTreeLags() async throws {
         let host = Host()
         host.owner = try Self.tree("https://new.example/")
         let page = BookmarkPageHostProvider(host: host, tabKey: "t")
         // Not in the app's tree yet.
-        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_docs", "url": "https://new.example/"], context: clicked)
+        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_docs", "url": "https://new.example/"], context: clicked(1))
         // In it with the old URL.
         host.mirror = try Self.tree("https://old.example/")
-        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_docs", "url": "https://new.example/"], context: clicked)
+        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_docs", "url": "https://new.example/"], context: clicked(2))
         #expect(host.opened == ["https://new.example/", "https://new.example/"])
         #expect(host.ownerReads == 2)
         // The same row in both: no daemon read.
         host.mirror = host.owner
-        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_docs", "url": "https://new.example/"], context: clicked)
+        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_docs", "url": "https://new.example/"], context: clicked(3))
         #expect(host.ownerReads == 2)
     }
 
@@ -64,7 +66,7 @@ struct BookmarkPageHostTests {
         let host = Host()
         host.owner = try Self.tree("https://new.example/")
         let page = BookmarkPageHostProvider(host: host, tabKey: "t")
-        _ = try await page.call("cmux.bookmarkPage.openAll", params: ["folder": "bm_folder"], context: clicked)
+        _ = try await page.call("cmux.bookmarkPage.openAll", params: ["folder": "bm_folder"], context: clicked(4))
         #expect(host.opened == ["https://new.example/"])
     }
 
@@ -97,5 +99,18 @@ struct BookmarkPageHostTests {
         }
         #expect(host.opened.isEmpty)
         #expect(host.ownerReads == 0)
+    }
+
+    @Test func oneClickOpensOnce() async throws {
+        let host = Host()
+        host.mirror = try Self.tree("https://new.example/")
+        host.owner = host.mirror
+        let page = BookmarkPageHostProvider(host: host, tabKey: "t")
+        let click = clicked(42)
+        _ = try await page.call("cmux.bookmarkPage.open", params: ["bookmark": "bm_docs"], context: click)
+        await #expect(throws: PageError.self) {
+            _ = try await page.call("cmux.bookmarkPage.openAll", params: ["folder": "bm_folder"], context: click)
+        }
+        #expect(host.opened == ["https://new.example/"])
     }
 }
