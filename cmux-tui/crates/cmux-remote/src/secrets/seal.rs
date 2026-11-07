@@ -23,19 +23,17 @@ type Kem = X25519HkdfSha256;
 /// The first field of every `info`: the protocol and its version.
 const INFO_LABEL: &[u8] = b"cmux secrets-v1";
 
-/// What a sealed item is for; part of its `info`, so a secret can't be
-/// opened as a harness login or the other way round.
+/// What a sealed item is for; part of its `info`, so an item sealed for
+/// another request kind can never open as a machine secret.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Purpose {
     Secret,
-    HarnessLogin,
 }
 
 impl Purpose {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Secret => "secret",
-            Self::HarnessLogin => "harness-login",
         }
     }
 }

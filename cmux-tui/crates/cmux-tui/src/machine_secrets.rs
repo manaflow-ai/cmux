@@ -18,7 +18,6 @@ pub(crate) fn daemon_workspace_service(
                 &auth.identity(),
                 machine_id,
                 home,
-                crate::agent_start_host::cloud_etc().dir.clone(),
                 state_dir.to_path_buf(),
             ))
         }

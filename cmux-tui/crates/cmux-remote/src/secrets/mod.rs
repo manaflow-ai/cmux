@@ -1,16 +1,14 @@
-//! `secrets-v1`: secrets and harness logins sealed end to end to a machine.
+//! `secrets-v1`: secrets sealed end to end to a machine.
 //!
 //! A device seals each value to this daemon's static X25519 key ([`seal`]).
 //! The daemon opens it here, for its own machine id only, and writes it,
-//! mode 0600: secrets to `~/.config/cmux/machine-secrets.env`, harness logins
-//! where the harness reads them. A name outside the allowlist, a path outside
+//! mode 0600, to `~/.config/cmux/machine-secrets.env`. A name outside the allowlist, a path outside
 //! [`files::allowed_paths`], an item that doesn't open, one sealed more than
 //! [`WINDOW_SECS`] from now and a replayed nonce are each refused. No value reaches a log line or an error.
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod commit;
 pub mod files;
-pub mod harness;
 mod replay;
 pub mod request;
 pub mod seal;
@@ -25,7 +23,6 @@ use cmux_remote_protocol::{RpcError, SealedSecret};
 use zeroize::Zeroizing;
 
 use crate::crypto::StaticIdentity;
-use harness::HarnessLogin;
 use replay::Replay;
 pub use replay::{Lock, WINDOW_SECS};
 pub use seal::Purpose;
@@ -42,7 +39,6 @@ pub struct MachineSecrets {
     private_key: Zeroizing<[u8; 32]>,
     machine_id: String,
     home: PathBuf,
-    etc: PathBuf,
     state: PathBuf,
     max_live: usize,
     clock: Clock,
@@ -59,32 +55,29 @@ impl std::fmt::Debug for MachineSecrets {
     }
 }
 
-/// A refusal: a fixed code and the item's name, never a value. `not-ready`
-/// (a guest that hasn't bound yet) and `busy` (the replay window is full)
-/// are the ones a caller may retry.
+/// A refusal: a fixed code and the item's name, never a value. `busy` (the
+/// replay window is full) is the one a caller may retry.
 fn refused(code: &str, name: &str) -> RpcError {
     let mut error = RpcError::new("secret-refused", format!("{code}: {name}"));
-    error.retryable = matches!(code, "not-ready" | "busy");
+    error.retryable = code == "busy";
     error
 }
 
 impl MachineSecrets {
     /// The service for the daemon whose static identity is `identity`, on
-    /// the machine `machine_id`, writing under `home`, reading the guest's
-    /// policy from `etc` (`/etc/cmux`) and keeping its taken nonces under
+    /// the machine `machine_id`, writing under `home` and keeping its taken
+    /// nonces under
     /// `state` (the daemon's state folder).
     pub fn new(
         identity: &StaticIdentity,
         machine_id: String,
         home: PathBuf,
-        etc: PathBuf,
         state: PathBuf,
     ) -> Self {
         Self {
             private_key: Zeroizing::new(*identity.private_key()),
             machine_id,
             home,
-            etc,
             state,
             max_live: replay::MAX_LIVE,
             clock: Arc::new(seal::unix_now),
@@ -230,34 +223,5 @@ impl MachineSecrets {
         let path = self.home.join(files::MACHINE_CONFIG_STATUS_FILE);
         let bytes = std::fs::read(&path).ok()?;
         files::declared_names(&bytes).map(|names| names.into_iter().collect())
-    }
-
-    /// Install one harness login (`claude` or `codex`), on an owner guest
-    /// only: a team guest's Unix user is every member's, and the daemon can't
-    /// tell the guest's creator from a teammate.
-    pub fn install_harness_login(&self, item: &SealedSecret) -> Result<String, RpcError> {
-        let result = self.install_inner(item);
-        match &result {
-            Ok(name) => self.log(&format!("secrets-v1: installed the {name} login")),
-            Err(error) => self.log(&format!("secrets-v1: harness login refused ({error})")),
-        }
-        result
-    }
-
-    fn install_inner(&self, item: &SealedSecret) -> Result<String, RpcError> {
-        let login =
-            HarnessLogin::from_name(&item.name).ok_or_else(|| refused("bad-name", &item.name))?;
-        let (lock, mut replay, now) = self.begin(&item.name)?;
-        let replay = &mut replay;
-        let opened = self.open(replay, now, Purpose::HarnessLogin, item)?;
-        login.validate(&opened.value).map_err(|error| refused(error.code(), &item.name))?;
-        harness::check_guest(&self.etc, login)
-            .map_err(|error| refused(error.code(), &item.name))?;
-        let taken = [(item.nonce.clone(), opened.issued_at)];
-        Self::take(replay, now, &taken, &item.name, || {
-            harness::install(&lock, &self.home, login, &opened.value)
-                .map_err(|error| refused(error.code(), &item.name))
-        })?;
-        Ok(login.name().to_owned())
     }
 }

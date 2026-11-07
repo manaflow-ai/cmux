@@ -187,110 +187,34 @@ pub fn declared_names(status: &[u8]) -> Option<Vec<String>> {
         .collect()
 }
 
-/// Every file `secrets-v1` may write under `home`: the machine secrets and
-/// the harness login files. A write to any other path is refused.
+/// Every file `secrets-v1` may write under `home`: the machine secrets. A
+/// write to any other path is refused.
 pub fn allowed_paths(home: &Path) -> Vec<PathBuf> {
-    let mut paths = vec![home.join(MACHINE_SECRETS_FILE)];
-    for login in super::harness::HarnessLogin::ALL {
-        paths.extend(login.paths(home));
-    }
-    paths
+    vec![home.join(MACHINE_SECRETS_FILE)]
 }
 
-/// What the live file must still be for a write to go ahead.
-#[derive(Clone, Copy)]
-pub enum Expect<'a> {
-    /// Replace whatever is there.
-    Anything,
-    /// Replace only these bytes (`None`: only when there is no file).
-    Exactly(Option<&'a [u8]>),
-}
-
-/// One file to write: `home/relative` gets `bytes`.
-#[derive(Clone, Copy)]
-pub struct Planned<'a> {
-    pub relative: &'a Path,
-    pub bytes: &'a [u8],
-    pub expect: Expect<'a>,
-}
-
-/// A file a change reads but never writes: it must still hold `expect`
-/// (`None`: no file) once every file is in place, or the change is undone.
-#[derive(Clone, Copy)]
-pub struct Guard<'a> {
-    pub relative: &'a Path,
-    pub expect: Option<&'a [u8]>,
-}
-
-/// The error of a write whose [`Expect`] no longer held.
-#[derive(Debug)]
-#[cfg_attr(not(any(target_os = "linux", target_os = "android")), allow(dead_code))]
-pub(super) struct Changed;
-
-impl std::fmt::Display for Changed {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("the live file changed")
-    }
-}
-
-impl std::error::Error for Changed {}
-
-/// Whether `error` says a live file changed since the caller read it.
-pub fn is_changed(error: &io::Error) -> bool {
-    error.get_ref().is_some_and(|inner| inner.is::<Changed>())
-}
-
-/// Replace each `(path, bytes, expect)`, all or none, mode 0600 (see
-/// [`super::commit`]), while each `(path, bytes)` guard below `home` still
-/// holds, only when every written path is one [`allowed_paths`] lists. `_lock` is the request
-/// lock: every write of `secrets-v1` happens under it.
-pub fn write_all_allowed(
+/// Replace `path` with `bytes`, mode 0600 (see [`super::commit`]), only when
+/// it is one [`allowed_paths`] lists. `_lock` is the request lock: every
+/// write of `secrets-v1` happens under it.
+pub fn write_allowed(
     _lock: &super::Lock,
     home: &Path,
-    writes: &[(&Path, &[u8], Expect<'_>)],
-    guards: &[(&Path, Option<&[u8]>)],
+    path: &Path,
+    bytes: &[u8],
 ) -> io::Result<()> {
-    let relative = |path: &Path| -> io::Result<PathBuf> {
-        if !allowed_paths(home).iter().any(|allowed| allowed == path) {
-            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1"));
-        }
-        path.strip_prefix(home)
-            .map(Path::to_path_buf)
-            .map_err(|_| io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1"))
-    };
-    let write_paths =
-        writes.iter().map(|(path, ..)| relative(path)).collect::<io::Result<Vec<_>>>()?;
-    // A guard is only read: any file below `home`.
-    let guard_paths = guards
-        .iter()
-        .map(|(path, _)| {
-            path.strip_prefix(home).map(Path::to_path_buf).map_err(|_| {
-                io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1")
-            })
-        })
-        .collect::<io::Result<Vec<_>>>()?;
-    let planned: Vec<_> = writes
-        .iter()
-        .zip(&write_paths)
-        .map(|((_, bytes, expect), relative)| Planned { relative, bytes, expect: *expect })
-        .collect();
-    let guards: Vec<_> = guards
-        .iter()
-        .zip(&guard_paths)
-        .map(|((_, expect), relative)| Guard { relative, expect: *expect })
-        .collect();
-    replace_all(home, &planned, &guards)
-}
-
-/// [`write_all_allowed`] for one file, whatever is there now.
-pub fn write_allowed(lock: &super::Lock, home: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
-    write_all_allowed(lock, home, &[(path, bytes, Expect::Anything)], &[])
+    if !allowed_paths(home).iter().any(|allowed| allowed == path) {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1"));
+    }
+    let relative = path
+        .strip_prefix(home)
+        .map_err(|_| io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1"))?;
+    replace(home, relative, bytes)
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-use super::commit::replace_all;
+use super::commit::replace;
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
-fn replace_all(_: &Path, _: &[Planned<'_>], _: &[Guard<'_>]) -> io::Result<()> {
+fn replace(_: &Path, _: &Path, _: &[u8]) -> io::Result<()> {
     Err(io::Error::new(io::ErrorKind::Unsupported, "secrets-v1 writes need Linux"))
 }

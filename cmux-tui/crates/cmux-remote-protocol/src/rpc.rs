@@ -173,7 +173,7 @@ pub enum RemoteCapability {
     /// `terminal-bytes-v1` accepts [`TERMINAL_BYTES_VIEWER_SIZE_PRIORITY`].
     TerminalViewerSizePriorityV1,
     /// `secrets-v1`: the daemon opens [`SealedSecret`]s sealed to its static
-    /// key and writes them (`replace-machine-secrets`, `install-harness-login`).
+    /// key and writes them (`replace-machine-secrets`).
     SecretsV1,
     /// A capability introduced by a newer peer.
     ///
@@ -411,12 +411,6 @@ pub enum WorkspaceRequest {
     ReplaceMachineSecrets {
         items: Vec<SealedSecret>,
     },
-    /// `secrets-v1`: install one harness login (`claude` or `codex`) where the
-    /// harness reads it. Purpose `harness-login`. Owner guests only: a team
-    /// guest's Unix user is every member's.
-    InstallHarnessLogin {
-        item: SealedSecret,
-    },
 }
 
 /// One value sealed to a daemon's static X25519 key with HPKE (RFC 9180 base
@@ -582,9 +576,6 @@ pub enum WorkspaceResponse {
     },
     MachineSecretsReplaced {
         count: u32,
-    },
-    HarnessLoginInstalled {
-        name: String,
     },
 }
 

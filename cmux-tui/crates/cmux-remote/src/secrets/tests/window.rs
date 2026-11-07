@@ -1,10 +1,8 @@
-//! One request at a time, a merge that notices an outside edit, and replay
-//! protection that outlives the daemon. Generated values only.
+//! One request at a time, and replay protection that outlives the daemon. Generated values only.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::super::commit::BEFORE_COMMIT;
 use super::super::seal::{self, Purpose};
 use super::super::{MachineSecrets, WINDOW_SECS, files};
 use super::{MACHINE, fixture, random_hex};
@@ -19,7 +17,6 @@ fn restarted(fixture: &super::Fixture, clock: &Arc<AtomicU64>, max_live: usize) 
         &fixture.identity,
         MACHINE.to_owned(),
         fixture.home.clone(),
-        fixture.etc.clone(),
         fixture.state.clone(),
     )
     .with_clock(Arc::new(move || clock.load(Ordering::SeqCst)), max_live)
@@ -65,76 +62,21 @@ fn concurrent_requests_never_interleave_and_one_nonce_is_taken_once() {
         .collect();
     assert_eq!(names, ["machine-secrets.env"], "a temporary or backup was left");
 
-    // The same sealed login from four threads at once installs once.
-    let token = format!("sk-ant-oat01-{}", random_hex(24));
-    let login = fixture.seal(Purpose::HarnessLogin, "claude", &token);
+    // The same sealed request from four threads at once is taken once.
+    let value = random_hex(16);
+    let item = fixture.seal(Purpose::Secret, "DEMO_KEY", &value);
     let results: Vec<_> = std::thread::scope(|scope| {
-        let handles: Vec<_> =
-            (0..4).map(|_| scope.spawn(|| fixture.secrets.install_harness_login(&login))).collect();
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                scope.spawn(|| fixture.secrets.replace_machine_secrets(std::slice::from_ref(&item)))
+            })
+            .collect();
         handles.into_iter().map(|handle| handle.join().unwrap()).collect()
     });
     assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
     for error in results.iter().filter_map(|result| result.as_ref().err()) {
         assert!(error.message.starts_with("replay"), "{error}");
     }
-}
-
-#[test]
-fn an_edit_just_before_the_rename_is_merged_once_then_refused_and_kept() {
-    let fixture = fixture(&[]);
-    std::fs::create_dir_all(fixture.home.join(".claude")).unwrap();
-    let settings = fixture.home.join(".claude/settings.json");
-    std::fs::write(&settings, r#"{"theme":"dark"}"#).unwrap();
-
-    // One edit while the login is staged: merged into, not lost.
-    let path = settings.clone();
-    let mut edits = 0;
-    BEFORE_COMMIT.with(|hook| {
-        *hook.borrow_mut() = Some(Box::new(move || {
-            if edits == 0 {
-                std::fs::write(&path, r#"{"theme":"light","model":"opus"}"#).unwrap();
-            }
-            edits += 1;
-        }));
-    });
-    let token = format!("sk-ant-oat01-{}", random_hex(24));
-    let item = fixture.seal(Purpose::HarnessLogin, "claude", &token);
-    let installed = fixture.secrets.install_harness_login(&item);
-    BEFORE_COMMIT.with(|hook| hook.borrow_mut().take());
-    assert_eq!(installed.unwrap(), "claude");
-    let written: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&settings).unwrap()).unwrap();
-    assert_eq!(written["theme"], "light");
-    assert_eq!(written["model"], "opus");
-    assert_eq!(written["env"]["CLAUDE_CODE_OAUTH_TOKEN"], token.as_str());
-
-    // An edit on every try: refused, the person's edit kept, and the same
-    // sealed login installs once the file is left alone.
-    let path = settings.clone();
-    let mut edits = 0;
-    BEFORE_COMMIT.with(|hook| {
-        *hook.borrow_mut() = Some(Box::new(move || {
-            edits += 1;
-            std::fs::write(&path, format!(r#"{{"theme":"edit-{edits}"}}"#)).unwrap();
-        }));
-    });
-    let newer = format!("sk-ant-oat01-{}", random_hex(24));
-    let item = fixture.seal(Purpose::HarnessLogin, "claude", &newer);
-    let refused = fixture.secrets.install_harness_login(&item);
-    BEFORE_COMMIT.with(|hook| hook.borrow_mut().take());
-    let error = refused.unwrap_err();
-    assert!(error.message.starts_with("conflict"), "{error}");
-    assert_eq!(std::fs::read_to_string(&settings).unwrap(), r#"{"theme":"edit-2"}"#);
-    let left: Vec<_> = std::fs::read_dir(fixture.home.join(".claude"))
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-        .filter(|name| name.contains(".tmp") || name.contains(".bak"))
-        .collect();
-    assert!(left.is_empty(), "a temporary or backup was left: {left:?}");
-    let credentials =
-        std::fs::read_to_string(fixture.home.join(".claude/.credentials.json")).unwrap();
-    assert!(credentials.contains(&token) && !credentials.contains(&newer));
-    assert_eq!(fixture.secrets.install_harness_login(&item).unwrap(), "claude");
 }
 
 #[test]

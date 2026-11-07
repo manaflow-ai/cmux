@@ -678,8 +678,7 @@ fn rpc_traffic_class(request: &WorkspaceRequest) -> RpcTrafficClass {
         | WorkspaceRequest::ComputerUseCapabilitiesV1
         | WorkspaceRequest::InvokeComputerUse { .. }
         | WorkspaceRequest::CancelComputerUse { .. }
-        | WorkspaceRequest::ReplaceMachineSecrets { .. }
-        | WorkspaceRequest::InstallHarnessLogin { .. } => RpcTrafficClass::Control,
+        | WorkspaceRequest::ReplaceMachineSecrets { .. } => RpcTrafficClass::Control,
         WorkspaceRequest::CancelRequest { .. } => RpcTrafficClass::Cancellation,
     }
 }
