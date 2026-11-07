@@ -206,6 +206,17 @@ fn vm_reuses_my_vm_and_makes_one_only_when_i_have_none() {
     assert_eq!(code(unsure), "chat_target.which_vm");
     assert_eq!(error["details"]["names"], json!(["vm-a", "vm-b"]));
     assert!(error["message"].as_str().unwrap().contains("--on vm:new"), "{error}");
+    // My only VM is still being made: say to retry, never start a second one.
+    let making = json!({"account": {"signed_in": true}, "machines": [],
+                        "creating": [{"creation_id": "c-1", "status": "creating"}]});
+    let starting = on_vm(making).unwrap_err();
+    assert_eq!(
+        (starting["code"].as_str(), starting["retryable"].as_bool()),
+        (Some("chat_target.vm_starting"), Some(true))
+    );
+    let failed = json!({"account": {"signed_in": true}, "machines": [],
+                        "creating": [{"creation_id": "c-1", "status": "failed"}]});
+    assert_eq!(on_vm(failed), Ok(Route::Cloud(Machine::New)));
     // Not loaded yet: say to retry, never make a VM I may already have.
     let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
     assert_eq!(code(on_vm(unloaded)), "chat_target.unavailable");

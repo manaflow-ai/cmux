@@ -82,7 +82,8 @@ EXAMPLES
 
 Messages to a chat: cmux chat send|read|wait|list (`cmux chat send --help`).
 A refused target exits 1 and says what to run next (chat_target.unknown_device,
-ambiguous_device, unknown_vm, not_permitted, unavailable, signed_out, no_route).
+ambiguous_device, unknown_vm, which_vm, vm_starting, not_permitted, unavailable,
+signed_out, no_route).
 Exit codes: 0 ok, 1 refused, 2 bad arguments.
 ";
 
@@ -348,7 +349,22 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
         .collect();
     let running: Vec<&Value> =
         usable.iter().copied().filter(|row| text(row, "status") == Some("running")).collect();
+    // A VM the app is still making (`creating`, not failed) is mine too: never start a second.
+    let making = listed
+        .get("creating")
+        .and_then(Value::as_array)
+        .is_some_and(|rows| rows.iter().any(|row| text(row, "status") != Some("failed")));
     let id = match (usable.as_slice(), running.as_slice()) {
+        ([], _) if making => {
+            let mut error = refusal(
+                "chat_target.vm_starting",
+                "your Cloud VM is still being made".to_owned(),
+                "run this command again once `cmux vm list-machines` lists it",
+                json!({}),
+            );
+            error["retryable"] = json!(true);
+            return Err(error);
+        }
         ([], _) => return Ok(Machine::New),
         ([only], _) | (_, [only]) => text(only, "machine_id"),
         _ => None,
