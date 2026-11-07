@@ -1127,11 +1127,14 @@ button.cv-subagent > :last-child {
   min-width: 0;
 }
 /* Its time, state and actions: one line at the detail size, every part on one centre line and the
-   first on the command's left edge, spaced as the header's time and Stop (--acpmux-tray-gap). */
+   first on the command's left edge, spaced as the header's time and Stop (--acpmux-tray-gap). A tray
+   too narrow for them all wraps the actions to a line of their own, each line still centred, never
+   cutting one off (review of #37830). */
 .acpmux-running-tray__tail-foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--acpmux-tray-gap, var(--ds-space-1));
+  gap: var(--ds-space-1) var(--acpmux-tray-gap, var(--ds-space-1));
   min-width: 0;
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);

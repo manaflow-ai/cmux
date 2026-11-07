@@ -1343,7 +1343,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextCloudUI",
             // Pages: the Cloud progress page's provider (CloudProgressPageProvider).
-            dependencies: ["CmuxNextCloud", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextActions", "CmuxNextCloud", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings"],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),

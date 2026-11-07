@@ -2819,6 +2819,13 @@
         },
         "sessionId": {
           "type": "string"
+        },
+        "subagent": {
+          "description": "Only this subagent's own records: the updates acpmux tagged with it and those that start\nor change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

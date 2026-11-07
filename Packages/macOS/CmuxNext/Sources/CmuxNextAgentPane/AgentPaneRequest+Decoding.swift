@@ -516,7 +516,8 @@ extension AgentPaneRequest {
         case "chat.subagentShown":
             let id = params?["subagent"] as? String
             if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
-                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int)
+                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int,
+                                      facts: id == nil ? nil : SubagentTabFacts(params))
             }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
@@ -569,6 +570,14 @@ extension AgentPaneRequest {
             if let text = params?["url"] as? String, text.count <= Self.maximumOpenTabText,
                let url = URL(string: text), url.isAgentPanePreview {
                 self = .openPreview(url)
+            } else {
+                self = .unsupported(method)
+            }
+        case "cloud.preview.open":
+            if let params, Set(params.keys) == ["port"],
+               let port = params["port"] as? NSNumber, CFGetTypeID(port) != CFBooleanGetTypeID(),
+               Double(port.intValue) == port.doubleValue, (1...65535).contains(port.intValue) {
+                self = .openCloudPreview(port: port.intValue)
             } else {
                 self = .unsupported(method)
             }
