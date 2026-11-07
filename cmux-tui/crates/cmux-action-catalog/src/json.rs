@@ -244,7 +244,7 @@ fn catalog_with(locale: usize, row: impl Fn(&Action) -> Value) -> Value {
         .collect();
     json!({
         "version": 1,
-        "locale": strings::LOCALES[locale.min(strings::LOCALES.len() - 1)],
+        "locale": strings::LOCALES.get(locale).copied().unwrap_or("en"),
         "actions": crate::actions().map(row).collect::<Vec<_>>(),
         "legacy_aliases": legacy,
         "categories": categories,

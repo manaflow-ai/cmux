@@ -31,7 +31,7 @@ pub fn locale_index(locale: &str) -> usize {
 /// The translation of `table`/`key` in the language at `index`, if the table has one.
 pub fn lookup(table: &str, key: &str, index: usize) -> Option<&'static str> {
     let found = STRINGS.binary_search_by(|(t, k, _)| (*t, *k).cmp(&(table, key))).ok()?;
-    let value = *STRINGS[found].2.get(index)?;
+    let value = *STRINGS.get(found)?.2.get(index)?;
     (!value.is_empty()).then_some(value)
 }
 
@@ -58,8 +58,8 @@ pub fn resolve(text: &Text, index: usize) -> String {
 /// Puts `arg` where `format` has its one `%@`, `%lld`, `%d` or positional `%1$@`.
 fn fill(format: &str, arg: &str) -> String {
     for placeholder in ["%1$@", "%1$lld", "%@", "%lld", "%d"] {
-        if let Some(at) = format.find(placeholder) {
-            return format!("{}{}{}", &format[..at], arg, &format[at + placeholder.len()..]);
+        if let Some((before, after)) = format.split_once(placeholder) {
+            return format!("{before}{arg}{after}");
         }
     }
     format.to_owned()

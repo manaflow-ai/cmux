@@ -293,7 +293,7 @@ pub struct Category {
 
 impl Category {
     pub fn palette_section_order(&self) -> i64 {
-        100 + self.sort_order
+        self.sort_order.saturating_add(100)
     }
 }
 
