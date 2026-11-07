@@ -58,8 +58,8 @@ struct CloudResizeDiskTests {
                               session: URLSession(configuration: sessionConfiguration))
     }
 
-    private func request(_ arguments: [String: ActionValue]) throws -> CloudResizeRequest {
-        try CloudResizeRequest(ActionInvocation(target: ActionTargetRef(kind: .machine, id: "vm-1"), arguments: arguments, origin: .cli))
+    private func request(_ arguments: [String: ActionValue]) throws -> CloudHandlers.Resize {
+        try CloudHandlers.resizeRequest(ActionInvocation(target: ActionTargetRef(kind: .machine, id: "vm-1"), arguments: arguments, origin: .cli))
     }
 
     @Test func aDiskOnlyResizeSendsOnlyStorage() async throws {

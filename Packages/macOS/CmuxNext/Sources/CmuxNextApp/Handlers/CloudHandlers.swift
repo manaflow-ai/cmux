@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
 
@@ -62,13 +63,16 @@ enum CloudHandlers {
                 if let window, context.services.windows.controller(for: window.id) == nil {
                     return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined)
                 }
-                if request.isDefault, actionOrigin == .user, window != nil {
+                let start = CloudHandlerRules().ask("cloud_handler_new_machine_start", [
+                    "isDefault": request.isDefault, "byUser": actionOrigin == .user, "hasWindow": window != nil,
+                ])?["start"] as? String
+                if start == "setup" {
                     CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat)
                     return nil
                 }
                 let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,
                                          askedBy: invocation.callerAgentSession, reveals: invocation.allowsViewChange)
-                guard request.isDefault else {
+                guard start == "default" else {
                     CloudHandlers.createRequested(request, flow: flow, window: window, context)
                     return nil
                 }
@@ -111,18 +115,19 @@ enum CloudHandlers {
     /// never kills whatever machine the window happens to show.
     static func machine(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> CloudMachineSession {
         let machines = context.services.machines
-        if let target = invocation.target, target.kind == .machine {
-            // The Cloud machine id (`cloud diagnostics`, `new-machine`), or the `machine_…`
-            // resource id `cmux machine list` prints for a connected one.
-            guard let session = machines.session(target.id)
-                ?? machines.cloud.first(where: { $0.daemon.identity?.machineResourceID?.rawValue == target.id }) else {
-                throw ActionFailure.notFound(CloudStrings.unknownMachine(target.id))
-            }
-            return session
+        let named = invocation.target.flatMap { $0.kind == .machine ? $0.id : nil }
+        // The Cloud machine id (`cloud diagnostics`, `new-machine`), or the `machine_…`
+        // resource id `cmux machine list` prints for a connected one.
+        let found = named.flatMap { id in machines.session(id) ?? machines.cloud.first(where: { $0.daemon.identity?.machineResourceID?.rawValue == id }) }
+        let active = context.services.windows.active.flatMap { machines.session($0.state.machineID) }
+        let lookup: [String: Any] = ["named": named as Any, "namedFound": found != nil, "byUser": origin(of: invocation) == .user,
+                                     "activeFound": active != nil, "cloudCount": machines.cloud.count]
+        switch try CloudHandlerRules().checked("cloud_handler_machine_pick", lookup.compacted, valueKey: "pick") as? String {
+        case "named"?: if let found { return found }
+        case "active"?: if let active { return active }
+        case "only"?: if let only = machines.cloud.first { return only }
+        default: break
         }
-        guard origin(of: invocation) == .user else { throw ActionFailure(message: CloudStrings.noMachine) }
-        if let state = context.services.windows.active?.state, let session = machines.session(state.machineID) { return session }
-        if machines.cloud.count == 1, let only = machines.cloud.first { return only }
         throw ActionFailure(message: CloudStrings.noMachine)
     }
 
@@ -246,24 +251,24 @@ enum CloudHandlers {
     /// `cloud exec` on the machine).
     @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext, viewer: String? = nil) throws {
         let services = context.services, title = session.machine.title
-        guard session.machine.allows(.desktop) else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
-        let viewer = viewer ?? session.machine.defaultDesktopViewer(for: services.cloud.auth.user?.id)
-        if viewer == "rd" {
-            guard session.machine.capabilities.desktop,
-                  let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .view,
+        let url = RemoteLocalhostService.cloudDesktopURL(machine: session.machineID)
+        let facts: [String: Any] = [
+            "viewer": viewer as Any, "defaultViewer": session.machine.defaultDesktopViewer(for: services.cloud.auth.user?.id),
+            "allows": session.machine.allows(.desktop), "capability": session.machine.capabilities.desktop,
+            "reachable": session.machine.address?.ipv4 != nil && url != nil, "nativeAvailable": RemoteViewAvailability().isAvailable, "title": title,
+        ]
+        let chosen = try CloudHandlerRules().checked("cloud_handler_desktop", facts.compacted, valueKey: "viewer") as? String
+        if chosen == "rd" {
+            guard let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .view,
                                                    cloudDesktop: true, cloudRd: true) else {
                 throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
             }
             openDesktopPane(record, name: CloudStrings.desktopWorkspaceName(title), services)
             return
         }
-        guard session.machine.address?.ipv4 != nil,
-              let url = RemoteLocalhostService.cloudDesktopURL(machine: session.machineID) else {
-            throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
-        }
-        if viewer == "native" {
-            guard RemoteViewAvailability().isAvailable,
-                  let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .control,
+        guard let url else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
+        if chosen == "native" {
+            guard let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .control,
                                                    cloudDesktop: true) else {
                 throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
             }
@@ -379,7 +384,9 @@ enum CloudHandlers {
     /// machine with no connection may be paused behind a stale record, so
     /// ``attached(_:_:within:)`` reads it again and decides.
     static func attachable(_ session: CloudMachineSession) -> Bool {
-        !session.machine.shownStatus.isChanging && (session.daemon.connection != nil || session.appLink == nil)
+        CloudHandlerRules().ask("cloud_handler_attachable", [
+            "changing": session.machine.shownStatus.isChanging, "connected": session.daemon.connection != nil, "hasAppLink": session.appLink != nil,
+        ])?["attachable"] as? Bool ?? false
     }
 
     static func requireAttachableState(_ session: CloudMachineSession) throws {
@@ -393,11 +400,5 @@ enum CloudHandlers {
     static func requireAttachableState(_ session: CloudMachineSession, waitingOutResume limit: Duration) async throws {
         await CloudWait.outwaitResume(of: { session.machine.shownStatus }, within: limit) { await session.refresher?(false) }
         try requireAttachableState(session)
-    }
-
-    static func commandArgument(_ invocation: ActionInvocation) throws -> String {
-        let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !command.isEmpty else { throw ActionFailure(message: CloudStrings.commandRequired) }
-        return command
     }
 }
