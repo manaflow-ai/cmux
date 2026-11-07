@@ -15,6 +15,7 @@ import {
   SENDER_ICON_LEAD_KEY,
 } from "./senderIconLook";
 import { foreignHarness } from "./AgentIdentity";
+import { rememberHarnessIcons } from "../../shared/harnessIcons";
 import { SubagentsSection } from "../session-info/SubagentsSection";
 import type { Subagent } from "./subagentFold";
 
@@ -96,6 +97,13 @@ test("a sender with no family mark draws its badge glyph alone, big, in its tone
   const container = await render(<SenderIcon tone={1} size={12} fallback="agent.bot" />);
   expect(container.querySelector(".cv-sender-icon__badge")).toBeNull();
   expect(container.querySelector("[data-agent-tone='1'] [data-icon='task.ai']")).not.toBeNull();
+});
+
+test("a harness whose icon is only a glyph has no drawable mark, so its session glyph stays full size (review F3)", async () => {
+  rememberHarnessIcons([{ id: "glyphy", iconSpec: { kind: "glyph", name: "terminal", source: "default" } }]);
+  const container = await render(<SenderIcon harness="glyphy" tone={2} size={12} fallback="agent.bot" />);
+  expect(container.querySelector(".cv-sender-icon__badge")).toBeNull();
+  expect(container.querySelector("[data-agent-tone='2'] [data-icon='task.ai']")).not.toBeNull();
 });
 
 test("the reversed look draws the session's glyph big and the family's mark as the badge", async () => {
