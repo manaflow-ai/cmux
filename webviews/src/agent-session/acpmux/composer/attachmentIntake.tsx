@@ -172,21 +172,36 @@ export type PendingAttachment = {
   /// the composer refused fails the same way again, so it shows no Retry, only its x (Leo,
   /// 2026-11-07: "idk why we even show the retry symbol then (do we even retry?").
   retryable?: boolean;
-  /// An image's picture from the file itself (an object URL), shown the moment it is pasted or
-  /// dropped, before its preview is scaled and encoded (Leo, 2026-11-07: "can't we make this all
+  /// An image's picture from the file itself (a `data:` URL of its own bytes), shown as soon as the
+  /// browser has read it, before its preview is scaled and encoded (Leo, 2026-11-07: "can't we make this all
   /// "appear" a lot faster").
   preview?: string;
 };
 
-/// An object URL for `file`'s own bytes, for its loading tile; none where the page has no
-/// `URL.createObjectURL` (a test's DOM). The browser decodes it off the main thread as an `img`.
-function instantPreview(file: File | MadeFile): string | undefined {
-  if (isMadeFile(file) || !isImageFile(file) || typeof URL.createObjectURL !== "function") return undefined;
-  try {
-    return URL.createObjectURL(file);
-  } catch {
-    return undefined;
-  }
+/// Past this, a loading tile shows no picture of the file itself: its preview is what shows. A
+/// display choice only; the file attaches whatever its size.
+const INSTANT_PREVIEW_MAX_BYTES = 24 * 1024 * 1024;
+
+/// `file`'s own picture as a `data:` URL (a cmux page's CSP allows `img-src data:`, not `blob:`),
+/// encoded by the browser off the main thread (FileReader); undefined for one that is not an image,
+/// too large to be worth it, or that cannot be read here (a test's DOM).
+function instantPreview(file: File | MadeFile): Promise<string | undefined> {
+  if (
+    isMadeFile(file) ||
+    !isImageFile(file) ||
+    file.size > INSTANT_PREVIEW_MAX_BYTES ||
+    typeof FileReader === "undefined"
+  )
+    return Promise.resolve(undefined);
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result);
+      resolve(url.startsWith("data:image/") ? url : undefined);
+    };
+    reader.onerror = () => resolve(undefined);
+    reader.readAsDataURL(file);
+  });
 }
 
 /// What Retry needs of a pending chip: its file and how it came in.
@@ -242,21 +257,6 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const [pending, setPending] = useState<PendingAttachment[]>([]);
   const pendingRef = useRef<PendingAttachment[]>([]);
   pendingRef.current = pending;
-  /// Each loading tile's object URL (PendingAttachment `preview`), revoked once its tile is gone or
-  /// has another, and all of them with the composer.
-  const previews = useRef(new Map<string, string>());
-  useEffect(() => {
-    const now = new Map(pending.flatMap((chip) => (chip.preview ? [[chip.id, chip.preview] as const] : [])));
-    for (const [id, url] of previews.current) if (now.get(id) !== url) URL.revokeObjectURL(url);
-    previews.current = now;
-  }, [pending]);
-  useEffect(
-    () => () => {
-      for (const url of previews.current.values()) URL.revokeObjectURL(url);
-      previews.current.clear();
-    },
-    [],
-  );
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   /// The drop overlay's state (composer/DropOverlay.tsx). Kept in a ref too: a refused drag's
@@ -355,16 +355,24 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const { options: current } = live.current;
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
-    const shown: PendingAttachment[] = files.map((file) => {
-      const preview = instantPreview(file);
-      return {
-        id: again ?? crypto.randomUUID(),
-        name: file.name,
-        image: isImageFile(file),
-        ...(isVideoName(file.name) ? { video: true } : {}),
-        ...(preview ? { preview } : {}),
-        scope: batch.scope,
-      };
+    const shown: PendingAttachment[] = files.map((file) => ({
+      id: again ?? crypto.randomUUID(),
+      name: file.name,
+      image: isImageFile(file),
+      ...(isVideoName(file.name) ? { video: true } : {}),
+      scope: batch.scope,
+    }));
+    // Each image's own picture, on its tile while the tile still loads.
+    files.forEach((file, index) => {
+      const id = shown[index]!.id;
+      void instantPreview(file).then((preview) => {
+        if (!preview) return;
+        setPending((chips) =>
+          chips.some((chip) => chip.id === id && !chip.failed && !chip.preview)
+            ? chips.map((chip) => (chip.id === id ? { ...chip, preview } : chip))
+            : chips,
+        );
+      });
     });
     // This read's own source for each chip: a chip cancelled and brought back (undo, `revive`) or
     // read again (Retry) under the same id has a new one, and only the read that owns the id's
