@@ -519,11 +519,19 @@ export class BookmarksStore {
   }
 
   async setIcon(folder: Bookmark): Promise<void> {
-    await this.runAction({ action: BookmarkActions.setIcon, target: `bookmark:${folder.id}` });
+    await this.runAction({
+      action: BookmarkActions.setIcon,
+      target: `bookmark:${folder.id}`,
+      args: { profile: this.snapshot.profile },
+    });
   }
 
   async clearIcon(folder: Bookmark): Promise<void> {
-    await this.runAction({ action: BookmarkActions.clearIcon, target: `bookmark:${folder.id}` });
+    await this.runAction({
+      action: BookmarkActions.clearIcon,
+      target: `bookmark:${folder.id}`,
+      args: { profile: this.snapshot.profile },
+    });
   }
 
   // Icons: asked for the rows on screen only, cached by id, favicon and folder icon.

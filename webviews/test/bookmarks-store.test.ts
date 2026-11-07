@@ -186,6 +186,18 @@ test("a Save that timed out (a retryable error) keeps its key; a final refusal d
   expect(sent).toEqual(["k1", "k1", "k3"]);
 });
 
+test("Set and Remove Folder Icon name the page's profile, not the focused tab's", async () => {
+  const { store, provider } = await started();
+  const work = byTitle(store, "Work");
+  await store.setIcon(work);
+  await store.clearIcon(work);
+  const runs = provider.calls.filter((call) => (call.params as { action?: string })?.action?.includes("Icon"));
+  expect(runs.map((call) => (call.params as { args?: unknown }).args)).toEqual([
+    { profile: "default" },
+    { profile: "default" },
+  ]);
+});
+
 test("deleting a folder with its child selected is one apply that deletes the folder once", async () => {
   const { store, provider } = await started();
   const work = byTitle(store, "Work");
