@@ -138,6 +138,9 @@ pub struct EnvironmentOutput {
 /// `XDG_RUNTIME_DIR` removed, since it would win in cmux-tui's socket lookup).
 pub fn environment(input: &EnvironmentInput) -> EnvironmentOutput {
     let mut env = input.base.clone();
+    // The marker is this call's own, never inherited: a base that already
+    // carries it would skip the status fast path and hand it to a status call.
+    env.remove("CMUX_NEXT_CLOUD_LAUNCHER");
     // Only for the app launcher's ensure: the daemon strips it before it
     // spawns the owner, so terminals never switch a shared owner's backend.
     if !input.for_status && env.get("CMUX_NEXT_CLOUD_RUNTIME").map(String::as_str) == Some("1") {

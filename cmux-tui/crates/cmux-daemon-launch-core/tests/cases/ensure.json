@@ -608,5 +608,44 @@
    "name": "cmux"
   },
   "expect": null
+ },
+ {
+  "name": "a status call drops an inherited Cloud launcher marker and keeps the fast path",
+  "op": "ensure_environment",
+  "request": {
+   "base": {
+    "PATH": "/usr/bin",
+    "CMUX_NEXT_CLOUD_RUNTIME": "1",
+    "CMUX_NEXT_CLOUD_LAUNCHER": "1"
+   },
+   "forStatus": true,
+   "runtimeBase": "/r"
+  },
+  "expect": {
+   "environment": {
+    "PATH": "/usr/bin",
+    "CMUX_NEXT_CLOUD_RUNTIME": "1",
+    "TMPDIR": "/r"
+   },
+   "skipsStatus": false
+  }
+ },
+ {
+  "name": "an inherited Cloud launcher marker without the Cloud runtime is dropped",
+  "op": "ensure_environment",
+  "request": {
+   "base": {
+    "PATH": "/usr/bin",
+    "CMUX_NEXT_CLOUD_LAUNCHER": "1"
+   },
+   "runtimeBase": "/r"
+  },
+  "expect": {
+   "environment": {
+    "PATH": "/usr/bin",
+    "TMPDIR": "/r"
+   },
+   "skipsStatus": false
+  }
  }
 ]

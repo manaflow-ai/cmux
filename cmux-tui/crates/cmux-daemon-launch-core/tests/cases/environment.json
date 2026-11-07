@@ -871,5 +871,56 @@
    "text": "{\"version\":2,\"environment\":{\"PATH\":\"/p\"}}"
   },
   "expect": null
+ },
+ {
+  "name": "without a capture no launch knob of the app reaches a terminal",
+  "op": "terminal_environment",
+  "request": {
+   "base": {
+    "PATH": "/opt/homebrew/bin:/usr/bin",
+    "CMUX_THEME": "dark",
+    "CMUX_NEXT_TUI_BIN": "/x/cmux-tui",
+    "CMUX_NEXT_CLOUD_RUNTIME": "1",
+    "CMUX_NEXT_CLOUD_BACKEND": "https://b"
+   }
+  },
+  "expect": {
+   "PATH": "/opt/homebrew/bin:/usr/bin",
+   "CMUX_THEME": "dark"
+  }
+ },
+ {
+  "name": "a launch knob the login shell exports does not reach a terminal",
+  "op": "terminal_environment",
+  "request": {
+   "login": {
+    "PATH": "/l",
+    "CMUX_NEXT_NO_ACTIVATE": "1",
+    "CMUX_TAG": "t"
+   },
+   "base": {}
+  },
+  "expect": {
+   "PATH": "/l",
+   "CMUX_TAG": "t"
+  }
+ },
+ {
+  "name": "the daemon takes launch knobs only from the overrides",
+  "op": "daemon_environment",
+  "request": {
+   "base": {
+    "PATH": "/opt/homebrew/bin",
+    "CMUX_NEXT_TUI_BIN": "/x",
+    "CMUX_NEXT_CLOUD_LAUNCHER": "1"
+   },
+   "overrides": {
+    "CMUX_NEXT_CLOUD_RUNTIME": "1"
+   }
+  },
+  "expect": {
+   "PATH": "/opt/homebrew/bin",
+   "CMUX_NEXT_CLOUD_RUNTIME": "1"
+  }
  }
 ]

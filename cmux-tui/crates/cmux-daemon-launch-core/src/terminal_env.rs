@@ -89,20 +89,30 @@ pub fn is_allowed(key: &str) -> bool {
     ALLOWED_KEYS.contains(&key) || ALLOWED_PREFIXES.iter().any(|p| key.starts_with(p))
 }
 
+/// An app launch knob (`CMUX_NEXT_*`), never forwarded to a terminal or the
+/// daemon from the login or the app environment (the app passes the ones the
+/// daemon needs as overrides).
+pub fn is_launch_knob(key: &str) -> bool {
+    key.starts_with("CMUX_NEXT_")
+}
+
 /// The allowlisted subset of `env`.
 pub fn filter(env: &Env) -> Env {
     env.iter().filter(|(k, _)| is_allowed(k)).map(|(k, v)| (k.clone(), v.clone())).collect()
 }
 
 /// Per-terminal `env`: the allowlisted login environment (or the app's when
-/// capture failed), plus the app's own `CMUX_*` keys (never its
-/// `CMUX_NEXT_*` launch knobs). Without a capture, the common tool prefixes
-/// go first on `PATH`.
+/// capture failed), plus the app's own `CMUX_*` keys. No `CMUX_NEXT_*` launch
+/// knob reaches it from either side (`CMUX_NEXT_TUI_BIN`, the Cloud launch
+/// flags): they configure the app process only, so a cmux-next started from
+/// a terminal never inherits them. Without a capture, the common tool
+/// prefixes go first on `PATH`.
 pub fn terminal(login: Option<&Env>, base: &Env) -> Env {
     let mut env = filter(login.unwrap_or(base));
+    env.retain(|key, _| !is_launch_knob(key));
     for (key, value) in base {
         if key.starts_with("CMUX_")
-            && !key.starts_with("CMUX_NEXT_")
+            && !is_launch_knob(key)
             && is_allowed(key)
             && !env.contains_key(key)
         {
