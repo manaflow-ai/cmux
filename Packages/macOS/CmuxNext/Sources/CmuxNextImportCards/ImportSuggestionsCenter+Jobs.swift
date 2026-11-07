@@ -50,7 +50,7 @@ extension ImportSuggestionsCenter {
 
     func runSteps(_ id: String, browser: ImportBrowser, host: ImportCardsHost) async {
         let access = BrowserFolderAccess()
-        // The per-browser folder grant (Debug Settings `browserImport.folderGrant`): asked for once.
+        // The per-browser folder grant: asked for once.
         if await access.awaiting().contains(browser), !(await access.request(browser)) {
             return fail(id, .declined)
         }

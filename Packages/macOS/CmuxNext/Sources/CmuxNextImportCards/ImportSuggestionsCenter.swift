@@ -87,8 +87,8 @@ public final class ImportSuggestionsCenter {
         }
     }
 
-    /// `browser.import.enabled` and Debug Settings `browserImport.suggestionCards` (both on by default).
-    public var isEnabled: Bool { importEnabled && BrowserImportTunables.suggestionCards.value }
+    /// `browser.import.enabled` (on by default).
+    public var isEnabled: Bool { importEnabled }
 
     /// Starts the cards once: the jobs a quit cut off, the first scan and the rescans.
     public func start(host: ImportCardsHost, registry: ActionRegistry) {

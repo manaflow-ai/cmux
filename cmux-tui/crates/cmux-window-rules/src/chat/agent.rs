@@ -121,7 +121,12 @@ pub struct Zoom {
 /// `current` stepped by `delta`, clamped to `lower...upper` (`agentPane.zoom`).
 pub fn zoom(current: f64, delta: f64, lower: f64, upper: f64) -> Zoom {
     let zoom = (current + delta).max(lower).min(upper);
-    Zoom { zoom, percent: (zoom * 100.0).round() as i64 }
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "the zoom is clamped to the pane's bounds (a few hundred percent); `as` saturates a float past i64"
+    )]
+    let percent = (zoom * 100.0).round() as i64;
+    Zoom { zoom, percent }
 }
 
 /// Where Open File opens a file.
