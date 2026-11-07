@@ -15,12 +15,14 @@
 # answered), as PERF-IDLE app-agents lines (resource-efficiency-DESIGN.md).
 # Output: PERF-IDLE lines; JSON under .build/perf-idle.
 set -euo pipefail
+counts="1,10,50"
 measure=60
-agents="20,100"
+agents=""
 reload_config=()
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
+    counts=*) counts="${arg#counts=}" ;;
     measure=*) measure="${arg#measure=}" ;;
     agents=*) agents="${arg#agents=}" ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -28,7 +30,7 @@ for arg in "$@"; do
 done
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
-work="$root/.build/renderer-sharing"
+work="$root/.build/perf-idle"
 rm -rf "$work"
 mkdir -p "$work"
 echo "PERF-IDLE-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) sha=$(git rev-parse HEAD) cores=$(sysctl -n hw.ncpu) ram_gb=$(( $(sysctl -n hw.memsize) / 1073741824 )) macos=$(sw_vers -productVersion) load=\"$(uptime | sed 's/.*load averages*: //')\""
@@ -44,36 +46,62 @@ if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
   fi
   ./scripts/download-prebuilt-ghosttykit.sh
 fi
-tag="rshare"
+tag="perfidle"
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$work/reload.log" || { tail -n 80 "$work/reload.log"; exit 1; }
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
 [[ -n "$app" && -d "$app" ]] || { echo "perf-10x-idle: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }
 tui="$app/Contents/Resources/bin/cmux-tui"
 [ -x "$tui" ] || { echo "perf-10x-idle: no bundled cmux-tui at $tui" >&2; exit 1; }
 status=0
-# Measure branch only (cef-renderer-sharing): the same idle agent chats under each Chromium switch set.
-variants=(
-  "base|"
-  "devtools-ok|enable-features=MainFrameProcessReuseAllowDevToolsAttached"
-  "threshold8|enable-features=ProcessPerSiteUpToMainFrameThreshold:ProcessPerSiteMainFrameThreshold/8;"
-  "per-site|process-per-site"
-)
-for v in "${variants[@]}"; do
-  name="${v%%|*}"; sw="${v#*|}"
-  echo "RSHARE-LOAD $name $(uptime | sed 's/.*load averages*: //')"
-  args=()
-  [[ -n "$sw" ]] && args=(--cef-switches "$sw")
-  python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
-    --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py ${args[@]+"${args[@]}"} \
-    --settle 20 --measure "$measure" --top 8 --out "$work/$name.json" > "$work/$name.log" 2>&1 || { status=$?; tail -n 60 "$work/$name.log"; }
-  python3 - "$name" "$work/$name.json" <<'PY' || status=$?
+
+echo "PERF-IDLE-LOAD daemon $(uptime | sed 's/.*load averages*: //')"
+state_root="$(mktemp -d /private/tmp/pidl.XXXXXX)"
+trap 'rm -rf "$state_root"' EXIT
+# One daemon per count: bench-scale makes every workspace (one terminal each)
+# before its first step, so a single run with several counts measures the
+# largest count at every step.
+IFS=, read -r -a daemon_counts <<< "$counts"
+for n in "${daemon_counts[@]}"; do
+  python3 cmux-tui/scripts/bench-scale.py --bin "$tui" --counts "$n" --busy-fraction 0 \
+    --per-workspace 1 --fill sequential --idle-seconds "$measure" --settle-seconds-min 15 \
+    --latency-samples 20 --latency-terminals 5 --topology-samples 20 \
+    --root-dir "$state_root" --out "$work/daemon-$n.json" > "$work/daemon-$n.log" 2>&1 || status=$?
+done
+python3 - "$work"/daemon-*.json <<'PY' || status=$?
 import json, sys
-name, path = sys.argv[1], sys.argv[2]
-data = json.load(open(path))
+for path in sys.argv[1:]:
+  data = json.load(open(path))
+  for step in data.get("steps", []):
+    for role, t in (step.get("roles") or {}).items():
+      print(f"PERF-IDLE daemon N={step.get('target')} role={role} n={t.get('count')} cpu_pct={t.get('cpu_pct_window')} "
+            f"wakeups_per_s={t.get('wakeups_per_s')} rss_each_mb={round((t.get('rss_per') or 0) / 1048576, 2)} "
+            f"footprint_each_mb={round((t.get('pss_per') or 0) / 1048576, 2)} threads={t.get('threads')}")
+  print(f"PERF-IDLE-STOP daemon {path} {data.get('stopped')} teardown={json.dumps(data.get('teardown') or {})[:300]}")
+PY
+
+echo "PERF-IDLE-LOAD app $(uptime | sed 's/.*load averages*: //')"
+python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" --mix terminal \
+  --settle 20 --measure "$measure" --top 8 --out "$work/app.json" > "$work/app.log" 2>&1 || { status=$?; tail -n 60 "$work/app.log"; }
+python3 - "$work/app.json" <<'PY' || status=$?
+import json, sys
+data = json.load(open(sys.argv[1]))
 for s in data.get("samples", []):
     for kind, e in s["kinds"].items():
-        print(f"RSHARE {name} agents={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
+        print(f"PERF-IDLE app {s['label']} workspaces={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
               f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']}")
 PY
-done
+if [[ -n "$agents" ]]; then
+  echo "PERF-IDLE-LOAD agents $(uptime | sed 's/.*load averages*: //')"
+  python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
+    --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py \
+    --settle 20 --measure "$measure" --top 8 --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
+  python3 - "$work/agents.json" <<'PY' || status=$?
+import json, sys
+data = json.load(open(sys.argv[1]))
+for s in data.get("samples", []):
+    for kind, e in s["kinds"].items():
+        print(f"PERF-IDLE app-agents {s['label']} agents={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
+              f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']}")
+PY
+fi
 exit "$status"

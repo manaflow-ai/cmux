@@ -191,9 +191,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     }
 
     static func extraSwitches(_ value: String?) -> [String] {
-        // Measure branch only: a ";" list keeps feature params ("Feature:param/value") whole.
         (value ?? "")
-            .split(separator: (value ?? "").contains(";") ? ";" : ":")
+            .split(separator: ":")
             .map { String($0.drop { $0 == "-" }) }
             .filter { !$0.isEmpty }
     }
