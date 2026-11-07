@@ -197,6 +197,8 @@ final class KeyboardPinTrace: NSObject {
         summary.append(String(format: "fjmax=%.1f", fieldSteps.largestJump))
         summary.append("demo=\(demo)")
         summary.append("kt=" + list(taps))
+        summary.append("app=" + String(NSStringFromClass(type(of: UIApplication.shared)).split(separator: ".").last ?? "?"))
+        summary.append("router=\(MobileMovingTapTargets.app.map { "\($0.count)" } ?? "none")")
         summary.append("file=" + Self.traceURL.path.replacingOccurrences(of: " ", with: "%20"))
         summary.append("fjlog=" + list(fieldSteps.log))
         summary.append("evlog=" + list(events))

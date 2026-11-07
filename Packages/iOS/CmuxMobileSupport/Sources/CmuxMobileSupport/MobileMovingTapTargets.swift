@@ -45,6 +45,9 @@ public final class MobileMovingTapTargets {
 
     public init() {}
 
+    /// How many targets are registered (probes).
+    public var count: Int { targets.count }
+
     /// Registers (or replaces) `owner`'s target: the control at `frame()` in
     /// `host`, which performs `action` on a tap.
     public func register(
