@@ -2,13 +2,14 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextOnboarding
+import CmuxNextTestSupport
 import Testing
 
 /// P0 ctrlbt-real-palette: at first run the Agents window (#36372) is key and in front of Home.
 /// A real Ctrl-` there ran nothing: New Terminal Tab has no menu item, and the key dispatcher
 /// decided keys for main windows only. Now a keyboard-only cmux shortcut in an onboarding tool
 /// window runs in the main window behind it.
-@MainActor @Suite(.serialized) struct ToolWindowKeysTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ToolWindowKeysTests {
     /// The router holds the registry `unowned`; the suite keeps it.
     let registry: ActionRegistry
     let ran: Ran

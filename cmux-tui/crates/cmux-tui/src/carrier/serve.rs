@@ -182,7 +182,7 @@ async fn read_stdin(source: &HttpSource) {
     let mut line = Zeroizing::new(Vec::new());
     loop {
         line.clear();
-        let limit = (MAX_STDIN_LINE + 1) as u64;
+        let limit = u64::try_from(MAX_STDIN_LINE).unwrap_or(u64::MAX).saturating_add(1);
         match (&mut stdin).take(limit).read_until(b'\n', &mut line).await {
             Ok(0) | Err(_) => return,
             Ok(_) => {}

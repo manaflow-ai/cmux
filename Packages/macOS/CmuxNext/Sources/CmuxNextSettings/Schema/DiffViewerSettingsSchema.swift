@@ -3,9 +3,6 @@
 /// page's own defaults. cmux-next reads them; an agent may set them (looks only). The files a
 /// person collapsed are not a setting: the diff host keeps them next to its viewed marks.
 nonisolated enum DiffViewerSettingsSchema {
-    /// `diff.<key>` of every row (the agent-settable keys).
-    static var keys: Set<String> { Set(descriptors.map(\.id)) }
-
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.diffViewer", "Diff Viewer")
         func toggle(_ key: String, _ title: SettingText, _ value: Bool, _ keywords: [String]) -> SettingDescriptor {
