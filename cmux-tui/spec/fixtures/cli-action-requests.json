@@ -2311,6 +2311,7 @@
         "args": {
           "bootstrap": "/tmp/contract",
           "bootstrapScript": "/tmp/contract",
+          "environment": "/tmp/contract",
           "machineConfig": "/tmp/contract",
           "name": "/tmp/contract",
           "persistent": true,
@@ -2320,7 +2321,7 @@
         "cli": true,
         "wait": true
       },
-      "source": "cmux cloud new-machine --name /tmp/contract --size /tmp/contract --persistent --bootstrap /tmp/contract --bootstrap-script /tmp/contract --machine-config /tmp/contract --repo /tmp/contract"
+      "source": "cmux cloud new-machine --name /tmp/contract --size /tmp/contract --persistent --bootstrap /tmp/contract --bootstrap-script /tmp/contract --machine-config /tmp/contract --repo /tmp/contract --environment /tmp/contract"
     },
     {
       "params": {

@@ -474,7 +474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     services.notifications.onPasskeyBanner = { id in Task { _ = try? await passkeys.answer(id) } }
                     BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys,
                                        agentMouse: { [weak settings] in
-                                           await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting().fallback
+                                           await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting.fallback
                                        }, mirrors: services).install(on: router)
                     services.apps.attach(router: router)
                 }

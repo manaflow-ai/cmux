@@ -1222,6 +1222,24 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    if (gatewayStub && provider === "codex" && !only.has("chat")) {
+      // The stub lists no models, and with the image's default model slug Codex sends it no tools (codex-cli 0.164
+      // against the stub: tools=0 with the default, 9 with "stub-model"), so the turn gets the stub's side reply
+      // (gateway-e2e runs 7 and 8). Name the stub's model, as the --model stub path does; the provider stays the
+      // image's `cmux` (edge, placeholder key), so the call still goes through the gateway.
+      await J.step("Codex names the stub's model", async () => {
+        const r = await exec(
+          `bash -lc true >/dev/null 2>&1 </dev/null; f=/home/cmux/.codex/config.toml; ` +
+            `python3 -I - "$f" <<'PY'\nimport pathlib, re, sys\np = pathlib.Path(sys.argv[1])\nlines = p.read_text().splitlines() if p.exists() else []\n` +
+            `head = next((i for i, l in enumerate(lines) if re.match(r"\\s*\\[", l)), len(lines))\n` +
+            `lines = [l for i, l in enumerate(lines) if i >= head or not re.match(r"\\s*model\\s*=", l)]\n` +
+            `p.write_text("\\n".join(['model = "stub-model"'] + lines) + "\\n")\nPY\n` +
+            `grep -q '^model = "stub-model"' "$f" && grep -q '^model_provider = "cmux"' "$f" && echo model-set`,
+        );
+        if (!r.stdout.includes("model-set")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
+        return { value: null, detail: 'model = "stub-model"; model_provider stays "cmux" (the edge, the placeholder key)' };
+      });
+    }
     const stubLog = "/home/cmux/.cmux/journey-model-stub.log";
     if (modelStub && provider && !only.has("chat")) {
       // The stub listens on the machine's loopback only; the harness's own settings point it there, after the login
