@@ -30,7 +30,7 @@ import { lastWrapUp, withoutWrapUp } from "./wrapUp";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { awaitsPermission, isDraftCall, isFailed as callFailed, isRunning, toolGroups } from "./toolGroups";
+import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
@@ -1401,6 +1401,9 @@ function shapeTurn(
         status: summary.status,
         toolCount,
         ...(named && { workedMessages: messages }),
+        // It stands for the prompt it folds as the turn's start, open or closed, so the minimap keeps
+        // the turn's tick where the closed fold draws no prompt (threadMinimap/model.ts minimapTurns).
+        ...(foldsPrompt && { foldedPrompt: user }),
         tokens: summary.tokens,
         durationMs: summary.durationMs ?? Math.max(0, summary.at - user.at),
         // Codex's header (Leo, 2026-11-02: "i assume the x previous messages are when there's a mix
@@ -2386,11 +2389,16 @@ export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string |
       first = row;
       continue;
     }
-    if (opensTurn(row)) return `${WORKED}-${row.id}`;
+    if (opensTurn(row)) return `${WORKED}-${foldKeyId(row)}`;
     if (row.kind === "user" && continuesTurn(row)) first = row;
   }
-  return first && `${WORKED}-${first.id}`;
+  return first && `${WORKED}-${foldKeyId(first)}`;
 }
+
+/// The prompt id a turn's fold is keyed by: a delivery Find expanded from an inbox notice
+/// (pendingMessages.ts `searchablePendingRows`) keys by the notice that opened the turn, as
+/// turnView does, so Find opens the fold that draws it.
+const foldKeyId = (row: AcpmuxRow) => row.inboxSource ?? row.id;
 
 /// The keys a click on fold `id` covers: `id`, and when it is a turn's "Worked for", that turn's
 /// original prompt's (`key`) and each of its steers' (openFolds reads them all).

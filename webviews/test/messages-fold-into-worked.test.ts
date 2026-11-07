@@ -22,6 +22,8 @@ import { projectInboxRows } from "../src/agent-session/acpmux/conversation/laneN
 import { findMatches, isFindRow } from "../src/agent-session/acpmux/conversation/chatFind";
 import { incomingPrompt } from "../src/agent-session/acpmux/conversation/incomingMessage";
 import { inboxText } from "../src/agent-session/acpmux/conversation/inboxNotice";
+import { searchablePendingRows } from "../src/agent-session/acpmux/conversation/pendingMessages";
+import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 
 afterEach(() => {
   globalThis.cmuxExperiments = undefined;
@@ -145,6 +147,58 @@ for (const family of ["codex", "claude"]) {
       expect(folds).toContain(`${WORKED}-notice`);
       const opened = drawn(source, family, new Set(folds));
       expect(opened.some((r) => isFindRow(r, match!.rowId))).toBe(true);
+    }
+  });
+
+  test(`Find over the rows it searches opens the Worked for to a message folded in it (${family})`, () => {
+    // As App.tsx does: Find searches `searchablePendingRows`, which draws the inbox notice as its
+    // deliveries, so the turn's fold is the notice's, not a delivery's (cmux#37903 review F1).
+    const source = chat();
+    const rows = searchablePendingRows(source, []);
+    const shown = drawn(source, family);
+    for (const query of ["ux-owner: the nightly is green", "nightly-watch: the nightly is green", "landing now"]) {
+      const [match] = findMatches(rows, query);
+      expect(match).toBeDefined();
+      expect(shown.some((r) => isFindRow(r, match!.rowId))).toBe(false);
+      const folds = hiddenRowFolds(rows, shown, match!.rowIndex);
+      expect(folds).toContain(`${WORKED}-notice`);
+      const opened = drawn(source, family, new Set(folds));
+      expect(opened.some((r) => isFindRow(r, match!.rowId))).toBe(true);
+    }
+  });
+
+  test(`a turn its messages started keeps its minimap tick, its fold open or closed (${family})`, () => {
+    // The rail reads the drawn rows; the closed fold draws no prompt, so its "Worked for" stands for
+    // it (cmux#37903 review F2).
+    for (const expanded of [new Set<string>(), new Set([`${WORKED}-notice`])]) {
+      const rows = drawn(chat(), family, expanded);
+      const map = minimapTurns(rows, "chat", undefined, undefined, undefined, 2);
+      expect(map.turns.map((turn) => turn.id)).toEqual(["prompt", "notice"]);
+      expect(map.turns[1]!.from).toBe("build-box/nightly-watch, lane-box/ux-owner");
+      expect(rows[map.turns[1]!.index]!.kind).toBe(WORKED);
+      expect(map.pendingCount).toBe(0);
+    }
+    // A turn one agent's message opened, as the prompt itself.
+    const message = (): AcpmuxRow[] => [
+      ...chat().slice(0, 4),
+      row("user", {
+        id: "message",
+        text: "Is the nightly green?",
+        incoming: { kind: "message", message: { name: "lane-box/ux-owner", text: "Is the nightly green?", raw: "" } },
+      }),
+      activity("run-m", [run("call-m", "gh run view 42")]),
+      row("assistant", { id: "answer-m", text: "Yes." }),
+      summary("summary-m", 1),
+    ];
+    for (const expanded of [new Set<string>(), new Set([`${WORKED}-message`])]) {
+      const rows = drawn(message(), family, expanded);
+      expect(rows.some((r) => r.id === "message")).toBe(expanded.size > 0);
+      const map = minimapTurns(rows, "chat", undefined, undefined, undefined, 2);
+      expect(map.turns.map((turn) => [turn.id, turn.from])).toEqual([
+        ["prompt", undefined],
+        ["message", "lane-box/ux-owner"],
+      ]);
+      expect(map.pendingCount).toBe(0);
     }
   });
 
