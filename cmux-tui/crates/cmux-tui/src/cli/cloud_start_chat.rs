@@ -786,8 +786,8 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
     send_prompt(runner, request, machine_id, session, answer)
 }
 
-/// 4. The prompt to `session` on `machine_id`: inside the command when it fits there, else from a file
-/// on the machine; then, with `--wait`, its turn (5). `answer` is what the command answers so far.
+/// Step 4, the prompt to `session` on `machine_id`: inside the command when it fits there, else from
+/// a file on the machine; then, with `--wait`, its turn (step 5). `answer` is the answer so far.
 fn send_prompt(
     runner: &mut dyn Runner,
     request: &Request,
