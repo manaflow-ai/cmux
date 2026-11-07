@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { useT } from "./i18n";
-import { useNoticeTurn } from "./NoticeSlot";
+import { useNoticeTurn } from "./noticeSlotModel";
 import { useScrollEdges } from "../../ui/scrollEdges";
 
 /// One current rule of this Mac's acpmux forum (`_acpmux/forum/rules`, hq#2570): the newest

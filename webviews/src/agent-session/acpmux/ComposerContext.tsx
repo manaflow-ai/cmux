@@ -13,11 +13,9 @@ import {
   ServerIcon,
   type RunRowDetails,
   type EnvironmentFaceStyle,
-  SECTION_LABELS,
-  environmentStateLabel,
-  useMachineRefresh,
   type SavedEnvironmentRows,
 } from "./EnvironmentPicker";
+import { SECTION_LABELS, environmentStateLabel, useMachineRefresh } from "./environmentPickerModel";
 import { machineColor } from "./machineColor";
 import {
   isCloudMachineRow,
