@@ -31,27 +31,35 @@ enum TabMoves {
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
         // The tab shows in its new pane in this turn (the intent), and a pane it empties leaves in
         // the same turn. Made first: it reads where the tab is before the intent moves it.
-        let departed = depart(tab, into: pane, closesPane: true, services: services)
+        let completion = depart(tab, into: pane, closesPane: true, services: services, then: completion)
         let send = daemon.intendNow("move-tab", .moveTab(surface: surface, toPane: target, index: index),
                                     transaction: transaction) { connection -> Void in
             _ = try await connection.moveTab(surface, to: target, index: wire, transaction: echoes ? transaction : nil)
         }
         services.registry.track(Task {
             let ok = await send() != nil
-            departed(ok)
             completion(ok)
             return ok ? nil : "move-tab failed (see the app log)"
         })
     }
 
-    /// `tab` leaves its pane by this move, not a close (`PaneController.showDeparture`); `target` is
-    /// the pane it moves into, nil for one the move makes. `closesPane`: the destination shows in
-    /// this turn, so a pane the move empties leaves in it too; else that pane leaves with the
-    /// daemon's tree, in the same layout as the destination. Call it with the move's outcome.
-    @MainActor static func depart(_ tab: TabModel, into target: PaneModel? = nil, closesPane: Bool, services: AppServices) -> Completion {
-        guard let pane = services.locateTab(model: tab)?.1, pane !== target, let source = services.paneController(for: pane) else { return { _ in } }
-        let id = StripTabID(tab.id), close = source.showDeparture(id, closesPane: closesPane)
-        return { ok in source.finishDeparture(id, paneClose: close, ok: ok) }
+    /// `tab` leaves its pane by this move, not a close (Leo 2026-11-07: "it's trying to play the close
+    /// animation when there's no need to play that at all"): its strip drops it with no close
+    /// (`TabStripModel.departures`). `target` is the pane it moves into, nil for one the move makes.
+    /// `closesPane`: the destination shows in this turn, so a pane the move empties leaves in it too,
+    /// on the close's one motion (`PaneController.showPaneClose`), instead of sitting empty until the
+    /// daemon's tree and then closing; else that pane leaves with the daemon's tree, in the same layout
+    /// as the destination. Returns `completion` behind the move's outcome: a refused move shows the
+    /// pane again, and the tab closes as usual later.
+    @MainActor static func depart(_ tab: TabModel, into target: PaneModel? = nil, closesPane: Bool, services: AppServices,
+                                  then completion: @escaping Completion) -> Completion {
+        guard let pane = services.locateTab(model: tab)?.1, pane !== target, let source = services.paneController(for: pane) else { return completion }
+        let id = StripTabID(tab.id), close = source.stripModel.depart(id) && closesPane ? source.showPaneClose() : nil
+        return { ok in
+            if !ok { source.stripModel.departures.remove(id) }
+            source.finishPaneClose(close, failed: !ok)
+            completion(ok)
+        }
     }
 
     /// The new tab a split of `tab`'s own pane spawns there when `tab` is
@@ -122,7 +130,7 @@ enum TabMoves {
         let from = services.locateTab(model: tab)?.1.handle
         if echoes { daemon.store.whenApplied(transaction) { if let now = services.locateTab(model: tab)?.1.handle, now != from { sizing() } } }
         // Its new split shows with the daemon's tree, and an emptied pane leaves in that same layout.
-        let departed = depart(tab, closesPane: false, services: services)
+        let completion = depart(tab, closesPane: false, services: services, then: completion)
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-split") { connection -> Void in
                 do {
@@ -137,7 +145,6 @@ enum TabMoves {
                 }
             } != nil
             if ok { daemon.whenApplied(transaction) { sizing() } }
-            departed(ok)
             completion(ok)
             return ok ? nil : "move-tab-to-split failed (see the app log)"
         })
@@ -153,7 +160,7 @@ enum TabMoves {
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
         let width = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(model: tab)?.1)
-        let departed = depart(tab, closesPane: false, services: services)
+        let completion = depart(tab, closesPane: false, services: services, then: completion)
         services.registry.track(Task {
             // The daemon's reason reaches the caller (a CLI run's reply, the sweep's row), not only the log.
             let failure = await daemon.failure("move-tab-to-column") { connection in
@@ -165,7 +172,6 @@ enum TabMoves {
                     _ = try await adopt(surface, into: created, connection: connection)
                 }
             }
-            departed(failure == nil)
             completion(failure == nil)
             return failure
         })
@@ -204,7 +210,7 @@ enum TabMoves {
         let beside = edge.isBand || width != nil || half != nil ? nil
             : services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(model: tab)?.1)
         let width = width ?? half ?? beside ?? 0.3
-        let departed = depart(tab, closesPane: false, services: services)
+        let completion = depart(tab, closesPane: false, services: services, then: completion)
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-column") { connection -> Void in
                 if let respawn {
@@ -216,7 +222,6 @@ enum TabMoves {
                                                              transaction: transaction)
                 }
             } != nil
-            departed(ok)
             completion(ok)
             return ok ? nil : "move-tab-to-column failed (see the app log)"
         })
@@ -235,7 +240,7 @@ enum TabMoves {
         let name = newWorkspaceName(for: tab, services: services)
         // The daemon names the workspace in the move's commit when it can.
         let inCommit = daemon.supports(DaemonCapability.tabWorkspaceName.rawValue)
-        let departed = depart(tab, closesPane: false, services: services)
+        let departed = depart(tab, closesPane: false, services: services) { _ in }
         let key = await daemon.request("move-tab-to-new-workspace") { connection -> WorkspaceKey? in
             let result = try await connection.moveTabToNewWorkspace(surface, group: nil, index: index, name: inCommit ? name : nil,
                                                                     transaction: echoes ? transaction : nil)
@@ -337,24 +342,22 @@ enum TabMoves {
         // Where the daemon appends the tab, shown now as an intent (tab-move-tearing); a workspace
         // with no pane yet waits for the daemon's layout.
         if let intent = daemon.store.workspaceMoveIntent(surface: surface, into: handle) {
-            let departed = depart(tab, closesPane: true, services: services)
+            let completion = depart(tab, closesPane: true, services: services, then: completion)
             let send = daemon.intendNow("move-tab-to-workspace", intent, transaction: transaction) { connection -> Void in
                 _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)
             }
             services.registry.track(Task {
                 let ok = await send() != nil
-                departed(ok)
                 completion(ok)
                 return ok ? nil : "move-tab-to-workspace failed (see the app log)"
             })
             return
         }
-        let departed = depart(tab, closesPane: false, services: services)
+        let completion = depart(tab, closesPane: false, services: services, then: completion)
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-workspace") { connection -> Void in
                 _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)
             } != nil
-            departed(ok)
             completion(ok)
             return ok ? nil : "move-tab-to-workspace failed (see the app log)"
         })

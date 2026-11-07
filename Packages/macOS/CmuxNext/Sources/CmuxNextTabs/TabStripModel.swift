@@ -48,6 +48,14 @@ public final class TabStripModel {
     /// animation. You should play no animation there").
     @ObservationIgnored public var departures: Set<TabID> = []
 
+    /// Marks tab `id` as leaving by a move (``departures``); returns whether it was the strip's last
+    /// tab, so the move empties its pane. The strip's tabs, not the daemon's: a pane that also shows
+    /// an app-local tab stays.
+    public func depart(_ id: TabID) -> Bool {
+        departures.insert(id)
+        return tabs.count == 1 && tab(id) != nil
+    }
+
     public init(
         stripID: UUID = UUID(),
         tabs: [TabItem] = [],
