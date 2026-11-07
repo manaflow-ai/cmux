@@ -24,7 +24,7 @@ nonisolated enum AgentPaneSettingsSchema {
                 AgentPaneReplySetting.remoteImagesPath, section: .general, group: group,
                 title: SettingsText.keyed("settings.agentPane.remoteImages", "Web Images in Replies"),
                 help: SettingsText.keyed("settings.agentPane.remoteImages.help",
-                                         "A web image loads from its site, which then sees that you read the reply."),
+                                         "A web image loads from its site, which then sees that you read the reply. Site icons before web links load without a click from an icon service, which sees only each site's domain. Never turns both off."),
                 summary: SettingsText.keyed("settings.agentPane.remoteImages.summary", "Sites can see that you read the reply"),
                 kind: .choice([
                     SettingChoice("click", SettingsText.keyed("settings.choice.agentPaneClick", "Load on Click")),

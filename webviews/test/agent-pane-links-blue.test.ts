@@ -28,7 +28,7 @@ await requireBrowserLane("agent-pane-links-blue.test.ts", async () => {
     .join("\n");
   const body =
     `<div class="cv-md"><p>See <a class="cv-link" href="https://example.com">the docs</a>, ` +
-    `<a class="cv-link cv-chip is-web" href="https://example.com/x"><span class="cv-chip__label">example.com/x</span></a> and ` +
+    `<a class="cv-link cv-chip is-web" href="https://example.com/x"><span class="cv-chip__lead"><span class="cv-chip__icon cv-site-icon cv-site-icon--inline"><svg></svg></span><span class="cv-chip__label">https://</span></span><span class="cv-chip__label">example.com/x</span></a> and ` +
     `<a class="cv-link cv-chip is-web is-ref" href="https://github.com/o/r/pull/1"><span class="cv-chip__label">o/r#1</span></a>.</p></div>`;
   let browser: Browser | undefined;
   beforeAll(async () => {

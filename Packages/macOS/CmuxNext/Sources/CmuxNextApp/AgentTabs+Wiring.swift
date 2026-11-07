@@ -1,10 +1,10 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import struct CmuxNextBrowser.PublicSuffixList
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextDaemonService
 import CmuxNextFloating
 import CmuxNextHomeEngine
 import enum CmuxNextLayout.ChatColumnPlacement
@@ -111,7 +111,7 @@ extension AgentTabStore {
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
-                                 linkScheme: services.linkScheme, settings: services.settings, paneShared: AgentPaneShared(openPanel: services.openPanel, eventSources: services.personInput.sources, apps: services.apps.client, actAsMe: services.personInput.actAsMe, flickerLog: AgentPageFlickerLog.forAppRun()),
+                                 linkScheme: services.linkScheme, settings: services.settings, paneShared: AgentPaneShared(openPanel: services.openPanel, eventSources: services.personInput.sources, apps: services.apps.client, actAsMe: services.personInput.actAsMe, flickerLog: AgentPageFlickerLog.forAppRun(), siteDomains: AgentPaneSiteDomains(load: PublicSuffixList.siteIconDomains)),
                                  attentionTabs: services.attentionTabs,
                                  daemons: services.acpmuxDaemons, updates: services.daemonUpdates, peerApprover: services.peerApprover)
         tabs.onRemoteChatStarted = { [weak services] host, session, cwd, harness in

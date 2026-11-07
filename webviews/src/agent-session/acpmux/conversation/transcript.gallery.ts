@@ -796,6 +796,30 @@ const CHIP_HOST = {
   },
 };
 
+/// Site favicons (`link.favicons`) as the host answers them: 32 px PNG data URLs by host name (the
+/// page draws no other kind, siteIcons.ts `pngIcon`). The shapes are stand-ins, not the sites' real icons.
+const SITE_FAVICONS = {
+  "react.dev":
+    "data:image/png;base64,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",
+  "developer.mozilla.org":
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACMElEQVR4nMSXPYgaQRTH/7seiF+NKAdp0ggm3VUSSGxTp9IqoI2VWltbCKKdipJKDGh7KQQTLa8IYmFjYSMGJMRKUEFExcwbcLlz/djVce8Hszvz3tt9/53dmZ25wzPm8/nX7Xb7RZKkD6z5BmL5y+79m9370W63f98ZJTosFou3m83mG6t+hjH8MplMEYvF8ocLmM1mT0zZRxgI640nh8Phl1m3h/eTDwYD6EXvNSznJ8ots3pw31mv19Hr9aAViqVrLiBIAh4OeZLJJLSiJ3aPBxJwf8jT7XbRarVwjmazyWMv5F4+5c1kMmCj46iffNlsFtdwUsBwOEStVjvqr1arPOZmAoh8Pk/DVGWfTqcoFAoqey6Xg9fr5YXqVwuYTCYolUoqe7FY5L5rOSuAKJfLGI/HSns0GqFSqUAEmgSs12uk02mlTR8n2QwTQOwmJyqNRgOiuNMTnEqlhD35jrM9EAwGYTabeb3T6SiTDtnId3MBbrcboVBIZQ+Hw9x3cwFEJBKB0+lU2i6Xi9tEoEkAW8EgHo8r7VgsBpvNBhFoHgX0vj0eDy+BQACi0DwKZFlGIpHgZyqGCyD8fj9Eo0uAXtrt9osfEn07hgugckqAxBaGWwiEnph+4Yfo9/sqm/Ae8Pl8iEajmuOpB/7hyLrQAMY0ni5eUQqgK7MNQgmvBOWW2ZT6yOo/YTBsa/aDcvO94XK5fLdarehVmGEALPmcbU7fW63WkfTc8Rrb8/8AAAD//8JSoDUAAAAGSURBVAMAhB7cqtlvBJ0AAAAASUVORK5CYII=",
+  "docs.python.org":
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB0UlEQVR4nOyXvUvDUBTFz30VRFDwY3BwEB1EtIKKUD9AUFzc1U0dxU1E8AMHQR1EEfwD/Ad0cRGXglPFYgeHopvoIqiLLoJgcr3pkLa21fdepHXob0hCknvuIe+9k0ShxCiUmIrvJ/qWj8dDLm8xqJUItT8VM+OVwHeOovXEzuQZLCD/aPIoFGmhTRFdkcZkIiI1LAXb8XvewPGUY1LrD0GkJTQsu1XT5h5eDROv9TWrERjiG2A4ywiAeFBKuUswpCItgG4ExEYjYxJSIwJjrlHyZVg28P+SUJeBpnvMdV+gqfoNNZUf6QszQ5xzsySmbO4giUmdsazENH4CihzM98SwP3qC9obn7OaF8CKdqFci85STg17ahqwN9DQ+Yrbryks/C1JVa7jtH8ljgJ+gwXQ4gWCQgquWcgzIwF3rlLfVvSAwnE5M34Drqj2d2vqqdwSG0onpG0jsTURlkhygyGRNwvju1AIc7pTX+6E8pgcUAeO5zMk869ymcTiW6l2O4rIBcwOsl5i6GuYGSC8xdTXMDShXKzELw6442LE2QB2XUfkLsE9MxqZkwLmvB0s4GemQ75lFORoTmeZf7pZUpSjwuU/h+E3mFWsDf0XJl+EXAAAA//91GgGiAAAABklEQVQDAASbfErdxTVcAAAAAElFTkSuQmCC",
+};
+
+const FAVICON_REPLY = [
+  "The cleanup belongs in the effect itself. Sources I read:",
+  "",
+  "- [React docs on useEffect](https://react.dev/reference/react/useEffect), the section on fetching data",
+  "- MDN on cancelling: https://developer.mozilla.org/en-US/docs/Web/API/AbortController",
+  "- The same pattern in Python: [asyncio task cancellation](https://docs.python.org/3/library/asyncio-task.html#task-cancellation)",
+  "- The repository: https://github.com/facebook/react and its issue https://github.com/facebook/react/issues/14326",
+  "- The paper behind the ranking: [Attention Is All You Need](https://arxiv.org/abs/1706.03762)",
+  "",
+  "The long guide is https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#canceling_a_request_with_an_abort_controller_after_a_timeout and it wraps.",
+  "Your dev server at http://localhost:5173/settings stays a plain link, and https://status.example-unreachable.dev/incident/42 has no icon, so it keeps the globe.",
+].join("\n");
+
 const completedFooterSnapshot = chat([
   user(prompt, 30),
   assistant(MARKDOWN_MIX, 29),
@@ -1541,6 +1565,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/MessageCard.tsx",
     "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
     "agent-session/acpmux/conversation/Markdown.tsx",
+    "agent-session/acpmux/chips/SiteIcon.tsx#SiteIcon",
+    "agent-session/acpmux/conversation/ToolSiteIcon.tsx#ToolSiteIcon",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
     "agent-session/acpmux/conversation/HighlightedCode.tsx",
@@ -3271,6 +3297,40 @@ export default agentPaneEntry({
           5.9,
         ),
         summary(5.9, { status: "completed" }),
+      ]),
+    },
+    "site-favicons": {
+      note: "Web links in a prompt, fetch rows and a reply start with their site's favicon (link.favicons); GitHub and arXiv keep their marks; a local address and a site with no icon keep the globe.",
+      chipHost: { favicons: SITE_FAVICONS },
+      play: openGroupedRun,
+      snapshot: chat([
+        user(
+          "Why does this effect fetch twice? Compare https://react.dev/reference/react/useEffect with https://developer.mozilla.org/en-US/docs/Web/API/AbortController, my app is on http://localhost:5173/settings",
+          6,
+        ),
+        activity(
+          [
+            tool("Fetch https://react.dev/reference/react/useEffect", "fetch", "completed", {
+              inputSummary: JSON.stringify({
+                url: "https://react.dev/reference/react/useEffect",
+                prompt: "How should an effect cancel a fetch?",
+              }),
+              startedAt: minutesAgo(5.9),
+              endedAt: minutesAgo(5.88),
+            }),
+            tool("Fetch https://developer.mozilla.org/en-US/docs/Web/API/AbortController", "fetch", "completed", {
+              startedAt: minutesAgo(5.8),
+              endedAt: minutesAgo(5.78),
+            }),
+            tool("useEffect cleanup abort fetch", "fetch", "completed", {
+              startedAt: minutesAgo(5.7),
+              endedAt: minutesAgo(5.69),
+            }),
+          ],
+          5.9,
+        ),
+        assistant(FAVICON_REPLY, 5.6),
+        summary(5.6, { status: "completed", toolCount: 3 }),
       ]),
     },
     "chips-and-previews": {

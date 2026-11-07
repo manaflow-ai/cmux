@@ -79,6 +79,9 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// The pull requests a reply links, so the host has them before a card opens.
     public var registerPullRequests: @MainActor ([URL]) -> Void = { _ in }
     var fetcher: any AgentPaneImageFetching = AgentPaneSafeFetch()
+    /// Site favicons for `link.favicons` (``AgentPaneSiteIcons``): the pane's own until its view
+    /// takes the app's one (``AgentPaneShared``).
+    var siteIcons = AgentPaneSiteIcons()
     /// The fetch for web video and audio (``AgentPaneSafeFetch/media``).
     var mediaFetcher: any AgentPaneImageFetching = AgentPaneSafeFetch.media
     let choices = AgentPaneBrowserChoices()
@@ -125,7 +128,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
             browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
         case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .videoTranscript, .videoFrames, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
-             .quickLookImage, .dragImage, .dragFile, .previewPath, .copyComposer:
+             .quickLookImage, .dragImage, .dragFile, .previewPath, .copyComposer, .siteIcons:
             return AgentPaneModel.replyFailure(.openFailed)
         }
     }
@@ -244,7 +247,26 @@ extension AgentPaneModel {
         case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile, .copyComposer:
             return await AgentPaneImageCopies.respond(to: request, in: self)
         case .previewPath(let path): return await previewReplyPath(path)
+        case .siteIcons(let hosts): return await siteIcons(hosts)
         }
+    }
+
+    /// `link.favicons`: an icon cmux's own tabs already have for a site wins (no network); else
+    /// ``AgentPaneSiteIcons`` fetches the site's, unless `agentPane.images.remote` is `never`.
+    func siteIcons(_ hosts: [String]) async -> [String: Any] {
+        let pages = hosts.compactMap { host in URL(string: "https://\(host)/").map { (host, $0) } }
+        let found = pages.isEmpty ? [:] : replyLinks.sites(pages.map(\.1))
+        var known: [String: String] = [:]
+        for (host, page) in pages {
+            guard let png = found[page]?.iconPNG, png.count <= AgentPaneSiteIcons.maximumBytes else { continue }
+            known[host] = "data:image/png;base64," + png.base64EncodedString()
+        }
+        let fetch = replyLinks.settings().remoteImages != .never
+        let answer = await replyLinks.siteIcons.icons(for: hosts, known: known, fetch: fetch)
+        guard !answer.later.isEmpty else { return AgentPaneReply.success(["icons": answer.icons]) }
+        let retry = replyLinks.siteIcons.refillEvery.components
+        return AgentPaneReply.success(["icons": answer.icons, "later": answer.later,
+                                       "retryAfterMs": Int(retry.seconds) * 1000 + Int(retry.attoseconds / 1_000_000_000_000_000)])
     }
 
     /// Opens a path chip (D4): the deny list first, then a gesture; inside a root it opens in
