@@ -204,7 +204,7 @@ extension AnimationSpeedSetting {
 extension ChromeStyleSetting {
     /// `appearance.chromeStyle`: The window's look; its choices and their titles are schemas/settings/chrome-styles.json (ChromeStyleSetting+Choices.swift).
     public nonisolated static let configPath = ["appearance", "chromeStyle"]
-    public nonisolated static let fallback: ChromeStyle = .flatSidebarLine
+    public nonisolated static let fallback: ChromeStyle = .flat
 }
 
 extension PaneAnimationsSetting {

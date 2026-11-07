@@ -1559,7 +1559,7 @@
           },
           "choices": [],
           "choices_from": "ChromeStyleSetting.choices",
-          "default": "flat-sidebar-line",
+          "default": "flat",
           "keywords": [
             "window",
             "style",
