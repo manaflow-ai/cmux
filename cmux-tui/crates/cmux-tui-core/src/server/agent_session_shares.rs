@@ -37,6 +37,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
+use cmux_json::JsonSet as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -453,11 +454,11 @@ fn find<'a>(
 fn author_of(share: &LinkShare, guest: &Guest) -> Value {
     let mut author = json!({"id": format!("{GUEST_PREFIX}{}.{}", share.share_id, guest.guest_id),
         "name": guest.name, "approval": "owner"});
-    if guest.account.is_some() {
-        author["role"] = json!(guest.role.unwrap_or(Role::View));
-    } else if let Some(role) = share.role {
-        // The share's, not the guest's copy: the share is the authority for its link guests.
-        author["role"] = json!(role);
+    // A link guest's is the share's, not the guest's copy: the share is the authority for them.
+    let role =
+        if guest.account.is_some() { Some(guest.role.unwrap_or(Role::View)) } else { share.role };
+    if let Some(role) = role {
+        author.set("role", json!(role));
     }
     author
 }
