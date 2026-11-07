@@ -1,0 +1,20 @@
+/* The suggestion card's panel: transparent around the card (its shadow's room, `margin`). */
+html,
+body {
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  cursor: default;
+}
+
+#root {
+  display: block;
+}
+
+.op-card {
+  box-sizing: border-box;
+}
+
+.op-card > .bc-suggestions {
+  box-shadow: var(--ui-popup-shadow);
+}
