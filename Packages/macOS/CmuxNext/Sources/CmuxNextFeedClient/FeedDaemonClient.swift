@@ -139,7 +139,8 @@ package final class FeedDaemonClient {
     /// A new daemon connection serves the feed: it gets the GitHub setting and the pending posts.
     package func restore() {
         if let gitHub { fire("feed.github.configure", gitHub) }
-        pendingPosts.forEach { keepPosting(item: $0.value, key: $0.key) }
+        let pending = pendingPosts // a copy: keepPosting writes pendingPosts
+        for (key, item) in pending { keepPosting(item: item, key: key) }
     }
 
     /// `feed.presence.set {active}`: the owner's push rule.
