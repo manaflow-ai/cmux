@@ -394,12 +394,11 @@ export function groupCalls(items: readonly AcpmuxActivity[]): AcpmuxActivity[] {
 /// as well (Leo, 2026-11-07, on "Writing a file" over "Write 12s": "sometimes you can just combine
 /// the, like, whatever command or action you're doing sooner than you do").
 export function awaitsPermission(tool: Tool | undefined): boolean {
-  return (
-    tool?.status === "pending" &&
-    (tool.kind === "edit" || tool.kind === "delete" || tool.kind === "move" || tool.kind === "fileChange") &&
-    namesChange(tool)
-  );
+  return tool?.status === "pending" && isFileChange(tool) && namesChange(tool);
 }
+
+const isFileChange = (tool: Tool) =>
+  tool.kind === "edit" || tool.kind === "delete" || tool.kind === "move" || tool.kind === "fileChange";
 
 /// Whether a file call says what it changes yet: a file, a diff, or any input.
 function namesChange(tool: Tool): boolean {
@@ -419,9 +418,12 @@ export function isRunning(tool: Tool): boolean {
 /// the model is still writing (a Bash with no command for up to 20s), and one a turn left that way
 /// never gets any. Its row would only say "Running a command", so the transcript draws none
 /// (conversation/turns.ts `withoutDrafts`): the live line names it ("Writing a command"), and its
-/// row comes with its input. Only a shell call: another tool may take no input at all (`{}`), and
-/// its row is the only record that it ran.
+/// row comes with its input. A file change named before its input is one too ("Writing a file"):
+/// it changes nothing until its file comes, so a turn stopped before then draws no row and no
+/// edited-files card for it. Only those: another tool may take no input at all (`{}`), and its row
+/// is the only record that it ran.
 export function isDraftCall(tool: Tool): boolean {
+  if (isRunning(tool) && isFileChange(tool) && !namesChange(tool)) return true;
   return (
     isRunning(tool) &&
     tool.kind === "execute" &&

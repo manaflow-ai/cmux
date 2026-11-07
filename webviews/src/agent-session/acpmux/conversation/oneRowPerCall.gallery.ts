@@ -134,14 +134,10 @@ export default agentPaneEntry({
   title: "One row per tool call",
   area: "Agent pane",
   height: 420,
-  covers: [
-    "agent-session/acpmux/conversation/Thinking.tsx#Thinking",
-    "agent-session/acpmux/rows/ThinkingRow.tsx",
-  ],
+  covers: ["agent-session/acpmux/conversation/Thinking.tsx#Thinking", "agent-session/acpmux/rows/ThinkingRow.tsx"],
   variants,
   experiment: {
     definition: oneRowPerCall,
-    setup: deliver("write", 0),
     script: [
       { name: "Write named, no input yet", run: deliver("write", 0) },
       { name: "Write running with its file", run: deliver("write", 1) },
