@@ -93,17 +93,17 @@ pub(super) fn read(exit_code: Option<i64>, stdout: &str) -> Folder {
     if exit_code != Some(0) {
         return Folder::Again;
     }
-    let mut lines = stdout.trim().splitn(2, '\n');
-    match lines.next().map(str::trim) {
-        Some("ready") => Folder::Ready,
-        Some("busy") => Folder::Cloning,
-        Some("absent") => Folder::Absent,
-        Some("ended") => Folder::Missing(
-            lines
-                .next()
-                .and_then(|text| serde_json::from_str::<Value>(text.trim()).ok())
-                .unwrap_or(Value::Null),
-        ),
+    // Exactly the script's line (and the status file's after `ended`), trailing whitespace at most:
+    // anything more is malformed.
+    let lines: Vec<&str> = stdout.trim_end().split('\n').map(str::trim_end).collect();
+    match lines.as_slice() {
+        ["ready"] => Folder::Ready,
+        ["busy"] => Folder::Cloning,
+        ["absent"] => Folder::Absent,
+        ["ended", status] => match serde_json::from_str::<Value>(status) {
+            Ok(status) if status.is_object() => Folder::Missing(status),
+            _ => Folder::Again,
+        },
         _ => Folder::Again,
     }
 }
@@ -167,6 +167,25 @@ pub(super) fn wait(
             1,
         ))
     };
+    // A refusal that leaves it unknown whether the folder is ready: retryable, and never a start.
+    let unknown = |refusal: Value| {
+        let Outcome::Failed { mut error, exit } = failed(
+            "cloud.folder_unknown",
+            format!(
+                "whether {cwd} is ready on the machine is not known (the check was refused: {}), so the chat \
+                 did not start. Run the same command again",
+                at(&refusal, "message").as_str().unwrap_or("no reason given"),
+            ),
+            json!({"cwd": cwd, "machine_id": machine, "refusal": refusal}),
+            75,
+        ) else {
+            unreachable!("failed() answers a failure")
+        };
+        error["retryable"] = json!(true);
+        Outcome::Failed { error, exit }
+    };
+    // The machine was resumed once already (a paused machine; see the `vm_not_running` arm).
+    let mut resumed = false;
     // The last answer was `absent`: when time runs out, the folder is missing, not late.
     let mut absent = false;
     loop {
@@ -201,23 +220,26 @@ pub(super) fn wait(
                 read(at(&ran, "exit_code").as_i64(), at(&ran, "stdout").as_str().unwrap_or(""))
             }
             Err(error) if cannot_exec(&error) => return None,
-            Err(error) if may_pass_later(&error) => Folder::Again,
-            Err(error) => {
-                let Outcome::Failed { mut error, exit } = failed(
-                    "cloud.folder_unknown",
-                    format!(
-                        "whether {cwd} is ready on the machine is not known (the check was refused: {}), so the chat \
-                         did not start. Run the same command again",
-                        at(&error, "message").as_str().unwrap_or("no reason given"),
-                    ),
-                    json!({"cwd": cwd, "machine_id": machine, "refusal": error}),
-                    75,
-                ) else {
-                    unreachable!("failed() answers a failure")
-                };
-                error["retryable"] = json!(true);
-                return Some(Outcome::Failed { error, exit });
+            // `cloud exec` doesn't wake a paused machine; start-session would (its connect resumes it), but
+            // only after this check. So the check resumes it once, the way the server's resume does, and
+            // asks again.
+            Err(error) if !resumed && at(&error, "code").as_str() == Some("vm_not_running") => {
+                resumed = true;
+                let resume = vec![
+                    "cloud".to_owned(),
+                    "resume-machine".to_owned(),
+                    "--target".to_owned(),
+                    format!("machine:{machine}"),
+                    "--json".to_owned(),
+                ];
+                match step_result(&runner.cmux(&resume)) {
+                    Ok(_) => continue,
+                    Err(error) if may_pass_later(&error) => Folder::Again,
+                    Err(error) => return Some(unknown(error)),
+                }
             }
+            Err(error) if may_pass_later(&error) => Folder::Again,
+            Err(error) => return Some(unknown(error)),
         };
         absent = answer == Folder::Absent;
         match answer {
