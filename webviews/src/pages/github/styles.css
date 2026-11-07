@@ -369,3 +369,85 @@ html[data-cmux-page="github"],
 .gh-md-link { color: var(--cmux-accent); text-decoration: none; cursor: default; }
 .gh-md-link:hover { text-decoration: underline; }
 .gh-md-html { color: var(--page-text-3); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--text-caption); white-space: pre-wrap; }
+
+/* The CI dashboard (ChecksDashboard.tsx). On top it spans the page under the header; in the rail
+   the same rows wrap. */
+.gh-ci-band { border-bottom: 1px solid var(--page-separator); }
+.gh-ci-band > .gh-ci,
+.gh-ci-band > .gh-section { border-bottom: 0; }
+.gh-ci .gh-section-title { align-items: center; }
+.gh-ci-rerun { padding-block: 0; }
+.gh-ci-note { margin: 0 0 var(--ds-space-2); font-size: var(--text-caption); }
+.gh-ci-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-space-1) var(--ds-space-4);
+  margin-bottom: var(--ds-space-2);
+}
+.gh-ci-tally { display: flex; flex-wrap: wrap; gap: var(--ds-space-1) var(--ds-space-4); font-size: var(--text-body); }
+.gh-ci-count { display: inline-flex; align-items: center; gap: var(--ds-space-1); color: var(--page-text-2); }
+.gh-ci-count .gh-count { font-weight: 600; }
+.gh-ci-progress-text { font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
+.gh-ci-bar { display: flex; width: 100%; margin-bottom: var(--ds-space-3); border-radius: 999px; overflow: hidden; }
+/* Each share is a 4px rule (its top border), drawn without a height of its own. */
+.gh-ci-bar > span { flex-basis: 0; min-width: 4px; border-top: 4px solid var(--page-separator); }
+.gh-ci-bar > [data-check=failed] { border-top-color: var(--agent-status-failure); }
+.gh-ci-bar > [data-check=pending] { border-top-color: var(--agent-status-warning); }
+.gh-ci-bar > [data-check=queued] { border-top-color: color-mix(in srgb, var(--agent-status-warning) 35%, transparent); }
+.gh-ci-bar > [data-check=passed] { border-top-color: var(--agent-status-success); }
+[data-check=queued] > .gh-dot,
+[data-check=queued] .gh-ci-line > .gh-dot { background: transparent; box-shadow: inset 0 0 0 1px var(--agent-status-warning); }
+[data-check=skipped] > .gh-dot,
+[data-check=skipped] .gh-ci-line > .gh-dot { background: var(--page-text-3); }
+
+/* A wide band lays the rows in columns so a long list stays short. */
+.gh-ci-rows { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: var(--ds-space-6); }
+@container (min-width: 900px) {
+  .gh-ci-band .gh-ci-rows { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gh-ci-band .gh-ci-row:has(.gh-ci-failure) { grid-column: 1 / -1; }
+}
+.gh-ci-row { border-radius: 6px; }
+.gh-ci-line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: 24px;
+  padding: 0 var(--ds-space-2);
+  border-radius: 6px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.gh-ci-line:hover { background: var(--page-hover); }
+.gh-ci-workflow { flex: none; font-size: var(--text-caption); }
+.gh-ci-time { flex: none; margin-inline-start: auto; color: var(--page-text-3); font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
+.gh-ci-pips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.gh-ci-pip {
+  width: 8px;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--page-separator);
+  cursor: default;
+}
+.gh-ci-pip[data-check=passed] { background: var(--agent-status-success); }
+.gh-ci-pip[data-check=failed] { background: var(--agent-status-failure); }
+.gh-ci-pip[data-check=pending] { background: var(--agent-status-warning); }
+.gh-ci-pip[data-check=queued] { background: transparent; box-shadow: inset 0 0 0 1px var(--agent-status-warning); }
+.gh-ci-failure { padding: 0 var(--ds-space-2) var(--ds-space-2) var(--ds-space-6); }
+.gh-ci-failure-head { display: flex; gap: var(--ds-space-2); color: var(--page-text-2); font-size: var(--text-caption); }
+.gh-ci-shard { font-weight: 600; color: var(--page-text); }
+.gh-ci-log {
+  max-block-size: 320px;
+  margin: var(--ds-space-1) 0 0;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--page-hover);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  white-space: pre;
+}

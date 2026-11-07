@@ -20,7 +20,43 @@ export const GitHubOps = {
   diffFile: "cmux.github.diff.file",
   /** `{url, head}` → `{merged, queued}`: GitHub's normal merge, pinned to `head`; needs the person's click. */
   merge: "cmux.github.pr.merge",
+  /** `{url}` → `{checks, reading}`: the CI dashboard's jobs, from the App's one checks cache. */
+  checks: "cmux.github.checks.read",
+  /** `{url, runs}` → `{rerun}`: re-runs those Actions runs' failed jobs; needs the person's click. */
+  rerun: "cmux.github.checks.rerun",
 } as const;
+
+/** One job of the CI dashboard (GitHubChecks.swift). */
+export interface DashboardJob {
+  /** The Actions job id; 0 for a commit status. */
+  id: number;
+  name: string;
+  workflow: string;
+  /** The Actions run it belongs to, what Re-run failed reruns. */
+  run?: number;
+  state: "passed" | "failed" | "running" | "queued" | "skipped";
+  /** ISO 8601, empty before it starts or ends. */
+  startedAt: string;
+  completedAt: string;
+  url?: string;
+  /** Seconds the same job took at the base branch's tip. */
+  expected?: number;
+  /** A failed job's failing step and the end of its log, once read. */
+  failure?: { step: string | null; excerpt: string };
+}
+
+export interface DashboardChecks {
+  head: string;
+  settled: boolean;
+  jobs: DashboardJob[];
+}
+
+/** Re-run failed's progress on the page. */
+export type RerunState =
+  | { phase: "idle" }
+  | { phase: "running" }
+  | { phase: "started" }
+  | { phase: "failed"; message: string };
 
 /** One review comment, on a line of a file. */
 export interface ReviewComment {

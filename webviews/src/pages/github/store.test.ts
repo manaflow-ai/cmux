@@ -3,8 +3,8 @@
 // pull request the page has left is dropped; Open on GitHub and View diff go to the host's ops.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { mockDetails, mockPullRequest, MOCK_URL } from "./mockProvider";
-import { GitHubStore, REFRESH_MS, WAIT_MS } from "./store";
+import { mockChecks, mockChecksPassed, mockDetails, mockPullRequest, MOCK_URL } from "./mockProvider";
+import { CHECKS_MS, GitHubStore, REFRESH_MS, WAIT_MS } from "./store";
 import { GitHubOps, routedPullRequest, type PullRequestReply } from "./types";
 
 const route = (url: string) => `#/pull?url=${encodeURIComponent(url)}`;
@@ -28,7 +28,8 @@ class Host implements PageClient {
 }
 
 /** The calls a test is about: the page's details read rides along with every first answer. */
-const asked = (host: Host) => host.calls.filter((call) => call.op !== GitHubOps.details);
+const asked = (host: Host) =>
+  host.calls.filter((call) => call.op !== GitHubOps.details && call.op !== GitHubOps.checks);
 
 const timers: { ms: number; run: () => void }[] = [];
 const realSetTimeout = globalThis.setTimeout;
@@ -238,4 +239,47 @@ test("no merge without the details' head commit", async () => {
   await settle();
   await store.merge();
   expect(store.getSnapshot().merge).toEqual({ phase: "idle" });
+});
+
+test("checks are asked while a job runs, then stop once every job is done", async () => {
+  const host = new RichHost();
+  let settled = false;
+  const call = host.call.bind(host);
+  host.call = <R>(op: string, params: unknown): Promise<R> => {
+    if (op !== GitHubOps.checks) return call<R>(op, params);
+    host.calls.push({ op, params });
+    return Promise.resolve({ checks: settled ? mockChecksPassed : mockChecks, reading: false } as R);
+  };
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  expect(store.getSnapshot().checks?.jobs.length).toBe(mockChecks.jobs.length);
+  const checksTimer = [...timers].reverse().find((timer) => timer.ms === CHECKS_MS);
+  expect(checksTimer).toBeDefined();
+  settled = true;
+  const before = timers.length;
+  checksTimer!.run();
+  await settle();
+  expect(store.getSnapshot().checks?.settled).toBe(true);
+  // Settled: no checks timer armed after this answer.
+  expect(timers.slice(before).some((timer) => timer.ms === CHECKS_MS)).toBe(false);
+});
+
+test("Re-run failed names the runs with a failed job", async () => {
+  const host = new RichHost();
+  const call = host.call.bind(host);
+  host.call = <R>(op: string, params: unknown): Promise<R> => {
+    if (op === GitHubOps.checks) return Promise.resolve({ checks: mockChecks } as R);
+    if (op === GitHubOps.rerun) {
+      host.calls.push({ op, params });
+      return Promise.resolve({ rerun: 1 } as R);
+    }
+    return call<R>(op, params);
+  };
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  await store.rerunFailed();
+  expect(host.calls.find((each) => each.op === GitHubOps.rerun)?.params).toEqual({ url: MOCK_URL, runs: [9001] });
+  expect(store.getSnapshot().rerun).toEqual({ phase: "started" });
 });

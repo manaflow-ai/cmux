@@ -8,15 +8,22 @@ import { isPageError, type PageClient } from "../shared/pageClient";
 import {
   GitHubOps,
   routedPullRequest,
+  type DashboardChecks,
   type FilePatch,
   type LinkedPullRequest,
   type MergeState,
   type PullRequestDetails,
   type PullRequestReply,
+  type RerunState,
 } from "./types";
+import { failedRuns } from "./checksModel";
 
 export const WAIT_MS = 1_500;
 export const REFRESH_MS = 60_000;
+/** How often a shown page asks the host for its checks while a job runs or waits. The host reads
+ * GitHub at its own pace for the state (GitHubChecksCache: 20 s running, 5 min settled), so this is
+ * a call to the app; once every job is done the page asks only with its minute refresh. */
+export const CHECKS_MS = 10_000;
 
 export interface GitHubSnapshot {
   /** The routed pull request; undefined for a route that names none. */
@@ -37,14 +44,24 @@ export interface GitHubSnapshot {
   /** Files expanded inline, by path, with their patch as far as it has come. */
   patches: Readonly<Record<string, FilePatch>>;
   merge: MergeState;
+  /** The CI dashboard's jobs (`checks.read`), once the host has them. */
+  checks?: DashboardChecks;
+  rerun: RerunState;
 }
 
-const EMPTY = { patches: {}, merge: { phase: "idle" } } as const satisfies Partial<GitHubSnapshot>;
+const EMPTY = {
+  patches: {},
+  merge: { phase: "idle" },
+  rerun: { phase: "idle" },
+} as const satisfies Partial<GitHubSnapshot>;
 
 export class GitHubStore {
   private snapshot: GitHubSnapshot = { reading: false, answered: false, ...EMPTY };
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | undefined;
+  /** The checks' own timer, armed only while a job runs or waits and the page is shown. */
+  private checksTimer: ReturnType<typeof setTimeout> | undefined;
+  private checksAsking = false;
   /** Bumped by every new target, so an answer for the one before is dropped. */
   private generation = 0;
 
@@ -66,6 +83,7 @@ export class GitHubStore {
     const target = routedPullRequest(hash);
     if (target?.url !== this.snapshot.target?.url) {
       this.generation += 1;
+      clearTimeout(this.checksTimer);
       this.set({ target, reading: false, answered: false, ...EMPTY });
     }
     return this.ask();
@@ -97,8 +115,58 @@ export class GitHubStore {
     // Reading: ask again shortly for its answer. Otherwise a minute on, which keeps a shown page live.
     this.schedule(reply?.reading === true ? WAIT_MS : REFRESH_MS);
     // A new `updatedAt` (a push, a comment, a review): its details again, and its files' diffs from the new head.
+    void this.loadChecks();
     const updatedAt = this.snapshot.pullRequest?.updatedAt;
     if (this.snapshot.pullRequest && updatedAt !== this.snapshot.detailsFor) void this.loadDetails(updatedAt ?? "");
+  }
+
+  /** Asks the host for the dashboard's checks; while a job runs or waits, again in CHECKS_MS. */
+  async loadChecks(): Promise<void> {
+    clearTimeout(this.checksTimer);
+    const target = this.snapshot.target;
+    if (!target || !this.client || this.checksAsking) return;
+    const generation = this.generation;
+    this.checksAsking = true;
+    let reply: { checks?: DashboardChecks | null; reading?: boolean } | undefined;
+    try {
+      reply = await this.client.call(GitHubOps.checks, { url: target.url });
+    } catch {
+      reply = undefined;
+    } finally {
+      this.checksAsking = false;
+    }
+    if (generation !== this.generation) return;
+    const checks = reply?.checks && Array.isArray(reply.checks.jobs) ? reply.checks : undefined;
+    if (checks) this.set({ ...this.snapshot, checks });
+    // Stops by itself: a settled pull request, a failed ask or a hidden page arms nothing more;
+    // the minute refresh (ask) and showing the page again start it.
+    const live = checks ? !checks.settled : reply?.reading === true;
+    if (!live) return;
+    this.checksTimer = setTimeout(() => {
+      if (this.visible()) void this.loadChecks();
+    }, CHECKS_MS);
+  }
+
+  /** Re-runs the failed jobs of every run the dashboard shows failing, through the host. */
+  async rerunFailed(): Promise<void> {
+    const { target, checks, rerun } = this.snapshot;
+    const runs = checks ? failedRuns(checks.jobs) : [];
+    if (!target || !this.client || runs.length === 0 || rerun.phase === "running") return;
+    const generation = this.generation;
+    this.set({ ...this.snapshot, rerun: { phase: "running" } });
+    let next: RerunState;
+    try {
+      await this.client.call(GitHubOps.rerun, { url: target.url, runs });
+      next = { phase: "started" };
+    } catch (error) {
+      next =
+        isPageError(error) && error.code === "cmux.github.gesture_required"
+          ? { phase: "idle" }
+          : { phase: "failed", message: isPageError(error) ? error.message : "" };
+    }
+    if (generation !== this.generation) return;
+    this.set({ ...this.snapshot, rerun: next });
+    if (next.phase === "started") void this.loadChecks();
   }
 
   /** Reads the details for `updatedAt`; the host keeps one read per pull request and `updatedAt`. */
@@ -241,6 +309,7 @@ export class GitHubStore {
 
   stop(): void {
     clearTimeout(this.timer);
+    clearTimeout(this.checksTimer);
     this.generation += 1;
   }
 
