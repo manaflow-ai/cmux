@@ -9,7 +9,7 @@ import { CopyButton } from "./CopyButton";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useT } from "../i18n";
 import { dispatchDestination, type DispatchCall } from "./dispatchCalls";
-import { messagePreview } from "./AgentMessageRow";
+import { messagePreview } from "./agentMessageRowModel";
 import "./DispatchCard.css";
 import { lineLabel, briefAnchor } from "./dispatchCardModel";
 

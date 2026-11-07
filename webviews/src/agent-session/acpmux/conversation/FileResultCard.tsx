@@ -13,7 +13,8 @@ import { FileKindIcon } from "../chips/FileKindIcon";
 import { usePathInfo } from "../chips/linkStore";
 import { useMessageScope } from "../chips/messageScope";
 import { isDeniedPath, pathName } from "../chips/paths";
-import { PreviewMore, usePreview } from "./BlockParts";
+import { PreviewMore } from "./BlockParts";
+import { usePreview } from "./blockPartsModel";
 import { ExpandRow } from "./ExpandRow";
 import { CodeLines } from "./CodeBlock";
 import { CopyButton } from "./CopyButton";
@@ -22,7 +23,7 @@ import { useTranscriptReadOnly } from "./readOnly";
 import "./FileResultCard.css";
 
 /// Rows a search card shows (a file's line and each of its matches) before "Show all N files".
-export const SEARCH_PREVIEW_ROWS = 16;
+const SEARCH_PREVIEW_ROWS = 16;
 
 export function FileResultCard({ id, card, reveal }: { id: string; card: FileCard; reveal: number }) {
   return card.kind === "read" ? (
