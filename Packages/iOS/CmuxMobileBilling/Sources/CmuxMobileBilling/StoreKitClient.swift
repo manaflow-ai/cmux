@@ -19,6 +19,16 @@ public protocol StoreKitClient: Sendable {
     /// - Throws: ``StoreKitClientError`` or a StoreKit error.
     func purchase(productID: String, appAccountToken: UUID) async throws -> StorePurchaseResult
 
+    /// Starts a purchase that carries `appAccountToken` and, when given, the
+    /// server-signed introductory offer eligibility. A default implementation
+    /// ignores the JWS.
+    func purchase(productID: String, appAccountToken: UUID, introductoryOfferJWS: String?) async throws
+        -> StorePurchaseResult
+
+    /// The `AppTransaction` id (iOS 18.4 and later); nil when unavailable.
+    /// Defaults to nil.
+    func appTransactionID() async -> String?
+
     /// Transactions created outside a direct purchase call: renewals,
     /// approved Ask to Buy requests, purchases on other devices, refunds.
     /// - Returns: A stream that lasts for the app's lifetime.
@@ -47,3 +57,21 @@ public protocol StoreKitClient: Sendable {
     /// - Parameter transactionID: The transaction to finish.
     func finish(transactionID: UInt64) async
 }
+
+extension StoreKitClient {
+    /// Starts a purchase; with `introductoryOfferJWS`, passes the server's
+    /// signed introductory offer eligibility (iOS 18.4 and later).
+    /// Conformances that cannot pass it ignore it.
+    public func purchase(
+        productID: String,
+        appAccountToken: UUID,
+        introductoryOfferJWS: String?
+    ) async throws -> StorePurchaseResult {
+        try await purchase(productID: productID, appAccountToken: appAccountToken)
+    }
+
+    /// The `AppTransaction` id (iOS 18.4 and later), which the server needs
+    /// to sign introductory offer eligibility; nil when unavailable.
+    public func appTransactionID() async -> String? { nil }
+}
+
