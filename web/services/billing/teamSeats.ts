@@ -60,6 +60,8 @@ export type TeamSeatReconcileDependencies = {
   /** Mirrors the updated subscription into our rows and Stack `cmuxSeats`. */
   readonly apply?: (subscription: Stripe.Subscription) => Promise<unknown>;
   readonly captureError?: (error: unknown, context: Record<string, string | number | boolean>) => void;
+  /** Injected clock for the run budget. */
+  readonly now?: () => number;
 };
 
 export type TeamSeatReconcileResult = {
@@ -73,20 +75,32 @@ export type TeamSeatReconcileResult = {
 export type TeamSeatOutcomeKind = "updated" | "noop" | "skipped" | "failed" | "busy";
 
 const DEFAULT_LIMIT = 200;
+/**
+ * Wall-clock budget for starting another team. Each team costs up to two
+ * 10 s Stack calls plus Stripe calls, so 200 teams in a row cannot fit the
+ * cron function limit; a run that is killed records nothing for the team in
+ * flight. Teams left over stay dirty for the next run.
+ */
+export const TEAM_SEAT_RECONCILE_BUDGET_MS = 180_000;
 
 /**
- * Bring every dirty team's Stripe quantity to its member count. Safe to run
+ * Bring every dirty team's Stripe quantity to its member count. Stops starting
+ * teams when the run budget is spent. Safe to run
  * from several workers at once: each team is taken under a try-lock, and a
  * failure keeps the team dirty for the next cron pass.
  */
 export async function reconcileTeamSeats(
-  options: { readonly teamIds?: readonly string[]; readonly limit?: number } = {},
+  options: { readonly teamIds?: readonly string[]; readonly limit?: number; readonly budgetMs?: number } = {},
   dependencies: TeamSeatReconcileDependencies = {},
 ): Promise<TeamSeatReconcileResult> {
   const queue = dependencies.queue ?? databaseTeamSeatQueue;
+  const now = dependencies.now ?? Date.now;
+  const deadline = now() + (options.budgetMs ?? TEAM_SEAT_RECONCILE_BUDGET_MS);
   const rows = await queue.listDirty(options.limit ?? DEFAULT_LIMIT, options.teamIds);
-  const result = { checked: rows.length, updated: 0, skipped: 0, failed: 0, busy: 0 };
+  const result = { checked: 0, updated: 0, skipped: 0, failed: 0, busy: 0 };
   for (const row of rows) {
+    if (now() >= deadline) break;
+    result.checked += 1;
     const kind = await reconcileTeam(row.stackTeamId, row.dirtyAt, queue, dependencies);
     if (kind === "updated") result.updated += 1;
     else if (kind === "skipped") result.skipped += 1;
