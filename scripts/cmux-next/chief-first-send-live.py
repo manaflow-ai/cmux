@@ -5,7 +5,7 @@ Each round starts from nothing: no Chief home (`~/.cmux/chief/isolated/<tag>`,
 which holds the conversation owner's store, the brain's memory and acpmux),
 no app, and no Home cache unless --keep-cache. It launches the tagged app (no-activate, scratch
 config), opens Home, and sends one message through the Home composer
-(`debug.home.drive` focus, type, send) as soon as the composer exists, while
+(home_page.py focus, type, send) as soon as the composer exists, while
 the Chief owner and the brain host are still starting. The round passes when
 the drive accepts the send and the brain's log (`optchat/memory.sqlite3`)
 holds that message exactly once within --deadline seconds. A round that
@@ -19,6 +19,9 @@ Usage: chief-first-send-live.py --tag <tag> --app PATH [--rounds 20] [--deadline
 Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, glob, json, os, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import home_page  # noqa: E402
 import re
 
 parser = argparse.ArgumentParser()
@@ -186,7 +189,7 @@ def settle(n, stop):
     recorder = threading.Thread(target=record, daemon=True)
     recorder.start()
     rpc("action.run", {"id": "home.show"})
-    wait(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 20)
+    wait(lambda: (home_page.drive(rpc, {"action": "geometry"}) or {}).get("ok"), 20)
     return recorder
 
 
@@ -214,7 +217,7 @@ def one_round(n, env):
             return False, "the app's control socket never answered", None
         rpc("action.run", {"id": "home.show"})
         # Send as soon as the composer exists: the owner and the brain host may still be starting.
-        if not wait(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 240):
+        if not wait(lambda: (home_page.drive(rpc, {"action": "geometry"}) or {}).get("ok"), 240):
             return False, f"no Home composer: {json.dumps(rpc('debug.home'))[:600]}", None
         if settled:
             settle(n, stop)
@@ -223,7 +226,7 @@ def one_round(n, env):
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"round-{n:02d}-before-send.png")}, timeout=10)
         drive = {}
         for action, extra in (("focus", {}), ("type", {"text": text}), ("send", {})):
-            drive = rpc("debug.home.drive", {"action": action, **extra}) or {}
+            drive = home_page.drive(rpc, {"action": action, **extra}) or {}
             if not drive.get("ok"):
                 break
         waited = ""
@@ -240,7 +243,7 @@ def one_round(n, env):
                     return True
                 now = (rpc("debug.home") or {}).get("page", {}).get("shown")
                 if now and now != shown[0] and not pressed:
-                    pressed.append(rpc("debug.home.drive", {"action": "send"}) or {})
+                    pressed.append(home_page.drive(rpc, {"action": "send"}) or {})
                     shown[0] = now
                 return False
             wait(delivered_or_moved, 60, step=0.5)

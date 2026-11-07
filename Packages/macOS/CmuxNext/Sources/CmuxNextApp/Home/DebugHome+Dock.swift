@@ -31,13 +31,4 @@ extension DebugHome {
             "handoff": view.lastHandoff.map { .object(["conversation": .string($0.conversation), "message": $0.message.map { .string($0) } ?? .null]) } ?? .null,
         ])
     }
-
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// `debug.home.drive {action: legacy_pins, pins?}`: the Messages-list pins this Mac keeps (the old
-    /// store the one-time move reads, HomePinMigration), after setting them to `pins` when given.
-    static func legacyPins(_ params: [String: JSONValue], services: AppServices) -> CmuxNextSettings.JSONValue {
-        let pins = params["pins"]?.arrayValue.map { $0.compactMap(\.stringValue) }
-        return .object(["ok": .bool(true), "pins": .array(services.home.pinMigration.debugPins(pins).map { .string($0) })])
-    }
-    #endif
 }

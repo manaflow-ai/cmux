@@ -22,6 +22,9 @@ Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPM
 """
 import argparse, json, os, shutil, socket, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import home_page  # noqa: E402
+
 ap = argparse.ArgumentParser()
 ap.add_argument("--tag", required=True)
 ap.add_argument("--app", required=True)
@@ -106,8 +109,8 @@ def chief_row():
 
 
 def send_and_wait(text):
-    say("drive", rpc("debug.home.drive", {"action": "focus"}), rpc("debug.home.drive", {"action": "type", "text": text}),
-        rpc("debug.home.drive", {"action": "send"}))
+    say("drive", home_page.drive(rpc, {"action": "focus"}), home_page.drive(rpc, {"action": "type", "text": text}),
+        home_page.drive(rpc, {"action": "send"}))
 
     def answered():
         shown = [(m["author"], m["text"]) for m in (chief_row() or {}).get("shown_tail", [])]

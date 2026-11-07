@@ -30,7 +30,7 @@ PAGES="history apps coderouter cloud keybindings icon-picker settings passwords 
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"
 # Pages that render the agent pane's Markdown, whose code blocks import shiki.
-SHIKI_PAGES="home-channels"
+SHIKI_PAGES="home-channels home-messages"
 
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the pages" >&2; exit 1; }
 "$ROOT/scripts/check-webviews-bun-version.sh"

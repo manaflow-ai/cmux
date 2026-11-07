@@ -304,8 +304,6 @@ final class HomeChiefSurface {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// `debug.home.drive` engine_set: one pick in this Chief's settings panel, as its popup does.
-    func debugPickEngine(_ key: String, _ value: String?) { make().view.pick(key, value) }
     /// `debug.home.api` edit_picture: a picture picked or dropped on this Chief's card (Move and Scale).
     func debugEditPicture(_ source: URL, zoom: CGFloat?, save: Bool) async -> Bool? {
         let view = make().view
