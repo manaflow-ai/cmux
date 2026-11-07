@@ -190,7 +190,7 @@ export function BackgroundTasksPanel({
                         group={group}
                         look={look}
                         now={now}
-                        startsOpen={section.id === "running" && index === 0 && section.commands.length === 0}
+                        startsOpen={section.id === "running" && index === 0}
                         onDrill={open}
                         onStop={onStop}
                         onOpenSession={onOpenSession}
