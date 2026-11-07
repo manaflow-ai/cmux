@@ -398,6 +398,15 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         store.trimOlderIfLarge(preserving: Set([keyboard.selectedRowID, keyboard.findMatch?.rowID].compactMap { $0 }))
     }
 
+    /// Messages arriving while the reader rests at the bottom also bound the
+    /// window: a chat left open (a Chief chat for days) never scrolls, so
+    /// the scroll-end trim alone would let it grow without limit. Runs on
+    /// the next turn, after this change lands, since a trim resets the rows.
+    private func trimAfterArrival() {
+        guard store.messages.count > ConversationStore.windowTrimThreshold else { return }
+        Task { @MainActor [weak self] in self?.trimHistoryIfResting() }
+    }
+
     @objc private func boundsDidChange() {
         let origin = scrollView.contentView.bounds.origin.y
         let readerScrolled = programmaticScrollDepth == 0 && programmaticScrollAnimations == 0
@@ -519,6 +528,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
         defer { if threadFocus != nil { reloadThread(animated: false) } }
         defer { playQueuedEffects() }
+        if case .live = change { trimAfterArrival() }
         trace("change.before \(change)")
         programmatic {
             apply(newRows, from: oldRows)
