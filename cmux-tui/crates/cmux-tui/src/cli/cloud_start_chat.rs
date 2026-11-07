@@ -955,9 +955,11 @@ fn await_created(
         else {
             continue;
         };
-        let row = at(&now, "creating").as_array().into_iter().flatten().find(|row| {
-            creation.is_some() && at(row, "creation_id").as_str() == creation
-        });
+        let row = at(&now, "creating")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| creation.is_some() && at(row, "creation_id").as_str() == creation);
         if let Some(row) = row {
             if at(row, "status").as_str() == Some("failed") {
                 let reason = at(row, "reason").as_str().unwrap_or("no reason given");
