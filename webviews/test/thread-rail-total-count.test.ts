@@ -135,7 +135,7 @@ await requireBrowserLane("thread-rail-total-count.test.ts", async () => {
               const rect = last?.getBoundingClientRect();
               const box = list?.getBoundingClientRect();
               if (
-                list?.scrollHeight === 200000 &&
+                list?.scrollHeight === 100000 &&
                 rect &&
                 box &&
                 rect.top >= box.top &&
@@ -173,7 +173,7 @@ await requireBrowserLane("thread-rail-total-count.test.ts", async () => {
       expect(first.all.at(-1)?.index).toBe(count - 1);
       const extent = () => page.evaluate(() => document.querySelector(".acpmux-minimap__list")!.scrollHeight);
       const initialExtent = await extent();
-      expect(initialExtent).toBe(count * 20);
+      expect(initialExtent).toBe(count * 10);
       await show(page, held(24), { promptCount: count });
       await settle(page);
       const paged = await ticks(page);
@@ -203,8 +203,8 @@ await requireBrowserLane("thread-rail-total-count.test.ts", async () => {
     await settle(page);
     const shown = await ticks(page);
     expect(shown.all[0]!.setSize).toBe(TOTAL);
-    // The fixed box stays 480 px while the list scrolls all 45 prompts.
-    expect(shown.rail.height).toBe(480);
+    // Forty-five prompts at the 10 px pitch: 450 px, under the 480 px maximum.
+    expect(shown.rail.height).toBe(450);
     await page.close();
   });
 
