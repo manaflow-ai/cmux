@@ -333,6 +333,98 @@ import Testing
         #expect(node?.children.map(\.text) == ["other", "one", "other"])
     }
 
+    @Test func optionalMemberComparisonsDistinguishPresentAndAbsentValues() {
+        let workspaces = SwiftValue.array([
+            .object([
+                "description": .string("hello"),
+                "profile": .object(["name": .string("cmux")]),
+                "selected": .bool(false),
+            ]),
+            .object(["selected": .bool(false)]),
+        ])
+        let empty = SwiftValue.array([])
+        let node = interp.evaluate("""
+        VStack {
+            Text(nil == nil ? "nil-equal" : "bad")
+            Text(empty.first == nil ? "empty-first" : "bad")
+            if unknownValue() == nil { Text("unsupported-treated-as-absent") }
+            if let impossible = nil { Text("unexpected: \\(impossible)") }
+            let selected = workspaces.first { $0.selected }
+            if selected == nil { Text("no-selected") }
+            ForEach(workspaces) { w in
+                Text(w.description != nil ? "present" : "absent")
+                if w.description == nil { Text("missing") }
+                if w.description != nil { Text("value: \\(w.description)") }
+                if w.profile.name != nil { Text("nested: \\(w.profile.name)") }
+                if w.profile.name == nil { Text("nested-missing") }
+                if let description = w.description {
+                    Text("bound: \\(description)")
+                } else {
+                    Text("unbound")
+                }
+            }
+        }
+        """, state: ["workspaces": workspaces, "empty": empty])
+        #expect(node?.children.map(\.text) == [
+            "nil-equal", "empty-first", "no-selected",
+            "present", "value: hello", "nested: cmux", "bound: hello",
+            "absent", "missing", "nested-missing", "unbound",
+        ])
+    }
+
+    @Test func arrayOptionalResultsKeepEvaluationFailuresUnresolved() {
+        let node = interp.evaluate(#"""
+        VStack {
+            Text("first: \(empty.first == nil), \(empty.first != nil)")
+            Text("last: \(empty.last == nil), \(empty.last != nil)")
+            Text("method: \(empty.first() == nil)")
+            Text("where: \(items.first(where: { $0 == 3 }) == nil)")
+            let missing = items.first { $0 == 3 }
+            Text("stored: \(missing == nil)")
+            if let value = missing { Text("bad binding") } else { Text("unbound") }
+            Text("present: \(items.first != nil), \(items.last != nil)")
+            Text("match: \(items.first { $0 == 2 })")
+            Text("failed predicate: \(items.first { unknownValue() } == nil)")
+            Text("unsupported member: \(empty.unknownMember == nil)")
+            Text("unsupported call: \(unknownValue() == nil)")
+        }
+        """#, state: ["empty": .array([]), "items": .array([.int(1), .int(2)])])
+        #expect(node?.children.map(\.text) == [
+            "first: true, false", "last: true, false", "method: true",
+            "where: true", "stored: true", "unbound", "present: true, true", "match: 2",
+            "failed predicate: ", "unsupported member: ", "unsupported call: ",
+        ])
+    }
+
+    @Test(arguments: [SwiftValue.int(7), .double(1.5), .string("hello"), .bool(false), .array([]), .object([:])])
+    func nullComparedWithPresentValue(value: SwiftValue) {
+        let node = interp.evaluate(#"""
+        VStack {
+            Text("\(nil == value), \(nil != value), \(value == nil), \(value != nil)")
+        }
+        """#, state: ["value": value])
+        #expect(node?.children.first?.text == "false, true, false, true")
+    }
+
+    @Test func equalityFailureRemainsDistinctFromFalseAtConsumers() {
+        let node = interp.evaluate(#"""
+        VStack {
+            Text("false: \(nil == 7)")
+            Text("failed: \(unknownValue() == nil)")
+            Text(nil == 7 ? "bad" : "false else")
+            Text(unknownValue() == nil ? "bad" : "failure else")
+            if nil == 7 { Text("bad") } else { Text("false branch") }
+            if unknownValue() == nil { Text("bad") } else { Text("failure branch") }
+            if let result = nil == 7 { Text("bound: \(result)") }
+            if let result = unknownValue() == nil { Text("bad") } else { Text("unresolved") }
+        }
+        """#)
+        #expect(node?.children.map(\.text) == [
+            "false: false", "failed: ", "false else", "failure else",
+            "false branch", "failure branch", "bound: false", "unresolved",
+        ])
+    }
+
     @Test func arrayFilterMapSortedFirstContains() {
         let ws = SwiftValue.array([
             .object(["title": .string("beta"), "selected": .bool(false), "n": .int(2)]),
@@ -371,6 +463,17 @@ import Testing
         """)
         #expect(node?.children.first?.modifiers.first(where: { $0.name == "foregroundColor" })?.firstValue == "#34C759")
         #expect(node?.children.last?.modifiers.first(where: { $0.name == "foregroundColor" })?.firstValue == "#FF3B30")
+    }
+
+    @Test func valueFunctionOptionalBindingRejectsNilLiteral() {
+        let node = interp.evaluate("""
+        func label() -> String {
+            if let value = nil { return "unexpected: \\(value)" }
+            return "ok"
+        }
+        VStack { Text(label()) }
+        """)
+        #expect(node?.children.first?.text == "ok")
     }
 
     @Test func userViewFunctionHelper() {
