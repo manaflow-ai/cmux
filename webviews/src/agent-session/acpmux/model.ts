@@ -1868,9 +1868,7 @@ const isIncomingRunLine = (kind: string | undefined) => isIncomingLine(kind) || 
 /// A row that draws nothing: a turn's bookkeeping (conversation/turns.ts), a session start
 /// (rows/SessionStartRow.tsx), which the transcript no longer draws, or a run whose every call is hidden.
 const drawsNothing = (row: AcpmuxRow) =>
-  row.incoming?.kind === "hidden" ||
-  row.kind === "sessionStart" ||
-  hidesEveryCall(row);
+  row.incoming?.kind === "hidden" || row.kind === "sessionStart" || hidesEveryCall(row);
 /// The row after `index` that draws something.
 export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
   for (let next = index + 1; next < rows.length; next += 1) if (!drawsNothing(rows[next]!)) return rows[next];
