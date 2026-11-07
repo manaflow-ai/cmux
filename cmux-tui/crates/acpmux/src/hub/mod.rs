@@ -232,6 +232,14 @@ pub use peer_lease::PeerLease;
 pub fn peer_snapshot_reads_fail(peer: &str, n: u32) {
     peer_snapshot::reads_fail(peer, n);
 }
+
+/// Debug builds only: each copy keeps at most `n` records from its next change on (0: the
+/// bound as built), as a turn past the bound would leave it (`peer_snapshot.rs` `bound`).
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub fn peer_snapshot_bound(n: usize) {
+    peer_snapshot::BOUND_EVENTS.store(n, std::sync::atomic::Ordering::SeqCst);
+}
 mod peers;
 mod remote_rows;
 pub(crate) use peers::{

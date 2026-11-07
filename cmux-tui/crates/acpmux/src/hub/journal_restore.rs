@@ -14,8 +14,9 @@
 //! and continued, and a prompt it had queued waits in this queue again, under its own id, so a
 //! resend of that id joins it instead of running it twice.
 //!
-//! Design (sixth review of #37284): a restore is one exclusive operation on its chat, from
-//! the owner's first try until every record it holds is in and flushed, or the owner gave up.
+//! Design (sixth and seventh reviews of #37284): a restore is one exclusive operation on its
+//! chat, from the owner's first try until every record it holds is in and flushed, or the
+//! owner gave up.
 //! - Locks, in this order: `close_lock` (as a stop or purge takes it; refused `generation` when
 //!   the chat was purged, replaced under its id, or has another `createdAt`), `turn_lock` (at
 //!   most [`TURN_LOCK_WITHIN`], else `busy`), `admit` (check and set `restoring`; `restore_lease`
@@ -30,9 +31,15 @@
 //! - On the owner (`peer_snapshot/restore.rs`): every step of a restore, each try and each change
 //!   to its copy, goes only on the link and of the generation it started on; a copy that holds
 //!   records past the machine's end stays, across a gap too, and goes back.
-//! - A message the machine took stays open on the owner until the owner's copy of that session
-//!   and generation holds its record on disk (`open_delivery.rs`): "accepted" and "duplicate" are
-//!   no proof. Its session is pinned before its first attempt and kept for every later one.
+//! - A message the machine took stays open on the owner (`open_delivery.rs`): "accepted" and
+//!   "duplicate" are no proof. Its session is pinned before its first attempt and kept for every
+//!   later one. Once the owner's copy wrote records of its prompt's life to disk (only what that
+//!   write held), the delivery keeps them itself, past the copy's bounds, a captures' queue that
+//!   overflowed and the disk's eviction; it is never sent again, and a restore gives them back
+//!   with the copy, unless the copy did not see the prompt's whole life since its first record
+//!   and giving them back would start its work again. A later link whose journal ends past them,
+//!   of the same generation, releases it; else it lapses, failed and saying so. A link's
+//!   redelivery reaches every open delivery of the peer, in batches, on that link.
 //!   Checked by the seeded move simulation (`peer_snapshot/move_sim_tests.rs`).
 
 use super::*;

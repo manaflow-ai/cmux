@@ -99,16 +99,15 @@ pub struct Delivery {
     pub relay_post: Option<crate::mesh::OutMessage>,
     /// Delivered to a peer's session, and not yet seen in that peer's journal after a later
     /// link: the machine may have lost it with its disk (a session moved to a fresh machine,
-    /// a VM back on an older snapshot), so every link of the peer that comes up delivers it again
-    /// under its own prompt id (`server/outbox.rs` `redeliver_open`) until the peer answers that
-    /// its journal holds it.
+    /// a VM back on an older snapshot). Every link of the peer that comes up gives back its
+    /// proof (`proof`) or, with none, delivers it again under its own prompt id
+    /// (`server/outbox.rs` `redeliver_open`, `open_delivery.rs`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub open_on_peer: bool,
     /// The peer's session it was sent to, read when its attempt started (never after, so a link
     /// replaced meanwhile changes nothing): every attempt names that generation
     /// (`sessionCreatedAt`), and a session purged and made again under the same id refuses it as
-    /// stale. While `open_on_peer`, only the owner's copy of that session holding its prompt
-    /// closes it (`open_delivery.rs`).
+    /// stale. Only that session and generation's records prove it (`proof`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pin: Option<Pin>,
     /// The journal records of its prompt the owner's copy of the pinned session wrote to disk

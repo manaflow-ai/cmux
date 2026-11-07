@@ -1318,3 +1318,84 @@ fn the_hub_keeps_its_snapshots_beside_the_peer_caches_never_among_them() {
     assert_eq!(listed, vec![std::ffi::OsString::from(".snapshots")]);
     assert!(std::fs::read_dir(peers.join(".snapshots")).unwrap().next().is_none());
 }
+
+/// A record of prompt `prompt`'s life, of `kind`.
+fn life(mux: &str, seq: u64, kind: &str, prompt: &str) -> Value {
+    json!({"sessionId": mux, "seq": seq, "at": seq, "dir": "mux", "kind": kind,
+           "msg": {"promptId": prompt, "turnId": format!("t-{prompt}")}})
+}
+
+/// Review of #37284 at 0c98c292, F1 and F2: a write reports only the records it put on disk (not
+/// one the copy's bound cut before it); the delivery holds them as its proof past the copy's
+/// bound, the captures' queue overflowing and the disk's eviction, and a restore gives them back;
+/// a proof whose life the copy did not see whole gives back nothing that would run again; only
+/// a later link that shows them held releases it.
+#[test]
+fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
+    use crate::hub::open_delivery as od;
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
+    let hook: Written = {
+        let told = told.clone();
+        Arc::new(move |_, _, records| told.lock().unwrap().push(records))
+    };
+    let mut store =
+        Store::new(disk::root(dir.path()), Arc::default(), Arc::new(StdMutex::new(Some(hook))));
+    store.scan();
+    let outbox = crate::hub::outbox::Outbox::default();
+    let delivery = |id: &str, prompt: &str| -> crate::hub::outbox::Delivery {
+        serde_json::from_value(json!({
+            "id": id, "target": format!("{PEER}/m1"),
+            "request": {"sessionId": format!("{PEER}/m1"), "_meta": {"acpmux": {"promptId": prompt}}},
+            "state": "delivered", "openOnPeer": true, "createdAt": 1, "updatedAt": 1,
+            "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
+        }))
+        .unwrap()
+    };
+    outbox.add(delivery("d1", "p1"));
+    outbox.add(delivery("d2", "p2"));
+    keep(&mut store, "m1", 1..=3);
+    store.add(&key("m1"), vec![life("m1", 4, "queued", "p1")]);
+    store.write_due(None, When::Last);
+    // p2 runs, and a turn writes past the copy's bound before the next write.
+    store.add(&key("m1"), vec![life("m1", 5, "user_message", "p2")]);
+    keep(&mut store, "m1", 6..=(6 + SESSION_EVENTS as u64));
+    store.write_due(None, When::Last);
+    let told = std::mem::take(&mut *told.lock().unwrap());
+    let seqs_told: Vec<u64> = told.iter().flatten().filter_map(seq_of).collect();
+    assert_eq!(seqs_told, vec![4], "only what a write put on disk is told");
+    for records in &told {
+        od::take_written(&outbox, (PEER, "m1", 7), records, (1, 1));
+    }
+    let proof = |id: &str| outbox.get(id).and_then(|d| d.proof);
+    assert!(proof("d2").is_none(), "a record cut before its write proves nothing");
+    assert_eq!(proof("d1").map(|p| p.records.len()), Some(1));
+    assert!(!seqs(&mut store, "m1").contains(&4), "the copy's bound cut it");
+
+    // The machine comes back on a disk that ends at 3: the proof goes back with the copy.
+    let rows = vec![("m1".to_owned(), 7, 3)];
+    let (ahead, since) = store.ahead(PEER, rows.clone());
+    let proofs = od::proofs_past(&outbox, PEER, &rows, &since);
+    let back = restore::with_proofs(ahead, proofs, &rows);
+    assert_eq!(back[0].3.first().and_then(seq_of), Some(4), "the proof goes back first");
+
+    // The captures' queue overflowed: the copy went, so whether p1 left its queue since is not
+    // known: nothing of it goes back (it would run again), and it stays open.
+    store.take(Op::LostPeer(PEER.into()));
+    let (_, since) = store.ahead(PEER, rows.clone());
+    assert!(od::proofs_past(&outbox, PEER, &rows, &since).is_empty());
+    // Its removal from the queue came in its proof before: then all of it goes back.
+    od::take_written(&outbox, (PEER, "m1", 7), &[life("m1", 9, "queue_removed", "p1")], (1, 1));
+    let back = od::proofs_past(&outbox, PEER, &rows, &since);
+    let back: Vec<u64> = back["m1"].iter().filter_map(seq_of).collect();
+    assert_eq!(back, vec![4, 9]);
+
+    // Released only by a later link whose journal holds it, of its generation.
+    let d1 = outbox.get("d1").unwrap();
+    let ends = |g: u64, last: u64| HashMap::from([("m1".to_owned(), (g, last))]);
+    assert_eq!(od::step(&d1, 2, (1, 2), &ends(7, 3)), od::Step::Wait);
+    assert_eq!(od::step(&d1, 2, (1, 1), &ends(7, 9)), od::Step::Wait);
+    assert_eq!(od::step(&d1, 2, (1, 2), &ends(7, 9)), od::Step::Release);
+    assert_eq!(od::step(&d1, 2, (1, 2), &ends(8, 9)), od::Step::Stale);
+    assert_eq!(od::step(&outbox.get("d2").unwrap(), 2, (1, 2), &ends(7, 9)), od::Step::Again);
+}

@@ -585,9 +585,9 @@ impl World {
         }
         let task = self.task.as_mut().unwrap();
         let Some(Some((after, records))) = task.ahead.clone() else {
+            let ends = task.ends.clone();
             self.decided = true;
             self.note(format!("link {link}: nothing ahead; decided"));
-            let ends = task.ends.clone();
             self.redeliver(&ends);
             return;
         };

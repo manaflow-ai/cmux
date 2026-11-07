@@ -514,6 +514,23 @@ fn created_at(row: &Value) -> Option<u64> {
     row.get("createdAt").and_then(Value::as_u64)
 }
 
+/// Debug builds only: a lower bound of records for every copy (`hub::peer_snapshot_bound`).
+#[cfg(debug_assertions)]
+pub(crate) static BOUND_EVENTS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// [`SESSION_EVENTS`], or the lower bound a debug build's test set.
+fn session_events() -> usize {
+    #[cfg(debug_assertions)]
+    {
+        let n = BOUND_EVENTS.load(Ordering::SeqCst);
+        if n > 0 {
+            return n.min(SESSION_EVENTS);
+        }
+    }
+    SESSION_EVENTS
+}
+
 struct Kept {
     head: Head,
     /// Its records once read (`Store::load`); None while they are only on disk.
@@ -1133,11 +1150,12 @@ impl Store {
     /// came, so however many one large record pushes out, the work is paid for by their adding:
     /// O(log n) per record, never a walk of the copy per record.
     fn bound(&mut self, key: &Key) -> bool {
+        let events = session_events();
         let Store { copies, memory, .. } = self;
         let Some(c) = copies.get_mut(key) else { return false };
         let Some(held) = c.records.as_mut() else { return false };
         let mut cut = false;
-        while held.len() > SESSION_EVENTS || c.memory > SESSION_BYTES {
+        while held.len() > events || c.memory > SESSION_BYTES {
             let Some((seq, old)) = held.pop_first() else { break };
             let old_bytes = record_bytes(&old);
             c.memory -= old_bytes;

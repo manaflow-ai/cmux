@@ -266,6 +266,9 @@ enum Fault {
     /// The fresh machine's first try stops short, and before the Mac tries again its link goes
     /// to another machine on an even older disk, whose own restore reads slowly.
     StaleTry,
+    /// The Mac's copy keeps only its last two records before the machine goes (a turn past the
+    /// copy's bound): the prompts' records it cut are held by their deliveries, and go back.
+    CacheBound,
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -309,12 +312,21 @@ async fn a_copy_that_cannot_be_read_holds_the_peer_and_says_so() {
     move_to_a_fresh_machine(Fault::ReadsFail).await;
 }
 
+/// Review of #37284 at 0c98c292, F1: the copy's bound cuts the records the deliveries were
+/// proven by before the machine goes; they go back from the deliveries, and every prompt runs
+/// exactly once on the fresh machine.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_move_past_the_copys_bound_loses_no_prompt() {
+    move_to_a_fresh_machine(Fault::CacheBound).await;
+}
+
 /// The moves run one at a time: their test seams are the process's, and each machine is "b".
 static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn move_to_a_fresh_machine(fault: Fault) {
     let _one = ONE_AT_A_TIME.lock().await;
     acpmux::hub::peer_snapshot_reads_fail("b", 0);
+    acpmux::hub::peer_snapshot_bound(0);
     let fail_midway = fault == Fault::AppendMidway;
     let _ = HERMETIC;
     let _ = tracing_subscriber::fmt().with_env_filter("acpmux=info").with_test_writer().try_init();
@@ -367,6 +379,13 @@ async fn move_to_a_fresh_machine(fault: Fault) {
         e.iter().any(|e| says(e, "running")) && e.iter().any(|e| names_prompt(e, "queued", "p2"))
     })
     .await;
+    if fault == Fault::CacheBound {
+        // A page again, under a bound of two records: the copy cuts everything else.
+        acpmux::hub::peer_snapshot_bound(2);
+        ca.call(method::MUX_ATTACH, json!({"session": "b/moved", "limit": 400})).await;
+        copy_until(&mut ca, "a copy cut to its bound", |e| !e.is_empty() && e.len() <= 2).await;
+        a.flush();
+    }
     relay.cut();
     // Its agents end with it; nothing it writes from now on reaches anyone.
     b.shutdown_all().await;
@@ -491,8 +510,10 @@ async fn move_to_a_fresh_machine(fault: Fault) {
         tokio::time::timeout(Duration::from_secs(60), local).await.unwrap().unwrap();
     }
     let events = journal(&b2, &id);
-    // Every record A saw of B is in B2's journal, with its seq.
-    for record in &seen {
+    // Every record A saw of B is in B2's journal, with its seq (past the copy's bound, every
+    // record of the prompts' lives).
+    let kept = |r: &&Value| fault != Fault::CacheBound || r["msg"]["promptId"].is_string();
+    for record in seen.iter().filter(kept) {
         let seq = record["seq"].as_u64().unwrap();
         let held = events.iter().find(|e| e["seq"].as_u64() == Some(seq));
         assert!(

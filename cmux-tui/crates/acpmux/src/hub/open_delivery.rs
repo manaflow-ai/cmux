@@ -262,6 +262,11 @@ pub(crate) fn after_again(d: &mut Delivery, again: Again) -> bool {
 }
 
 impl Hub {
+    /// Whether peer `peer` is on link `link` (its instance and link epoch) still.
+    pub(crate) fn peer_on_link(&self, peer: &str, link: (u64, u64)) -> bool {
+        self.peer(peer).is_some_and(|p| (p.generation, p.link_epoch()) == link)
+    }
+
     /// The owner's copy of peer `peer`'s session `session`, generation `generation`, wrote
     /// `records` to disk: the deliveries pinned to it take their prompts' records as proof.
     /// Called on the copies' thread after the write (`peer_snapshot.rs`); blocks only on the
