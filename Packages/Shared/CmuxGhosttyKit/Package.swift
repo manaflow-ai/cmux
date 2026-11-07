@@ -145,6 +145,12 @@ import PackageDescription
 // app's surfaces turn it on in termio Manual). A size bounce the shell reads
 // as one SIGWINCH no longer leaves a new pane empty (close-then-type P0).
 //
+// Since 1740c4452..468b2559c (fork PR #86): while cmux presents host sizes
+// and a frame of a new host size waits for that present, every renderer
+// update draws at once (Thread drawsNow, Metal.hostFrameWaits), not at the
+// next display-link tick: the program's redraw for the grid just sent is in
+// the frame cmux presents (RESIZE P0 10, T render hop).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -168,8 +174,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-1740c44523895c3c0ec8f89203741abf3ca7efa3-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "ba1abb11322710dca12ebf6d07753f66e87f7475141298417421a4cd4b4ec426"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-468b2559c92c272166f7ba2164f50411355d0fe2-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "70705b194c3f343cdd086bc4bde8a0ab53d8f7069b9a63dfab0f9dd05a77b6f1"
         ),
     ]
 )
