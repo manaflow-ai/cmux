@@ -550,6 +550,86 @@ pub enum ResourceOperation {
     ConductorImportPlan,
     #[serde(rename = "conductor_import.record")]
     ConductorImportRecord,
+    #[serde(rename = "cloud.vm.resize")]
+    CloudVmResize,
+    #[serde(rename = "cloud.vm.snapshot")]
+    CloudVmSnapshot,
+    #[serde(rename = "cloud.vm.snapshots")]
+    CloudVmSnapshots,
+    #[serde(rename = "cloud.vm.delete_snapshot")]
+    CloudVmDeleteSnapshot,
+    #[serde(rename = "cloud.vm.restore")]
+    CloudVmRestore,
+    #[serde(rename = "cloud.vm.fork")]
+    CloudVmFork,
+    #[serde(rename = "cloud.vm.scp_endpoint")]
+    CloudVmScpEndpoint,
+    #[serde(rename = "cloud.vm.tunnel_enroll")]
+    CloudVmTunnelEnroll,
+    #[serde(rename = "cloud.vm.tunnel_revoke")]
+    CloudVmTunnelRevoke,
+    #[serde(rename = "cloud.vm.tunnel_attach")]
+    CloudVmTunnelAttach,
+    #[serde(rename = "cloud.vm.tunnel_detach")]
+    CloudVmTunnelDetach,
+    #[serde(rename = "cloud.vm.tunnel_rotate_key")]
+    CloudVmTunnelRotateKey,
+    #[serde(rename = "cloud.vm.firewall_list")]
+    CloudVmFirewallList,
+    #[serde(rename = "cloud.vm.firewall_get")]
+    CloudVmFirewallGet,
+    #[serde(rename = "cloud.vm.firewall_create")]
+    CloudVmFirewallCreate,
+    #[serde(rename = "cloud.vm.firewall_delete")]
+    CloudVmFirewallDelete,
+    #[serde(rename = "cloud.vm.networks")]
+    CloudVmNetworks,
+    #[serde(rename = "cloud.vm.domains")]
+    CloudVmDomains,
+    #[serde(rename = "cloud.vm.publications")]
+    CloudVmPublications,
+    #[serde(rename = "cloud.vm.provision_api")]
+    CloudVmProvisionApi,
+    #[serde(rename = "cloud.vm.publication_api_keys")]
+    CloudVmPublicationApiKeys,
+    #[serde(rename = "cloud.vm.revoke_publication_api_key")]
+    CloudVmRevokePublicationApiKey,
+    #[serde(rename = "cloud.runs.create")]
+    CloudRunsCreate,
+    #[serde(rename = "cloud.runs.start")]
+    CloudRunsStart,
+    #[serde(rename = "cloud.runs.wait")]
+    CloudRunsWait,
+    #[serde(rename = "cloud.runs.cancel")]
+    CloudRunsCancel,
+    #[serde(rename = "cloud.runs.sandbox")]
+    CloudRunsSandbox,
+    #[serde(rename = "cloud.owner.acpmux_person_holds")]
+    CloudOwnerAcpmuxPersonHolds,
+    #[serde(rename = "cloud.owner.acpmux_keyed_start")]
+    CloudOwnerAcpmuxKeyedStart,
+    #[serde(rename = "cloud.owner.fork_run")]
+    CloudOwnerForkRun,
+    #[serde(rename = "cloud.owner.handoff_wait")]
+    CloudOwnerHandoffWait,
+    #[serde(rename = "cloud.owner.handoffs")]
+    CloudOwnerHandoffs,
+    #[serde(rename = "cloud.owner.handoff_open")]
+    CloudOwnerHandoffOpen,
+    #[serde(rename = "cloud.owner.handoff_begin_turn")]
+    CloudOwnerHandoffBeginTurn,
+    #[serde(rename = "cloud.owner.harness_login_copy")]
+    CloudOwnerHarnessLoginCopy,
+    #[serde(rename = "cloud.owner.github_app")]
+    CloudOwnerGithubApp,
+    #[serde(rename = "cloud.previews.refresh")]
+    CloudPreviewsRefresh,
+    #[serde(rename = "cloud.previews.create_link")]
+    CloudPreviewsCreateLink,
+    #[serde(rename = "cloud.previews.revoke_link")]
+    CloudPreviewsRevokeLink,
+    #[serde(rename = "cloud.machine.io")]
+    CloudMachineIo,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
