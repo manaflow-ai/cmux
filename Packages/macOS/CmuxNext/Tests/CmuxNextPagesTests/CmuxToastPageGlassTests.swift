@@ -14,7 +14,7 @@ struct CmuxToastPageGlassTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("<!doctype html><title>Toasts</title>".utf8).write(to: root.appendingPathComponent("index.html"))
-        let pool = OverlayPagePool(route: "/toasts") { CmuxToastPageProvider() }
+        let pool = CmuxToastWebHost.makePool()
         pool.testRoot = root
         let (page, _) = try #require(pool.claim())
         defer { page.close() }
@@ -57,5 +57,26 @@ struct CmuxToastPageGlassTests {
         view.releasePage()
         #expect(glass().isEmpty)
         #expect(page.superview == nil)
+    }
+
+    /// Review of #37289 at 97fe7eab (F1): the toast page took the overlay page's answer, no first
+    /// mouse, so in an inactive window a toast's Undo or close only brought the window forward and
+    /// needed a second click; the native toast's buttons answered the first. The toasts' page takes
+    /// the first click now; a dialog's page still only brings its window forward.
+    @Test func aToastsPageTakesTheFirstClickADialogsDoesNot() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("toast-first-mouse-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("<!doctype html><title>Overlay</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let toasts = CmuxToastWebHost.makePool()
+        toasts.testRoot = root
+        let (toastPage, _) = try #require(toasts.claim())
+        defer { toastPage.close() }
+        let dialogs = OverlayPagePool(route: "/dialog", refusesProbes: true) { OverlayDialogProvider() }
+        dialogs.testRoot = root
+        let (dialogPage, _) = try #require(dialogs.claim())
+        defer { dialogPage.close() }
+        #expect(toastPage.webView.acceptsFirstMouse(for: nil))
+        #expect(!dialogPage.webView.acceptsFirstMouse(for: nil))
     }
 }
