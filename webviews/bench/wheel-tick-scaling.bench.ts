@@ -58,6 +58,7 @@ type SizeResult = {
   ticks: number;
   heap_mb: number | null;
   dom_nodes: number;
+  spans: string;
 };
 
 /// Runs in the page: the ticks and the frame record. Returns the size's result less its open numbers.
@@ -201,7 +202,14 @@ async function tickRun({
   const perf = acpmuxPerf.stats() as {
     react: { p50_ms: number; p95_ms: number; max_ms: number };
     layout: { p50_ms: number; p95_ms: number; max_ms: number };
+    spans: Record<string, { p50_ms: number; p95_ms: number; max_ms: number }>;
   };
+  // The transcript's own spans per frame, heaviest p95 first.
+  const spans = Object.entries(perf.spans ?? {})
+    .sort((a, b) => b[1].p95_ms - a[1].p95_ms)
+    .slice(0, 6)
+    .map(([name, value]) => `${name}:${value.p95_ms}/${value.max_ms}`)
+    .join(",");
   const summary = (values: number[]): Summary => {
     const sorted = [...values].sort((a, b) => a - b);
     const at = (share: number) => sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))] ?? 0;
@@ -228,6 +236,7 @@ async function tickRun({
     ticks,
     heap_mb: heap === undefined ? null : Math.round(heap / 1048576),
     dom_nodes: document.getElementsByTagName("*").length,
+    spans,
   };
 }
 
@@ -265,7 +274,7 @@ try {
         `work=${pick(result.work)} over_120=${result.over_120} over_60=${result.over_60} ` +
         `react=${pick(result.react)} layout=${pick(result.layout)} response_frames=${pick(result.response_frames)} ` +
         `stalls=${result.stalls} long_tasks=${result.long_tasks} long_task_max=${result.long_task_max} ` +
-        `heap_mb=${result.heap_mb} dom_nodes=${result.dom_nodes} open_ms=${result.open_ms}`,
+        `heap_mb=${result.heap_mb} dom_nodes=${result.dom_nodes} open_ms=${result.open_ms} spans_p95/max=${result.spans}`,
     );
     perfRow({
       name: `wheel_tick.${ENGINE}.${MODE}.turns_${turns}.work_ms`,
