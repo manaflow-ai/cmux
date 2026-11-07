@@ -485,15 +485,15 @@ const VM_MODEL_PLANE_ENV = "/etc/cmux/model-plane.env";
 const HOP_SAMPLES = 20;
 
 /**
- * Curl's `hop-t <status> <starttransfer> <total>` lines (seconds) after the warm-up, as ms percentiles. Every timed call
- * must answer 200. Pure, for the tests. (The marker must not start with `@`: curl reads such a `-w` value as a file.)
+ * Curl's `hop-t <status> <starttransfer> <total> <exit>` lines (seconds) after the warm-up, as ms percentiles. Every
+ * timed call must answer 200 and curl must exit 0 (a transfer cut short can still report 200). Pure, for the tests. (The marker must not start with `@`: curl reads such a `-w` value as a file.)
  */
 export const hopTimes = (out: string, n: number): { ttfb_p50: number; ttfb_p90: number; total_p50: number; total_p90: number } => {
   const rows = out.split("\n").filter((l) => l.startsWith("hop-t ")).map((l) => l.split(" "));
   const timed = rows.slice(1);
   if (timed.length !== n) throw new Error(`${timed.length} of ${n} timed calls answered: ${out.slice(-300)}`);
-  const bad = timed.filter((r) => r[1] !== "200");
-  if (bad.length) throw new Error(`${bad.length} of ${n} calls did not answer 200 (${bad.map((r) => r[1]).join(", ")})`);
+  const bad = timed.filter((r) => r[1] !== "200" || r[4] !== "0");
+  if (bad.length) throw new Error(`${bad.length} of ${n} calls did not answer 200 whole (${bad.map((r) => `${r[1]} exit ${r[4] ?? "?"}`).join(", ")})`);
   const pct = (xs: number[], q: number) => {
     const s = [...xs].sort((x, y) => x - y);
     return Math.round(s[Math.min(s.length - 1, Math.ceil(q * s.length) - 1)]! * 1000);
@@ -1409,7 +1409,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           await J.step("gateway: hop cost", async () => {
             const n = HOP_SAMPLES;
             const loop = (auth: string, url: string) =>
-              `for i in $(seq 0 ${n}); do curl -sS -o /dev/null -m 30 ${auth} -w 'hop-t %{http_code} %{time_starttransfer} %{time_total}\n' ${url}; done`;
+              `for i in $(seq 0 ${n}); do curl -sS -o /dev/null -m 30 ${auth} -w 'hop-t %{http_code} %{time_starttransfer} %{time_total}' ${url}; echo " $?"; done`;
             const via = await exec(`. ${VM_MODEL_PLANE_ENV} && ${loop(`-H "Authorization: Bearer $OPENAI_API_KEY"`, `"$OPENAI_BASE_URL/models"`)}`, 300_000);
             const direct = await gwExec!(loop("", shq(`${stubUrl}/v1/models`)), 300_000);
             const a = hopTimes(via.stdout, n);

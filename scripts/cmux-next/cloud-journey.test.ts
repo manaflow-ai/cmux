@@ -256,9 +256,10 @@ echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&
 
   test("the gateway hop cost drops the warm-up, needs every call answered 200, and reports ms percentiles", () => {
     const lines = (rows: string[]) => ["noise", ...rows.map((r) => `hop-t ${r}`)].join("\n");
-    const out = lines(["200 9.000 9.000", ...Array.from({ length: 10 }, (_, i) => `200 ${((i + 1) / 100).toFixed(3)} ${((i + 1) / 10).toFixed(3)}`)]);
+    const out = lines(["200 9.000 9.000 0", ...Array.from({ length: 10 }, (_, i) => `200 ${((i + 1) / 100).toFixed(3)} ${((i + 1) / 10).toFixed(3)} 0`)]);
     expect(hopTimes(out, 10)).toEqual({ ttfb_p50: 50, ttfb_p90: 90, total_p50: 500, total_p90: 900 });
-    expect(() => hopTimes(lines(["200 0.1 0.1", "200 0.1 0.1"]), 2)).toThrow("1 of 2 timed calls");
-    expect(() => hopTimes(lines(["200 0.1 0.1", "502 0.1 0.1"]), 1)).toThrow("did not answer 200 (502)");
+    expect(() => hopTimes(lines(["200 0.1 0.1 0", "200 0.1 0.1 0"]), 2)).toThrow("1 of 2 timed calls");
+    expect(() => hopTimes(lines(["200 0.1 0.1 0", "502 0.1 0.1 0"]), 1)).toThrow("did not answer 200 whole (502 exit 0)");
+    expect(() => hopTimes(lines(["200 0.1 0.1 0", "200 0.1 0.1 18"]), 1)).toThrow("(200 exit 18)");
   });
 });
