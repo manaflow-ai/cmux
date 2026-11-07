@@ -16,7 +16,7 @@ fn applies(raw_args: &[String], surface: Surface) -> bool {
 }
 
 /// The scopes `main` runs before the mux's signal handlers, without the
-/// provider credentials: `cmux link …`, `cmux carrier dial`, `cmux host …` (the supervisor
+/// provider credentials: `cmux link …`, `cmux carrier dial|serve`, `cmux host …` (the supervisor
 /// owns SIGTERM, SIGINT and SIGHUP itself), and the team VM's own
 /// `cmux team restricted-shell|whoami` (crate `cmux-host`; the agent
 /// certificates' force-command, team-vm-plan.md S5). The function takes

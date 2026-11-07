@@ -30,7 +30,7 @@ extension SidebarListViewComponents {
         let o = SidebarDragLook.shown(options(includeGap: false), leaving: leaving)
         // A workspace drag splices its look from the drag's base (`SidebarDragLook`): only the slot's group, or the
         // dragged rows among a section's rows, are laid out again. A state the splice does not lay out falls back here.
-        if case .workspaces = drag.payload, let base = drag.base, base.key == dragBaseKey(), let look = base.look, look.options == o,
+        if case .workspaces = drag.payload, let base = drag.base, base.key == dragBaseKey(drag), let look = base.look, look.options == o,
            let layout = look.layout(to: position, metrics: metrics) {
             return layout
         }

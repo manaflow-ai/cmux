@@ -4,7 +4,8 @@ import { useLabelClock } from "../clock";
 import { translate, usePaneLanguage } from "../i18n";
 import { textLinks } from "../chips/paths";
 import { Tooltip } from "../../../ui/Tooltip";
-import { nextRelativeTime, relativeTime } from "./relativeTime";
+import { nextRelativeTime, nextReplyTime, relativeTime } from "./relativeTime";
+import { timeHoverDate } from "./timeHoverDate.experiment";
 import { timeHoverWording } from "./timeHoverWording.experiment";
 import type { ReactNode } from "react";
 
@@ -12,21 +13,57 @@ const DAY_MS = 86_400_000;
 const TOKEN_START = "\uE000";
 const TOKEN_END = "\uE001";
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/;
-const CLOCK = /^(?<hour>[01]\d|2[0-3]):(?<minute>[0-5]\d)(?::(?<second>[0-5]\d))?(?<zone>Z| UTC)?$/;
-const MERIDIEM = /^(?<hour>1[0-2]|0?[1-9])(?::(?<minute>[0-5]\d))?\s?(?<half>[AaPp])\.?[Mm]\.?(?<zone> UTC)?$/;
 const CLOCK_TIME = "(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?";
 const MERIDIEM_TIME = "(?:1[0-2]|0?[1-9])(?::[0-5]\\d)?\\s?(?:[AaPp][Mm]|[AaPp]\\.[Mm]\\.)";
-// In order, each tried first at its position: an ISO timestamp; a 12-hour time ("9pm",
-// "9:30 a.m.", "8:36 AM UTC"), in the person's zone unless it says UTC; a 24-hour time with Z or
-// UTC; and a 24-hour time right after "at" ("at 14:30"), in the person's zone.
+// Any written hour, for a time after a date ("Nov 7 3:22", "2026-11-07 15:04:30.5").
+const DATED_TIME = `(?:${MERIDIEM_TIME}|(?:[01]?\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?)`;
+// Z, UTC or GMT (with an optional offset: "UTC+2"), or an offset: "+02:00", "+0200", "-0800". A
+// minus offset with a colon is left out: "10:00-12:00" is a range, not 10:00 at UTC-12.
+const ZONE =
+  "(?:Z|\\s?(?:UTC|GMT)(?:[+-](?:1[0-4]|0?\\d)(?::?[0-5]\\d)?)?|\\s?\\+(?:1[0-4]|0\\d):?[0-5]\\d|\\s?-(?:1[0-2]|0\\d)[0-5]\\d)";
+const MONTH =
+  "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?";
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const DAY = "(?:3[01]|[12]\\d|0?[1-9])(?:st|nd|rd|th)?";
+const DATE_GAP = "(?:,? at |,? )";
+// The end of a time: not glued to a word, a path, a decimal or a further ":NN" ("foo.ts:12:30:",
+// "12:30::1", "01:23:45:10"); a label colon ("14:40: build started") is fine.
+const END = "(?![\\w/%]|:[\\w:]|\\.\\d)";
+// In order, each tried first at its position: an ISO timestamp; a date and a time ("2026-11-07
+// 15:04", "Nov 7, 2026 at 3:22 PM", "7 Nov 15:04"), in the person's zone unless it names one; a
+// 12-hour time ("9pm", "9:30 a.m.", "8:36 AM UTC"); a 24-hour time anywhere in prose ("deploy
+// finished 03:22", "15:04+02:00"), with the look-alikes NOT_CLOCK_BEFORE/AFTER name dropped
+// after the match; and an hour with no leading zero ("at 3:22") only right after "at", "by",
+// "around", "until" or "till", where it is a time and not a ratio, score or verse.
 const DETECT = new RegExp(
   [
     "\\b\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})\\b",
-    `(?<![\\w.:])${MERIDIEM_TIME}(?: UTC)?(?!\\w)`,
-    `\\b(?<![\\d.:])${CLOCK_TIME}(?:Z| UTC)\\b`,
-    `(?<=\\b[Aa]t )${CLOCK_TIME}(?![\\w:]|\\.\\d)`,
+    `\\b\\d{4}-\\d{2}-\\d{2}(?:T|${DATE_GAP})${DATED_TIME}(?:${ZONE})?${END}`,
+    `\\b${MONTH} ${DAY}(?:,? \\d{4})?${DATE_GAP}${DATED_TIME}(?:${ZONE})?${END}`,
+    `\\b${DAY} ${MONTH}(?: \\d{4})?${DATE_GAP}${DATED_TIME}(?:${ZONE})?${END}`,
+    `(?<![\\w.:])${MERIDIEM_TIME}(?:${ZONE})?(?!\\w)`,
+    `(?<![\\w.:/+#$@])(?<!(?:^|\\D)-)${CLOCK_TIME}(?:${ZONE})?${END}`,
+    `(?<=\\b(?:[Aa]t|[Bb]y|[Aa]round|[Uu]ntil|[Tt]ill) )[1-9]:[0-5]\\d(?:${ZONE})?${END}`,
   ].join("|"),
   "g",
+);
+// A time with no date or zone is dropped when its neighbors say it is a score, ratio, line:col,
+// duration or verse: "won 21:15", "aspect ratio 16:10", "line 12:30", "took 01:23:45",
+// "Psalm 23:10", "a 16:10 display", "12:30 left", "at 1:30 into the video".
+const BARE_CLOCK = /^\d{1,2}:\d{2}(?::\d{2})?$/;
+const NOT_CLOCK_BEFORE =
+  /\b(?:won|lost|beat(?:s|en)?|scor(?:e|es|ed)|final|tied|drew|draw|leads?|led|trail(?:s|ed|ing)?|record|odds|ratio|aspect|vs\.?|versus|lines?|ln|col(?:umn)?|row|verses?|chapter|ch\.|took|takes|taking|elapsed|duration|runtime|lasted|lasts|length|uptime|spent|timer|stopwatch|countdown)(?:\s+(?:is|was|of|at|by|to|for))?[\s:=]*$/i;
+const VERSE_BOOK =
+  /\b(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|Samuel|Kings|Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?|Proverbs|Ecclesiastes|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|Corinthians|Galatians|Ephesians|Philippians|Colossians|Thessalonians|Timothy|Titus|Philemon|Hebrews|James|Peter|Jude|Revelation)\s+$/;
+const NOT_CLOCK_AFTER =
+  /^\s*(?:elapsed|long|left|remaining|into|mark|runtime|duration|aspect|ratio|display|screen|monitor|widescreen|win|loss|victory|defeat|lead|odds|split|in (?:the )?(?:video|clip|recording|track|song)|of (?:video|footage|audio|runtime|playback))\b/i;
+// A zone name it cannot place ("15:04 PST", "3:22 ET"): plain rather than read in the wrong zone.
+const UNKNOWN_ZONE_AFTER = /^\s?[A-Z]{0,4}T\b/;
+const DATED = new RegExp(
+  `^(?:(?<isoYear>\\d{4})-(?<isoMonth>\\d{2})-(?<isoDay>\\d{2})(?:T|${DATE_GAP})|(?<month>${MONTH}) (?<monthDay>\\d{1,2})(?:st|nd|rd|th)?(?:,? (?<monthYear>\\d{4}))?${DATE_GAP}|(?<day>\\d{1,2})(?:st|nd|rd|th)? (?<dayMonth>${MONTH})(?: (?<dayYear>\\d{4}))?${DATE_GAP})(?<time>.+)$`,
+);
+const TIME_OF_DAY = new RegExp(
+  `^(?:(?<hour>\\d{1,2}):(?<minute>\\d{2})(?::(?<second>\\d{2})(?<fraction>\\.\\d+)?)?(?:\\s?(?<half>[AaPp])\\.?[Mm]\\.?)?|(?<onlyHour>\\d{1,2})\\s?(?<onlyHalf>[AaPp])\\.?[Mm]\\.?)(?<zone>${ZONE})?$`,
 );
 const CLOCK_TIMES = new RegExp(CLOCK_TIME, "g");
 // A list or range of clock times ("23:55 and 01:28 UTC", "23:55, 00:10 and 01:28 UTC",
@@ -36,16 +73,23 @@ const CLOCK_TOKEN = new RegExp(`(?<![\\w.:])${CLOCK_TIME}(?![\\d:])`, "g");
 const CLOCK_JOIN = /^(?:\s*,\s*(?:(?:and|or)\s+)?|\s+(?:and|or|to|through|until)\s+|\s*[\u2013\u2014-]\s*)$/;
 const ISO_SPAN = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g;
 const CLOCK_ZONE = /^(?: UTC|Z)\b/;
+// A clock time right after a date is that date's ("2026-11-07 15:04"), never part of a list.
+const DATE_BEFORE = new RegExp(
+  `(?:\\d{4}-\\d{2}-\\d{2}|\\b${MONTH} ${DAY}(?:,? \\d{4})?|\\b${DAY} ${MONTH}(?: \\d{4})?)${DATE_GAP}$`,
+);
 const MAX_JOIN = 12;
 
 /** Spans of two or more clock times joined by commas, "and", "to" or a dash, ending in a zone. */
-function clockLists(text: string): Array<{ start: number; end: number }> {
-  const lists: Array<{ start: number; end: number }> = [];
+function clockLists(text: string): Array<{ start: number; end: number; plain?: boolean }> {
+  const lists: Array<{ start: number; end: number; plain?: boolean }> = [];
   let run: { start: number; end: number; count: number } | undefined;
   const close = () => {
     if (!run || run.count < 2) return;
     const zone = text.slice(run.end, run.end + 4).match(CLOCK_ZONE);
     if (zone) lists.push({ start: run.start, end: run.end + zone[0].length });
+    // "23:55 and 01:28 PST": a zone it cannot place covers every time in the list; all stay plain.
+    else if (UNKNOWN_ZONE_AFTER.test(text.slice(run.end, run.end + 6)))
+      lists.push({ start: run.start, end: run.end, plain: true });
   };
   // Clock-like pieces of an ISO timestamp ("T05:21", "-07:00") are not clock times themselves.
   const iso = [...text.matchAll(ISO_SPAN)].map((m) => [m.index!, m.index! + m[0].length] as const);
@@ -53,7 +97,10 @@ function clockLists(text: string): Array<{ start: number; end: number }> {
   for (const match of text.matchAll(CLOCK_TOKEN)) {
     const start = match.index!;
     while (isoAt < iso.length && iso[isoAt]![1] <= start) isoAt++;
-    if (isoAt < iso.length && start >= iso[isoAt]![0]) {
+    if (
+      (isoAt < iso.length && start >= iso[isoAt]![0]) ||
+      DATE_BEFORE.test(text.slice(Math.max(0, start - 32), start))
+    ) {
       close();
       run = undefined;
       continue;
@@ -162,7 +209,9 @@ function decorateProseSegment(text: string, messageAt?: number): string {
     out += decorateSingles(text.slice(from, to), messageAt);
   };
   for (const list of clockLists(text)) {
-    const encoded = encodeMatch(text.slice(list.start, list.end), messageAt);
+    const encoded = list.plain
+      ? text.slice(list.start, list.end)
+      : encodeMatch(text.slice(list.start, list.end), messageAt);
     if (encoded === undefined) continue;
     flush(list.start);
     out += encoded;
@@ -178,12 +227,25 @@ function decorateSingles(text: string, messageAt?: number): string {
   let from = 0;
   for (const match of text.matchAll(DETECT)) {
     const source = match[0]!;
+    if (BARE_CLOCK.test(source) && looksLikeNotAClock(text, match.index!, match.index! + source.length)) continue;
     const resolved = resolveTimestamp(source, messageAt);
     if (resolved === undefined) continue;
     out += text.slice(from, match.index) + encodeToken({ source, at: resolved, messageAt });
     from = match.index! + source.length;
   }
   return from ? out + text.slice(from) : text;
+}
+
+/** Whether the words around a bare "12:30" make it a score, ratio, line:col, duration or verse. */
+function looksLikeNotAClock(text: string, start: number, end: number): boolean {
+  const before = text.slice(Math.max(0, start - 32), start);
+  const after = text.slice(end, end + 32);
+  return (
+    NOT_CLOCK_BEFORE.test(before) ||
+    VERSE_BOOK.test(before) ||
+    NOT_CLOCK_AFTER.test(after) ||
+    UNKNOWN_ZONE_AFTER.test(after)
+  );
 }
 
 function encodeMatch(source: string, messageAt?: number): string | undefined {
@@ -195,7 +257,7 @@ function encodeMatch(source: string, messageAt?: number): string | undefined {
   let reference = messageAt!;
   for (let index = times.length - 1; index >= 0; index--) {
     const clock = parseClock(times[index]![0]);
-    reference = index === times.length - 1 ? nearestClock(clock, "utc", reference) : latestClock(clock, reference);
+    reference = index === times.length - 1 ? nearestClock(clock, 0, reference) : latestClock(clock, reference);
     resolved[index] = reference;
   }
   let out = "";
@@ -213,33 +275,94 @@ function encodeMatch(source: string, messageAt?: number): string | undefined {
 
 /** Resolve one supported timestamp to epoch milliseconds. A time with no date is the occurrence
  *  nearest `messageAt`, within 12 hours either way: "08:36Z" written at 08:21Z is that day's,
- *  "23:50Z" written at 00:10Z the day before, "00:05Z" written at 23:55Z the day after. */
+ *  "23:50Z" written at 00:10Z the day before, "00:05Z" written at 23:55Z the day after. A date
+ *  with no year is in the year nearest `messageAt`. An hour written with no leading zero, AM/PM
+ *  or zone ("at 3:22") is whichever half of the day is nearer. */
 export function resolveTimestamp(source: string, messageAt?: number): number | undefined {
   if (ISO.test(source)) {
     const parsed = Date.parse(source);
     return Number.isFinite(parsed) ? parsed : undefined;
   }
+  const dated = source.match(DATED);
+  const time = parseTimeOfDay(dated ? dated.groups!.time! : source);
+  if (!time) return undefined;
+  if (dated) return resolveDated(dated.groups!, time, messageAt);
   if (!Number.isFinite(messageAt)) return undefined;
-  const clock = source.match(CLOCK);
-  if (clock) {
-    const { hour, minute, second, zone } = clock.groups!;
-    const time = { hour: Number(hour), minute: Number(minute), second: Number(second ?? 0) };
-    return nearestClock(time, zone ? "utc" : "local", messageAt!);
-  }
-  const meridiem = source.match(MERIDIEM);
-  if (!meridiem) return undefined;
-  const { hour, minute, half, zone } = meridiem.groups!;
-  const time = {
-    hour: (Number(hour) % 12) + (half!.toLowerCase() === "p" ? 12 : 0),
-    minute: Number(minute ?? 0),
-    second: 0,
-  };
-  return nearestClock(time, zone ? "utc" : "local", messageAt!);
+  const reference = messageAt!;
+  const nearest = nearestClock(time.clock, time.zone, reference);
+  if (!time.eitherHalf) return nearest;
+  const later = nearestClock({ ...time.clock, hour: time.clock.hour + 12 }, time.zone, reference);
+  const distance = Math.abs(later - reference) - Math.abs(nearest - reference);
+  return distance < 0 || (distance === 0 && later < nearest) ? later : nearest;
 }
 
-type Clock = { hour: number; minute: number; second: number };
-/** UTC, or the person's own zone (the page's). */
-type Zone = "utc" | "local";
+type Clock = { hour: number; minute: number; second: number; ms?: number };
+/** The person's own zone (the page's), or a fixed offset east of UTC in minutes (UTC is 0). */
+type Zone = "local" | number;
+type TimeOfDay = { clock: Clock; zone: Zone; eitherHalf: boolean };
+
+function parseTimeOfDay(text: string): TimeOfDay | undefined {
+  const match = text.match(TIME_OF_DAY);
+  if (!match) return undefined;
+  const { hour, minute, second, fraction, half, onlyHour, onlyHalf, zone } = match.groups!;
+  const meridiem = half ?? onlyHalf;
+  let h = Number(hour ?? onlyHour);
+  if (meridiem) {
+    if (h < 1 || h > 12) return undefined;
+    h = (h % 12) + (meridiem.toLowerCase() === "p" ? 12 : 0);
+  } else if (h > 23) return undefined;
+  const parsedZone = parseZone(zone);
+  if (parsedZone === undefined) return undefined;
+  const clock = {
+    hour: h,
+    minute: Number(minute ?? 0),
+    second: Number(second ?? 0),
+    ms: fraction ? Math.round(Number(fraction) * 1000) : 0,
+  };
+  if (clock.minute > 59 || clock.second > 59) return undefined;
+  const eitherHalf = !meridiem && parsedZone === "local" && hour !== undefined && hour.length === 1 && h >= 1;
+  return { clock, zone: parsedZone, eitherHalf };
+}
+
+function parseZone(zone: string | undefined): Zone | undefined {
+  const text = zone?.trim();
+  if (!text) return "local";
+  if (text === "Z" || text === "UTC" || text === "GMT") return 0;
+  const offset = text.match(/^(?:UTC|GMT)?([+-])(\d{1,2})(?::?(\d{2}))?$/);
+  if (!offset) return undefined;
+  const minutes = Number(offset[2]) * 60 + Number(offset[3] ?? 0);
+  return offset[1] === "-" ? -minutes : minutes;
+}
+
+function resolveDated(groups: Record<string, string | undefined>, time: TimeOfDay, messageAt?: number) {
+  const monthName = groups.month ?? groups.dayMonth;
+  const month = monthName ? MONTHS.indexOf(monthName.slice(0, 3).toLowerCase()) : Number(groups.isoMonth) - 1;
+  const day = Number(groups.isoDay ?? groups.monthDay ?? groups.day);
+  const year = groups.isoYear ?? groups.monthYear ?? groups.dayYear;
+  const clock = time.clock;
+  if (year) return atDate(Number(year), month, day, clock, time.zone);
+  // No year: the one nearest the message ("Jan 2" written in November is next year's).
+  if (!Number.isFinite(messageAt)) return undefined;
+  const own = new Date(messageAt!).getFullYear();
+  let best: number | undefined;
+  for (const candidate of [own - 1, own, own + 1]) {
+    const at = atDate(candidate, month, day, clock, time.zone);
+    if (at !== undefined && (best === undefined || Math.abs(at - messageAt!) < Math.abs(best - messageAt!))) best = at;
+  }
+  return best;
+}
+
+/** `clock` on the calendar date `year`-`month`-`day` in `zone`; undefined for a date that does not exist. */
+function atDate(year: number, month: number, day: number, clock: Clock, zone: Zone): number | undefined {
+  if (month < 0 || month > 11) return undefined;
+  if (zone === "local") {
+    const at = new Date(year, month, day, clock.hour, clock.minute, clock.second, clock.ms ?? 0);
+    return at.getMonth() === month && at.getDate() === day ? at.getTime() : undefined;
+  }
+  const at = Date.UTC(year, month, day, clock.hour, clock.minute, clock.second, clock.ms ?? 0);
+  const check = new Date(at);
+  return check.getUTCMonth() === month && check.getUTCDate() === day ? at - zone * 60_000 : undefined;
+}
 
 function parseClock(time: string): Clock {
   const [hour, minute, second] = time.split(":").map(Number);
@@ -248,24 +371,31 @@ function parseClock(time: string): Clock {
 
 /** `clock` on `reference`'s calendar day in `zone`, moved by `shift` days. */
 function onDay(clock: Clock, zone: Zone, reference: number, shift: number): number {
-  const day = new Date(reference);
-  return zone === "utc"
-    ? Date.UTC(
-        day.getUTCFullYear(),
-        day.getUTCMonth(),
-        day.getUTCDate() + shift,
-        clock.hour,
-        clock.minute,
-        clock.second,
-      )
-    : new Date(
-        day.getFullYear(),
-        day.getMonth(),
-        day.getDate() + shift,
-        clock.hour,
-        clock.minute,
-        clock.second,
-      ).getTime();
+  if (zone === "local") {
+    const day = new Date(reference);
+    return new Date(
+      day.getFullYear(),
+      day.getMonth(),
+      day.getDate() + shift,
+      clock.hour,
+      clock.minute,
+      clock.second,
+      clock.ms ?? 0,
+    ).getTime();
+  }
+  const day = new Date(reference + zone * 60_000);
+  return (
+    Date.UTC(
+      day.getUTCFullYear(),
+      day.getUTCMonth(),
+      day.getUTCDate() + shift,
+      clock.hour,
+      clock.minute,
+      clock.second,
+      clock.ms ?? 0,
+    ) -
+    zone * 60_000
+  );
 }
 
 /** The occurrence of `clock` nearest `reference`; exactly 12 hours either way reads as the earlier. */
@@ -282,7 +412,7 @@ function nearestClock(clock: Clock, zone: Zone, reference: number): number {
 
 /** The latest UTC occurrence of `clock` at or before `reference` (an earlier time in a list). */
 function latestClock(clock: Clock, reference: number): number {
-  const resolved = onDay(clock, "utc", reference, 0);
+  const resolved = onDay(clock, 0, reference, 0);
   return resolved > reference ? resolved - DAY_MS : resolved;
 }
 
@@ -320,19 +450,27 @@ export function splitTimeTokens(text: string): Array<string | TimeToken> {
   return out.length ? out : [text];
 }
 
-function localTime(at: number, locale?: string): string {
+/** How a hover names its date (timeHoverDate.experiment.ts). */
+export type TimeHoverDate = "date" | "other-day" | "time";
+
+function sameLocalDay(a: number, b: number): boolean {
+  return new Date(a).toDateString() === new Date(b).toDateString();
+}
+
+/** "Nov 7, 3:14 PM PST" (the year only when it is not `now`'s), or "3:14 PM PST" with no date. */
+function localTime(at: number, now: number, date: TimeHoverDate, locale?: string): string {
+  const withDate = date === "date" || (date === "other-day" && !sameLocalDay(at, now));
+  const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
+  const fields: Intl.DateTimeFormatOptions = {
+    ...(withDate ? { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) } : {}),
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  };
   try {
-    return new Intl.DateTimeFormat(locale, {
-      hour: "numeric",
-      minute: "2-digit",
-      timeZoneName: "short",
-    }).format(at);
+    return new Intl.DateTimeFormat(locale, fields).format(at);
   } catch {
-    return new Intl.DateTimeFormat(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-      timeZoneName: "short",
-    }).format(at);
+    return new Intl.DateTimeFormat(undefined, fields).format(at);
   }
 }
 
@@ -381,8 +519,9 @@ export function timestampHoverLabel(
   locale?: string,
   messageAt?: number,
   wording: TimeHoverWording = "message",
+  date: TimeHoverDate = "date",
 ): string {
-  const local = localTime(at, locale);
+  const local = localTime(at, now, date, locale);
   if (at - now >= 60_000) return `${local}, ${shortRelative(at - now, 1, locale)}`;
   const age = Math.max(0, now - at);
   const ago = age < 60_000 ? relativeTime(at, now, locale) : shortRelative(age, -1, locale);
@@ -397,8 +536,19 @@ export function nextTimestampHover(
   now: number,
   messageAt?: number,
   wording: TimeHoverWording = "message",
+  date: TimeHoverDate = "date",
 ): number {
   if (!Number.isFinite(at)) return Infinity;
+  const age = nextAgeChange(at, now, messageAt, wording);
+  if (date === "time") return age;
+  // The date's year appears or drops at a new year; "other-day" also changes at local midnight.
+  const year = nextReplyTime(at, now);
+  if (date === "date") return Math.min(age, year);
+  const midnight = new Date(now);
+  return Math.min(age, year, new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate() + 1).getTime());
+}
+
+function nextAgeChange(at: number, now: number, messageAt: number | undefined, wording: TimeHoverWording): number {
   const ahead = at - now;
   if (ahead >= 60_000) {
     // "in N unit" changes when the rounded count drops, at the switch to a smaller unit, and
@@ -428,13 +578,14 @@ export function nextTimestampHover(
 export function TimeHover({ token }: { token: TimeToken }): ReactNode {
   const { messageAt } = token;
   const wording = experimentArm(timeHoverWording);
+  const date = experimentArm(timeHoverDate);
   const next = useCallback(
-    (at: number, now: number) => nextTimestampHover(at, now, messageAt, wording),
-    [messageAt, wording],
+    (at: number, now: number) => nextTimestampHover(at, now, messageAt, wording, date),
+    [messageAt, wording, date],
   );
   const now = useLabelClock(token.at, next);
   const locale = usePaneLanguage();
-  const label = timestampHoverLabel(token.at, now, locale, messageAt, wording);
+  const label = timestampHoverLabel(token.at, now, locale, messageAt, wording, date);
   return (
     <Tooltip label={label} side="top">
       <time
