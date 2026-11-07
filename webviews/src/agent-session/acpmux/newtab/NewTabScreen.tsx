@@ -35,12 +35,8 @@ import {
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
 import type { UploadResult } from "../cloudUploads";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  useAttachmentIntake,
-  useSendWhenAttached,
-} from "../composer/attachmentIntake";
+import { AttachmentStrip } from "../composer/attachmentIntake";
+import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "../composer/pastedChips";
 import { DropOverlay } from "../composer/DropOverlay";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
@@ -486,7 +482,7 @@ export function NewTabScreen(props: Props) {
   // selection (inlineAttachments.tsx `place`): only a paste does.
   const inlinePlace = useRef<
     | ((
-        chips: readonly import("../composer/attachmentIntake").PendingAttachment[],
+        chips: readonly import("../composer/attachmentIntakeModel").PendingAttachment[],
         kind: DroppedKind | undefined,
       ) => void)
     | undefined
