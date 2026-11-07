@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextHomeModel
@@ -8,6 +9,22 @@ public import Foundation
 // The Messages page's wire (`webviews/src/pages/home-messages`): the Home model values its host
 // (the App's `HomeMessagesHostProvider`) sends, in the shapes the page parses (sheets/wire.ts,
 // detail/detailHost.ts). Values only: no view, no service.
+
+extension HomeChatColorStore {
+    /// The `appearance` stream (detail/detailHost.ts parseAppearance): the bubble look, a Chief's
+    /// look, the default and per-chat colours (Settings > Design), and the composer's spell checking.
+    @MainActor public static func pageAppearance(_ store: HomeChatColorStore, spellChecking: Bool) -> JSONValue {
+        let design = DesignSettings.shared
+        let chats = store.chats.reduce(into: [String: JSONValue]()) { $0[$1.key] = $1.value.pageJSON }
+        return .object([
+            "look": .string("imessage"),
+            "chiefLook": .string(design.homeChiefBubblesThemed ? "theme" : "imessage"),
+            "defaults": Self.colors(fromHexes: design.homeBubbleColors).pageJSON,
+            "colors": .object(chats),
+            "spellChecking": .bool(spellChecking),
+        ])
+    }
+}
 
 extension HomeMessageRequest {
     /// As the Messages page reads it (sheets/model.ts).

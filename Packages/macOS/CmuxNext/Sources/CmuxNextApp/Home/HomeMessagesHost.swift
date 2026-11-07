@@ -237,15 +237,7 @@ final class HomeMessagesHostProvider: PageProvider {
 
     private func appearance() -> JSONValue {
         guard let home = services?.home else { return .null }
-        let design = DesignSettings.shared
-        let colors = home.chatColors.chats.reduce(into: [String: JSONValue]()) { $0[$1.key] = $1.value.pageJSON }
-        return .object([
-            "look": .string("imessage"),
-            "chiefLook": .string(design.homeChiefBubblesThemed ? "theme" : "imessage"),
-            "defaults": HomeChatColorStore.colors(fromHexes: design.homeBubbleColors).pageJSON,
-            "colors": .object(colors),
-            "spellChecking": .bool(services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false),
-        ])
+        return HomeChatColorStore.pageAppearance(home.chatColors, spellChecking: services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false)
     }
 
     private func watchAppearance() {
