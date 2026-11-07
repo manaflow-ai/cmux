@@ -52,6 +52,8 @@ GROUPS = (
 # imports, a working-directory, a submodule). Paths a step runs directly are
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
+    "scripts/ci/signing-runner-claim.sh": frozenset(("ci",)),
+    "scripts/ci/glaeda-signing-hooks.txt": frozenset(("ci",)),
     ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
     # tests/test_ci_gate_absent_signal.py imports the gate verdict.
     "scripts/ci/gate_verdict.py": frozenset(("ci",)),
@@ -141,9 +143,16 @@ PATH_OWNERS = {
     "scripts/ci/nightly_sign_admit.py": frozenset(("ci", "release-notary")),
     "scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh": frozenset(("release-notary",)),
     "scripts/ci/nightly-sparkle-key.sh": frozenset(("release-notary",)),
+    # tests/test_download_run_artifact.py imports it; nightly.yml runs it.
+    "scripts/ci/download-run-artifact.py": frozenset(("release-notary",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
     "scripts/ci/ci_health_report.py": frozenset(("ci",)),
     "scripts/ci/queue_janitor.py": frozenset(("ci",)),
+    # The delivery workflow list: test_nightly_delivery_concurrency.py (release-notary) and
+    # queue_janitor.py (ci) both import it.
+    "scripts/ci/delivery_workflows.py": frozenset(("ci", "release-notary")),
+    # The shared-group check test_nightly_delivery_concurrency.py (release-notary) imports.
+    "scripts/ci/delivery_concurrency.py": frozenset(("release-notary",)),
     # test_ci_starved_labels.py (ci) loads it by path; queue_janitor.py imports it.
     "scripts/ci/starved_labels.py": frozenset(("ci",)),
     "scripts/ci/required_status_checks.py": frozenset(("ci",)),

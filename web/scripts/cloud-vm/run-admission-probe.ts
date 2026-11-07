@@ -4,8 +4,8 @@ import { closeCloudDbForTests, cloudDb } from "../../db/client";
 import { cloudDbConfig } from "../../db/config";
 import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import { runs } from "../../db/schema";
-import { createRunRecord, readRunSnapshot } from "../../services/runs/repository";
-import { normalizeRunSpec, runSpecDigest } from "../../services/runs/spec";
+import { createRunRecord, readRunSnapshot } from "../../services/runs/legacy/repository";
+import { normalizeRunSpec, runSpecDigest } from "../../services/runs/legacy/spec";
 
 /** Never serialize messages, stacks, SQL, parameters, connection options or causes. */
 export function safeRunAdmissionError(error: unknown): Record<string, string> {

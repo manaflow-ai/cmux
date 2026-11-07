@@ -14,6 +14,7 @@ import {
   ACCOUNT_HISTORY_KEY,
   PENDING_OAUTH_KEY,
   accountInitials,
+  authErrorHref,
   demoteRememberedMethod,
   emailCodeRefusal,
   forgetAccount,
@@ -31,6 +32,8 @@ import {
   signInEntry,
   signInIsForApp,
   signUpPendingHref,
+  signUpRefusal,
+  withRefusalCode,
   type EmailCodeRefusal,
   type RememberedAccount,
 } from "./sign-in-entry";
@@ -1117,14 +1120,14 @@ function EmailCode({ messages, email, onEmailChange, onUsePassword }: {
       const result = await app.sendMagicLinkEmail(email.trim());
       if (result.status === "error") {
         console.error("[cmux sign-in] sending the code was refused", result.error);
-        setError(messages.errorGeneric);
+        setError(withRefusalCode(messages.errorGeneric, result.error));
         return;
       }
       setStep({ kind: "code", email: email.trim(), nonce: result.data.nonce });
     } catch (caught) {
       const refusal = emailCodeRefusal(caught);
       setUnverified(refusal === "unverified-account");
-      setError(emailCodeRefusalMessage[refusal](messages));
+      setError(refusal === "generic" ? withRefusalCode(messages.errorGeneric, caught) : emailCodeRefusalMessage[refusal](messages));
       if (refusal === "generic") console.error("[cmux sign-in] sending the code failed", caught);
     } finally {
       setBusy(false);
@@ -1260,7 +1263,7 @@ function PasswordSignIn({ messages, returnTo, email, onEmailChange, focusPasswor
       }
     } catch (caught) {
       console.error("[cmux sign-in] password sign-in failed", caught);
-      setEmailError(messages.errorGeneric);
+      setEmailError(withRefusalCode(messages.errorGeneric, caught));
     } finally {
       setBusy(false);
     }
@@ -1318,6 +1321,21 @@ function PasswordSignUp({ messages, email, onEmailChange }: {
     return messages.errorGeneric;
   }
 
+  function showRefusal(error: unknown, pending: string) {
+    const refusal = signUpRefusal(error);
+    if (refusal === "account-exists") {
+      // Same page as a successful sign-up: never reveal that the account exists.
+      window.location.assign(pending);
+      return;
+    }
+    if (refusal === "sign-up-disabled") {
+      setEmailError(messages.errorSignUpNotAllowed);
+      return;
+    }
+    console.error("[cmux sign-in] password sign-up failed", error);
+    setEmailError(withRefusalCode(messages.errorGeneric, error));
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     const badEmail = isValidEmail(email) ? null : messages.errorInvalidEmail;
@@ -1337,15 +1355,9 @@ function PasswordSignUp({ messages, email, onEmailChange }: {
         await app.signOut({ redirectUrl: pending });
         return;
       }
-      if (result.error.errorCode === "USER_EMAIL_ALREADY_EXISTS") {
-        // Same page as a successful sign-up: never reveal that the account exists.
-        window.location.assign(pending);
-        return;
-      }
-      setEmailError(messages.errorGeneric);
+      showRefusal(result.error, pending);
     } catch (caught) {
-      console.error("[cmux sign-in] password sign-up failed", caught);
-      setEmailError(messages.errorGeneric);
+      showRefusal(caught, signUpPendingHref(new URL(window.location.href)));
     } finally {
       setBusy(false);
     }
@@ -1495,7 +1507,7 @@ export function CmuxOAuthCallback({ messages }: { messages: CmuxSignInMessages }
         }
         const code = KnownErrors.ContactChannelAlreadyUsedForAuthBySomeoneElse.isInstance(caught) ? "email-unverified" : null;
         if (!code) console.error("[cmux sign-in] OAuth callback failed", caught);
-        window.location.replace(code ? `/handler/auth-error?code=${code}` : "/handler/auth-error");
+        window.location.replace(authErrorHref(code, new URLSearchParams(window.location.search)));
       });
   }, [app]);
 

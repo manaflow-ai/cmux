@@ -18,12 +18,13 @@ export type ProAnnualLabels = {
 };
 
 /**
- * The recurring personal-plan pricing card. Pro and Max are sold yearly, so
- * the card owns the billing period: its price, checkout link, and CTA
- * analytics always agree.
- * Yearly is the default. The period toggle sits in the header row and the
- * yearly note sits under the button, so the price block and the button line
- * up with the Free and Max cards in either period.
+ * The recurring personal-plan pricing card. Pro and Max are sold monthly or
+ * yearly, so the card owns the billing period: its price, checkout link, and
+ * CTA analytics always agree.
+ * Monthly is the default and listed first, so checkout opens on the monthly
+ * price; yearly shows its per-month equivalent. The period toggle sits in the
+ * header row and the yearly note sits under the button, so the price block
+ * and the button line up with the Free and Max cards in either period.
  */
 export function ProPlanCard({
   name,
@@ -36,7 +37,7 @@ export function ProPlanCard({
   ctaLabel,
   action,
   monthlyOnly = false,
-  initialInterval = "year",
+  initialInterval = "month",
   plan = "pro",
   pricing,
   children,
@@ -57,7 +58,7 @@ export function ProPlanCard({
    * offers monthly prices only (a Go subscriber upgrading), so no toggle.
    */
   monthlyOnly?: boolean;
-  /** A link back from checkout (`?interval=month`) keeps the buyer's period. */
+  /** A link back from checkout (`?interval=year`) keeps the buyer's period. */
   initialInterval?: BillingInterval;
   plan?: "pro" | "max";
   pricing?: Readonly<Record<BillingInterval, PlanPrice>>;
@@ -92,7 +93,7 @@ export function ProPlanCard({
           {/* Native radios give the arrow-key and single-tab-stop behavior. */}
           <fieldset className="flex items-center gap-1.5 text-sm">
             <legend className="sr-only">{labels.billingPeriod}</legend>
-            {(["year", "month"] as const).map((option, index) => (
+            {(["month", "year"] as const).map((option, index) => (
               <span key={option} className="flex items-center gap-1.5">
                 {index > 0 ? (
                   <span aria-hidden className="text-muted">

@@ -72,7 +72,15 @@ them wait. When p90 climbs while minutes-per-job stay flat, no build regressed
 - **Same job failing across ≥3 unrelated heads.** Grouping by head SHA is what
   makes this a main signal rather than one author's problem. One PR failing the
   same job ten times is not here; the same job failing on heads that share
-  nothing is.
+  nothing is. A pull request's failure counts only at its current head: the
+  head GitHub's `pull_requests` link on its runs names, matched by pull request
+  number, never by branch name. A red at a commit the pull request has since
+  replaced, such as a stale CLA policy guard event, says nothing about it. A
+  run with no pull request link (a fork's) is never treated as superseded, and
+  a run several pull requests share is superseded only once all of them moved
+  past it. Links count only for pull requests into this repository (owner/name)
+  whose head repository is the run's own, and for any event but push and
+  schedule (workflow_run and review runs too).
 - **Workflows ≥90% skipped** (with at least 20 runs in the window). A shim that
   decides it had nothing to do is cheap per run and expensive per day: it still
   queues, still writes a check, and still fills every list of runs anybody
@@ -91,6 +99,38 @@ them wait. When p90 climbs while minutes-per-job stay flat, no build regressed
   Check any entry against the intended steady state in `docs/ci-runners.md` —
   minutes that are not a deliberate, temporary overflow mean a
   `MACOS_RUNNER_*` variable has drifted.
+
+### Actions cache
+
+`scripts/ci/actions_cache_report.py` adds two tables.
+
+- **GitHub store.** This is `/actions/caches` and `/actions/cache/usage`: the
+  store's size against the default 10 GB, the largest key prefixes (each key up
+  to its first content hash), and how much sits on refs other than `main` and
+  `feat-cmux-next`. Only that ref and its own pull requests read such an entry,
+  and the store evicts by least-recent use once it is full. So a branch-scoped
+  share that keeps growing pushes the shared entries out. Only runners outside
+  Blacksmith write here (the owned minis). On a Blacksmith runner,
+  `actions/cache` uses Blacksmith's own store next to the runner (25 GB per
+  repository; entries unused for 7 days are evicted). This API does not list
+  that store. When the store holds more entries than the report lists (500,
+  largest first), it says how many it listed and that the other-ref share is a
+  lower bound.
+- **Restores.** The report reads the logs of up to `CI_HEALTH_CACHE_LOG_JOBS`
+  (default 20) sampled jobs that have a cache step or a setup action that can
+  restore one (`actions/setup-node` with `cache: npm`, say), one per workflow
+  and job name per round; jobs whose only candidate is a setup action fill the
+  sample last. Jobs that succeeded, failed or timed out count; cancelled jobs
+  and runs from forks do not. Log reads stop after 5 minutes, with a note. It classifies every cache invocation from the lines the cache
+  actions print, on either store. The classes are an exact hit, a prefix
+  (`restore-keys`) hit, a miss, and a failed restore, where the action printed
+  `Failed to restore`: at lookup, or after the entry downloaded and the untar
+  failed (for example over a read-only Go module cache). It also
+  counts saves refused with "Unable to reserve cache", because another job held
+  the key. R2 restores through `.github/actions/cache-restore` are read from
+  their `CMUX_CACHE_RESTORE` receipts, and so are its GitHub and Warp restores
+  when the cache action printed no result (an unavailable cache service). A log
+  cut at the read cap, or one that could not be read, leaves a note. Rows are sorted worst hit rate first.
 
 ### Comparison against the previous window
 
@@ -123,6 +163,7 @@ Caps are repository variables, all optional:
 | `CI_HEALTH_MAX_JOB_LISTINGS` | 120 | Runs whose jobs are fetched |
 | `CI_HEALTH_JOBS_PER_WORKFLOW` | 3 | Job listings spent on any one workflow |
 | `CI_HEALTH_REPORT_ISSUE` | unset | Tracking issue; unset means summary only |
+| `CI_HEALTH_CACHE_LOG_JOBS` | 20 | Job logs read for the cache restore table (0..60) |
 
 ## Thresholds that should trigger action
 
@@ -135,6 +176,9 @@ Caps are repository variables, all optional:
 | Workflow skipped share | **≥ 90%** over ≥20 runs | A shim paying a run to decide nothing | Move the condition into the trigger (path/branch filters) so the run is never created |
 | macOS minutes in cancelled jobs | any large column | Work paid for and thrown away | Cancel earlier (janitor threshold) or start later (gate before the expensive step) |
 | Reruns of an unchanged tree | any repeated head | Re-running a tree nobody changed | Check what re-requests checks — bot PR-body edits are a known source — and make the required check idempotent per SHA |
+| Cache hit rate | **0%** over several jobs | The key never comes back: it changes every run, or it is saved where the reader cannot see it | Fix the key, add `restore-keys`, or stop saving it |
+| Failed restores | any | The entry downloads and then fails to untar | Skip that cache on the runner class that fails (owned minis keep their own tool caches) |
+| GitHub store on other refs | **> 50%** of a full store | Branch saves no other run can read are evicting shared entries | Save only from `main`/`feat-cmux-next` (`save-if`, or restore-only on branches) |
 | Fork minutes | rising | Fork PRs take the expensive path with no cache | Give fork PRs a cheaper lane, or an explicitly warmed one |
 
 A threshold crossing is a prompt to look, not an automatic verdict. The tables

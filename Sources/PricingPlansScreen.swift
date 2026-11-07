@@ -464,7 +464,7 @@ private struct NativePricingPlansView: View {
         if snapshot.isMax {
             plan = String(localized: "pricing.native.plan.max", defaultValue: "Max")
         } else if snapshot.isGo {
-            plan = String(localized: "pricing.native.plan.go", defaultValue: "Go")
+            plan = String(localized: "pricing.native.plan.go", defaultValue: "Plus")
         } else if snapshot.isPro {
             plan = String(localized: "pricing.native.plan.pro", defaultValue: "Pro")
         } else {
@@ -514,17 +514,17 @@ private struct NativePricingPlansView: View {
             )
             if snapshot.isGo || (CmuxFeatureFlags.shared.isGoPlanEnabled && !snapshot.isPro) {
                 NativePricingPlanCard(
-                    name: String(localized: "pricing.native.plan.go", defaultValue: "Go"),
-                    price: String(localized: "pricing.native.go.price", defaultValue: "$10"),
+                    name: String(localized: "pricing.native.plan.go", defaultValue: "Plus"),
+                    price: String(localized: "pricing.native.go.price", defaultValue: "$15"),
                     period: String(localized: "pricing.native.period.month", defaultValue: "/month"),
                     isCurrent: snapshot.isGo,
-                    actionTitle: snapshot.isGo ? String(localized: "pricing.native.currentPlan", defaultValue: "Current plan") : String(localized: "pricing.native.go.cta", defaultValue: "Get Go"),
+                    actionTitle: snapshot.isGo ? String(localized: "pricing.native.currentPlan", defaultValue: "Current plan") : String(localized: "pricing.native.go.cta", defaultValue: "Get Plus"),
                     action: snapshot.isGo ? { ProUpgradePresenter.presentBillingPortal() } : { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview, plan: .go) },
                     isProminent: snapshot.isGo,
                     features: [
-                        String(localized: "pricing.native.go.feature.vm", defaultValue: "1 active Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"),
-                        String(localized: "pricing.native.go.feature.saved", defaultValue: "2 saved VMs"),
-                        String(localized: "pricing.native.go.feature.hours", defaultValue: "40 included VM-hours each month; pauses at the limit"),
+                        String(localized: "pricing.native.go.feature.vm", defaultValue: "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk"),
+                        String(localized: "pricing.native.go.feature.saved", defaultValue: "1 saved VM total, including paused machines"),
+                        String(localized: "pricing.native.go.feature.hours", defaultValue: "No monthly hour cap"),
                     ]
                 )
             }

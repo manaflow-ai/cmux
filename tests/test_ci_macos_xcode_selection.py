@@ -52,6 +52,8 @@ EXEMPT = {
         "runs the relay TLS verifier under Xcode 16.2 / Swift 6, below the "
         "floor on purpose",
     ("remote-daemon.yml", "remote-daemon-macos-tests"): "Go only; no Xcode",
+    ("nightly-next-launch-smoke.yml", "smoke"):
+        "launches the published nightly-next DMG; builds nothing, no Xcode",
     ("ci.yml", "claude-wrapper"): "shell wrapper tests only; no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
