@@ -502,6 +502,30 @@ async fn move_to_a_fresh_machine(fault: Fault) {
                 .map(|e| json!([e["seq"], e["kind"], e["at"], e["msg"]["promptId"]]))
                 .collect();
             eprintln!("A saw of the prompts: {saw:?}");
+            // B2's log files as they are on its disk, each line's seq and kind.
+            let mut dirs = vec![snapshot.clone()];
+            while let Some(dir) = dirs.pop() {
+                for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        dirs.push(path);
+                        continue;
+                    }
+                    let name = path.to_string_lossy().into_owned();
+                    if !name.contains(&id) || !name.contains("/events/") {
+                        continue;
+                    }
+                    let text = std::fs::read_to_string(&path).unwrap_or_default();
+                    let lines: Vec<String> = text
+                        .lines()
+                        .map(|l| {
+                            let v: Value = serde_json::from_str(l).unwrap_or_default();
+                            format!("{}:{}", v["seq"], v["kind"].as_str().unwrap_or("?"))
+                        })
+                        .collect();
+                    eprintln!("B2 FILE {name}: {}", lines.join(" "));
+                }
+            }
             panic!(
                 "p2 never ran on the fresh machine.\npeers: {:?}\ncopy lastSeq {} hostLastSeq {}\nsent: {sent:?}\nB2: {kinds:?}",
                 a.peers(),
