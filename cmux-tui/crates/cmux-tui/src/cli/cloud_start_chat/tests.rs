@@ -1580,6 +1580,75 @@ fn a_pending_new_machine_with_an_id_is_asked_again_by_that_id() {
     }
 }
 
+/// A create the app answers pending with no machine id yet (only its `creation_id`) is asked again by the name the
+/// run gave it, and asking again while it is still on its way (`list-machines` lists it as `creating`) never makes a
+/// second machine: the fifth review of #37159.
+#[test]
+fn a_pending_create_with_no_id_is_asked_again_by_its_name_and_never_made_twice() {
+    let secs = Duration::from_secs;
+    let pending = || ok(json!({"pending": true, "status": "creating", "creation_id": "c-1"}));
+    let cases: [(&str, &[&str], u64); 4] = [
+        (
+            "--environment's create, late",
+            &["--environment", "env_1", "--wait", "--timeout", "30"],
+            30,
+        ),
+        ("the relay's create, late", &["--wait", "--timeout", "60"], 60),
+        ("--environment's create, in time, no --wait", &["--environment", "env_1"], 5),
+        ("the relay's create, in time", &["--wait"], 5),
+    ];
+    for (case, words, cost) in cases {
+        let mut all = vec!["--prompt", "x"];
+        all.extend_from_slice(words);
+        let mut fake = Fake::new(vec![signed_in(), pending()]);
+        fake.slow.push((1, secs(cost)));
+        let Outcome::Failed { error, exit } = run(&mut fake, &request(&all)) else {
+            panic!("{case}: {:?}", fake.ran)
+        };
+        assert_eq!(
+            (error["code"].as_str(), exit),
+            (Some("cloud.start_pending"), 75),
+            "{case}: {error}"
+        );
+        assert_eq!(fake.ran.len(), 2, "{case}: {:?}", fake.ran);
+        let create = &fake.ran[1];
+        let at = create
+            .iter()
+            .position(|w| w == "--name")
+            .unwrap_or_else(|| panic!("{case}: {create:?}"));
+        assert_eq!(create[at + 1], "chat-fresh", "{case}: the run names its own create");
+        let again = error["details"]["again"].as_str().unwrap_or_default();
+        assert!(again.contains("--name chat-fresh"), "{case}: {error}");
+        assert!(
+            !again.contains("--environment"),
+            "{case}: the create has its environment: {again}"
+        );
+        assert_eq!(error["details"]["creation_id"], "c-1", "{case}: {error}");
+
+        // Asked again while the create is still on its way, or after it failed: no second machine.
+        let rerun: Vec<&str> =
+            again.split_whitespace().skip(3).filter(|word| *word != "--json").collect();
+        for (status, code, exit) in
+            [("creating", "cloud.start_pending", 75), ("failed", "cloud.start_failed", 1)]
+        {
+            let listed = ok(json!({"account": {"signed_in": true}, "loaded": true,
+                "machines": [{"title": "dev", "machine_id": "vm-0"}],
+                "creating": [{"creation_id": "c-1", "name": "chat-fresh", "status": status,
+                              "reason": "no capacity"}]}));
+            let mut fake = Fake::new(vec![listed]);
+            let Outcome::Failed { error, exit: got } = run(&mut fake, &request(&rerun)) else {
+                panic!("{case}, {status}: {:?}", fake.ran)
+            };
+            assert_eq!(
+                (error["code"].as_str(), got),
+                (Some(code), exit),
+                "{case}, {status}: {error}"
+            );
+            assert_eq!(fake.ran.len(), 1, "{case}, {status}: nothing made: {:?}", fake.ran);
+        }
+    }
+}
+
 /// The removal of the run's own prompt file after a failed upload or send is never a step past `--timeout`: with a
 /// deadline it is left (mode 0600, in ~/.cmux/prompts on the person's own machine), however slow `cloud exec`
 /// would be; without one it runs as before.
