@@ -828,7 +828,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (!other) event.preventDefault();
       // Keep separate file-only pastes distinct. Clipboard HTML represents the same copied
       // screenshot twice (file and image markup), so those representations are content-deduped.
-      const dedupePaste = files.length === 1 || other !== undefined || event.clipboardData.types.includes("text/html");
+      const dedupePaste =
+        files.length === 1 || other !== undefined || event.clipboardData?.types.includes("text/html") === true;
       if (files.length) void attach(files, owned.uploads, "paste", dedupePaste);
       if (other?.text !== undefined) pasteTextInto(event, other.text);
     };
