@@ -519,7 +519,7 @@ fn a_reopened_right_agent_pane_opens_in_its_split_never_in_the_main_pane() {
             .iter()
             .filter(|delta| delta.pane == Some(left))
             .filter(|delta| {
-                matches!(delta.kind, TreeDeltaKind::TabAdded | TreeDeltaKind::TabRemoved)
+                matches!(delta.kind, TreeDeltaKind::TabAdded | TreeDeltaKind::TabClosed)
             })
             .collect::<Vec<_>>();
         assert!(in_main.is_empty(), "the main pane never lists the reopened tab: {in_main:?}");
