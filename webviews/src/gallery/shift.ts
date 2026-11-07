@@ -38,8 +38,12 @@ export type BoxMove = { label: string; frame: number; dx: number; dy: number };
 export type BoxShift = { score: number; moves: BoxMove[] };
 
 /** The transcript row that is opening or closing at the very bottom, so the text above it rises or
- *  falls (App.tsx `beginBottomStackFold`, `data-bottom-stack-fold`, set for every bottom stack). */
-export const BOTTOM_FOLD = "[data-bottom-stack-fold]";
+ *  falls (App.tsx `beginBottomStackFold`, `data-bottom-stack-fold`, set for every bottom stack), and
+ *  the running tray placed after the latest message (`.acpmux-transcript-after-latest`, the
+ *  subagent tray's after-latest placement): it is always the transcript's end, so opening it while
+ *  the view follows the end pushes the text above up by what opened, by design (SubagentTray.gallery
+ *  `expand-after-latest`); away from the end it opens below the view and nothing above it moves. */
+export const BOTTOM_FOLD = "[data-bottom-stack-fold], .acpmux-transcript-after-latest";
 
 /** Frames a box must hold still before its moves count. */
 export const REST_FRAMES = 2;
@@ -147,6 +151,44 @@ export function scoreBoxFrames(
     score += Math.min(1, impact) * distance;
   }
   return { score: Math.round(score * 1e5) / 1e5, moves };
+}
+
+/** A source of a browser layout-shift entry (`LayoutShift.sources`): the node and its rects. */
+export type LayoutShiftSource = {
+  node?: Node | null;
+  previousRect?: Pick<DOMRectReadOnly, "x" | "y" | "width" | "height">;
+  currentRect?: Pick<DOMRectReadOnly, "x" | "y" | "width" | "height">;
+};
+
+/**
+ * Whether a browser layout-shift entry is the step's own expansion, under the box rules above: every
+ * source it names is the target, holds it or is inside it (or inside the row opening at the very
+ * bottom, `BOTTOM_FOLD`), follows it and moved straight down, or, while that row opens at the very
+ * bottom, precedes it and moved straight up. The browser has no idea which row the reader clicked, so
+ * without this its CLS scores the push every fold makes by design: the rows under an opening tool
+ * call sliding down with it. It scored only the slice of that push inside the step's settle window
+ * (a few frames), so a fold whose curve moves more of its height in its first frames read as a
+ * bigger shift, though every row went to the same place.
+ */
+export function isExpansionShift(sources: readonly LayoutShiftSource[], target: Element | null): boolean {
+  if (!target || !sources.length) return false;
+  const folding = target.closest(BOTTOM_FOLD);
+  return sources.every(({ node, previousRect: was, currentRect: now }) => {
+    const element = node && node.nodeType === 1 ? (node as Element) : (node?.parentElement ?? null);
+    if (!element || !was || !now) return false;
+    if (element === target || element.contains(target) || target.contains(element) || folding?.contains(element))
+      return true;
+    const position = target.compareDocumentPosition(element);
+    const following = (position & 4) !== 0; // DOCUMENT_POSITION_FOLLOWING
+    // A box with no previous area (a clipped shimmer band in the line under the fold) only came
+    // into view: no move of its own to judge, so it goes with the rows it sits in.
+    if (was.width <= 0 || was.height <= 0) return following;
+    const dx = now.x - was.x;
+    const dy = now.y - was.y;
+    if (Math.abs(dx) > MOVE_SLACK) return false;
+    if (following) return dy > 0; // pushed down
+    return !!folding && (position & 2) !== 0 && dy < 0; // DOCUMENT_POSITION_PRECEDING, at the bottom
+  });
 }
 
 // ---- Sampling the live page ----

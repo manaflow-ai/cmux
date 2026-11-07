@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import { judgeStep } from "../src/gallery/play";
-import { REST_FRAMES, sampleBoxes, scoreBoxFrames, type BoxFrame, type BoxSample } from "../src/gallery/shift";
+import {
+  REST_FRAMES,
+  isExpansionShift,
+  sampleBoxes,
+  scoreBoxFrames,
+  type BoxFrame,
+  type BoxSample,
+} from "../src/gallery/shift";
 
 const viewport = { width: 800, height: 600 };
 const row = (y: number, extra: Partial<BoxSample> = {}): BoxSample => ({
@@ -78,6 +85,47 @@ test("rows inside a row opening at the very bottom move with it, as its toggle d
   doc.querySelector("[data-bottom-stack-fold]")!.removeAttribute("data-bottom-stack-fold");
   const plain = sampleBoxes(doc, doc.querySelector(".toggle"));
   expect([...plain.values()].find((sample) => sample.label.includes("[row inner]"))!.targeted).toBe(false);
+  window.close();
+});
+
+test("a browser layout shift that is the step's own expansion does not count; any other move does", () => {
+  // The browser's CLS knows no target: a fold's rows below sliding down with it read as a shift, and
+  // only the frames inside the step's settle window counted, so a fold that moves more of its height
+  // early scored more though every row went to the same place.
+  const window = new Window({ width: 800, height: 600 });
+  const doc = window.document as unknown as Document;
+  doc.body.innerHTML = `
+    <div class="above">above</div>
+    <section class="row"><button class="toggle">Read 3 files</button><div class="body">body</div></section>
+    <div class="below">below<span class="band">Working</span></div>
+    <div class="acpmux-transcript-after-latest"><button class="tray">2 running</button></div>`;
+  const $ = (selector: string) => doc.querySelector(selector)!;
+  const rect = (y: number, height = 40, x = 0) => ({ x, y, width: 800, height });
+  const moved = (selector: string, from: number, to: number, x = 0) => ({
+    node: $(selector),
+    previousRect: rect(from),
+    currentRect: rect(to, 40, x),
+  });
+  const toggle = $(".toggle");
+  // Rows after the toggle pushed straight down, and the toggle's own row growing, are its expansion.
+  expect(isExpansionShift([moved(".below", 200, 252), moved(".row", 100, 100)], toggle)).toBe(true);
+  // A band that was clipped to nothing and came into view goes with the row it sits in.
+  expect(
+    isExpansionShift(
+      [moved(".below", 200, 252), { node: $(".band"), previousRect: rect(0, 0), currentRect: rect(252) }],
+      toggle,
+    ),
+  ).toBe(true);
+  // A row after it pushed up or sideways, or a row before it moving, is still a shift.
+  expect(isExpansionShift([moved(".below", 200, 180)], toggle)).toBe(false);
+  expect(isExpansionShift([moved(".below", 200, 252, 6)], toggle)).toBe(false);
+  expect(isExpansionShift([moved(".below", 200, 252), moved(".above", 50, 30)], toggle)).toBe(false);
+  // No target (a wait step) or no sources: nothing is exempt.
+  expect(isExpansionShift([moved(".below", 200, 252)], null)).toBe(false);
+  expect(isExpansionShift([], toggle)).toBe(false);
+  // The after-latest tray is the transcript's end: opening it at the end lifts the text above.
+  expect(isExpansionShift([moved(".above", 50, 2)], $(".tray"))).toBe(true);
+  expect(isExpansionShift([moved(".above", 50, 90)], $(".tray"))).toBe(false);
   window.close();
 });
 

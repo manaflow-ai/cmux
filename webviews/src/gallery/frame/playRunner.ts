@@ -19,7 +19,7 @@ import {
   type StepReport,
 } from "../play";
 import { createMotionController } from "../motionEvidence";
-import { startBoxTracker } from "../shift";
+import { isExpansionShift, startBoxTracker } from "../shift";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
 export type GalleryInputAction = {
@@ -390,6 +390,9 @@ async function measured(
         // ignore it only when every reported source moved by less than half a CSS pixel. Real
         // shifts (including the composer's one-slot Send change) retain their normal CLS value.
         if (isSubpixelLayoutShift(sources)) continue;
+        // What the step opened pushing the rows under it is the step's transition, not a shift
+        // (shift.ts `isExpansionShift`, the rules the box shift below keeps too).
+        if (isExpansionShift(sources, targeted)) continue;
         shifts.push({
           value: entry.value,
           sources: sources.map((source) => {
