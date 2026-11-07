@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -34,12 +35,10 @@ enum NewTabSlot {
         }
     }
 
-    /// Where a new tab goes, nil for the end. `explicit` (the position actions, New Tab to the
-    /// Right) wins for anyone; otherwise a person's Cmd-T or + follows `setting` (unset is
-    /// ``NewTabPosition/fallback``) and a script's `tab new` appends. `current` is the selected or
-    /// named tab, `pane` the pane's tabs (for the start with no current tab).
-    static func target(current: TabModel?, pane: [TabModel], explicit: NewTabPosition?, user: Bool,
-                       setting: NewTabPosition?) -> Target? {
+    /// Where a new tab goes, nil for the end. `explicit` (the position actions, New Tab to the Right) wins for anyone;
+    /// otherwise a person's Cmd-T or + follows `setting` (unset is ``NewTabPosition/fallback``) and a script's `tab new`
+    /// appends. `current` is the selected or named tab, `pane` the pane's tabs (for the start with no current tab).
+    static func target(current: TabModel?, pane: [TabModel], explicit: NewTabPosition?, user: Bool, setting: NewTabPosition?) -> Target? {
         switch explicit ?? (user ? setting ?? NewTabPosition.fallback : .end) {
         case .end: nil
         case .afterCurrent: current.map(Target.after)
@@ -94,9 +93,8 @@ enum NewTabSlot {
         }
     }
 
-    /// `then` for the terminal or browser a New Tab page turns into: it takes
-    /// the page's slot, so a page opened after the current tab stays there.
-    /// The page's left neighbour is read now, as the page closes meanwhile.
+    /// `then` for the terminal or browser a New Tab page turns into: it takes the page's slot, so a page opened after the
+    /// current tab stays there. The page's left neighbour is read now, as the page closes meanwhile.
     static func placing(replacing page: String, onMachine machineID: String, services: AppServices,
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
         guard let located = services.locateTab(page, onMachine: machineID), case let (tab, pane) = located, let index = pane.tabs.firstIndex(where: { $0 === tab }) else { return then }
@@ -117,18 +115,17 @@ enum NewTabSlot {
         }
     }
 
-    /// The pane `tab` is in, on any machine (surface ids are per daemon, so
-    /// a new tab is looked for in this pane only).
-    private static func home(of tab: TabModel, _ services: AppServices) -> PaneModel? {
-        services.locateTab(model: tab)?.1
-    }
+    /// The pane `tab` is in, on any machine (surface ids are per daemon, so a new tab is looked for in this pane only).
+    private static func home(of tab: TabModel, _ services: AppServices) -> PaneModel? { services.locateTab(model: tab)?.1 }
 
-    /// Moves the tab `find` returns from `pane` to the final index `index`
-    /// gives (from the pane's other tabs) once the pane lists it.
+    /// Moves the tab `find` returns from `pane` to the final index `index` gives (from the pane's other tabs) once the pane
+    /// lists it, and once the pane's previous new tab moved: a burst's second Cmd-T goes right after the first new tab, which
+    /// sat at the end until its own move, so a slot read before that kept the second there (`a b 1 c 2`).
     private static func place(in pane: @escaping @MainActor () -> PaneModel?, services: AppServices,
                               find: @escaping @MainActor (PaneModel) -> TabModel?, index: @escaping @MainActor ([TabModel]) -> Int?) {
         let locate = { @MainActor () -> (TabModel, PaneModel)? in pane().flatMap { pane in find(pane).map { ($0, pane) } } }
-        services.registry.track(Task { @MainActor in
+        let controller = pane().flatMap { services.paneController(for: $0) }, earlier = controller?.lastPlacement
+        let placement: ActionWork = Task { @MainActor in
             let listed = Task { @MainActor () -> Bool in
                 for await found in ObservationStream({ locate() != nil }) where found { return true }
                 return false
@@ -139,11 +136,14 @@ enum NewTabSlot {
             }
             let found = await listed.value
             bound.cancel()
+            _ = await earlier?.value // its own list wait, then its move's reply
             guard found, let located = locate(), case let (tab, pane) = located, let final = index(pane.tabs.filter { $0 !== tab }),
                   pane.tabs.firstIndex(where: { $0 === tab }) != final else { return nil }
-            TabMoves.move(tab, to: pane, index: final, services: services)
+            await withCheckedContinuation { landed in TabMoves.move(tab, to: pane, index: final, services: services) { _ in landed.resume() } }
             return nil
-        })
+        }
+        controller?.lastPlacement = placement
+        services.registry.track(placement)
     }
 
     /// The final index for `target` among `others` (the pane's tabs but the new one); an after-anchor that was a stand-in
@@ -157,9 +157,8 @@ enum NewTabSlot {
         }
     }
 
-    /// The final index right after `anchor` among `others` (the pane's tabs
-    /// but the new one): never among the pinned tabs, and after the anchor's
-    /// tab group, which the new tab does not join. Nil when the anchor left.
+    /// The final index right after `anchor` among `others` (the pane's tabs but the new one): never among the pinned tabs,
+    /// and after the anchor's tab group, which the new tab does not join. Nil when the anchor left.
     static func slot(after anchor: TabModel, in others: [TabModel]) -> Int? {
         guard var index = others.firstIndex(where: { $0 === anchor }) else { return nil }
         if let group = others[index].tabGroup {

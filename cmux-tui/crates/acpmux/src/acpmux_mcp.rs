@@ -75,10 +75,10 @@ mod goal;
 mod pr;
 #[path = "acpmux_mcp_send.rs"]
 mod send;
-#[path = "acpmux_mcp_watch.rs"]
-mod watch;
 #[path = "acpmux_mcp_send_status.rs"]
 mod send_status;
+#[path = "acpmux_mcp_watch.rs"]
+mod watch;
 #[path = "acpmux_mcp_who_else.rs"]
 mod who_else;
 #[path = "acpmux_mcp_wrap_up.rs"]

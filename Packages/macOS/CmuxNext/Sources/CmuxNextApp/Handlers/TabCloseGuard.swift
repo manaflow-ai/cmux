@@ -117,10 +117,10 @@ enum TabCloseGuard {
     /// The warnings, and what closing `tabs` reads first (cmux-window-rules `close::reads`); nil: nothing asks.
     private static func reads(_ tabs: [TabModel], services: AppServices) -> (warnings: WindowRules.Warnings, reads: WindowRules.Reads)? {
         let snapshot = services.settings?.snapshot
-        let warnings = WindowRules.Warnings(warnTab: snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback,
-                                            warnAgent: snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.closeWarningFallback)
+        let warnings = WindowRules.Warnings(warnTab: snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.warnBeforeClosingTabDefault,
+                                            warnAgent: snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.warnBeforeClosingAgentSessionDefault)
         let facts = tabs.map { WindowRules.ClosingTab($0, agentAtWork: $0.agent.map { $0.state == .working || $0.state == .blocked } ?? false) }
-        return WindowRules().closeReads(facts, warnings).reads.map { (warnings, $0) }
+        return WindowRules().closeReadsFailingClosed(facts, warnings).map { (warnings, $0) }
     }
 
     /// The question for closing `tabs` (a tab, a selection, a tab group), or nil to close at once (only a working
@@ -138,7 +138,7 @@ enum TabCloseGuard {
             case .noAnswer: .init(title: tab.displayTitle, answered: false, program: nil)
             }
         } }
-        let warning = WindowRules().closeWarning(agents: reads.agents, answers: asked, unansweredAsks: confirmed, warnings).warning
+        let warning = WindowRules().closeWarningFailingClosed(agents: reads.agents, answers: asked, unansweredAsks: confirmed, warnings, titles: others.map(\.displayTitle))
         return (warning.map { prompt($0, closing: tabs) }, RunningPrograms(answers, of: others, unansweredRunsTitle: confirmed))
     }
 
