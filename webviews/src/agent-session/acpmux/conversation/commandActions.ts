@@ -113,58 +113,71 @@ export function shellWords(step: string): (Word | "|")[] {
   return out;
 }
 
-/// An output redirect (`2>/dev/null`, `>out.txt`, `2>&1`, `&>log`): `target` when its file is the
-/// next word. Input redirects and heredocs are part of what ran and stay.
-const REDIRECT = /^(?:\d*|&)(?:>>?|>&)(.*)$/;
-function redirect(word: Word): "self" | "target" | undefined {
-  if (/^["'`]/.test(word.raw)) return undefined;
-  const match = REDIRECT.exec(word.raw);
-  if (!match) return undefined;
-  return match[1] ? "self" : "target";
-}
+/// An output redirect (`2>/dev/null`, `>out.txt`, `2>&1`, `&>log`) and its target, when the target
+/// is the next word. Input redirects and heredocs are part of what ran and stay.
+const REDIRECT = /^(\d*|&)(>&|>>?)(.*)$/;
 
-/// A step's pipeline stages, each its words without output redirects.
-function stages(step: string): Word[][] {
-  const out: Word[][] = [[]];
-  let skipNext = false;
-  for (const word of shellWords(step)) {
+/// One pipeline stage: its words without redirects (what the table reads), the words a row shows
+/// (a write to a file stays: it changed something), and whether it writes a file.
+type Stage = { words: Word[]; shown: string[]; writes: boolean };
+
+/// A step's pipeline stages. Output to /dev/null and fd copies (`2>&1`) are plumbing and go; a write
+/// to a file (`> out.txt`, `>> log`) is what the step did and stays on the line.
+function stages(step: string): Stage[] {
+  const all = shellWords(step);
+  const out: Stage[] = [{ words: [], shown: [], writes: false }];
+  for (let i = 0; i < all.length; i += 1) {
+    const word = all[i]!;
     if (word === "|") {
-      out.push([]);
+      out.push({ words: [], shown: [], writes: false });
       continue;
     }
-    if (skipNext) {
-      skipNext = false;
+    const stage = out.at(-1)!;
+    const match = /^["'`]/.test(word.raw) ? null : REDIRECT.exec(word.raw);
+    if (!match) {
+      stage.words.push(word);
+      stage.shown.push(word.raw);
       continue;
     }
-    const kind = redirect(word);
-    if (kind === "target") skipNext = true;
-    if (kind) continue;
-    out.at(-1)!.push(word);
+    const next = all[i + 1];
+    const attached = match[3] !== "";
+    const target = attached ? match[3]! : next !== undefined && next !== "|" ? next.text : "";
+    const raw = attached || next === undefined || next === "|" ? word.raw : `${word.raw} ${next.raw}`;
+    if (!attached && next !== undefined && next !== "|") i += 1;
+    const plumbing =
+      /^\/dev\/(?:null|stdout|stderr)$/.test(target) || (match[2] === ">&" && /^(?:\d+|-)$/.test(target));
+    if (plumbing) continue;
+    stage.writes = true;
+    stage.shown.push(raw);
   }
-  return out.filter((stage) => stage.length > 0);
+  return out.filter((stage) => stage.words.length > 0);
 }
 
 /// A stage that only trims or reshapes what came before it: `| head -12`, `| cut -c1-220`, `| wc -l`,
 /// `| sort | uniq`, `| grep -v test`, `| jq .`. None of these can write a file or run a program;
 /// `sort -o`, `uniq IN OUT` and `sort --compress-program` can, so those are not filters.
 const FILTERS = new Set(["head", "tail", "cut", "wc", "jq", "column", "tr", "nl", "fold", "less", "more"]);
-function isFilter(stage: Word[]): boolean {
-  const name = baseName(stage[0]!.text);
-  const args = stage.slice(1).map((word) => word.text);
+function isFilter(stage: Stage): boolean {
+  if (stage.writes) return false;
+  const words = stage.words;
+  const name = baseName(words[0]!.text);
+  const args = words.slice(1).map((word) => word.text);
   if (FILTERS.has(name)) return true;
-  if (name === "cat") return stage.length === 1;
+  if (name === "cat") return words.length === 1;
   if (name === "sort") return !args.some((arg) => /^-[A-Za-z]*o|^--output|^--compress-program/.test(arg));
   if (name === "uniq") return args.filter((arg) => !arg.startsWith("-") || arg === "-").length < 2;
-  if (name === "grep" || name === "rg") return stage.some((word) => /^-[A-Za-z]*v[A-Za-z]*$/.test(word.raw));
+  if (name === "grep" || name === "rg") return words.some((word) => /^-[A-Za-z]*v[A-Za-z]*$/.test(word.raw));
   return false;
 }
 
 /// A later pipeline stage that only reads what came before it and prints a part of it, for a label
 /// read off the first stage (`commandAction`): the filters, any grep, a `sed` or `awk` that can only
-/// print. `tee`, `xargs`, a shell or anything unknown can write or run, so the line stays.
-function passesThrough(stage: Word[]): boolean {
-  const name = baseName(stage[0]!.text);
-  const args = stage.slice(1).map((word) => word.text);
+/// print. `tee`, `xargs`, a shell, a write to a file or anything unknown can write or run, so the
+/// line stays.
+function passesThrough(stage: Stage): boolean {
+  if (stage.writes) return false;
+  const name = baseName(stage.words[0]!.text);
+  const args = stage.words.slice(1).map((word) => word.text);
   if (isFilter(stage) || ["grep", "egrep", "fgrep"].includes(name)) return true;
   // `rg --pre CMD` runs CMD on every file.
   if (name === "rg") return !args.some((arg) => /^--pre(?:=|$)/.test(arg));
@@ -232,6 +245,9 @@ function awkPrintsOnly(args: string[]): boolean {
   return true;
 }
 
+/// Code that runs inside a word (`$(…)`, backticks, `<(…)`): the table cannot say what it did.
+const RUNS_INSIDE = /\$\(|`|[<>]\(/;
+
 /// The step's main part and whether steps follow it: shortCommand's first step that is not setup
 /// (`cd x &&`, `export …`, `FOO=1`), its program by name.
 function mainStep(command: string): { step: string; more: boolean } {
@@ -246,7 +262,7 @@ export function cleanCommand(command: string): string {
   const { step, more } = mainStep(command);
   const parts = stages(step);
   while (parts.length > 1 && isFilter(parts.at(-1)!)) parts.pop();
-  const line = parts.map((stage) => stage.map((word) => word.raw).join(" ")).join(" | ") || step;
+  const line = parts.map((stage) => stage.shown.join(" ")).join(" | ") || step;
   return more ? `${line} …` : line;
 }
 
@@ -356,10 +372,20 @@ const GIT: Record<string, Rule> = {
       : { key: "command.git.commit" };
   },
   push: (args) => {
-    const { positional, has } = parse(args, ["-o", "--push-option", "--repo"]);
-    if (has("-d", "--delete")) return undefined;
+    // A push that deletes or rewrites says so (`:ref`, `--delete`, `+ref`, `--force`); one that
+    // touches more than one ref, or every ref (`--mirror`, `--all`, `--prune`), reads as its line.
+    const { positional, has } = parse(args, ["-o", "--push-option", "--repo", "--receive-pack", "--exec"]);
+    if (has("--mirror", "--all", "--tags", "--prune") || positional.length > 2) return undefined;
     const ref = positional[1];
-    const branch = ref?.slice(ref.lastIndexOf(":") + 1).replace(/^refs\/heads\//, "");
+    const branch = ref
+      ?.slice(ref.lastIndexOf(":") + 1)
+      .replace(/^\+/, "")
+      .replace(/^refs\/heads\//, "");
+    if (has("-d", "--delete") || ref?.startsWith(":"))
+      return branch ? { key: "command.git.deleteRemoteBranch", values: { branch } } : undefined;
+    const force = ref?.startsWith("+") || has("-f", "--force", "--force-with-lease", "--force-if-includes");
+    if (force)
+      return branch ? { key: "command.git.forcePushBranch", values: { branch } } : { key: "command.git.forcePush" };
     return branch ? { key: "command.git.pushBranch", values: { branch } } : { key: "command.git.push" };
   },
   checkout: (args) => switchTo(args, ["-b", "-B"]),
@@ -385,11 +411,16 @@ const GIT: Record<string, Rule> = {
   },
 };
 
+/// A path where a branch would be (`.`, `./src`, `*.ts`): checkout restores files from it.
+const PATHLIKE = /^(?:\.{1,2}(?:\/|$)|\/)|[*?[]/;
+
 function switchTo(args: string[], create: string[]): Act | undefined {
-  const { positional, value } = parse(args, create);
+  const { positional, value, has } = parse(args, create);
+  // A checkout or switch that throws away local changes reads as its line.
+  if (has("-f", "--force", "--discard-changes", "-m", "--merge", "--overwrite-ignore")) return undefined;
   const made = value(...create);
   if (made) return { key: "command.git.newBranch", values: { branch: made } };
-  if (args.includes("--") || positional.length !== 1) return undefined;
+  if (args.includes("--") || positional.length !== 1 || PATHLIKE.test(positional[0]!)) return undefined;
   return { key: "command.git.switch", values: { branch: positional[0]! } };
 }
 
@@ -426,9 +457,10 @@ const GH: Record<string, Record<string, Rule>> = {
     list: () => ({ key: "command.gh.prList" }),
     checks: (args) => target("command.gh.prChecks", "pr", ghTarget(args)),
     diff: (args) => target("command.gh.prDiff", "pr", ghTarget(args)),
-    // `--auto` only schedules the merge and `--disable-auto` cancels one: neither merged, so the line stays.
+    // `--auto` only schedules the merge and `--disable-auto` cancels one: neither merged, so the line
+    // stays. A merge that also deletes the branch or overrides the rules reads as its line too.
     merge: (args) =>
-      args.some((arg) => /^--(?:auto|disable-auto)(?:=|$)/.test(arg))
+      args.some((arg) => /^--(?:auto|disable-auto)(?:=|$)/.test(arg) || ["-d", "--delete-branch", "--admin"].includes(arg))
         ? undefined
         : target("command.gh.prMerge", "pr", ghTarget(args)),
     create: () => ({ key: "command.gh.prCreate" }),
@@ -675,6 +707,11 @@ const PROGRAMS: Record<string, Rule> = {
   gh: (args) => {
     const [group, sub, ...rest] = args;
     if (group === "api") {
+      // Only a read: another method, or a field (which makes it a POST), reads as its line.
+      const api = parse(args.slice(1), ["-X", "--method"]);
+      const method = api.value("-X", "--method");
+      if ((method && method.toUpperCase() !== "GET") || api.has("-f", "-F", "--field", "--raw-field", "--input"))
+        return undefined;
       const path = parse(args.slice(1), [
         ...GH_VALUES,
         "-X",
@@ -798,7 +835,8 @@ const PROGRAMS: Record<string, Rule> = {
   },
   "lane-gh": (args): Act | undefined => {
     const [sub, , third, ...rest] = args;
-    if (sub === "push" && third) return { key: "command.git.pushBranch", values: { branch: third } };
+    if (sub === "push" && third && !args.some((arg) => /^(?:-f|-d|--force.*|--delete)$/.test(arg)))
+      return { key: "command.git.pushBranch", values: { branch: third } };
     if (sub === "search" && (third || rest.length))
       return { key: "command.searchedGithub", values: { query: subject([third, ...rest].filter(Boolean).join(" ")) } };
     return undefined;
@@ -857,45 +895,20 @@ function unwrap(words: string[]): string[] {
   }
 }
 
-/// Labels that say a command only looked: a redirect into a file makes them untrue.
-const READS = new Set<StringKey>([
-  "command.read",
-  "tools.read.other",
-  "command.searched",
-  "command.searchedMemory",
-  "command.searchedGithub",
-  "command.listed",
-  "command.listedFiles",
-]);
-
-/// Whether an output redirect in the step writes a file: `> out.txt`, `>>log`, `&> all.log`, but
-/// not `2>/dev/null` or `2>&1`.
-function writesFile(step: string): boolean {
-  const words = shellWords(step);
-  return words.some((word, i) => {
-    if (word === "|") return false;
-    const kind = redirect(word);
-    if (!kind) return false;
-    const next = words[i + 1];
-    const file = kind === "self" ? REDIRECT.exec(word.raw)![1]! : next && next !== "|" ? next.text : "";
-    return !/^(?:&?\d+|&?-|\/dev\/(?:null|stdout|stderr))$/.test(file);
-  });
-}
-
 /// What a command did, from the table; undefined for anything it does not list.
 export function commandAction(command: string): CommandAction | undefined {
   const { step, more } = mainStep(command);
+  // The first stage names the step only when nothing else in it changes anything: no write to a
+  // file, no code run inside a word, and only stages after it that trim what it printed (`curl … |
+  // bash` ran what it fetched and `cat a | tee b` wrote b, so those read as their line).
+  if (RUNS_INSIDE.test(step)) return undefined;
   const [first, ...rest] = stages(step);
-  // A pipeline is its first stage only when the rest only trim what it printed: `curl … | bash`
-  // ran what it fetched and `cat a | tee b` wrote b, so those read as their line.
-  if (!first || !rest.every(passesThrough)) return undefined;
-  const words = unwrap(first.map((word) => word.text));
+  if (!first || first.writes || !rest.every(passesThrough)) return undefined;
+  const words = unwrap(first.words.map((word) => word.text));
   const [program, ...args] = words;
   if (!program) return undefined;
   const rule = own(PROGRAMS, baseName(program));
   const act = rule?.(args);
-  // `cat a > b` copied a and `rg x > hits.txt` wrote hits.txt: a read never hides a file it wrote.
-  if (act && READS.has(act.key) && writesFile(step)) return undefined;
   return act && { ...act, ...(more ? { more } : {}) };
 }
 
@@ -942,10 +955,11 @@ export function commandSaid(t: Translate, tool: Tool, look: CommandLabelLook = c
   return description;
 }
 
-/// The line a command row draws when nothing names it, "Ran <line>": as typed for the `command`
-/// look, else without the plumbing after it.
-export function commandLine(command: string, look: CommandLabelLook = commandLook()): string {
-  return look === "command" ? shortCommand(command, ROW_WIDTH) : cleanCommand(command);
+/// The line a command row draws when nothing names it, "Ran <line>": a finished call's without the
+/// plumbing after it; as written (its setup left out, whitespace one space) for the `command` look,
+/// a running call and the live line, which name what is running (#36940).
+export function commandLine(command: string, look: CommandLabelLook = commandLook(), finished = true): string {
+  return look === "command" || !finished ? shortCommand(command, ROW_WIDTH) : cleanCommand(command);
 }
 
 /// A finished group of commands that all did one kind of thing: "Searched memory twice", "Read 3
