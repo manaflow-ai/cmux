@@ -135,7 +135,7 @@ fn a_u64_max_original_plans_in_constant_memory() {
     assert_eq!(end.offset + end.length, u64::MAX);
     assert!(piece.chunk(last + 1, plan.total).is_none());
     // The plan holds one piece and no chunk list.
-    assert_eq!(std::mem::size_of_val(&plan.pieces[..]), std::mem::size_of_val(&piece));
+    assert_eq!(size_of_val(&plan.pieces[..]), size_of_val(&piece));
 }
 
 #[test]
