@@ -45,10 +45,9 @@ fn required(args: &Args, name: &str, missing: Said) -> Checked<String> {
 
 /// `~` and `~/…` under `home`: a quoted `~/boot.sh` reaches the app unexpanded.
 pub fn expanding_home(path: &str, home: &str) -> String {
-    if path == "~" || path.starts_with("~/") {
-        format!("{home}{}", &path[1..])
-    } else {
-        path.to_owned()
+    match path.strip_prefix('~') {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{home}{rest}"),
+        _ => path.to_owned(),
     }
 }
 
