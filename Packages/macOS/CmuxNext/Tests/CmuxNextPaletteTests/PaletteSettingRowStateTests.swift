@@ -38,7 +38,7 @@ struct PaletteSettingRowStateTests {
         let registry = ActionRegistry.standard()
         registry.context = ActionContext(rawValue: .max)
         registry.bind("focusRing.toggle") { focusRing.isOn.toggle() }
-        ActionTargetTitles.setPaletteState("focusRing.toggle", in: registry) { focusRing.isOn }
+        ActionTargetTitles.setPaletteSettingState("focusRing.toggle", in: registry) { focusRing.isOn }
         registry.bind("toggleSidebar") { sidebar.isOn.toggle() }
         ActionTargetTitles.setPaletteState("toggleSidebar", in: registry) { sidebar.isOn }
         return registry
@@ -67,6 +67,38 @@ struct PaletteSettingRowStateTests {
             }
         }
         return (cell, pixels)
+    }
+
+    /// A preset with a state ("Density: Compact", marked while in use) is not an on/off setting: Return
+    /// picks it and closes the palette, as before, while Focus Ring in the same Settings category still
+    /// flips in place.
+    @Test func aDensityPresetClosesThePaletteWhileFocusRingFlipsInPlace() async throws {
+        _ = NSApplication.shared
+        let focusRing = Switch(false)
+        var density = "comfortable"
+        let registry = Self.registry(focusRing)
+        registry.bind("appearance.density.compact") { density = "compact" }
+        ActionTargetTitles.setPaletteState("appearance.density.compact", in: registry) { density == "compact" }
+        let palette = PaletteController(registry: registry, sources: PaletteSources(), frecencyPersistence: nil)
+        defer { palette.closeForTest() }
+
+        palette.show(.commands)
+        palette.model.send(.setQuery("Focus Ring"))
+        await palette.model.settle()
+        let ring = try #require(palette.model.rows.first { $0.item.actionID == "focusRing.toggle" })
+        palette.model.run(ring.item.primary, of: ring.item)
+        await palette.model.settle()
+        #expect(focusRing.isOn, "Focus Ring flipped")
+        #expect(palette.visiblePanel != nil, "Focus Ring flips with the palette open")
+
+        palette.model.send(.setQuery("Density: Compact"))
+        await palette.model.settle()
+        let compact = try #require(palette.model.rows.first { $0.item.actionID == "appearance.density.compact" },
+                                   "Density: Compact is listed")
+        palette.model.run(compact.item.primary, of: compact.item)
+        await palette.model.settle()
+        #expect(density == "compact", "the preset was applied")
+        #expect(palette.visiblePanel == nil, "picking a preset closes the palette")
     }
 
     /// The command row and the Settings row show their state one way: the plain "On"/"Off" at the
