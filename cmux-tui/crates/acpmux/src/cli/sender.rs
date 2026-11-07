@@ -75,7 +75,7 @@ pub fn implicit(
 }
 
 /// The harness whose shell this is, on `host`, with its session id's first 8 characters when it
-/// sets one: "Claude Code desktop on cosmic-gray · 03214b87". `None` outside a known harness.
+/// sets one: "Claude Code desktop on my-mac · 03214b87". `None` outside a known harness.
 fn harness_name(
     env: impl Fn(&str) -> Option<String>,
     host: impl FnOnce() -> String,
@@ -124,7 +124,7 @@ mod tests {
     }
 
     fn implicit(env: impl Fn(&str) -> Option<String>) -> Option<String> {
-        super::implicit(env, || "cosmic-gray".to_owned())
+        super::implicit(env, || "my-mac".to_owned())
     }
 
     #[test]
@@ -146,19 +146,16 @@ mod tests {
         ];
         assert_eq!(
             implicit(env(&desktop)).as_deref(),
-            Some("Claude Code desktop on cosmic-gray · 03214b87")
+            Some("Claude Code desktop on my-mac · 03214b87")
         );
         let vscode = [("CLAUDECODE", "1"), ("CLAUDE_CODE_ENTRYPOINT", "claude-vscode")];
-        assert_eq!(
-            implicit(env(&vscode)).as_deref(),
-            Some("Claude Code in VS Code on cosmic-gray")
-        );
+        assert_eq!(implicit(env(&vscode)).as_deref(), Some("Claude Code in VS Code on my-mac"));
         let terminal = [("CLAUDECODE", "1"), ("CLAUDE_CODE_ENTRYPOINT", "cli")];
-        assert_eq!(implicit(env(&terminal)).as_deref(), Some("Claude Code on cosmic-gray"));
+        assert_eq!(implicit(env(&terminal)).as_deref(), Some("Claude Code on my-mac"));
         let codex = [("CODEX_THREAD_ID", "019a2b3c-4d5e")];
-        assert_eq!(implicit(env(&codex)).as_deref(), Some("Codex on cosmic-gray · 019a2b3c"));
+        assert_eq!(implicit(env(&codex)).as_deref(), Some("Codex on my-mac · 019a2b3c"));
         let other = [("AI_AGENT", "grokbot_1-2_agent")];
-        assert_eq!(implicit(env(&other)).as_deref(), Some("grokbot on cosmic-gray"));
+        assert_eq!(implicit(env(&other)).as_deref(), Some("grokbot on my-mac"));
         assert_eq!(implicit(env(&[("AI_AGENT", "_x")])), None);
     }
 
