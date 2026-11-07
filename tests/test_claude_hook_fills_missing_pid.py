@@ -125,7 +125,8 @@ def run(cli_path: str, agent_pid: int, other_pid: int) -> int:
                 has_identity = record.get("pidStartSeconds") is not None and record.get("pidStartMicroseconds") is not None
                 if expected is not None and not has_identity:
                     failures.append(f"{label}: pid {pid!r} recorded without its start identity: {record!r}")
-                if expected is None and has_identity:
+                has_any_identity = record.get("pidStartSeconds") is not None or record.get("pidStartMicroseconds") is not None
+                if expected is None and has_any_identity:
                     failures.append(f"{label}: start identity recorded without a pid: {record!r}")
 
             for first in ("pre-tool-use", "stop", "notification"):
