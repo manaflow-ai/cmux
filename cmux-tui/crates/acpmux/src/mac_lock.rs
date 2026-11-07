@@ -60,6 +60,17 @@ pub fn locked() -> bool {
     lock() == Lock::Locked
 }
 
+/// Whether Computer Use waits in `lock`. Stub: only a known lock holds it.
+pub fn holds_computer_use(lock: Lock) -> bool {
+    lock == Lock::Locked
+}
+
+/// `CGSSessionScreenIsLocked` in a session dictionary that was read: absent, a Boolean, or
+/// some other type. Stub: anything but `true` is unlocked.
+fn classify(value: Option<Option<bool>>) -> Lock {
+    if value == Some(Some(true)) { Lock::Locked } else { Lock::Unlocked }
+}
+
 /// One held `PreventUserIdleSystemSleep` assertion, released on drop. `None` when it
 /// could not be taken (off macOS, or IOKit refused).
 pub struct IdleSleepHold(#[allow(dead_code)] imp::Hold);
@@ -191,5 +202,31 @@ mod imp {
         pub(super) fn take(_reason: &str) -> Option<Self> {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Review of #37239 at fda360ba, F1: Computer Use runs only on a screen known to be unlocked.
+    /// An unknown state (no session dictionary, a failed read) waits like a lock; off a Mac there
+    /// is no screen to lock.
+    #[test]
+    fn computer_use_waits_unless_the_screen_is_confirmed_unlocked() {
+        assert!(holds_computer_use(Lock::Locked));
+        assert!(holds_computer_use(Lock::Unknown));
+        assert!(!holds_computer_use(Lock::Unlocked));
+        assert!(!holds_computer_use(Lock::None));
+    }
+
+    /// The window server sets the key only while locked: absent is unlocked, a Boolean says
+    /// which, and a value of any other type is unknown, never unlocked.
+    #[test]
+    fn a_lock_flag_that_is_not_a_boolean_is_unknown() {
+        assert_eq!(classify(None), Lock::Unlocked);
+        assert_eq!(classify(Some(Some(true))), Lock::Locked);
+        assert_eq!(classify(Some(Some(false))), Lock::Unlocked);
+        assert_eq!(classify(Some(None)), Lock::Unknown);
     }
 }
