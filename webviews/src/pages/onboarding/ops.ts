@@ -35,7 +35,7 @@ export interface HostImage {
 
 export type AgentAuth = "signedIn" | "signedOut" | "expired" | "unknown";
 
-/** The Install offer of an agent CLI not on this Mac (onboarding-golden-path fills it; absent until then). */
+/** The Install offer of an agent CLI not on this Mac that cmux can install (Claude Code, Codex); absent for an installed one. */
 export interface AgentInstall {
   state: "idle" | "installing" | "failed" | "installed";
   /** While installing: the step acpmux reports (`download`, `verify`, ...). */

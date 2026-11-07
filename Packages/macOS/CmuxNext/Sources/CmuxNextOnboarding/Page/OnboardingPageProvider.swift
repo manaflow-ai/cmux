@@ -37,6 +37,7 @@ final class OnboardingPageProvider: PageProvider {
         case "cmux.onboarding.skip": model.skipStep()
         case "cmux.onboarding.back": model.goBack()
         case "cmux.onboarding.agents.signIn": model.agents.signIn(try Self.string(params, "id"))
+        case "cmux.onboarding.agents.install": model.agents.install(try Self.string(params, "id"))
         case "cmux.onboarding.import.toggleProfile": importer.toggle(try profile(params))
         case "cmux.onboarding.import.toggleKind":
             guard let kind = ImportDataKind(rawValue: try Self.string(params, "kind")) else { throw PageError.invalidParams("unknown kind") }

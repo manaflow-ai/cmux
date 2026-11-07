@@ -37,6 +37,8 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let auth: String
         let offersSignIn: Bool
         let icon: Image?
+        /// An agent cmux can install that is not on this Mac; nil (absent) for an installed one.
+        let install: Install?
 
         func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
@@ -45,9 +47,26 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
             try c.encode(auth, forKey: .auth)
             try c.encode(offersSignIn, forKey: .offersSignIn)
             try c.encodeNullable(icon, forKey: .icon)
+            try c.encodeIfPresent(install, forKey: .install)
         }
 
-        private enum Keys: String, CodingKey { case id, name, auth, offersSignIn, icon }
+        private enum Keys: String, CodingKey { case id, name, auth, offersSignIn, icon, install }
+    }
+
+    /// A missing agent's Install: at rest (`idle`), running, or what went wrong, with the vendor's page.
+    struct Install: Encodable, Equatable {
+        let state: String
+        let message: String?
+        let vendorURL: String?
+
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(state, forKey: .state)
+            try c.encodeNullable(message, forKey: .message)
+            try c.encodeNullable(vendorURL, forKey: .vendorURL)
+        }
+
+        private enum Keys: String, CodingKey { case state, message, vendorURL }
     }
 
     struct Agents: Encodable, Equatable {
@@ -289,10 +308,23 @@ extension OnboardingPageState {
 
     @MainActor
     private static func agents(_ model: AgentsStepModel, _ images: OnboardingPageImages) -> Agents {
-        Agents(rows: model.agents.map { agent in
+        let installed = model.agents.map { agent in
             AgentRow(id: agent.id, name: agent.name, auth: agent.auth.rawValue, offersSignIn: agent.offersSignIn,
-                     icon: images.agent(agent, source: model.source))
-        }, loaded: model.loaded, signingIn: model.signingIn, signInFailed: model.signInFailed)
+                     icon: images.agent(agent, source: model.source), install: nil)
+        }
+        let installable = model.installable.map { agent in
+            AgentRow(id: agent.id, name: agent.name, auth: agent.auth.rawValue, offersSignIn: false,
+                     icon: images.agent(agent, source: model.source), install: install(model.installs[agent.id], page: agent.installPage))
+        }
+        return Agents(rows: installed + installable, loaded: model.loaded, signingIn: model.signingIn, signInFailed: model.signInFailed)
+    }
+
+    nonisolated static func install(_ install: AgentsStepModel.Install?, page: URL?) -> Install {
+        switch install {
+        case nil: Install(state: "idle", message: nil, vendorURL: page?.absoluteString)
+        case .installing: Install(state: "installing", message: nil, vendorURL: page?.absoluteString)
+        case .failed(let message): Install(state: "failed", message: message, vendorURL: page?.absoluteString)
+        }
     }
 
     @MainActor
