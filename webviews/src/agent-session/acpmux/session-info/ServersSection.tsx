@@ -10,7 +10,7 @@ import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 import type { SessionInfoServer } from "./processes";
 import { StopButton } from "./TasksSection";
 
@@ -53,7 +53,7 @@ export function ServersSection({
                 aria-label={url ? t("sessionInfo.servers.open", { url }) : undefined}
                 onClick={open}
               >
-                <Icon name="link.web" size={ROW_ICON} row className="acpmux-row-glyph" />
+                <Icon name="link.web" size={ROW_ICON} row fit className="acpmux-row-glyph" />
                 {address && <span className="acpmux-session-info-task__address">{address}</span>}
                 <span className="acpmux-session-info-task__command" data-detail={address ? "" : undefined}>
                   {server.command}

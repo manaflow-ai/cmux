@@ -9,7 +9,7 @@ import {
   cloudRunsHere,
   cloudStartFolder,
   cloudStartKeys,
-  cloudStartToasted,
+  cloudStartSaid,
   grantedCloudStart,
   makeCloudSignInRetry,
   newTabProjectPick,
@@ -143,9 +143,10 @@ test("a refusal keeps its code and the host's words; only a start the host ran w
     { task: "t" },
   );
   expect(failed).toEqual({ ok: false, code: "cloud_start_failed", message: "Could not copy the folder." });
-  expect(cloudStartToasted(failed)).toBe(true);
+  expect(cloudStartSaid(failed)).toBe(true);
+  expect(cloudStartSaid({ ok: false, code: "cloud_plan_required" })).toBe(true);
   const off = await startCloudChat(async () => Promise.reject({ code: "not_signed_in" }), { task: "t" });
-  expect(cloudStartToasted(off)).toBe(false);
+  expect(cloudStartSaid(off)).toBe(false);
   const lost = await startCloudChat(async () => Promise.reject(new Error("bridge gone")), { task: "t" });
   expect(lost.ok).toBe(false);
 });
@@ -154,7 +155,7 @@ test("Run on This Mac from the cap card is no toasted failure: the page sends th
   const here = await startCloudChat(async () => Promise.reject({ code: "run_on_this_mac" }), { task: "t" });
   expect(here).toMatchObject({ ok: false, code: "run_on_this_mac" });
   expect(cloudRunsHere(here)).toBe(true);
-  expect(cloudStartToasted(here)).toBe(false);
+  expect(cloudStartSaid(here)).toBe(false);
   const failed = await startCloudChat(async () => Promise.reject({ code: "cloud_start_failed" }), { task: "t" });
   expect(cloudRunsHere(failed)).toBe(false);
   expect(cloudRunsHere({ ok: true })).toBe(false);
@@ -395,6 +396,17 @@ test("the cap card's Run on This Mac ends the start; a changed prompt, folder or
   expect(keys.keyFor({ ...start, cwd: "/Users/me/other" })).not.toBe(first);
   expect(keys.keyFor({ ...start, harness: "claude" })).not.toBe(first);
   expect(keys.keyFor(start)).toBe(first);
+  keys.ended(start, { ok: false, code: "run_on_this_mac" });
+  expect(keys.keyFor(start)).not.toBe(first);
+});
+
+test("a refused plan keeps the retry key until the person chooses Run Here inline", () => {
+  const keys = cloudStartKeys(memoryStore(), () => 1_000, counter());
+  const start = { task: "fix it", home: true };
+  const first = keys.keyFor(start);
+  keys.ended(start, { ok: false, code: "cloud_plan_required" });
+  expect(keys.keyFor(start)).toBe(first);
+  // The inline action must send the same explicit local-choice answer as the native cap card.
   keys.ended(start, { ok: false, code: "run_on_this_mac" });
   expect(keys.keyFor(start)).not.toBe(first);
 });
