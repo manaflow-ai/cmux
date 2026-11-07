@@ -121,10 +121,12 @@ extension MainPaneGutterSuites {
             }
 
             /// Every rounded outline where the main pane meets the window's `edge`, the window's own
-            /// frame included: a card standing off the edge (a gutter step), a stroke on the card, a
-            /// card corner that is not the window's, and a chrome shade band along the edge.
+            /// frame included: a card standing off the edge (a gutter step) beyond the window's lit rim,
+            /// a stroke on the card, a card corner not concentric inside the rim, and a chrome shade band
+            /// along the card's edge. The rim (`PaneTabRowRim.height`) is the window's own outline: the
+            /// card stays inside it (Leo 2026-11-07: "the window at the edges, it just doesn't show through").
             func outlines(at edge: NSRectEdge) -> [String] {
-                let windowRadius = CEFClipShape.windowCornerRadius(window)
+                let windowRadius = CEFClipShape.windowCornerRadius(window), rim = PaneTabRowRim.height
                 var found = ["window frame radius \(windowRadius)"]
                 let bounds = root.bounds, card = root.contentHost.frame
                 let gap: CGFloat = switch edge {
@@ -133,19 +135,20 @@ extension MainPaneGutterSuites {
                 case .minY: card.minY - bounds.minY
                 default: card.minX - bounds.minX
                 }
-                if gap > 0.25 { found.append("card \(gap) pt inside the window edge") }
+                if abs(gap - rim) > 0.25 { found.append("card \(gap) pt inside the window edge, not the rim's \(rim)") }
                 if let layer = root.contentHost.layer {
                     if layer.borderWidth > 0 { found.append("card border \(layer.borderWidth)") }
-                    if layer.masksToBounds, layer.cornerRadius > 0, abs(layer.cornerRadius - windowRadius) > 0.25 {
-                        found.append("card corner \(layer.cornerRadius) inside the window's \(windowRadius)")
+                    if layer.masksToBounds, layer.cornerRadius > 0, abs(layer.cornerRadius - (windowRadius - rim)) > 0.25 {
+                        found.append("card corner \(layer.cornerRadius) not concentric inside the window's \(windowRadius)")
                     }
                 }
-                // Half a point inside the window edge, along the pane's middle.
+                // Half a point inside the card's edge (just inside the rim), along the pane's middle.
+                let inset = rim + 0.5
                 let probe: CGPoint = switch edge {
-                case .maxY: CGPoint(x: card.midX, y: bounds.maxY - 0.5)
-                case .maxX: CGPoint(x: bounds.maxX - 0.5, y: card.midY)
-                case .minY: CGPoint(x: card.midX, y: bounds.minY + 0.5)
-                default: CGPoint(x: bounds.minX + 0.5, y: card.midY)
+                case .maxY: CGPoint(x: card.midX, y: bounds.maxY - inset)
+                case .maxX: CGPoint(x: bounds.maxX - inset, y: card.midY)
+                case .minY: CGPoint(x: card.midX, y: bounds.minY + inset)
+                default: CGPoint(x: bounds.minX + inset, y: card.midY)
                 }
                 let shade = root.mainPaneShade.layer?.sublayers?.lazy.compactMap { $0 as? CAShapeLayer }.first
                 if let shade, let path = shade.path, path.contains(probe, using: .evenOdd),
