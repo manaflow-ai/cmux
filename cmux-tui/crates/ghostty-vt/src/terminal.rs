@@ -491,6 +491,24 @@ impl Terminal {
             unsafe { sys::ghostty_terminal_free(raw) };
             return Err(error);
         }
+        // A resize's prompt clear (OSC 133 redraw=1) waits for the shell's
+        // next byte and runs only if the grid then differs from the grid
+        // the shell drew at. A bounce (34 -> 35 -> 34 columns) whose
+        // SIGWINCHes the shell reads as one keeps its prompt: zsh redraws
+        // nothing for an unchanged size, so an immediate clear left a new
+        // pane empty (close-then-type P0). The host and the daemon's
+        // mirror get the same bytes and resizes, so both stay the same.
+        let prompt_clear_waits = true;
+        if let Err(error) = check(unsafe {
+            sys::ghostty_terminal_set(
+                raw,
+                sys::GHOSTTY_TERMINAL_OPT_PROMPT_REDRAW_WAITS_FOR_SHELL,
+                (&prompt_clear_waits as *const bool).cast(),
+            )
+        }) {
+            unsafe { sys::ghostty_terminal_free(raw) };
+            return Err(error);
+        }
 
         let mut term = Terminal {
             raw,
