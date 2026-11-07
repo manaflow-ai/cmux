@@ -69,8 +69,9 @@ public final class SidebarGroupEditor {
 
     /// The card's frame on screen for a card `height` tall opened at `anchor` over `parent`: under the
     /// control that opened it, on the anchor's edge, above it when there is no room below, inside the window.
-    public static func cardFrame(anchor: PopupAnchor, parent: NSWindow, height: CGFloat) -> CGRect {
-        anchor.cardFrame(size: CGSize(width: width, height: height), visible: (parent.screen ?? NSScreen.main)?.visibleFrame,
+    /// `zoom` is the page zoom (`app.uiScale`): the editor is `width` wide at 100% and scales with its page.
+    public static func cardFrame(anchor: PopupAnchor, parent: NSWindow, height: CGFloat, zoom: CGFloat = 1) -> CGRect {
+        anchor.cardFrame(size: CGSize(width: width * zoom, height: height), visible: (parent.screen ?? NSScreen.main)?.visibleFrame,
                          window: parent.convertToScreen(parent.contentLayoutRect))
     }
 

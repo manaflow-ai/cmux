@@ -180,9 +180,12 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
         warm.page.focusPage()
     }
 
-    /// The panel's frame (with its shadow band) for the card at the page's height.
-    private func frame(anchor: PopupAnchor, parent: NSWindow) -> NSRect {
-        PopupStyle.standard.windowFrame(forCard: SidebarGroupEditor.cardFrame(anchor: anchor, parent: parent, height: height))
+    /// The panel's frame (with its shadow band) for the card at the page's height. The page reports CSS pixels and
+    /// lays out at the editor's width in CSS pixels, so both are its zoom times that in points.
+    func frame(anchor: PopupAnchor, parent: NSWindow) -> NSRect {
+        let zoom = CGFloat(warm?.page.pageZoom ?? 1)
+        return PopupStyle.standard.windowFrame(forCard: SidebarGroupEditor.cardFrame(anchor: anchor, parent: parent, height: height * zoom,
+                                                                                    zoom: zoom))
     }
 }
 
@@ -215,6 +218,16 @@ final class GroupEditorPanel: ActiveAppKeyPanel {
 
     /// The card is transparent (between opens, or before the page has painted).
     var isVeiled: Bool { card.alphaValue == 0 }
+    /// The popup's shadow shows; a veiled card casts none.
+    var castsShadow: Bool { !((contentView as? PopupHostView)?.shadowLayer.isHidden ?? true) }
+
+    /// The popup's shadow is its own layer beside the card: it hides and shows with it, at once.
+    private func showShadow(_ shown: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        (contentView as? PopupHostView)?.shadowLayer.isHidden = !shown
+        CATransaction.commit()
+    }
 
     /// Orders the panel in over `parent` at `frame` with its card transparent, so the page paints there.
     func ready(over parent: NSWindow, frame: NSRect) {
@@ -234,6 +247,7 @@ final class GroupEditorPanel: ActiveAppKeyPanel {
         attach(to: parent)
         showPopupAtOnce()
         card.alphaValue = 1
+        showShadow(true)
         ignoresMouseEvents = false
         makeKey()
     }
@@ -258,6 +272,7 @@ final class GroupEditorPanel: ActiveAppKeyPanel {
     func veil() {
         generation += 1
         card.alphaValue = 0
+        showShadow(false)
         resetPopupScale()
         alphaValue = 1
         ignoresMouseEvents = true
