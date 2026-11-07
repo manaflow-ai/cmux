@@ -233,8 +233,8 @@
   the tokens' own colors and is what Glass draws a colored group in. The key is set from Settings, Cmd-Shift-P, the
   CLI and MCP; the group editor's marble row (one smudged ball per palette, beside the dots) follows on the React
   editor page (#37299), so it is not drawn in the AppKit panel that PR deletes. A
-  new group takes the palette's next color in `GroupColor.paletteOrder` (purple, cyan, red, green, pink, yellow,
-  orange: neighbors far apart, never blue, the unread dot's), the one the fewest groups have; under Glass none, so
+  new group takes the palette's next color in `GroupColor.paletteOrder` (purple, orange, cyan, red, green, pink,
+  yellow: neighbors far apart, never blue, the unread dot's), the one the fewest groups have; under Glass none, so
   "no colour the user didn't choose" stands for everyone who never picks a palette. Replaces Debug
   `sidebar.groupColors` (fixed/theme). Gallery: lane group-colors' SVG sheets (palettes on dark and light glass, the
   orange-header-over-blue-dots clash, three picker layouts; the two-row layout won). Regression: `GroupPaletteTests`,
