@@ -154,6 +154,15 @@
 //!   Without the person, `approveMode: true` and a preset `mode` that does
 //!   not ask are refused; `approveMode: false` and an asking mode narrow and
 //!   stay open.
+//! - (e) The start level (cmux#37392): a plain start (no preset, no adopt)
+//!   that names the full-access mode acpmux itself starts chats in
+//!   (`start_mode.rs` `FULL_ACCESS_MODES`) while the person's start level for
+//!   that harness is full access (`agents.defaultPermissionMode`, the default,
+//!   with `sessions.allowFullAccess` on) asks for what a start that names no
+//!   mode gets anyway. A proven caller session must itself run full access.
+//!   Before this a Chief's `cmux chat new --mode bypassPermissions` (on the
+//!   app's daemon, where the Chief's caller token proves nothing) was refused
+//!   while the same start without `--mode` ran in bypass.
 //! - (d) The refusal ([`mode_person_required`]) is one sentence that names
 //!   where to approve: cmux NEXT on this host ([`host_label`]), or the
 //!   preset to approve there once; `error.data` carries `host`, `mode` and

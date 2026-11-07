@@ -225,6 +225,12 @@ impl super::Brain {
         self.reaction_wake.user_settings = Some(doc);
     }
 
+    /// The user's settings document in place of cmux-next.json for every key
+    /// the brain reads at use: reactions, `chief.permissionMode` (tests).
+    pub fn set_user_settings(&mut self, doc: Option<Value>) {
+        self.set_reaction_user_settings(doc);
+    }
+
     /// The settings for a decision now (engine.json and cmux.json read now,
     /// so a change applies to the next reaction).
     pub(super) fn reaction_config(&self) -> ReactionWakeConfig {
@@ -238,13 +244,30 @@ impl super::Brain {
     }
 
     /// `choice` (this Chief's engine.json) over the user's cmux.json, read now.
-    pub(super) fn reaction_config_for(&self, choice: &EngineChoice) -> ReactionWakeConfig {
-        let user = match &self.reaction_wake.user_settings {
+    /// The user's settings document (cmux-next.json), read now; the one
+    /// `set_reaction_user_settings` gave when set (tests).
+    pub(super) fn user_settings_doc(&self) -> Option<Value> {
+        match &self.reaction_wake.user_settings {
             Some(doc) => doc.clone(),
             None => std::env::var_os("HOME").and_then(|home| {
                 crate::agent_memory::settings::document(std::path::Path::new(&home))
             }),
-        };
+        }
+    }
+
+    /// The permission mode the Chief's Claude turns run in and what chose it
+    /// (`engine::permission_mode`): `choice` (engine.json) under the user's
+    /// `chief.permissionMode`, read at each turn start (cmux#37392).
+    pub(super) fn chief_permission_mode(
+        &self,
+        choice: &EngineChoice,
+    ) -> (&'static str, &'static str) {
+        let user = crate::engine::user_permission_mode(self.user_settings_doc().as_ref());
+        crate::engine::permission_mode(choice, user.as_deref())
+    }
+
+    pub(super) fn reaction_config_for(&self, choice: &EngineChoice) -> ReactionWakeConfig {
+        let user = self.user_settings_doc();
         let mut config = ReactionWakeConfig::resolve(choice, user.as_ref());
         if let Some(on) = self.reaction_wake.wake_override {
             config.can_wake = on;

@@ -786,6 +786,7 @@ impl Brain {
             reuse,
             keep,
             retire,
+            permission_mode: Some(self.chief_permission_mode(&self.next_engine().2).0.to_owned()),
         })
     }
 

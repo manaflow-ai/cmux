@@ -533,6 +533,13 @@ impl Hub {
             && self.start_level(&meta.harness).await.0 == DefaultMode::FullAccess
     }
 
+    /// Whether a new chat on `harness` starts at the full-access level now (module docs,
+    /// `start_level`): the start gate grants a start that names that mode
+    /// (`start_gate.rs` `names_start_level`).
+    pub(super) async fn start_level_is_full_access(&self, harness: &str) -> bool {
+        self.start_level(harness).await.0 == DefaultMode::FullAccess
+    }
+
     /// Whether a running chat may move to `mode` without the person (module docs): the
     /// full-access mode its profile's new chats start in now (`is_start_full_access`), or Claude
     /// Code's own start mode (`claude_stdio::OWN_MODE`, Auto) while new chats start at a level no

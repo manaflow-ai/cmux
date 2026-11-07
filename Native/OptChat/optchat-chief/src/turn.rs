@@ -162,6 +162,9 @@ pub struct TurnStart {
     pub keep: bool,
     /// A kept session this turn does not reuse: ended before it starts.
     pub retire: Option<String>,
+    /// The permission mode a Claude turn under approve-all runs in
+    /// (`engine::permission_mode`, cmux#37392); None: its harness's own.
+    pub permission_mode: Option<String>,
 }
 
 /// A turn session kept after its turn (`Settings::keep_turn_session`): the
@@ -580,12 +583,17 @@ pub fn run_with_drafts(
         }
     };
     // codex under approve-all: no workspace-write sandbox, so the turn's
-    // cmux calls reach the app and daemon sockets (E6). Before the prompt.
-    if let Some(mode) = crate::acpmux::chief_session_mode(admitted.family, &start.session.policy)
-        && let Err(e) = agents.set_mode(&session, mode)
+    // cmux calls reach the app and daemon sockets (E6). A Claude turn under
+    // approve-all: the Chief's permission mode (cmux#37392), set on a kept
+    // session too, so a change applies from the next turn. Before the prompt.
+    if let Some(mode) = crate::acpmux::chief_turn_mode(
+        admitted.family,
+        &start.session.policy,
+        start.permission_mode.as_deref(),
+    ) && let Err(e) = agents.set_mode(&session, mode)
     {
         log(&format!(
-            "turn {}: {e}; its cmux calls may be sandboxed",
+            "turn {}: {e}; it runs in its harness's own mode",
             start.key
         ));
     }

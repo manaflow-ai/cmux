@@ -280,7 +280,7 @@ impl Hub {
         if pick("peer").is_some_and(|p| !p.is_empty()) {
             return Ok(());
         }
-        let (family, bridge, start) = {
+        let (family, harness, bridge, start) = {
             let cfg = self.config.read().await;
             let Some(start) = StartMode::of(params, &cfg) else { return Ok(()) };
             let adopted =
@@ -297,6 +297,7 @@ impl Hub {
             ) {
                 Ok(r) => (
                     crate::config::derive_family(&r.agent, &r.profile),
+                    r.agent.clone(),
                     crate::codex_app_server::is_profile_launch(&r.profile.argv),
                     start,
                 ),
@@ -304,7 +305,7 @@ impl Hub {
                 Err(_) => return Ok(()),
             }
         };
-        self.start_mode_check(caller, &family, bridge, &start).await.map(|_| ())
+        self.start_mode_check(caller, &family, &harness, bridge, &start).await.map(|_| ())
     }
 
     /// Whether a client that is not the person may start a session of
@@ -323,6 +324,7 @@ impl Hub {
         &self,
         caller: Option<&str>,
         family: &str,
+        harness: &str,
         bridge: bool,
         start: &StartMode,
     ) -> Result<StartGrant, RpcError> {
@@ -339,6 +341,9 @@ impl Hub {
         if start.preset_approved {
             return Ok(StartGrant::Preset);
         }
+        if self.names_start_level(caller, harness, start).await {
+            return Ok(StartGrant::StartLevel);
+        }
         // The caller's mode now, on the session the daemon bound it to.
         let inherits = match caller.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id)) {
             Some(s) => {
@@ -353,6 +358,42 @@ impl Hub {
             Ok(StartGrant::Inherit)
         } else {
             Err(mode_person_required(&start.mode, start.preset.as_deref(), true, true))
+        }
+    }
+
+    /// Whether a plain `session/new` that names full-access mode `start.mode`
+    /// asks for nothing a start that names no mode does not already get
+    /// (cmux#37392: a Chief's `cmux chat new --mode bypassPermissions` was
+    /// refused although every agent runs in bypass by the person's rule): the
+    /// person's start level for `harness` is full access
+    /// (`agents.defaultPermissionMode`, the default, or the value MDM forces),
+    /// full access is allowed here (`sessions.allowFullAccess`), the mode is
+    /// one acpmux itself starts chats in (`FULL_ACCESS_MODES`), and the start
+    /// takes no preset (a preset's chat keeps its harness's own mode). A
+    /// proven caller session must itself run full access: a chat it starts is
+    /// never wider than it (`hub/start_mode.rs`, "Inherit"). The start checks
+    /// again on the session as it started (`start_in_mode`), and `set_mode`
+    /// refuses a mode its harness does not offer.
+    async fn names_start_level(
+        &self,
+        caller: Option<&str>,
+        harness: &str,
+        start: &StartMode,
+    ) -> bool {
+        if start.adopts
+            || start.preset.is_some()
+            || !super::start_mode::FULL_ACCESS_MODES.contains(&start.mode.as_str())
+            || !self.full_access_allowed()
+            || !self.start_level_is_full_access(harness).await
+        {
+            return false;
+        }
+        match caller {
+            None => true,
+            Some(id) => self.resolve(id).ok().filter(|s| s.id == id).is_some_and(|s| {
+                crate::web_modes::mode_of(&s.meta())
+                    .is_some_and(|m| super::start_mode::is_full_access(&m))
+            }),
         }
     }
 
@@ -479,8 +520,15 @@ impl Hub {
         let checked = if person {
             Ok(StartGrant::Person)
         } else {
-            self.start_mode_check(caller, &crate::web_modes::family_of(&s.meta()), bridge, &start)
-                .await
+            let meta = s.meta();
+            self.start_mode_check(
+                caller,
+                &crate::web_modes::family_of(&meta),
+                &meta.harness,
+                bridge,
+                &start,
+            )
+            .await
         };
         let applied = match checked {
             Ok(grant) => match self.set_mode(s, &start.mode).await {

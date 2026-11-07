@@ -523,6 +523,9 @@ pub enum EngineRequest {
         compactor_harness: Option<String>,
         compactor_model: Option<String>,
         turn_routing: Option<String>,
+        /// The Chief turns' permission mode (`engine::parse_mode_flag`:
+        /// a mode, or `unset` to clear), cmux#37392.
+        permission_mode: Option<String>,
         /// The reaction classifier's fields (reaction_wake.rs).
         reactions: Box<ReactionFields>,
     },
