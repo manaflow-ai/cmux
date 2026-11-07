@@ -10,6 +10,7 @@ use cmux_json::JsonSet as _;
 mod model;
 mod network;
 mod removal;
+pub(crate) mod removed;
 #[cfg(test)]
 mod tests;
 
@@ -21,7 +22,7 @@ use anyhow::{Context as _, anyhow, bail};
 use serde_json::{Value, json};
 
 use crate::remote_host::{audit, config as host_config, self_exe};
-use model::{Device, Listing, Role, Sources, State};
+use model::{Listing, Role, Sources, State, Via};
 use network::{Choice, TailscaleNetwork, WeftNetwork};
 
 const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
@@ -622,9 +623,45 @@ fn remove(args: &[String]) -> anyhow::Result<()> {
         }
         return Ok(());
     }
-    let device: Device = model::find(&listing, key)
-        .cloned()
-        .ok_or_else(|| anyhow!("no device {key:?} here (cmux device list shows them)"))?;
+    let Some(device) = model::find(&listing, key).cloned() else {
+        // A joined machine the list no longer offers (revoked, so it lets nothing in) still
+        // shows in `machine list` as revoked: removing it only takes it off the lists. Only
+        // the hub's own list says it is revoked; one already removed stays removed.
+        if let Some(machine_id) = key.strip_prefix("joined:").filter(|id| !id.is_empty()) {
+            if !removed::ids().contains(machine_id) {
+                #[cfg(unix)]
+                let rows = crate::cli::joined_machine_rows(
+                    auth.platform.as_deref(),
+                    auth.credential.clone(),
+                );
+                #[cfg(not(unix))]
+                let rows = None;
+                if !removed::listed_revoked(rows, machine_id)? {
+                    bail!(
+                        "{machine_id} is not a revoked machine of this team (cmux machine list shows them)"
+                    );
+                }
+            }
+            if !flags.has("yes") {
+                println!("Removing {machine_id} will:\n  - leave the machine list");
+                if !confirm("Remove it?")? {
+                    bail!("not removed (pass --yes to remove without asking)");
+                }
+            }
+            removed::add(machine_id)?;
+            record("device.removed", json!({"device": key, "done": ["leave the machine list"]}));
+            if flags.has("json") {
+                println!(
+                    "{}",
+                    json!({"removed": {"joined": machine_id}, "done": ["leave the machine list"], "failed": []})
+                );
+            } else {
+                println!("Removed {machine_id} from the machine list.");
+            }
+            return Ok(());
+        }
+        bail!("no device {key:?} here (cmux device list shows them)");
+    };
     let steps = removal::plan(&device);
     if !flags.has("yes") {
         let what: Vec<&str> = steps.iter().map(|s| s.what.as_str()).collect();
@@ -656,6 +693,16 @@ fn remove(args: &[String]) -> anyhow::Result<()> {
                 json!({"step": step.what, "error": String::from_utf8_lossy(&o.stderr).trim()}),
             ),
             Err(e) => failed.push(json!({"step": step.what, "error": e.to_string()})),
+        }
+    }
+    // A joined machine that is fully removed leaves every list (the platform keeps it, revoked).
+    if failed.is_empty() {
+        for via in &device.via {
+            if let Via::Joined { machine_id } = via
+                && let Err(e) = removed::add(machine_id)
+            {
+                failed.push(json!({"step": "leave the machine list", "error": format!("{e:#}")}));
+            }
         }
     }
     record(
