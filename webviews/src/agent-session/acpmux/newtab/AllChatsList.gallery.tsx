@@ -99,7 +99,7 @@ const leads = [
   { id: "gallery-lead-codex", title: "ui-owner", harness: "codex", state: "input" as const, label: "2 reporting" },
 ];
 
-// Projects with chats in three folders, for the fold (projectFold.ts).
+// Projects with chats in three folders, for the fold (listMotion.ts).
 const PROJECT_DIRS = ["/Users/you/src/cmux", "/Users/you/src/uploader", "/Users/you/src/docs"];
 const projectRows: AllChatsPage = {
   chats: Array.from({ length: 9 }, (_, index) => ({
@@ -139,7 +139,7 @@ const projectFolds: Play = async (ctx) => {
   await showProjects(ctx);
   await ctx.click({ selector: FIRST_PROJECT });
   await ctx.waitFor(() => settled(ctx), { capMs: 3000 });
-  if (ctx.document.querySelector(".nt-all-ghost")) throw new Error("A folded chat is still drawn after the fold");
+  if (ctx.document.querySelector("[data-list-ghost]")) throw new Error("A folded chat is still drawn after the fold");
   if (ctx.find({ selector: FIRST_PROJECT }).getAttribute("aria-expanded") !== "false")
     throw new Error("The project did not fold");
 };

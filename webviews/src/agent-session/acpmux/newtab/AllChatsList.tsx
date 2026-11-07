@@ -25,7 +25,11 @@ import { useMinuteClock } from "../clock";
 import { ChatFilterMenu, type ChatStatusFilter } from "./ChatFilterMenu";
 import { AllChatsLoading } from "./AllChatsLoading";
 import { useLasting } from "../../../ui/lasting";
-import { FOLD_KEY, useProjectFold } from "./projectFold";
+import { useListMotion } from "./listMotion";
+import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
+
+/// Every drawn row's key in the list (a chat's key, or `project:<key>` for a header): the fold reads it.
+const FOLD_KEY = "data-fold-key";
 
 export type AllChatsRow = { key: string; harness: string; title?: string; cwd?: string; updatedAt: number };
 export type AllChatsDesign = "quiet" | "age" | "project";
@@ -527,10 +531,16 @@ export function AllChatsList({
   );
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   const entries = listEntries(rows, view, folded);
-  // A project folds its chats into its header, and opens them out of it, as one motion on the settle
-  // (projectFold.ts): the list and the chats folding away are drawn in `layer`.
+  // A project folds its chats into its header, and opens them out of it, as one motion on the settle:
+  // the New Tab's list motion (listMotion.ts) moves the drawn rows, armed by the header's click. The
+  // list is virtual, so nothing else moves its rows (a scroll draws others in place).
   const layer = useRef<HTMLDivElement>(null);
-  const projectFold = useProjectFold<AllChatsRow>(layer, ROW_HEIGHT);
+  const listMotion = useListMotion(
+    layer,
+    `.ui-virtual > .ui-virtual-space > [${FOLD_KEY}]`,
+    entries.map((entry) => (entry.kind === "chat" ? entry.row.key : `project:${entry.project.key}`)),
+    { armedOnly: true, keyOf: (node) => node.getAttribute(FOLD_KEY) ?? "" },
+  );
   // A Shift-click range runs over the chats as the list shows them.
   const shown = entries.flatMap((entry) => (entry.kind === "chat" ? [entry.row] : []));
   const selection = useSelection(shown, state.query);
@@ -570,7 +580,7 @@ export function AllChatsList({
     },
     [fetchPage, nextCursor, state.query],
   );
-  /// A chat row's glyph, title, project and age: in the list, and drawn by a ghost that folds away.
+  /// A chat row's glyph, title, project and age.
   const chatRowBody = (row: AllChatsRow) => {
     const title = row.title ?? t("sidebar.newChat");
     // The project names an untitled chat apart from the others ("New chat · cmux").
@@ -636,18 +646,19 @@ export function AllChatsList({
             onClick={() => {
               // A folded chat cannot stay selected: Enter or Bring would act on rows out of sight.
               selection.clear();
-              projectFold.toggle(
-                `project:${project.key}`,
-                !open,
-                project.rows.map((row) => ({ key: row.key, row })),
-                () =>
-                  setFolded((current) => {
-                    const next = new Set(current);
-                    if (open) next.add(project.key);
-                    else next.delete(project.key);
-                    return next;
-                  }),
-              );
+              listMotion.arm({
+                ms: MOTION_SETTLE_MS,
+                easing: MOTION_SETTLE,
+                into: `project:${project.key}`,
+                rows: new Set(project.rows.map((row) => row.key)),
+                opening: !open,
+              });
+              setFolded((current) => {
+                const next = new Set(current);
+                if (open) next.add(project.key);
+                else next.delete(project.key);
+                return next;
+              });
             }}
           >
             <svg className="nt-all-group-chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
@@ -839,21 +850,6 @@ export function AllChatsList({
               overscan={10}
               renderRow={renderRow}
             />
-            {/* A folding project's chats, drawn where they were while they fold into its header: a
-                picture, never hit, focused or read (projectFold.ts). */}
-            {projectFold.ghosts.map((ghost) => (
-              <div
-                key={ghost.key}
-                className="nt-all-ghost"
-                aria-hidden="true"
-                inert
-                data-fold-ghost=""
-                {...{ [FOLD_KEY]: ghost.key }}
-                style={{ transform: `translateY(${ghost.top}px)`, height: ghost.height }}
-              >
-                <div className="nt-all-row">{chatRowBody(ghost.row)}</div>
-              </div>
-            ))}
           </div>
         </ContextMenu>
       )}

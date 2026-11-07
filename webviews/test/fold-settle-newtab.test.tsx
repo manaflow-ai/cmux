@@ -92,6 +92,9 @@ const chats = [
 ];
 const titles = (selector: string) =>
   [...fold.container.querySelectorAll(`${selector} .nt-all-title`)].map((node) => node.textContent);
+/// The list's rows, not the drawn copies of rows a fold hid (listMotion.ts).
+const ROWS = ".nt-all-item:not([data-list-ghost])";
+const GHOST = "[data-list-ghost]";
 const button = (name: string) =>
   [...fold.container.querySelectorAll("button")].find((element) => element.textContent?.trim() === name)!;
 const uploader = () => fold.container.querySelector<HTMLButtonElement>(".nt-all-group")!;
@@ -101,7 +104,7 @@ async function projectsPage() {
   render(<AllChatsList load={async () => ({ chats, ready: true })} onOpen={() => {}} />);
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   click(button("Projects"));
-  expect(titles(".nt-all-item")).toEqual(["Retry uploads", "Cover retry with tests", "Fix the sidebar"]);
+  expect(titles(ROWS)).toEqual(["Retry uploads", "Cover retry with tests", "Fix the sidebar"]);
   fold.animations = [];
 }
 
@@ -110,9 +113,9 @@ test("a project folds its chats into its header and the rows under it rise with 
   click(uploader());
   expect(uploader().getAttribute("aria-expanded")).toBe("false");
   // The list itself drops them at once; what was drawn of them folds into the header as ghosts.
-  expect(titles(".nt-all-item")).toEqual(["Fix the sidebar"]);
-  expect(titles(".nt-all-ghost")).toEqual(["Retry uploads", "Cover retry with tests"]);
-  for (const ghost of fold.container.querySelectorAll(".nt-all-ghost")) {
+  expect(titles(ROWS)).toEqual(["Fix the sidebar"]);
+  expect(titles(GHOST)).toEqual(["Retry uploads", "Cover retry with tests"]);
+  for (const ghost of fold.container.querySelectorAll(GHOST)) {
     expect(ghost.getAttribute("aria-hidden")).toBe("true");
     expect(ghost.hasAttribute("inert")).toBe(true);
   }
@@ -122,17 +125,17 @@ test("a project folds its chats into its header and the rows under it rise with 
     expect(animation.options.easing).toBe(MOTION_SETTLE);
   }
   // The cmux header and its chat slide up from where they were drawn.
-  const rose = fold.animations.filter((animation) => !animation.target.closest(".nt-all-ghost"));
+  const rose = fold.animations.filter((animation) => !animation.target.closest(GHOST));
   expect(rose.length).toBe(2);
-  for (const animation of rose) expect(String(animation.keyframes[0]!.transform)).toMatch(/translateY\(60px\)$/);
+  for (const animation of rose) expect(animation.keyframes[0]!.translate).toBe("0 60px");
   // The ghosts fade out into the header.
-  const ghosts = fold.animations.filter((animation) => animation.target.closest(".nt-all-ghost"));
+  const ghosts = fold.animations.filter((animation) => animation.target.closest(GHOST));
   expect(ghosts.length).toBe(2);
   for (const animation of ghosts) expect(animation.keyframes.at(-1)!.opacity).toBe(0);
   // When the motion ends the ghosts go, and nothing else is drawn or runs.
   const count = fold.animations.length;
   for (const animation of fold.animations.slice()) animation.finish();
-  expect(fold.container.querySelector(".nt-all-ghost")).toBeNull();
+  expect(fold.container.querySelector(GHOST)).toBeNull();
   expect(fold.animations.length).toBe(count);
 });
 
@@ -142,7 +145,7 @@ test("a project opens its chats out of its header, fading in, as the rows under 
   for (const animation of fold.animations.slice()) animation.finish();
   fold.animations = [];
   click(uploader());
-  expect(titles(".nt-all-item")).toEqual(["Retry uploads", "Cover retry with tests", "Fix the sidebar"]);
+  expect(titles(ROWS)).toEqual(["Retry uploads", "Cover retry with tests", "Fix the sidebar"]);
   const arrived = fold.animations.filter((animation) => animation.keyframes[0]!.opacity === 0);
   expect(arrived.length).toBe(2);
   for (const animation of fold.animations) {
@@ -150,20 +153,20 @@ test("a project opens its chats out of its header, fading in, as the rows under 
     expect(animation.options.easing).toBe(MOTION_SETTLE);
   }
   for (const animation of fold.animations.slice()) animation.finish();
-  expect(fold.container.querySelector(".nt-all-ghost")).toBeNull();
+  expect(fold.container.querySelector(GHOST)).toBeNull();
 });
 
 test("a project reopened mid-fold brings its chats back from where their ghosts are drawn", async () => {
   await projectsPage();
   click(uploader());
   // Cut short halfway: the ghost of the first chat is drawn half faded (JSDOM runs no animation).
-  const ghost = [...fold.container.querySelectorAll<HTMLElement>(".nt-all-ghost")].find((node) =>
+  const ghost = [...fold.container.querySelectorAll<HTMLElement>(GHOST)].find((node) =>
     node.textContent?.includes("Retry uploads"),
   )!;
   ghost.style.opacity = "0.5";
   fold.animations = [];
   click(uploader());
-  expect(fold.container.querySelector(".nt-all-ghost")).toBeNull();
+  expect(fold.container.querySelector(GHOST)).toBeNull();
   const back = fold.animations.filter(
     (animation) => animation.target.querySelector(".nt-all-title")?.textContent === "Retry uploads",
   );
@@ -176,9 +179,9 @@ test("a project folds and opens in one frame under Reduce Motion", async () => {
   reduceMotion();
   await projectsPage();
   click(uploader());
-  expect(titles(".nt-all-item")).toEqual(["Fix the sidebar"]);
-  expect(fold.container.querySelector(".nt-all-ghost")).toBeNull();
+  expect(titles(ROWS)).toEqual(["Fix the sidebar"]);
+  expect(fold.container.querySelector(GHOST)).toBeNull();
   click(uploader());
-  expect(titles(".nt-all-item")).toEqual(["Retry uploads", "Cover retry with tests", "Fix the sidebar"]);
+  expect(titles(ROWS)).toEqual(["Retry uploads", "Cover retry with tests", "Fix the sidebar"]);
   expect(fold.animations).toEqual([]);
 });
