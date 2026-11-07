@@ -3,12 +3,19 @@ import AppKit
 extension ScreenContentView {
     /// Whether the handle of `kind` draws its line at rest: the style's line between panes, or, while
     /// panes are outlined (`borders`), a split's line beside a pane that draws no outline of its own.
+    /// A column edge draws the same line where it parts two columns, or a dock from the strip: every pane
+    /// edge shows the faint line the sidebar's edge shows (Leo, 2026-11-07). The strip's last column edge
+    /// parts nothing and draws none.
     /// An agent chat and a New Tab page share the window's glass without a pane outline
     /// (`PaneContentChrome.paneFramesContent`), so two of them side by side under `panes` had nothing
     /// between them (https://github.com/manaflow-ai/cmux/issues/37425).
     func showsIdleLine(_ kind: DividerHandleView.Kind) -> Bool {
         let style = context.style
         if kind.usesRowSeparator { return style.showsRowSeparator }
+        if case let .columnEdge(column) = kind {
+            guard style.showsDividerLine, let edge = baseGeometry.columnEdges.first(where: { $0.column == column }) else { return false }
+            return edge.dockEdge != nil || baseGeometry.columnOrder.last != column
+        }
         if style.showsDividerLine { return true }
         guard style.drawsLines, style.showsPaneBorder, case let .split(id) = kind,
               let divider = baseGeometry.dividers.first(where: { $0.id == id }) else { return false }
