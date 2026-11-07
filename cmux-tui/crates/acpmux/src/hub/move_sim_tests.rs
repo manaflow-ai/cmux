@@ -206,6 +206,15 @@ impl Machine {
             self.ran_by_itself.insert(prompt.to_owned());
         }
         if by_owner && self.settled_seen.contains(prompt) {
+            if std::env::var_os("MOVE_SIM_SEED").is_some() {
+                let lives: Vec<String> = self
+                    .journal
+                    .iter()
+                    .filter(|r| r.prompt.is_some())
+                    .map(|r| format!("{}:{}:{}", r.seq, r.kind, r.prompt.as_deref().unwrap_or("")))
+                    .collect();
+                eprintln!("RESURRECTED {prompt}; journal {lives:?}");
+            }
             LOST.with(|l| {
                 l.borrow_mut()
                     .push(format!("resurrected: {prompt} ran again after its end was captured"))
