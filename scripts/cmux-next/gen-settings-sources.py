@@ -788,8 +788,8 @@ def section_swift(section, data):
     for entry in data["lists"]:
         var, list_owner = section["lists"][entry["name"]]
         lists.append((["    /// " + entry["note"]] if entry.get("note") else []) + list_var_swift(var, entry, entry["rows"], list_owner))
-    joined = joined_var_swift(section, data)
-    lists += [joined] if joined else []
+    joined_var = joined_var_swift(section, data)
+    lists += [joined_var] if joined_var else []
     intro = ["/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).",
              "nonisolated enum %s {" % section["type"]]
     single = header + [line for block in constant_blocks for line in block] + intro
@@ -819,8 +819,8 @@ def section_swift(section, data):
         pieces.append(("list", note + ["    static var %s: [SettingDescriptor] { %s }" % (var, joined)]))
         for n, rows in enumerate(parts):
             pieces.append(("list", list_var_swift("%sPart%d" % (var, n + 1), entry, rows, list_owner)))
-    if joined:
-        pieces.append(("list", joined))
+    if joined_var:
+        pieces.append(("list", joined_var))
     files, current, declared = [], list(header), False
     for piece in pieces:
         if isinstance(piece, tuple):
