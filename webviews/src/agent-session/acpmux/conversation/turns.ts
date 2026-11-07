@@ -36,6 +36,7 @@ import { subsessionCall } from "./subsessionCalls";
 import { agentCall } from "./agentCalls";
 import { experimentArm } from "../../../experiments/experiment";
 import { finishedTaskLook } from "./taskLine.experiment";
+import { turnFoldReplies } from "./turnFoldReplies.experiment";
 import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
@@ -705,6 +706,8 @@ type ShapedTurn = {
   /// The family's fold style as read for this shape (turnFoldStyle.ts): its opt-in can change
   /// without the family changing, and the cached turn must fold anew when it does.
   foldStyle: TurnFoldStyle;
+  /// How its closed fold draws the work around the replies it keeps (turnFoldReplies.experiment.ts).
+  repliesArm: string;
   /// The person's own prompt opened the next turn (`supersededFooters`).
   endedByPerson: boolean;
   rows: AcpmuxRow[];
@@ -780,6 +783,7 @@ function shapedTurn(
   const opener = rows[end];
   const endedByPerson = !live && !last && opener?.kind === "user" && !opener.incoming && !opener.received;
   const foldStyle = turnFoldStyle(agentFamily);
+  const repliesArm = experimentArm(turnFoldReplies);
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
@@ -795,6 +799,7 @@ function shapedTurn(
     cached.lineBelow === lineBelow &&
     cached.agentFamily === agentFamily &&
     cached.foldStyle === foldStyle &&
+    cached.repliesArm === repliesArm &&
     cached.endedByPerson === endedByPerson &&
     cached.source.length === source.length
   ) {
@@ -926,6 +931,7 @@ function shapedTurn(
       lineBelow,
       agentFamily,
       foldStyle,
+      repliesArm,
       endedByPerson,
       rows: shaped,
     });
@@ -1049,6 +1055,64 @@ function repliesIn(body: readonly AcpmuxRow[]): Set<string> {
   return replies;
 }
 
+/// The rows a closed "Worked for" draws for `rows`: each row `out` keeps in sight as `outside` draws
+/// it, and each stretch of hidden work between them as closed run lines, one for the stretch
+/// (`groups`) or one per run (`runs`). A line counts calls only; its short notes go with it as quiet
+/// lines; an edit stays on the turn's edits card; anything else hidden stays under "Worked for".
+/// A line keeps its first run's id, so opening the fold keeps that line where it is (one row, one
+/// open state) rather than fading it out and drawing its run anew.
+function aroundReplies(
+  rows: readonly AcpmuxRow[],
+  out: (row: AcpmuxRow) => boolean,
+  outside: (rows: readonly AcpmuxRow[]) => AcpmuxRow[],
+  arm: "groups" | "runs",
+  keep: ReadonlySet<string>,
+  edits: boolean,
+): AcpmuxRow[] {
+  const shaped: AcpmuxRow[] = [];
+  let stretch: AcpmuxRow[] = [];
+  const line = (run: AcpmuxRow): AcpmuxRow => ({
+    ...run,
+    settled: true,
+    foldRun: true,
+    version: run.version * RUN_STATES + 3,
+  });
+  const flush = () => {
+    const work = stretch.filter((row) => !isEdit(row));
+    stretch = [];
+    if (arm === "runs") {
+      shaped.push(...mergeShortNotes(work, keep, edits).filter(isRun).map(line));
+      return;
+    }
+    const runs = work.filter(isRun);
+    if (!runs.length) return;
+    const from = work.indexOf(runs[0]!);
+    const to = work.lastIndexOf(runs.at(-1)!);
+    const parts = work.slice(from, to + 1).filter((row) => isRun(row) || isShortNote(row));
+    shaped.push(
+      line({
+        ...runs[0]!,
+        items: parts.flatMap((row) => (isRun(row) ? (row.items ?? []) : [{ kind: "note", text: row.text!.trim() }])),
+        toolCount: runs.reduce((n, run) => n + (run.toolCount ?? 0), 0),
+        joined: parts.map((row) => row.id),
+        version: parts.reduce((version, row) => mixVersion(version, row.version), 0),
+      }),
+    );
+  };
+  for (const row of rows) {
+    if (out(row)) {
+      flush();
+      shaped.push(...outside([row]));
+    } else {
+      if (!isPlan(row)) stretch.push(row);
+      // A render card keeps its place among the replies.
+      shaped.push(...outside([row]));
+    }
+  }
+  flush();
+  return shaped;
+}
+
 function shapeTurn(
   user: AcpmuxRow,
   turn: AcpmuxRow[],
@@ -1130,11 +1194,16 @@ function shapeTurn(
     const open = !style.conclusion || foldOpen || expanded.has(id);
     // A call still waiting for its permission stays in sight: beside the closed fold, and in its
     // folded run once the fold opens (TurnRows.tsx `staysInSight`).
+    // A reply to the person is never folded (Leo, 2026-11-06: "your intermediate message got lost. that
+    // can never happen", then "those intermediate messages should be counted differently than other
+    // tool calls like it's a special never-fold type"): wherever it sits in the turn it draws beside
+    // the closed line, in its place among the lines of the work around it (`aroundReplies`).
     const out = (row: AcpmuxRow) =>
       staysOut(row) ||
       (!open && taskLook === "card" && startsTask(row)) ||
       (!open &&
         (steerDialogue.has(row.id) ||
+          replies.has(row.id) ||
           (row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool)))));
     const work = [...before, ...after].filter((row) => !out(row));
     // A row drawn beside the closed fold is not in the card too: the card takes its first row's id.
@@ -1153,7 +1222,9 @@ function shapeTurn(
       const from = segment.anchor.at;
       // Its label counts the fold's messages (`previous`), which can change while the summary's and
       // the answer's versions do not: the count is part of the version, so the memoized row redraws.
-      const previous = style.countsMessages && foldMixesMessages(work) ? foldedMessages(work) : undefined;
+      // A reply is never folded, so it is never one of the fold's messages, open or closed.
+      const hidden = work.filter((row) => !replies.has(row.id));
+      const previous = style.countsMessages && foldMixesMessages(hidden) ? foldedMessages(hidden) : undefined;
       const worked: AcpmuxRow = {
         id,
         version: (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
@@ -1199,7 +1270,15 @@ function shapeTurn(
       rows.flatMap((row) =>
         isPlan(row) ? [] : out(row) ? [endedPlan(row)] : dialogue ? [row] : renderRows([row], version),
       );
-    shaped.push(...outside(before));
+    // Closed over a turn that said something before its answer, the work around each reply folds
+    // into its own line before and after it (turnFoldReplies.experiment.ts), so the replies read in
+    // order with the work between them one click away.
+    const around = open ? undefined : experimentArm(turnFoldReplies);
+    const between =
+      around !== undefined && around !== "replies" && before.some((row) => replies.has(row.id) && out(row))
+        ? (rows: readonly AcpmuxRow[]) => aroundReplies(rows, out, outside, around, steerDialogue, style.runs)
+        : outside;
+    shaped.push(...between(before));
     // Waiting as shaped: whether a later prompt answered it is `settleNextSteps`'s to say.
     const card = (at: number): AcpmuxRow => ({
       id: `${NEXT_STEP}-${segment.anchor.id}`,
@@ -1216,7 +1295,7 @@ function shapeTurn(
       else if (nextStep!.rest) shaped.push({ ...said!, text: nextStep!.rest, version: said!.version * 2 + 1 });
       shaped.push(card(said!.at));
     } else if (said) shaped.push(said);
-    shaped.push(...outside(after));
+    shaped.push(...between(after));
     shaped.push(...[...before, ...after].filter(isPlan).map(endedPlan));
     // A wrap-up in a turn with no answer to hang under goes after the turn's last row.
     if (nextStep && wrapUp && !underAnswer) shaped.push(card(summary.at));
