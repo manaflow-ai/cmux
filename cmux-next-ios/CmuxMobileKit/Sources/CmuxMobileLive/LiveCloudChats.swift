@@ -152,6 +152,11 @@ public final class CloudChatRelay {
         hub = AcpmuxHub()
     }
 
+    /// How long the phone waits for `session/new`: past hostd's whole start (list, workspace and tab
+    /// at 15 s each, then 90 s for the agent; cloud_acp.rs `DEADLINE`, `START_DEADLINE`), so a slow
+    /// start that hostd still finishes is not given up here first.
+    static let startTimeout: Duration = .seconds(3 * 15 + 90 + 10)
+
     /// Starts a Claude chat on this machine (hostd's `session/new`: the machine makes its folder
     /// and the chat asks before acting) and returns its session id, already in `hub.sessions`.
     public func startChat() async throws -> String {
@@ -160,7 +165,7 @@ public final class CloudChatRelay {
             reply = try await hub.request("session/new", .object([
                 "mcpServers": .array([]),
                 "_meta": .object(["acpmux": .object(["harness": .string("claude"), "policy": .string("ask")])]),
-            ]), timeout: .seconds(95))
+            ]), timeout: Self.startTimeout)
         } catch {
             throw CloudChatStartError(message: AcpmuxSessionSource.message(error))
         }
