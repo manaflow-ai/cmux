@@ -1039,8 +1039,10 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 #
 # A published base pin (2026-11-07): step-A PRs change the FFI sources faster than releases publish, so a step-B PR (its
 # Swift, or a re-pin) could never pin a release built from its own sources. Any other PR with that error has it excused
-# when both hold: (a) the release its head pins (Package.swift's cmux-app-ffi-<sha> URL) is published, its SOURCE_SHA
-# names that sha, and that sha is on the PR's base (an ancestor of the base tip); (b) the app compile check passed at the
+# when both hold: (a) the release its head pins (the url and checksum of Package.swift's one CCmuxAppFFI binary
+# target, read from its code, never a comment: this repository's own cmux-app-ffi-<sha> release download) is
+# published, its SOURCE_SHA names that sha, its SHA256SUMS carries that checksum for the archive, and that sha is on
+# the PR's base (an ancestor of the base tip); (b) the app compile check passed at the
 # PR's exact head (compile_pass_at). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
 # resolves the binary target from that URL and checksum, nothing else. Drift since the pinned source can then only be
 # other PRs' additive FFI changes, and the compile proves the symbols the app calls are in the pinned library.
@@ -1050,20 +1052,95 @@ FFI_PIN_ROLLUP_STEP = "Fail on any red check"  # the job's last step, red when a
 FFI_PIN_ERROR = "error: the app FFI sources changed since the pinned source"
 FFI_PIN_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh")
-FFI_PIN_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/releases/download/cmux-app-ffi-([0-9a-f]{40})/"
-                         r"CCmuxAppFFI\.xcframework\.zip")
 FFI_RELEASE_SECONDS = 30
+FFI_TARGET_NAME = "CCmuxAppFFI"
+FFI_ASSET = "CCmuxAppFFI.xcframework.zip"
 
 
-def ffi_release_source(repo: str, tag: str) -> str | None:
-    """The SOURCE_SHA the published release TAG of REPO records, read anonymously from its release download (no API
-    quota), or None when it is not published (404). Any other failure raises: an unread release is no answer."""
+def swift_code(text: str) -> str:
+    """TEXT with its Swift comments blanked (`//` to the line end, `/* */` nested as Swift nests them), string
+    literals kept whole, so `//` inside a URL string is no comment and a URL in a comment is no code. Newlines stay."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        if text.startswith('"""', i):
+            close = text.find('"""', i + 3)
+            close = n if close < 0 else close + 3
+            out.append(text[i:close])
+            i = close
+        elif text[i] == '"':
+            j = i + 1
+            while j < n and text[j] not in '"\n':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif text.startswith("/*", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if text.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif text.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            out.append("\n" * text.count("\n", i, j))
+            i = j
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
+BINARY_TARGET = re.compile(r"\.binaryTarget\s*\(")
+SWIFT_ARG = re.compile(r'\b(name|url|checksum)\s*:\s*"([^"\\\n]*)"')
+
+
+def ffi_binary_target(manifest: str, repo: str) -> tuple[str | None, str | None, str]:
+    """(source sha, checksum, "") of the one CCmuxAppFFI binary target in MANIFEST (Package.swift's text), read from
+    its code alone (swift_code: never a comment); else (None, None, why). Its url must be exactly REPO's own release
+    download of cmux-app-ffi-<sha>/CCmuxAppFFI.xcframework.zip and its checksum 64 hex characters."""
+    code, targets = swift_code(manifest), []
+    for found in BINARY_TARGET.finditer(code):
+        depth, j = 1, found.end()
+        while j < len(code) and depth:
+            if code[j] == '"':  # a string literal's parentheses are not the call's
+                j += 1
+                while j < len(code) and code[j] not in '"\n':
+                    j += 2 if code[j] == "\\" else 1
+            elif code[j] in "()":
+                depth += 1 if code[j] == "(" else -1
+            j += 1
+        args: dict[str, list[str]] = {}
+        for key, value in SWIFT_ARG.findall(code[found.end():j - 1]):
+            args.setdefault(key, []).append(value)
+        if args.get("name") == [FFI_TARGET_NAME]:
+            targets.append(args)
+    if len(targets) != 1:
+        return None, None, f"Package.swift has {len(targets)} {FFI_TARGET_NAME} binary targets in its code, not one"
+    target = targets[0]
+    if len(target.get("url", [])) != 1 or len(target.get("checksum", [])) != 1:
+        return None, None, f"the {FFI_TARGET_NAME} binary target has no single url and checksum"
+    url, checksum = target["url"][0], target["checksum"][0]
+    pin = re.fullmatch(r"https://github\.com/" + re.escape(repo) + r"/releases/download/cmux-app-ffi-([0-9a-f]{40})/"
+                       + re.escape(FFI_ASSET), url)
+    if not pin:
+        return None, None, f"the {FFI_TARGET_NAME} url {url[:200]!r} is not {repo}'s own app FFI release download"
+    if not re.fullmatch(r"[0-9a-f]{64}", checksum):
+        return None, None, f"the {FFI_TARGET_NAME} checksum {checksum[:80]!r} is not 64 hex characters"
+    return pin[1], checksum, ""
+
+
+def ffi_release_file(repo: str, tag: str, name: str) -> str | None:
+    """File NAME of the published release TAG of REPO, read anonymously from its release download (no API quota), or
+    None when it is not published (404). Any other failure raises: an unread release is no answer."""
     import urllib.error
     import urllib.request
-    url = f"https://github.com/{repo}/releases/download/{tag}/SOURCE_SHA"
+    url = f"https://github.com/{repo}/releases/download/{tag}/{name}"
     try:
         with urllib.request.urlopen(url, timeout=FFI_RELEASE_SECONDS) as answer:  # noqa: S310 (a fixed https URL)
-            return answer.read(200).decode("ascii", "replace").strip()
+            return answer.read(1 << 16).decode("utf-8", "replace")
     except urllib.error.HTTPError as error:
         if error.code == 404:
             return None
@@ -1073,20 +1150,21 @@ def ffi_release_source(repo: str, tag: str) -> str | None:
 
 
 def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str | None, str]:
-    """(audit, "") when the head SHA's app FFI pin is a published release built from a commit on BASE and the app
-    compile check passed at SHA (the published base pin rule above); else (None, the part of that rule that does not
-    hold)."""
-    manifest = source_text(repo, sha, FFI_PIN_MANIFEST, github)
-    found = FFI_PIN_URL.search(manifest)
-    if not found or found[1] != repo:
-        return None, f"{FFI_PIN_MANIFEST} at {sha[:12]} pins no cmux-app-ffi release of {repo}"
-    pin = found[2]
+    """(audit, "") when the head SHA's app FFI pin (its one CCmuxAppFFI binary target) is a published release of REPO
+    built from a commit on BASE, its checksum the release's archive entry, and the app compile check passed at SHA
+    (the published base pin rule above); else (None, the part of that rule that does not hold)."""
+    pin, checksum, why = ffi_binary_target(source_text(repo, sha, FFI_PIN_MANIFEST, github), repo)
+    if pin is None:
+        return None, why
     tag = f"cmux-app-ffi-{pin}"
-    source = ffi_release_source(repo, tag)
-    if source is None:
-        return None, f"the pinned release {tag} is not published (its SOURCE_SHA is 404)"
-    if source != pin:
-        return None, f"the pinned release {tag} records SOURCE_SHA {source[:40]!r}, not {pin}"
+    source = ffi_release_file(repo, tag, "SOURCE_SHA")
+    sums = ffi_release_file(repo, tag, "SHA256SUMS") if source is not None else None
+    if source is None or sums is None:
+        return None, f"the pinned release {tag} is not published (its {'SOURCE_SHA' if source is None else 'SHA256SUMS'} is 404)"
+    if source.strip() != pin:
+        return None, f"the pinned release {tag} records SOURCE_SHA {source.strip()[:40]!r}, not {pin}"
+    if f"{checksum}  {FFI_ASSET}" not in sums.splitlines():
+        return None, f"the pinned checksum {checksum[:12]} is not {tag}'s SHA256SUMS entry for {FFI_ASSET}"
     status = github.json(f"repos/{repo}/compare/{base}...{pin}?per_page=1").get("status")
     if status not in ("behind", "identical"):
         return None, f"the pinned release's source {pin[:12]} is not an ancestor of {base} (it is {status or 'unread'})"

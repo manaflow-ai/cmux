@@ -3793,20 +3793,34 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pin_at_head(self.STEP_B_PIN)
         self.compare, self.statuses = "behind", []
         self.releases: list[str] = []
-        published = unittest.mock.patch.object(excuse, "ffi_release_source", self.release_source)
+        self.sums = None  # SHA256SUMS: by default the pinned checksum's archive entry
+        published = unittest.mock.patch.object(excuse, "ffi_release_file", self.release_file)
         published.start()
         self.addCleanup(published.stop)
 
+    CHECKSUM = "2" * 64
+
+    @staticmethod
+    def target(sha, repo=REPO, checksum=CHECKSUM, host="github.com"):
+        return ("let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
+                f"    url: \"https://{host}/{repo}/releases/download/cmux-app-ffi-{sha}/"
+                "CCmuxAppFFI.xcframework.zip\",\n"
+                f"    checksum: \"{checksum}\"\n)\n")
+
     def pin_at_head(self, sha, repo=REPO):
         self.pinned, self.source = sha, sha
-        self.manifest = ("let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
-                         f"    url: \"https://github.com/{repo}/releases/download/cmux-app-ffi-{sha}/"
-                         "CCmuxAppFFI.xcframework.zip\",\n"
-                         f"    checksum: \"{'2' * 64}\"\n)\n")
+        self.manifest = ("// The FFI pin (scripts/cmux-next/check-app-ffi-pin.sh): https://example.com/x\n"
+                         + self.target(sha, repo))
 
-    def release_source(self, repo, tag):
+    def release_file(self, repo, tag, name):
         self.releases.append(tag)
-        return self.source
+        if self.source is None:
+            return None
+        if name == "SOURCE_SHA":
+            return self.source + "\n"
+        assert name == "SHA256SUMS", name
+        return self.sums if self.sums is not None else (f"{self.CHECKSUM}  CCmuxAppFFI.xcframework.zip\n"
+                                                        f"{'9' * 64}  CCmuxAppFFI.xcframework.zip.sha256\n")
 
     def compiled(self):
         self.statuses = [{"context": "cmux-next/compile", "state": "success"}]
@@ -3885,7 +3899,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
             f"source\"), and #37292 pins cmux-app-ffi-{self.STEP_B_PIN}, a published release built from 1f63d516ecfc, "
             f"which is on feat-cmux-next, and the cmux-next/compile status compiled {HEAD} against that pin and passed"])
-        self.assertEqual(self.releases, [f"cmux-app-ffi-{self.STEP_B_PIN}"])
+        self.assertEqual(self.releases, [f"cmux-app-ffi-{self.STEP_B_PIN}"] * 2)
 
     def test_a_re_pin_alone_on_the_base_that_compiled_is_excused(self):
         # cmux#37353: the re-pin bot's Package.swift-only PR, a few FFI commits behind the base tip.
@@ -3933,7 +3947,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files(*self.STEP_B)
         self.compiled()
         self.pin_at_head(self.STEP_B_PIN, repo="someone/cmux")
-        with self.assertRaisesRegex(excuse.Refused, "pins no cmux-app-ffi release of manaflow-ai/cmux"):
+        with self.assertRaisesRegex(excuse.Refused, "is not manaflow-ai/cmux's own app FFI release download"):
             self.judge()
         self.assertEqual(self.releases, [])
 
@@ -3951,7 +3965,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.assertIn("a step-A Rust change", self.judge()[0])
         self.assertEqual(self.releases, [])
 
-    def test_the_release_source_is_read_anonymously_and_a_404_is_unpublished(self):
+    def test_the_release_files_are_read_anonymously_and_a_404_is_unpublished(self):
         import io
         import urllib.error
         # setUp replaced the reader in `excuse`; a fresh copy of the module has the real one.
@@ -3969,13 +3983,67 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
 
         tag = f"cmux-app-ffi-{self.STEP_B_PIN}"
         with unittest.mock.patch("urllib.request.urlopen", answer(200)):
-            self.assertEqual(module.ffi_release_source(REPO, tag), self.STEP_B_PIN)
+            self.assertEqual(module.ffi_release_file(REPO, tag, "SOURCE_SHA"), f"{self.STEP_B_PIN}\n")
         self.assertEqual(urls, [(f"https://github.com/{REPO}/releases/download/{tag}/SOURCE_SHA", 30)])
         with unittest.mock.patch("urllib.request.urlopen", answer(404)):
-            self.assertIsNone(module.ffi_release_source(REPO, tag))
+            self.assertIsNone(module.ffi_release_file(REPO, tag, "SHA256SUMS"))
         with unittest.mock.patch("urllib.request.urlopen", answer(502)), \
                 self.assertRaisesRegex(module.Refused, "HTTP 502; the pinned release could not be read"):
-            module.ffi_release_source(REPO, tag)
+            module.ffi_release_file(REPO, tag, "SOURCE_SHA")
+
+    # Review of 05e6b0a2 (F1, P1): the pin is the one CCmuxAppFFI binary target's url and checksum in code, never a
+    # URL-shaped string anywhere in the manifest.
+    DIVERGED = "d" * 40
+
+    def refused_with(self, manifest, pattern):
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        self.manifest = manifest
+        with self.assertRaisesRegex(excuse.Refused, pattern):
+            self.judge()
+
+    def test_a_published_url_in_a_line_comment_beside_a_diverged_target_is_refused(self):
+        published = self.target(self.STEP_B_PIN).replace("let appFFI: Target = ", "")
+        manifest = "".join(f"// {line}\n" for line in published.splitlines()) + self.target(self.DIVERGED)
+        # The diverged pin is the one read: its release is the one asked for, and it is not on the base.
+        self.compare = "diverged"
+        self.pinned = self.DIVERGED
+        self.source = self.DIVERGED
+        self.refused_with(manifest, "the pinned release's source dddddddddddd is not an ancestor")
+
+    def test_a_published_target_in_a_block_comment_beside_a_diverged_target_is_refused(self):
+        manifest = ("/* an old pin:\n" + self.target(self.STEP_B_PIN) + "/* nested */ still a comment */\n"
+                    + self.target(self.DIVERGED))
+        self.compare, self.pinned, self.source = "diverged", self.DIVERGED, self.DIVERGED
+        self.refused_with(manifest, "the pinned release's source dddddddddddd is not an ancestor")
+
+    def test_a_target_on_another_host_is_refused(self):
+        self.refused_with(self.target(self.STEP_B_PIN, host="github.com.evil.example"),
+                          "is not manaflow-ai/cmux's own app FFI release download")
+        self.assertEqual(self.releases, [])
+
+    def test_a_checksum_that_is_not_the_releases_archive_entry_is_refused(self):
+        self.sums = f"{'3' * 64}  CCmuxAppFFI.xcframework.zip\n{self.CHECKSUM}  CCmuxAppFFI.xcframework.zip.sha256\n"
+        self.refused_with(self.manifest, "the pinned checksum 222222222222 is not cmux-app-ffi-1f63d516ecfc798e40d2d031e"
+                                         "bfcbb8eb1637e48's SHA256SUMS entry")
+
+    def test_two_ffi_targets_are_refused(self):
+        self.refused_with(self.target(self.STEP_B_PIN) + self.target(self.STEP_B_PIN).replace("let appFFI", "let b"),
+                          "Package.swift has 2 CCmuxAppFFI binary targets in its code, not one")
+        self.refused_with("let x = 1 // .binaryTarget(name: \"CCmuxAppFFI\")\n",
+                          "Package.swift has 0 CCmuxAppFFI binary targets")
+
+    def test_a_target_with_no_single_url_and_checksum_is_refused(self):
+        self.refused_with('.binaryTarget(name: "CCmuxAppFFI", path: "Frameworks/CCmuxAppFFI.xcframework")\n',
+                          "has no single url and checksum")
+
+    def test_the_real_manifest_reads_its_one_pin(self):
+        text = (ROOT / excuse.FFI_PIN_MANIFEST).read_text(encoding="utf-8")
+        pin, checksum, why = excuse.ffi_binary_target(text, REPO)
+        self.assertEqual(why, "")
+        self.assertRegex(pin, r"^[0-9a-f]{40}$")
+        self.assertIn(f"cmux-app-ffi-{pin}/CCmuxAppFFI.xcframework.zip", text)
+        self.assertIn(f'checksum: "{checksum}"', text)
 
     def test_a_crash_exit_beside_the_pin_red_is_never_excused(self):
         # Review F1 (9cac2029): the rule asks only after test_reds.read found no crash or cut-short run.
