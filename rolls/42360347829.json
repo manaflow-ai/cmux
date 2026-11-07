@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42360347829",
+  "recorded_at": "2026-11-07T09:43:10Z",
+  "reason": "cmux-tui ba632892698a changes the image's cmux-tui (pinned 57c533402887)",
+  "dry_run": false,
+  "cmux_tui": "ba632892698a7b6326614942ab9e23f4b5a6aecc",
+  "fixes": [
+    {
+      "sha": "ba632892698a7b6326614942ab9e23f4b5a6aecc",
+      "mergedAt": "2026-11-07T01:21:54-08:00",
+      "subject": "acpmux: a steered turn's typed failure keeps its kind and recovery (#37567)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T09:43:10Z",
+    "snapshot_id": "sh-14222f3ec46e4c3fb90811e749970a39",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42360347829): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3082663ebc9e1304184840cf2ff28f49d00958b7",
+    "image": "cloud-native-auto-ba632892-42360347829-1",
+    "revision": "ci-42360347829-1",
+    "at": "2026-11-07T09:43:10Z"
+  },
+  "rolled_back": false
+}
