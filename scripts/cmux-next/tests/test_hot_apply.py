@@ -228,6 +228,37 @@ class FindSocket(unittest.TestCase):
             return status(argv)
         self.hot.subprocess.run = run
 
+    def stub_acpmux(self, with_daemon):
+        """The copy's acpmux daemon (bin/acpmux, a link to bin/cmux), and with WITH_DAEMON its cmux-tui
+        daemon too; `server status` on acpmux's socket hangs, as it serves another protocol."""
+        prefix = str(self.app / self.hot.BIN)
+        procs = {"5151": (f"{prefix}/acpmux", "daemon run --ready-fd 3", "/home/u/.acpmux/builds/x/acpmux.sock")}
+        if with_daemon:
+            procs["4242"] = (f"{prefix}/cmux-tui", "--session s server", "/tmp/s.sock")
+
+        def run(argv, **kwargs):
+            if argv[0] == "ps":
+                full = argv[-1] == "pid=,command="
+                return subprocess.CompletedProcess(argv, 0, "".join(
+                    f"{pid} {exe}{' ' + args if full else ''}\n" for pid, (exe, args, _) in procs.items()), "")
+            if argv[0] == "lsof":
+                pid = argv[argv.index("-p") + 1]
+                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{procs[pid][2]}\n", "")
+            sock = argv[argv.index("--socket") + 1]
+            if "acpmux" in sock:
+                raise subprocess.TimeoutExpired(argv, 10)
+            return subprocess.CompletedProcess(argv, 0, '{"pid": 4242}', "")
+        self.hot.subprocess.run = run
+
+    def test_the_acpmux_daemon_beside_the_terminal_daemon_is_skipped(self):
+        self.stub_acpmux(with_daemon=True)
+        self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
+
+    def test_a_copy_running_only_acpmux_has_no_terminal_daemon(self):
+        # The fleet proof's fresh nightly copy, 2026-11-06: acpmux ran, the terminal daemon did not yet.
+        self.stub_acpmux(with_daemon=False)
+        self.assertIsNone(self.hot.find_socket(self.app, Path("cmux")))
+
     def test_a_daemon_that_answers_is_found(self):
         self.stub(lambda argv: subprocess.CompletedProcess(argv, 0, '{"pid": 4242}', ""))
         self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
