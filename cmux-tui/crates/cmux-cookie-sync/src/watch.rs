@@ -1,7 +1,7 @@
-//! Watching single files, and the sync thread's one wait: for a file change,
-//! the stop, or the next scan's deadline.
+//! Watching single files and directories (not recursively), and the sync
+//! thread's one wait: for a change, the stop, or the next scan's deadline.
 //!
-//! macOS: kqueue (`EVFILT_VNODE` on each watched file, opened `O_EVTONLY`,
+//! macOS: kqueue (`EVFILT_VNODE` on each watched path, opened `O_EVTONLY`,
 //! and `EVFILT_USER` for the stop), straight on libc. FSEvents would make the
 //! app link CoreServices for the one archive every app target links, and
 //! notify's kqueue backend is a crate feature that would also switch every
@@ -25,6 +25,8 @@ pub(crate) enum Wake {
     Changed { paths: Vec<PathBuf>, moved: bool },
     /// The watcher lost events: every source may have changed.
     Rescan,
+    /// The watch cannot go on (a short reason, no path).
+    Failed(String),
 }
 
 #[cfg(target_os = "macos")]
@@ -161,9 +163,14 @@ mod kqueue {
                 )
             };
             let Ok(count) = usize::try_from(count) else {
-                // EINTR: wait again. Any other failure cannot recover: end.
-                let interrupted = io::Error::last_os_error().kind() == io::ErrorKind::Interrupted;
-                return if interrupted { Vec::new() } else { vec![Wake::Stop] };
+                // EINTR: wait again. Any other failure of a wait on our own
+                // queue does not pass; the engine reports it and ends.
+                let error = io::Error::last_os_error();
+                return if error.kind() == io::ErrorKind::Interrupted {
+                    Vec::new()
+                } else {
+                    vec![Wake::Failed(format!("watch: {}", error.kind()))]
+                };
             };
             let mut wakes = Vec::new();
             for event in events.iter().take(count) {
@@ -285,16 +292,29 @@ pub(crate) fn sidecar(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// Keeps a watch on what exists of one database's files.
+/// Keeps a watch on what exists of one database's files: the database, its
+/// `-wal`, and their directory (a new entry there, such as a `-wal` the
+/// browser creates, is noticed and watched). `rearm` watches each again (a
+/// watch follows a deleted or renamed file, not the path). True when the
+/// database or its `-wal` appeared or went since the last refresh.
 pub(crate) fn refresh(
     watch: &mut FileWatch,
     watched: &mut BTreeSet<PathBuf>,
     database: &Path,
     rearm: bool,
-) {
-    for path in [database.to_path_buf(), sidecar(database, "-wal")] {
+) -> bool {
+    let mut changed = false;
+    let files = [database.to_path_buf(), sidecar(database, "-wal")];
+    let dir = database.parent().map(Path::to_path_buf);
+    for (is_file, path) in
+        files.into_iter().map(|path| (true, path)).chain(dir.map(|dir| (false, dir)))
+    {
         let exists = path.exists();
-        if watched.contains(&path) && (rearm || !exists) {
+        let was = watched.contains(&path);
+        if is_file && was != exists {
+            changed = true;
+        }
+        if was && (rearm || !exists) {
             watch.unwatch(&path);
             watched.remove(&path);
         }
@@ -302,6 +322,7 @@ pub(crate) fn refresh(
             watched.insert(path);
         }
     }
+    changed
 }
 
 /// How long to wait for `deadline` from `now` (none: until an event).

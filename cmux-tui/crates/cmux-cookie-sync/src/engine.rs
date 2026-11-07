@@ -381,23 +381,39 @@ impl Routes {
             .map(|(index, _)| index)
             .collect()
     }
+
+    /// The sources whose directory is `path` or holds it.
+    fn in_dir(&self, path: &Path) -> Vec<usize> {
+        self.sources
+            .iter()
+            .enumerate()
+            .filter(|(_, (dirs, _))| {
+                dirs.contains(path) || path.parent().is_some_and(|dir| dirs.contains(dir))
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
 }
 
 /// The thread: the launch check, then one scan per due source until the
 /// stop. It blocks in one wait (a watched file's change, the stop) with no
 /// deadline unless a scan is due.
 ///
-/// Each source's database is watched (and its `-wal` while it exists); a
-/// rollback journal comes and goes, but every commit writes the database.
-/// After a delete or rename the watch is made again on the path; a source
-/// that is `gone` or `failed` is no longer watched.
+/// Each source's database is watched, its `-wal` while it exists, and their
+/// directory (so a new `-wal` is seen); a rollback journal comes and goes,
+/// but every commit writes the database. After a delete or rename, or lost
+/// events, the watches are made again on the paths; a source that is `gone`
+/// or `failed` is no longer watched. A wait that cannot go on reports every
+/// watched source `failed` and ends the thread.
 fn run(config: &Config, core: &Mutex<Core>, mut watch: FileWatch, mut sink: Sink) {
     let started = Instant::now();
     let sources = config.sources.len();
+    let databases: Vec<&Path> =
+        config.sources.iter().map(|source| source.database.as_path()).collect();
     let routes = Routes::new(&config.sources);
     let mut watched: Vec<BTreeSet<PathBuf>> = vec![BTreeSet::new(); sources];
-    for (source, files) in config.sources.iter().zip(watched.iter_mut()) {
-        refresh(&mut watch, files, &source.database, false);
+    for (database, files) in databases.iter().zip(watched.iter_mut()) {
+        refresh(&mut watch, files, database, false);
     }
     let mut schedule = Scheduler::new(
         sources,
@@ -409,9 +425,10 @@ fn run(config: &Config, core: &Mutex<Core>, mut watch: FileWatch, mut sink: Sink
                     reason: Reason,
                     schedule: &mut Scheduler,
                     rearm: &mut BTreeSet<usize>,
-                    watch: &mut FileWatch| {
-        let database = lock(core).database(index).map(Path::to_path_buf);
-        let Some(database) = database else { return };
+                    watch: &mut FileWatch,
+                    watched: &mut Vec<BTreeSet<PathBuf>>|
+     -> Option<Report> {
+        let database = lock(core).database(index).map(Path::to_path_buf)?;
         let (outcome, cost) = measure(&database);
         let (report, active) = {
             let mut core = lock(core);
@@ -419,30 +436,59 @@ fn run(config: &Config, core: &Mutex<Core>, mut watch: FileWatch, mut sink: Sink
             (report, core.database(index).is_some())
         };
         schedule.scanned(index, started.elapsed());
-        if let Some(files) = watched.get_mut(index) {
-            if active {
+        if active {
+            if let Some(files) = watched.get_mut(index) {
                 refresh(watch, files, &database, rearm.remove(&index));
-            } else {
-                schedule.remove(index);
-                for path in std::mem::take(files) {
+            }
+        } else {
+            schedule.remove(index);
+            let files = watched.get_mut(index).map(std::mem::take).unwrap_or_default();
+            for path in files {
+                // A directory another watched source still uses stays watched.
+                if !watched.iter().any(|other| other.contains(&path)) {
                     watch.unwatch(&path);
                 }
             }
         }
-        if let Some(report) = report {
-            sink(&report);
-        }
+        report
     };
     for index in 0..sources {
-        scan(index, Reason::Launch, &mut schedule, &mut rearm, &mut watch);
+        if let Some(report) =
+            scan(index, Reason::Launch, &mut schedule, &mut rearm, &mut watch, &mut watched)
+        {
+            sink(&report);
+        }
     }
     'wait: loop {
         for wake in watch.wait(timeout(schedule.next_due(), started.elapsed())) {
             match wake {
                 Wake::Stop => break 'wait,
-                Wake::Rescan => {
+                Wake::Failed(reason) => {
+                    // The watch cannot go on: every source still watched is
+                    // reported failed once, and the thread ends.
                     for index in 0..sources {
-                        schedule.event(index, started.elapsed());
+                        let failed = {
+                            let mut core = lock(core);
+                            let outcome = Err(ScanError::Unreadable(reason.clone()));
+                            let cost = Cost { scan_ms: 0.0, cpu_ms: None };
+                            core.apply(index, outcome, cost, Reason::Watch)
+                        };
+                        if let Some(report) = failed {
+                            sink(&report);
+                        }
+                    }
+                    break 'wait;
+                }
+                Wake::Rescan => {
+                    // Events were lost, a delete or rename among them maybe:
+                    // every source's watches are made again and it is scanned.
+                    for (index, files) in watched.iter_mut().enumerate() {
+                        if let Some(database) = databases.get(index)
+                            && lock(core).database(index).is_some()
+                        {
+                            refresh(&mut watch, files, database, true);
+                            schedule.event(index, started.elapsed());
+                        }
                     }
                 }
                 Wake::Changed { paths, moved } => {
@@ -453,12 +499,27 @@ fn run(config: &Config, core: &Mutex<Core>, mut watch: FileWatch, mut sink: Sink
                                 rearm.insert(index);
                             }
                         }
+                        // A change in a source's directory: a `-wal` may have
+                        // appeared or gone; watch what is there now.
+                        for index in routes.in_dir(path) {
+                            if let (Some(files), Some(database)) =
+                                (watched.get_mut(index), databases.get(index))
+                                && lock(core).database(index).is_some()
+                                && refresh(&mut watch, files, database, false)
+                            {
+                                schedule.event(index, started.elapsed());
+                            }
+                        }
                     }
                 }
             }
         }
         for index in schedule.due(started.elapsed()) {
-            scan(index, Reason::Watch, &mut schedule, &mut rearm, &mut watch);
+            if let Some(report) =
+                scan(index, Reason::Watch, &mut schedule, &mut rearm, &mut watch, &mut watched)
+            {
+                sink(&report);
+            }
         }
     }
 }

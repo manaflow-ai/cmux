@@ -168,3 +168,53 @@ fn a_bad_config_or_no_callback_is_null() {
     // SAFETY: null handle is refused.
     assert!(!unsafe { cmux_cookie_sync_commit(std::ptr::null(), b"a".as_ptr(), 1) });
 }
+
+#[test]
+fn commits_that_only_reach_a_new_wal_are_seen() {
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("Cookies");
+    let conn = create(&database, MODERN);
+    insert(&conn, ".github.com", "user_session", b"v10-aaaa", "");
+    let config = serde_json::json!({
+        "state_dir": dir.path().join("state"),
+        "debounce_ms": 300,
+        "min_interval_ms": 0,
+        "sources": [{"id": "chrome:Default", "database": database}],
+    })
+    .to_string();
+    let inbox = Inbox::default();
+    let ctx = std::ptr::from_ref(&inbox).cast_mut().cast::<c_void>();
+    // SAFETY: the config is readable; the inbox outlives the handle.
+    let sync = unsafe { cmux_cookie_sync_new(config.as_ptr(), config.len(), Some(on_report), ctx) };
+    assert!(!sync.is_null());
+    assert_eq!(inbox.wait_for(1, Duration::from_secs(30))[0]["reason"], "baseline");
+
+    // WAL mode: from here a commit appends to Cookies-wal, created now, and
+    // leaves the database file alone until a checkpoint.
+    let mode: String = conn.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0)).unwrap();
+    assert_eq!(mode, "wal");
+    conn.execute_batch("PRAGMA wal_autocheckpoint = 0").unwrap();
+    insert(&conn, "first.example", "a", b"v10-bbbb", "");
+    // Waits for a `changed` report naming `domain` after the first `from`
+    // reports; the count of reports by then.
+    let seen = |domain: &str, from: usize| -> usize {
+        let end = Instant::now() + Duration::from_secs(60);
+        let mut want = from + 1;
+        loop {
+            let reports = inbox.wait_for(want, end.saturating_duration_since(Instant::now()));
+            let named =
+                |r: &Value| r["kind"] == "changed" && r["changed"].to_string().contains(domain);
+            if reports.iter().skip(from).any(named) {
+                return reports.len();
+            }
+            want = reports.len() + 1;
+        }
+    };
+    let after_first = seen("first.example", 1);
+    assert!(std::fs::metadata(dir.path().join("Cookies-wal")).is_ok());
+    insert(&conn, "second.example", "b", b"v10-cccc", "");
+    seen("second.example", after_first);
+
+    // SAFETY: the live handle, freed once.
+    unsafe { cmux_cookie_sync_free(sync) };
+}
