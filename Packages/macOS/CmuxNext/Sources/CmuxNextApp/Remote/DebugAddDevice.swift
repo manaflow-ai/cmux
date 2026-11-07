@@ -39,20 +39,10 @@ enum DebugAddDevice {
         // A call with no `join` clears it.
         let join = params["join"]?.stringValue
         services.debugFixtures.addDevice = Listing(devices: devices, join: join.map(Self.joinFixture))
-        let way = params["way"]?.stringValue.map { AddDeviceWay(rawValue: $0) } ?? AddDeviceWay.network
-        let opening = services.addDevice.open(way: way, over: services.windows.active?.window)
-        // The card's Make Line, pressed for the capture; `joined` then reads the list once (as a focus does).
-        if let join, join != "idle" {
-            let card = services.addDevice
-            // task-owner: one fixture mint after the opening's read; ends with it.
-            Task { @MainActor in
-                await opening.value
-                guard let model = card.model.joinLine else { return }
-                model.name = "build-box"
-                await model.mint()
-                await model.refresh()
-            }
-        }
+        let way = params["way"]?.stringValue ?? "network"
+        // The card's Make Line, pressed by the page for the capture; `joined` then reads the list once (as a focus does).
+        services.addDevice.debugMintName = join.flatMap { $0 == "idle" ? nil : "build-box" }
+        services.addDevice.open(way: way == "auto" ? nil : way, over: services.windows.active?.window)
         return .object(["computers": .number(Double(available.count))])
     }
 

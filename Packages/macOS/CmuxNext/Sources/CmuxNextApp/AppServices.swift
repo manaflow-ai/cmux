@@ -139,7 +139,9 @@ final class AppServices {
     /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
     private(set) lazy var addMachine = AddMachineCard(services: .app(self))
     /// Add Device and Settings > Devices (plans/cmux-next/add-device-DESIGN.md): one entry, one list, one remove.
-    private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
+    /// The card is the server card page's `#/add-device`, in the server card panel.
+    private(set) lazy var addDevice = AddDeviceCardProvider(services: .app(self), panel: { [weak self] in self?.serverMenuBar.cardPanel() },
+                                                            personOnlyMessage: RefusalStrings.personOnlyFromPage)
     private(set) lazy var devices = DeviceDirectory.app(self)
     #if DEBUG
     /// The `debug.*` capture fixtures this app reads while set (a test's services hold their own).

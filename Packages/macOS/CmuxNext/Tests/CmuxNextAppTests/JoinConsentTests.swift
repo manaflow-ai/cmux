@@ -636,7 +636,7 @@ import Testing
         let model = JoinConsentModel(services: fake.services())
         model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .screen))
         let view = JoinConsentAskView(model: model)
-        let ids = AddDeviceShotsTests.identifiers(view)
+        let ids = ViewTreeSearch.identifiers(view)
         #expect(ids.contains("cmux.joinConsentAsk.allow") && ids.contains("cmux.joinConsentAsk.deny"))
         let image = try AddMachineShotsTests.render(view)
         #expect(image.size.width >= 300 && image.size.height >= 80)
@@ -658,8 +658,8 @@ import Testing
         panel.content.rebuild()
         panel.setContentSize(panel.content.fittingSize)
         panel.contentView?.layoutSubtreeIfNeeded()
-        let allow = try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.allow") as? NSButton)
-        let deny = try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.deny") as? NSButton)
+        let allow = try #require(ViewTreeSearch.find(panel.content, id: "cmux.joinConsentAsk.allow") as? NSButton)
+        let deny = try #require(ViewTreeSearch.find(panel.content, id: "cmux.joinConsentAsk.deny") as? NSButton)
         let center = { (view: NSView) in view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil) }
         var number = 0
         let event = { (type: NSEvent.EventType, at: NSPoint) throws -> NSEvent in
@@ -728,8 +728,8 @@ import Testing
         panel.content.rebuild()
         panel.setContentSize(panel.content.fittingSize)
         panel.contentView?.layoutSubtreeIfNeeded()
-        let allow = try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.allow") as? NSButton)
-        let deny = try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.deny") as? NSButton)
+        let allow = try #require(ViewTreeSearch.find(panel.content, id: "cmux.joinConsentAsk.allow") as? NSButton)
+        let deny = try #require(ViewTreeSearch.find(panel.content, id: "cmux.joinConsentAsk.deny") as? NSButton)
         let center = { (view: NSView) in view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil) }
         var number = 0
         let event = { (type: NSEvent.EventType, at: NSPoint) throws -> NSEvent in

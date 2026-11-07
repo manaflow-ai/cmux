@@ -229,6 +229,16 @@ export const PAGES = {
     out: "webviews/src/pages/server-cards/generated/strings.json",
     catalogs: [
       { file: `${sources}/CmuxNextServer/Resources/PairInvite.xcstrings` },
+      // Add Device's card shares its table with Settings > Devices (`addDevice.` keys only), and
+      // the app's one Sign In title.
+      {
+        file: `${sources}/CmuxNextServer/Resources/AddDevice.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("addDevice.")),
+      },
+      {
+        file: `${sources}/CmuxNextDesign/Resources/Localizable.xcstrings`,
+        keys: (all) => all.filter((key) => key === "signIn.button"),
+      },
       {
         file: `${sources}/CmuxNextServer/Resources/Localizable.xcstrings`,
         keys: (all) =>

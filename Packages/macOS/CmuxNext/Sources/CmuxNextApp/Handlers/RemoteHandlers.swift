@@ -151,8 +151,7 @@ enum RemoteHandlers {
         // app alone (trust policy, the conservative default until it is decided).
         // Add Device (plans/cmux-next/add-device-DESIGN.md): the one entry; Add Machine and Add Server are its ways.
         registry.bind("device.add", run: { invocation in
-            let way = invocation["way"]?.stringValue.flatMap(AddDeviceWay.init(rawValue:))
-            context.services.addDevice.open(way: way, over: CloudHandlers.window(context))
+            context.services.addDevice.open(way: invocation["way"]?.stringValue, over: CloudHandlers.window(context))
         })
         CloudHandlers.bind("machine.add", registry, reason: available) { invocation in
             let card = context.services.addMachine
