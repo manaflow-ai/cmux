@@ -53,7 +53,7 @@ enum FirstPartyPageSchemes {
     /// keeps a page that cannot on WebKit, with its reason).
     static let descriptors: [PageDescriptor] = [
         .agent, .history, .cloud, .apps, .settings, .keybindings, .diff, .markdown, .iconPicker, .groupEditor, .passwords, .editor,
-        .chiefInspector, .debugSettings, .homeChannels,
+        .chiefInspector, .debugSettings, .homeChannels, .homeMessages,
         .changelog, .coderouter, .files, .artifacts, .stats, .chiefUsage, .mobilePairing, .agentActivity, .importHistory, .github,
     ]
 
