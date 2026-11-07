@@ -254,7 +254,7 @@ async fn exchange(
 /// daemon that holds the session open without answering never outlasts it.
 async fn within(
     deadline: tokio::time::Instant,
-    answer: impl std::future::Future<Output = Value>,
+    answer: impl Future<Output = Value>,
 ) -> Value {
     tokio::time::timeout_at(deadline, answer)
         .await
