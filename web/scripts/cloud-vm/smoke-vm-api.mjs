@@ -12,7 +12,11 @@ import {
   parseWebDirAndTarget,
   requireEnvKeys,
 } from "./projects.mjs";
-import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "./canaryOutcome.mjs";
+import {
+  classifyCodexCanaryOutcome,
+  edgeCanaryProblems,
+  retryGuestEdgeRequest,
+} from "./canaryOutcome.mjs";
 
 const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--sweep-this-run] [--result-file <path>]";
 const args = process.argv.slice(2);
@@ -106,6 +110,7 @@ const provider = optionValue(rest, "--provider") ?? "freestyle";
 const image = optionValue(rest, "--image");
 const targetUrl = optionValue(rest, "--url") ?? project.url;
 const REQUEST_TIMEOUT_MS = 45_000;
+const EDGE_RETRY_DEADLINE_MS = 45_000;
 
 // "default" omits the provider from the create body, exercising the same
 // server-side default-provider path real clients (CLI, Mac app) use.
@@ -141,14 +146,18 @@ async function timed(name, work) {
   }
 }
 
-async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS, signal) {
   if (useVercelCurl) return vercelCurlFetch(url, init, timeoutMs);
   const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
   }
 }
 
@@ -440,12 +449,12 @@ try {
     if (edgeCheck) {
       stage = "edge";
       const edgeStartedAt = performance.now();
-      const exec = async (command, timeoutMs = 120_000) => {
+      const exec = async (command, timeoutMs = 120_000, signal) => {
         const response = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/exec`, {
           method: "POST",
           headers: { ...authHeaders, "content-type": "application/json" },
           body: JSON.stringify({ command, timeoutMs }),
-        }, timeoutMs + 30_000);
+        }, timeoutMs + 30_000, signal);
         const text = await response.text();
         if (response.status !== 200) throw new Error(`POST exec expected 200, got ${response.status}: ${text}`);
         return JSON.parse(text);
@@ -453,15 +462,27 @@ try {
       const guestEnv = "export HOME=/root; for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && . \"$f\"; done; . /etc/cmux/agent-config.sh;";
       const originHost = await exec(`${guestEnv} printf '%s' "$CMUX_CODEROUTER_URL" | sed -e 's#^https\\?://##' -e 's#/.*$##'`);
       const host = (originHost.stdout ?? "").trim();
+      // Freestyle can briefly miss the forwarding-DNS answer after a rule has
+      // already answered once. Retry only the idempotent guest edge calls;
+      // token-backed agent turns stay single shot.
+      /** Runs an idempotent guest edge check with a bounded, cancellable retry budget. */
+      const edgeExec = (command, timeoutMs = 120_000) => {
+        const signal = AbortSignal.timeout(EDGE_RETRY_DEADLINE_MS);
+        return retryGuestEdgeRequest(
+          (attemptSignal) => exec(command, timeoutMs, attemptSignal),
+          host,
+          { signal },
+        );
+      };
       // Any crt_ string under the agent config roots means a token leaked into the guest.
       const leak = await exec("grep -rslE 'crt_[A-Za-z0-9_-]{40,}' /root/.config/cmux /root/.codex /root/.pi /root/.config/opencode /etc/cmux /etc/environment /etc/profile.d 2>/dev/null; true");
       const tokenOnDisk = (leak.stdout ?? "").trim();
       // /v1/models needs an upstream client_version query, so the self-usage
       // route is the guest-side proof that the bound token arrived.
-      const models = await exec(`${guestEnv} curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
+      const models = await edgeExec(`${guestEnv} curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
       const modelsStatus = (models.stdout ?? "").trim();
       const codex = zeroToken
-        ? await exec(`${guestEnv} command -v codex >/dev/null || echo 'codex-missing'; curl -sS --max-time 30 -X POST -H 'content-type: application/json' -H "authorization: Bearer $OPENAI_API_KEY" -d '{"model":"cmux-canary-no-such-model","input":"x","max_output_tokens":16,"stream":false}' "$CMUX_CODEROUTER_URL/v1/responses"; echo; echo "codex-exit $?"`)
+        ? await edgeExec(`${guestEnv} command -v codex >/dev/null || echo 'codex-missing'; curl -sS --max-time 30 -X POST -H 'content-type: application/json' -H "authorization: Bearer $OPENAI_API_KEY" -d '{"model":"cmux-canary-no-such-model","input":"x","max_output_tokens":16,"stream":false}' "$CMUX_CODEROUTER_URL/v1/responses"; echo; echo "codex-exit $?"`)
         : await exec(`${guestEnv} cd /root && command -v codex && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20; echo "codex-exit $?"`, 240_000);
       const codexOut = `${codex.stdout ?? ""}${codex.stderr ?? ""}`;
       const codexOutcome = classifyCodexCanaryOutcome(codexOut, { zeroToken });
@@ -486,7 +507,7 @@ try {
         edge.claudeExit = claude.exitCode;
         edge.claudeOutcome = claudePong ? "answered" : /claude_upstream_not_configured|no upstream/i.test(claudeOut) ? "no_upstream" : "failed";
         edge.claudeTail = claudeOut.slice(-400);
-        const selfUsage = await exec(`${guestEnv} curl -sS --max-time 20 -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
+        const selfUsage = await edgeExec(`${guestEnv} curl -sS --max-time 20 -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
         edge.selfUsage = (selfUsage.stdout ?? "").trim().slice(0, 600);
       }
       const problems = edgeCanaryProblems({
