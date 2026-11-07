@@ -347,6 +347,7 @@ public final class AgentPaneView: NSView {
         observeIconFamily()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         installSessionInfo()
+        installHostGlass()
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
@@ -438,6 +439,7 @@ public final class AgentPaneView: NSView {
         placeChromiumMove(at: frame)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()
+        layoutHostGlass()
         // A pane resized or moved under shown toasts: its band follows at once.
         if toastsRect != nil || sentToastRoom != 0 { sendToastRoom(duration: 0) }
         redraw.laidOut(self)
@@ -495,6 +497,8 @@ public final class AgentPaneView: NSView {
         reduceMotionOverrideObserver = nil
         dictation.close()
         model.readAloud?.stop(owner: model)
+        // A Cloud start's question in this pane can no longer be answered: its start goes on without one.
+        model.cloudAsks.endAll()
         model.shell.terminateAll()
         if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
         gestureMonitor = nil
@@ -609,6 +613,7 @@ public final class AgentPaneView: NSView {
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
         themeSessionInfo(tokens)
+        themeHostGlass()
         themeLoadingState(tokens)
         page?.themeSurface = surface
         if let pageEvents {

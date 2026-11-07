@@ -160,7 +160,7 @@ final class AgentTabStore {
     /// Every page is asked what it holds now (true), or that ended (false) (`AgentPageHibernation.holdAwake`).
     var onCollectingPages: ((Bool) -> Void)?
     /// Closed pages leave the view tree at once; their teardown waits (R81).
-    let retirer = AgentPageRetirer()
+    let retirer = AgentPageRetirer { BenchSpans.measure($0, $1) }
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]
@@ -266,7 +266,7 @@ final class AgentTabStore {
     func relaunchWakeStates() async -> [String: AgentPaneWakeState] {
         onCollectingPages?(true)
         defer { onCollectingPages?(false) }
-        return await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab)
+        return await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) } + retirer.keptPages, live: isAgentTab)
     }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
@@ -449,6 +449,18 @@ final class AgentTabStore {
             track(key, in: store)
             onPageBuilt?(key)
             return spare
+        }
+        // Reopen Closed of a chat of this Mac closed a moment ago: its kept page (``AgentPageRetirer``), drawn, with today's settings.
+        if kind == .local, seed == nil, newTabPages[key] == nil, wakeStates[key] == nil, !relaunchWake.mayHold(key),
+           let session = sessions[key] ?? record.session, let kept = retirer.takeKept(session) {
+            (views[key], kept.customization, kept.shortcuts) = (kept, customization.current, shortcuts)
+            pageSettings.apply(to: kept)
+            customization.start()
+            if let turn = pendingTurns.removeValue(forKey: key) { kept.revealTurn(turn) }
+            wire(kept.model, key: key)
+            track(key, in: store)
+            onPageBuilt?(key)
+            return kept
         }
         // An existing chat of this Mac (a sidebar click, Open in Tab, a subagent's pane) adopts the
         // spare too: it is loaded and connected, and switches to the chat in place.

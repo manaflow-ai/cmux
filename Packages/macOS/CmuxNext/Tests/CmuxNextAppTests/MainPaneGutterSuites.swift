@@ -23,7 +23,7 @@ import Testing
 
     /// Runs `body` on the in-memory default chrome style, whose main pane is curved, then puts the style back. The
     /// style is process-wide: a settings load in a suite that runs alongside leaves it at the file default
-    /// `flat-sidebar-line` (no card, `ChromeStyleSetting.fallback`), so a test that reads the curved main pane pins it.
+    /// `flat` (no card, `ChromeStyleSetting.fallback`), so a test that reads the curved main pane pins it.
     static func onCurvedMainPane<T>(_ body: () throws -> T) rethrows -> T {
         let design = DesignSettings.shared
         let before = design.chromeStyle
