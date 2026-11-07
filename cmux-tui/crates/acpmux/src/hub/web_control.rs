@@ -305,6 +305,15 @@ impl Hub {
             tracing::info!(session = %session.id, "trust check ended by the shutdown: {e}");
             return Err(super::shutdown::shutting_down_error());
         }
+        // Tests only: hold here, between the shutdown check and the write.
+        #[cfg(test)]
+        {
+            let seam = self.refuse_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = tokio::task::block_in_place(|| release.blocking_recv());
+            }
+        }
         self.append(
             session,
             "mux",
