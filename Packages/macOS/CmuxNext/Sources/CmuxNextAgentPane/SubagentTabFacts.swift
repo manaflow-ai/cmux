@@ -1,9 +1,9 @@
-import Foundation
+public import Foundation
 
 /// What a subagent pane's tab says of the subagent it shows: its own state, since when and its
 /// model, from its page (`chat.subagentShown`). The pane is a tab on its chat's session, so without
 /// these its hover card and spinner read the chat's ("Working · 4m" for a subagent that finished).
-public struct SubagentTabFacts: Equatable, Sendable {
+public nonisolated struct SubagentTabFacts: Equatable, Sendable {
     public enum State: String, Sendable {
         case running, completed, failed, cancelled
     }
