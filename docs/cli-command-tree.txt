@@ -432,6 +432,14 @@ command  capture-pane  aliases=-
   arg  arguments  kind=argument  completion=-
 command  chief  aliases=-
   arg  arguments  kind=argument  completion=-
+command  claude-account  aliases=-
+command  claude-account list  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  claude-account switch  aliases=-
+  arg  --force  kind=flag  completion=-
+  arg  --surface  kind=option  completion=custom
+  arg  --workspace  kind=option  completion=custom
+  arg  arguments  kind=argument  completion=-
 command  claude-hook  aliases=-
   arg  arguments  kind=argument  completion=-
 command  claude-teams  aliases=-

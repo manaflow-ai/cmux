@@ -1577,6 +1577,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// Explicit recovery state retained when an automatic relaunch could not
     /// start. This prevents the next snapshot from looking like a plain shell.
     var restoreRecovery: SessionRestoreRecoverySnapshot?
+    /// The Claude account keys a switch gave the pane, replayed on restore (spec D9). Nil when it never switched.
+    var claudeAccountEnvironment: ClaudeAccountPaneEnvironment?
 
     init(
         workingDirectory: String? = nil,
@@ -1594,7 +1596,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         wasAgentRunning: Bool? = nil,
         hasReceivedExplicitInput: Bool? = nil,
         claudeBackgroundViewer: ClaudeBackgroundSessionViewer? = nil,
-        restoreRecovery: SessionRestoreRecoverySnapshot? = nil
+        restoreRecovery: SessionRestoreRecoverySnapshot? = nil,
+        claudeAccountEnvironment: ClaudeAccountPaneEnvironment? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1612,6 +1615,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.hasReceivedExplicitInput = hasReceivedExplicitInput
         self.claudeBackgroundViewer = claudeBackgroundViewer
         self.restoreRecovery = restoreRecovery
+        self.claudeAccountEnvironment = claudeAccountEnvironment
     }
 }
 
