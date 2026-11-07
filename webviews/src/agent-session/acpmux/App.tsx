@@ -470,8 +470,6 @@ import { messagesRows } from "./conversation/messagesRows";
 import { PresentationContext } from "./conversation/PresentationContext";
 import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingVerbs";
 import { useStatusVerbConfig } from "./statusVerbs";
-import { useCodexToolRuns } from "./codexToolRuns";
-import { useLiveLineBelow } from "./liveLineBelow";
 import { mergeInboxNotices } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
@@ -2375,10 +2373,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls).
   const panelAsks = useMemo(() => groupAskedCalls(snapshot.permissionGroups), [snapshot.permissionGroups]);
-  // Codex-style tool runs in a running turn (Debug toggle, codexToolRuns.ts).
-  const codexRuns = useCodexToolRuns();
-  // The running turn's status line as its last row (Debug toggle, liveLineBelow.ts).
-  const lineBelow = useLiveLineBelow();
   // The chats this chat's agent started, as cards in its transcript and chips in its replies
   // (started/startedSessions.ts), with the started-session-cards experiment on. An offer's
   // started task stays on its suggested tasks card.
@@ -2509,9 +2503,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           {
             working: snapshot.isWorking,
             clockOffset: snapshot.clockOffsetMs,
-            liveRuns: codexRuns,
             sessionStatus,
-            lineBelow,
             // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
             agentFamily: snapshot.summary?.family,
             // Other sessions' messages among them, two or more in a run, draw as one card.
@@ -2578,9 +2570,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     folds,
     snapshot.isWorking,
     snapshot.clockOffsetMs,
-    codexRuns,
     sessionStatus,
-    lineBelow,
     snapshot.summary?.family,
     snapshot.waitingSteers,
     messageBreaks,
