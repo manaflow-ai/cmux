@@ -146,9 +146,11 @@ import Testing
         return (String(data: data, encoding: .utf8) ?? "") + "\n"
     }
 
-    /// A wire shortcut's order in a set: its key, then its modifiers.
+    /// A wire shortcut's order in a set: its key, then its modifiers as JSON text (`["cmd"]`
+    /// before `[]`), the order the Rust catalog's own dump uses.
     static func sortKey(_ wire: [String: Any]) -> String {
-        "\(wire["key"] as? String ?? "")\u{0}\((wire["modifiers"] as? [String] ?? []).joined(separator: ","))"
+        let modifiers = (wire["modifiers"] as? [String] ?? []).map { "\"\($0)\"" }.joined(separator: ",")
+        return "\(wire["key"] as? String ?? "")\u{0}[\(modifiers)]"
     }
 
     static func encodeBinding(_ binding: KeyBinding) -> Any {
