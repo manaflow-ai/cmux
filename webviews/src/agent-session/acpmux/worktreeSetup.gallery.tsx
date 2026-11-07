@@ -66,9 +66,8 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 720, wide: 900 },
   covers: ["agent-session/acpmux/worktreeSetup.tsx"],
   load: async () => {
-    const { WorktreeSetupLine, SetupDetails, SetupMark, setupFacts, setupLabel, setupStatus } = await import(
-      "./worktreeSetup"
-    );
+    const { WorktreeSetupLine, SetupDetails, SetupMark, setupFacts, setupLabel, setupStatus } =
+      await import("./worktreeSetup");
     const { useT } = await import("./i18n");
     const { lastOutputLine } = await import("../../worktreeRecipe");
 
@@ -136,9 +135,15 @@ export default componentEntry<Props>({
   styles: () => Promise.all([import("./styles.css"), import("./cloudStart.css"), import("./worktreeSetup.css")]),
   anchors: [{ selector: ".acpmux-worktree-setup__summary" }],
   variants: {
-    creating: { props: { creating: true }, note: "New Worktree while the host makes it: the row every later state draws in." },
+    creating: {
+      props: { creating: true },
+      note: "New Worktree while the host makes it: the row every later state draws in.",
+    },
     copying: { props: { view: copying }, note: "The recipe copies its .worktreeinclude files from the main checkout." },
-    running: { props: { view: running }, note: "Shipped look: the setup script runs; its time, the worktree's port, Output." },
+    running: {
+      props: { view: running },
+      note: "Shipped look: the setup script runs; its time, the worktree's port, Output.",
+    },
     "running-output": {
       props: { view: running, open: true },
       note: "Output open: the Cloud start's rows (Copy files, Run setup script) and the output, the composer moved down with it.",

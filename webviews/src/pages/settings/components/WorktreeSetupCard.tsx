@@ -41,7 +41,8 @@ function firstLine(script: string): string {
   return lines.length > 1 ? `${lines[0]} …` : (lines[0] ?? "");
 }
 
-const same = (left: WorktreeRecipe | null, right: WorktreeRecipe | null) => JSON.stringify(left) === JSON.stringify(right);
+const same = (left: WorktreeRecipe | null, right: WorktreeRecipe | null) =>
+  JSON.stringify(left) === JSON.stringify(right);
 
 export function WorktreeSetupCard() {
   const store = useStore();
@@ -95,10 +96,7 @@ export function WorktreeSetupCard() {
     };
   }, [path, load]);
 
-  const edited = useMemo(
-    () => savedRecipe({ ...draft, include: includeText.split(/\r?\n/) }),
-    [draft, includeText],
-  );
+  const edited = useMemo(() => savedRecipe({ ...draft, include: includeText.split(/\r?\n/) }), [draft, includeText]);
   const stored = savedRecipe(recipe?.saved ?? project?.saved ?? {});
   const dirty = !same(edited, stored);
 
@@ -280,8 +278,7 @@ function CommandField({
   const note = repository
     ? t("settingsPage.worktreeSetup.repository", firstLine(repository))
     : t("settingsPage.worktreeSetup.repositoryNone");
-  const state =
-    repository && value === "" ? "off" : repository && value !== undefined ? "replaced" : "repository";
+  const state = repository && value === "" ? "off" : repository && value !== undefined ? "replaced" : "repository";
   return (
     <label className="worktree-setup-field" data-worktree-field={id} data-source={state}>
       <span className="row-title">{label}</span>

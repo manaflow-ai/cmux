@@ -92,7 +92,12 @@ export async function newWorktree(
     use(folder);
   });
   const branch = reply?.value?.branch;
-  return { root, ...(typeof branch === "string" ? { branch } : {}), ...(ask ? { ask } : {}), ...(setup ? { setup } : {}) };
+  return {
+    root,
+    ...(typeof branch === "string" ? { branch } : {}),
+    ...(ask ? { ask } : {}),
+    ...(setup ? { setup } : {}),
+  };
 }
 
 /// New Worktree's refusal above the composer: the host's reason, and Dismiss.

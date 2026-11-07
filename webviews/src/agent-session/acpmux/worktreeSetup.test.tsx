@@ -173,7 +173,14 @@ test("Creating worktree… and a running setup draw in the same row, with no Dis
   });
   expect(element.querySelector(".acpmux-worktree-creating")!.textContent).toContain("Creating worktree");
   const running: SetupView = {
-    run: { state: "running", setup: "bun install", startedMs: Date.now(), output: "", outputStart: "0", outputEnd: "0" },
+    run: {
+      state: "running",
+      setup: "bun install",
+      startedMs: Date.now(),
+      output: "",
+      outputStart: "0",
+      outputEnd: "0",
+    },
     output: "",
     read: true,
   };

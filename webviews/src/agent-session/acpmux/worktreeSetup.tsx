@@ -117,7 +117,11 @@ export function followWorktreeSetup(
 
 /** The setup of the worktree at `root` as the line draws it: the create reply's state until the
  *  first read answers. */
-export function useWorktreeSetup(callNative: Native, root: string | undefined, start?: WorktreeSetupStart): SetupView | undefined {
+export function useWorktreeSetup(
+  callNative: Native,
+  root: string | undefined,
+  start?: WorktreeSetupStart,
+): SetupView | undefined {
   const [view, setView] = useState<SetupView | undefined>(undefined);
   useEffect(() => {
     setView(undefined);
@@ -156,7 +160,11 @@ export function setupLabel(run: WorktreeSetupRun, t: Translate, hasScript = true
 }
 
 /** "4.2s", "1m 12s": the Cloud start's step durations. */
-export function setupDuration(startedMs: number | undefined, finishedMs: number | undefined, now: number): string | undefined {
+export function setupDuration(
+  startedMs: number | undefined,
+  finishedMs: number | undefined,
+  now: number,
+): string | undefined {
   if (startedMs === undefined) return undefined;
   const ms = Math.max(0, (finishedMs ?? now) - startedMs);
   if (ms < 1000) return "<1s";
@@ -171,9 +179,21 @@ export function SetupMark({ status }: { status: Status }) {
   const t = useT();
   return (
     <span className="acpmux-cloud-start__mark">
-      {status === "done" ? <Check size={14} /> : status === "running" ? <Spinner size={14} loading /> : <AlertCircle size={14} />}
+      {status === "done" ? (
+        <Check size={14} />
+      ) : status === "running" ? (
+        <Spinner size={14} loading />
+      ) : (
+        <AlertCircle size={14} />
+      )}
       <span className="visually-hidden">
-        {t(status === "done" ? "cloudStartup.state.done" : status === "running" ? "cloudStartup.state.running" : "cloudStartup.state.error")}
+        {t(
+          status === "done"
+            ? "cloudStartup.state.done"
+            : status === "running"
+              ? "cloudStartup.state.running"
+              : "cloudStartup.state.error",
+        )}
       </span>
     </span>
   );
@@ -183,8 +203,13 @@ export function SetupMark({ status }: { status: Status }) {
 export function SetupDetails({ view, now, hasScript }: { view: SetupView; now: number; hasScript: boolean }) {
   const t = useT();
   const { run } = view;
-  const copyStatus: Status = run.state === "copying" ? "running" : run.state === "failed" && !hasScript ? "error" : "done";
-  const scriptStatus: Status | undefined = !hasScript ? undefined : run.state === "copying" ? undefined : setupStatus(run.state);
+  const copyStatus: Status =
+    run.state === "copying" ? "running" : run.state === "failed" && !hasScript ? "error" : "done";
+  const scriptStatus: Status | undefined = !hasScript
+    ? undefined
+    : run.state === "copying"
+      ? undefined
+      : setupStatus(run.state);
   const log = useRef<HTMLPreElement>(null);
   const pinned = useRef(true);
   useLayoutEffect(() => {
@@ -198,7 +223,9 @@ export function SetupDetails({ view, now, hasScript }: { view: SetupView; now: n
           <SetupMark status={copyStatus} />
           <span className="acpmux-cloud-start__row-label">{t("worktreeSetup.copyStep")}</span>
           {run.include && run.include.copied > 0 && (
-            <span className="acpmux-cloud-start__time">{t("worktreeSetup.copiedCount", { count: run.include.copied })}</span>
+            <span className="acpmux-cloud-start__time">
+              {t("worktreeSetup.copiedCount", { count: run.include.copied })}
+            </span>
           )}
         </div>
         {hasScript && (
@@ -239,7 +266,8 @@ export function setupFacts(run: WorktreeSetupRun, now: number, t: Translate): st
   const facts: string[] = [];
   const duration = setupDuration(run.startedMs, run.finishedMs, now);
   if (duration) facts.push(duration);
-  if (run.state === "failed" && run.exitCode !== undefined) facts.push(t("worktreeSetup.exitCode", { code: run.exitCode }));
+  if (run.state === "failed" && run.exitCode !== undefined)
+    facts.push(t("worktreeSetup.exitCode", { code: run.exitCode }));
   if (run.port !== undefined) facts.push(t("worktreeSetup.port", { port: run.port }));
   return facts;
 }
