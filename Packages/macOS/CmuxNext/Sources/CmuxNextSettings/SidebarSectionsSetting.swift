@@ -45,6 +45,8 @@ public nonisolated enum SidebarSectionsSetting {
     public static let groupHeaderBackgroundPath = ["sidebar", "groupHeader", "background"]
     /// `sidebar.groupPalette` (``GroupPalette``): where group colors come from; a palette other than glass colors new groups.
     public static let groupPalettePath = ["sidebar", "groupPalette"]
+    /// `sidebar.groupGradient` (``GroupGradient``): the gradient the gradient palette steps its groups through.
+    public static let groupGradientPath = ["sidebar", "groupGradient"]
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(tipsPath, section: .appearance, group: group,
@@ -144,7 +146,7 @@ public nonisolated enum SidebarSectionsSetting {
         SettingDescriptor(groupPalettePath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
                           help: SettingsText.keyed("settings.sidebar.groupPalette.help",
-                                                   "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked."),
+                                                   "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient."),
                           kind: .choice(GroupPalette.allCases.map { palette in
                               switch palette {
                               case .glass: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass"))
@@ -152,10 +154,29 @@ public nonisolated enum SidebarSectionsSetting {
                               case .wallpaper: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper"))
                               case .grayscale: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale"))
                               case .vibrant: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant"))
+                              case .gradient: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient"))
                               }
                           }),
                           default: .string(SidebarSectionsPreferences.defaults.groupPalette.rawValue),
-                          keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic"])
+                          keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient"])
+    }
+
+    /// Leo, 2026-11-07: "you could have, like, a gradients option". The gradient the gradient palette steps through.
+    static func groupGradientDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(groupGradientPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.groupGradient", "Group Gradient"),
+                          help: SettingsText.keyed("settings.sidebar.groupGradient.help",
+                                                   "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors."),
+                          kind: .choice(GroupGradient.allCases.map { gradient in
+                              switch gradient {
+                              case .sunset: SettingChoice(gradient.rawValue, SettingsText.keyed("settings.choice.groupGradientSunset", "Sunset"))
+                              case .aurora: SettingChoice(gradient.rawValue, SettingsText.keyed("settings.choice.groupGradientAurora", "Aurora"))
+                              case .lagoon: SettingChoice(gradient.rawValue, SettingsText.keyed("settings.choice.groupGradientLagoon", "Lagoon"))
+                              case .twoTone: SettingChoice(gradient.rawValue, SettingsText.keyed("settings.choice.groupGradientTwoTone", "Two-Tone"))
+                              }
+                          }),
+                          default: .string(SidebarSectionsPreferences.defaults.groupGradient.rawValue),
+                          keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "gradient", "sunset", "aurora", "lagoon"])
     }
 
     static func densityDescriptor(group: SettingText) -> SettingDescriptor {
@@ -397,6 +418,14 @@ public nonisolated enum SidebarSectionsSetting {
             } else {
                 let choices = GroupPalette.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.groupPalette", message: "expected one of " + choices))
+            }
+        }
+        if let value = root.value(at: groupGradientPath) {
+            if let text = value.stringValue, let gradient = GroupGradient(rawValue: text) {
+                result.groupGradient = gradient
+            } else {
+                let choices = GroupGradient.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.groupGradient", message: "expected one of " + choices))
             }
         }
         result.priorityViewEnabled = flag(root, SidebarPriorityViewSetting.enabledPath, fallback: result.priorityViewEnabled, &diagnostics)

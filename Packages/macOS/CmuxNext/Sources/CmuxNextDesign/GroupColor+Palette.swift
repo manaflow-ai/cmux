@@ -24,8 +24,11 @@ extension GroupColor {
     ///   - palette: The palette (glass draws vibrant).
     ///   - tokens: The theme the sidebar draws in.
     ///   - wallpaper: The desktop picture's color; nil draws the wallpaper palette as vibrant.
+    ///   - gradient: The gradient palette's gradient. A sidebar group under it takes the color at its place in the list
+    ///     (the sidebar's drawn tints); a token drawn on its own takes its place in ``paletteOrder``.
     /// - Returns: The color for lines, dots and tinted glass.
-    nonisolated public func paletteRGB(_ palette: GroupPalette, tokens: ThemeTokens, wallpaper: WallpaperTint?) -> ThemeRGB {
+    nonisolated public func paletteRGB(_ palette: GroupPalette, tokens: ThemeTokens, wallpaper: WallpaperTint?,
+                                       gradient: GroupGradient = .sunset) -> ThemeRGB {
         // Vibrant is tuned for glass as it is; a derived palette is held to a mark's contrast over the sidebar.
         let color: ThemeRGB
         switch palette.drawn {
@@ -33,13 +36,24 @@ extension GroupColor {
         case .theme: color = themeRGB(tokens) ?? swatchRGB(tokens)
         case .grayscale: color = grayscaleRGB(dark: tokens.isDark)
         case .wallpaper: color = wallpaper.flatMap { wallpaperRGB($0, dark: tokens.isDark) } ?? swatchRGB(tokens)
+        case .gradient:
+            let order = Self.paletteOrder + [.blue, .grey]
+            color = gradient.rgb(at: GroupGradient.place(order.firstIndex(of: self) ?? 0, of: order.count))
         }
         return ThemeTokens.readable(color.withAlpha(1), over: tokens.sidebarBackground, minimum: ThemeTokens.minimumMarkContrast)
     }
 
-    /// The palette's eight colors in ``paletteOrder`` then blue: what its marble in the group editor blends.
-    nonisolated public static func marble(_ palette: GroupPalette, tokens: ThemeTokens, wallpaper: WallpaperTint?) -> [ThemeRGB] {
-        (paletteOrder + [.blue]).map { $0.paletteRGB(palette, tokens: tokens, wallpaper: wallpaper) }
+    /// The palette's eight colors in ``paletteOrder`` then blue: what its marble in the group editor blends. The
+    /// gradient palette's are eight steps down its gradient.
+    nonisolated public static func marble(_ palette: GroupPalette, tokens: ThemeTokens, wallpaper: WallpaperTint?,
+                                          gradient: GroupGradient = .sunset) -> [ThemeRGB] {
+        guard palette != .gradient else {
+            return (0 ..< 8).map { step in
+                ThemeTokens.readable(gradient.rgb(at: GroupGradient.place(step, of: 8)), over: tokens.sidebarBackground,
+                                     minimum: ThemeTokens.minimumMarkContrast)
+            }
+        }
+        return (paletteOrder + [.blue]).map { $0.paletteRGB(palette, tokens: tokens, wallpaper: wallpaper) }
     }
 
     /// Grayscale: eight greys, a little warm or cool, assigned so that ``paletteOrder`` steps light, dark, light.

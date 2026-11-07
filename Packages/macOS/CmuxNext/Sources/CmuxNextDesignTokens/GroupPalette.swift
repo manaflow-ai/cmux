@@ -19,6 +19,11 @@ public nonisolated enum GroupPalette: String, Hashable, Sendable, CaseIterable {
     case grayscale
     /// cmux's own colors, bright enough to read as color on dark and light glass.
     case vibrant
+    /// A gradient (``GroupGradient``, `sidebar.groupGradient`) stepped down the sidebar: each colored group takes the
+    /// gradient's color at its place among them, so neighbors step through it and a group that moves recolors. Leo,
+    /// 2026-11-07: "imagine the gradients are just, like, based off of placement, and they're not, like, just static.
+    /// They're, like, dynamic."
+    case gradient
 
     /// Whether a new group takes this palette's next color (``GroupColor/automatic(existing:)``);
     /// under ``glass`` it gets none.
