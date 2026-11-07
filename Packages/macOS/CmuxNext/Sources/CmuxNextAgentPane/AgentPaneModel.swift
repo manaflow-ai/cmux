@@ -570,7 +570,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .miniSubject:
             guard let onMiniSubject else { return Self.unsupported("agent.mini") }
-            return AgentPaneReply.success(["sessionId": onMiniSubject() ?? NSNull()])
+            return AgentPaneReply.success(["sessionId": onMiniSubject().map { $0 as Any } ?? NSNull()])
         case .showInMini(let session):
             guard let onShowInMini else { return Self.unsupported("agent.mini.show") }
             onShowInMini(session)
