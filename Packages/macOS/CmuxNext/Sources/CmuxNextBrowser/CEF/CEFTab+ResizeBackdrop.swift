@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// A resize gap in the page's own color. When a Chromium page's window or
 /// pane changes size, Chromium's frame at the new size arrives some frames
@@ -58,6 +58,11 @@ extension CEFTab {
         func channel(_ shift: UInt32) -> CGFloat { CGFloat((argb >> shift) & 0xFF) / 255 }
         return CGColor(srgbRed: channel(16), green: channel(8), blue: channel(0), alpha: 1)
     }
+
+    /// The ground the page's pane shows when it closes (CLOSE MOTION 2 case 3): the page's own background, as its host
+    /// view fills a resize gap with it, so the page's color stays where the page was instead of the window's; nil (the
+    /// chrome's ground) before the first real page and under a see-through cmux page, which shows the pane under it.
+    public var pageGround: CGColor? { pageSeeThrough ? nil : pageBackdropColor }
 
     /// Reads the document's background (after a load, and when a live resize
     /// starts) and applies it to Chromium's page background and the host view.

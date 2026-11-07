@@ -1051,6 +1051,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bookmarks-ops"
+version = "0.1.0"
+dependencies = [
+ "cmux-bookmarks-core",
+ "serde",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -1660,6 +1669,7 @@ dependencies = [
  "iroh",
  "libc",
  "rcgen",
+ "ring",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1862,8 +1872,8 @@ dependencies = [
  "cmux-automations",
  "cmux-build-identity",
  "cmux-chat-index",
- "cmux-cloud-config",
  "cmux-cloud-client",
+ "cmux-cloud-config",
  "cmux-cloud-environment",
  "cmux-config",
  "cmux-conversation",
@@ -1967,6 +1977,7 @@ dependencies = [
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-bookmarks-core",
+ "cmux-bookmarks-ops",
  "cmux-conductor-import",
  "cmux-config",
  "cmux-conversation",
