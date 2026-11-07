@@ -62,8 +62,8 @@ extension AppActions {
             return withDock(services) { _ in messages.show(HomeDockSelection(conversation: id.rawValue), focus: true, draft: draft) }
         }
         guard services.home.dock.isClassic, let page = homePage(services) else {
-            return services.registry.perform("home.openConversation",
-                                             invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
+            services.registry.perform("home.openConversation", invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
+            return
         }
         page.show(HomeDockSelection(conversation: id.rawValue), focus: true, draft: draft)
     }

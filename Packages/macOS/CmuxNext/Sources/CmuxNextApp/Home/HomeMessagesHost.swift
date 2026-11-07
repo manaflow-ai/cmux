@@ -3,6 +3,7 @@ import CmuxHomeCore
 import CmuxHomeRender
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine

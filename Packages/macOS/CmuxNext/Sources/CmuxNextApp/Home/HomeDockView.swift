@@ -90,4 +90,5 @@ final class HomeDockView: HomeDockSwitchView, PageWebViewContainer {
         messages?.close()
     }
 }
-extension HomeDockView: ChiefPanelContent { var chiefIsAnswering: Bool { mode == .messages && messages?.host?.chiefIsAnswering == true } }
+/// The Messages page's shown conversation has a running Chief reply (the store's live run).
+extension HomeDockView: ChiefPanelContent { var chiefIsAnswering: Bool { mode == .messages && messages?.shown.flatMap { services?.home.homeStore.liveRun(in: $0) } != nil } }

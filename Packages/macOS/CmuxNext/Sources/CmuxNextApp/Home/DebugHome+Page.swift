@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextHome
+import CmuxNextHomeEngine
 import CmuxNextHomeModel
 import CmuxNextSettings
 

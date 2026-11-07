@@ -66,9 +66,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         if params["action"]?.stringValue == "legacy_pins" { return DebugHome.legacyPins(params, services: services) }
         if params["action"]?.stringValue == "permalink" { return permalink(params, services: services) }
         let view: HomeNativeTranscriptView?
-        if let tab = params["tab"]?.stringValue {
-            view = (services.pages.provider(.homeTab) as? HomePageTab)?.tabs.first { $0.key == tab }?.view.host
-                .flatMap(HomePageTab.transcript(in:))
+        if params["tab"] != nil {
+            // A Home tab is the Messages web page now: drive it through the page, not this native path.
+            return .object(["error": .string("a Home tab has no native transcript")])
         } else {
             // `window`: the Home view shown in that window (default: the active window's).
             let id = params["window"]?.stringValue, window = id.flatMap { services.windows.controller(for: $0)?.window }

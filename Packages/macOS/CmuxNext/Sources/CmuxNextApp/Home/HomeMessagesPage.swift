@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextHomeModel
