@@ -547,20 +547,47 @@ fn runs(session: &mut Session, request: &Request, json: bool) -> Outcome {
     Ok(())
 }
 
-/// The plain text of one run summary: id, status, start, steps and title.
-fn run_row_text(run: &Value) -> String {
+/// The plain text of one run summary: id, status, start, steps and title,
+/// with terminal controls an agent wrote made inert.
+pub(super) fn run_row_text(run: &Value) -> String {
     let field = |key: &str| run.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
     let number = |key: &str| run.get(key).and_then(Value::as_u64).unwrap_or(0);
-    format!(
+    let row = format!(
         "{}  {}  started {}  steps {}  {}",
         field("id"),
         field("status"),
         number("started_at"),
         number("step_count"),
         field("title"),
-    )
-    .trim_end()
-    .to_owned()
+    );
+    crate::cli::wire::sanitize_remote_text(row.trim_end())
+}
+
+/// The plain text of one run step: kind, status and its text's first line,
+/// with terminal controls an agent wrote made inert.
+pub(super) fn step_line(step: &Value) -> String {
+    let field = |key: &str| step.get(key).and_then(Value::as_str).unwrap_or("");
+    let first = field("text").lines().next().unwrap_or("");
+    let line = format!("  {}  {}  {first}", field("kind"), field("status"));
+    crate::cli::wire::sanitize_remote_text(&line)
+}
+
+/// Adds a page's steps to `steps`: a step already there (the same id,
+/// updated between reads) is replaced by the copy with the newer `key`
+/// (`rev` or `seq`), in its first place.
+pub(super) fn merge_steps(steps: &mut Vec<Value>, page: Vec<Value>, key: &str) {
+    let order = |step: &Value| step.get(key).and_then(Value::as_u64).unwrap_or(0);
+    for step in page {
+        let id = step.get("id").and_then(Value::as_str);
+        match steps
+            .iter_mut()
+            .find(|known| id.is_some() && known.get("id").and_then(Value::as_str) == id)
+        {
+            Some(known) if order(&step) >= order(known) => *known = step,
+            Some(_) => {}
+            None => steps.push(step),
+        }
+    }
 }
 
 /// `runs RUN`: the run and all of its steps, read page after page while the
@@ -575,7 +602,12 @@ fn run_steps(
     let key = session.client.step_key();
     let mut page =
         session.client.run_steps(conversation, agent, run, 0).map_err(|e| session.failed(e))?;
-    let mut steps = page.get("steps").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut steps = Vec::new();
+    merge_steps(
+        &mut steps,
+        page.get("steps").and_then(Value::as_array).cloned().unwrap_or_default(),
+        key,
+    );
     let mut cursor = 0;
     loop {
         let has_more = page.get("has_more").and_then(Value::as_bool).unwrap_or(false);
@@ -589,7 +621,11 @@ fn run_steps(
             .client
             .run_steps(conversation, agent, run, after)
             .map_err(|e| session.failed(e))?;
-        steps.extend(page.get("steps").and_then(Value::as_array).cloned().unwrap_or_default());
+        merge_steps(
+            &mut steps,
+            page.get("steps").and_then(Value::as_array).cloned().unwrap_or_default(),
+            key,
+        );
     }
     let summary = page.get("run").cloned().unwrap_or(Value::Null);
     if json {
@@ -598,10 +634,7 @@ fn run_steps(
     }
     println!("{}", run_row_text(&summary));
     for step in &steps {
-        let field = |key: &str| step.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
-        let line = field("text");
-        let line = line.lines().next().unwrap_or("");
-        println!("  {}  {}  {line}", field("kind"), field("status"));
+        println!("{}", step_line(step));
     }
     Ok(())
 }
