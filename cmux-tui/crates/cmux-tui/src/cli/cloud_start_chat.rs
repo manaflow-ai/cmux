@@ -568,6 +568,11 @@ impl Deadline {
         self.0.map(|end| end.saturating_duration_since(runner.now()))
     }
 
+    /// Whether it bounds anything (`--wait` with a prompt).
+    pub(super) fn is_bounded(self) -> bool {
+        self.0.is_some()
+    }
+
     pub(super) fn passed(self, runner: &mut dyn Runner) -> bool {
         self.left(runner).is_some_and(|left| left.is_zero())
     }
@@ -767,7 +772,7 @@ fn steps(
         return out_of_time(request, &request.machine, Value::Null);
     }
     if let Some(environment) = &request.environment {
-        match in_environment(runner, request, environment, &listed) {
+        match in_environment(runner, request, environment, &listed, progress) {
             Ok(id) => {
                 progress.made = Some(id.clone());
                 progress.machine = Some(Machine::Target(id.clone()));
@@ -977,7 +982,7 @@ fn steps(
             // Refused before it started: the uploaded prompt does not stay on the machine. Any other
             // failure (no answer) may be a send still reading the file, so the file stays.
             if let Some(file) = uploaded.as_ref().filter(|_| refused_before_start(&error)) {
-                let _ = exec(runner, machine_id, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
+                remove_prompt_file(runner, machine_id, file, deadline);
             }
             return sent_failure(error, answer);
         }
@@ -1143,7 +1148,7 @@ fn relay_chat(
         }
         // No time left to make one: the start below says so.
         Machine::New if deadline.passed(runner) => return Relayed::Fallback(None),
-        Machine::New => match new_machine(runner, request, listed, &[]) {
+        Machine::New => match new_machine(runner, request, listed, &[], progress) {
             Ok(id) => {
                 progress.made = Some(id.clone());
                 progress.machine = Some(Machine::Target(id.clone()));
@@ -1306,6 +1311,7 @@ fn in_environment(
     request: &Request,
     environment: &str,
     listed: &Value,
+    progress: &mut Progress,
 ) -> Result<String, Outcome> {
     let machine = &request.machine;
     let mut extra = Vec::new();
@@ -1366,24 +1372,44 @@ fn in_environment(
         extra.extend(["--name".to_owned(), name.clone()]);
     }
     extra.extend(["--environment".to_owned(), environment.to_owned()]);
-    new_machine(runner, request, listed, &extra)
+    new_machine(runner, request, listed, &extra, progress)
 }
 
-/// `cloud new-machine` with `extra`: the new machine's id once the app has it.
+/// `cloud new-machine` with `extra`: the new machine's id once the app has it. Any id the app answers, a pending
+/// create's included, goes into `progress` first: the command to ask again names that machine, never a new one.
 fn new_machine(
     runner: &mut dyn Runner,
     request: &Request,
     listed: &Value,
     extra: &[String],
+    progress: &mut Progress,
 ) -> Result<String, Outcome> {
     let mut args = words(&["cloud", "new-machine"]);
     args.extend_from_slice(extra);
     args.push("--json".to_owned());
     let made =
         step_result(&runner.cmux(&args)).map_err(|error| start_refused(error, listed, request))?;
-    match at(&made, "machine_id").as_str() {
-        Some(id) if at(&made, "pending").as_bool() != Some(true) => Ok(id.to_owned()),
-        _ => Err(failed(
+    let id = at(&made, "machine_id").as_str().map(str::to_owned);
+    if let Some(id) = &id {
+        progress.made = Some(id.clone());
+        progress.machine = Some(Machine::Target(id.clone()));
+    }
+    match id {
+        Some(id) if at(&made, "pending").as_bool() != Some(true) => Ok(id),
+        Some(id) => {
+            let again = again_command(request, &Machine::Target(id.clone()));
+            Err(failed(
+                "cloud.start_pending",
+                format!(
+                    "the new machine {id} is still being made; once `cmux cloud list-machines` lists it, \
+                     run: {again}"
+                ),
+                json!({"again": again, "machine_id": id, "app": made,
+                       "list": "cmux cloud list-machines --json"}),
+                75,
+            ))
+        }
+        None => Err(failed(
             "cloud.start_pending",
             "the new machine is still being made; find it with `cmux cloud list-machines`, \
              then run this command again with --target machine:ID",
@@ -1445,6 +1471,17 @@ fn follow_ups(machine: &str, session: &str) -> Value {
 }
 
 /// `cloud exec` of `script` on the machine: its stdout, or the error.
+/// Removes this run's own prompt file after a failed upload or a send refused before it started. Not with a
+/// `--timeout` deadline: `cloud exec` has no bound this command can give it, so it could hold the command past
+/// `--timeout`, and the file is harmless to leave (mode 0600, in `~/.cmux/prompts` on the person's own machine,
+/// holding the prompt they sent there).
+fn remove_prompt_file(runner: &mut dyn Runner, machine: &str, file: &str, deadline: Deadline) {
+    if deadline.is_bounded() {
+        return;
+    }
+    let _ = exec(runner, machine, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
+}
+
 fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Result<String, Value> {
     let args = vec![
         "cloud".to_owned(),
@@ -1528,13 +1565,13 @@ pub(super) fn upload_prompt(
                 continue;
             }
             Err(error) => {
-                let _ = exec(runner, machine, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
+                remove_prompt_file(runner, machine, &file, deadline);
                 return Err(error);
             }
         };
         let size = sections(&stdout).get("size").and_then(|size| size.trim().parse::<usize>().ok());
         if size != Some(end) {
-            let _ = exec(runner, machine, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
+            remove_prompt_file(runner, machine, &file, deadline);
             return Err(json!({
                 "code": "chat.upload_failed",
                 "message": format!(
