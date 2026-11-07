@@ -165,11 +165,21 @@ public nonisolated struct MotionScale: Sendable {{
     /// Anything entering eases out: the control points of the curve.
     public static let easeOut: (Float, Float, Float, Float) = ({ease})
 
+    /// The settle (`MotionCurve.settle`'s default, the webviews' `--cmux-motion-settle`): a fold, a Show more or a
+    /// panel growing or shrinking to its new height. Measured, so not a step of the scale.
+    public static let settle: TimeInterval = {settle}
+
+    /// The settle's curve (`--cmux-ease-settle`): the control points of a cubic Bezier that starts at full speed and
+    /// decelerates into its end, never past it.
+    public static let settleCurve: (Float, Float, Float, Float) = ({settle_curve})
+
     /// One turn of every spinner (`MotionLoop.spinner`'s default); a loop, not a step of the scale.
     public static let spinnerPeriod: TimeInterval = {spinner}
 }}
 """.format(src=SOURCE, steps=steps, all=", ".join(step["name"] for step in data["steps"]),
-           ceiling=data["steps"][-1]["name"], ease=ease, spinner="%g" % (data["spinner"]["ms"] / 1000))
+           ceiling=data["steps"][-1]["name"], ease=ease, spinner="%g" % (data["spinner"]["ms"] / 1000),
+           settle="%g" % (data["settle"]["ms"] / 1000),
+           settle_curve=", ".join("%g" % value for value in data["settle"]["bezier"]))
 
 
 # The value line of `motion.loops.spinner` in design-tokens.json, rewritten in place so the rest of

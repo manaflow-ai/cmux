@@ -224,6 +224,9 @@ final class AgentPaneSessionInfoContent: NSView {
     /// The list's views, for tests.
     var lines: [SessionInfoLineView] { list.subviews.compactMap { $0 as? SessionInfoLineView } }
 
+    /// The list, for tests (its folds' motion).
+    var listView: SessionInfoListView { list }
+
     private func reload() {
         guard let store else { return }
         let items = store.info?.items ?? []
@@ -274,6 +277,13 @@ final class SessionInfoListView: NSView {
     var width: CGFloat = 0 { didSet { if width != oldValue { place() } } }
     /// The list's height changed (new items, a fold, a new width): the panel's frame follows it.
     var onHeightChange: (() -> Void)?
+    /// The section folds under way, and the lines each closing section shows while they clip away.
+    private var folds = SessionInfoFolds()
+    private var leaving: [String: [SessionInfoItem]] = [:]
+    /// Steps every fold on the settle curve, on the window's motion clock (SessionInfoFoldMotion.swift).
+    private(set) lazy var foldMotion = TimedProgress { [weak self] progress in self?.stepFolds(progress) }
+    /// Tests pin a fold's length in seconds; nil asks `Motion.home`.
+    var foldDuration: ((NSView) -> TimeInterval)?
 
     @discardableResult
     func show(_ items: [SessionInfoItem], ink: SessionInfoInk) -> Bool {
@@ -291,15 +301,23 @@ final class SessionInfoListView: NSView {
         }
         let focusedButtonAction = focusedButton?.button.action
         let origin = enclosingScrollView?.contentView.bounds.origin
+        // A section whose fold changed moves to its new height on the settle; one that closes keeps its lines
+        // on screen, clipping away, until the fold ends.
+        let changes = self.items.foldChanges(to: items)
+        for change in changes {
+            leaving[change.id] = change.open ? nil : self.items.foldingLines(of: change.id)
+            folds.fold(change.id, open: change.open)
+        }
+        let shown = items.keeping(leaving)
         let existingLines = subviews.compactMap { $0 as? SessionInfoLineView }
             .reduce(into: [String: SessionInfoLineView]()) { result, line in
                 guard let identity = line.line.id, result[identity] == nil else { return }
                 result[identity] = line
             }
-        self.items = items
+        self.items = shown
         self.ink = ink
         subviews.forEach { $0.removeFromSuperview() }
-        for item in items {
+        for item in shown {
             switch item {
             case .title(let title, let action, let backLabel):
                 let label: NSView
@@ -350,7 +368,48 @@ final class SessionInfoListView: NSView {
         }
         pendingItems = nil
         pendingInk = nil
+        if !changes.isEmpty { startFolds() }
         return true
+    }
+
+    /// Runs the folds under way to their ends on the settle, from the shares on screen.
+    private func startFolds() {
+        let done: @MainActor () -> Void = { [weak self] in self?.endFolds() }
+        if let foldDuration {
+            foldMotion.run(duration: foldDuration(self), curve: .settle, in: self, trace: "sessionInfo.fold", completion: done)
+        } else if window == nil {
+            // Not on screen: nothing to show, so the folds land now.
+            foldMotion.run(duration: 0, curve: .settle, in: self, trace: "sessionInfo.fold", completion: done)
+        } else {
+            Motion.home.run(foldMotion, curve: .settle, in: self, trace: "sessionInfo.fold", completion: done)
+        }
+    }
+
+    /// One frame of the folds: every section's share, the rows below and the panel's height in this frame.
+    private func stepFolds(_ progress: Double) {
+        folds.step(progress)
+        place()
+    }
+
+    /// The folds ended: a closed section's leaving lines, clipped to nothing, go.
+    private func endFolds() {
+        folds.end()
+        leaving = [:]
+        var closed: String?
+        var kept: [SessionInfoItem] = []
+        for (item, view) in zip(items, subviews) {
+            if let header = item.foldableHeader {
+                closed = header.open ? nil : header.id
+            } else if let id = closed, item.folds(in: id) {
+                view.removeFromSuperview()
+                continue
+            } else {
+                closed = nil
+            }
+            kept.append(item)
+        }
+        items = kept
+        place()
     }
 
     func flushPending() {
@@ -401,7 +460,15 @@ final class SessionInfoListView: NSView {
     private func arrange(width: CGFloat, apply: Bool) -> CGFloat {
         var y = SessionInfoMetrics.padding
         let inner = max(0, width - 2 * SessionInfoMetrics.edge)
-        for (item, view) in zip(items, subviews) {
+        let pairs = Array(zip(items, subviews))
+        // The section folding now: its rows keep their places under its header and clip at `bottom`, its share of
+        // their height, where the rest of the list follows.
+        var fold: (id: String, bottom: CGFloat)?
+        for (index, (item, view)) in pairs.enumerated() {
+            if let current = fold, !item.folds(in: current.id) {
+                y = current.bottom
+                fold = nil
+            }
             switch item {
             case .title:
                 let height: CGFloat
@@ -420,10 +487,24 @@ final class SessionInfoListView: NSView {
             case .line:
                 guard let line = view as? SessionInfoLineView else { continue }
                 let height = line.height(forWidth: inner)
-                if apply { line.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: height) }
+                let visible = fold.map { min(height, max(0, $0.bottom - y)) } ?? height
+                if apply {
+                    line.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: visible)
+                    line.fullHeight = visible < height ? height : nil
+                }
                 y += height
+                if let header = item.foldableHeader {
+                    let share = folds.share(header.id)
+                    if apply { line.foldTurn = share ?? (header.open ? 1 : 0) }
+                    if let share {
+                        let rows = pairs[(index + 1)...].prefix { $0.0.folds(in: header.id) }
+                        let full = rows.reduce(CGFloat(0)) { $0 + (($1.1 as? SessionInfoLineView)?.height(forWidth: inner) ?? 0) }
+                        fold = (header.id, y + full * share)
+                    }
+                }
             }
         }
+        if let fold { y = fold.bottom }
         return y + SessionInfoMetrics.padding
     }
 }
@@ -506,7 +587,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     private var detail: ChromeLabel?
     private var subtitle: ChromeLabel?
     private var trailing: ChromeLabel?
-    private var chevron: NSImageView?
+    private var chevron: SessionInfoChevronView?
     private var meter: SessionInfoMeterView?
     private var segmentedMeter: SessionInfoSegmentsView?
     private var toggle: NSSwitch?
@@ -558,7 +639,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             trailing = Self.label(text, font: font, color: colors.tone(line.trailingTone))
         }
         if let unfolded = line.unfolded {
-            chevron = Self.image(unfolded ? "chevron.down" : "chevron.right", font: Typography.caption, tint: colors.secondary)
+            chevron = SessionInfoChevronView(font: Typography.caption, tint: colors.secondary, unfolded: unfolded)
         }
         if let values = line.segments, !values.isEmpty { segmentedMeter = SessionInfoSegmentsView(values: values, colors: colors) }
         else if let value = line.meter { meter = SessionInfoMeterView(value: value, colors: colors) }
@@ -715,6 +796,23 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         return CGRect(x: bounds.width - right, y: 0, width: right, height: bounds.height)
     }
 
+    /// A foldable header's chevron turn, 0 pointing right (folded) to 1 pointing down: the fold's share of the
+    /// section, so the chevron turns on the fold's progress.
+    var foldTurn: CGFloat {
+        get { chevron?.turn ?? 0 }
+        set { chevron?.turn = newValue }
+    }
+
+    /// The line's own height while a fold clips it shorter (its frame): its content keeps its place and the
+    /// line's layer clips it. Nil when the line shows whole.
+    var fullHeight: CGFloat? {
+        didSet {
+            guard fullHeight != oldValue else { return }
+            layer?.masksToBounds = fullHeight != nil
+            needsLayout = true
+        }
+    }
+
     func height(forWidth width: CGFloat) -> CGFloat {
         var height = title.naturalSize.height
         if let subtitle { height += 1 + subtitle.size(forWidth: max(1, textWidth(width))).height }
@@ -739,7 +837,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
 
     override func layout() {
         super.layout()
-        let width = bounds.width, height = bounds.height
+        let width = bounds.width, height = fullHeight ?? bounds.height
         var x = width - SessionInfoMetrics.trail
         for button in buttons.reversed() {
             let size = CGSize(width: button.naturalWidth, height: 18)

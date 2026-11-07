@@ -190,6 +190,18 @@ extension MotionGate {
         NSAnimationContext.animate(.easeOut(duration: duration), changes: changes, completion: traced("appkit.\(token.rawValue)", completion))
     }
 
+    /// Animates `NSView.animator()` changes over the timed movement `curve` (its length and its own Bezier), or
+    /// applies them at once when movement does not animate (``duration(curve:)`` is 0). AppKit starts a change made
+    /// during one from the value on screen. A change that moves with others on the window's clock (a fold and the
+    /// rows below it) runs a ``TimedProgress`` through ``run(_:curve:in:trace:completion:)`` instead.
+    public func animate(curve: MotionCurve, in view: NSView? = nil, _ changes: () -> Void,
+                        completion: (@MainActor @Sendable () -> Void)? = nil) {
+        guard canAnimate(in: view) else { return snap(changes, completion: completion) }
+        let duration = self.duration(curve: curve)
+        guard duration > 0 else { return snap(changes, completion: completion) }
+        runTimed(duration, changes, completion: traced("curve.\(curve.rawValue)", completion), curve: Motion.timingFunction(curve))
+    }
+
     /// Timed animation for animators that do not take SwiftUI springs
     /// (NSWindow frame and alpha, implicit subview layout inside the block):
     /// `token`'s perceived duration with the fade curve.

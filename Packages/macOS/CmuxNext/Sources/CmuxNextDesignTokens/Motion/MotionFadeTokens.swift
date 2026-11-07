@@ -57,6 +57,35 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     public var baseDuration: TimeInterval { MotionTunables.fades[self]?.value ?? MotionScale.quick }
 }
 
+/// Timed movement on a measured curve: a length and a cubic Bezier, not a spring. Movement, so it
+/// obeys the movement rules: speed "off", the master switch, its category's switch, Reduce Motion
+/// and a live resize make it apply in one frame (no crossfade stands in), and `normal` makes it
+/// 1.5 times longer (`MotionPolicy.duration(curve:)`).
+public nonisolated enum MotionCurve: String, Sendable, CaseIterable {
+    /// A fold, a Show more or a panel growing or shrinking to its new height, and everything below
+    /// it moving with it: at full speed from the first frame, decelerating into its end on a long
+    /// soft tail, never past it (Leo 2026-11-07: "they dont overshoot but they decelerate at the
+    /// end. i think that might be the key"). The webviews' `--cmux-ease-settle` over
+    /// `--cmux-motion-settle`, from the same token (schemas/motion-scale/motion-scale.json).
+    ///
+    /// A curve and not a `MotionSpring`: the measured motion is a first-order exponential,
+    /// 1 - e^(-t / 38 ms), which is at its fastest on the first frame. Every spring starts from
+    /// rest (a critically damped one fit the recording 2.2 to 4.7% off; this curve is within 1.1%).
+    /// Where a fold must take an interruption it continues from the value on screen
+    /// (`TimedProgress`), as the web's does.
+    case settle
+
+    /// Seconds at `MotionSpeed.fast` (`MotionTunables`; overridable in Debug Settings).
+    public var baseDuration: TimeInterval { MotionTunables.curves[self]?.value ?? MotionScale.settle }
+
+    /// The curve's control points (x1, y1, x2, y2), as CSS `cubic-bezier()`.
+    public var controlPoints: (Float, Float, Float, Float) {
+        switch self {
+        case .settle: MotionScale.settleCurve
+        }
+    }
+}
+
 /// Repeating indicators. These show state, so speed does not scale them;
 /// `off` and Reduce Motion stop them (the indicator shows a static glyph).
 public nonisolated enum MotionLoop: String, Sendable, CaseIterable {

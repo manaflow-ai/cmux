@@ -100,6 +100,19 @@ public nonisolated enum MotionTunables {
                                       code: "MotionTunables.fadeDefaults[.\(token.rawValue)]"))
     })
 
+    /// Timed movement on a measured curve. Not on the step scale: the settle is its own measured length, visibly at
+    /// rest by the ceiling with its last fraction of a point after (schemas/motion-scale/motion-scale.json `settle`).
+    package static let curveDefaults: [MotionCurve: (TimeInterval, String)] = [
+        .settle: (MotionScale.settle, "A fold or Show more growing or shrinking to its new height, the rows below and the panel's height with it."),
+    ]
+
+    package static let curves: [MotionCurve: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionCurve.allCases.map { token in
+        let entry = curveDefaults[token] ?? (MotionScale.settle, "")
+        return (token, Tunable.number("motion.curve.\(token.rawValue)", .fades, "\(token.rawValue) curve", help: entry.1,
+                                      default: entry.0, range: 0...1, step: 0.005, unit: .seconds,
+                                      code: "MotionTunables.curveDefaults[.\(token.rawValue)]"))
+    })
+
     package static let loopDefaults: [MotionLoop: (TimeInterval, String)] = [
         .spinner: (MotionScale.spinnerPeriod, "One turn of every spinner (schemas/motion-scale/motion-scale.json `spinner`)."),
         .pulse: (1.8, "One cycle of the agent-waiting pulse."),
@@ -199,6 +212,7 @@ public nonisolated enum MotionTunables {
     public static var all: [TunableDescriptor] {
         MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor]
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
+            + MotionCurve.allCases.compactMap { curves[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,
                tooltipDelay, tooltipWarm, hoverCardGrace, hoverCardAim].map(\.descriptor)

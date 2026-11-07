@@ -30,11 +30,18 @@ damped spring fit it to 2.2-4.7% rms, the exponential to 0.1-1.1%). The
 cubic-bezier is within 1.1% of it at every point; the exact `linear()` copy is not
 the value because WebKit before Safari 17.2 (macOS 14.0 and 14.1) has no
 `linear()` easing. It is measured, so it is the one length off the step list;
-it is visibly at rest by the 240 ms ceiling. Native: the same
-CAMediaTimingFunction over 0.265 s, or for an interruptible spring an overdamped
-one (mass 1, stiffness 20800, damping 826). Reduce Motion and the pane's
-animations off make it one step. Session Info's section folds and Show more
-lists use it first.
+it is visibly at rest by the 240 ms ceiling. Native: `MotionCurve.settle`
+(`MotionScale.settle` and `MotionScale.settleCurve`, generated from the same
+token), run through a gate: `Motion.<category>.run(progress, curve: .settle,
+in:)` steps a `TimedProgress` on the window's motion clock, so a fold, the rows
+below it and the panel's height move in the same frames and a fold interrupted
+mid-way turns around from the frame on screen; `Motion.<category>.animate(curve:
+.settle, in:)` runs `animator()` changes on it. It is a curve, not a
+`MotionSpring`, because the measured motion is at full speed on its first frame
+and every spring starts from rest. It is movement: Reduce Motion, speed "off",
+the master switch and the category's switch make it one step, and "normal"
+makes it 1.5 times longer. Session Info's section folds and Show more lists use
+it first; native Session Info's folds run on `Motion.home`.
 Off-scale fades went to the nearest step that is not longer (focus and
 crossfade, the Reduce Motion cap, 80 ms; paneDim and theme 120 ms; clickPulse,
 cursorHide, hibernateIcon, the attention swell and the agent cursor glide limit

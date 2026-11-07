@@ -26,6 +26,14 @@ public nonisolated struct MotionScale: Sendable {
     /// Anything entering eases out: the control points of the curve.
     public static let easeOut: (Float, Float, Float, Float) = (0, 0, 0.58, 1)
 
+    /// The settle (`MotionCurve.settle`'s default, the webviews' `--cmux-motion-settle`): a fold, a Show more or a
+    /// panel growing or shrinking to its new height. Measured, so not a step of the scale.
+    public static let settle: TimeInterval = 0.265
+
+    /// The settle's curve (`--cmux-ease-settle`): the control points of a cubic Bezier that starts at full speed and
+    /// decelerates into its end, never past it.
+    public static let settleCurve: (Float, Float, Float, Float) = (0.16, 1, 0.3, 1)
+
     /// One turn of every spinner (`MotionLoop.spinner`'s default); a loop, not a step of the scale.
     public static let spinnerPeriod: TimeInterval = 2
 }

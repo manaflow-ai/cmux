@@ -88,6 +88,12 @@ public struct Motion {
 
     /// The standard ease-out curve for timed fades.
     public static var fadeCurve: CAMediaTimingFunction { CAMediaTimingFunction(name: .easeOut) }
+
+    /// `curve`'s timing function, for a Core Animation or AppKit group that runs it.
+    public static func timingFunction(_ curve: MotionCurve) -> CAMediaTimingFunction {
+        let (x1, y1, x2, y2) = curve.controlPoints
+        return CAMediaTimingFunction(controlPoints: x1, y1, x2, y2)
+    }
 }
 
 extension MotionGate {
@@ -112,5 +118,7 @@ extension MotionGate {
     public func spring(_ token: MotionSpring) -> SpringParameters { policy.spring(token) }
     public func duration(_ token: MotionFade) -> TimeInterval { policy.duration(token) }
     public func duration(_ token: MotionSpring) -> TimeInterval { policy.duration(token) }
+    /// Seconds of the timed movement `curve` in this category; 0 applies at once (``MotionPolicy/duration(curve:)``).
+    public func duration(curve: MotionCurve) -> TimeInterval { policy.duration(curve: curve) }
     public func period(_ loop: MotionLoop) -> TimeInterval? { policy.period(loop) }
 }

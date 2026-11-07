@@ -91,6 +91,13 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
         return reduceMotion ? min(scaled, MotionFade.crossfade.baseDuration) : scaled
     }
 
+    /// Seconds of the timed movement `token`; 0 means apply at once. Movement, so it is 0 whenever movement does not
+    /// animate (speed "off", the master or category switch off, Reduce Motion, a live resize), and `normal` scales it
+    /// as every other time constant.
+    public func duration(curve token: MotionCurve) -> TimeInterval {
+        animatesMovement ? token.baseDuration * speed.timeScale : 0
+    }
+
     /// Seconds that stand in for `token` when only a timed API exists (NSWindow
     /// frames): the spring's visible end (within 0.5%, `perceivedDuration`).
     /// 0 when movement does not animate.
