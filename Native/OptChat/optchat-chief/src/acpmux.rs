@@ -119,7 +119,11 @@ pub fn chief_session_mode(family: Family, policy: &str) -> Option<&'static str> 
 /// `bypassPermissions` unless the person or `chief engine set --mode`
 /// chose `auto` or `default`). Under any other policy (a turn that carries
 /// another person's text runs `ask`) its own: never wider than that policy.
-pub fn chief_turn_mode<'a>(family: Family, policy: &str, claude: Option<&'a str>) -> Option<&'a str> {
+pub fn chief_turn_mode<'a>(
+    family: Family,
+    policy: &str,
+    claude: Option<&'a str>,
+) -> Option<&'a str> {
     match family {
         Family::Claude if policy == "approve-all" => claude,
         _ => chief_session_mode(family, policy),

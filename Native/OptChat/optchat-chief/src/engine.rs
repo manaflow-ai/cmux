@@ -98,7 +98,12 @@ pub fn parse_permission_mode(value: &str) -> Option<&'static str> {
 
 /// How widely a mode acts without asking: `default` 0, `auto` 1, bypass 2.
 fn breadth(mode: &str) -> usize {
-    PERMISSION_MODES.len() - 1 - PERMISSION_MODES.iter().position(|m| *m == mode).unwrap_or(2)
+    PERMISSION_MODES.len()
+        - 1
+        - PERMISSION_MODES
+            .iter()
+            .position(|m| *m == mode)
+            .unwrap_or(2)
 }
 
 /// The Chief turns' permission mode and what chose it (`engine`, `settings`,
@@ -112,7 +117,10 @@ pub fn permission_mode(choice: &EngineChoice, user: Option<&str>) -> (&'static s
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(|v| parse_permission_mode(v).unwrap_or("default"));
-    let own = choice.permission_mode.as_deref().and_then(parse_permission_mode);
+    let own = choice
+        .permission_mode
+        .as_deref()
+        .and_then(parse_permission_mode);
     match (own, user) {
         (Some(own), Some(cap)) if breadth(own) > breadth(cap) => (cap, "settings"),
         (Some(own), _) => (own, "engine"),
@@ -471,12 +479,14 @@ pub fn apply_flags(
 pub fn parse_mode_flag(value: &str) -> Result<Option<String>, String> {
     match value.trim() {
         "" | "unset" => Ok(None),
-        v => parse_permission_mode(v).map(|m| Some(m.to_owned())).ok_or_else(|| {
-            format!(
-                "--mode is one of {} or unset, not {v:?}",
-                PERMISSION_MODES.join(", ")
-            )
-        }),
+        v => parse_permission_mode(v)
+            .map(|m| Some(m.to_owned()))
+            .ok_or_else(|| {
+                format!(
+                    "--mode is one of {} or unset, not {v:?}",
+                    PERMISSION_MODES.join(", ")
+                )
+            }),
     }
 }
 
@@ -504,7 +514,9 @@ pub fn permission_mode_line(choice: &EngineChoice, user: Option<&serde_json::Val
         "settings" => "Settings > Chief > Permission Mode (chief.permissionMode)",
         _ => "default",
     };
-    format!("permission mode: {mode} ({source}; Claude turns, from the next turn)\n")
+    format!(
+        "permission mode: {mode} ({source}; Claude turns, from the next turn; acpmux runs bypassPermissions only while new chats start in Full Access, Settings > Agents)\n"
+    )
 }
 
 /// `engine show|set`; Ok carries what to print.
@@ -534,9 +546,8 @@ pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
                 "turn routing: {}\n",
                 choice.turn_routing.as_deref().unwrap_or("off")
             ));
-            let user = std::env::var_os("HOME").and_then(|h| {
-                crate::agent_memory::settings::document(std::path::Path::new(&h))
-            });
+            let user = std::env::var_os("HOME")
+                .and_then(|h| crate::agent_memory::settings::document(std::path::Path::new(&h)));
             out.push_str(&permission_mode_line(&choice, user.as_ref()));
             // The CLI each role runs, as the host resolved it at its start.
             match load_resolved(&home) {

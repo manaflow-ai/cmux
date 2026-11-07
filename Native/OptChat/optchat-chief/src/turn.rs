@@ -592,6 +592,15 @@ pub fn run_with_drafts(
         start.permission_mode.as_deref(),
     ) && let Err(e) = agents.set_mode(&session, mode)
     {
+        // A narrower mode the person or the Chief chose (Auto, Manual) that did
+        // not apply: the session may run wider (a kept bypass session, or
+        // Claude Code's own Auto under Manual), so the turn never runs in it.
+        if admitted.family == crate::acpmux::Family::Claude && mode != "bypassPermissions" {
+            let reason = format!("the turn's permission mode {mode} did not apply: {e}");
+            log(&format!("turn {}: {reason}", start.key));
+            let _ = agents.end_session(&session);
+            return refused(trace, start, &reason);
+        }
         log(&format!(
             "turn {}: {e}; it runs in its harness's own mode",
             start.key

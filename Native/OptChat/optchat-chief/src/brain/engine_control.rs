@@ -80,7 +80,6 @@ impl Brain {
             compactor_harness,
             compactor_model,
             turn_routing,
-            permission_mode,
             reactions,
         } = request
         {
@@ -90,7 +89,7 @@ impl Brain {
                     Err(reason) => return error("invalid_value", reason),
                 }
             }
-            if let Some(value) = permission_mode {
+            if let Some(value) = reactions.permission_mode.clone() {
                 match crate::engine::parse_mode_flag(&value) {
                     Ok(value) => choice.permission_mode = value,
                     Err(reason) => return error("invalid_value", reason),

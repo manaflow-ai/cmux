@@ -1514,12 +1514,12 @@ fn connection(conn: UnixStream, served: &Served) {
                                 compactor_harness: field("compactor_harness"),
                                 compactor_model: field("compactor_model"),
                                 turn_routing: field("turn_routing"),
-                                permission_mode: field("permission_mode"),
                                 reactions: Box::new(crate::brain::ReactionFields {
                                     classifier_harness: field("classifier_harness"),
                                     classifier_model: field("classifier_model"),
                                     classifier_prompt: field("classifier_prompt"),
                                     reactions_can_wake: field("reactions_can_wake"),
+                                    permission_mode: field("permission_mode"),
                                 }),
                             }))
                         }
