@@ -100,4 +100,41 @@ struct AgentPaneUploadSendGestureTests {
         #expect(!(await begins(model, "other.png")), "the retry credit must not authorize another file")
         #expect(attempts == 2)
     }
+
+    @Test func aFailedStagedUploadGetsTwoRetriesAndBadChunksCannotMintMore() async {
+        var clock = 100.0
+        let transport = AgentPaneTransport(gestures: AgentPaneUserGestures(now: { clock }))
+        let model = AgentPaneModel(host: NoHost(), transport: transport)
+        var begins = 0
+        model.onUploadStage = {
+            { request, _ in
+                switch request {
+                case .begin:
+                    begins += 1
+                    return AgentPaneReply.success(["token": "t\(begins)", "size": 3, "chunkSize": 512 * 1024])
+                case .chunk:
+                    return AgentPaneReply.failure(code: "upload_failed", message: "bad chunk")
+                case .finish, .cancel:
+                    return AgentPaneReply.success()
+                }
+            }
+        }
+
+        // The initial begin succeeds, then a bad chunk arms the first retry credit.
+        model.transport.gestures.record()
+        #expect(await self.begins(model, "shot.png"))
+        #expect((await model.respond(to: .uploadStage(.chunk(token: "t1", offset: 0, data: Data([1]))))) ["ok"] as? Bool == false)
+
+        // Both automatic retries are paid for the same staged attachment.
+        #expect(await self.begins(model, "shot.png"))
+        #expect((await model.respond(to: .uploadStage(.chunk(token: "t2", offset: 0, data: Data([1]))))) ["ok"] as? Bool == false)
+        #expect(await self.begins(model, "shot.png"))
+        #expect((await model.respond(to: .uploadStage(.chunk(token: "t3", offset: 0, data: Data([1]))))) ["ok"] as? Bool == false)
+
+        // A stale/bad chunk after the retry budget is exhausted cannot re-arm a fresh credit.
+        #expect((await model.respond(to: .uploadStage(.chunk(token: "t3", offset: 0, data: Data([1]))))) ["ok"] as? Bool == false)
+        clock += 1
+        #expect(!(await self.begins(model, "shot.png")))
+        #expect(begins == 3)
+    }
 }

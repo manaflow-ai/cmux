@@ -308,6 +308,10 @@ public final class AgentPaneModel {
     @ObservationIgnored private var uploadRetryCredits: [String: (expires: TimeInterval, uses: Int)] = [:]
     @ObservationIgnored private var stagedUploadKeys: [String: String] = [:]
     private static let uploadRetryLifetime: TimeInterval = 30
+    /// One gesture-funded begin plus at most two automatic retries. The attempt count stays with
+    /// the attachment after its short-lived credit expires, so a late or stale failure cannot mint
+    /// another retry budget for free.
+    private static let uploadRetryAttemptLimit = 3
     /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
     @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?
     /// Runs the Cloud machine + latest transcript fork and opens its sibling without selecting this chat.
@@ -771,7 +775,9 @@ public final class AgentPaneModel {
             }
             let key = uploadRetryKey(name: name, size: size)
             let now = transport.gestures.uptime
-            let retry = uploadRetryCredits[key].map { now <= $0.expires && $0.uses < 2 } == true
+            let retry = uploadRetryCredits[key].map {
+                now <= $0.expires && $0.uses < Self.uploadRetryAttemptLimit
+            } == true
             if retry {
                 if let credit = uploadRetryCredits[key] {
                     uploadRetryCredits[key] = (credit.expires, credit.uses + 1)
@@ -794,12 +800,11 @@ public final class AgentPaneModel {
 
     private func armUploadRetry(_ key: String) {
         let now = transport.gestures.uptime
-        let uses = uploadRetryCredits[key].map { now <= $0.expires ? $0.uses + 1 : 1 } ?? 1
-        guard uses <= 2 else {
-            uploadRetryCredits.removeValue(forKey: key)
-            return
-        }
-        uploadRetryCredits[key] = (now + Self.uploadRetryLifetime, uses)
+        // A failed begin or stage already owns this key's attempt count. Only the first failure
+        // creates the short-lived retry credit; subsequent failures must not extend or recreate it.
+        // In particular, a stale chunk cannot reset an exhausted/expired attachment to attempt 1.
+        guard uploadRetryCredits[key] == nil else { return }
+        uploadRetryCredits[key] = (now + Self.uploadRetryLifetime, 1)
     }
 
     /// The page's chat became session `id` (it started, or the quick panel moved it); no longer a new tab page.
