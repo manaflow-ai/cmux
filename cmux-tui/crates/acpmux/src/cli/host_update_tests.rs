@@ -1016,6 +1016,116 @@ fn a_daemon_under_a_hand_written_unit_moves_to_acpmux_service_with_its_agents() 
     assert!(peer.exists(&format!("{UNITS}/{FOREIGN}.migrated")));
 }
 
+impl FakePeer {
+    /// The daemon of [`FakePeer::under_foreign_unit`] is down and its unit
+    /// stopped and disabled, with no `Restart=`: a Linux host whose daemon the
+    /// OOM killer ended (2026-11-06).
+    /// `carried` as in [`FakePeer::under_foreign_unit`].
+    fn stopped_foreign_unit(&self, carried: bool) {
+        self.under_foreign_unit(carried);
+        self.write(
+            &format!("{UNITS}/{FOREIGN}"),
+            "[Service]\nEnvironment=ACPMUX_HOME=%h/.acpmux-supervised/hb\nExecStart=%h/.local/share/acpmux-supervised/acpmux daemon run --listen 127.0.0.1:47822 --log info\n",
+        );
+        for gone in
+            ["daemon", &format!("active-{FOREIGN}"), "proc/4242/environ", "proc/4242/cmdline"]
+        {
+            let _ = std::fs::remove_file(self.home.join(gone));
+        }
+    }
+
+    /// The unit and drop-ins a move from [`FOREIGN`] leaves, read from its file.
+    fn assert_moved_from_stopped_unit(&self) {
+        assert!(!self.exists(&format!("{UNITS}/{FOREIGN}")));
+        assert!(self.exists(&format!("{UNITS}/{FOREIGN}.migrated")));
+        assert_eq!(self.read(&format!("{UNITS}/acpmux.service")), SYSTEMD_UNIT);
+        assert_eq!(self.read(&format!("{UNITS}/acpmux.service.d/memory-backstop.conf")), BACKSTOP);
+        // The unit's own home, `%h` read as the home: its state is where it was.
+        assert_eq!(
+            self.read(&format!("{UNITS}/acpmux.service.d/10-migrated.conf")),
+            format!(
+                "[Service]\nEnvironment=ACPMUX_HOME={}\n",
+                self.home.join(".acpmux-supervised/hb").display()
+            )
+        );
+        assert!(self.take_calls().contains(&"systemctl --user enable --now acpmux.service".into()));
+    }
+}
+
+/// A daemon its hand-written unit no longer runs (the OOM killer ended it;
+/// the unit is disabled, with no `Restart=`) is moved to `acpmux.service`
+/// by an update, not given a detached start that nothing restarts.
+#[test]
+#[cfg(unix)]
+fn an_update_moves_a_stopped_hand_written_unit_to_acpmux_service() {
+    let peer = FakePeer::new("migrate-stopped");
+    peer.stopped_foreign_unit(false);
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(false);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(up.migrated_from.as_deref(), Some(FOREIGN));
+    assert_eq!(up.build.as_deref(), Some(NEW));
+    assert_eq!(peer.daemon(), NEW);
+    peer.assert_moved_from_stopped_unit();
+    assert!(!peer.read("started").contains(STALE));
+}
+
+/// Setup (`machine enroll --fix`, `machine setup`) moves a stopped
+/// hand-written unit too, and still refuses one whose daemon runs.
+#[test]
+#[cfg(unix)]
+fn setup_moves_a_stopped_hand_written_unit_and_refuses_a_running_one() {
+    let peer = FakePeer::new("setup-stopped");
+    peer.stopped_foreign_unit(false);
+    peer.exe(".local/bin/acpmux", &fake_acpmux(NEW, Some(NEW)));
+    let out = peer.exec(&linux_restart(true, true), None).unwrap();
+    assert!(out.ok, "{out:?}");
+    assert!(out.stdout.lines().any(|l| l == SYSTEMD_STARTED), "{out:?}");
+    assert_eq!(peer.daemon(), NEW);
+    peer.assert_moved_from_stopped_unit();
+
+    let peer = FakePeer::new("setup-running");
+    peer.under_foreign_unit(false);
+    let out = peer.exec(&linux_restart(true, true), None).unwrap();
+    assert!(!out.ok && out.stderr.contains(&format!("runs under the systemd unit {FOREIGN}")));
+    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
+    assert!(!peer.exists(&format!("{UNITS}/acpmux.service")));
+}
+
+/// A stopped unit of another home, two such units, or one that quotes its
+/// settings are never moved by guess.
+#[test]
+#[cfg(unix)]
+fn a_stopped_unit_is_moved_only_when_it_is_this_homes_one() {
+    // Another home: `~/.acpmux` is its own folder, not a link to the unit's.
+    let peer = FakePeer::new("stopped-other-home");
+    peer.stopped_foreign_unit(true);
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(false);
+    assert_eq!(up.migrated_from, None, "{up:?}");
+    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
+    // Two hand-written units: which one is the daemon's is not known.
+    let peer = FakePeer::new("stopped-two");
+    peer.stopped_foreign_unit(false);
+    peer.write(
+        &format!("{UNITS}/acpmux-agent-other.service"),
+        &peer.read(&format!("{UNITS}/{FOREIGN}")),
+    );
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(false);
+    assert_eq!(up.migrated_from, None, "{up:?}");
+    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
+    // A quoted value: refused before anything changes, the binary put back.
+    let peer = FakePeer::new("stopped-quoted");
+    peer.stopped_foreign_unit(false);
+    peer.write(&format!("{UNITS}/{FOREIGN}.d/home.conf"), "[Service]\nEnvironment=\"NOTE=a b\"\n");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(false);
+    assert_eq!(up.outcome, Outcome::Failed, "{up:?}");
+    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
+    assert!(!peer.exists(&format!("{UNITS}/acpmux.service")));
+}
+
 /// `binary` (a fake acpmux) whose daemon answers only at `socket`: a daemon
 /// whose home or socket a drop-in of `acpmux.service` moved.
 #[cfg(unix)]
