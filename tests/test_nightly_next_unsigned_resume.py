@@ -63,8 +63,8 @@ class FakeGitHub:
         self.dispatches.append((workflow, ref, inputs))
 
 
-def decide(gh, runs, max_resumes=2, names=True):
-    return resume.decide(gh, FEED, runs, max_resumes, lambda: names)
+def decide(gh, runs, max_resumes=2, names=True, fresh=()):
+    return resume.decide(gh, FEED, runs, max_resumes, lambda: names, lambda: list(fresh))
 
 
 class DecideTests(unittest.TestCase):
@@ -117,6 +117,28 @@ class DecideTests(unittest.TestCase):
         message = decide(gh, [resumed(OLDER, 1, NEWER + 5, status="in_progress"), push(NEWER)])
         self.assertIn("still running", message)
         self.assertEqual(gh.dispatches, [])
+
+    def test_a_newer_push_run_on_its_way_is_never_jumped_by_a_resume(self):
+        # Run 41995666665 resumed 41976650433 while push run 41982716550 built a newer tip and push
+        # 42001889615 waited behind it: the resume took the nightly mini's builder ahead of both.
+        for status in ("pending", "queued", "in_progress", "waiting"):
+            gh = FakeGitHub()
+            message = decide(gh, [push(NEWER + 1, None, status), push(NEWER)])
+            self.assertIn(f"newer push run https://github.com/o/r/actions/runs/{NEWER + 1}", message)
+            self.assertEqual(gh.dispatches, [], status)
+            self.assertEqual(gh.reads, [], "a resume that would yield costs no reads")
+
+    def test_a_push_that_starts_while_deciding_still_holds_the_resume(self):
+        # The listing is read before the job and artifact reads; a push in between must still win the mini.
+        gh = FakeGitHub()
+        message = decide(gh, [push(NEWER)], fresh=[push(NEWER + 1, None, "queued"), push(NEWER)])
+        self.assertIn(f"newer push run https://github.com/o/r/actions/runs/{NEWER + 1}", message)
+        self.assertEqual(gh.dispatches, [])
+
+    def test_an_older_push_run_still_going_does_not_hold_a_newer_failed_run(self):
+        gh = FakeGitHub()
+        decide(gh, [push(NEWER), push(NEWER - 1, None, "in_progress")])
+        self.assertEqual(gh.dispatches[0][2]["nightly_next_unsigned_run"], str(NEWER))
 
     def test_capped_resumes_per_run_then_an_older_run_is_tried(self):
         older_but_newer_than_feed = NEWER - 1
@@ -180,6 +202,25 @@ class ListingTests(unittest.TestCase):
         self.assertEqual(len(dispatch), 1)
         self.assertIn("created=%3E%3D2026-10-27T20%3A00%3A00Z", dispatch[0])
         self.assertTrue(any("event=push" in c for c in calls))
+
+
+    def test_a_pending_push_from_the_listing_holds_the_resume(self):
+        import datetime as dt
+        calls = []
+
+        class Lister(FakeGitHub):
+            def call(self, method, path, body=None):
+                if "/actions/workflows/" not in path:
+                    return super().call(method, path, body)
+                calls.append(path)
+                return {"workflow_runs": [push(NEWER + 1, None, "pending"), push(NEWER)] if "event=push" in path else []}
+
+        gh = Lister()
+        runs = resume.runs_to_judge(gh, dt.datetime(2026, 11, 6, 16, 19, tzinfo=dt.timezone.utc))
+        self.assertFalse(any("status=" in c for c in calls if "event=push" in c), calls)
+        message = decide(gh, runs)
+        self.assertIn("waiting: newer push run", message)
+        self.assertEqual(gh.dispatches, [])
 
 
 class StarvationTests(unittest.TestCase):

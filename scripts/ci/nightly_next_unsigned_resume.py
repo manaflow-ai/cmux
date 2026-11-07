@@ -24,13 +24,18 @@ one resume when all of these hold, newest failed run first:
     day) and it holds no notarization recovery artifact, which
     continue-nightly-next.sh publishes once Apple accepts;
   - no resume of any run is queued or running, and this run has been resumed
-    fewer than --max-resumes times (default 2; 0 turns this off).
+    fewer than --max-resumes times (default 2; 0 turns this off);
+  - no newer nightly-next push run is on its way (pending, queued or
+    running). Since cmux#36111 one push run goes at a time on the one nightly
+    mini, and the newest push's own build supersedes this one, so a resume
+    would only take the mini ahead of it (run 41995666665 resumed 41976650433
+    while 41982716550 and the pending 42001889615 waited, 2026-11-05).
 A resume is told apart by its title, "Resume nightly-next run ID attempt N"
 (nightly.yml's run-name). Until nightly-next's nightly.yml carries that title
 nothing is dispatched, because the count could not see earlier resumes.
 
-Nothing is cancelled. A resume runs in its own concurrency group beside any
-build of the newer tip (the freshness rule), and publication stays latest-wins.
+Nothing is cancelled. A resume runs in its own concurrency group, and
+publication stays latest-wins.
 The dispatched run re-validates everything above it needs before signing.
 
 usage: nightly_next_unsigned_resume.py --repo OWNER/NAME [--max-resumes 2] [--dry-run]
@@ -63,6 +68,7 @@ PUSH_RUNS_READ = 30  # nightly-next push runs read, newest first: more than a da
 # resume is kept one day, so no earlier resume of a still-resumable run is older.
 RESUME_LOOKBACK = dt.timedelta(hours=26)
 JOB_PAGES = 3
+FRESH_PUSH_RUNS_READ = 5  # newest first; a push newer than the candidate is among the first few
 # Every failed push run newer than the feed is judged, newest first, until one resumes: a run
 # older than the feed costs no read, so this is bounded by the push runs read, not a fixed few
 # (a valid run behind three failed compiles must still be found).
@@ -83,6 +89,13 @@ def failed_push_runs(runs: list[dict], feed_build: int) -> list[dict]:
              if run.get("event") == "push" and run.get("head_branch") == BRANCH and run.get("status") == "completed"
              and run.get("conclusion") in FAILED and int(run["id"]) * 100 + 99 > feed_build]
     return sorted(found, key=lambda run: int(run["id"]), reverse=True)
+
+
+def newer_push_on_its_way(runs: list[dict], run_id: int) -> dict | None:
+    """A nightly-next push run newer than `run_id` that has not ended, whose own build supersedes it."""
+    return next((run for run in runs
+                 if run.get("event") == "push" and run.get("head_branch") == BRANCH and run.get("status") in ACTIVE
+                 and int(run["id"]) > run_id), None)
 
 
 def producer_attempt(jobs: list[dict]) -> int | str:
@@ -154,8 +167,16 @@ def runs_to_judge(gh: GitHub, now: dt.datetime) -> list[dict]:
     return listing(event="push", per_page=PUSH_RUNS_READ) + dispatches
 
 
-def decide(gh: GitHub, feed_build: int, runs: list[dict], max_resumes: int, names_resumes) -> str:
-    """Dispatch at most one resume and say what was decided. `names_resumes` is read only before a dispatch."""
+def newest_push_runs(gh: GitHub) -> list[dict]:
+    """The few newest nightly-next push runs, read again just before a dispatch."""
+    query = urllib.parse.urlencode({"branch": BRANCH, "event": "push", "per_page": FRESH_PUSH_RUNS_READ})
+    return gh.call("GET", f"/actions/workflows/{WORKFLOW}/runs?{query}")["workflow_runs"]
+
+
+def decide(gh: GitHub, feed_build: int, runs: list[dict], max_resumes: int, names_resumes,
+           fresh_pushes=lambda: []) -> str:
+    """Dispatch at most one resume and say what was decided. `names_resumes` and `fresh_pushes` are read only
+    before a dispatch: a push that started after `runs` was listed still holds the resume."""
     if max_resumes <= 0:
         return "off: --max-resumes is 0"
     resumes: dict[tuple[int, int], list[dict]] = {}
@@ -168,6 +189,10 @@ def decide(gh: GitHub, feed_build: int, runs: list[dict], max_resumes: int, name
     notes = []
     for run in failed_push_runs(runs, feed_build)[:CANDIDATES_READ]:
         run_id = int(run["id"])
+        newer = newer_push_on_its_way(runs, run_id)
+        if newer:
+            return (f"waiting: newer push run {newer.get('html_url', newer.get('id'))} is {newer.get('status')}; "
+                    f"its build supersedes run {run_id}")
         attempt = producer_attempt(all_jobs(gh, run_id))
         if isinstance(attempt, str):
             notes.append(f"run {run_id}: {attempt}")
@@ -185,6 +210,10 @@ def decide(gh: GitHub, feed_build: int, runs: list[dict], max_resumes: int, name
         if problem:
             notes.append(f"run {run_id}: {problem}")
             continue
+        newer = newer_push_on_its_way(fresh_pushes(), run_id)
+        if newer:
+            return (f"waiting: newer push run {newer.get('html_url', newer.get('id'))} is {newer.get('status')}; "
+                    f"its build supersedes run {run_id}")
         if not names_resumes():
             return (f"not dispatching: nightly-next's {WORKFLOW} does not title resume runs yet, so earlier resumes "
                     f"could not be counted (run {run_id} attempt {attempt} would be resumed)")
@@ -214,7 +243,8 @@ def main(argv: list[str]) -> int:
             print(f"::warning::no Nightly build in {args.feed_url}; not resuming anything")
             return 0
         runs = runs_to_judge(gh, dt.datetime.now(dt.timezone.utc))
-        print("nightly-next unsigned resume: " + decide(gh, feed_build, runs, args.max_resumes, lambda: ref_names_resumes(gh)))
+        print("nightly-next unsigned resume: " + decide(gh, feed_build, runs, args.max_resumes, lambda: ref_names_resumes(gh),
+                                                        lambda: newest_push_runs(gh)))
     except (*TRANSPORT, KeyError, TypeError, ValueError) as error:
         print(f"::warning::nightly-next unsigned resume skipped this check: {error!r}")
     return 0
