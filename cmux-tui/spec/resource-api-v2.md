@@ -202,8 +202,9 @@ creation path and every client, at the place `workspaces.newPlacement` names
 in the daemon machine's settings file (read by the daemon itself:
 `CMUX_NEXT_CONFIG_FILE`, else `~/.config/cmux/cmux-next.json`, else classic
 `cmux.json` before the app's first launch; the managed layer is not read):
-`top` (the default, also for a missing or unknown value) right after the home workspace's row,
+`top` right after the home workspace's row,
 else first, ungrouped, so before every group at that place; `afterCurrent`
+(the default, also for a missing or unknown value)
 right after the session's active workspace before the commit, in its group
 (`top` when there is none, it has no row, it is the home workspace, or the
 new workspace is pinned to a room other than the group's);

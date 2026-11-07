@@ -133,6 +133,7 @@ import { subagentProgress } from "../subagents/subagentProgress";
 import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
 import { useSameValue } from "./sameValue";
+import { chatPlace, type ChatPlace } from "../chatMachine";
 import { usageEntries, type UsageEntry } from "./usageEntries";
 import { samePanelProps } from "./samePanelProps";
 import type { AlsoHere } from "./alsoHere";
@@ -1302,6 +1303,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const usageSessions = useSameValue(useMemo(() => usageEntries(everyChat), [everyChat]));
   const alsoHereRows = useSameValue(useAlsoHere(summary?.sessionId, everyChat));
   const peerKinds = useSameValue(snapshot.peerKinds);
+  // Where the chat runs beyond its summary (its route and listed peer), for Environment's machine row.
+  const place = useSameValue(chatPlace(snapshot));
   const startedList = useSameValue(scope ? undefined : sessions?.list);
   const workflowList = useSameValue(scope ? undefined : workflows?.list);
   // A subagent, a started chat or a workflow's agent opens beside the chat (its own pane): Session Info
@@ -1450,6 +1453,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           plan={plan}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
+          place={place}
           repository={repository}
           grants={scope ? undefined : grants}
           cloudRepositoryAvailable={cloudRepositoryAvailable}
@@ -1528,6 +1532,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         summary={summary}
         machineName={machineName}
         peerKinds={peerKinds}
+        place={place}
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         made={made}
@@ -1798,6 +1803,7 @@ export function SessionInfo({
   summary,
   machineName,
   peerKinds,
+  place,
   repository,
   cloudRepositoryAvailable,
   made,
@@ -1859,6 +1865,8 @@ export function SessionInfo({
   summary?: Summary;
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
+  /// The page's route to the chat (chatMachine.ts `chatPlace`).
+  place?: ChatPlace;
   repository?: string;
   cloudRepositoryAvailable?: boolean;
   /// What the chat produced (sessionSummary).
@@ -2116,6 +2124,7 @@ export function SessionInfo({
         summary={summary}
         machineName={machineName}
         peerKinds={peerKinds}
+        place={place}
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         remoteControl={remoteControl}
