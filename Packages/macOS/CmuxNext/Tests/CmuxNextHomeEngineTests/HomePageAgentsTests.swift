@@ -76,7 +76,8 @@ struct HomePageAgentsTests {
         var events: [JSONValue] = []
         let subscription = agents.subscribe { events.append($0) }
         #expect(agents.held == chief)
-        #expect(events.last?["conversation"]?.stringValue == chief.rawValue)
+        // The stream's first value comes on its observation's first turn.
+        await until { events.last?["conversation"]?.stringValue == chief.rawValue }
         agents.show(other)
         #expect(agents.held == nil) // a chat that is not a Chief's has no agents
         agents.show(chief)
