@@ -26,10 +26,17 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
     "interface-1.25": { interfaceScale: 1.25 },
     "zoom-1.5": { scale: 1.5 },
   };
-  /// The smallest room, in CSS px, between the painted caret and a chip's visible edge: after a chip
-  /// (where the caret stood on the edge in Chromium before the fix), and on each side between two
-  /// (where it touched the second chip in WebKit).
-  const MIN_CLEAR = { after: 2.5, between: 1.5 };
+  /// How far, in CSS px, the caret after a chip may stand from the chip-to-chip gap: the caret after
+  /// a chip stands as far from it as the next chip would (Leo's ask; before the fix it stood on the
+  /// chip's edge in Chromium and 2px off it in WebKit, against a 4px gap).
+  const TOLERANCE = 1;
+
+  /// How far the painted caret is from the point `gap` px after a chip's right edge `edge`: 0 when its
+  /// column covers that point. Each engine paints its 1px caret on whole pixels, Chromium's just
+  /// before the insertion point and WebKit's just after it, so the column, not one of its edges, is
+  /// where the caret is.
+  const offGap = (caret: { left: number; right: number }, edge: number, gap: number) =>
+    Math.max(0, caret.left - (edge + gap), edge + gap - caret.right);
 
   /// The chip's visible box: the strip's tile inside an inline node, else the node's chip.
   const chipBoxes = (page: Page) =>
@@ -56,7 +63,7 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
     );
 
   /// The painted caret's columns (CSS px) inside `band`, read from screenshots until a blink shows it
-  /// there (a caret just moved may still be painted where it was).
+  /// at the same place twice in a row.
   async function caretColumns(page: Page, band: { left: number; right: number; top: number; bottom: number }) {
     const scale = await page.evaluate(() => window.devicePixelRatio);
     const clip = {
@@ -65,7 +72,8 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
       width: band.right - band.left,
       height: band.bottom - band.top,
     };
-    for (let attempt = 0; attempt < 40; attempt++) {
+    let last: { left: number; right: number } | undefined;
+    for (let attempt = 0; attempt < 60; attempt++) {
       const shot = PNG.sync.read(await page.screenshot({ clip, caret: "initial", scale: "device" }));
       const columns = new Set<number>();
       for (let at = 0; at < shot.data.length; at += 4) {
@@ -74,14 +82,13 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
       }
       if (columns.size) {
         const xs = [...columns];
-        return {
-          left: band.left + Math.min(...xs) / scale,
-          right: band.left + (Math.max(...xs) + 1) / scale,
-        };
+        const seen = { left: band.left + Math.min(...xs) / scale, right: band.left + (Math.max(...xs) + 1) / scale };
+        if (last && last.left === seen.left && last.right === seen.right) return seen;
+        last = seen;
       }
       await nextFrames(page);
     }
-    throw new Error("the caret never showed");
+    throw new Error(last ? `the caret never held still (last at ${last.left})` : "the caret never showed");
   }
 
   async function open(page: Page, port: number, variant: string, size: Record<string, string | number>) {
@@ -96,14 +103,21 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
   }
 
   /// Puts the caret `offset` positions into the first paragraph (an attachment is one position).
-  const caretAt = (page: Page, offset: number) =>
-    page.evaluate((at) => {
-      const field = document.querySelector(".acpmux-md-field") as HTMLElement & {
-        acpmuxMarkdownField?: { setCaret(offset: number): void; focus(): void };
-      };
-      field.acpmuxMarkdownField!.focus();
-      field.acpmuxMarkdownField!.setCaret(at);
-    }, offset);
+  /// It goes to the start first, a frame before: headless WebKit's caret does not blink, so a caret
+  /// set where it already is keeps the place it was painted at, before the chips' pictures loaded.
+  const caretAt = async (page: Page, offset: number) => {
+    const set = (at: number) =>
+      page.evaluate((to) => {
+        const field = document.querySelector(".acpmux-md-field") as HTMLElement & {
+          acpmuxMarkdownField?: { setCaret(offset: number): void; focus(): void };
+        };
+        field.acpmuxMarkdownField!.focus();
+        field.acpmuxMarkdownField!.setCaret(to);
+      }, at);
+    await set(0);
+    await nextFrames(page);
+    await set(offset);
+  };
 
   /// The prompt without its attachments' tokens (attachments.ts inlineToken): the typed text alone.
   const withoutTokens = (prompt: { value: string }) => prompt.value.replace(/\uFFFC[^\uFFFC]*\uFFFC/g, "");
@@ -186,15 +200,18 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
             left: first!.left,
             right: second!.right,
           });
+          // The caret after a chip, the last one or the first of two, stands one chip gap from it. (The
+          // caret before a chip meets its leading edge, where it stays off the glass.)
           const clear = {
-            "after the last chip": after.left - second!.right,
-            "between chips, from the first": between.left - first!.right,
-            "between chips, from the second": second!.left - between.right,
+            "after the last chip": offGap(after, second!.right, chipGap),
+            "after the first of two chips": offGap(between, first!.right, chipGap),
           };
-          report.push(`${engine} ${name} chip gap ${chipGap.toFixed(2)}, ${JSON.stringify(clear)}`);
-          for (const [where, room] of Object.entries(clear))
-            if (room < (where.startsWith("between") ? MIN_CLEAR.between : MIN_CLEAR.after))
-              failures.push(`${engine} ${name}: the caret ${where} is ${room.toFixed(2)}px clear`);
+          report.push(`${engine} ${name} chip gap ${chipGap.toFixed(2)}, caret off it ${JSON.stringify(clear)}`);
+          for (const [where, off] of Object.entries(clear))
+            if (off > TOLERANCE)
+              failures.push(
+                `${engine} ${name}: the caret ${where} is ${off.toFixed(2)}px off the ${chipGap.toFixed(2)}px chip gap`,
+              );
           // A click just right of the last chip puts the caret after it, never selects the chip.
           await page.mouse.click(second!.right + 2, (second!.top + second!.bottom) / 2);
           const clicked = await caretColumns(page, beyond);
@@ -204,8 +221,10 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
           expect(await value(page)).toEqual(before);
           expect(withoutTokens(before)).toBe("Which layout reads better?");
 
-          // A huge paste's text card at the end of the prompt. Under the 1.5 zoom the card has a line of
-          // its own at the end of the field, where the caret goes down to the next line.
+          // A huge paste's text card at the end of the prompt: the same room after it as between chips.
+          // Under the 1.5 zoom the card has a line of its own at the end of the field, where the caret
+          // goes down to the next line.
+          const cardGap = chipGap;
           if (size.scale) continue;
           await open(page, port, "text-pasted-inline", size);
           const sent = await value(page);
@@ -213,10 +232,10 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
           const [card] = await chipBoxes(page);
           const tail = await caretColumns(page, { ...card!, right: card!.right + 40 });
           await capture(page, `${engine}-${name}-after-card`, card!);
-          const room = tail.left - card!.right;
-          report.push(`${engine} ${name} text card ${room.toFixed(2)}`);
-          if (room < MIN_CLEAR.after)
-            failures.push(`${engine} ${name}: the caret after the text card is ${room.toFixed(2)}px clear`);
+          const off = offGap(tail, card!.right, cardGap);
+          report.push(`${engine} ${name} text card: caret off the chip gap ${off.toFixed(2)}`);
+          if (off > TOLERANCE)
+            failures.push(`${engine} ${name}: the caret after the text card is ${off.toFixed(2)}px off the chip gap`);
           expect(await value(page)).toEqual(sent);
           // The paste's own space after the card stays the only one.
           expect(withoutTokens(sent)).toBe("Why does the build fail?  ");
