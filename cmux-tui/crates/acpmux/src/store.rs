@@ -936,6 +936,15 @@ pub trait Store: Send + Sync {
     fn commit_compaction(&self, _id: &str, _staged: Staged) -> Result<bool> {
         Ok(false)
     }
+    /// Leaves out every record of chat `id` past `after`, in place (`CompactMode::Truncate`):
+    /// false when the log changed meanwhile, or the store cannot. Its caller holds the chat's
+    /// append lock. A journal restore's only (`hub/journal_restore.rs`).
+    fn truncate_after(&self, id: &str, after: u64) -> Result<bool> {
+        match self.stage_compaction(id, CompactMode::Truncate { after })? {
+            Some(staged) => self.commit_compaction(id, staged),
+            None => Ok(false),
+        }
+    }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None

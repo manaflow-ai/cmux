@@ -159,6 +159,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "a restore names the chat's createdAt, which no row here knows: refused as another generation",
             ),
         ),
+        ("_acpmux/attachments_held", Run(json!({"sessionId": "$S", "files": []}))),
         ("_acpmux/directories", Run(json!({"cwd": "$CWD"}))),
         ("_acpmux/models", Run(json!({}))),
         ("catalog.get", Run(json!({}))),

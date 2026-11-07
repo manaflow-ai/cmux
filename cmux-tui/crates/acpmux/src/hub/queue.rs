@@ -367,7 +367,14 @@ impl Hub {
                     // not show one yet) still makes it busy; a prompt that comes later waits
                     // behind it.
                     let guard = session.turn_lock.try_lock().ok();
-                    match guard.filter(|_| session.turn().is_none() && !queue_waits(session)) {
+                    // A restore that holds the chat makes it busy too (review of #37284 at
+                    // 4dcbe192, F3).
+                    let free = |_: &_| {
+                        session.turn().is_none()
+                            && !queue_waits(session)
+                            && !(self.restore_holds(session) && !self.at_4dcb())
+                    };
+                    match guard.filter(free) {
                         Some(guard) => ClaimedTurn::new(session, guard),
                         None => {
                             session.queued.fetch_sub(1, Ordering::SeqCst);
@@ -375,7 +382,21 @@ impl Hub {
                         }
                     }
                 } else {
-                    let guard = session.turn_lock.lock().await;
+                    // A restore that took the lock first and holds the chat (between its tries
+                    // too) may have come after this prompt's admission (review of #37284 at
+                    // 4dcbe192, F3): it waits until the restore ends or lapses, as an admission
+                    // does, and never runs into the seqs the restore needs.
+                    let guard = loop {
+                        let done = session.restore_done.notified();
+                        tokio::pin!(done);
+                        done.as_mut().enable();
+                        let guard = session.turn_lock.lock().await;
+                        if !self.restore_holds(session) || self.at_4dcb() {
+                            break guard;
+                        }
+                        drop(guard);
+                        done.await;
+                    };
                     // `waiting` was read before the lock: a prompt the owner approved (or a
                     // resumed one) since then waits in the queue ahead of this one and keeps its
                     // place (`queue_approve.rs`). This one queues behind it, never claiming the
@@ -853,7 +874,7 @@ impl Hub {
             // A journal restore holds the chat for its whole try and the hold between tries
             // (`journal_restore.rs`, review of #37284 at 91b1343d, F2): a prompt that waited
             // before it began takes no turn until it ends or lapses, as a new one is admitted.
-            if session.restoring.load(Ordering::SeqCst) && !self.at_91b() {
+            if self.restore_holds(session) {
                 drop(guard);
                 tokio::select! {
                     () = done.as_mut() => continue,

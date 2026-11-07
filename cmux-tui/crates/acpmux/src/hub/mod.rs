@@ -114,6 +114,7 @@ mod journal_restore_tests;
 mod lifecycle;
 mod log_deferral;
 mod log_load;
+mod restore_writer;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod repo_sync;
@@ -774,9 +775,9 @@ pub struct Hub {
     /// Tests only: pause purge after store deletion, before ID-keyed cleanup.
     #[cfg(test)]
     pub(super) purge_seam: full_access_bound::WriteSeam,
-    /// Tests only: this hub follows the rules of 91b1343d (`journal_restore::rules_of_91b`).
+    /// Tests only: the rules of an earlier head this hub replays (`journal_restore::AT_91B`).
     #[cfg(test)]
-    pub(super) rules_of_91b: AtomicBool,
+    pub(super) old_rules: std::sync::atomic::AtomicU8,
     /// Tests only: pause a retry's task before it sets its wait (`auto_resume.rs`).
     #[cfg(test)]
     pub(super) retry_seam: full_access_bound::WriteSeam,
@@ -1050,7 +1051,7 @@ impl Hub {
             #[cfg(test)]
             purge_seam: Default::default(),
             #[cfg(test)]
-            rules_of_91b: AtomicBool::new(false),
+            old_rules: std::sync::atomic::AtomicU8::new(0),
             #[cfg(test)]
             retry_seam: Default::default(),
             #[cfg(test)]
@@ -1404,6 +1405,8 @@ impl Hub {
             restoring: AtomicBool::new(false),
             restore_done: tokio::sync::Notify::new(),
             recovery_pending: AtomicBool::new(false),
+            parked: StdMutex::new(None),
+            restore_token: AtomicU64::new(0),
             restore_lease: StdMutex::new(None),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
@@ -2036,6 +2039,22 @@ impl Hub {
         kept: log_deferral::Kept,
         notify: bool,
     ) -> (EventRecord, bool) {
+        let msg = restore_writer::marked(msg);
+        // A restore owns the chat: the record waits for it to end (`restore_writer.rs`).
+        let (msg, kept) = match self.parked_write(
+            session,
+            dir,
+            kind,
+            msg,
+            host_seq,
+            at,
+            stored_only,
+            kept,
+            notify,
+        ) {
+            Ok(parked) => return parked,
+            Err(back) => back,
+        };
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         // Record a harmless mux receipt instead of ambiguous completion metadata.

@@ -146,6 +146,11 @@ pub struct Proof {
     pub records: Vec<Value>,
     /// The peer's link when the first of them was written: only a later link releases it.
     pub link: (u64, u64),
+    /// The owner daemon's start that wrote it (`open_delivery::incarnation`): a link's numbers
+    /// start again at each start, so a proof of an earlier one is checked on the next link of
+    /// any number (review of #37284 at 4dcbe192, F6). Empty: from before this was kept.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub incarnation: String,
 }
 
 impl Delivery {

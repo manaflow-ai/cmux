@@ -56,38 +56,69 @@ use std::time::Duration;
 /// The most records one restore takes.
 pub const MAX_RECORDS: usize = 4096;
 
+/// Tests only: the rules of an earlier head, which a review of #37284 found losing prompts or
+/// history, for the tests and the move simulation to replay (0: the rules of now). Each later
+/// head's fixes are missing from an earlier one too.
+pub(crate) const AT_4DCB: u8 = 1;
+/// 91b1343d's (the ninth review's F1 to F5 are missing too).
+pub(crate) const AT_91B: u8 = 2;
+
 #[cfg(test)]
 thread_local! {
-    /// Tests only: the rules of 91b1343d, which the review of #37284 at 91b1343d found losing
-    /// prompts and history (its F1 to F5), for the tests and the move simulation to replay.
-    pub(crate) static RULES_OF_91B: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests only: the rules this thread replays ([`AT_4DCB`], [`AT_91B`]; 0: now).
+    pub(crate) static OLD_RULES: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
 }
 
 impl Hub {
-    /// Whether this hub replays the rules of 91b1343d (tests only; never in a build).
-    pub(super) fn at_91b(&self) -> bool {
+    /// The rules this hub replays (tests only; 0 in a build).
+    fn old_rules(&self) -> u8 {
         #[cfg(test)]
         {
-            self.rules_of_91b.load(Ordering::SeqCst)
+            self.old_rules.load(Ordering::SeqCst)
         }
         #[cfg(not(test))]
         {
-            false
+            0
         }
+    }
+
+    /// Whether this hub replays the rules of 91b1343d (tests only; never in a build).
+    pub(super) fn at_91b(&self) -> bool {
+        self.old_rules() >= AT_91B
+    }
+
+    /// Whether this hub replays the rules of 4dcbe192 (tests only; never in a build).
+    pub(super) fn at_4dcb(&self) -> bool {
+        self.old_rules() >= AT_4DCB
+    }
+
+    /// Whether a journal restore holds `session` (its try, or the hold between tries): no turn
+    /// starts and nothing but the restore writes its journal.
+    pub(super) fn restore_holds(&self, session: &Session) -> bool {
+        session.restoring.load(Ordering::SeqCst) && !self.at_91b()
+    }
+}
+
+fn thread_rules() -> u8 {
+    #[cfg(test)]
+    {
+        OLD_RULES.with(std::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        0
     }
 }
 
 /// Whether this thread replays the rules of 91b1343d (tests only; never in a build): the
 /// copies' store and the restore's merge, which tests drive on their own thread.
 pub(crate) fn rules_of_91b() -> bool {
-    #[cfg(test)]
-    {
-        RULES_OF_91B.with(std::cell::Cell::get)
-    }
-    #[cfg(not(test))]
-    {
-        false
-    }
+    thread_rules() >= AT_91B
+}
+
+/// Whether this thread replays the rules of 4dcbe192 (tests only; never in a build).
+pub(crate) fn rules_of_4dcb() -> bool {
+    thread_rules() >= AT_4DCB
 }
 
 impl Hub {
@@ -164,13 +195,23 @@ impl Hub {
             session.restoring.store(true, Ordering::SeqCst);
             held.is_some()
         };
-        let mut restoring = Restoring { session: session.clone(), hold: false };
+        // From here every record but this try's own parks until the restore ends
+        // (`restore_writer.rs`).
+        static TRIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        self.park_writes(&session, TRIES.fetch_add(1, Ordering::SeqCst) + 1);
+        let mut restoring = Restoring { hub: self.clone(), session: session.clone(), hold: false };
         #[cfg(debug_assertions)]
         test_pause(&session.id).await;
         // (4) The write and the settle, off the executor, with all three held.
         let hub = self.clone();
         let held = session.clone();
-        let result = blocking(move || hub.restore_records(&held, after, records, resumed));
+        let files = files_of(params)?;
+        let result = blocking(move || {
+            // The files its prompts were saved as go back first (review of #37284 at 4dcbe192,
+            // F4): a `queued` record that names one never goes in without it.
+            restore_files(&held, &files)?;
+            hub.restore_records(&held, after, records, resumed)
+        });
         // (5) Stopped short: the chat stays held for the owner's next try, at most
         // [`RESTORE_HOLD`], so no prompt takes the seqs the rest of the records need.
         if result.as_ref().is_err_and(|e| reason_of(e) == Some("append_failed")) {
@@ -198,6 +239,8 @@ impl Hub {
         // its recovery writes nothing before the records go in (at 91b1343d, F4): it runs on the
         // restored log, or on the log as it is when the restore is refused. A try that stopped
         // short leaves it to the next try, or to its hold's lapse.
+        // This thread alone writes the chat's journal while the restore owns it.
+        let _writer = super::restore_writer::RestoreWriter::hold(session);
         self.load_session_log_for_restore(session);
         let loaded = session.log_load.lock().unwrap_or_else(|e| e.into_inner());
         if !*loaded {
@@ -222,7 +265,26 @@ impl Hub {
         let (at, failed, flush_failed) = {
             let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
             self.catch_up_locked(session);
-            let at = session.seq.load(Ordering::SeqCst);
+            let mut at = session.seq.load(Ordering::SeqCst);
+            // What this machine's own recovery wrote after a restart, at the end of its journal
+            // (review of #37284 at 4dcbe192, F1): the owner's copy holds what was there. The
+            // restore takes the copy from where the recovery began; those records go, and the
+            // recovery is made again on the restored log.
+            if !self.at_4dcb()
+                && let Some(from) = self.recovery_tail(session, at)?
+                && records.last().is_some_and(|r| r.seq > from)
+            {
+                if after > from {
+                    return Err(refused(
+                        "recovered",
+                        "this journal's end is its own recovery",
+                        session,
+                    )
+                    .with_data(json!({"reason": "recovered", "afterSeq": from, "lastSeq": at})));
+                }
+                self.take_back_recovery(session, from)?;
+                at = from;
+            }
             if at < after {
                 return Err(refused("diverged", "this journal ends before afterSeq", session));
             }
@@ -320,6 +382,151 @@ impl Hub {
     }
 }
 
+impl Hub {
+    /// Where the recovery records at the end of `session`'s journal (through `at`) begin: the
+    /// seq before the first of them; None when its last record is not one.
+    fn recovery_tail(&self, session: &Session, at: u64) -> Result<Option<u64>, RpcError> {
+        const LOOK: u64 = 256;
+        let tail = self
+            .store
+            .events(&session.id, at.saturating_sub(LOOK), LOOK as usize)
+            .map_err(|e| RpcError::internal(e.to_string()))?;
+        let mut from = None;
+        for record in tail.iter().rev() {
+            if !super::restore_writer::is_recovery(record) {
+                break;
+            }
+            from = Some(record.seq.saturating_sub(1));
+        }
+        Ok(from)
+    }
+
+    /// Leaves out of `session`'s journal every record past `from` (its own recovery's, read by
+    /// [`Self::recovery_tail`]): its end is `from` again. The caller holds `append_lock`.
+    fn take_back_recovery(&self, session: &Session, from: u64) -> Result<(), RpcError> {
+        let mut done = false;
+        // A store that wrote a record back meanwhile (`journal_store.rs`) refuses one try.
+        for _ in 0..3 {
+            match self.store.truncate_after(&session.id, from) {
+                Ok(true) => {
+                    done = true;
+                    break;
+                }
+                Ok(false) => {}
+                Err(e) => return Err(stopped(session, &e)),
+            }
+        }
+        if !done {
+            return Err(stopped(
+                session,
+                &anyhow::anyhow!("its own recovery could not be taken back"),
+            ));
+        }
+        tracing::info!(session = %session.id, from, "a restore takes back what this machine's recovery wrote");
+        session.seq.store(from, Ordering::SeqCst);
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_seq = from;
+        // The message ids it holds may be of records gone (`recover_message_events`).
+        *session.message_ids.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        Ok(())
+    }
+}
+
+/// The files a restore brings (`files`: each one's `path` and base64 `data`), checked to be in
+/// the chat's own uploads folder before anything is written.
+fn files_of(params: &Value) -> Result<Vec<(std::path::PathBuf, Vec<u8>)>, RpcError> {
+    use base64::Engine as _;
+    let Some(files) = params.get("files").and_then(Value::as_array) else { return Ok(Vec::new()) };
+    let id = params.get("sessionId").and_then(Value::as_str).unwrap_or_default();
+    files
+        .iter()
+        .map(|f| {
+            let path = f.get("path").and_then(Value::as_str).and_then(|p| upload_path(id, p));
+            let data = f.get("data").and_then(Value::as_str);
+            let bytes = data.and_then(|d| base64::engine::general_purpose::STANDARD.decode(d).ok());
+            match (path, bytes) {
+                (Some(path), Some(bytes)) => Ok((path, bytes)),
+                _ => Err(RpcError::invalid_params(
+                    "a restore's file is a path in this chat's uploads and its base64 data",
+                )),
+            }
+        })
+        .collect()
+}
+
+/// `path` when it is a file in chat `id`'s uploads folder (`hub/file_uploads.rs`): absolute,
+/// under it, with no `..`.
+fn upload_path(id: &str, path: &str) -> Option<std::path::PathBuf> {
+    let root = super::file_uploads::session_dir(id)?;
+    let path = std::path::PathBuf::from(path);
+    let plain = path
+        .components()
+        .all(|c| matches!(c, std::path::Component::RootDir | std::path::Component::Normal(_)));
+    (plain && path.is_absolute() && path.starts_with(&root) && path != root).then_some(path)
+}
+
+/// Writes each of `files` that the chat does not hold as it is; a failed write stops the restore
+/// (`append_failed`): the owner keeps its copy, and its delivery stays open.
+fn restore_files(
+    session: &Session,
+    files: &[(std::path::PathBuf, Vec<u8>)],
+) -> Result<(), RpcError> {
+    for (path, bytes) in files {
+        if std::fs::read(path).is_ok_and(|held| held == *bytes) {
+            continue;
+        }
+        let written = path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("{} has no folder", path.display()))
+            .and_then(|dir| {
+                if let Some(uploads) = dir.parent() {
+                    crate::config::private_state_dir(uploads)?;
+                }
+                crate::config::private_state_dir(dir)
+            })
+            .and_then(|()| crate::agent_tools::write_private(path, bytes));
+        if let Err(e) = written {
+            return Err(stopped(session, &e.context(format!("restore {}", path.display()))));
+        }
+    }
+    Ok(())
+}
+
+impl Hub {
+    /// `_acpmux/attachments_held`: whether chat `sessionId` holds each of `files` (`path`,
+    /// `sha256`) as it was saved (review of #37284 at 4dcbe192, F4): the owner lets a proven
+    /// delivery's bytes go only then (`open_delivery.rs`).
+    pub async fn attachments_held(&self, params: &Value) -> Result<Value, RpcError> {
+        let id = params
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?
+            .to_owned();
+        let files = params
+            .get("files")
+            .and_then(Value::as_array)
+            .ok_or_else(|| RpcError::invalid_params("files is required"))?;
+        let mut wanted = Vec::new();
+        for f in files {
+            let path = f.get("path").and_then(Value::as_str).and_then(|p| upload_path(&id, p));
+            let hash = f.get("sha256").and_then(Value::as_str);
+            let (Some(path), Some(hash)) = (path, hash) else {
+                return Err(RpcError::invalid_params(
+                    "each file is a path in this chat's uploads and its sha256",
+                ));
+            };
+            wanted.push((path, hash.to_owned()));
+        }
+        let held = tokio::task::spawn_blocking(move || {
+            wanted.iter().all(|(path, hash)| {
+                std::fs::read(path).is_ok_and(|b| crate::attach::sha256(&b) == *hash)
+            })
+        })
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?;
+        Ok(json!({"sessionId": id, "held": held}))
+    }
+}
+
 /// How long a restore waits for a turn to give back the chat before it answers `busy`.
 const TURN_LOCK_WITHIN: Duration = Duration::from_secs(5);
 
@@ -331,6 +538,7 @@ const RESTORE_HOLD: Duration = Duration::from_secs(60);
 
 /// The chat is restoring while this lives, unless it is held for the next try.
 struct Restoring {
+    hub: Arc<Hub>,
     session: Arc<Session>,
     hold: bool,
 }
@@ -338,17 +546,19 @@ struct Restoring {
 impl Drop for Restoring {
     fn drop(&mut self) {
         if !self.hold {
-            release(&self.session);
+            release(&self.hub, &self.session);
         }
     }
 }
 
-fn release(session: &Session) {
+/// The restore ended: what parked meanwhile goes in, then prompts go on.
+fn release(hub: &Hub, session: &Session) {
     {
         let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
         *session.restore_lease.lock().unwrap_or_else(|e| e.into_inner()) = None;
         session.restoring.store(false, Ordering::SeqCst);
     }
+    hub.unpark_writes(session);
     session.restore_done.notify_waiters();
 }
 
@@ -381,21 +591,18 @@ fn hold_for_next_try(hub: &Arc<Hub>, session: &Arc<Session>) {
         }
         let (h, s) = (hub.clone(), session.clone());
         let recovered = tokio::task::spawn_blocking(move || {
+            let _writer = super::restore_writer::RestoreWriter::hold(&s);
             let _loaded = s.log_load.lock().unwrap_or_else(|e| e.into_inner());
             h.recover_pending(&s, None);
         });
         if let Err(e) = recovered.await {
             tracing::error!(session = %session.id, "recovering a chat log after a restore's hold failed: {e}");
         }
-        {
-            let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
-            session.restoring.store(false, Ordering::SeqCst);
-        }
         tracing::warn!(
             session = %session.id,
             "the owner did not finish restoring this chat's journal; its prompts go on"
         );
-        session.restore_done.notify_waiters();
+        release(&hub, &session);
     });
 }
 

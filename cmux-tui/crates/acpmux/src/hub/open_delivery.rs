@@ -101,7 +101,28 @@ fn turn_of(r: &Value) -> Option<&str> {
 /// Whether `record` may be of a prompt's life: it names a prompt or a turn
 /// (`peer_snapshot.rs` reports only these).
 pub(crate) fn of_a_prompt(record: &Value) -> bool {
-    prompt_of(record).is_some() || turn_of(record).is_some()
+    prompt_of(record).is_some()
+        || turn_of(record).is_some()
+        || (queue_wide(record) && !crate::hub::journal_restore::rules_of_4dcb())
+}
+
+/// Whether `record` changes the whole queue's state (a Stop's hold, a resume, an order): it
+/// affects the prompts its list names (`held`, `promptIds`, `order`), or every one when it names
+/// none (review of #37284 at 4dcbe192, F5: a Stop's `queue_paused` names what it held).
+fn queue_wide(record: &Value) -> bool {
+    matches!(kind(record), "queue_paused" | "queue_resumed" | "queue_order")
+}
+
+/// Whether queue-wide `record` ([`queue_wide`]) affects prompt `prompt`.
+fn affects(record: &Value, prompt: &str) -> bool {
+    if !queue_wide(record) || crate::hub::journal_restore::rules_of_4dcb() {
+        return false;
+    }
+    let lists: Vec<&Vec<Value>> = ["held", "promptIds", "order"]
+        .iter()
+        .filter_map(|k| record.pointer(&format!("/msg/{k}")).and_then(Value::as_array))
+        .collect();
+    lists.is_empty() || lists.iter().any(|l| l.iter().any(|v| v.as_str() == Some(prompt)))
 }
 
 /// Takes into `d`'s proof the records of its prompt's life among `records` (naming its prompt,
@@ -112,7 +133,11 @@ pub(crate) fn take_proof(d: &mut Delivery, records: &[Value], link: (u64, u64)) 
     if prompt.is_empty() {
         return false;
     }
-    let mut proof = d.proof.take().unwrap_or(Proof { records: Vec::new(), link });
+    let mut proof = d.proof.take().unwrap_or_else(|| Proof {
+        records: Vec::new(),
+        link,
+        incarnation: incarnation(),
+    });
     let mut turns: HashSet<String> =
         proof.records.iter().filter_map(turn_of).map(str::to_owned).collect();
     let mine = |r: &Value| prompt_of(r) == Some(prompt.as_str());
@@ -121,7 +146,7 @@ pub(crate) fn take_proof(d: &mut Delivery, records: &[Value], link: (u64, u64)) 
         proof.records.drain(..).filter_map(|r| Some((seq(&r)?, r))).collect();
     let before = held.len();
     for r in records {
-        if (mine(r) || turn_of(r).is_some_and(|t| turns.contains(t)))
+        if (mine(r) || turn_of(r).is_some_and(|t| turns.contains(t)) || affects(r, &prompt))
             && let Some(s) = seq(r)
         {
             held.entry(s).or_insert_with(|| r.clone());
@@ -190,6 +215,51 @@ pub(crate) fn proofs_past(
     out
 }
 
+/// This owner daemon's start: a random id, new at each start (a proof's provenance, [`step`]).
+pub(crate) fn incarnation() -> String {
+    #[cfg(test)]
+    if let Some(id) = INCARNATION.with(|i| i.borrow().clone()) {
+        return id;
+    }
+    static ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ID.get_or_init(|| uuid::Uuid::new_v4().to_string()).clone()
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests only: this thread's owner start (a daemon restart in the move simulation).
+    pub(crate) static INCARNATION: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The files `d`'s prompt was saved as on its machine, and their bytes (review of #37284 at
+/// 4dcbe192, F4): the non-image attachments [`crate::attach::receive`] wrote there and its
+/// `queued` record names by path. A restore writes them back before that record goes in, and
+/// the bytes go only once a later link shows the machine holds them.
+pub(crate) fn proof_files(d: &Delivery) -> Vec<(std::path::PathBuf, Vec<u8>)> {
+    let Some(proof) = &d.proof else { return Vec::new() };
+    let Some(blocks) = d.request.get("prompt").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let named: HashMap<String, Vec<u8>> = crate::attach::saved_names(blocks)
+        .into_iter()
+        .filter_map(|(i, name)| Some((name, crate::attach::bytes_of(blocks.get(i)?)?)))
+        .collect();
+    if named.is_empty() {
+        return Vec::new();
+    }
+    proof
+        .records
+        .iter()
+        .filter(|r| kind(r) == "queued")
+        .filter_map(|r| r.pointer("/msg/prompt").and_then(Value::as_array))
+        .flat_map(|b| crate::attach::saved_links(b))
+        .filter_map(|(path, name)| Some((path, named.get(&name)?.clone())))
+        .collect()
+}
+
+/// The machine's answer whether it holds the files a proof names ([`Hub::proof_held`]).
+pub(crate) const ATTACHMENTS_HELD: &str = "_acpmux/attachments_held";
+
 /// What a link's redelivery does with an open delivery ([`step`]).
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Step {
@@ -223,9 +293,12 @@ pub(crate) fn step(
     }
     let (Some(pin), Some(proof)) = (&d.pin, &d.proof) else { return Step::Again };
     let through = proof.records.iter().filter_map(seq).max();
+    // A link of this start after the proof's, or any link of a later start (F6).
+    let later = link > proof.link
+        || (proof.incarnation != incarnation() && !crate::hub::journal_restore::rules_of_4dcb());
     match ends.get(&pin.session) {
         Some((generation, _)) if *generation != pin.generation => Step::Stale,
-        Some((_, last)) if link > proof.link && through.is_some_and(|t| t <= *last) => Step::Check,
+        Some((_, last)) if later && through.is_some_and(|t| t <= *last) => Step::Check,
         _ => Step::Wait,
     }
 }
@@ -291,12 +364,8 @@ pub(crate) fn after_again(d: &mut Delivery, again: Again) -> bool {
 impl Hub {
     /// Whether peer `pin.peer`'s journal of `pin.session`, read on link `link`, holds every
     /// record of `proof` ([`same_record`]); None when it could not be read on that link.
-    pub(crate) async fn proof_held(
-        &self,
-        pin: &Pin,
-        link: (u64, u64),
-        proof: &Proof,
-    ) -> Option<bool> {
+    pub(crate) async fn proof_held(&self, d: &Delivery, link: (u64, u64)) -> Option<bool> {
+        let (pin, proof) = (d.pin.as_ref()?, d.proof.as_ref()?);
         let peer = self.peer(&pin.peer).filter(|p| (p.generation, p.link_epoch()) == link)?;
         for record in &proof.records {
             let at = seq(record)?;
@@ -306,6 +375,20 @@ impl Hub {
             let events = page.get("events").and_then(Value::as_array)?;
             if !same_record(record, events.first()) {
                 return Some(false);
+            }
+        }
+        // And the files its prompt was saved as, by their hashes (F4): until then it waits, its
+        // bytes kept, and lapses visibly.
+        let files = proof_files(d);
+        if !files.is_empty() && !self.at_4dcb() {
+            let files: Vec<Value> = files
+                .iter()
+                .map(|(path, bytes)| json!({"path": path, "sha256": crate::attach::sha256(bytes)}))
+                .collect();
+            let params = json!({"sessionId": pin.session, "files": files});
+            let held = peer.request_on(ATTACHMENTS_HELD, params, Some(link.1)).await.ok()?;
+            if held.get("held") != Some(&Value::Bool(true)) {
+                return None;
             }
         }
         Some(true)
@@ -335,8 +418,8 @@ impl Hub {
 }
 
 /// [`Hub::proof_written`] on `outbox`: each delivery pinned to `pinned` takes the records of its
-/// prompt among `records` as proof; answers the attachment files they kept, to remove (a proven
-/// delivery is never sent again).
+/// prompt among `records` as proof; answers the attachment files they kept. A proven delivery is
+/// never sent again, but its attachments' bytes stay until its release ([`proof_files`]).
 pub(crate) fn take_written(
     outbox: &Outbox,
     pinned: (&str, &str, u64),
@@ -352,10 +435,16 @@ pub(crate) fn take_written(
         if !take_proof(&mut d.clone(), records, link) {
             continue;
         }
-        files.extend(outbox.attachments_path(&d));
+        // 4dcbe192 let the bytes go at the proof (F4); they go now only at its release.
+        let at_4dcb = crate::hub::journal_restore::rules_of_4dcb();
+        if at_4dcb {
+            files.extend(outbox.attachments_path(&d));
+        }
         outbox.update(&d.id, |d| {
             take_proof(d, records, link);
-            crate::attach::strip(&mut d.request);
+            if at_4dcb {
+                crate::attach::strip(&mut d.request);
+            }
         });
     }
     files

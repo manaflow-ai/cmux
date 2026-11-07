@@ -2116,17 +2116,18 @@ async fn dispatch_request_with_identity(
         // chat (`hub/journal_restore.rs`): that daemon's peer link, proven by this launch's peer
         // token, or this machine's socket. A paired client device is served as Peer too, with
         // its own credential: it may drive chats, never write their history.
-        "_acpmux/journal_restore"
+        "_acpmux/journal_restore" | "_acpmux/attachments_held"
             if !matches!(
                 (conn.origin, conn.auth),
                 (Origin::Peer, ConnAuth::PeerToken) | (Origin::Local, ConnAuth::LocalSocket)
             ) =>
         {
             Err(RpcError::invalid_params(
-                "_acpmux/journal_restore answers the owner's peer link and the unix socket only",
+                "_acpmux/journal_restore and _acpmux/attachments_held answer the owner's peer link and the unix socket only",
             ))
         }
         "_acpmux/journal_restore" => hub.journal_restore(&params).await,
+        "_acpmux/attachments_held" => hub.attachments_held(&params).await,
         "_acpmux/peer_snapshots_clear" if conn.origin != Origin::Local => Err(
             RpcError::invalid_params("peer snapshots clear requires this machine's unix socket"),
         ),

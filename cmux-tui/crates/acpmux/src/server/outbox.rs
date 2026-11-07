@@ -822,10 +822,8 @@ async fn redeliver_one(
     let now = crate::store::now_ms();
     let Some(pin) = d.pin.clone() else { return };
     let mut step = od::step(d, now, link, ends);
-    if step == Step::Check
-        && let Some(proof) = &d.proof
-    {
-        step = od::checked(hub.proof_held(&pin, link, proof).await);
+    if step == Step::Check {
+        step = od::checked(hub.proof_held(d, link).await);
     }
     match step {
         Step::Lapse => {

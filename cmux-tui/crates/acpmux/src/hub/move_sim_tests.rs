@@ -58,6 +58,16 @@ enum Rules {
     Last,
 }
 
+impl Rules {
+    /// The rules of an earlier head the code itself replays (`journal_restore::AT_91B`).
+    fn old(self) -> u8 {
+        match self {
+            Rules::Last => crate::hub::journal_restore::AT_91B,
+            _ => 0,
+        }
+    }
+}
+
 struct Rng(u64);
 
 impl Rng {
@@ -1269,7 +1279,7 @@ thread_local! {
 
 fn run(seed: u64, rules: Rules) -> (Result<(), String>, Vec<String>) {
     LOST.with(|l| l.borrow_mut().clear());
-    crate::hub::journal_restore::RULES_OF_91B.with(|r| r.set(rules == Rules::Last));
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(rules.old()));
     let mut world = World::new(seed, rules);
     world.list();
     let steps = 60 + world.rng.below(140);
@@ -1279,7 +1289,7 @@ fn run(seed: u64, rules: Rules) -> (Result<(), String>, Vec<String>) {
     world.settle();
     let verdict = world.check();
     crate::store::CLOCK_AHEAD_MS.with(|c| c.set(0));
-    crate::hub::journal_restore::RULES_OF_91B.with(|r| r.set(false));
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
     (verdict, world.trace)
 }
 

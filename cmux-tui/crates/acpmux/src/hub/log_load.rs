@@ -226,6 +226,7 @@ impl Hub {
         session: &Arc<Session>,
         from_copy: Option<&std::collections::HashSet<String>>,
     ) {
+        let _marked = super::restore_writer::Recovering::start();
         let (hosted, waiting) = {
             let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
             (plan.hosted.contains(&session.id), plan.waiting.contains(&session.id))
@@ -290,6 +291,7 @@ impl Hub {
             tracing::warn!(session = %session.id, "ownership epoch unreadable: {error}");
         }
         self.restore_transfer_authority(session);
+        let _marked = super::restore_writer::Recovering::start();
         let continued = self.mark_unknown_outcome(session);
         self.settle_subagent_retries(session);
         let before: Vec<super::queue::QueuedPrompt> = {
@@ -401,6 +403,7 @@ impl Hub {
 
     fn settle_one(self: &Arc<Self>, session: &Arc<Session>, gone: bool) {
         let loaded = session.log_load.lock().unwrap_or_else(|e| e.into_inner());
+        let _marked = super::restore_writer::Recovering::start();
         if gone {
             // From now on its log is read as any other chat's: under its load lock, so a read
             // either came before (its cut turn is settled below) or comes after this.

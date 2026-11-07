@@ -1414,7 +1414,8 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
 /// the rules of 91b1343d when `rules_of_91b`.
 fn back_after_a_cut_removal(rules_of_91b: bool) -> Vec<u64> {
     use crate::hub::open_delivery as od;
-    crate::hub::journal_restore::RULES_OF_91B.with(|r| r.set(rules_of_91b));
+    crate::hub::journal_restore::OLD_RULES
+        .with(|r| r.set(if rules_of_91b { crate::hub::journal_restore::AT_91B } else { 0 }));
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
     let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
     let hook: Written = {
@@ -1447,7 +1448,7 @@ fn back_after_a_cut_removal(rules_of_91b: bool) -> Vec<u64> {
     let rows = vec![("m1".to_owned(), 7, 3)];
     let (_, since) = store.ahead(PEER, rows.clone());
     let back = od::proofs_past(&outbox, PEER, &rows, &since);
-    crate::hub::journal_restore::RULES_OF_91B.with(|r| r.set(false));
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
     back.get("m1").map_or(vec![], |r| r.iter().flatten().filter_map(seq_of).collect())
 }
 
@@ -1474,9 +1475,9 @@ fn a_restore_past_what_one_takes_stays_held() {
     let (back, held) = restore::with_proofs(ahead(), proofs(), &rows);
     assert_eq!(back.iter().map(|a| a.0.as_str()).collect::<Vec<_>>(), vec!["m2"]);
     assert_eq!(held, HashSet::from(["m1".to_owned()]));
-    crate::hub::journal_restore::RULES_OF_91B.with(|r| r.set(true));
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(crate::hub::journal_restore::AT_91B));
     let (back, held) = restore::with_proofs(ahead(), proofs(), &rows);
-    crate::hub::journal_restore::RULES_OF_91B.with(|r| r.set(false));
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
     assert_eq!(back.len(), 1);
     assert!(held.is_empty(), "91b1343d dropped it and held nothing");
 }
@@ -1502,4 +1503,124 @@ fn a_proof_of_another_history_than_the_copy_goes_back_not_at_all() {
     let (back, _) =
         restore::with_proofs(copy, HashMap::from([("m1".to_owned(), vec![proof])]), &rows);
     assert_eq!(back[0].3.iter().filter_map(seq_of).take(2).collect::<Vec<_>>(), vec![35, 40]);
+}
+
+/// A delivery of prompt `prompt` to `m1` (generation 7), open on its peer, pinned at link (1, 1).
+fn open_delivery(id: &str, prompt: &str, blocks: Value) -> crate::hub::outbox::Delivery {
+    let now = crate::store::now_ms();
+    serde_json::from_value(json!({
+        "id": id, "target": format!("{PEER}/m1"),
+        "request": {"sessionId": format!("{PEER}/m1"), "prompt": blocks,
+                    "_meta": {"acpmux": {"promptId": prompt}}},
+        "state": "delivered", "openOnPeer": true, "createdAt": now, "updatedAt": now,
+        "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
+    }))
+    .unwrap()
+}
+
+fn set_rules(rules: u8) {
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(rules));
+}
+
+/// The files a proven delivery with a non-image attachment gives back, under `rules`.
+fn files_of_a_proven_attachment(rules: u8) -> Vec<(std::path::PathBuf, Vec<u8>)> {
+    use crate::hub::open_delivery as od;
+    use base64::Engine as _;
+    set_rules(rules);
+    let outbox = crate::hub::outbox::Outbox::default();
+    let data = base64::engine::general_purpose::STANDARD.encode(b"the notes");
+    let attachment = json!([{"type": "resource", "resource": {"uri": "attachment:notes.txt", "blob": data},
+                             "_meta": {"acpmux": {"attachment": {"name": "notes.txt"}}}}]);
+    outbox.add(open_delivery("d1", "p1", attachment));
+    let queued = json!({"sessionId": "m1", "seq": 4, "at": 4, "dir": "mux", "kind": "queued",
+        "msg": {"promptId": "p1", "turnId": "t-p1", "prompt": [
+            {"type": "resource_link", "uri": "file:///up/m1/019a/notes.txt", "name": "notes.txt"}]}});
+    od::take_written(&outbox, (PEER, "m1", 7), &[queued], (1, 1));
+    let files = od::proof_files(&outbox.get("d1").unwrap());
+    set_rules(0);
+    files
+}
+
+/// Review of #37284 at 4dcbe192, F4: a proven delivery keeps its non-image attachment's bytes,
+/// and names the path its machine saved it at: a restore writes it back there. Under 4dcbe192's
+/// rules the bytes went at the proof, and the restored prompt named a file its disk lacked.
+#[test]
+fn a_proven_delivery_keeps_the_files_its_prompt_was_saved_as() {
+    assert!(files_of_a_proven_attachment(crate::hub::journal_restore::AT_4DCB).is_empty());
+    let files = files_of_a_proven_attachment(0);
+    assert_eq!(files, vec![("/up/m1/019a/notes.txt".into(), b"the notes".to_vec())]);
+}
+
+/// A proof of p1's `queued` (seq 4) and a Stop's `queue_paused` holding it (seq 5), the hold cut
+/// by the copy's bound before a write reported it: the proof's records, and where the copy saw
+/// every record from.
+fn stop_then_bound(rules: u8) -> (Vec<u64>, u64) {
+    use crate::hub::open_delivery as od;
+    set_rules(rules);
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
+    let hook: Written = {
+        let told = told.clone();
+        Arc::new(move |_, _, _, records| told.lock().unwrap().push(records))
+    };
+    let mut store =
+        Store::new(disk::root(dir.path()), Arc::default(), Arc::new(StdMutex::new(Some(hook))));
+    store.scan();
+    let outbox = crate::hub::outbox::Outbox::default();
+    outbox.add(open_delivery("d1", "p1", json!([])));
+    keep(&mut store, "m1", 1..=3);
+    let paused = json!({"sessionId": "m1", "seq": 5, "at": 5, "dir": "mux", "kind": "queue_paused",
+                        "msg": {"held": ["p1"], "reason": "stop"}});
+    store.add(&key("m1"), vec![life("m1", 4, "queued", "p1")]);
+    store.write_due(None, When::Last);
+    store.add(&key("m1"), vec![paused.clone()]);
+    store.write_due(None, When::Last);
+    for records in std::mem::take(&mut *told.lock().unwrap()) {
+        od::take_written(&outbox, (PEER, "m1", 7), &records, (1, 1));
+    }
+    let proof: Vec<u64> =
+        outbox.get("d1").unwrap().proof.unwrap().records.iter().filter_map(seq_of).collect();
+    // Another Stop's hold, cut by the bound before its write.
+    let mut again = paused;
+    again["seq"] = json!(6);
+    store.add(&key("m1"), vec![again]);
+    keep(&mut store, "m1", 7..=(7 + SESSION_EVENTS as u64));
+    let since = store.copies[&key("m1")].head.since;
+    set_rules(0);
+    (proof, since)
+}
+
+/// Review of #37284 at 4dcbe192, F5: a proof takes the queue's records that hold or free its
+/// prompt (a Stop's `queue_paused` names it in `held`), and the copy's bound cutting one before a
+/// write moves where the copy saw every record from past it. Under 4dcbe192's rules the proof
+/// went back without the hold, and the stopped prompt ran.
+#[test]
+fn a_proof_keeps_the_stop_that_held_its_prompt() {
+    let (proof, since) = stop_then_bound(crate::hub::journal_restore::AT_4DCB);
+    assert_eq!(proof, vec![4], "4dcbe192 took the hold");
+    assert!(since < 7, "4dcbe192 moved since");
+    let (proof, since) = stop_then_bound(0);
+    assert_eq!(proof, vec![4, 5]);
+    assert_eq!(since, 7);
+}
+
+/// Review of #37284 at 4dcbe192, F6: a proof the owner kept across its own restart is checked on
+/// the next link, whatever its numbers (they start again at each start). Under 4dcbe192's rules
+/// it waited for a link numbered past its own, which might never come, and lapsed as lost.
+#[test]
+fn a_proof_from_an_earlier_start_is_checked_on_the_next_link() {
+    use crate::hub::open_delivery as od;
+    let mut d = open_delivery("d1", "p1", json!([]));
+    d.pin.as_mut().unwrap().link = (7, 9);
+    od::take_proof(&mut d, &[life("m1", 4, "queued", "p1")], (7, 9));
+    od::INCARNATION.with(|i| *i.borrow_mut() = Some("a later start".into()));
+    let ends = HashMap::from([("m1".to_owned(), (7, 9))]);
+    let now = crate::store::now_ms();
+    set_rules(crate::hub::journal_restore::AT_4DCB);
+    let before = od::step(&d, now, (1, 1), &ends);
+    set_rules(0);
+    let after = od::step(&d, now, (1, 1), &ends);
+    od::INCARNATION.with(|i| *i.borrow_mut() = None);
+    assert_eq!(before, od::Step::Wait, "4dcbe192 checked it");
+    assert_eq!(after, od::Step::Check);
 }

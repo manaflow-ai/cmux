@@ -70,6 +70,10 @@ pub enum CompactMode<'a> {
     /// `<archive>/<id>/<pass>/events/` first, so nothing is lost. Each pass has its own folder (its
     /// start, in Unix ms): a pass done again after a crash never replaces the first one's copies.
     Write { archive: Option<&'a Path> },
+    /// Write the log with every record past `after` left out, every other line as it is: a
+    /// journal restore takes back the seqs this machine's own recovery wrote past where the
+    /// owner's copy goes on (`hub/journal_restore.rs`). Nothing is compacted.
+    Truncate { after: u64 },
 }
 
 /// A log's compacted segments, written beside the old ones and not yet in place. Dropping it
@@ -77,6 +81,8 @@ pub enum CompactMode<'a> {
 pub struct Staged {
     pub stats: Compaction,
     last_seq: u64,
+    /// A truncation's (`CompactMode::Truncate`): its commit does not count as a compaction.
+    cut: Option<u64>,
     segments: Vec<StagedSegment>,
 }
 
@@ -124,9 +130,10 @@ impl LocalStore {
         if segments.is_empty() {
             return Ok(None);
         }
-        let (write, archive) = match mode {
-            CompactMode::DryRun => (false, None),
-            CompactMode::Write { archive } => (true, archive),
+        let (write, archive, cut) = match mode {
+            CompactMode::DryRun => (false, None, None),
+            CompactMode::Write { archive } => (true, archive, None),
+            CompactMode::Truncate { after } => (true, None, Some(after)),
         };
         let archive = match archive {
             Some(root) => {
@@ -140,7 +147,8 @@ impl LocalStore {
             }
             None => None,
         };
-        let mut staged = Staged { stats: Compaction::default(), last_seq: 0, segments: Vec::new() };
+        let mut staged =
+            Staged { stats: Compaction::default(), last_seq: 0, cut, segments: Vec::new() };
         let mut line = Vec::new();
         let mut timing = Timing::default();
         for (_, path) in segments {
@@ -167,6 +175,16 @@ impl LocalStore {
                 staged.stats.bytes_before += line.len() as u64;
                 if let Some(seq) = record_seq(&line) {
                     staged.last_seq = staged.last_seq.max(seq);
+                }
+                if let Some(after) = cut {
+                    // A line whose seq does not read stays, as compaction keeps it.
+                    if record_seq(&line).is_none_or(|seq| seq <= after) {
+                        staged.stats.bytes_after += line.len() as u64;
+                        if let Some(out) = out.as_mut() {
+                            out.write_all(&line)?;
+                        }
+                    }
+                    continue;
                 }
                 if let Some(record) = compact_line(&line, &mut timing, &mut staged.stats) {
                     staged.stats.bytes_after += record.len() as u64;
@@ -201,12 +219,13 @@ impl LocalStore {
         if staged.segments.iter().any(|s| s.tmp.is_none()) {
             return Ok(false);
         }
-        let mut marker = Marker {
-            last_seq: staged.last_seq,
-            at: now_ms(),
-            complete: false,
-            stats: staged.stats,
+        // A truncation compacted nothing: the marker keeps the last compaction's end (at most
+        // where the log ends now), so retention still compacts what came since.
+        let last_seq = match staged.cut {
+            Some(after) => self.compacted_seq(id).unwrap_or(0).min(after),
+            None => staged.last_seq,
         };
+        let mut marker = Marker { last_seq, at: now_ms(), complete: false, stats: staged.stats };
         {
             let mut writers = self.writers.lock_or_recover();
             let now = self.segments(id)?;

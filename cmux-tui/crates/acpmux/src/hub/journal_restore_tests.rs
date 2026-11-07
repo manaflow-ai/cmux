@@ -53,6 +53,11 @@ async fn a_restore_during_a_purge_writes_nothing_back() {
 
 /// A hub on a memory store, with one chat; `at_91b`: under the rules of 91b1343d.
 async fn hub_with_chat(at_91b: bool) -> (Arc<Hub>, Arc<Session>) {
+    hub_at(if at_91b { super::journal_restore::AT_91B } else { 0 }).await
+}
+
+/// A hub on a memory store, with one chat, replaying the rules `rules` (0: now).
+async fn hub_at(rules: u8) -> (Arc<Hub>, Arc<Session>) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", fake]}},
@@ -62,7 +67,7 @@ async fn hub_with_chat(at_91b: bool) -> (Arc<Hub>, Arc<Session>) {
     cfg.store.mode = StoreMode::Memory;
     let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
-    hub.rules_of_91b.store(at_91b, Ordering::SeqCst);
+    hub.old_rules.store(rules, Ordering::SeqCst);
     let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
     let session = hub.new_session(req).await.unwrap();
     (hub, session)
@@ -190,4 +195,180 @@ async fn runs_during_a_hold(at_91b: bool) -> bool {
 async fn a_waiting_prompt_takes_no_turn_while_a_restore_holds_the_chat() {
     assert!(runs_during_a_hold(true).await, "91b1343d ran it");
     assert!(!runs_during_a_hold(false).await);
+}
+
+use super::journal_restore::AT_4DCB;
+
+fn chunk(seq: u64, at: u64) -> Value {
+    json!({"seq": seq, "at": at, "dir": "in", "kind": "agent_message_chunk", "msg": {"text": format!("line {seq}")}})
+}
+
+/// A restore of three records that stops after its second, a status appended during its hold,
+/// then the owner's next try: its answer, and the journal's kinds past where it began.
+async fn a_write_during_a_hold(rules: u8) -> (Result<Value, RpcError>, Vec<String>) {
+    let (hub, session) = hub_at(rules).await;
+    let last = session.seq.load(Ordering::SeqCst);
+    let records = json!([chunk(last + 1, 1), chunk(last + 2, 2), chunk(last + 3, 3)]);
+    let params = restore_params(&session, records);
+    super::journal_restore::fail_once_after_first_record(&session.id);
+    let first = hub.journal_restore(&params).await;
+    let reason = first.unwrap_err().data.and_then(|d| d.get("reason").cloned());
+    assert_eq!(reason, Some(json!("append_failed")));
+    // Something of the chat's own while the restore holds it: an agent's update between turns.
+    hub.append(&session, "mux", "status", json!({"status": "idle", "detail": "between tries"}));
+    let again = hub.journal_restore(&params).await;
+    let kinds =
+        hub.events(&session.id, last, 100).unwrap().iter().map(|e| e.kind.clone()).collect();
+    (again, kinds)
+}
+
+/// Review of #37284 at 4dcbe192, F1 to F3 (the class): a record appended while a restore owns the
+/// chat, between its tries too, takes no seq until the restore ends: the next try goes in and the
+/// record follows it. Under 4dcbe192's rules it took the seq the next try needed, which then
+/// diverged (and the owner dropped its copy).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_record_written_while_a_restore_holds_the_chat_waits_for_it() {
+    let (again, _) = a_write_during_a_hold(AT_4DCB).await;
+    let reason = again.unwrap_err().data.and_then(|d| d.get("reason").cloned());
+    assert_eq!(reason, Some(json!("diverged")), "4dcbe192 let the status take the restore's seq");
+    let (again, kinds) = a_write_during_a_hold(0).await;
+    assert!(again.is_ok(), "{again:?}");
+    let chunks = kinds.iter().take(3).all(|k| k == "agent_message_chunk");
+    assert!(chunks && kinds.get(3).map(String::as_str) == Some("status"), "{kinds:?}");
+}
+
+/// A chat cut mid-turn whose log a restart reads before its owner reconnects: the recovery writes
+/// the turn's unknown outcome (and its continuation). Then the owner gives back the rest of that
+/// turn after `afterSeq` (where the turn was cut, or where the journal ends now). The answers, and
+/// whether the log holds an unknown outcome at the end.
+async fn recovered_then_restored(rules: u8, after_end: bool) -> (Result<Value, RpcError>, bool) {
+    let (hub, session) = hub_at(rules).await;
+    hub.append(&session, "mux", "turn_started", json!({"turnId": "t1", "promptId": "p1"}));
+    let cut = session.seq.load(Ordering::SeqCst);
+    *session.log_load.lock().unwrap() = false;
+    session.log_loaded.store(false, Ordering::SeqCst);
+    hub.load_session_log(&session);
+    let end = session.seq.load(Ordering::SeqCst);
+    assert!(end > cut, "the restart's recovery wrote nothing");
+    let rest = json!([
+        {"seq": cut + 1, "at": 1, "dir": "in", "kind": "agent_message_chunk", "msg": {"text": "done"}},
+        {"seq": cut + 2, "at": 2, "dir": "mux", "kind": "turn_result",
+         "msg": {"turnId": "t1", "promptId": "p1", "status": "ok"}},
+        {"seq": end + 3, "at": 3, "dir": "in", "kind": "agent_message_chunk", "msg": {"text": "after"}},
+    ]);
+    let mut params = restore_params(&session, rest.clone());
+    params["afterSeq"] = json!(if after_end { end } else { cut });
+    if after_end {
+        // The owner sends only what is past the journal's end, as the row reads it.
+        params["records"] = json!([rest[2].clone()]);
+    }
+    let mut answer = hub.journal_restore(&params).await;
+    // Refused as recovered: the owner sends the copy again from where the recovery began.
+    if let Err(e) = &answer
+        && let Some(from) = e.data.as_ref().and_then(|d| d.get("afterSeq")).and_then(Value::as_u64)
+        && e.data.as_ref().and_then(|d| d.get("reason")) == Some(&json!("recovered"))
+    {
+        assert_eq!(from, cut);
+        params["afterSeq"] = json!(from);
+        params["records"] = rest;
+        answer = hub.journal_restore(&params).await;
+    }
+    let events = hub.events(&session.id, 0, 10_000).unwrap();
+    let unknown = events
+        .iter()
+        .any(|e| e.msg.get("detail").and_then(Value::as_str) == Some("outcome_unknown"));
+    if answer.is_ok() {
+        let at = |seq: u64| events.iter().find(|e| e.seq == seq).map(|e| e.kind.clone());
+        assert_eq!(
+            at(cut + 2).as_deref(),
+            Some("turn_result"),
+            "the original seqs hold the copy's records"
+        );
+    }
+    (answer, unknown)
+}
+
+/// Review of #37284 at 4dcbe192, F1: a mid-turn snapshot whose log loads before its owner
+/// reconnects. The recovery's records go, the copy's go in at their own seqs, and the recovery
+/// is made again on the restored log (the turn ended: no unknown outcome). The owner that names
+/// where the journal ends now is told where the recovery began. Under 4dcbe192's rules the
+/// restore diverged on the recovery's records, or (after the journal's end) went in behind them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restore_after_a_restarts_recovery_takes_its_seqs_back() {
+    let (answer, _) = recovered_then_restored(AT_4DCB, false).await;
+    let reason = answer.unwrap_err().data.and_then(|d| d.get("reason").cloned());
+    assert_eq!(reason, Some(json!("diverged")), "4dcbe192 diverged on its own recovery");
+    let (answer, unknown) = recovered_then_restored(AT_4DCB, true).await;
+    assert!(answer.is_ok() && unknown, "4dcbe192 kept the recovery in the original seqs");
+    for after_end in [false, true] {
+        let (answer, unknown) = recovered_then_restored(0, after_end).await;
+        assert!(answer.is_ok(), "{answer:?}");
+        assert!(!unknown, "the recovery was not made again on the restored log");
+    }
+}
+
+/// Whether a prompt admitted before a restore took the turn lock runs while the restore holds
+/// the chat between tries.
+async fn admitted_before_the_lock_runs(rules: u8) -> bool {
+    let (hub, session) = hub_at(rules).await;
+    let lock = session.turn_lock.lock().await;
+    let prompt = {
+        let (hub, session) = (hub.clone(), session.clone());
+        tokio::spawn(async move {
+            hub.prompt(&session, vec![json!({"type": "text", "text": "x"})], "test", false).await
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The restore: it holds the chat, then stops short, leaving its hold.
+    session.restoring.store(true, Ordering::SeqCst);
+    hub.park_writes(&session, 77);
+    drop(lock);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ran = hub.events(&session.id, 0, 10_000).unwrap().iter().any(|e| e.kind == "user_message");
+    // The hold ends: it goes on.
+    session.restoring.store(false, Ordering::SeqCst);
+    hub.unpark_writes(&session);
+    session.restore_done.notify_waiters();
+    let answer = tokio::time::timeout(Duration::from_secs(30), prompt).await.unwrap().unwrap();
+    assert!(answer.is_ok(), "{answer:?}");
+    ran
+}
+
+/// Review of #37284 at 4dcbe192, F3: a prompt admitted before the restore, waiting for the turn
+/// lock, takes no turn while the restore holds the chat, and runs once it ends. Under 4dcbe192's
+/// rules it ran into the seqs the restore's next try needed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_prompt_admitted_before_a_restore_waits_for_its_hold() {
+    assert!(admitted_before_the_lock_runs(AT_4DCB).await, "4dcbe192 ran it");
+    assert!(!admitted_before_the_lock_runs(0).await);
+}
+
+/// Review of #37284 at 4dcbe192, F4: a restore brings back the files its prompts were saved as,
+/// in the chat's own uploads, and the owner's check reads them held; a path outside them is
+/// refused.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restore_writes_its_prompts_files_back() {
+    use base64::Engine as _;
+    let (hub, session) = hub_at(0).await;
+    let dir = super::file_uploads::session_dir(&session.id).unwrap().join("019a-upload");
+    let path = dir.join("notes.txt");
+    let bytes = b"the notes".to_vec();
+    let held =
+        |hash: String| json!({"sessionId": session.id, "files": [{"path": path, "sha256": hash}]});
+    let answer = hub.attachments_held(&held(crate::attach::sha256(&bytes))).await.unwrap();
+    assert_eq!(answer["held"], json!(false));
+    let last = session.seq.load(Ordering::SeqCst);
+    let mut params = restore_params(&session, json!([chunk(last + 1, 1)]));
+    params["files"] =
+        json!([{"path": path, "data": base64::engine::general_purpose::STANDARD.encode(&bytes)}]);
+    hub.journal_restore(&params).await.unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    let answer = hub.attachments_held(&held(crate::attach::sha256(&bytes))).await.unwrap();
+    assert_eq!(answer["held"], json!(true));
+    let answer = hub.attachments_held(&held(crate::attach::sha256(b"other"))).await.unwrap();
+    assert_eq!(answer["held"], json!(false));
+    let mut outside = restore_params(&session, json!([]));
+    outside["files"] = json!([{"path": "/tmp/../etc/x", "data": ""}]);
+    assert!(hub.journal_restore(&outside).await.is_err());
+    let _ = std::fs::remove_dir_all(dir);
 }

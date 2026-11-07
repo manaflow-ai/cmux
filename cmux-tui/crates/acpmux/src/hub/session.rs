@@ -137,6 +137,11 @@ pub struct Session {
     /// `load_session_log_for_restore`): the restore runs it after its records, or when it is
     /// refused or its hold lapses.
     pub(super) recovery_pending: AtomicBool,
+    /// Records appended while a journal restore owns this chat, kept until it ends
+    /// (`restore_writer.rs`); Some from its admission. Taken under `append_lock`.
+    pub(super) parked: StdMutex<Option<Vec<super::restore_writer::Parked>>>,
+    /// The restore try whose thread writes this chat meanwhile (0: none).
+    pub(super) restore_token: AtomicU64,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.

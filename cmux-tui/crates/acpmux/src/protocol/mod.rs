@@ -454,6 +454,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::PeerSnapshotParams>("_acpmux/peer_snapshot", Request),
         untyped("_acpmux/peer_snapshots_clear", Request),
         untyped("_acpmux/journal_restore", Request),
+        untyped("_acpmux/attachments_held", Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),
         untyped(method::MUX_PAIR_REVOKE, Request),

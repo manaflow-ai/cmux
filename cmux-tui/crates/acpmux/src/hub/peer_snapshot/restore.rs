@@ -92,11 +92,10 @@ impl Gate {
         self.done.notify_waiters();
     }
 
-    /// The decision of `peer`'s current link, if made.
-    fn decision(&self, peer: &crate::peer::Peer) -> Option<Decision> {
-        let link = (peer.generation, peer.link_epoch());
+    /// The decision of `peer`'s link `link`, if made.
+    fn decision_on(&self, peer: &str, link: Link) -> Option<Decision> {
         let decided = self.decided.lock().unwrap_or_else(|e| e.into_inner());
-        decided.get(&peer.name).filter(|d| d.link >= link).cloned()
+        decided.get(peer).filter(|d| d.link >= link).cloned()
     }
 
     /// Waits until `peer`'s current link has its restore decision, while the link is up, at most
@@ -106,18 +105,20 @@ impl Gate {
         &self,
         peer: &crate::peer::Peer,
         session: &str,
-    ) -> Result<(), RpcError> {
+    ) -> Result<Option<Link>, RpcError> {
         let deadline = tokio::time::Instant::now() + GATE_WITHIN;
         loop {
             let done = self.done.notified();
             tokio::pin!(done);
             done.as_mut().enable();
             if !peer.ready() {
-                return Ok(());
+                return Ok(None);
             }
-            if let Some(d) = self.decision(peer) {
+            // Read once: the link checked is the one the decision is of.
+            let link = (peer.generation, peer.link_epoch());
+            if let Some(d) = self.decision_on(&peer.name, link) {
                 return match d.held {
-                    Some(held) if !held.contains(session) => Ok(()),
+                    Some(held) if !held.contains(session) => Ok(Some(link)),
                     _ => Err(held_error(&peer.name)),
                 };
             }
@@ -178,12 +179,14 @@ impl PeerSnapshots {
     }
 
     /// Prompts to `peer`'s session `session` wait here until its link's restores are decided,
-    /// and fail when the decision holds them.
+    /// and fail when the decision holds them. Answers the link (instance and epoch) whose
+    /// decision let it go (review of #37284 at 4dcbe192, F2): the prompt goes on that link
+    /// only. None: the link is down, and the request is refused as unreachable.
     pub(crate) async fn restores_done(
         &self,
         peer: &crate::peer::Peer,
         session: &str,
-    ) -> Result<(), RpcError> {
+    ) -> Result<Option<Link>, RpcError> {
         self.restoring.wait(peer, session).await
     }
 }
@@ -300,12 +303,14 @@ impl Hub {
             // Where each journal ends once this link's restores ran (`redeliver_open`).
             let mut ends: HashMap<String, (u64, u64)> =
                 rows.iter().map(|(s, g, l)| (s.clone(), (*g, *l))).collect();
-            for (mux, created_at, after, records) in ahead {
-                let Some(through) = records.iter().filter_map(seq_of).max() else { continue };
-                let params = json!({"sessionId": mux, "createdAt": created_at,
-                                    "afterSeq": after, "records": records});
+            for (mux, created_at, mut after, records) in ahead {
+                let Some(mut through) = records.iter().filter_map(seq_of).max() else { continue };
+                let files = restore_files(&hub.outbox, (&peer, &mux, created_at));
+                let mut params = json!({"sessionId": mux, "createdAt": created_at,
+                                    "afterSeq": after, "records": records, "files": files});
                 let mut done = false;
-                for wait in RETRY_WAITS {
+                let mut waits: std::collections::VecDeque<Duration> = RETRY_WAITS.into();
+                while let Some(wait) = waits.pop_front() {
                     let Some(to) = on_link() else { return };
                     // On this link's epoch only (review of #37284 at 98b4575a, F1): a link
                     // replaced since the check never carries it to the next machine.
@@ -331,6 +336,30 @@ impl Hub {
                             }
                             done = true;
                             break;
+                        }
+                        // Its journal ends with its own recovery, from `afterSeq` on (review of
+                        // #37284 at 4dcbe192, F1): the copy goes back from there, once.
+                        Err(e) if recovered(&e).is_some_and(|a| a < after) => {
+                            let from = recovered(&e).unwrap_or(after);
+                            let row = vec![(mux.clone(), created_at, from)];
+                            let (h, p, r) = (hub.clone(), peer.clone(), row.clone());
+                            let read =
+                                tokio::task::spawn_blocking(move || h.peer_snapshots.ahead(&p, r));
+                            let Some((ahead, since)) = read.await.ok().flatten() else { break };
+                            let proofs = od::proofs_past(&hub.outbox, &peer, &row, &since);
+                            let (ahead, over) = with_proofs(ahead, proofs, &row);
+                            let Some((.., records)) = ahead.into_iter().find(|a| a.0 == mux) else {
+                                held.extend(over);
+                                break;
+                            };
+                            tracing::info!(peer, session = %mux, from, "the peer's journal ends with its own recovery; the copy goes back from where it began");
+                            through = records.iter().filter_map(seq_of).max().unwrap_or(through);
+                            after = from;
+                            params = json!({"sessionId": mux, "createdAt": created_at,
+                                            "afterSeq": after, "records": records, "files": files});
+                            // Sent again at once, as the same try.
+                            waits.push_front(wait);
+                            continue;
                         }
                         Err(e) if refused(&e) => {
                             tracing::info!(peer, session = %mux, "journal restore refused: {}", e.message);
@@ -460,6 +489,29 @@ fn test_unknown(peer: &str) -> bool {
 }
 
 /// The peer answered that its journal is another history than the copy's.
+/// The files the open deliveries pinned to `pinned` (peer, session, generation) saved their
+/// prompts as on the machine (`od::proof_files`): a restore writes them back before its records
+/// (review of #37284 at 4dcbe192, F4).
+fn restore_files(outbox: &crate::hub::outbox::Outbox, pinned: (&str, &str, u64)) -> Vec<Value> {
+    use base64::Engine as _;
+    let mut files: BTreeMap<std::path::PathBuf, Vec<u8>> = BTreeMap::new();
+    for d in outbox.pinned_to(pinned) {
+        files.extend(od::proof_files(&d));
+    }
+    files
+        .into_iter()
+        .map(|(path, bytes)| {
+            json!({"path": path, "data": base64::engine::general_purpose::STANDARD.encode(bytes)})
+        })
+        .collect()
+}
+
+/// Where the peer's journal's own recovery begins, when it refused a restore past it.
+fn recovered(e: &RpcError) -> Option<u64> {
+    let data = e.data.as_ref()?;
+    (data.get("reason")?.as_str()? == "recovered").then(|| data.get("afterSeq")?.as_u64())?
+}
+
 fn refused(e: &RpcError) -> bool {
     let reason = e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str);
     matches!(reason, Some("generation" | "diverged"))
