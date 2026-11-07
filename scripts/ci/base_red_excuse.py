@@ -1552,7 +1552,8 @@ def created(run: dict) -> datetime | None:
 #   (c) the run is whole: a crash or a cut-short run never counts (refused before this is asked).
 # Only a declared guard job (GUARD_JOBS) qualifies, and each failing test must be one its failed step's own script
 # runs (the step's echo names the test file) with a whole test-run summary printed: a Swift, cargo or webview job, or
-# product code printing a `FAILED tests/x.py::...` line, is never fixed on the base.
+# product code printing a `FAILED tests/x.py::...` line, is never fixed on the base, unless it is a package job whose
+# inputs are declared (PACKAGE_JOBS, below).
 TOP_LEVEL = "top-level files"  # every path with no directory: package.json, .gitmodules, the entitlements, ...
 RELEASE_MANIFESTS = (TOP_LEVEL, "release-notes/", "homebrew-cmux/", "cmux.xcodeproj/", "Resources/", "ghostty-next",
                      "vendor/")
@@ -1579,6 +1580,87 @@ TRACEBACK_FRAME = re.compile(r'^\s*File "(?:[^"]*/)?(tests/[\w.-]+\.py)", line \
 ROLLUP_RED = re.compile(r"^##\[error\]red check: \S")
 # A compare lists at most 300 files: a longer diff cannot be shown to stay out of a test's paths.
 COMPARE_FILES_CAP = 300
+
+
+# Fixed on the base for a package's own test job (2026-11-07). cmux#36988 (policy.json, pane methods and the web
+# Context screen, d286aa2f) failed CmuxMobileKit's silentDropDetectionBenchmark, a wall-clock bound a loaded runner
+# missed with no CmuxMobileKit change in the PR; once the base fixed the test (#37535), a PR branched before the fix
+# kept that red as its own. A package job is the test run of one Swift package and the Rust it links, so a PR that
+# changes none of its inputs cannot have caused a red that passes on the newest base after its merge-base: (a) and
+# (c) above hold as for a guard test, and instead of (b) every failed step is one of the job's test steps, naming at
+# least one failing test, and the PR's diff touches none of the job's declared reads nor GUARD_READS_DEFAULT. The
+# reads are declared, never guessed: the package directories, the Rust crates its FFI builds and the files their
+# sources include_str! (cmux-rd-ffi's tests read schemas/remote-tab/) and the repository files its Swift names by path
+# (its tests read cmux-tui/spec/ and schemas/deeplinks/ at run time), checked against the tree by
+# tests/test_base_red_excuse.py. At the head they are checked again: every Swift package Package.swift reaches by
+# path and every path crate in the Cargo.lock must lie in them, else the red is refused (a new dependency the
+# declaration has not caught up with reads paths this rule cannot see).
+PACKAGE_JOBS = {
+    "CmuxMobileKit tests (macOS swift test, iOS simulator)": {
+        "steps": ("swift test (macOS)", "xcodebuild test (iOS simulator)"),
+        "swift": ("cmux-next-ios/CmuxMobileKit",),
+        "cargo_lock": "cmux-next-ios/rust/Cargo.lock",
+        "crates": ("cmux-mobile-host", "cmux-mobile-link", "cmux-mobile-link-ffi", "cmux-rd-core", "cmux-rd-engine",
+                   "cmux-rd-ffi", "cmux-rd-proto", "cmux-remote-browser", "cmux-transport", "cmux-wg"),
+        "reads": ("cmux-next-ios/CmuxMobileKit/", "cmux-next-ios/rust/", "cmux-next-ios/.cargo/", ".cargo/",
+                  "Packages/Shared/", "Packages/iOS/", "cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock",
+                  "cmux-tui/rust-toolchain.toml", "cmux-tui/rust-toolchain", "cmux-tui/.cargo/",
+                  "cmux-tui/crates/cmux-rd-core/", "cmux-tui/crates/cmux-rd-engine/", "cmux-tui/crates/cmux-rd-ffi/",
+                  "cmux-tui/crates/cmux-rd-proto/", "cmux-tui/crates/cmux-remote-browser/",
+                  "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/", "schemas/remote-tab/",
+                  # cmux-mobile-host's tests read the Mac's lane policy to keep the two in step
+                  "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift",
+                  # the kit's Swift tests read the shared specs from the repository root at run time
+                  "cmux-tui/spec/full-access-modes.json", "schemas/deeplinks/agent-link.json"),
+    },
+}
+SWIFT_PATH_PACKAGE = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
+
+
+def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]:
+    """PACKAGE's declared reads, once its Swift path packages and Cargo.lock path crates at SHA are shown to lie in
+    them; raises Refused naming the first that does not."""
+    import posixpath
+    import tomllib
+    reads = package["reads"]
+    seen: set[str] = set()
+    queue = list(package["swift"])
+    while queue:
+        where = queue.pop()
+        if where in seen:
+            continue
+        seen.add(where)
+        if not any(touches(where + "/Package.swift", read) for read in reads + GUARD_READS_DEFAULT):
+            raise Refused(f"its Swift package {where} is outside its declared reads (PACKAGE_JOBS)")
+        try:
+            manifest = source_text(repo, sha, f"{where}/Package.swift", github)
+        except Refused as why:
+            raise Refused(f"{where}/Package.swift could not be read at {sha[:12]}: {why}") from None
+        for found in SWIFT_PATH_PACKAGE.finditer(manifest):
+            path = posixpath.normpath(posixpath.join(where, found.group(1)))
+            if path.startswith(".."):
+                raise Refused(f"{where}/Package.swift reaches {found.group(1)}, outside the repository")
+            queue.append(path)
+    lock = package["cargo_lock"]
+    try:
+        locked = tomllib.loads(source_text(repo, sha, lock, github)).get("package", [])
+    except (Refused, tomllib.TOMLDecodeError) as why:
+        raise Refused(f"{lock} could not be read at {sha[:12]}: {why}") from None
+    if extra := sorted({crate.get("name") for crate in locked if isinstance(crate, dict) and "source" not in crate}
+                       - set(package["crates"])):
+        raise Refused(f"{lock} has path crates outside its declared reads (PACKAGE_JOBS): {', '.join(map(str, extra))}")
+    return reads
+
+
+def package_tests(package: dict, job: dict, head_log: str) -> list[str]:
+    """The failing tests of a PACKAGE_JOBS job, whose every failed step is one of its test steps; raises Refused."""
+    steps, _, _ = signature(job, head_log)
+    if other := sorted(steps - set(package["steps"])):
+        raise Refused(f"its failed step {other[0]!r} is not one of the job's test steps")
+    failed = sorted(test_reds.read(head_log).failed)
+    if not steps or not failed:
+        raise Refused("no failing test in its test steps")
+    return failed
 
 
 def guard_job(name: str) -> bool:
@@ -1640,12 +1722,15 @@ def touches(path: str, read: str) -> bool:
     return path.startswith(read) if read.endswith("/") else path == read or path.startswith(read + "/")
 
 
-def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base_run: dict, github) -> str:
+def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base_run: dict, github,
+                  job: dict | None = None) -> str:
     """The audit line for a red job whose every failing test is fixed on the base (the rule above); raises Refused
     with the reason it is not. BASE_RUN is the newest base run with a verdict for the job, and that verdict passed."""
-    if not guard_job(name):
-        raise Refused(f"'{name}' is not a declared guard job (GUARD_JOBS); its tests may read product code")
-    tests = guard_tests(head_log)
+    package = PACKAGE_JOBS.get(name)
+    if not guard_job(name) and package is None:
+        raise Refused(f"'{name}' is not a declared guard job (GUARD_JOBS) or package job (PACKAGE_JOBS); its tests "
+                      "may read product code")
+    tests = guard_tests(head_log) if package is None else dict.fromkeys(package_tests(package, job or {}, head_log))
     tested = tested_sha(base_run)
     if not re.fullmatch(r"[0-9a-f]{40}", tested):
         raise Refused(f"{base} run {base_run['id']} names no commit it tested")
@@ -1663,12 +1748,15 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base
                       f"{merge_base[:12]} ({after.get('status')})")
     changed = sorted({path for found in files for path in (found.get("filename"), found.get("previous_filename"))
                       if isinstance(path, str) and path})
-    if undeclared := sorted({path for path in tests.values() if path not in GUARD_READS}):
+    if package is not None:
+        tests = dict.fromkeys(tests, package_reads(repo, sha, package, github))
+    elif undeclared := sorted({path for path in tests.values() if path not in GUARD_READS}):
         raise Refused(f"{', '.join(undeclared)} declares no read paths (GUARD_READS), so a pass on the base proves "
                       "nothing about this PR")
     reads: list[str] = []
     for test, path in sorted(tests.items()):
-        test_reads = (path,) + GUARD_READS_DEFAULT + GUARD_READS.get(path, ())
+        test_reads = (path + GUARD_READS_DEFAULT if package is not None
+                      else (path,) + GUARD_READS_DEFAULT + GUARD_READS.get(path, ()))
         if hit := [changed_path for changed_path in changed if any(touches(changed_path, r) for r in test_reads)]:
             raise Refused(f"{test} reads paths the PR changes: {'; '.join(hit[:5])}")
         reads.extend(r for r in test_reads if r not in reads)
@@ -2280,7 +2368,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             continue
         if base_job.get("conclusion") != "failure":
             try:
-                audit.append(fixed_on_base(repo, base, sha, name, head_log, base_run, github))
+                audit.append(fixed_on_base(repo, base, sha, name, head_log, base_run, github, job))
             except Refused as why:
                 if (stale := before_merge_base(repo, base, sha, base_run, github, merge_bases)) is not None:
                     raise Refused(f"'{name}' has no {base} verdict at or after this PR's merge-base yet: the newest, "
