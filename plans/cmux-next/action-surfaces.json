@@ -26290,6 +26290,86 @@
     },
     {
       "args" : [
+        {
+          "kind" : "string",
+          "name" : "item",
+          "required" : false
+        }
+      ],
+      "cli" : "liveInput",
+      "cli_name" : "action feed-open-item",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "feed.openItem",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Feed Item",
+      "title_key" : "action.feed.openItem",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "item",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "action",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "comment",
+          "required" : false
+        }
+      ],
+      "cli" : "liveInput",
+      "cli_name" : "action feed-github-action",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "feed.githubAction",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Run a Feed Item's GitHub Action",
+      "title_key" : "action.feed.githubAction",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
 
       ],
       "cli" : "guiOnly",
