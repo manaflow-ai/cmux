@@ -191,21 +191,30 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
       await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
       await page.evaluate(() =>
-        (window as unknown as { __showOpenCommand: (width: number) => void }).__showOpenCommand(220),
+        (window as unknown as { __showOpenCommand: (width: number, line: string) => void }).__showOpenCommand(
+          260,
+          "gh pr checks 34769 --repo manaflow-ai/cmux --watch",
+        ),
       );
       await page.waitForSelector(".acpmux-running-tray");
       await openRunningTray(page);
       await page.click(".acpmux-running-tray .acpmux-agent-line__button");
       await page.waitForSelector(".acpmux-running-tray__tail button");
+      await page.waitForSelector(".acpmux-running-tray__tail a");
       const fit = await page.evaluate(() => {
         const tail = document.querySelector<HTMLElement>(".acpmux-running-tray__tail")!.getBoundingClientRect();
-        const button = document
-          .querySelector<HTMLElement>(".acpmux-running-tray__tail button")!
-          .getBoundingClientRect();
-        return { tailRight: tail.right, buttonRight: button.right, buttonLeft: button.left, tailLeft: tail.left };
+        return [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray__tail :is(a, button)")].map(
+          (control) => {
+            const box = control.getBoundingClientRect();
+            return { left: box.left - tail.left, right: tail.right - box.right };
+          },
+        );
       });
-      expect(fit.buttonLeft).toBeGreaterThanOrEqual(fit.tailLeft - 0.5);
-      expect(fit.buttonRight).toBeLessThanOrEqual(fit.tailRight + 0.5);
+      expect(fit.length).toBe(2);
+      for (const control of fit) {
+        expect(control.left).toBeGreaterThanOrEqual(-0.5);
+        expect(control.right).toBeGreaterThanOrEqual(-0.5);
+      }
     } finally {
       await page.close();
     }

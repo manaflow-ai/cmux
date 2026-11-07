@@ -73,13 +73,16 @@ const command = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178
 };
 // The same command with its tail open as a host that reads output and opens terminals shows it
 // (`window.__showOpenCommand`): the command, then one line of its time, state and Open in terminal.
-(window as unknown as { __showOpenCommand: (width?: number) => void }).__showOpenCommand = (width = 720) => {
+(window as unknown as { __showOpenCommand: (width?: number, line?: string) => void }).__showOpenCommand = (
+  width = 720,
+  line = command,
+) => {
   const items = trayItems(
     [],
     [
       {
         id: "s/1",
-        command,
+        command: line,
         state: "running",
         processId: "s/1",
         toolCallId: "call-1",
