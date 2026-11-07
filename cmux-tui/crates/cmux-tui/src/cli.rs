@@ -90,6 +90,8 @@ mod sandbox_run;
 #[cfg(unix)]
 mod vm;
 #[cfg(unix)]
+mod vm_short;
+#[cfg(unix)]
 mod vnc;
 #[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
@@ -500,6 +502,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `vm pause dev`: the short Cloud VM verbs, through the app when it is here.
+    #[cfg(unix)]
+    if let Some(code) = vm_short::run_if_requested(args) {
+        return code;
+    }
     // `vm add|revoke|rotate|doctor` is `machine …` (`vm` is `machine`'s old name).
     #[cfg(unix)]
     let alias_args;

@@ -118,12 +118,15 @@ fn help() -> String {
 /// What `cmux vm --help` adds under the Cloud verbs: `vm` is also `machine`'s old name.
 fn vm_machine_note(japanese: bool) -> &'static str {
     if japanese {
-        "MACHINE の動詞（new、show、pause、resume、rm、run、key、access …）は `cmux vm` でも使えます。\n\
-         `cmux machine --help` で一覧できます。`cmux cloud` は `cmux vm` の旧名で、どちらも使えます。"
+        "cmux アプリがあれば、`cmux vm ls|status|pause|resume|rm|resize|fork|rename` は VM の名前か ID\n\
+         （1 台なら省略可）であなたの Cloud VM を操作します。アプリがなければ cmux VM API の動詞\n\
+         （new、show、pause、resume、rm、run、key、access …）として動きます: `cmux machine --help`。\n\
+         `cmux cloud` は `cmux vm` の旧名で、どちらも使えます。"
     } else {
-        "The machine verbs (new, show, pause, resume, rm, run, key, access, ...) work as\n\
-         `cmux vm VERB` too: `cmux machine --help` lists them. `cmux cloud` is the old\n\
-         name of `cmux vm`; both work."
+        "With the cmux app, `cmux vm ls|status|pause|resume|rm|resize|fork|rename` act on your\n\
+         Cloud VMs by name or id (or the only one). Without it they are the cmux VM API's verbs\n\
+         (new, show, pause, resume, rm, run, key, access, ...): `cmux machine --help`.\n\
+         `cmux cloud` is the old name of `cmux vm`; both work."
     }
 }
 

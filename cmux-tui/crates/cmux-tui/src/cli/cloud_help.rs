@@ -418,10 +418,11 @@ USAGE
   cmux cloud <action> --help
 
 These actions run through the cmux app, signed in (`cmux cloud sign-in`).
-An action on one machine needs --target machine:MACHINE_ID, even with one
-machine: `cmux cloud list-machines` prints each machine's target. Without the
-app (CI, a headless agent), `cmux machine --help` talks to the cmux VM API
-directly.
+The everyday verbs take the VM's name or id, or nothing when you have one VM:
+  cmux cloud ls | new | status | pause | resume | rm | resize | fork | rename [NAME|ID]
+The others take --target machine:MACHINE_ID: `cmux cloud ls` prints each
+machine's target. Without the app (CI, a headless agent), `cmux machine --help`
+talks to the cmux VM API directly.
 
 QUICK START
   Start a Cloud chat, send it a prompt and print the reply, in one command
@@ -436,12 +437,13 @@ QUICK START
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
 
   Machines:
-  cmux cloud list-machines --json
-  cmux machine new --size small --json
+  cmux cloud ls --json
+  cmux cloud new --size small --json
   cmux cloud exec --target machine:MACHINE_ID --command 'uname -a' --json
-  cmux cloud pause-machine --target machine:MACHINE_ID
-  cmux cloud resume-machine --target machine:MACHINE_ID
-  cmux cloud kill-machine --target machine:MACHINE_ID --confirm
+  cmux cloud status dev
+  cmux cloud pause dev
+  cmux cloud resume dev
+  cmux cloud rm dev --confirm
 ";
 
 const INTRO_JA: &str = "\
@@ -450,9 +452,11 @@ const INTRO_JA: &str = "\
   cmux cloud <アクション> --help
 
 これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux cloud sign-in`）。
-特定のマシンを操作するアクションには、マシンが 1 台でも --target machine:MACHINE_ID が必要です。
-各マシンの target は `cmux cloud list-machines` で確認できます。アプリなしで使う場合
-（CI、画面のないエージェント）は、`cmux machine --help` で cmux VM API を直接使えます。
+よく使う動詞は VM の名前か ID を取ります。VM が 1 台なら省略できます:
+  cmux cloud ls | new | status | pause | resume | rm | resize | fork | rename [名前|ID]
+ほかのアクションは --target machine:MACHINE_ID を取ります。各マシンの target は
+`cmux cloud ls` で確認できます。アプリなしで使う場合（CI、画面のないエージェント）は、
+`cmux machine --help` で cmux VM API を直接使えます。
 
 クイックスタート
   Cloud チャットを開始し、プロンプトを送り、返信を表示する（1 コマンド。
@@ -467,12 +471,13 @@ const INTRO_JA: &str = "\
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
 
   マシン:
-  cmux cloud list-machines --json
-  cmux machine new --size small --json
+  cmux cloud ls --json
+  cmux cloud new --size small --json
   cmux cloud exec --target machine:MACHINE_ID --command 'uname -a' --json
-  cmux cloud pause-machine --target machine:MACHINE_ID
-  cmux cloud resume-machine --target machine:MACHINE_ID
-  cmux cloud kill-machine --target machine:MACHINE_ID --confirm
+  cmux cloud status dev
+  cmux cloud pause dev
+  cmux cloud resume dev
+  cmux cloud rm dev --confirm
 ";
 
 const OUTRO_EN: &str = "\

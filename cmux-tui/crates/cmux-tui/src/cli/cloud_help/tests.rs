@@ -177,15 +177,16 @@ fn quick_start_commands_parse() {
             .filter(|line| {
                 (line.starts_with("cmux vm ") || line.starts_with("cmux chat "))
                     && !line.contains('<')
+                    && !line.contains(" | ")
             })
             // These run in this CLI, not through the app's catalog; `cloud env` lines parse in
             // `cloud_environment.rs` (`the_help_env_lines_parse`).
             .filter(|line| !line.contains("secret") && !line.contains("client-session"))
             .filter(|line| !line.starts_with("cmux vm env "))
             .collect::<Vec<_>>();
-        // Two `cmux chat --on vm:` lines, three follow-ups and five machine lines; the quick
-        // start's create is `cmux machine new`. No line is a `vm start-chat` or `vm chat`.
-        assert_eq!(commands.len(), 10, "{commands:?}");
+        // Two `cmux chat --on vm:` lines, three follow-ups and seven machine lines, most of them
+        // short verbs. No line is a `vm start-chat` or `vm chat`.
+        assert_eq!(commands.len(), 12, "{commands:?}");
         assert!(commands[0].starts_with("cmux chat --on vm:"), "the chat leads: {commands:?}");
         assert!(!text.contains("vm start-chat") && !text.contains("vm chat"), "{text}");
         for command in commands {
@@ -201,6 +202,16 @@ fn quick_start_commands_parse() {
                     ),
                     "quick start command does not parse: {command}"
                 );
+                continue;
+            }
+            // A short verb (`vm pause dev`) runs the app's Cloud verb (vm_short.rs); `vm new` is
+            // vm.rs's create.
+            let words = shell_words(command);
+            if let Some(short) = crate::cli::vm_short::parse(&words[1..]) {
+                assert!(find(short.cloud_verb).is_some(), "{command}");
+                continue;
+            }
+            if words.get(2).map(String::as_str) == Some("new") {
                 continue;
             }
             // `vm VERB` runs as `cloud VERB` (vm.rs `cloud_alias`).
