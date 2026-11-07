@@ -119,12 +119,15 @@ export async function papercutPane(
     otherSessions?: Array<{ sessionId: string; cwd: string }>;
     /// Test-only Vite plugins, kept optional so existing papercut lanes stay unchanged.
     vitePlugins?: PluginOption[];
+    /// Delay older-history replies to exercise the native scroll path while a page is in flight.
+    historyDelayMs?: number;
   },
 ) {
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "../..");
   const { events, session } = papercutEvents(options);
   const methods: string[] = [];
+  const history = { requests: [] as (number | undefined)[], inFlight: 0, maxInFlight: 0 };
   const sockets = new Set<{ close(code?: number, reason?: string): void }>();
   const sessions = [session, ...(options.otherSessions ?? []).map((other) => ({ ...session, ...other }))];
   const answer = (method: string, params?: Record<string, any>): unknown => {
@@ -190,14 +193,27 @@ export async function papercutPane(
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
         methods.push(message.method);
+        if (message.method === "_acpmux/events") {
+          history.requests.push(typeof message.params?.beforeSeq === "number" ? message.params.beforeSeq : undefined);
+        }
         for (const waiter of waiters.filter((one) => one.method === message.method && count(one.method) > one.after)) {
           waiters.splice(waiters.indexOf(waiter), 1);
           waiter.done();
         }
         socket = ws;
         if (message.method === "session/prompt") prompts.push(message.params ?? {});
-        if (message.id !== undefined)
-          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
+        if (message.id !== undefined) {
+          const reply = () =>
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
+          if (message.method === "_acpmux/events" && options.historyDelayMs) {
+            history.inFlight += 1;
+            history.maxInFlight = Math.max(history.maxInFlight, history.inFlight);
+            setTimeout(() => {
+              history.inFlight -= 1;
+              reply();
+            }, options.historyDelayMs);
+          } else reply();
+        }
       },
     },
   });
@@ -259,7 +275,7 @@ export async function papercutPane(
     await vite.close();
     await daemon.stop(true);
   };
-  return { open, close, methods, prompts, record, drop, sent };
+  return { open, close, methods, prompts, record, drop, sent, history };
 }
 
 /// Settings > Agent Chat > Session Info: Push always (or back to the default), as the host's `display`
