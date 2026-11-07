@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42414436245",
+  "recorded_at": "2026-11-07T21:16:17Z",
+  "reason": "cmux-tui 6edfed7b971c changes the image's cmux-tui (pinned 1b56dc04afee)",
+  "dry_run": false,
+  "cmux_tui": "6edfed7b971ce70dd093b2695e39c83feb33740b",
+  "fixes": [
+    {
+      "sha": "6edfed7b971ce70dd093b2695e39c83feb33740b",
+      "mergedAt": "2026-11-07T12:53:20-08:00",
+      "subject": "cloud idle: a garbled /proc/net/tcp row is unknown, and a move under way keeps the machine awake (#38009)"
+    },
+    {
+      "sha": "0e9696e559312422358dd9aec5a4c731b8952617",
+      "mergedAt": "2026-11-07T12:48:15-08:00",
+      "subject": "cmux-layout-reducer: the sidebar face answers Copy Agent Identifier's chat (front_chat) (#37999)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T21:16:17Z",
+    "snapshot_id": "sh-ea905cf22cc443c6bf49619c3afe0afd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42414436245): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c5c66647ae1158478a4b072ae3102fdce8654b0e",
+    "image": "cloud-native-auto-6edfed7b-42414436245-1",
+    "revision": "ci-42414436245-1",
+    "at": "2026-11-07T21:16:17Z"
+  },
+  "rolled_back": false
+}
