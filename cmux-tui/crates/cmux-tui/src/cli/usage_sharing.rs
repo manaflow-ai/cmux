@@ -64,7 +64,7 @@ pub(super) fn upload(
 ) -> i32 {
     let messages = &crate::localization::catalog().usage_recording;
     let dir_text = dir.path().display().to_string();
-    if !dry_run && !(dir.is_enabled() && dir.is_sharing()) {
+    if !(dry_run || dir.is_enabled() && dir.is_sharing()) {
         return Refusal {
             code: "usage.not_sharing",
             message: messages.not_sharing.into(),
@@ -253,7 +253,7 @@ fn plain_token(token: &str) -> Option<String> {
 /// The error code a refusal prints: the platform's own code when it gave a known one.
 fn refusal_code(error: &CallError) -> &'static str {
     match error {
-        CallError::Status { code, .. } if !code.is_empty() => *code,
+        CallError::Status { code, .. } if !code.is_empty() => code,
         CallError::Status { .. } | CallError::Unreadable(_) => "usage.refused",
         CallError::Unreachable(_) => "usage.unreachable",
     }
