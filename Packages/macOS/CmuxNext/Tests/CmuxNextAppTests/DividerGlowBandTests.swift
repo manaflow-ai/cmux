@@ -124,6 +124,16 @@ struct DividerGlowBandTests {
         view.cancelOperation(nil)
     }
 
+    /// Only a split's band follows its line: a row or column edge sits in a gap between panes, so its band keeps the
+    /// full core (the 1 pt row-edge line does not thin it).
+    @Test func edgeBandsKeepTheirFullCore() {
+        for kind: DividerHandleView.Kind in [.rowEdge(ColumnID("column"), RowID("row")), .columnEdge(ColumnID("column"))] {
+            let edge = handle(kind)
+            edge.setHovered(true)
+            #expect(abs(edge.glow.extent.width - DividerGlowBand.coreThickness) < 0.001, "\(kind): band \(edge.glow.extent)")
+        }
+    }
+
     @Test func bandOpacityIsZeroAtRestAndFullWhileDragging() {
         #expect(DividerGlowBand.opacity(.rest) == 0)
         #expect(DividerGlowBand.opacity(.hovered) > 0 && DividerGlowBand.opacity(.hovered) < 1)

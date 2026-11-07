@@ -26,8 +26,9 @@ public final class DividerGlowBand {
 
     /// The core's thickness across the divider: the whole band, nothing drawn past it.
     public static let coreThickness: CGFloat = 2
-    /// How far the band reaches from the line's center, on each side: a Chromium hole that keeps
-    /// the band visible over a page must be this wide each way.
+    /// How far the default band (``coreThickness``) reaches from the line's center, on each side: a Chromium hole that
+    /// keeps it visible over a page must be this wide each way. A thinner band (`place(along:vertical:thickness:)`)
+    /// reaches half its own thickness.
     public static var reach: CGFloat { coreThickness / 2 }
 
     /// Opacity of the whole band at each state.
