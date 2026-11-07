@@ -76,7 +76,7 @@ struct ProfileMenuBuilderTests {
         let row = menu.items[chief + 1]
         #expect(row.title == "Personalization…")
         #expect(row.image != nil)
-        #expect(ActionRegistry.menuRun(of: row)?.id == "appearance.personalize")
+        #expect(row.representedObject as? String == "appearance.personalize")
 
         // A build that does not bind it leaves the row out.
         let bare = ActionRegistry.standard()

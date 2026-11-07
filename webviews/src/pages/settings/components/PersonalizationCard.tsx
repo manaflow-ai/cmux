@@ -3,7 +3,7 @@
 // visual choice on one page, under a jump bar. Each part is the card or the rows its home category
 // draws (the theme studio, the background picker, the Chief's look, chat text and density, sounds),
 // so this page writes the same keys through the same store calls and holds no setting of its own.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { categoryById, type CategoryGroup } from "../categories";
 import { useSettingsRouter, useSettingsState } from "../context";
@@ -28,6 +28,7 @@ const BACKGROUND_ROWS = [
   "appearance.backgroundBlur",
   "appearance.backgroundOpacity",
   "appearance.paneBackgrounds",
+  "appearance.backgroundRotation",
 ];
 
 export const PERSONALIZATION_PARTS: readonly Part[] = [
@@ -84,14 +85,22 @@ export function PersonalizationCard({
   const picker = useBackdropsShown();
   const parts = useRef(new Map<PartID, HTMLElement>());
   const opened = personalizationPart(focus);
-  // The part the route names, once the owner's values arrive (the parts above it have their height).
+  // The part the jump bar marks current: the one the route opened on, then the last one jumped to.
+  const [current, setCurrent] = useState<PartID | null>(opened);
+  // The part the route names, once the owner's values arrive (the parts above it have their height),
+  // revealed once per route: a route without a part forgets it, so the next Change Background… does again.
   const revealed = useRef<PartID | null>(null);
   useEffect(() => {
+    if (opened === null) revealed.current = null;
     if (!state.readable || opened === null || revealed.current === opened) return;
     revealed.current = opened;
+    setCurrent(opened);
     parts.current.get(opened)?.scrollIntoView?.({ block: "start" });
   }, [opened, state.readable]);
-  const jump = (id: PartID) => parts.current.get(id)?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  const jump = (id: PartID) => {
+    setCurrent(id);
+    parts.current.get(id)?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  };
   const rowsOf = (part: Part): CategoryGroup[] => {
     const keys = part.id === "background" && picker ? part.rows.filter((key) => !BACKDROP_ROWS.has(key)) : part.rows;
     const rows = keys.map((key) => rowsByKey.get(key)).filter((row) => row !== undefined);
@@ -133,7 +142,7 @@ export function PersonalizationCard({
             variant="ghost"
             className="button personalization-jump-link"
             data-jump={part.id}
-            aria-current={opened === part.id ? "true" : undefined}
+            aria-current={current === part.id ? "true" : undefined}
             onClick={() => jump(part.id)}
           >
             {partTitle(part.id)}

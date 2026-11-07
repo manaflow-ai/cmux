@@ -119,3 +119,31 @@ test("Change Background… opens it on its Background part", async () => {
   expect(page.container.querySelector('[data-section="personalization"]')).not.toBeNull();
   page.unmount();
 });
+
+test("a jump marks its part current, and a second Change Background… lands on Background again", async () => {
+  const page = await renderPage({ path: "/settings/personalization?focus=personalization.background" });
+  await settle();
+  const current = () => page.container.querySelector<HTMLElement>('[data-jump][aria-current="true"]')?.dataset.jump;
+  expect(current()).toBe("background");
+  await act(async () => page.container.querySelector<HTMLElement>('[data-jump="sounds"]')!.click());
+  await settle();
+  expect(current()).toBe("sounds");
+  await act(async () => page.history.push("/settings/personalization"));
+  await settle();
+  await act(async () => page.history.push("/settings/personalization?focus=personalization.background"));
+  await settle();
+  expect(current()).toBe("background");
+  page.unmount();
+});
+
+test("without art to pick, Background still draws the shuffle interval Appearance shows", async () => {
+  const page = await renderPage({
+    path: "/settings/personalization",
+    setup: (provider) => void (provider.host = { ...provider.host, backdrops: [] }),
+  });
+  await settle();
+  expect(rowKeys(page.container.querySelector<HTMLElement>('[data-part="background"]')!)).toContain(
+    "appearance.backgroundRotation",
+  );
+  page.unmount();
+});
