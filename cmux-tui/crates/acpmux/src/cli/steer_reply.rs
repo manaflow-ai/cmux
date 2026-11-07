@@ -181,6 +181,8 @@ fn last_turn_end(row: &Value, turn: &str) -> Option<Result<Value>> {
         "status": last.get("status"),
         "stopReason": last.get("stopReason"),
         "error": last.get("errorText"),
+        "errorKind": last.get("errorKind"),
+        "recovery": last.get("recovery"),
     });
     turn_end(method::MUX_EVENT, &json!({"dir": "mux", "kind": "turn_result", "msg": msg}))
         .map(|(_, end)| end)
