@@ -14,12 +14,14 @@
 //! - `wg-dgram`: cmux-wg's datagram service, frames cut into datagrams with
 //!   no FEC or retransmission (the floor an rd media path could reach).
 //!
-//! The link is whatever loopback is: `scripts/remote-stream-bench.sh` shapes
-//! it with netem. Prints one JSON object.
+//! `--rtt-ms` and `--loss-pct` put the WireGuard paths' UDP through an
+//! in-process link with that round trip and that loss in each direction;
+//! kernel TCP runs on plain loopback only. `scripts/remote-stream-bench.sh`
+//! runs the matrix. Prints one JSON object.
 //!
 //! ```text
 //! cargo run --release -p cmux-wg --example remote_stream_bench -- \
-//!     --path wg-tcp --frame-bytes 3500 --fps 60 --seconds 10
+//!     --path wg-tcp --rtt-ms 50 --loss-pct 1 --seconds 10
 //! ```
 
 use std::collections::HashMap;
@@ -28,10 +30,10 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use cmux_wg::testing::loopback_pair;
+use cmux_wg::testing::config_pair;
 use cmux_wg::{Priority, WgNet};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::time::{Instant, sleep_until, timeout};
 
 const STREAM_PORT: u16 = 5900;
@@ -53,6 +55,9 @@ struct Args {
     fps: u32,
     seconds: u64,
     bulk_bytes: usize,
+    /// Added round trip and loss on the WireGuard paths' UDP (see [`impair`]).
+    rtt_ms: u64,
+    loss_pct: f64,
 }
 
 fn args() -> Args {
@@ -63,6 +68,8 @@ fn args() -> Args {
         fps: 60,
         seconds: 10,
         bulk_bytes: 16 << 20,
+        rtt_ms: 0,
+        loss_pct: 0.0,
     };
     let mut iter = std::env::args().skip(1);
     while let Some(flag) = iter.next() {
@@ -75,6 +82,8 @@ fn args() -> Args {
             "--fps" => parsed.fps = number() as u32,
             "--seconds" => parsed.seconds = number(),
             "--bulk-bytes" => parsed.bulk_bytes = number() as usize,
+            "--rtt-ms" => parsed.rtt_ms = number(),
+            "--loss-pct" => parsed.loss_pct = value.parse().unwrap_or(0.0),
             other => eprintln!("ignoring unknown flag {other}"),
         }
     }
@@ -165,7 +174,8 @@ where
             let mut seq = 0u32;
             while next < end {
                 let size = if seq == 0 { args.keyframe_bytes } else { args.frame_bytes };
-                let echo = std::mem::take(&mut *pending.lock().unwrap_or_else(PoisonError::into_inner));
+                let echo =
+                    std::mem::take(&mut *pending.lock().unwrap_or_else(PoisonError::into_inner));
                 let mut frame = Vec::with_capacity(4 + HEADER + size);
                 frame.extend_from_slice(&u32::try_from(HEADER + size).unwrap_or(0).to_be_bytes());
                 frame.extend_from_slice(&header(KIND_FRAME, seq, clock.us(), echo));
@@ -287,11 +297,90 @@ async fn run_tcp(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<(
     Ok(())
 }
 
-async fn start_wg() -> io::Result<(WgNet, WgNet, SocketAddr, SocketAddr)> {
-    let pair = loopback_pair().await?;
+/// A tiny xorshift generator, so loss needs no dependency.
+struct Rng(u64);
+
+impl Rng {
+    fn chance(&mut self, pct: f64) -> bool {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        (self.0 % 1_000_000) as f64 / 10_000.0 < pct
+    }
+}
+
+/// Forward datagrams from `from` to wherever `to` says, each after a fixed
+/// delay and each lost with probability `loss_pct`. The delay line is FIFO,
+/// so the link never reorders, like netem with a fixed delay.
+fn impair_direction(
+    from: Arc<UdpSocket>,
+    out: Arc<UdpSocket>,
+    to: Arc<Mutex<Option<SocketAddr>>>,
+    learn: Option<Arc<Mutex<Option<SocketAddr>>>>,
+    delay: Duration,
+    loss_pct: f64,
+    seed: u64,
+) {
+    let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel::<(Instant, Vec<u8>)>();
+    tokio::spawn(async move {
+        let mut rng = Rng(seed);
+        let mut buf = vec![0u8; 65_535];
+        while let Ok((n, source)) = from.recv_from(&mut buf).await {
+            if let Some(learn) = &learn {
+                *learn.lock().unwrap_or_else(PoisonError::into_inner) = Some(source);
+            }
+            if !rng.chance(loss_pct)
+                && line_tx.send((Instant::now() + delay, buf[..n].to_vec())).is_err()
+            {
+                break;
+            }
+        }
+    });
+    tokio::spawn(async move {
+        while let Some((due, datagram)) = line_rx.recv().await {
+            sleep_until(due).await;
+            let target = *to.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(target) = target {
+                let _ = out.send_to(&datagram, target).await;
+            }
+        }
+    });
+}
+
+/// A lossy, delayed UDP link between a WireGuard client and `server`. The
+/// client dials the returned address; half the round trip is added each way.
+/// The tasks end with the process.
+async fn impair(server: SocketAddr, rtt_ms: u64, loss_pct: f64) -> io::Result<SocketAddr> {
+    let front = Arc::new(UdpSocket::bind("127.0.0.1:0").await?);
+    let back = Arc::new(UdpSocket::bind("127.0.0.1:0").await?);
+    let address = front.local_addr()?;
+    let delay = Duration::from_micros(rtt_ms * 500);
+    let client = Arc::new(Mutex::new(None));
+    let server = Arc::new(Mutex::new(Some(server)));
+    impair_direction(
+        front.clone(),
+        back.clone(),
+        server,
+        Some(client.clone()),
+        delay,
+        loss_pct,
+        0x9e37_79b9_7f4a_7c15,
+    );
+    impair_direction(back, front, client, None, delay, loss_pct, 0xd1b5_4a32_d192_ed03);
+    Ok(address)
+}
+
+async fn start_wg(args: &Args) -> io::Result<(WgNet, WgNet, SocketAddr, SocketAddr)> {
     let err = |error: cmux_wg::WgError| io::Error::other(error.to_string());
-    let viewer = WgNet::start(pair.client, pair.client_socket).await.map_err(err)?;
-    let host = WgNet::start(pair.server, pair.server_socket).await.map_err(err)?;
+    let server_socket = UdpSocket::bind("127.0.0.1:0").await?;
+    let client_socket = UdpSocket::bind("127.0.0.1:0").await?;
+    let server_addr = server_socket.local_addr()?;
+    let shaped = args.rtt_ms > 0 || args.loss_pct > 0.0;
+    let dial =
+        if shaped { impair(server_addr, args.rtt_ms, args.loss_pct).await? } else { server_addr };
+    let pair = config_pair(dial);
+    let viewer = WgNet::start(pair.client, client_socket).await.map_err(err)?;
+    let host = WgNet::start(pair.server, server_socket).await.map_err(err)?;
     Ok((
         viewer,
         host,
@@ -302,7 +391,7 @@ async fn start_wg() -> io::Result<(WgNet, WgNet, SocketAddr, SocketAddr)> {
 
 async fn run_wg_tcp(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<()> {
     let err = |error: cmux_wg::WgError| io::Error::other(error.to_string());
-    let (viewer_net, host_net, _, target) = start_wg().await?;
+    let (viewer_net, host_net, _, target) = start_wg(args).await?;
     let mut listener = host_net.listen(STREAM_PORT).await.map_err(err)?;
     let mut bulk_listener = host_net.listen(BULK_PORT).await.map_err(err)?;
     let viewer = viewer_net.connect(target).await.map_err(err)?;
@@ -320,7 +409,7 @@ async fn run_wg_tcp(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Resul
 /// is retransmitted, so a frame missing one piece never completes.
 async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<()> {
     let err = |error: cmux_wg::WgError| io::Error::other(error.to_string());
-    let (viewer_net, host_net, viewer_addr, host_stream) = start_wg().await?;
+    let (viewer_net, host_net, viewer_addr, host_stream) = start_wg(args).await?;
     let host_addr = SocketAddr::new(host_stream.ip(), MEDIA_PORT);
     let mut viewer = viewer_net.bind_datagram(MEDIA_PORT).await.map_err(err)?;
     let mut host = host_net.bind_datagram(MEDIA_PORT).await.map_err(err)?;
@@ -337,7 +426,8 @@ async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
             let mut seq = 0u32;
             while next < end {
                 let size = if seq == 0 { args.keyframe_bytes } else { args.frame_bytes };
-                let echo = std::mem::take(&mut *pending.lock().unwrap_or_else(PoisonError::into_inner));
+                let echo =
+                    std::mem::take(&mut *pending.lock().unwrap_or_else(PoisonError::into_inner));
                 let pieces = size.div_ceil(chunk).max(1);
                 let sent = clock.us();
                 for index in 0..pieces {
@@ -448,6 +538,9 @@ async fn main() -> io::Result<()> {
     let clock = Arc::new(Clock(Instant::now()));
     let record: Shared = Arc::default();
     match args.path.as_str() {
+        "tcp" if args.rtt_ms > 0 || args.loss_pct > 0.0 => {
+            return Err(io::Error::other("--rtt-ms and --loss-pct shape only the WireGuard paths"));
+        }
         "tcp" => run_tcp(&args, clock, record.clone()).await?,
         "wg-tcp" => run_wg_tcp(&args, clock, record.clone()).await?,
         "wg-dgram" => run_wg_dgram(&args, clock, record.clone()).await?,
@@ -462,11 +555,13 @@ async fn main() -> io::Result<()> {
     let input_ms = percentiles(&mut record.input_us);
     let photon_ms = percentiles(&mut record.photon_us);
     println!(
-        "{{\"path\":\"{}\",\"frame_bytes\":{},\"fps_target\":{},\"seconds\":{},\
+        "{{\"path\":\"{}\",\"rtt_ms\":{},\"loss_pct\":{},\"frame_bytes\":{},\"fps_target\":{},\"seconds\":{},\
          \"first_frame_ms\":{},\"frames_sent\":{},\"frames_received\":{},\"fps\":{:.1},\
          \"fps_on_time\":{:.1},\"frame_ms\":{},\"inputs_sent\":{},\"input_ms\":{},\
          \"input_to_photon_ms\":{},\"bulk_mbit_s\":{},\"note\":\"{}\"}}",
         args.path,
+        args.rtt_ms,
+        args.loss_pct,
         args.frame_bytes,
         args.fps,
         args.seconds,
