@@ -75,8 +75,10 @@ restore_head() {
 base_app="" base_desc=""
 if [[ -n "$base_revert" ]]; then
   # A shallow step checkout may lack the commit or its parent; reverting needs both trees.
+  depth=()  # --depth only in a checkout that is already shallow, so a full clone stays full
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 2)
   { git cat-file -e "$base_revert^{commit}" && git cat-file -e "$base_revert^^{commit}"; } 2>/dev/null \
-    || git fetch --quiet --depth 2 origin "$base_revert"
+    || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$base_revert"
   if ! git revert --no-commit "$base_revert" >"$out/revert.log" 2>&1; then
     cat "$out/revert.log" >&2
     echo "hover-preload: $base_revert does not revert cleanly at $head_sha; use --base-ref" >&2

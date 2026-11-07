@@ -54,6 +54,9 @@ pub(crate) mod conductor_import_store;
 mod conductor_import_tests;
 pub(crate) mod conversation_tabs;
 pub(crate) mod conversation_tabs_store;
+pub(crate) mod created_by;
+#[cfg(test)]
+mod created_by_tests;
 pub(crate) mod ephemeral_moves;
 #[cfg(test)]
 mod ephemeral_moves_tests;

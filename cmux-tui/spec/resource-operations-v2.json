@@ -9726,6 +9726,82 @@
       },
       "extra": false
     },
+    "DiffComment": {
+      "kind": "map",
+      "values": {
+        "kind": "ref",
+        "name": "JsonValue"
+      }
+    },
+    "DiffCommentsListResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The root, as the request named it."
+        },
+        "comments": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "DiffComment"
+            },
+            "max_items": 500
+          },
+          "description": "The root's saved comments, oldest first: by createdAt, then the order they were first saved. Each is the page's object with the daemon's id, createdAt and updatedAt."
+        }
+      },
+      "extra": false
+    },
+    "DiffCommentsSaveResult": {
+      "kind": "object",
+      "fields": {
+        "comment": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "DiffComment"
+          },
+          "description": "The stored comment: the page's object with the daemon's id, createdAt and updatedAt (RFC 3339 UTC with milliseconds)."
+        }
+      },
+      "extra": false
+    },
+    "DiffCommentsDeleteResult": {
+      "kind": "object",
+      "fields": {
+        "deleted": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many of the named comments were removed; unknown ids count none."
+        },
+        "ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "max_items": 500
+          },
+          "description": "The ids removed, in store order."
+        }
+      },
+      "extra": false
+    },
     "GitFileEntry": {
       "kind": "object",
       "fields": {
@@ -11000,6 +11076,484 @@
         }
       ],
       "discriminator": "kind"
+    },
+    "PaletteRankEntry": {
+      "kind": "object",
+      "fields": {
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 512
+          },
+          "description": "The row's title."
+        },
+        "keywords": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 256
+              },
+              "max_items": 32
+            }
+          },
+          "description": "More words the row is found by."
+        },
+        "subtitle": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 512
+            }
+          },
+          "description": "Muted text under the title, matched below it."
+        },
+        "accessory": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 512
+            }
+          },
+          "description": "Trailing text, matched last."
+        },
+        "rankBias": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": -1000000,
+              "maximum": 1000000
+            }
+          },
+          "description": "Added to the row's score."
+        },
+        "frecencyKey": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 512
+            }
+          },
+          "description": "The row's usage key in frecency."
+        },
+        "isEnabled": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "description": "false: ranked below the enabled rows."
+        },
+        "isVisibleWhenQueryEmpty": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "description": "The row shows on the empty query."
+        },
+        "queryPrefix": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 64
+            }
+          },
+          "description": "The row matches only a query that starts with it."
+        },
+        "hidesWhenTyping": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "description": "The row shows only on the empty query."
+        },
+        "sectionIndex": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": 0,
+              "maximum": 1024
+            }
+          },
+          "description": "The row's section."
+        },
+        "entersScope": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "description": "The row enters a palette scope."
+        },
+        "typingSectionIndex": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": 0,
+              "maximum": 1024
+            }
+          },
+          "description": "The section the row joins while the user types."
+        },
+        "suggestedRank": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": 0,
+              "maximum": 1000000
+            }
+          },
+          "description": "First-use suggestion order."
+        },
+        "suggestedSectionIndex": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": 0,
+              "maximum": 1024
+            }
+          },
+          "description": "The section a suggested row shows in on the empty query."
+        },
+        "actionID": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 256
+            }
+          },
+          "description": "The action id; found by a query that is the id or starts it."
+        },
+        "demoted": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "description": "A secondary row: one tier lower than a command with the same match."
+        },
+        "hasShortcut": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "description": "The row has a keyboard shortcut: first among equal matches."
+        },
+        "keycaps": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 32
+              },
+              "max_items": 8
+            }
+          },
+          "description": "The keycaps of the row's shortcut."
+        },
+        "handles": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 64
+              },
+              "max_items": 16
+            }
+          },
+          "description": "Handles the row is known by: a query that is one ranks it first."
+        }
+      },
+      "extra": false
+    },
+    "PaletteRankFrecency": {
+      "kind": "object",
+      "fields": {
+        "entries": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "PaletteRankUse"
+              }
+            }
+          },
+          "description": "Uses by usage key (at most 5000 keys)."
+        },
+        "halfLife": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "float64"
+            }
+          },
+          "description": "Half-life of a use, in milliseconds."
+        },
+        "picks": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "PaletteRankPick"
+              },
+              "max_items": 5000
+            }
+          },
+          "description": "Learned picks."
+        },
+        "pickHalfLife": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "float64"
+            }
+          },
+          "description": "Half-life of a pick, in milliseconds."
+        },
+        "hidden": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 512
+              },
+              "max_items": 5000
+            }
+          },
+          "description": "Usage keys of rows the user hid."
+        }
+      },
+      "extra": false
+    },
+    "PaletteRankPick": {
+      "kind": "object",
+      "fields": {
+        "prefix": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 256
+          },
+          "description": "The normalized query start."
+        },
+        "key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 512
+          },
+          "description": "The usage key of the row picked."
+        },
+        "score": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Decayed pick count."
+        },
+        "lastUsed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Last pick, in milliseconds."
+        },
+        "last": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The latest row picked for prefix."
+        }
+      },
+      "extra": false
+    },
+    "PaletteRankResult": {
+      "kind": "object",
+      "fields": {
+        "sections": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "PaletteRankSection"
+            },
+            "max_items": 2048
+          },
+          "description": "The ranked sections in order."
+        }
+      },
+      "extra": false
+    },
+    "PaletteRankRow": {
+      "kind": "object",
+      "fields": {
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The row's index in entries."
+        },
+        "score": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int32"
+          },
+          "description": "The row's score; higher ranks first."
+        },
+        "highlights": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "max_items": 512
+          },
+          "description": "Character offsets into the title that matched."
+        }
+      },
+      "extra": false
+    },
+    "PaletteRankSection": {
+      "kind": "object",
+      "fields": {
+        "sectionIndex": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          },
+          "description": "The section; null is Recent (or Pinned without a pinnedSectionIndex)."
+        },
+        "rows": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "PaletteRankRow"
+            },
+            "max_items": 5000
+          },
+          "description": "Ranked rows, best first."
+        }
+      },
+      "extra": false
+    },
+    "PaletteRankUse": {
+      "kind": "object",
+      "fields": {
+        "score": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Decayed use count."
+        },
+        "lastUsed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Last use, in milliseconds."
+        }
+      },
+      "extra": false
     },
     "PaletteUsageRow": {
       "kind": "object",
@@ -24235,6 +24789,183 @@
         "Only a local Unix connection of this machine may call it; a link, WebSocket or remote connection gets origin.forbidden. A page never may."
       ]
     },
+    "diff.comments.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "root": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The worktree root the comments belong to: an absolute path (starting with /, at most 4096 bytes, no NUL), used only as a key. Nothing reads the folder it names."
+          },
+          "ids": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "max_items": 500
+            },
+            "description": "The ids of the comments to remove, at most 500."
+          },
+          "versions": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "Optional: each id's updatedAt as the caller last read it, at most 500. A named comment whose updatedAt differs (edited since) is kept."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "DiffCommentsDeleteResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Unknown ids are ignored, so a repeated delete removes nothing more.",
+        "The version check and the removal happen under the root's lock, so an edit saved after the caller read a comment is never removed.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: no_state_directory (an in-memory session keeps no comments) or store_failed; extra.message explains it."
+      ]
+    },
+    "diff.comments.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "root": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The worktree root the comments belong to: an absolute path (starting with /, at most 4096 bytes, no NUL), used only as a key. Nothing reads the folder it names."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "DiffCommentsListResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A root with no saved comments lists none.",
+        "operation.failed details.reason is the machine reason: no_state_directory (an in-memory session keeps no comments) or store_failed; extra.message explains it."
+      ]
+    },
+    "diff.comments.save": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "root": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The worktree root the comments belong to: an absolute path (starting with /, at most 4096 bytes, no NUL), used only as a key. Nothing reads the folder it names."
+          },
+          "comment": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "DiffComment"
+            },
+            "description": "The page's comment object (filePath, side, startLine, endLine, lineText, message, submissionText, endSide and so on), kept as given. id names the comment to edit; createdAt and updatedAt are the daemon's."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "DiffCommentsSaveResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The daemon owns id, createdAt and updatedAt. A comment whose id names a saved comment of the root replaces it, keeping its createdAt; updatedAt is now. Otherwise it is added, with createdAt and updatedAt now, under its id when that is 1 to 128 visible ASCII characters, else under a new dc_ id.",
+        "A stored comment is at most 64 KiB serialized (validation.invalid comment_too_large), and a root keeps at most 500 (operation.failed too_many_comments).",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: no_state_directory (an in-memory session keeps no comments), too_many_comments or store_failed; extra.message explains it."
+      ]
+    },
     "frontend_projection.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -27535,6 +28266,237 @@
         "operation.failed",
         "origin.forbidden",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "palette.rank": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "operation": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "enum",
+                "values": [
+                  "rank",
+                  "rankEmpty"
+                ]
+              }
+            },
+            "description": "rankEmpty ranks as the empty query; rank (the default) ranks query."
+          },
+          "entries": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "PaletteRankEntry"
+              },
+              "max_items": 5000
+            },
+            "description": "The rows to rank."
+          },
+          "query": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 1024
+              }
+            },
+            "description": "What the person typed."
+          },
+          "sectionOrders": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "array",
+                "items": {
+                  "kind": "primitive",
+                  "name": "int32",
+                  "minimum": -1000000,
+                  "maximum": 1000000
+                },
+                "max_items": 1024
+              }
+            },
+            "description": "Each section's order while typing, by section index."
+          },
+          "frecency": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "ref",
+                "name": "PaletteRankFrecency"
+              }
+            },
+            "description": "The usage history to rank with."
+          },
+          "now": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "float64"
+              }
+            },
+            "description": "Now, in milliseconds, for the history's decay."
+          },
+          "showsRecent": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "boolean"
+              }
+            },
+            "description": "The empty query shows Pinned and Recent first."
+          },
+          "keepsSectionOrder": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "boolean"
+              }
+            },
+            "description": "Rows stay in their sections, in section order, while typing."
+          },
+          "ranksPrefixFirst": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "boolean"
+              }
+            },
+            "description": "A title prefix match ranks above every other match."
+          },
+          "recentLimit": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "int32",
+                "minimum": 0,
+                "maximum": 1000
+              }
+            },
+            "description": "Most Recent rows (default 5)."
+          },
+          "aliases": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "map",
+                "values": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 256
+                  },
+                  "max_items": 32
+                }
+              }
+            },
+            "description": "The person's aliases: action id to words (at most 1000 actions)."
+          },
+          "pins": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "array",
+                "items": {
+                  "kind": "primitive",
+                  "name": "string",
+                  "max_length": 256
+                },
+                "max_items": 256
+              }
+            },
+            "description": "The person's pinned action ids, first on the empty query."
+          },
+          "pinnedSectionIndex": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "int32",
+                "minimum": 0,
+                "maximum": 1024
+              }
+            },
+            "description": "The section pinned rows show in."
+          },
+          "rowLimit": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "int32",
+                "minimum": 0,
+                "maximum": 5000
+              }
+            },
+            "description": "Most rows returned."
+          },
+          "highlightLimit": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "int32",
+                "minimum": 0,
+                "maximum": 5000
+              }
+            },
+            "description": "Most rows given highlights."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Stateless: the request carries its own entries and history, and nothing is kept between calls.",
+          "The catalog caps the entries (5000), their text, the query and every list; the daemon refuses more than 5000 history keys or 1000 aliased actions with validation.invalid, so one request does bounded work.",
+          "The result is the shared palette ranker's answer (cmux-palette-ranker rank_request): the same sections and rows the app palette gets for the same request."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "PaletteRankResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -37589,6 +38551,46 @@
               ]
             },
             "description": "Where the new workspace goes in the sidebar order, for this create: top (first, below Home), after_current or bottom. Default: the workspaces.newPlacement setting."
+          },
+          "created_by": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "person",
+                      "agent",
+                      "script"
+                    ]
+                  },
+                  "description": "Who made the workspace: the person, an agent session, or a script."
+                },
+                "workspace": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The workspace the agent or script runs in: its id, or its key (a terminal's CMUX_WORKSPACE_ID)."
+                },
+                "session": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session that made it."
+                }
+              },
+              "extra": false
+            },
+            "description": "Who made the workspace: a place hint, never a trust claim. An agent or script workspace goes below its creator workspace, after the creator's earlier children, in its group; with no live creator workspace, at the end. A person's workspace, or one without created_by, follows placement or the setting. Shown as extra.created_by on the workspace."
           },
           "cwd": {
             "required": false,

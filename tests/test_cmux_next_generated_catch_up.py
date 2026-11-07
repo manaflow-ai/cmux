@@ -27,6 +27,7 @@ KEYWISE_DRIVERS = {
     "pbxproj-v1": "scripts/merge-pbxproj.py",
     "cmux-baseline-v1": "scripts/merge-baseline.py",
     "cmux-capabilities-v1": "scripts/merge-daemon-capabilities.py",
+    "cmux-insertions-v1": "scripts/merge-insertions.py",
 }
 WORKFLOW = ROOT / ".github/workflows/cmux-next-generated-catch-up.yml"
 
@@ -373,6 +374,133 @@ class KeyWiseDrivers(unittest.TestCase):
         self.assertEqual(self.git(repo, "diff", "--name-only", "--diff-filter=U"), "")
         merged = json.loads((repo / "Localizable.xcstrings").read_text())
         self.assertEqual(sorted(merged["strings"]), ["a", "base", "lane", "m", "z"])
+
+
+class MergeFailures(unittest.TestCase):
+    """2026-11-07: 57 of 100 catch-up runs failed in "Commit the merge" with "no changes added to
+    commit" (run 42375127414). git 2.55's checkout prefetch asked GitHub for blobs merge-ort had just
+    written for cleanly merged files, GitHub refused the whole batch ("not our ref"), and the merge
+    died with exit 128 after deleting the base's removed files but before writing the index or
+    MERGE_HEAD. The step hid its stderr, found no unmerged paths, and went on to rebuild and commit."""
+
+    def setUp(self):
+        doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.steps = {step.get("name"): step for step in doc["jobs"]["catch-up"]["steps"]}
+        self.tmp = Path(tempfile.mkdtemp(prefix="catch-up-merge-"))
+        self.addCleanup(shutil.rmtree, self.tmp)
+        trusted = self.tmp / "trusted"
+        for path in [*KEYWISE_DRIVERS.values(), "scripts/cmux-next/generated_catch_up.py", ".gitattributes"]:
+            (trusted / path).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(ROOT / path, trusted / path)
+        (self.tmp / "gitconfig").write_text("[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n"
+                                           "[init]\n\tdefaultBranch = feat-cmux-next\n")
+        self.output = self.tmp / "output"
+        self.output.touch()
+
+    def git(self, cwd: Path, *args: str) -> str:
+        return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True,
+                              env=self.env()).stdout.strip()
+
+    def env(self, **extra: str) -> dict:
+        return {"PATH": os.environ["PATH"], "HOME": str(self.tmp), "BRANCH": "lane", "PR_NUMBER": "7",
+                "GITHUB_OUTPUT": str(self.output), "GITHUB_STEP_SUMMARY": str(self.tmp / "summary"),
+                "RUNNER_TEMP": str(self.tmp), "GIT_CONFIG_GLOBAL": str(self.tmp / "gitconfig"),
+                "GIT_CONFIG_NOSYSTEM": "1", **extra}
+
+    def run_step(self, name: str, cwd: Path, **extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["bash", "-e", "-c", self.steps[name]["run"]], cwd=cwd, env=self.env(**extra),
+                              capture_output=True, text=True, timeout=120)
+
+    def commit(self, repo: Path, message: str, files: dict) -> str:
+        for path, text in files.items():
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            if text is None:
+                (repo / path).unlink()
+            else:
+                (repo / path).write_text(text)
+        self.git(repo, "add", "-A")
+        self.git(repo, "commit", "-qm", message)
+        return self.git(repo, "rev-parse", "HEAD")
+
+    def history(self) -> tuple[Path, str, str]:
+        """A remote where the base and the lane both change `shared` (merging cleanly, which writes
+        a new blob locally) and the base also changes, adds and removes other files."""
+        remote = self.tmp / "origin.git"
+        self.git(self.tmp, "init", "-q", "--bare", str(remote))
+        self.git(remote, "config", "uploadpack.allowFilter", "true")
+        self.git(remote, "config", "uploadpack.allowAnySHA1InWant", "true")
+        maker = self.tmp / "maker"
+        self.git(self.tmp, "clone", "-q", f"file://{remote}", str(maker))
+        lines = [f"line {i}\n" for i in range(40)]
+        self.commit(maker, "common", {"shared": "".join(lines), "base-edits": "old\n", "removed": "gone\n",
+                                      "cmux-next-ios/verify/media.bin": "media\n"})
+        self.git(maker, "push", "-q", "origin", "HEAD:feat-cmux-next")
+        self.git(maker, "checkout", "-qb", "lane")
+        head = self.commit(maker, "lane", {"shared": "".join(["lane\n", *lines[1:]]), "lane-only": "lane\n"})
+        self.git(maker, "push", "-q", "origin", "lane")
+        self.git(maker, "checkout", "-q", "feat-cmux-next")
+        base = self.commit(maker, "base", {"shared": "".join([*lines[:-1], "base\n"]), "base-edits": "new\n",
+                                           "base-adds": "added\n", "removed": None,
+                                           "cmux-next-ios/verify/media.bin": "new media\n"})
+        self.git(maker, "push", "-q", "origin", "feat-cmux-next")
+        return remote, head, base
+
+    def checkout(self, remote: Path, head: str) -> Path:
+        """The PR as actions/checkout leaves it: depth 1, blob:none, verify media sparse-excluded."""
+        pr = self.tmp / "pr"
+        self.git(self.tmp, "init", "-q", str(pr))
+        self.git(pr, "remote", "add", "origin", f"file://{remote}")
+        self.git(pr, "fetch", "-q", "--no-tags", "--depth=1", "--filter=blob:none", "origin", head)
+        self.git(pr, "config", "core.sparseCheckout", "true")
+        (pr / ".git/info/sparse-checkout").write_text("/*\n!/cmux-next-ios/verify/\n")
+        self.git(pr, "checkout", "-q", "--force", head)
+        return pr
+
+    def missing(self, pr: Path, rev: str) -> bool:
+        return subprocess.run(["git", "-C", str(pr), "cat-file", "-e", rev], env=self.env(GIT_NO_LAZY_FETCH="1"),
+                              capture_output=True).returncode != 0
+
+    def test_the_merge_reads_no_blob_it_did_not_fetch_first(self):
+        remote, head, base = self.history()
+        pr = self.checkout(remote, head)
+        fetch = self.run_step("Fetch just the PR and base ancestry", pr, BASE_SHA=base, HEAD_SHA=head)
+        self.assertEqual(fetch.returncode, 0, fetch.stdout + fetch.stderr)
+        merge_base = self.git(pr, "merge-base", "HEAD", base)
+        for rev in [f"{base}:shared", f"{base}:base-edits", f"{base}:base-adds", f"{merge_base}:shared",
+                    f"{merge_base}:removed"]:
+            with self.subTest(rev=rev):
+                self.assertFalse(self.missing(pr, rev))
+        # The sparse-excluded verify media stays on the server.
+        self.assertTrue(self.missing(pr, f"{base}:cmux-next-ios/verify/media.bin"))
+        merge = self.run_step("Merge feat-cmux-next", pr, BASE_SHA=base)
+        self.assertEqual(merge.returncode, 0, merge.stdout + merge.stderr)
+        self.assertIn("skip=false", self.output.read_text())
+        self.assertEqual(self.git(pr, "rev-parse", "MERGE_HEAD"), base)
+        self.assertEqual((pr / "shared").read_text().splitlines()[::39], ["lane", "base"])
+        self.assertEqual((pr / "base-adds").read_text(), "added\n")
+        self.assertFalse((pr / "removed").exists())
+
+    def test_a_merge_git_stops_without_a_conflict_fails_with_its_error(self):
+        remote, head, base = self.history()
+        pr = self.checkout(remote, head)
+        fetch = self.run_step("Fetch just the PR and base ancestry", pr, BASE_SHA=base, HEAD_SHA=head)
+        self.assertEqual(fetch.returncode, 0, fetch.stdout + fetch.stderr)
+        # A local edit to a file the base changes: git refuses the merge before it starts.
+        (pr / "base-edits").write_text("local edit\n")
+        merge = self.run_step("Merge feat-cmux-next", pr, BASE_SHA=base)
+        self.assertNotEqual(merge.returncode, 0, merge.stdout + merge.stderr + self.output.read_text())
+        self.assertIn("without starting a merge", merge.stdout)
+        self.assertIn("base-edits", merge.stdout)
+        self.assertNotIn("skip=", self.output.read_text())
+
+    def test_a_pr_that_already_has_the_base_is_skipped(self):
+        remote, head, _ = self.history()
+        pr = self.checkout(remote, head)
+        self.git(pr, "fetch", "-q", "--no-tags", "--filter=blob:none", "--unshallow", "origin", head)
+        merge_base = self.git(pr, "rev-parse", "HEAD~1")
+        merge = self.run_step("Merge feat-cmux-next", pr, BASE_SHA=merge_base)
+        self.assertEqual(merge.returncode, 0, merge.stdout + merge.stderr)
+        self.assertIn("skip=true", self.output.read_text())
 
 
 if __name__ == "__main__":

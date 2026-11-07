@@ -17,19 +17,11 @@ import type { AgentQuestion } from "../src/agent-session/acpmux/question/model";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
 import { needsYouLink, needsYouTarget, onOpenNeedsYou, openNeedsYou } from "../src/agent-session/acpmux/needsYou/links";
-import {
-  nextAsk,
-  NeedsYouPill,
-  pillAsks,
-  type TranscriptNeedsYou,
-} from "../src/agent-session/acpmux/needsYou/JumpPill";
+import { NeedsYouPill, type TranscriptNeedsYou } from "../src/agent-session/acpmux/needsYou/JumpPill";
+import { nextAsk, pillAsks } from "../src/agent-session/acpmux/needsYou/jumpPillModel";
 import { answerParams, useNeedsYou } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
-import {
-  NeedsYouPanel,
-  needsYouMode,
-  sideQuestionPrompt,
-  type NeedsYouActions,
-} from "../src/agent-session/acpmux/needsYou/NeedsYou";
+import { NeedsYouPanel, type NeedsYouActions } from "../src/agent-session/acpmux/needsYou/NeedsYou";
+import { needsYouMode, sideQuestionPrompt } from "../src/agent-session/acpmux/needsYou/needsYouModel";
 import { askContext, CONTEXT_TURNS, turnsBefore } from "../src/agent-session/acpmux/needsYou/context";
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
 
