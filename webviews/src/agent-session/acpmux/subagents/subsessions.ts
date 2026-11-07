@@ -498,7 +498,7 @@ export function useSenderChat(
   sessionId: string | undefined,
 ): { sessionId?: string; harness?: string; host?: string; run?: SenderRun } {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
-  const readId = () => sender.sessionId ?? store.find(sender.name);
+  const readId = () => sessionId ?? store.find(name);
   const id = useSyncExternalStore(store.subscribeNames, readId, readId);
   const readHarness = () => (id ? store.harness(id) : undefined);
   const harness = useSyncExternalStore(store.subscribeNames, readHarness, readHarness);
