@@ -2192,10 +2192,13 @@ export class AcpmuxDirectClient {
   /// that turn (stopThroughReconnect.ts).
   private turnPrompt?: string;
   private lastSeq = 0;
-  /// While a gap read is out or failed (`fetchMissedEvents`): the seq the chat's records are whole
-  /// through, below a page merged past the gap. A copy kept then continues from here, not from
-  /// `lastSeq`, so the records in the hole are read once the machine answers.
-  private wholeThrough?: { sessionId: string; seq: number };
+  /// Each gap read out or failed (`fetchMissedEvents`), by its own key: the seq the chat's records
+  /// are whole through below a page merged past that gap. A copy kept, or the next open's resume,
+  /// continues from the lowest of them, not from `lastSeq`, so the records in a hole are read once
+  /// the machine answers. One per read: a lag's read and a reconnect's can be out together, and
+  /// one that lands never clears another's hole.
+  private readonly gapReads = new Map<number, { sessionId: string; seq: number }>();
+  private gapReadKeys = 0;
   private turnOpen = false;
   /// The open turn's daemon start (its `turn_started`, or the summary's `turn.startedAt` when that
   /// record is outside the held page): the live line's clock counts from it, never from an older
@@ -3183,7 +3186,7 @@ export class AcpmuxDirectClient {
     this.promptIndex?.cancel?.();
     this.promptIndex = undefined;
     this.lastSeq = 0;
-    this.wholeThrough = undefined;
+    this.gapReads.clear();
     this.clockOffset = undefined;
     this.summary = undefined;
     this.autoResumedAttempt = undefined;
@@ -3415,10 +3418,11 @@ export class AcpmuxDirectClient {
   /// past a hole. Answers whether the chat is shown: its copy, or, with none, the machine read once
   /// more when its row said it was back (`attachIfBack`).
   /// The newest seq `sessionId`'s records are whole through: `lastSeq`, or below it while a gap
-  /// read is out or failed (`wholeThrough`).
+  /// read is out or failed (`gapReads`).
   private wholeSeq(sessionId: string): number {
-    const gap = this.wholeThrough?.sessionId === sessionId ? this.wholeThrough.seq : undefined;
-    return gap === undefined ? this.lastSeq : Math.min(this.lastSeq, gap);
+    let seq = this.lastSeq;
+    for (const gap of this.gapReads.values()) if (gap.sessionId === sessionId) seq = Math.min(seq, gap.seq);
+    return seq;
   }
 
   private async keepPeerCopy(sessionId: string, generation: number, error: unknown): Promise<boolean> {
@@ -4086,8 +4090,9 @@ export class AcpmuxDirectClient {
     afterSeq: number,
     replayLiveState = true,
   ): Promise<void> {
+    const key = ++this.gapReadKeys;
     for (let cursor = afterSeq; ;) {
-      this.wholeThrough = { sessionId, seq: cursor };
+      this.gapReads.set(key, { sessionId, seq: cursor });
       const result = await this.typed("_acpmux/events", {
         sessionId,
         afterSeq: cursor,
@@ -4101,7 +4106,10 @@ export class AcpmuxDirectClient {
       if (result?.hasMore !== true || missed.length === 0) break;
       cursor = Math.max(cursor, ...missed.map((event) => event.seq));
     }
-    this.wholeThrough = undefined;
+    // Read through: this read's hole is filled, and so is any older failed read's that starts at
+    // or past this one's start (everything after `afterSeq` is in now).
+    for (const [other, gap] of this.gapReads)
+      if (other === key || (gap.sessionId === sessionId && gap.seq >= afterSeq)) this.gapReads.delete(other);
     this.emit("resynced");
   }
 
