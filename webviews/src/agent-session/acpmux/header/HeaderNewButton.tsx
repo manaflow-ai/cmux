@@ -83,7 +83,7 @@ export function HeaderNewButton({
         }}
       >
         <MenuButton className="acpmux-header-tool acpmux-header-new-more" label={t("header.newMenu")}>
-          <Icon name="disclosure.expanded" size={10} />
+          <Icon name="disclosure.expanded" size={12} />
         </MenuButton>
         <MenuPopup className="acpmux-chat-menu-popover acpmux-header-new-popover" align="end">
           <NewPreview kind={previewed} label={label(previewed)} keycap={keys[previewed]} />
