@@ -938,6 +938,20 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertIn("<<<<<<<", surfaces.read_text())
         self.git("merge", "--abort")
 
+        # The same key added in two places merges clean line by line, yet one value would win.
+        self.git("checkout", "--quiet", "-b", "spread-base", base)
+        surfaces.write_text('{\n "a": 1,\n "m": 0,\n "z": 2\n}\n')
+        self.commit_all("spread base")
+        spread_base = self.git("rev-parse", "HEAD").stdout.strip()
+        surfaces.write_text('{\n "new": 1,\n "a": 1,\n "m": 0,\n "z": 2\n}\n')
+        self.commit_all("spread top")
+        self.git("checkout", "--quiet", "-b", "spread-bottom", spread_base)
+        surfaces.write_text('{\n "a": 1,\n "m": 0,\n "z": 2,\n "new": 2\n}\n')
+        self.commit_all("spread bottom")
+        clash = self.git("merge", "--no-edit", "spread-base", check=False)
+        self.assertNotEqual(clash.returncode, 0, clash.stdout + clash.stderr)
+        self.git("merge", "--abort")
+
     def test_repo_relative_python_is_rejected_without_execution(self):
         tools = self.repo / "tools"
         tools.mkdir()

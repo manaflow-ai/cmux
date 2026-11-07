@@ -12,8 +12,9 @@ This runs git's own three-way merge (`git merge-file --diff3`) and then settles
 each conflict whose base side is empty, an insertion on both sides, by keeping
 all of ours and then all of theirs. Every other conflict (a line both sides changed, a delete
 against a change) stays an ordinary conflict for the author. A .json or .toml
-result that no longer parses, or names a key twice, is written back as the
-plain line merge, so a missing comma or a doubled key never merges silently.
+result, settled or clean, that no longer parses or names a key twice is written
+back as the plain line merge and left conflicted, so a missing comma or a
+doubled key never merges silently.
 
 Usage (git): merge-insertions.py %O %A %B %P %L; writes the result to %A and
 exits 1 when a conflict remains.
@@ -200,23 +201,28 @@ def main(argv: list[str]) -> int:
     if os.path.getsize(base) == 0:
         # Both branches created the file: two versions of it are not two insertions.
         result, status = plain_merge(ours, base, theirs, size)
-        with open(ours, "wb") as handle:
-            handle.write(result)
-        return 1 if status else 0
-    marker = parse_marker_size(base, ours, theirs)
-    merged, status = merge_file(ours, base, theirs, path, marker)
-    if status == 0:
-        result, remaining = merged, 0
+        remaining, settled = (1 if status else 0), False
     else:
-        result, remaining, hunks = settle(merged, size, marker, toml=path.endswith(".toml"))
-        # git's exit status is its conflict count: a parse that read a different number
-        # of hunks, or a result that does not parse, keeps git's own conflict instead.
-        if hunks != status or (remaining == 0 and not parses(path, result)):
-            result, remaining = plain_merge(ours, base, theirs, size)[0], 1
+        marker = parse_marker_size(base, ours, theirs)
+        merged, status = merge_file(ours, base, theirs, path, marker)
+        settled = status != 0
+        if status == 0:
+            result, remaining = merged, 0
+        else:
+            result, remaining, hunks = settle(merged, size, marker, toml=path.endswith(".toml"))
+            # git's exit status is its conflict count: a parse that read a different number
+            # of hunks keeps git's own conflict instead.
+            if hunks != status:
+                result, remaining = plain_merge(ours, base, theirs, size)[0], 1
+    # A .json or .toml this driver settled must parse with no key twice; one git merged
+    # clean (both sides adding one key in different places) must too, when both sides
+    # did. Otherwise it is git's plain merge, marked conflicted for the author.
+    if remaining == 0 and not parses(path, result) and (
+            settled or all(parses(path, open(side, "rb").read()) for side in (ours, theirs))):
+        result, remaining = plain_merge(ours, base, theirs, size)[0], 1
     with open(ours, "wb") as handle:
         handle.write(result)
     return 1 if remaining else 0
-
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
