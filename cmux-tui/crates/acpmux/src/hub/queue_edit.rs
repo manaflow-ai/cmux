@@ -215,6 +215,20 @@ fn checked_display_parts(parts: Option<&Value>, blocks: &[Value]) -> (Option<Val
     ((!valid.is_empty()).then_some(Value::Array(valid)), refused)
 }
 
+/// Whether `provenance` is acpmux's own control state rather than a sender's: a restart or its
+/// cleanup leaves such a prompt out, so the person's rewrite of one drops it and is the editor's
+/// own words, as before provenance was kept on an edit. Each kind and what skips it:
+/// - an inbox notice: `restore_queue` (`queue.rs`) and `unstarted_prompt.rs` never run one again;
+/// - a subagent retry: `drop_unsent_subagent_retries` (`subagent_retry.rs`) drops an old daemon's;
+/// - a Cloud trigger: `unstarted_prompt.rs` leaves its turn to its dispatcher;
+/// - an inbox digest: no one sender's message (`inbox_digest.rs`).
+fn controls(provenance: Option<&Value>) -> bool {
+    super::inbox::is_notice(provenance)
+        || super::subagent_retry::is_retry(provenance)
+        || crate::prompt_provenance::is_trigger(provenance)
+        || super::digest::inbox_digest::is_digest(provenance)
+}
+
 impl Hub {
     /// `_acpmux/queue_edit {sessionId, promptId, op, prompt?|text?, images?, index?}`, where
     /// `resume` needs no `promptId`. Answers `{sessionId, promptId, op, ok}`, and `send_now` and `interrupt` also how it was sent
@@ -351,12 +365,7 @@ impl Hub {
                 tracing::info!(session = %session.id, prompt = %prompt_id, dropped, refused, "a queue edit dropped display parts of blocks it did not keep or that no longer fit them");
             }
             let size = super::queue_admission::content_bytes(&blocks, display_parts.as_ref());
-            // A digest's or a subagent retry's rewrite is no one sender's message: the editor's
-            // own, as before. A retry's provenance is its control state, which a restart reads to
-            // drop an old daemon's unsent retries (`subagent_retry.rs`); kept, the person's
-            // rewritten prompt would go with them.
-            let owned = super::digest::inbox_digest::is_digest(q.run.provenance.as_ref())
-                || super::subagent_retry::is_retry(q.run.provenance.as_ref());
+            let owned = controls(q.run.provenance.as_ref());
             q.run = Arc::new(PromptRun {
                 size: size.into(),
                 blocks,
