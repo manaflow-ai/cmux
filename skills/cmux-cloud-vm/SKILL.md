@@ -46,7 +46,7 @@ the person can read it. Without `--wait` it answers once the prompt is sent.
 
   Exit 2 with `chat.permission_waiting`: the agent asks for a permission, answered in the
   chat's tab.
-- Errors say what to do next: `cloud.signed_out` (run `cmux cloud sign-in`),
+- Errors say what to do next: `cloud.signed_out` (run `cmux login`),
   `cloud.start_pending` (the machine is still coming up: run the same command again,
   its `details.again`, to keep waiting), `chat.permission_waiting`, `chat.wait_timeout`.
   Run from an agent chat, it starts at once, as from a terminal: nothing asks the
