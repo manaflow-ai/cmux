@@ -128,6 +128,7 @@ fn request(origin: &str, cache: &std::path::Path, op: Op) -> Request {
         cache_dir: Some(cache.to_owned()),
         route: RouteChoice::Auto,
         app_version: None,
+        local_only: false,
     }
 }
 
