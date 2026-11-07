@@ -296,6 +296,11 @@ impl Mux {
         match created {
             Ok(Some(surface)) => {
                 super::closed_history::note_created(surface);
+                // The split a reopen puts back is not the user's: layout undo must not fold it
+                // back and close the reopened tab (as for a reopened screen's splits).
+                if let Some(pane) = self.with_state(|state| state.pane_of(surface)) {
+                    self.forget_layout_undo(pane);
+                }
                 if let Err(error) = self.restore_tab_details(actor, surface, tab) {
                     eprintln!("cmux-tui: a reopened tab lost its name or pin: {error:#}");
                 }

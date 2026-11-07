@@ -537,6 +537,16 @@ fn a_reopened_right_agent_pane_opens_in_its_split_never_in_the_main_pane() {
             added[0].entity
         );
         assert_eq!(layout_of(&mux, "agents"), before, "back in its split at its share");
+        // Layout undo right after has nothing to fold back: it never closes the reopened tab.
+        let reopened_pane = pane_of(
+            &mux,
+            mux.with_state(|state| {
+                state.resource_indexes.tabs[&TabPublicId::parse(right_id.clone()).unwrap()]
+            }),
+        );
+        let error = mux.undo_layout(reopened_pane, None, false).unwrap_err();
+        assert_eq!(error.downcast_ref::<LayoutUndoError>(), Some(&LayoutUndoError::Unavailable));
+        assert_eq!(layout_of(&mux, "agents"), before, "the undo left the reopened pane");
         mux.shutdown();
     }
 }
