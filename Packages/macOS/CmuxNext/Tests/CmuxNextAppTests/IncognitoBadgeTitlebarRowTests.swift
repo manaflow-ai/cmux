@@ -20,7 +20,7 @@ import Testing
         window.isReleasedWhenClosed = false
         window.titlebarAppearsTransparent = true
         window.contentView = root
-        let badge = IncognitoBadgeView()
+        let badge = IncognitoBadgeView(title: WindowStrings.incognitoBadge, help: WindowStrings.incognitoHelp)
         root.sidebar.sidebarView.titlebarAccessory = badge
         settle(root)
         return (window, root, badge)
