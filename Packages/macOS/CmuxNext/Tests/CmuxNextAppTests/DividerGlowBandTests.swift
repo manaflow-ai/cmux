@@ -24,12 +24,12 @@ struct DividerGlowBandTests {
         #expect(view.lineFrameInSuperview.width == view.lineThickness)
     }
 
-    @Test func hoverLightsADimBandAndWidensTheUncoveredLine() {
+    @Test func hoverLightsADimBandOnTheLine() {
         let view = handle()
         view.setHovered(true)
         #expect(view.glow.state == .hovered)
-        let reach = DividerGlowBand.reach
-        #expect(abs(view.lineFrameInSuperview.width - 2 * reach) < 0.001)
+        // A split's band is its line (1 pt here): the uncovered line stays the line (``aLitSplitBandStaysInsideItsLine``).
+        #expect(abs(view.lineFrameInSuperview.width - view.lineThickness) < 0.001)
         #expect(abs(view.lineFrameInSuperview.midX - view.frame.midX) < 0.001)
         view.setHovered(false)
         #expect(view.glow.state == .rest)
@@ -99,7 +99,7 @@ struct DividerGlowBandTests {
             #expect(layer.filters == nil && layer.backgroundFilters == nil)
         }
         #expect(DividerGlowBand.reach == DividerGlowBand.coreThickness / 2, "the band reaches no further than its core")
-        #expect(abs(view.glow.extent.width - DividerGlowBand.coreThickness) < 0.001)
+        #expect(abs(view.glow.extent.width - min(view.lineThickness, DividerGlowBand.coreThickness)) < 0.001)
     }
 
     /// RESIZE P0 5 (px-col-drag-2-s1r, cmux21, 120 Hz, scale 2): a split's 1 pt line fills the whole gap between its panes,
