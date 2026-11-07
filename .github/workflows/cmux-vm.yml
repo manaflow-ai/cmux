@@ -794,6 +794,7 @@ jobs:
     outputs:
       product: ${{ steps.product.outcome }}
       boot_image: ${{ steps.product.outputs.boot_image }}
+      done_at: ${{ steps.product.outputs.done_at }}
     defaults:
       run:
         working-directory: workers/cmux-vm
@@ -1004,6 +1005,7 @@ jobs:
           DEPLOY: ${{ needs.deploy-production.result }}
           PRODUCT: ${{ needs.smoke-production.outputs.product }}
           BOOT: ${{ needs.smoke-production.outputs.boot_image }}
+          SMOKE_DONE_AT: ${{ needs.smoke-production.outputs.done_at }}
           ROLLBACK: ${{ steps.rollback.outputs.result }}
           ROLLBACK_SHA: ${{ steps.rollback.outputs.sha }}
           RETRY: ${{ steps.retry.outcome }}
@@ -1017,8 +1019,9 @@ jobs:
           if [ "$KIND" = roll ]; then
             jq -n --arg now "$now" --arg run "$RUN_URL" --arg commit "$GITHUB_SHA" --arg deploy "$DEPLOY" --arg product "${PRODUCT:-}" \
               --arg boot "${BOOT:-}" --arg outcome "$OUTCOME" --arg rollback "${ROLLBACK:-}" --arg rollback_sha "${ROLLBACK_SHA:-}" \
+              --arg smoke_done "${SMOKE_DONE_AT:-$now}" \
               '{production: {commit: $commit, run: $run, deploy: $deploy, product_smoke: (if $product == "" then "not-run" else $product end), boot_image: $boot,
-                  smoke_done_at: $now, green: ($outcome == "green"), superseded: ($outcome == "superseded")},
+                  smoke_done_at: $smoke_done, green: ($outcome == "green"), superseded: ($outcome == "superseded")},
                 rolled_back: ($rollback == "pushed"),
                 rollback: (if $outcome != "rollback" then null else {result: (if $rollback == "" then "failed" else $rollback end), commit: $rollback_sha, at: $now} end)}' \
               | bash images/cmux-vm/image-roll-record.sh "$ROLL" || echo "::warning title=Image roll record::the record was not written"
