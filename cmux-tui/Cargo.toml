@@ -52,6 +52,7 @@ members = [
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
+    "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
     "crates/cmux-cloud-client",
     "crates/cmux-unix-socket",
@@ -107,6 +108,7 @@ members = [
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
     "crates/cmux-palette-eval",
+    "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
     "crates/cmux-vault-egress",
     "crates/cmux-url-input",
@@ -142,6 +144,7 @@ default-members = [
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
+    "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
     "crates/cmux-cloud-client",
     "crates/cmux-pty",
@@ -190,6 +193,7 @@ default-members = [
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
     "crates/cmux-palette-eval",
+    "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
@@ -241,6 +245,7 @@ cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
 cmux-bookmarks-ops = { path = "crates/cmux-bookmarks-ops" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
+cmux-cloud-tasks = { path = "crates/cmux-cloud-tasks" }
 cmux-cloud-config = { path = "crates/cmux-cloud-config" }
 cmux-cloud-client = { path = "crates/cmux-cloud-client" }
 cmux-cloud-environment = { path = "crates/cmux-cloud-environment" }
@@ -250,6 +255,7 @@ cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
+cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
 cmux-vault-egress = { path = "crates/cmux-vault-egress" }
 cmux-url-input = { path = "crates/cmux-url-input" }

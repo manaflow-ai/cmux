@@ -71,6 +71,12 @@ public final class AcpmuxHub {
         public init() {}
     }
 
+    /// An answer a peer never counts from this phone (acpmux `mac_approvers::may_allow`): anything but a
+    /// one-time allow. Thrown before the approval key is asked, so the person is not asked to sign it.
+    public struct PeerAllowOnceOnly: Error, Equatable {
+        public init() {}
+    }
+
     public enum WatchEvent: Sendable {
         case sessionChanged(AcpmuxSession, recordKind: String, seq: Int)
         case permissionPending(sessionID: String, permissionID: String, request: JSONValue)
@@ -277,15 +283,19 @@ public final class AcpmuxHub {
         // Allow would only be refused with advice that does not apply to a paired phone.
         guard let nonce = pending["decisionNonce"]?.stringValue,
               let instance = pending["personInstance"]?.stringValue ?? personInstance else { throw ApproverUnsupported() }
+        // A prompt of another daemon run than this Mac's is a peer's (a chat opened with `--host`), as the
+        // Mac app decides. The peer counts only a one-time allow from this phone, as the Mac's own signer
+        // checks first (`signPeerAllow`): anything else is refused here, before the key is asked.
+        let peer = personInstance.map { instance != $0 } ?? false
+        if peer, kind != "allow_once" { throw PeerAllowOnceOnly() }
         let title = pending["request"]?["toolCall"]?["title"]?.stringValue ?? ""
         // What is approved: the chosen answers, or the Mac's own title (review M1, L3).
         let reason = answers != nil ? (answerReason ?? "Send your answer to the agent") : Self.allowReason(title: title)
         let sign = try await approver.authorize(reason)
         // The expiry starts once the signer returned.
         let expiresAt = Int(approver.now().timeIntervalSince1970 + ApprovalPayload.lifetime)
-        // A prompt of another daemon run than this Mac's is a peer's (a chat opened with `--host`), as
-        // the Mac app decides: the peer checks it as one of this Mac's enrolled phones, against its run.
-        if let personInstance, instance != personInstance {
+        // The peer checks it as one of this Mac's enrolled phones, against its own run.
+        if peer {
             let payload = PeerApprovalPayload(
                 instance: instance, approver: PeerApprovalPayload.peerID(macDevice: approver.macDevice, phone: approver.phoneID),
                 session: info["sessionId"]?.stringValue ?? sessionID, permission: permissionID,
@@ -978,6 +988,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// Display copy for a refused call.
     static func message(_ error: any Error) -> String {
+        if error is AcpmuxHub.PeerAllowOnceOnly {
+            return "From an iPhone you can allow this other machine's request once, or deny it. Choose Allow once."
+        }
         if error is AcpmuxHub.ApproverUnsupported {
             return "Not approved: update cmux on the Mac to approve from this iPhone, or approve on the Mac."
         }

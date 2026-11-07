@@ -1311,13 +1311,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextCloudUI",
-            dependencies: ["CmuxNextCloud", "CmuxNextDesign"],
+            // Pages: the Cloud progress page's provider (CloudProgressPageProvider).
+            dependencies: ["CmuxNextCloud", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings"],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextCloudUITests",
-            dependencies: ["CmuxNextCloud", "CmuxNextCloudUI", "CmuxNextDesign", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextCloud", "CmuxNextCloudUI", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings", "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Machines reached over the user's own OpenSSH: destinations, the
