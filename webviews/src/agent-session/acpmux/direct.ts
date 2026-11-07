@@ -3608,32 +3608,40 @@ export class AcpmuxDirectClient {
   /// one; else the chat is off screen as after a failed open, and opens again once the machine is.
   private async redrawPeerCopy(sessionId: string): Promise<void> {
     const generation = this.selectionGeneration;
-    // The frame drawn stays until the new copy is read, as for a switch: no empty pane between.
+    // The frame drawn stays until the new copy is drawn as what it is (offline) or is dropped, as
+    // for a switch: no empty pane between, and no frame of the copy as if read from its machine.
     const hold = this.holdSnapshots(SWITCH_HOLD_MS);
     // Everything of the old session goes, its queue and prompts not yet sent too, as for a switch.
     this.resetSessionState("peer copy redrawn");
-    const drawn = await this.drawPeerCopy(sessionId, generation).finally(() => this.releaseSnapshots(hold));
-    const copy = this.peerCopy as PeerCopy | undefined;
-    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-    if (drawn === 0 || copy?.sessionId !== sessionId) {
-      this.dropPeerCopy(sessionId);
-      // A machine that came back meanwhile opens the chat itself.
-      const row = this.sessions.find((session) => session.sessionId === sessionId);
-      if (this.copyBack === sessionId && peerBack(row)) {
-        this.copyBack = undefined;
-        // Owned like any attach of the copy: a reconnect's takes it over; down again, the
-        // Mac's copy is drawn if it has one.
-        const mine = ++this.copyAttaches;
-        void this.attach(sessionId, generation, 0).catch(async (error: unknown) => {
-          if (mine === this.copyAttaches) await this.keepPeerCopy(sessionId, generation, error);
-        });
+    let offline = false;
+    try {
+      const drawn = await this.drawPeerCopy(sessionId, generation);
+      const copy = this.peerCopy as PeerCopy | undefined;
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      if (drawn === 0 || copy?.sessionId !== sessionId) {
+        this.dropPeerCopy(sessionId);
+        // A machine that came back meanwhile opens the chat itself.
+        const row = this.sessions.find((session) => session.sessionId === sessionId);
+        if (this.copyBack === sessionId && peerBack(row)) {
+          this.copyBack = undefined;
+          // Owned like any attach of the copy: a reconnect's takes it over; down again, the
+          // Mac's copy is drawn if it has one.
+          const mine = ++this.copyAttaches;
+          void this.attach(sessionId, generation, 0).catch(async (error: unknown) => {
+            if (mine === this.copyAttaches) await this.keepPeerCopy(sessionId, generation, error);
+          });
+        }
+        return;
       }
-      return;
+      copy.offline = true;
+      copy.attaching = false;
+      this.emit("peer offline");
+      offline = true;
+    } finally {
+      this.releaseSnapshots(hold);
     }
-    copy.offline = true;
-    copy.attaching = false;
-    this.emit("peer offline");
-    this.reattachIfBack(sessionId);
+    // After the offline frame is drawn: a read of the machine holds frames of its own.
+    if (offline) this.reattachIfBack(sessionId);
   }
 
   /// An open that failed before its attach of the copy answered (the socket, the handshake or the
