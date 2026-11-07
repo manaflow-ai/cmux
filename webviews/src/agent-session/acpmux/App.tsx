@@ -1128,10 +1128,8 @@ function DefaultComposerChips({
   const signIn = useSignIn();
   // acpmux has answered with its harnesses: only then can the chip say none is installed.
   const harnessesListed = useHarnessesListed();
-  // `holdsModePick` reads the page's action map, which the connect installs after the chips first
-  // draw: the chips draw again when it is installed or dropped, or a New Tab's permission chip stayed
-  // the inert placeholder and ate every click (Leo, 2026-11-07: "I can't click to adjust the bypass
-  // permissions button there in that new tab screen"; test/newtab-machine-menu.test.ts).
+  // The page's action map (chat.new, chat.mode) is installed by the connect, after the chips first
+  // draw; the chips draw again when it is installed or dropped.
   useDraftActionsVersion();
   // `chat.new` for the same agent and folder is the switch already running, so a second pick
   // never restarts it.
@@ -1139,6 +1137,32 @@ function DefaultComposerChips({
     const harness = snapshot.summary?.harness;
     if (!startsChat || !harness || snapshot.summary?.sessionId) return;
     void callNative("chat.new", { harness, ...inFolder }).catch(() => undefined);
+  };
+  // A New Tab's permission chip is a live menu from its first frame, never the inert placeholder
+  // waiting for the page's actions (Leo, 2026-11-07: "I can't click to adjust the bypass
+  // permissions button there in that new tab screen"; test/newtab-machine-menu.test.ts). A pick
+  // made before the connect installs `chat.mode` is held, and runs through the same chat.new and
+  // chat.mode path as any other pick once it does; a later pick replaces it. The chip shows the
+  // pick meanwhile (AccessMenu's optimistic mode, settled by the returned promise).
+  const pickMode = (modeId: string) => {
+    start();
+    return callNative("chat.mode", { modeId });
+  };
+  const heldMode = useRef<{ modeId: string; settle(run: () => Promise<unknown>): void }>(undefined);
+  useEffect(() => {
+    const held = heldMode.current;
+    if (!held || window.cmuxAcpmuxActions?.["chat.mode"] === undefined) return;
+    heldMode.current = undefined;
+    held.settle(() => pickMode(held.modeId));
+  });
+  const onMode = (modeId: string): Promise<unknown> => {
+    if (!startsChat || window.cmuxAcpmuxActions?.["chat.mode"] !== undefined) return pickMode(modeId);
+    return new Promise((resolve, reject) => {
+      // A newer pick replaces a held one; the older one's promise settles as applied, its chip
+      // already showing the newer mode.
+      heldMode.current?.settle(() => Promise.resolve());
+      heldMode.current = { modeId, settle: (run) => void run().then(resolve, reject) };
+    });
   };
   const picker = usePickerCatalog(
     snapshot.catalog,
@@ -1165,12 +1189,9 @@ function DefaultComposerChips({
     <ComposerPickers
       snapshot={startsChat ? newTabChipSnapshot(snapshot, picker.catalog) : snapshot}
       startsChat={startsChat}
-      // A New Tab pick is held once acpmux's actions are connected and the chat has a harness to
-      // start (start() sends chat.new first); before that a pick would reach nothing.
-      holdsModePick={
-        snapshot.switching !== undefined ||
-        (startsChat && !!snapshot.summary?.harness && window.cmuxAcpmuxActions?.["chat.new"] !== undefined)
-      }
+      // A New Tab pick is held whenever the chat has a harness to start (start() sends chat.new
+      // first); before the page's actions are connected, `onMode` holds it until they are.
+      holdsModePick={snapshot.switching !== undefined || (startsChat && !!snapshot.summary?.harness)}
       // A Cloud or other remote machine's chat starts with its first send: until then its mode pick
       // is held for that start (Leo 2026-11-01: "i couldn't even pick a mode for this kind aqua
       // sandpaper one"), and once its agent reports its modes, their menu replaces this one.
@@ -1179,10 +1200,7 @@ function DefaultComposerChips({
         start();
         void callNative("chat.model", { modelId });
       }}
-      onMode={(modeId) => {
-        start();
-        return callNative("chat.mode", { modeId });
-      }}
+      onMode={onMode}
       onEffort={(configId, value) => {
         start();
         void callNative("chat.effort", { configId, value });

@@ -174,9 +174,9 @@ export function EnvironmentPicker({
   current: string;
   onPick(id: string): void;
   onConnect?(kind: ConnectKind): void;
-  /// The app's Cloud account state; only an explicit signed-in reply hides the sign-in action.
-  /// A fresh home can have no Cloud section or no reply from the host yet, and is still signed out
-  /// for the purpose of offering the existing sign-in entry point.
+  /// The app's Cloud account state. Only an explicit signed-out answer turns the Cloud row into
+  /// Sign in for Cloud; before any answer the row is Cloud. The right-click menu keeps Sign in for
+  /// Cloud until the app says signed in.
   cloudSignedIn?: boolean;
   saved?: SavedEnvironmentRows;
   /// The list opened, and every few seconds while it stays open: the host reads the machines
@@ -365,16 +365,18 @@ export function EnvironmentPicker({
   // New Cloud Machine flow, which stays in the right-click menu either way.
   // Cloud and Sign in for Cloud are one row, never two (Leo, 2026-11-07, of the menu showing both
   // and then dropping the sign-in row: "The thing becomes just one state instead of rapidly
-  // switching to another"). Signed out (or with no account state kept, cloudMachines.ts), the row
-  // signs in only, where Cloud's New Cloud Machine flow would sign in and then make a machine
-  // (#27973); signed in, it is Cloud. Its value stays the same either way, so an answer that lands
+  // switching to another"). Only once the app says signed out does the row read Sign in for Cloud,
+  // which signs in only, where Cloud's New Cloud Machine flow would sign in and then make a machine
+  // (#27973). Signed in, or before any answer (none kept from an earlier page, cloudMachines.ts),
+  // it is Cloud (Leo: "that shouldn't be showing by default"); Cloud's own flow signs in first
+  // when it has to. Its value stays the same either way, so an answer that lands
   // while the menu is open changes the row's words in place (RowSwap), never the list's rows. A new
   // chat's Cloud (`runMode`) is where the chat runs, a pick that makes nothing: Send signs in first
   // when it has to (cloudRun.ts `signedIn`), so its list has no sign-in row at all; Sign in for
   // Cloud stays on the control's right-click menu.
   const cloud: Action | undefined =
     onConnect && runMode === undefined
-      ? cloudSignedIn === true
+      ? cloudSignedIn !== false
         ? { value: ACTION + "cloud", text: t("composer.cloud"), kind: "cloud", run: () => onConnect("cloud") }
         : {
             value: ACTION + "cloud",
@@ -501,7 +503,12 @@ export function EnvironmentPicker({
   // The rows as they settle while the list is open (rowPresence.ts): it opens with its final rows,
   // and a row the data adds or drops while it stays open grows or shrinks in place. Another list
   // (Machines…) or a search replaces the rows at once.
-  const presence = useRowPresence(suggestions, open, `${list}\u0001${query}`);
+  const presence = useRowPresence(
+    suggestions,
+    open,
+    `${list}\u0001${query}`,
+    (value) => actions.find((action) => action.value === value)?.text ?? "",
+  );
   // A leaving row draws as it last drew: its machine or action may already be gone.
   const drawn = useRef(new Map<string, React.ReactNode>());
   // Cloud's row shows Sandboxed instead while ⌥ is held (or, once picked, until it is).

@@ -13,15 +13,18 @@ import { isAgentMotionOff } from "../shared/motion";
 /// cmux-motion standard), read from the page when it can be.
 const LEAVE_FALLBACK_MS = 180;
 
-export type RowMotion = "enter" | "leave";
+/// `swap`: the row stays and only its words change (Cloud to Sign in for Cloud); they fade in.
+export type RowMotion = "enter" | "leave" | "swap";
 
 type Presence = {
   key: string;
   open: boolean;
   context: string;
   rows: string[];
+  labels: ReadonlyMap<string, string>;
   entering: ReadonlySet<string>;
   leaving: ReadonlySet<string>;
+  swapped: ReadonlySet<string>;
 };
 
 const SEPARATOR = "\u0001";
@@ -67,40 +70,66 @@ export function mergeLeavingRows(previous: readonly string[], next: readonly str
 }
 
 /// The rows to draw for `rows` while the menu is `open`, and each row's motion. `context` names
-/// what the menu shows (its list and search): when it changes, rows replace at once.
+/// what the menu shows (its list and search): when it changes, rows replace at once. `label` is a
+/// row's words, so a row whose words change in place fades them in.
 export function useRowPresence(
   rows: readonly string[],
   open: boolean,
   context: string,
+  label: (value: string) => string = () => "",
 ): { rows: readonly string[]; motion(value: string): RowMotion | undefined } {
-  const key = rows.join(SEPARATOR);
+  const labels = new Map(rows.map((value) => [value, label(value)]));
+  const key = rows.map((value) => `${value}\u0002${labels.get(value)}`).join(SEPARATOR);
   const [state, setState] = useState<Presence>(() => ({
     key,
     open,
     context,
     rows: [...rows],
+    labels,
     entering: new Set(),
     leaving: new Set(),
+    swapped: new Set(),
   }));
   let current = state;
   if (state.key !== key || state.open !== open || state.context !== context) {
     // Closed, opening, or another list or search: the rows as they are, with no motion.
     const settled = !open || !state.open || state.context !== context || reducedMotion();
     if (settled) {
-      current = { key, open, context, rows: [...rows], entering: new Set(), leaving: new Set() };
+      current = {
+        key,
+        open,
+        context,
+        rows: [...rows],
+        labels,
+        entering: new Set(),
+        leaving: new Set(),
+        swapped: new Set(),
+      };
     } else {
       const shown = new Set(state.rows);
       const now = new Set(rows);
       const entering = new Set([...state.entering].filter((value) => now.has(value)));
       for (const value of rows) if (!shown.has(value) || state.leaving.has(value)) entering.add(value);
-      for (const value of state.leaving) if (now.has(value)) entering.add(value);
       const leaving = new Set([...state.rows].filter((value) => !now.has(value)));
-      current = { key, open, context, rows: mergeLeavingRows(state.rows, rows), entering, leaving };
+      const swapped = new Set([...state.swapped].filter((value) => now.has(value)));
+      for (const value of rows)
+        if (shown.has(value) && !state.leaving.has(value) && state.labels.get(value) !== labels.get(value))
+          swapped.add(value);
+      current = {
+        key,
+        open,
+        context,
+        rows: mergeLeavingRows(state.rows, rows),
+        labels,
+        entering,
+        leaving,
+        swapped,
+      };
     }
     setState(current);
   }
-  // A leaving row goes once its motion ends; an entering one is plain from then on.
-  const moving = current.entering.size > 0 || current.leaving.size > 0;
+  // A leaving row goes once its motion ends; an entering or swapped one is plain from then on.
+  const moving = current.entering.size > 0 || current.leaving.size > 0 || current.swapped.size > 0;
   useEffect(() => {
     if (!moving) return;
     const timer = setTimeout(
@@ -112,6 +141,7 @@ export function useRowPresence(
                 rows: previous.rows.filter((value) => !previous.leaving.has(value)),
                 entering: new Set(),
                 leaving: new Set(),
+                swapped: new Set(),
               }
             : previous,
         ),
@@ -121,6 +151,13 @@ export function useRowPresence(
   }, [moving, key]);
   return {
     rows: current.rows,
-    motion: (value) => (current.leaving.has(value) ? "leave" : current.entering.has(value) ? "enter" : undefined),
+    motion: (value) =>
+      current.leaving.has(value)
+        ? "leave"
+        : current.entering.has(value)
+          ? "enter"
+          : current.swapped.has(value)
+            ? "swap"
+            : undefined,
   };
 }

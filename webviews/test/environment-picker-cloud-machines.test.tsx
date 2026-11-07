@@ -176,7 +176,7 @@ test("signed out, the Cloud row is Sign in for Cloud: one row, never Cloud and s
 
 test("a sign-in answer that lands while the menu is open changes the Cloud row in place", async () => {
   const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
-  setCloudMachinesForTestAccount(undefined);
+  setCloudMachinesForTestAccount(false);
   await mount(true, { cloudMachines: [], onConnect: () => undefined });
   await openPicker();
   const rows = () =>
@@ -239,7 +239,10 @@ test("with the account state kept from an earlier page, the menu's first rows ar
   }
 });
 
-test("an absent Cloud account state still offers sign-in, while an explicit signed-in state does not", async () => {
+// Leo, 2026-11-07: "that shouldn't be showing by default". Before any answer the row is Cloud;
+// only an explicit signed-out answer makes it Sign in for Cloud (replaces #27973's absent-state
+// sign-in row).
+test("an absent Cloud account state shows Cloud, not sign-in; only an explicit signed-out answer offers sign-in", async () => {
   const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
   const rows = async () => {
     await openPicker();
@@ -247,16 +250,20 @@ test("an absent Cloud account state still offers sign-in, while an explicit sign
       item.querySelector(".acpmux-location-name"),
     );
   };
-  setCloudMachinesForTestAccount(undefined);
-  await mount(true, { cloudMachines: [], onConnect: () => undefined });
-  expect((await rows()).map(label)).toContain("Sign in for Cloud");
-
-  act(() => root?.unmount());
-  root = undefined;
-  host.replaceChildren();
-  setCloudMachinesForTestAccount(true);
-  await mount(true, { cloudMachines: [], onConnect: () => undefined });
-  expect((await rows()).map(label)).not.toContain("Sign in for Cloud");
+  for (const [state, shown, hidden] of [
+    [undefined, t("composer.cloud"), "Sign in for Cloud"],
+    [true, t("composer.cloud"), "Sign in for Cloud"],
+    [false, "Sign in for Cloud", t("composer.cloud")],
+  ] as const) {
+    setCloudMachinesForTestAccount(state);
+    await mount(true, { cloudMachines: [], onConnect: () => undefined });
+    const labels = (await rows()).map(label);
+    expect(labels).toContain(shown);
+    expect(labels).not.toContain(hidden);
+    act(() => root?.unmount());
+    root = undefined;
+    host.replaceChildren();
+  }
 });
 
 test("the plain Computer picker offers Cloud sign-in before the account reply", async () => {

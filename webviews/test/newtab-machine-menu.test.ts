@@ -187,6 +187,36 @@ await requireBrowserLane("newtab-machine-menu.test.ts", async () => {
       }
     });
 
+  test("a signed-out answer that lands while Where is open changes the Cloud row in place", async () => {
+    const page = await open("where-signed-out-late", 760, false);
+    try {
+      await page.waitForSelector('.acpmux-env-popover [role="option"]', { timeout: 60_000 });
+      const height = () =>
+        page.evaluate(() => document.querySelector(".acpmux-env-popover")!.getBoundingClientRect().height);
+      const first = await whereRows(page);
+      const before = await height();
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll('.acpmux-env-popover [role="option"] .acpmux-menu-label')].some(
+            (label) => label.textContent === "Sign in for Cloud",
+          ),
+        undefined,
+        { timeout: 10_000 },
+      );
+      const settled = await whereRows(page);
+      log.push(
+        ["where-signed-out-late", "rows", JSON.stringify(first), JSON.stringify(settled), before, await height()].join(
+          "\t",
+        ),
+      );
+      expect(first).toEqual(["This Mac", "Cloud", "Another machine"]);
+      expect(settled).toEqual(["This Mac", "Sign in for Cloud", "Another machine"]);
+      expect(await height()).toBe(before);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("opened before the app's Cloud answer, the Where menu draws its settled rows", async () => {
     const page = await open("where-slow-account", 760, false);
     try {

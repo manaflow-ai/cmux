@@ -81,6 +81,14 @@ export default agentPaneEntry({
       nativeDelayMs: { "cloudMachine.list": 1500 },
       play: openWhere,
     },
+    "where-signed-out-late": {
+      note: "Where opened before the app's Cloud answer, which then says signed out: the Cloud row's words fade to Sign in for Cloud in place; the menu keeps its height.",
+      ready: newTab(),
+      snapshot: noChat([], { listedSessions: true }),
+      native: signedOut,
+      nativeDelayMs: { "cloudMachine.list": 1500 },
+      play: openWhere,
+    },
     permissions: {
       note: "The permission button under the box, clicked: its mode menu opens.",
       ready: newTab(),

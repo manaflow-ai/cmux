@@ -16,8 +16,8 @@ export type CloudMachine = { id: string; name: string; stage: string };
 export type CloudMachineRow = Environment & { cloudMachine: CloudMachine };
 
 /// Whether the app's Cloud account is signed in. `undefined` means the app did not provide an
-/// explicit account state (for example, a fresh home where Cloud is not available yet); the
-/// picker treats that the same as signed out until a reply says `true`.
+/// explicit account state (for example, a fresh home where Cloud is not available yet). The
+/// picker's Cloud row reads Sign in for Cloud only on an explicit `false` (EnvironmentPicker).
 ///
 /// The last answer is kept in this origin's localStorage (every agent page shares one website data
 /// store, newtab/settledCache.ts) and read when the page loads, so a menu opened before this page's
