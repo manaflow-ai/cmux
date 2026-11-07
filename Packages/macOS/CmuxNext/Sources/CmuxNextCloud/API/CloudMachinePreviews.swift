@@ -16,20 +16,13 @@ public struct CloudMachinePreview: Decodable, Sendable, Equatable {
     /// Unix milliseconds, as reported by the platform.
     public var expiresAt: Double
 
-    /// Keep the bootstrap credential intact while asking its server to open a path on the preview.
-    /// The server validates `return_to` as a relative path before redirecting.
+    /// Keep the bootstrap credential intact while asking its server to open a path on the preview
+    /// (cmux-cloud-machine `preview::browser_url`). The server validates `return_to` as a relative path.
     public func browserURL(path: String = "/") throws -> URL {
-        guard var components = URLComponents(string: url), components.scheme == "https",
-              let host = components.host, !host.isEmpty, components.user == nil, components.password == nil else {
-            throw CloudAPIError.decoding("machine.preview_invalid_url")
-        }
-        if path != "/" {
-            var items = components.queryItems ?? []
-            items.removeAll { $0.name == "return_to" }
-            items.append(URLQueryItem(name: "return_to", value: path))
-            components.queryItems = items
-        }
-        guard let result = components.url else { throw CloudAPIError.decoding("machine.preview_invalid_url") }
+        struct Request: Encodable { var url: String, path: String }
+        struct Reply: Decodable { var url: String? }
+        guard let text = CloudMachineRules().call("cloud_model_preview_url", Request(url: url, path: path), as: Reply.self)?.url,
+              let result = URL(string: text) else { throw CloudAPIError.decoding("machine.preview_invalid_url") }
         return result
     }
 }

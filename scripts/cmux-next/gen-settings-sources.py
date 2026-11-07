@@ -15,6 +15,17 @@ script writes the copies the app's Swift modules compile in. Sources so far:
   scripts/cmux-next/settings-source-from-export.py drafts rows from that export.
 - schemas/settings/source/sections.json: the Settings sections in sidebar order (Swift: the
   SettingsSection enum, SettingsSection.generated.swift). Every row's section must be listed there.
+- schemas/settings/source/page-layout.json: the Settings page layout (categories, group cards, their
+  order and titles, sidebar sections, default category, dev_only) and each section's action buttons
+  (Swift: SettingsPageLayout and SettingsSchema.actions(in:), SettingsSchema+PageLayout*.generated.swift).
+  The export resolves it against the rows into settings-schema.json's `page`
+  (SettingsPageLayout+Categories.swift).
+- schemas/settings/source/agent-policy.json: which keys an agent may change, and why not
+  (Swift: SettingsSchema+AgentPolicy.generated.swift). Every row of a section source needs a group.
+- schemas/settings/source/row-facts.json: the keys Reset All keeps and cmux-browser shares, and each
+  row's validation domain (Swift: SettingsSchema+RowFacts.generated.swift).
+- schemas/settings/source/samples.json: the values per row kind and validation domain a validator
+  must accept and refuse (Swift: SettingsSchema+Samples.generated.swift; the export's accepts/refuses).
 
 A section source is {"$comment", "lists": [list]}. A list is one `static var` of the schema type:
 {name, section, group: text, note?, rows: [row]}; SettingsSchema.all concatenates the lists, so a
@@ -813,6 +824,527 @@ def check_constant_names(sections):
                         raise SystemExit("%s and %s both define %s.%s: give one a swift_owner or a name" % (where, row["key"], owner, name))
 
 
+# The Settings page layout and the section action buttons (schemas/settings/source/page-layout.json).
+PAGE_SOURCE = "schemas/settings/source/page-layout.json"
+PAGE_SWIFT = SCHEMA_DIR + "/SettingsSchema+PageLayout.generated.swift"
+PAGE_CATEGORIES_SWIFT = SCHEMA_DIR + "/SettingsSchema+PageLayoutCategories.generated.swift"
+PAGE_FIELDS = {"$comment", "default_category", "max_rows_per_card", "cards", "section_actions", "sidebar_sections"}
+PAGE_CATEGORY_FIELDS = {"id", "title", "symbol", "note", "groups", "lead", "trail", "actions", "aliases", "dev_only"}
+PAGE_GROUP_FIELDS = {"group", "keys", "lead_keys", "title", "note"}
+ACTION_ID = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9]*(\.[A-Za-z][A-Za-z0-9]*)*$")
+
+
+def load_page_layout(section_ids):
+    """The page layout, checked: every id it names exists, and no row key is claimed twice."""
+    src = PAGE_SOURCE
+    with open(os.path.join(ROOT, src), encoding="utf-8") as handle:
+        data = json.load(handle)
+    if set(data) != PAGE_FIELDS:
+        fail(src, "top-level fields are %s" % sorted(PAGE_FIELDS))
+    max_rows = data["max_rows_per_card"]
+    if isinstance(max_rows, bool) or not isinstance(max_rows, int) or max_rows < 1:
+        fail(src, "max_rows_per_card is a positive integer")
+    cards = []
+    for card in data["cards"]:
+        if set(card) - {"id", "note"} or not IDENT.match(card.get("id", "")) or card["id"] in cards \
+                or card["id"] in SWIFT_KEYWORDS:
+            fail(src, "a card has a unique identifier id and an optional note: %r" % card)
+        check_note(src, "card " + card["id"], card.get("note"))
+        cards.append(card["id"])
+    actions = data["section_actions"]
+    if not isinstance(actions, dict) or set(actions) != section_ids:
+        fail(src, "section_actions lists every section of sections.json exactly once")
+    for section, ids in actions.items():
+        if not isinstance(ids, list) or len(set(ids)) != len(ids) or not all(isinstance(i, str) and ACTION_ID.match(i) for i in ids):
+            fail(src, "section_actions.%s is a list of unique action ids" % section)
+    category_ids, group_keys, claimed = [], set(), set()
+    for run in data["sidebar_sections"]:
+        if set(run) != {"id", "title", "categories"} or not IDENT.match(run["id"]) or not run["categories"]:
+            fail(src, "a sidebar section has id, title (or null) and a non-empty categories list: %r" % run.get("id"))
+        check_text(src, run["id"] + ".title", run["title"], optional=True)
+        for category in run["categories"]:
+            cid = category.get("id", "")
+            if set(category) - PAGE_CATEGORY_FIELDS or not {"id", "title", "symbol", "groups"} <= set(category):
+                fail(src, "category %r: fields are %s (id, title, symbol, groups required)" % (cid, sorted(PAGE_CATEGORY_FIELDS)))
+            if not IDENT.match(cid) or cid in category_ids:
+                fail(src, "bad or duplicate category id %r" % cid)
+            category_ids.append(cid)
+            title = category["title"]
+            if isinstance(title, dict) and set(title) == {"section"}:
+                if title["section"] not in section_ids:
+                    fail(src, "%s: unknown title section %r" % (cid, title["section"]))
+            else:
+                check_text(src, cid + ".title", title)
+            if not SYMBOL.match(category["symbol"]):
+                fail(src, "%s: bad symbol %r" % (cid, category["symbol"]))
+            check_note(src, cid, category.get("note"))
+            for field, known in (("lead", cards), ("trail", cards), ("actions", section_ids), ("aliases", section_ids)):
+                values = category.get(field, [])
+                if not isinstance(values, list) or len(set(values)) != len(values) or any(v not in known for v in values):
+                    fail(src, "%s.%s: unique ids of %s" % (cid, field, "cards" if known is cards else "sections"))
+            if not isinstance(category.get("dev_only", False), bool):
+                fail(src, "%s.dev_only is a bool" % cid)
+            for index, group in enumerate(category["groups"]):
+                where = "%s group %d" % (cid, index)
+                if set(group) - PAGE_GROUP_FIELDS or not ("group" in group or "title" in group):
+                    fail(src, "%s: fields are %s, with a group or a title" % (where, sorted(PAGE_GROUP_FIELDS)))
+                key = group.get("group", "%s.%d" % (cid, index))
+                if not key or key in group_keys:
+                    fail(src, "%s: duplicate card key %r" % (where, key))
+                group_keys.add(key)
+                check_text(src, where + ".title", group.get("title"), optional=True)
+                check_note(src, where, group.get("note"))
+                for field in ("lead_keys", "keys"):
+                    for row in group.get(field, []):
+                        if not isinstance(row, str) or not row or any(not part for part in row.split(".")) or row in claimed:
+                            fail(src, "%s: bad row key or a row claimed twice: %r" % (where, row))
+                        claimed.add(row)
+    if data["default_category"] not in category_ids:
+        fail(src, "default_category %r is not a category" % data["default_category"])
+    return data
+
+
+def swift_list(values, render=swift_string):
+    return "[" + ", ".join(render(value) for value in values) + "]"
+
+
+def page_layout_swift(data, sections):
+    cards = []
+    for card in data["cards"]:
+        if card.get("note"):
+            cards.append("        /// " + card["note"])
+        cards.append("        case %s" % card["id"])
+    actions = "\n".join("        case .%s: %s" % (entry["id"], swift_list(data["section_actions"][entry["id"]]))
+                        for entry in sections)
+    return """// {header}
+
+public import CmuxNextActions
+
+/// The Settings page's navigation (SETTINGS-PAGE-FIRST-PRINCIPLES P2, P4): categories by user
+/// task, each a list of group cards, in `sidebarSections` (SettingsSchema+PageLayoutCategories).
+/// Exported as the schema's `page` (`SettingsSchemaExport`), resolved by `categories(rows:)`;
+/// the web Settings page and the GPUI client render it from the export and copy nothing
+/// (layer-ownership.md L5). Every row the page shows has exactly one card.
+public nonisolated struct SettingsPageLayout: Sendable {{
+    /// A part of a category that is not a schema row (host lists, the theme
+    /// studio, file actions). Raw values are the export's card ids.
+    public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {{
+{cards}
+    }}
+
+    /// A group card as the layout states it: rows claimed by key to lead it, the rows
+    /// of a schema group (minus rows another card claims), then rows claimed by key.
+    public nonisolated struct GroupSpec: Sendable {{
+        /// A schema group key: its title, and every row of it no other card claims.
+        public var group: String?
+        /// Rows by key, moved here from their schema group; `title` names the card then.
+        public var keys: [String] = []
+        public var title: SettingText?
+        /// Rows by key, claimed like `keys` but drawn first, before the schema group's own rows.
+        public var leadKeys: [String] = []
+    }}
+
+    public nonisolated struct CategorySpec: Sendable {{
+        public var id: String
+        public var title: SettingText
+        public var symbol: String
+        public var groups: [GroupSpec]
+        /// Cards drawn before the groups, and after them.
+        public var lead: [Card] = []
+        public var trail: [Card] = []
+        /// The sections whose registry buttons (cmux.settings.section.actions) show at the end.
+        public var actions: [SettingsSection] = []
+        /// The section ids (`cmux settings open --section`, old links) that open this category.
+        public var aliases: [SettingsSection] = []
+        /// Shown only in DEV builds: the page hides it when the host says it is not one.
+        public var devOnly = false
+    }}
+
+    /// A titled run of categories in the page's sidebar (the lead run is untitled).
+    public nonisolated struct SidebarSection: Sendable {{
+        /// A stable id for tests and the export (`look`, `tools`).
+        public var id: String
+        /// The small header above the run; nil for the untitled lead run.
+        public var title: SettingText?
+        /// The categories of the run, in sidebar order.
+        public var categories: [CategorySpec]
+    }}
+
+    /// A resolved group card: its rows in display order.
+    public nonisolated struct Group: Sendable, Hashable {{
+        public let key: String
+        public let title: SettingText
+        public let rows: [String]
+    }}
+
+    public nonisolated struct Category: Sendable {{
+        public let spec: CategorySpec
+        public let groups: [Group]
+    }}
+
+    public static let defaultCategory = {default}
+
+    /// The most rows one card holds: a longer card is split into titled cards a person can scan.
+    /// `SettingsPageSectionsTests` holds it.
+    public static let maxRowsPerCard = {max_rows}
+
+    public init() {{}}
+
+    /// Every category in sidebar order: the sections' categories, one after another.
+    static var specs: [CategorySpec] {{ sidebarSections.flatMap(\\.categories) }}
+}}
+
+extension SettingsSchema {{
+    /// Actions shown as buttons at the end of a section (their titles and
+    /// availability come from the action registry).
+    public static func actions(in section: SettingsSection) -> [ActionID] {{
+        switch section {{
+{actions}
+        }}
+    }}
+}}
+""".format(header=HEADER.format(c="//", src=PAGE_SOURCE), cards="\n".join(cards), default=swift_string(data["default_category"]),
+           max_rows=data["max_rows_per_card"], actions=actions)
+
+
+def page_categories_swift(data):
+    def title(text):
+        if text is None:
+            return "nil"
+        if set(text) == {"section"}:
+            return "section(.%s)" % text["section"]
+        return keyed(text)
+
+    def cases(values):
+        return swift_list(values, lambda value: "." + value)
+
+    out = ["// " + HEADER.format(c="//", src=PAGE_SOURCE), "", "extension SettingsPageLayout {",
+           "    /// The sidebar's sections: what a person looks for together sits together under one small header.",
+           "    public static let sidebarSections: [SidebarSection] = ["]
+    for run in data["sidebar_sections"]:
+        out.append("        SidebarSection(id: %s, title: %s, categories: %s)," % (
+            swift_string(run["id"]), title(run["title"]), swift_list(run["categories"], lambda c: c["id"] + "Category")))
+    out += ["    ]", "", "    private static func section(_ section: SettingsSection) -> SettingText {",
+            "        SettingText(key: section.titleKey, text: section.title)", "    }"]
+    for run in data["sidebar_sections"]:
+        for category in run["categories"]:
+            out.append("")
+            if category.get("note"):
+                out.append("    /// " + category["note"])
+            out.append("    private static let %sCategory = CategorySpec(" % category["id"])
+            out.append("        id: %s, title: %s, symbol: %s," % (
+                swift_string(category["id"]), title(category["title"]), swift_string(category["symbol"])))
+            if category["groups"]:
+                out.append("        groups: [")
+                for group in category["groups"]:
+                    if group.get("note"):
+                        out.append("            // " + group["note"])
+                    args = []
+                    if "group" in group:
+                        args.append("group: " + swift_string(group["group"]))
+                    if group.get("keys"):
+                        args.append("keys: " + swift_list(group["keys"]))
+                    if group.get("title"):
+                        args.append("title: " + keyed(group["title"]))
+                    if group.get("lead_keys"):
+                        args.append("leadKeys: " + swift_list(group["lead_keys"]))
+                    out.append("            GroupSpec(%s)," % ", ".join(args))
+                out.append("        ]" + ("," if any(category.get(f) for f in ("lead", "trail", "actions", "aliases", "dev_only")) else ""))
+            else:
+                out.append("        groups: []" + ("," if any(category.get(f) for f in ("lead", "trail", "actions", "aliases", "dev_only")) else ""))
+            rest = []
+            for field, label in (("lead", "lead"), ("trail", "trail"), ("actions", "actions"), ("aliases", "aliases")):
+                if category.get(field):
+                    rest.append("%s: %s" % (label, cases(category[field])))
+            if category.get("dev_only"):
+                rest.append("devOnly: true")
+            if rest:
+                out.append("        " + ", ".join(rest))
+            out.append("    )")
+    out.append("}")
+    return "\n".join(out) + "\n"
+
+
+# Per-row facts the schema export writes beside each row's definition: the agent policy, the keys
+# Reset All keeps and cmux-browser shares, validation domains and the conformance samples.
+POLICY_SOURCE = "schemas/settings/source/agent-policy.json"
+POLICY_SWIFT = SCHEMA_DIR + "/SettingsSchema+AgentPolicy.generated.swift"
+REFUSALS_SWIFT = SCHEMA_DIR + "/SettingsSchema+AgentRefusals.generated.swift"
+FACTS_SOURCE = "schemas/settings/source/row-facts.json"
+FACTS_SWIFT = SCHEMA_DIR + "/SettingsSchema+RowFacts.generated.swift"
+SAMPLES_SOURCE = "schemas/settings/source/samples.json"
+SAMPLES_SWIFT = SCHEMA_DIR + "/SettingsSchema+Samples.generated.swift"
+# The export's row kinds, plus choice_list (a string_list row with choices).
+SAMPLE_KINDS = {"toggle", "choice", "choice_or_number", "choice_or_url", "number", "color", "sound", "url", "host_list",
+                "folder_list", "time_range", "theme", "font_family", "text", "number_list", "string_map", "sound_rules",
+                "string_list", "choice_list"}
+SAMPLE_TOKENS = {"choices", "choices_reversed", "first_choice", "min", "max", "mid", "below", "above", "url_key"}
+DOMAIN = __import__("re").compile(r"^(portable|domain:[a-z][a-z_]*)$")
+
+
+def load_json(src):
+    with open(os.path.join(ROOT, src), encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def check_key(src, key):
+    if not isinstance(key, str) or not key or any(not part for part in key.split(".")) or any(ord(ch) < 0x20 for ch in key):
+        fail(src, "bad dotted key %r" % key)
+
+
+def wrap(items, indent, width=120):
+    """Swift literals joined with ", " into lines of at most `width` columns, each ending with a comma."""
+    lines, line = [], ""
+    for item in items:
+        candidate = (line + " " + item + ",") if line else (indent + item + ",")
+        if line and len(candidate) > width:
+            lines.append(line)
+            candidate = indent + item + ","
+        line = candidate
+    if line:
+        lines.append(line)
+    return lines
+
+
+def section_row_keys():
+    keys = set()
+    for section in SECTIONS:
+        for entry in load_json(section["source"])["lists"]:
+            keys.update(row["key"] for row in entry["rows"])
+    return keys
+
+
+def load_agent_policy():
+    src = POLICY_SOURCE
+    data = load_json(src)
+    if set(data) != {"$comment", "refusals", "groups"}:
+        fail(src, "fields are $comment, refusals, groups")
+    reasons = []
+    for refusal in data["refusals"]:
+        if set(refusal) != {"id", "doc"} or not IDENT.match(refusal["id"]) or refusal["id"] in SWIFT_KEYWORDS \
+                or refusal["id"] in reasons or refusal["id"] == "settable":
+            fail(src, "a refusal is {id, doc} with a unique identifier id: %r" % refusal)
+        check_note(src, refusal["id"], refusal["doc"])
+        reasons.append(refusal["id"])
+    seen = set()
+    for group in data["groups"]:
+        if set(group) - {"agent", "why", "keys"} or not group.get("keys"):
+            fail(src, "a group is {agent, why, keys} with keys: %r" % group)
+        if group["agent"] != "settable" and group["agent"] not in reasons:
+            fail(src, "agent %r is settable or a refusal id" % group["agent"])
+        check_note(src, "why", group.get("why"))
+        for key in group["keys"]:
+            check_key(src, key)
+            if key in seen:
+                fail(src, "%s is in two groups" % key)
+            seen.add(key)
+    retired = {entry["key"] for entry in load_retired()} & seen
+    if retired:
+        fail(src, "retired keys have no policy: %s" % sorted(retired))
+    missing = section_row_keys() - seen
+    if missing:
+        fail(src, "rows with no agent policy: %s" % sorted(missing))
+    return data
+
+
+def agent_policy_swift(data):
+    cases = []
+    for refusal in data["refusals"]:
+        cases += ["        /// " + refusal["doc"], "        case " + refusal["id"]]
+    settable, refused = [], []
+    for group in data["groups"]:
+        target = settable if group["agent"] == "settable" else refused
+        if group.get("why"):
+            target.append("        // " + group["why"])
+        if group["agent"] == "settable":
+            target += wrap([swift_string(key) for key in group["keys"]], "        ")
+        else:
+            target += wrap(["%s: .%s" % (swift_string(key), group["agent"]) for key in group["keys"]], "        ")
+    header = HEADER.format(c="//", src=POLICY_SOURCE)
+    policy = """// {header}
+
+/// Which schema keys an agent may change (MCP `settings_set` and
+/// `settings_reset`; plans/cmux-next/settings-react.md section 3). Every key
+/// is in exactly one of the two tables (`agentRefusedKeys`:
+/// SettingsSchema+AgentRefusals.generated.swift), with no default:
+/// `SettingsSchemaExportTests` fails on a key in neither or both, so a new
+/// setting cannot reach agents without a decision. Enforced at the one write
+/// path, `SettingsController.setSetting(_:to:by:)` (`SettingWriter`): every
+/// caller that is not the user (socket cli/mcp/script/remote, palette actions
+/// run from the socket, pages without a user gesture) may change only these keys.
+extension SettingsSchema {{
+    /// Why an agent may not change a key.
+    public nonisolated enum AgentRefusal: String, Sendable, Hashable {{
+{cases}
+    }}
+
+    /// Keys an agent may set and reset.
+    public static let agentSettableKeys: Set<String> = [
+{settable}
+    ]
+
+    /// True when an agent may change `descriptor`, false when it may not, nil
+    /// when the key is in neither table (a schema error the tests catch).
+    public static func agentSettable(_ descriptor: SettingDescriptor) -> Bool? {{
+        if agentSettableKeys.contains(descriptor.id) {{ return true }}
+        if agentRefusedKeys[descriptor.id] != nil {{ return false }}
+        return nil
+    }}
+}}
+""".format(header=header, cases="\n".join(cases), settable="\n".join(settable))
+    refusals = """// {header}
+
+extension SettingsSchema {{
+    /// Keys an agent may not set or reset, with the reason.
+    public static let agentRefusedKeys: [String: AgentRefusal] = [
+{refused}
+    ]
+}}
+""".format(header=header, refused="\n".join(refused))
+    return {POLICY_SWIFT: policy, REFUSALS_SWIFT: refusals}
+
+
+def load_row_facts():
+    src = FACTS_SOURCE
+    data = load_json(src)
+    if set(data) != {"$comment", "kept_on_reset_all", "shared_with_browser", "validation"}:
+        fail(src, "fields are $comment, kept_on_reset_all, shared_with_browser, validation")
+    for field in ("kept_on_reset_all", "shared_with_browser"):
+        if len(set(data[field])) != len(data[field]):
+            fail(src, "%s lists a key twice" % field)
+        for key in data[field]:
+            check_key(src, key)
+    validation = data["validation"]
+    if set(validation) != {"keys", "kinds", "default"}:
+        fail(src, "validation fields are keys, kinds, default")
+    for key, domain in validation["keys"].items():
+        check_key(src, key)
+    for kind in validation["kinds"]:
+        if kind not in SAMPLE_KINDS:
+            fail(src, "validation kind %r is not a row kind" % kind)
+    for domain in list(validation["keys"].values()) + list(validation["kinds"].values()) + [validation["default"]]:
+        if not isinstance(domain, str) or not DOMAIN.match(domain):
+            fail(src, "validation %r is portable or domain:<name>" % domain)
+    return data
+
+
+def row_facts_swift(data):
+    def table(mapping):
+        return "\n".join(wrap(["%s: %s" % (swift_string(k), swift_string(v)) for k, v in mapping.items()], "        "))
+    kept = ["[%s]" % ", ".join(swift_string(part) for part in key.split(".")) for key in data["kept_on_reset_all"]]
+    return """// {header}
+
+extension SettingsSchema {{
+    /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
+    /// `appearance.metrics.*` rows say so themselves.
+    static let sharedWithBrowser: Set<String> = [
+{shared}
+    ]
+
+    /// Keys Reset All Settings leaves alone: the look picked at onboarding
+    /// (the app theme and the terminal font), which each row still resets.
+    public static let keptOnResetAll: Set<[String]> = [
+{kept}
+    ]
+
+    /// How another validator checks a row's value (the export's `validation`): by key first, then
+    /// by the row's exported kind, else `defaultValidation`.
+    static let validationByKey: [String: String] = [
+{by_key}
+    ]
+    static let validationByKind: [String: String] = [
+{by_kind}
+    ]
+    static let defaultValidation = {default}
+}}
+""".format(header=HEADER.format(c="//", src=FACTS_SOURCE),
+           shared="\n".join(wrap([swift_string(k) for k in data["shared_with_browser"]], "        ")),
+           kept="\n".join(wrap(kept, "        ")), by_key=table(data["validation"]["keys"]),
+           by_kind=table(data["validation"]["kinds"]), default=swift_string(data["validation"]["default"]))
+
+
+def check_sample(src, where, value):
+    if isinstance(value, dict):
+        if "$sample" in value and (len(value) != 1 or value["$sample"] not in SAMPLE_TOKENS):
+            fail(src, "%s: {\"$sample\": NAME} takes one of %s" % (where, sorted(SAMPLE_TOKENS)))
+        for item in value.values():
+            check_sample(src, where, item)
+    elif isinstance(value, list):
+        for item in value:
+            check_sample(src, where, item)
+    elif isinstance(value, str) and any(ord(ch) < 0x20 for ch in value):
+        fail(src, "%s: control character in %r" % (where, value))
+
+
+def load_samples(facts):
+    src = SAMPLES_SOURCE
+    data = load_json(src)
+    if set(data) != {"$comment", "kinds", "domains"}:
+        fail(src, "fields are $comment, kinds, domains")
+    if set(data["kinds"]) != SAMPLE_KINDS:
+        fail(src, "kinds must be exactly %s" % sorted(SAMPLE_KINDS))
+    used = set(facts["validation"]["keys"].values())
+    if not set(data["domains"]) <= used:
+        fail(src, "domains no row uses: %s" % sorted(set(data["domains"]) - used))
+    for group in ("kinds", "domains"):
+        for name, entry in data[group].items():
+            if set(entry) != {"accept", "refuse"} or not entry["refuse"]:
+                fail(src, "%s %s needs accept and a non-empty refuse" % (group, name))
+            check_sample(src, name, entry)
+    return data
+
+
+def json_value_swift(value):
+    """A Swift `JSONValue` literal of a JSON value."""
+    if value is None:
+        return ".null"
+    if isinstance(value, bool):
+        return ".bool(%s)" % ("true" if value else "false")
+    if isinstance(value, (int, float)):
+        return ".number(%s)" % number_literal(value)
+    if isinstance(value, str):
+        return ".string(%s)" % swift_string(value)
+    if isinstance(value, list):
+        return ".array([%s])" % ", ".join(json_value_swift(item) for item in value)
+    if not value:
+        return ".object([:])"
+    return ".object([%s])" % ", ".join("%s: %s" % (swift_string(k), json_value_swift(v)) for k, v in value.items())
+
+
+def samples_swift(data):
+    def sets(mapping):
+        out = []
+        for name, entry in mapping.items():
+            out.append("        %s: SampleSet(" % swift_string(name))
+            for label in ("accept", "refuse"):
+                items = wrap([json_value_swift(v) for v in entry[label]], "                ")
+                end = "," if label == "accept" else ""
+                out += (["            %s: [" % label] + items + ["            ]%s" % end]) if items else ["            %s: []%s" % (label, end)]
+            out.append("        ),")
+        return "\n".join(out)
+    return """// {header}
+
+extension SettingsSchemaSamples {{
+    /// The sample sets by row kind (the export's kind; `choice_list` for a `string_list` row with choices).
+    static let kinds: [String: SampleSet] = [
+{kinds}
+    ]
+
+    /// The sample sets by validation domain; they win over the kind's.
+    static let domains: [String: SampleSet] = [
+{domains}
+    ]
+}}
+""".format(header=HEADER.format(c="//", src=SAMPLES_SOURCE), kinds=sets(data["kinds"]), domains=sets(data["domains"]))
+
+
+def row_fact_outputs():
+    facts = load_row_facts()
+    outputs = agent_policy_swift(load_agent_policy())
+    outputs.update({FACTS_SWIFT: row_facts_swift(facts), SAMPLES_SWIFT: samples_swift(load_samples(facts))})
+    return outputs
+
+
 def main():
     check = "--check" in sys.argv[1:]
     outputs = {RETIRED_SWIFT: retired_swift(load_retired())}
@@ -825,6 +1357,10 @@ def main():
     for section, data in loaded:
         outputs.update(section_swift(section, data))
         outputs.update(choices_swift(section, data))
+    page = load_page_layout(section_ids)
+    outputs[PAGE_SWIFT] = page_layout_swift(page, sections)
+    outputs[PAGE_CATEGORIES_SWIFT] = page_categories_swift(page)
+    outputs.update(row_fact_outputs())
     drifted = []
     for path, text in outputs.items():
         full = os.path.join(ROOT, path)

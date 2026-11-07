@@ -193,8 +193,10 @@ impl Hub {
                 return Err(not_resendable());
             }
             None => {
-                let reason =
-                    crate::hub::turn_errors::resume_cause(&error, &error).unwrap_or("error");
+                // An on-demand retry does not compact first: it says no more than "an error".
+                let reason = crate::hub::turn_errors::resume_cause(&error, &error)
+                    .filter(|r| *r != "context")
+                    .unwrap_or("error");
                 vec![json!({"type": "text", "text": continue_text(&error, reason)})]
             }
         };
