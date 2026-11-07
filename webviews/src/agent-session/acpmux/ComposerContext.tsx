@@ -1009,7 +1009,7 @@ export function ComposerContext({
                         label: t(CONTEXT_LABELS.addComputer),
                         onSelect: () => onboardingConnect?.("addMachine"),
                       },
-                      ...(cloudSignedIn !== true
+                      ...(cloudSignedIn === false
                         ? [
                             {
                               id: "cloudSignIn",
@@ -1028,7 +1028,7 @@ export function ComposerContext({
                     ]
                   : !started && onConnect && !connectOnlyWhenEmpty
                     ? [
-                        ...(cloudSignedIn !== true
+                        ...(cloudSignedIn === false
                           ? [
                               {
                                 id: "cloudSignIn",
