@@ -547,7 +547,8 @@ The chat opens as a tab in the machine's workspace in the cmux app.
   --timeout SECONDS  How long --wait waits (default 900)
 
 Answers machine_id, machine_name, session_id, workspace_id and tab_id,
-plus reply with --wait, or sent: false and ready_ms with no prompt.
+plus reply with --wait, or sent: false and ready_ms with no prompt, and
+new_machine: true when this run made the machine.
 
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json

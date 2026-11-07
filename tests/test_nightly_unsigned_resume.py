@@ -226,6 +226,8 @@ class WorkflowRoutingTests(unittest.TestCase):
                            lambda m: repr(pools[m.group(1)]), condition)
         condition = re.sub(r"\bvars\.[\w.-]+", "''", condition)
         condition = condition.replace("&&", " and ").replace("||", " or ")
+        # `!x` (an upload retry's `!cancelled()`), never the `!=` operator.
+        condition = re.sub(r"!(?!=)", " not ", condition)
         return eval(condition, {"__builtins__": {}}, {"always": lambda: True, "success": lambda: True,
                                                       "failure": lambda: False, "cancelled": lambda: False,
                                                       "true": True, "false": False})

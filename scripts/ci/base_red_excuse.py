@@ -982,9 +982,54 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
         paths = [node.get("path") for node in files.get("nodes") or [] if isinstance(node.get("path"), str)]
         if (files.get("pageInfo") or {}).get("hasNextPage") or len(paths) != pr.get("changedFiles"):
             raise Refused(f"#{pr.get('number')}: GitHub listed {len(paths)} of its {pr.get('changedFiles')} changed "
-                          f"files, too few to show it stays out of {VERCEL_TREE}")
+                          f"files, too few to judge what it changes")
         return pr.get("number"), paths
     raise Refused(f"no PR into {base} has head {sha} to read its changed files from")
+
+
+# A step-A Rust change (cmux#37292, 2026-11-06): the app links one pinned release of the app FFI, and
+# scripts/cmux-next/check-app-ffi-pin.sh reports "error: the app FFI sources changed since the pinned source" on any PR
+# that changes its inputs. app-ffi-release.yml publishes only from a feat-cmux-next push, so such a PR can never carry
+# its own pin: its merge is what publishes the release the re-pin then names. That error alone, in the cmux-next checks
+# job, is excused when the PR changes FFI inputs, leaves Package.swift (the pin) alone and changes no Swift, so no app
+# code calls a symbol or op the pinned library lacks. Any other red in the job is judged as before.
+FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+FFI_PIN_CHECK = "Check the app FFI pin"
+FFI_PIN_ROLLUP_STEP = "Fail on any red check"  # the job's last step, red when a continue-on-error check is
+FFI_PIN_ERROR = "error: the app FFI sources changed since the pinned source"
+FFI_PIN_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
+FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh")
+
+
+def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], errors: set[str], tests: set[str],
+                   log: str, github) -> str | None:
+    """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR (the
+    rule above). Wherever the pin error shows, the PR must be one the rule covers, whatever else is red: Refused
+    when it changes Swift or Package.swift or no FFI input, since the base comparison may set the error aside beside
+    another red the base shares (review of d5c11dd8). None when there is no pin error, or when something else is red
+    too (another failed step, a failing test, a crash, another error): that red is judged as before. The caller asks
+    only after test_reds.read found no crash or cut-short run."""
+    pin, rollup = normalise_error(FFI_PIN_ERROR), normalise_error(f"red check: {FFI_PIN_CHECK}")
+    if name != FFI_PIN_JOB or not any(error.startswith(pin) for error in errors):
+        return None
+    number, paths = pr_paths(repo, base, sha, github)
+    if FFI_PIN_MANIFEST in paths:
+        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes {FFI_PIN_MANIFEST}: a PR that moves "
+                      "the pin must pin a release built from its own sources")
+    if swift := [path for path in paths if path.endswith(".swift")]:
+        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes Swift ({'; '.join(swift[:5])}): "
+                      "app code may call what the pinned library lacks; land the Rust alone, then the Swift after "
+                      "the re-pin")
+    if not any(touches(path, read) for path in paths for read in FFI_INPUTS):
+        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes no app FFI input")
+    others = {error for error in errors if not error.startswith(pin)} - {rollup}
+    # The rollup must have named the pin as its red check: a rollup that failed before saying so is another red.
+    if (tests or crash_signals(log) or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others
+            or rollup not in errors):
+        return None
+    return (f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{number} changes app FFI "
+            f"inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned by the release its merge "
+            "publishes")
 
 
 def vercel_not_built(repo: str, base: str, sha: str | None, name: str, description: str, found: dict, github) -> str | None:
@@ -2151,6 +2196,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if own.crashes or (own.truncated and not chromium_without_diagnostics):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                           + " (a crash or a cut-short run is never a base red)")
+        if (pinned := ffi_pin_step_a(repo, base, sha, name, head_steps, head_errors, head_tests, head_log,
+                                     github)) is not None:
+            audit.append(pinned)
+            continue
         workflow_info = rest_run(repo, job["run_id"], github, run_reads)
         workflow = workflow_info.get("workflow_id")
         if not isinstance(workflow, int):

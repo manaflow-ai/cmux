@@ -258,6 +258,19 @@ export const PAGES = {
     out: "webviews/src/pages/home-channels/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
   },
+  // The docked Home's Messages page (cmux-page://cmux.home-messages/): its own table next to it (the
+  // native list's `home.*` and `sidebar.*` keys), and the Channels page's connect strings for the
+  // daemon gate it shares.
+  "home-messages": {
+    out: "webviews/src/pages/home-messages/generated/strings.json",
+    catalogs: [
+      { file: "webviews/src/pages/home-messages/Localizable.xcstrings" },
+      {
+        file: "webviews/src/pages/home-channels/Localizable.xcstrings",
+        keys: (all) => all.filter((key) => key.startsWith("connect.")),
+      },
+    ],
+  },
   // The agent pane's rows the channels Home reuses for agent runs (tool calls, shell blocks,
   // diffs, Markdown): only their keys, installed as the pane's table (agent-session/acpmux/i18n.ts).
   "home-channels-pane": {
@@ -347,6 +360,12 @@ export const PAGES = {
   viewerEmpty: {
     out: "webviews/src/viewer-empty/generated/strings.json",
     catalogs: [{ file: "webviews/src/viewer-empty/Localizable.xcstrings" }],
+  },
+  // The Messages page's sheets and New Message (home-messages/sheets), keyed as the Swift
+  // CmuxNextHome catalog they replace; the page's own table takes this catalog when it lands.
+  "home-messages-sheets": {
+    out: "webviews/src/pages/home-messages/sheets/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/home-messages/sheets/Localizable.xcstrings" }],
   },
 };
 
