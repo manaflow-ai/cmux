@@ -56,6 +56,11 @@ enum Rules {
     /// and the copy still says it saw every record; a queued prompt runs while a restore holds
     /// the chat between tries; a log read for a restore writes its recovery first.
     Last,
+    /// 4dcbe192's (review at 4dcbe192, F1 to F6): a restart's recovery kept in the seqs the
+    /// owner's copy holds; a prompt sent on a link the gate did not decide; a prompt admitted
+    /// before a restore took the lock runs during its hold; a proof lets its files go; a proof
+    /// without the Stop that held its prompt; a proof of an earlier owner start never checked.
+    Recent,
 }
 
 impl Rules {
@@ -63,6 +68,7 @@ impl Rules {
     fn old(self) -> u8 {
         match self {
             Rules::Last => crate::hub::journal_restore::AT_91B,
+            Rules::Recent => crate::hub::journal_restore::AT_4DCB,
             _ => 0,
         }
     }
@@ -88,35 +94,77 @@ impl Rng {
 }
 
 /// The record kinds the model writes.
-const KINDS: &[&str] =
-    &["queued", "user_message", "agent_message_chunk", "turn_result", "queue_removed"];
+const KINDS: &[&str] = &[
+    "queued",
+    "user_message",
+    "agent_message_chunk",
+    "turn_result",
+    "queue_removed",
+    "queue_paused",
+    "queue_resumed",
+];
 
 /// One journal record of the model machine.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 struct Rec {
     seq: u64,
     at: u64,
     kind: &'static str,
     prompt: Option<String>,
+    /// Written by the machine's own recovery after a restart (`restore_writer::RECOVERY_MARK`).
+    recovery: bool,
+    /// A Stop's `queue_paused`: the prompts it held.
+    held: Vec<String>,
+    /// A `queued` record of a prompt with a file: it names the path it was saved at.
+    file: bool,
+}
+
+/// Where the machine saved prompt `p`'s file (`attach::receive`).
+fn file_path(p: &str) -> String {
+    format!("/up/{MUX}/{p}/f.txt")
+}
+
+/// The prompt whose file the machine saved at `path` ([`file_path`]).
+fn file_prompt(path: &std::path::Path) -> Option<String> {
+    let path = path.to_str()?;
+    let rest = path.strip_prefix(&format!("/up/{MUX}/"))?;
+    Some(rest.strip_suffix("/f.txt")?.to_owned())
 }
 
 impl Rec {
     fn json(&self) -> Value {
-        let msg = match &self.prompt {
-            Some(p) => json!({"promptId": p}),
-            None => json!({"text": format!("line {}", self.seq)}),
+        let mut msg = match (&self.prompt, self.kind) {
+            (_, "queue_paused") => json!({"held": self.held, "reason": "stop"}),
+            (_, "queue_resumed") => json!({"queued": 0}),
+            (Some(p), _) => json!({"promptId": p}),
+            (None, _) => json!({"text": format!("line {}", self.seq)}),
         };
+        if self.file
+            && let Some(p) = &self.prompt
+        {
+            msg["prompt"] = json!([{"type": "resource_link", "uri": format!("file://{}", file_path(p)), "name": "f.txt"}]);
+        }
+        if self.recovery {
+            msg["_acpmuxRecovery"] = json!(true);
+        }
+        let mux = self.prompt.is_some() || self.kind.starts_with("queue_");
         json!({"sessionId": MUX, "seq": self.seq, "at": self.at,
-               "dir": if self.prompt.is_some() { "mux" } else { "in" },
+               "dir": if mux { "mux" } else { "in" },
                "kind": self.kind, "msg": msg})
     }
     fn of(v: &Value) -> Self {
         let kind = v["kind"].as_str().unwrap_or_default();
+        let held = v.pointer("/msg/held").and_then(Value::as_array);
         Rec {
             seq: v["seq"].as_u64().unwrap_or(0),
             at: v["at"].as_u64().unwrap_or(0),
             kind: KINDS.iter().find(|k| **k == kind).copied().unwrap_or("agent_message_chunk"),
             prompt: v.pointer("/msg/promptId").and_then(Value::as_str).map(str::to_owned),
+            recovery: v.pointer("/msg/_acpmuxRecovery") == Some(&json!(true)),
+            held: held.map_or(vec![], |h| {
+                h.iter().filter_map(|p| p.as_str().map(str::to_owned)).collect()
+            }),
+            file: v.pointer("/msg/prompt").is_some(),
         }
     }
 }
@@ -156,6 +204,19 @@ struct Machine {
     holding: bool,
     /// Its log was read for a restore, its recovery still to run (`recover_pending`).
     pending: bool,
+    /// 4dcbe192's machine and link (`Rules::Recent`).
+    recent: bool,
+    /// Where the recovery at its journal's end began, when a restore was refused past it.
+    recovered_from: Option<u64>,
+    /// Prompts admitted with no turn running, waiting for the turn lock (`queue_slot`).
+    admitted: Vec<String>,
+    /// The prompts sent with a file (non-image, saved to disk by `attach::receive`).
+    with_file: HashSet<String>,
+    /// The prompts whose file is on this disk, and on each older disk.
+    files: HashSet<String>,
+    snapshot_files: Vec<HashSet<String>>,
+    /// Prompts a Stop held that the owner's copy saw held, with no resume seen since.
+    stop_seen: HashSet<String>,
     /// Prompts a disk the machine came back on ran again by itself (its own queue, before any
     /// owner spoke): the journal may hold that run and the one its owner gives back.
     ran_by_itself: HashSet<String>,
@@ -168,7 +229,80 @@ impl Machine {
     fn push(&mut self, kind: &'static str, prompt: Option<&str>) {
         let (seq, at) = (self.end() + 1, self.tick());
         self.by_owner.insert(seq);
-        self.journal.push(Rec { seq, at, kind, prompt: prompt.map(str::to_owned) });
+        let file = kind == "queued" && prompt.is_some_and(|p| self.with_file.contains(p));
+        self.journal.push(Rec {
+            seq,
+            at,
+            kind,
+            prompt: prompt.map(str::to_owned),
+            file,
+            ..Rec::default()
+        });
+    }
+    /// The prompts a Stop holds now (`queue_paused` and no `queue_resumed` after it).
+    fn held(&self) -> HashSet<String> {
+        let mut held = HashSet::new();
+        for r in &self.journal {
+            match r.kind {
+                "queue_paused" => held.extend(r.held.iter().cloned()),
+                "queue_resumed" => held.clear(),
+                _ => {}
+            }
+        }
+        held
+    }
+    /// A person's Stop: what waits is held.
+    fn stop(&mut self) {
+        let held: Vec<String> =
+            self.queue.iter().filter(|p| !self.held().contains(*p)).cloned().collect();
+        if !held.is_empty() {
+            let (seq, at) = (self.end() + 1, self.tick());
+            self.journal.push(Rec { seq, at, kind: "queue_paused", held, ..Rec::default() });
+        }
+    }
+    /// The queue is resumed: what a Stop held goes on.
+    fn resume(&mut self) {
+        if !self.held().is_empty() {
+            self.push("queue_resumed", None);
+        }
+    }
+    /// The prompts admitted before a restore took the turn lock take it (`queue_slot`): not while
+    /// a restore holds the chat (4dcbe192's did), and behind the queue a restore put back.
+    fn run_admitted(&mut self) {
+        if self.admitted.is_empty() || !self.loaded {
+            return;
+        }
+        if self.holding {
+            if !self.recent {
+                return;
+            }
+            LOST.with(|l| {
+                l.borrow_mut()
+                    .push("held: a prompt admitted before a restore ran during its hold".into())
+            });
+        }
+        for p in std::mem::take(&mut self.admitted) {
+            if self.holds(&p) > 0 {
+                continue;
+            }
+            if !self.queue.is_empty() || !self.restored_first.is_empty() {
+                self.push("queued", Some(&p));
+                self.queue.push(p);
+            } else {
+                self.run(&p, true);
+            }
+        }
+    }
+    /// Where the run of recovery records at its journal's end begins (the seq before it).
+    fn recovery_tail(&self) -> Option<u64> {
+        let mut from = None;
+        for r in self.journal.iter().rev() {
+            if !r.recovery {
+                break;
+            }
+            from = Some(r.seq - 1);
+        }
+        from
     }
     fn tick(&mut self) -> u64 {
         self.clock += 1;
@@ -230,6 +364,19 @@ impl Machine {
                     .push(format!("resurrected: {prompt} ran again after its end was captured"))
             });
         }
+        if self.with_file.contains(prompt) && !self.files.contains(prompt) {
+            LOST.with(|l| l.borrow_mut().push(format!("file: {prompt} ran without its file")));
+        }
+        let paused = self
+            .journal
+            .iter()
+            .any(|r| r.kind == "queue_paused" && r.held.iter().any(|h| h == prompt));
+        if by_owner && self.stop_seen.contains(prompt) && !paused {
+            LOST.with(|l| {
+                l.borrow_mut()
+                    .push(format!("unheld: {prompt} ran though the owner saw its Stop hold it"))
+            });
+        }
         self.push("user_message", Some(prompt));
         self.ran.push((prompt.to_owned(), self.generation));
         self.push("agent_message_chunk", None);
@@ -242,6 +389,7 @@ impl Machine {
         prompt: &str,
         generation: Option<u64>,
         queue: bool,
+        admit: bool,
     ) -> Result<bool, &'static str> {
         if generation.is_some_and(|g| g != self.generation) {
             return Err("stale_generation");
@@ -249,10 +397,24 @@ impl Machine {
         if self.holds(prompt) > 0 {
             return Ok(true);
         }
+        if self.admitted.iter().any(|p| p == prompt) {
+            return Err("admitted");
+        }
+        // A restore holds the chat: it waits to be admitted (no answer yet).
+        if self.holding {
+            return Err("held");
+        }
+        if self.with_file.contains(prompt) {
+            self.files.insert(prompt.to_owned());
+        }
         // Behind what waits, too.
         if queue || !self.queue.is_empty() {
             self.push("queued", Some(prompt));
             self.queue.push(prompt.to_owned());
+        } else if admit {
+            // Admitted; it takes the turn lock later, and answers when its turn ends.
+            self.admitted.push(prompt.to_owned());
+            return Err("admitted");
         } else {
             self.run(prompt, true);
         }
@@ -264,6 +426,12 @@ impl Machine {
             return;
         }
         if self.holding {
+            // 4dcbe192: a prompt admitted before the restore took the turn lock runs in its
+            // hold (F3).
+            if self.recent && !self.admitted.is_empty() {
+                self.run_admitted();
+                return;
+            }
             if !self.last {
                 return;
             }
@@ -275,9 +443,20 @@ impl Machine {
                 });
             }
         }
+        if !self.admitted.is_empty() {
+            self.run_admitted();
+            return;
+        }
         let waiting = self.waiting();
-        while !self.queue.is_empty() {
-            let p = self.queue.remove(0);
+        let held = self.held();
+        let mut i = 0;
+        while i < self.queue.len() {
+            let p = self.queue[i].clone();
+            if held.contains(&p) {
+                i += 1;
+                continue;
+            }
+            self.queue.remove(i);
             if let Some((_, seq)) = waiting.iter().find(|(w, _)| *w == p) {
                 let by_owner = self.by_owner.contains(seq);
                 self.run(&p, by_owner);
@@ -314,7 +493,15 @@ impl Machine {
             .and_then(|r| r.prompt.clone());
         if let Some(p) = &open {
             let (seq, at) = (self.end() + 1, self.tick());
-            self.journal.push(Rec { seq, at, kind: "turn_result", prompt: Some(p.clone()) });
+            let prompt = Some(p.clone());
+            self.journal.push(Rec {
+                seq,
+                at,
+                kind: "turn_result",
+                prompt,
+                recovery: true,
+                ..Rec::default()
+            });
         }
         for p in self.pending() {
             if !self.queue.contains(&p) {
@@ -333,8 +520,10 @@ impl Machine {
         }
     }
     /// The machine starts on `journal`, its log read now or later.
-    fn start(&mut self, journal: Vec<Rec>, loaded: bool) {
+    fn start(&mut self, journal: Vec<Rec>, files: HashSet<String>, loaded: bool) {
         self.journal = journal;
+        self.files = files;
+        self.admitted.clear();
         self.by_owner.clear();
         self.queue.clear();
         self.restored_first.clear();
@@ -354,10 +543,13 @@ impl Machine {
         after: u64,
         records: &[Rec],
         stop_after: Option<usize>,
+        files: &[String],
     ) -> Result<u64, &'static str> {
         if generation != self.generation {
             return Err("generation");
         }
+        // The files its prompts were saved as go back first (`restore_files`).
+        self.files.extend(files.iter().cloned());
         if self.old && !self.queue.is_empty() {
             // 98b4575a: refused while a prompt waits, with no turn running.
             LOST.with(|l| {
@@ -378,7 +570,36 @@ impl Machine {
                 self.pending = true;
             }
         }
+        // The recovery at its journal's end goes when the copy holds what was there (F1).
+        if !self.recent
+            && let Some(from) = self.recovery_tail()
+            && records.last().is_some_and(|r| r.seq > from)
+        {
+            if after > from {
+                self.recovered_from = Some(from);
+                return Err("recovered");
+            }
+            self.journal.retain(|r| r.seq <= from);
+            // Its recovery is made again on the restored log, whatever the restore answers.
+            self.pending = true;
+        }
+        let at = self.end();
         let answer = self.write_restored(after, records, stop_after);
+        if self.recent && answer == Err("diverged") {
+            let own = self.journal.iter().filter(|h| h.seq > after && h.seq <= at);
+            let ours = own.clone().count() > 0 && own.clone().all(|h| h.recovery);
+            let differs = records.iter().any(|r| {
+                self.journal
+                    .iter()
+                    .any(|h| h.seq == r.seq && h.recovery && (h.at, h.kind) != (r.at, r.kind))
+            });
+            if ours && differs {
+                LOST.with(|l| {
+                    l.borrow_mut()
+                        .push("recovered: a restore diverged on the machine's own recovery".into())
+                });
+            }
+        }
         if answer == Err("diverged") && recovered {
             LOST.with(|l| {
                 l.borrow_mut().push(
@@ -505,6 +726,20 @@ struct World {
     /// The prompts whose deliveries a link released: their machine held every record of their
     /// proofs then (`od::Step::Release`).
     released: HashSet<String>,
+    /// The owner's starts (a daemon restart: a new incarnation, links numbered from 1 again).
+    starts: u64,
+}
+
+/// The owner store's hook: records into a thread-local the world drains after each op (the
+/// hook is `Send + Sync`; this thread is the only one).
+fn sim_store(dir: &std::path::Path) -> Store {
+    let hook: Written = Arc::new(|key, generation, link, records| {
+        WRITTEN.with(|w| w.borrow_mut().push((key.clone(), generation, link, records)));
+    });
+    let mut store =
+        Store::new(disk::root(dir), Arc::default(), Arc::new(StdMutex::new(Some(hook))));
+    store.scan();
+    store
 }
 
 fn key() -> Key {
@@ -514,14 +749,7 @@ fn key() -> Key {
 impl World {
     fn new(seed: u64, rules: Rules) -> Self {
         let dir = cmux_unix_socket::short_test_dir("acpmux-msim");
-        // The store's hook is `Send + Sync`; this thread is the only one, so the hook records
-        // into a thread-local the world drains after each op.
-        let hook: Written = Arc::new(|key, generation, link, records| {
-            WRITTEN.with(|w| w.borrow_mut().push((key.clone(), generation, link, records)));
-        });
-        let mut store =
-            Store::new(disk::root(dir.path()), Arc::default(), Arc::new(StdMutex::new(Some(hook))));
-        store.scan();
+        let store = sim_store(dir.path());
         crate::store::CLOCK_AHEAD_MS.with(|c| c.set(0));
         let mut world = World {
             rng: Rng(seed),
@@ -542,6 +770,13 @@ impl World {
                 last: rules == Rules::Last,
                 holding: false,
                 pending: false,
+                recent: rules != Rules::Now,
+                recovered_from: None,
+                admitted: vec![],
+                with_file: HashSet::new(),
+                files: HashSet::new(),
+                snapshot_files: vec![],
+                stop_seen: HashSet::new(),
                 ran_by_itself: HashSet::new(),
             },
             store,
@@ -559,6 +794,7 @@ impl World {
             calm: false,
             seen: HashMap::new(),
             released: HashSet::new(),
+            starts: 0,
         };
         world.connect();
         world
@@ -578,11 +814,17 @@ impl World {
                 {
                     self.machine.settled_seen.insert(p.to_owned());
                 }
+                // What the copy saw a Stop hold, until it saw the queue resumed.
+                match r["kind"].as_str() {
+                    Some("queue_paused") => self.machine.stop_seen.extend(Rec::of(r).held),
+                    Some("queue_resumed") => self.machine.stop_seen.clear(),
+                    _ => {}
+                }
             }
             let pinned = (key.0.as_str(), key.1.as_str(), generation);
             match self.rules {
                 // The hook's work (`Hub::proof_written`).
-                Rules::Now | Rules::Last => {
+                Rules::Now | Rules::Last | Rules::Recent => {
                     let _ = od::take_written(&self.outbox, pinned, &records, link);
                 }
                 // 98b4575a: the peer's link when the write's hook runs.
@@ -641,12 +883,22 @@ impl World {
         let n = self.sent.len();
         let prompt = format!("p{n}");
         let at = crate::store::now_ms();
-        let d: Delivery = serde_json::from_value(json!({
+        let mut d: Delivery = serde_json::from_value(json!({
             "id": format!("d{n}"), "target": format!("{PEER}/{MUX}"),
             "request": {"sessionId": format!("{PEER}/{MUX}"), "_meta": {"acpmux": {"promptId": prompt}}},
             "state": "queued", "createdAt": at, "updatedAt": at,
         }))
         .unwrap();
+        // A non-image attachment: the machine saves it to disk, its `queued` record names the
+        // path (review at 4dcbe192, F4).
+        if self.rng.chance(30) {
+            use base64::Engine as _;
+            let data =
+                base64::engine::general_purpose::STANDARD.encode(format!("{prompt}'s notes"));
+            d.request["prompt"] = json!([{"type": "resource", "resource": {"uri": "attachment:f.txt", "blob": data},
+                                          "_meta": {"acpmux": {"attachment": {"name": "f.txt"}}}}]);
+            self.machine.with_file.insert(prompt.clone());
+        }
         self.outbox.add(d);
         self.sent.push(prompt.clone());
         self.note(format!("send {prompt}"));
@@ -688,6 +940,23 @@ impl World {
         if !(self.up && self.listed && self.decided) {
             return;
         }
+        // The link may change between the gate's decision and the send (review at 4dcbe192, F2):
+        // the send goes on the link the gate checked, so it fails and goes back through the gate,
+        // which waits for the new link's restore.
+        if !self.calm && self.rng.chance(5) {
+            self.note(format!("link {} flips between the gate and the send", self.link));
+            self.flip();
+            if self.rules != Rules::Now && self.up {
+                // 4dcbe192: the send went on whatever link was up, its restore not decided.
+                LOST.with(|l| {
+                    l.borrow_mut().push(format!(
+                        "raced: {} went on link {} before its restore decided",
+                        d.id, self.link
+                    ))
+                });
+            }
+            return;
+        }
         // Pinned at the first attempt, kept for every later one (`deliver`).
         let fresh = d.pin.is_none();
         let pin = d.pin.clone().or_else(|| self.pin_now());
@@ -697,7 +966,9 @@ impl World {
         let prompt = d.prompt_id().to_owned();
         let named = pin.as_ref().map(|p| p.generation);
         let queue = self.rng.chance(50);
-        let answer = Some(self.machine.prompt(&prompt, named, queue));
+        // Admitted with no turn running, it takes the turn lock later (review at 4dcbe192, F3).
+        let admit = self.rng.chance(30);
+        let answer = Some(self.machine.prompt(&prompt, named, queue, admit));
         if let Some(Ok(_)) = answer {
             self.taken_in.insert(prompt.clone(), self.machine.generation);
         }
@@ -724,6 +995,8 @@ impl World {
                 self.outbox.update(&f.id, |d| od::accepted(d, f.pin, answer));
                 self.note(format!("{} accepted (duplicate {duplicate})", f.id));
             }
+            // No answer yet: a restore holds the chat, or its turn has not run.
+            Some(Err("held" | "admitted")) => self.outbox.update(&f.id, |d| d.attempts += 1),
             Some(Err("stale_generation")) => {
                 // A pin read for this attempt is read again; one kept from an attempt before,
                 // which that session may have taken, fails (`deliver`).
@@ -846,7 +1119,7 @@ impl World {
             let rows = vec![(MUX.to_owned(), generation, last)];
             let (ahead, since) = self.store.ahead(PEER, rows.clone());
             let ahead = match self.rules {
-                Rules::Now | Rules::Prior | Rules::Last => {
+                Rules::Now | Rules::Prior | Rules::Last | Rules::Recent => {
                     let proofs = od::proofs_past(&self.outbox, PEER, &rows, &since);
                     restore::with_proofs(ahead, proofs, &rows).0
                 }
@@ -878,7 +1151,7 @@ impl World {
             if self.rules == Rules::Prior && self.up {
                 // 98b4575a: `Peer::request` goes on whatever link is up now.
                 let end = self.machine.end();
-                let _ = self.machine.restore(generation, after, &recs, None);
+                let _ = self.machine.restore(generation, after, &recs, None, &[]);
                 if self.machine.end() > end {
                     LOST.with(|l| {
                         l.borrow_mut().push(format!(
@@ -891,7 +1164,12 @@ impl World {
             return;
         }
         let before = self.copy_seqs();
-        let answer = self.machine.restore(generation, after, &recs, stop);
+        // The files its proven prompts were saved as go with it (review at 4dcbe192, F4).
+        let files: Vec<String> = restore::restore_files(&self.outbox, (PEER, MUX, generation))
+            .iter()
+            .filter_map(|f| file_prompt(std::path::Path::new(f["path"].as_str()?)))
+            .collect();
+        let answer = self.machine.restore(generation, after, &recs, stop, &files);
         self.note(format!(
             "link {link}: restore after {after} ({} records): {answer:?}",
             recs.len()
@@ -911,6 +1189,16 @@ impl World {
             Err("generation" | "diverged") => {
                 self.take(Op::Restored { key: key(), link: (1, link), generation, last: None });
                 self.check_copy_kept(&before);
+            }
+            Err("recovered") => {
+                // The machine's own recovery is past where the copy was read from: read again
+                // from where that recovery began, and go at once (review at 4dcbe192, F1).
+                let from = self.machine.recovered_from.take().unwrap_or(after);
+                if let Some(t) = self.task.as_mut() {
+                    t.rows = (generation, from);
+                    t.ahead = None;
+                }
+                return;
             }
             Err("append_failed") if tries < 4 => {
                 // A prompt that waited before the restore began tries for its turn between the
@@ -959,34 +1247,62 @@ impl World {
         let link = (1, self.link);
         for d in self.outbox.open_on_peers() {
             let Some(pin) = d.pin.clone() else { continue };
+            // A proof of an earlier owner start waits for a link numbered past its own, though
+            // its machine holds it (review at 4dcbe192, F6).
+            if self.rules != Rules::Now
+                && od::step(&d, now, link, ends) == od::Step::Wait
+                && let Some(proof) = &d.proof
+                && proof.incarnation != od::incarnation()
+                && pin.generation == self.machine.generation
+                && proof.records.iter().all(|r| {
+                    let found =
+                        self.machine.journal.iter().find(|h| Some(h.seq) == r["seq"].as_u64());
+                    od::same_record(r, found.map(Rec::json).as_ref())
+                })
+            {
+                LOST.with(|l| {
+                    l.borrow_mut().push(format!(
+                        "stuck: {}'s proof of an earlier owner start is never checked",
+                        d.id
+                    ))
+                });
+            }
             let step = match self.rules {
-                Rules::Now | Rules::Prior | Rules::Last => match od::step(&d, now, link, ends) {
-                    // The machine's journal read on this link (`Hub::proof_held`); the link may
-                    // flip first.
-                    od::Step::Check if !self.calm && self.rng.chance(8) => {
-                        self.flip();
-                        if self.rules == Rules::Prior && self.up {
-                            // 98b4575a: read on whatever link is up now.
-                            LOST.with(|l| {
-                                l.borrow_mut().push(format!(
-                                    "stale: {}'s proof was read on link {}, not link {}",
-                                    d.id, self.link, link.1
-                                ))
-                            });
+                Rules::Now | Rules::Prior | Rules::Last | Rules::Recent => {
+                    match od::step(&d, now, link, ends) {
+                        // The machine's journal read on this link (`Hub::proof_held`); the link may
+                        // flip first.
+                        od::Step::Check if !self.calm && self.rng.chance(8) => {
+                            self.flip();
+                            if self.rules == Rules::Prior && self.up {
+                                // 98b4575a: read on whatever link is up now.
+                                LOST.with(|l| {
+                                    l.borrow_mut().push(format!(
+                                        "stale: {}'s proof was read on link {}, not link {}",
+                                        d.id, self.link, link.1
+                                    ))
+                                });
+                            }
+                            // The redelivery's link is gone: it stops (`redeliver_all`).
+                            return;
                         }
-                        // The redelivery's link is gone: it stops (`redeliver_all`).
-                        return;
+                        od::Step::Check => {
+                            let records = d.proof.as_ref().map_or(&[][..], |p| &p.records[..]);
+                            let held = records.iter().all(|r| {
+                                let at = r["seq"].as_u64();
+                                let found = self.machine.journal.iter().find(|h| Some(h.seq) == at);
+                                od::same_record(r, found.map(Rec::json).as_ref())
+                            });
+                            // And the files its prompt was saved as (`ATTACHMENTS_HELD`): until
+                            // then, it waits.
+                            let files = od::proof_files(&d).iter().all(|(path, _)| {
+                                file_prompt(path).is_some_and(|p| self.machine.files.contains(&p))
+                            });
+                            od::checked(if held && !files { None } else { Some(held) })
+                        }
+                        step => step,
                     }
-                    od::Step::Check => {
-                        let records = d.proof.as_ref().map_or(&[][..], |p| &p.records[..]);
-                        od::checked(Some(records.iter().all(|r| {
-                            let at = r["seq"].as_u64();
-                            let found = self.machine.journal.iter().find(|h| Some(h.seq) == at);
-                            od::same_record(r, found.map(Rec::json).as_ref())
-                        })))
-                    }
-                    step => step,
-                },
+                }
                 // 0c98c292: lapse, or closed on the copy, else again.
                 Rules::Before if d.open_lapsed(now) => od::Step::Lapse,
                 Rules::Before => {
@@ -1022,7 +1338,12 @@ impl World {
                 }
                 od::Step::Again => {
                     let queue = self.rng.chance(50);
-                    let answer = self.machine.prompt(d.prompt_id(), Some(pin.generation), queue);
+                    let answer =
+                        self.machine.prompt(d.prompt_id(), Some(pin.generation), queue, false);
+                    if let Err(e @ ("held" | "admitted")) = answer {
+                        self.note(format!("again {}: {e}; on a later link", d.id));
+                        continue;
+                    }
                     if answer.is_ok() {
                         self.taken_in.insert(d.prompt_id().to_owned(), self.machine.generation);
                     }
@@ -1057,9 +1378,12 @@ impl World {
         let i = self.rng.below(self.machine.snapshots.len() as u64) as usize;
         // What this disk holds is its own now; a deferred start reads its log later.
         let loaded = self.rng.chance(50);
-        self.machine.start(self.machine.snapshots[i].clone(), loaded);
+        let (journal, files) =
+            (self.machine.snapshots[i].clone(), self.machine.snapshot_files[i].clone());
+        self.machine.start(journal, files, loaded);
         // A disk at most as new as the one it came back on.
         self.machine.snapshots.truncate(i + 1);
+        self.machine.snapshot_files.truncate(i + 1);
         // Answers in flight were the old machine's: lost with it.
         for f in &mut self.flights {
             f.lost = true;
@@ -1072,14 +1396,30 @@ impl World {
     fn purge_recreate(&mut self) {
         self.machine.purged.push(self.machine.generation);
         self.machine.generation += 1;
-        self.machine.start(vec![], true);
+        self.machine.start(vec![], HashSet::new(), true);
         self.machine.snapshots.clear();
+        self.machine.snapshot_files.clear();
         let gone = Some(self.machine.generation - 1);
         self.take(Op::Gone { key: key(), generation: gone });
         self.note(format!("purged; generation {} made", self.machine.generation));
         if self.up {
             self.list();
         }
+    }
+
+    /// The owner daemon restarts: a new start (`od::incarnation`), its store read again from
+    /// disk, its outbox kept, its links numbered from 1 again (review at 4dcbe192, F6).
+    fn restart_owner(&mut self) {
+        self.starts += 1;
+        od::INCARNATION.with(|i| *i.borrow_mut() = Some(format!("start {}", self.starts)));
+        for f in &mut self.flights {
+            f.lost = true;
+        }
+        self.drop_link();
+        self.store = sim_store(self._dir.path());
+        self.link = 0;
+        self.connect();
+        self.note("owner restarted".into());
     }
 
     fn look(&mut self) {
@@ -1110,6 +1450,7 @@ impl World {
                     self.machine.end()
                 ));
                 self.machine.snapshots.push(journal);
+                self.machine.snapshot_files.push(self.machine.files.clone());
             }
             51..=54 => self.restart_older(),
             55..=58 => {
@@ -1155,6 +1496,16 @@ impl World {
                 self.store.evict_disk(None, TOTAL_BYTES);
                 self.note("disk evicted".into());
             }
+            96 => self.restart_owner(),
+            97..=98 => {
+                // A person's Stop holds what waits (review at 4dcbe192, F5).
+                self.machine.stop();
+                self.note(format!("stop (ends {})", self.machine.end()));
+            }
+            99 => {
+                self.machine.resume();
+                self.note(format!("resume (ends {})", self.machine.end()));
+            }
             _ => {}
         }
     }
@@ -1192,7 +1543,12 @@ impl World {
         // A deferred start's lazy load comes; a restore's hold lapses.
         self.machine.load();
         self.machine.lapse();
-        while !self.machine.queue.is_empty() {
+        // The person resumes what a Stop held.
+        self.machine.resume();
+        for _ in 0..1000 {
+            if self.machine.queue.is_empty() && self.machine.admitted.is_empty() {
+                break;
+            }
             self.machine.work();
         }
         if !self.machine.journal.is_empty() {
@@ -1280,6 +1636,7 @@ thread_local! {
 fn run(seed: u64, rules: Rules) -> (Result<(), String>, Vec<String>) {
     LOST.with(|l| l.borrow_mut().clear());
     crate::hub::journal_restore::OLD_RULES.with(|r| r.set(rules.old()));
+    od::INCARNATION.with(|i| *i.borrow_mut() = Some("start 0".into()));
     let mut world = World::new(seed, rules);
     world.list();
     let steps = 60 + world.rng.below(140);
@@ -1290,6 +1647,7 @@ fn run(seed: u64, rules: Rules) -> (Result<(), String>, Vec<String>) {
     let verdict = world.check();
     crate::store::CLOCK_AHEAD_MS.with(|c| c.set(0));
     crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
+    od::INCARNATION.with(|i| *i.borrow_mut() = None);
     (verdict, world.trace)
 }
 
@@ -1317,8 +1675,21 @@ fn failures_in(
         let mut seen = HashSet::new();
         for part in e.split(" | ") {
             let kind = part.split(": ").next().unwrap_or("other");
-            let known =
-                ["lost", "resurrected", "twice", "stale", "stalled", "ahead", "held", "diverged"];
+            let known = [
+                "lost",
+                "resurrected",
+                "twice",
+                "stale",
+                "stalled",
+                "ahead",
+                "held",
+                "diverged",
+                "recovered",
+                "raced",
+                "file",
+                "unheld",
+                "stuck",
+            ];
             let kind = if known.contains(&kind) { kind } else { "other" };
             if seen.insert(kind) {
                 *kinds.entry(kind.to_owned()).or_insert(0) += 1;
@@ -1337,6 +1708,7 @@ fn move_sim_seeds_hold_the_move_invariants() {
             Ok("before") => Rules::Before,
             Ok("prior") => Rules::Prior,
             Ok("last") => Rules::Last,
+            Ok("recent") => Rules::Recent,
             _ => Rules::Now,
         };
         let (verdict, trace) = run(seed, rules);
@@ -1405,6 +1777,26 @@ fn move_sim_finds_the_losses_of_the_rules_of_91b1343d() {
         eprintln!("  {f}");
     }
     for kind in ["held", "diverged"] {
+        assert!(kinds.contains_key(kind), "no seed found {kind}");
+    }
+}
+
+/// Under the rules of 4dcbe192 (review at 4dcbe192, F1 to F6) some seeds send a prompt on a link
+/// the gate did not decide (`raced`), run a prompt admitted before a restore took the lock in its
+/// hold (`held`), give back a prompt whose file its disk lacks (`file`), or leave a proof of an
+/// earlier owner start unchecked (`stuck`); rarer, a restore diverges on the machine's own
+/// recovery (`recovered`) and a prompt runs past the Stop the bound cut from its proof
+/// (`unheld`). At least 2000 seeds. Prints which seeds.
+#[test]
+fn move_sim_finds_the_losses_of_the_rules_of_4dcbe192() {
+    let range = seeds();
+    let range = range.start..range.end.max(range.start + 2000);
+    let (n, failed, kinds) = failures_in(Rules::Recent, range);
+    eprintln!("move sim, the rules of 4dcbe192: {n} seeds, {} failed {kinds:?}", failed.len());
+    for f in failed.iter().take(10) {
+        eprintln!("  {f}");
+    }
+    for kind in ["raced", "held", "file", "stuck"] {
         assert!(kinds.contains_key(kind), "no seed found {kind}");
     }
 }

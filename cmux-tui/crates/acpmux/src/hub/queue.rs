@@ -372,7 +372,7 @@ impl Hub {
                     let free = |_: &_| {
                         session.turn().is_none()
                             && !queue_waits(session)
-                            && !(self.restore_holds(session) && !self.at_4dcb())
+                            && (!self.restore_holds(session) || self.at_4dcb())
                     };
                     match guard.filter(free) {
                         Some(guard) => ClaimedTurn::new(session, guard),

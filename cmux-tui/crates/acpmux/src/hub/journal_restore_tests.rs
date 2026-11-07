@@ -277,7 +277,7 @@ async fn recovered_then_restored(rules: u8, after_end: bool) -> (Result<Value, R
     let unknown = events
         .iter()
         .any(|e| e.msg.get("detail").and_then(Value::as_str) == Some("outcome_unknown"));
-    if answer.is_ok() {
+    if answer.is_ok() && rules == 0 {
         let at = |seq: u64| events.iter().find(|e| e.seq == seq).map(|e| e.kind.clone());
         assert_eq!(
             at(cut + 2).as_deref(),

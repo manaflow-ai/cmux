@@ -492,7 +492,10 @@ fn test_unknown(peer: &str) -> bool {
 /// The files the open deliveries pinned to `pinned` (peer, session, generation) saved their
 /// prompts as on the machine (`od::proof_files`): a restore writes them back before its records
 /// (review of #37284 at 4dcbe192, F4).
-fn restore_files(outbox: &crate::hub::outbox::Outbox, pinned: (&str, &str, u64)) -> Vec<Value> {
+pub(crate) fn restore_files(
+    outbox: &crate::hub::outbox::Outbox,
+    pinned: (&str, &str, u64),
+) -> Vec<Value> {
     use base64::Engine as _;
     let mut files: BTreeMap<std::path::PathBuf, Vec<u8>> = BTreeMap::new();
     for d in outbox.pinned_to(pinned) {
