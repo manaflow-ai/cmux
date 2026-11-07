@@ -1,6 +1,8 @@
 import CmuxNextActions
 import CmuxNextCompat
 @testable import CmuxNextControl
+import CmuxNextDesign
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -263,6 +265,40 @@ import Testing
         #expect(log.all.count == 4)
     }
 
+    /// A managed `DisableTelemetry` installed while cmux runs stops recording and switches the
+    /// daemon's marker off (Codex review of 9f2c4726); the setting and consent stay as they were.
+    @Test func aManagedBlockInstalledMidRunTurnsRecordingAndTheDaemonOff() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cn-usage-managed-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        try Data(#"{ "diagnostics": { "usageRecording": true } }"#.utf8).write(to: url)
+        let managed = SwitchableManagedReader()
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: managed, managedWatchFiles: [])
+        await settings.reload()
+        let log = PortLog()
+        let defaults = UserDefaults(suiteName: "cn-usage-\(UUID().uuidString)") ?? .standard
+        defaults.set(Date(), forKey: UsageRecorder.consentKey)
+        let ports = UsageRecorder.Ports(
+            channel: "dev", build: "1", previousRun: { "clean" }, counts: { UsageCounts() }, appActive: { true },
+            ask: { _, _, _, _ in false },
+            setEnabled: { on in log.calls.withLock { $0.append("set-enabled \(on)") } },
+            record: { _, _ in })
+        let recorder = UsageRecorder(ports: ports, managedDisables: { false }, defaults: defaults)
+        recorder.start(settings: settings, firstWindow: {})
+        for _ in 0..<500 where !log.all.contains("set-enabled true") { await Task.yield() }
+        #expect(recorder.isRecording)
+        #expect(log.all == ["set-enabled true"])
+
+        managed.forced.withLock { $0 = ["DisableTelemetry": .bool(true)] }
+        await settings.reload()
+        for _ in 0..<500 where !log.all.contains("set-enabled false") { await Task.yield() }
+        #expect(!recorder.isRecording)
+        #expect(log.all == ["set-enabled true", "set-enabled false"])
+        #expect(UsageRecorder.consented(defaults))
+    }
+
     // MARK: Queue
 
     @Test func aStoppedQueueKeepsAndSendsNothing() async {
@@ -330,6 +366,12 @@ import Testing
 private final class PortLog: Sendable {
     let calls = Mutex<[String]>([])
     var all: [String] { calls.withLock { $0 } }
+}
+
+/// Managed preferences a test changes while the settings run.
+private final class SwitchableManagedReader: ManagedPreferenceReader {
+    let forced = Mutex<[String: CmuxNextSettings.JSONValue]>([:])
+    func read() -> ManagedPreferences { ManagedPreferences(forced: forced.withLock { $0 }) }
 }
 
 /// A send the daemon refused.

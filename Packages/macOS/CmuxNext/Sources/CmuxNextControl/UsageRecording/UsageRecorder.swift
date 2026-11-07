@@ -98,7 +98,7 @@ public final class UsageRecorder {
     /// The one switch on its way to the daemon, not yet answered. Switches go one at a time, so an
     /// answer never lands after a newer switch and leaves the marker on after the person's off.
     private var switchInFlight: Bool?
-    /// The wait before sending a failed switch-off again, and how many have failed in a row. It ends
+    /// The wait before sending a failed switch-off again, and its backoff. It ends
     /// when the daemon confirms off, or when the decision turns on.
     private var offRetry: Task<Void, Never>?
     private var offBackoff = Backoff(initial: .seconds(1), maximum: .seconds(60))
@@ -169,9 +169,12 @@ public final class UsageRecorder {
                 self?.apply(false)
                 return
             }
-            for await on in ObservationStream({ settings.snapshot.usageRecording }) {
+            // The settings watch the managed preference files, so a profile installed while cmux
+            // runs turns recording off and the daemon's marker with it (Codex review of 9f2c4726).
+            for await input in ObservationStream({ Input(settingOn: settings.snapshot.usageRecording,
+                                                         managedOff: Self.policyDisables(settings.managedPolicy)) }) {
                 guard let self else { return }
-                follow(settingOn: on, settings: settings, firstWindow: firstWindow)
+                follow(input, settings: settings, firstWindow: firstWindow)
             }
         }
     }
@@ -185,11 +188,25 @@ public final class UsageRecorder {
         if let queue { tapActions(into: queue) }
     }
 
-    /// The decision for the setting's value now, then records, or asks once this launch.
-    private func follow(settingOn: Bool, settings: SettingsController, firstWindow: @escaping @MainActor () async -> Void) {
+    /// What the recorder follows: the setting and the managed `DisableTelemetry`.
+    private struct Input: Sendable, Equatable {
+        var settingOn: Bool
+        var managedOff: Bool
+    }
+
+    /// Whether the managed policy forces `DisableTelemetry` (CrashReportingPolicy's key; either
+    /// managed domain, merged by the settings' reader).
+    static func policyDisables(_ policy: [String: CmuxNextSettings.JSONValue]) -> Bool {
+        policy["DisableTelemetry"]?.boolValue == true
+    }
+
+    /// The decision for the setting's value and the managed policy now, then records, or asks once
+    /// this launch.
+    private func follow(_ input: Input, settings: SettingsController, firstWindow: @escaping @MainActor () async -> Void) {
+        let settingOn = input.settingOn
         // Off removes this Mac's consent, so a file that turns it on again needs a new yes.
         if !settingOn { defaults.removeObject(forKey: Self.consentKey) }
-        let decision = Self.decision(settingOn: settingOn, consented: Self.consented(defaults), managedOff: false)
+        let decision = Self.decision(settingOn: settingOn, consented: Self.consented(defaults), managedOff: input.managedOff)
         apply(decision == .record)
         guard decision == .confirm, !askedThisLaunch else { return }
         askedThisLaunch = true
@@ -204,8 +221,8 @@ public final class UsageRecorder {
     private func ask(settings: SettingsController) async {
         guard settings.snapshot.usageRecording, !Self.consented(defaults) else { return }
         let yes = await ports.ask(Strings.askTitle, Self.privacySummary, Strings.askYes, Strings.askNo)
-        // The file may have turned it off while the card was up.
-        guard yes, settings.snapshot.usageRecording else { return }
+        // The file or a managed profile may have turned it off while the card was up.
+        guard yes, settings.snapshot.usageRecording, !Self.policyDisables(settings.managedPolicy) else { return }
         defaults.set(Date(), forKey: Self.consentKey)
         apply(true)
     }
