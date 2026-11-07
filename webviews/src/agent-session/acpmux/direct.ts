@@ -10504,6 +10504,10 @@ export class AcpmuxDirectClient {
     } finally {
       this.foldingBelow = undefined;
     }
+    // A page can split a tool call: its completed update may have been held first, then the
+    // older page brings the call opener. Keep the held row as the authoritative later state and
+    // remove the page's duplicate item, while retaining page-only calls in the incremental fold.
+    const pageToolRows = this.toolRows;
     // The held events' compactions take up the ones the page left open, in order, as reading the
     // whole record does (`compaction` above). One whose first record is a running note continues a
     // compaction the page left running, or noted as failed while it may go on (a forced Stop, or an
@@ -10599,6 +10603,27 @@ export class AcpmuxDirectClient {
     const progressSuperseded =
       live.progressRow !== undefined ? live.progressSuperseded : this.progressRow !== undefined;
     Object.assign(this, live, { forkedAtSeq, messageRows, progressRow, progressSuperseded });
+    for (const [callId, pageRowId] of pageToolRows) {
+      const liveRowId = live.toolRows.get(callId);
+      if (liveRowId === undefined) {
+        this.toolRows.set(callId, pageRowId);
+        continue;
+      }
+      if (liveRowId === pageRowId) continue;
+      const pageRow = this.rows.get(pageRowId);
+      const liveRow = this.rows.get(liveRowId);
+      if (!pageRow?.items || !liveRow?.items) continue;
+      const liveToolIds = new Set(liveRow.items.map((item) => item.tool?.id).filter(Boolean));
+      const remaining = pageRow.items.filter((item) => !item.tool?.id || !liveToolIds.has(item.tool.id));
+      if (remaining.length === 0) this.rows.delete(pageRowId);
+      else
+        this.rows.set(pageRowId, {
+          ...pageRow,
+          version: pageRow.version + 1,
+          items: remaining,
+          toolCount: remaining.filter((item) => item.kind === "tool").length,
+        });
+    }
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
     for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);
     // A held page can start at a prompt sent now whose cancel only this page holds: its row,
