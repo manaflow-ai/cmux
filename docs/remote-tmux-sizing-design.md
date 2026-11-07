@@ -36,7 +36,8 @@ With that, the claim is a pure function of window geometry, so it cannot grow or
 oscillate; it settles by construction.
 
 Invariants:
-1. The claim reads only window geometry, chrome constants, and cell metrics.
+1. The claim reads only window geometry, chrome constants, cell metrics, and
+   the session content width cap.
 2. Every view is space-filling (answers a proposal with the proposal; hosting
    controllers publish no intrinsic size) so content exerts no outward pressure.
 3. tmux is the only grid authority.
