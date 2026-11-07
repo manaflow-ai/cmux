@@ -22,6 +22,7 @@ against a fake `gh` and `curl` that play each outcome.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -31,6 +32,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import yaml
@@ -229,28 +231,40 @@ REPIN = ROOT / "scripts/cmux-next/repin-app-ffi.sh"
 
 
 class RePin(unittest.TestCase):
-    def test_repin_rewrites_the_url_and_checksum(self):
+    @staticmethod
+    def canonical(sha, checksum, extra=""):
+        return ("// CmuxNextCloud -> CCmuxAppFFI\nlet appFFI: Target = .binaryTarget(\n"
+                '    name: "CCmuxAppFFI",\n'
+                f'    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{sha}/CCmuxAppFFI.xcframework.zip",\n'
+                f'    checksum: "{checksum}"\n)\n'
+                '            dependencies: ["CmuxNextDesign", "CCmuxAppFFI"],\n'
+                f'let other = [1] // checksum is {"a" * 64}\n{extra}')
+
+    def test_repin_rewrites_only_the_url_sha_and_checksum(self):
         with tempfile.TemporaryDirectory() as temp:
             manifest = Path(temp) / "Package.swift"
-            old_sum, other_sum = "a" * 64, "b" * 64
-            manifest.write_text(textwrap.dedent(f"""\
-                .binaryTarget(
-                    name: "CCmuxAppFFI",
-                    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{SHA}/CCmuxAppFFI.xcframework.zip",
-                    checksum: "{old_sum}"
-                ),
-                .binaryTarget(name: "Other", url: "https://example.com/x.zip", checksum: "{other_sum}"),
-                """))
+            old_sum = "a" * 64
+            manifest.write_text(self.canonical(SHA, old_sum).replace(f"is {'a' * 64}", "unchanged"))
             new_sha, new_sum = "d" * 40, "e" * 64
             subprocess.run(["bash", str(REPIN), new_sha, new_sum, str(manifest)], check=True, capture_output=True)
-            text = manifest.read_text()
-            self.assertIn(f"cmux-app-ffi-{new_sha}/CCmuxAppFFI.xcframework.zip", text)
-            self.assertIn(f'checksum: "{new_sum}"', text)
-            self.assertNotIn(SHA, text)
-            self.assertIn(f'checksum: "{other_sum}"', text)
+            self.assertEqual(manifest.read_text(),
+                             self.canonical(new_sha, new_sum).replace(f"is {'a' * 64}", "unchanged"))
             for bad in (("x", new_sum), (new_sha, "y")):
                 result = subprocess.run(["bash", str(REPIN), *bad, str(manifest)], capture_output=True)
                 self.assertNotEqual(result.returncode, 0, bad)
+
+    def test_repin_refuses_a_manifest_that_is_not_canonical(self):
+        with tempfile.TemporaryDirectory() as temp:
+            manifest = Path(temp) / "Package.swift"
+            for text in (self.canonical(SHA, "a" * 64, extra='let s = """\nx\n"""\n'),
+                         self.canonical(SHA, "a" * 64).replace('name: "CCmuxAppFFI"', "name: ffiName"),
+                         self.canonical(SHA, "a" * 64, extra='.binaryTarget(name: "Other", path: "x"),\n')):
+                manifest.write_text(text)
+                result = subprocess.run(["bash", str(REPIN), "d" * 40, "e" * 64, str(manifest)], capture_output=True,
+                                        text=True)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("error: Package.swift", result.stderr)
+                self.assertEqual(manifest.read_text(), text)
 
     def test_repin_job_opens_or_updates_a_pull_request(self):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
@@ -451,13 +465,7 @@ class NewestPublishedRelease(unittest.TestCase):
         return self.git("rev-parse", "HEAD")
 
     def pin(self, sha, checksum):
-        self.manifest.write_text(textwrap.dedent(f"""\
-            .binaryTarget(
-                name: "CCmuxAppFFI",
-                url: "https://github.com/{REPO}/releases/download/cmux-app-ffi-{sha}/CCmuxAppFFI.xcframework.zip",
-                checksum: "{checksum}"
-            ),
-            """))
+        self.manifest.write_text(RePin.canonical(sha, checksum).replace("manaflow-ai/cmux", REPO))
 
     def publish(self, sha, checksum, *, sums=True, source=None):
         """A release: its tag on origin, and the files its downloads serve (a missing one is a 404)."""
@@ -514,6 +522,38 @@ class NewestPublishedRelease(unittest.TestCase):
     def test_a_manifest_with_no_pin_fails(self):
         self.manifest.write_text("let x = 1\n")
         self.assertNotEqual(self.pick().returncode, 0)
+
+    def test_a_manifest_whose_pin_is_not_canonical_fails(self):
+        self.manifest.write_text(self.manifest.read_text() + 'let s = #"x"#\n')
+        result = self.pick()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no canonical cmux-app-ffi pin", result.stderr)
+
+    def test_any_number_of_unpublished_releases_is_skipped_down_to_the_pin(self):
+        # Review of 6e7159aa (F2): no cap on unpublished releases; the walk ends at the current pin, in pages.
+        more = [self.commit(f"d{i}") for i in range(45)]
+        self.publish(self.commits[3], "3" * 64)
+        for sha in more:
+            self.publish(sha, "5" * 64, sums=False)
+        result = self.pick()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.split(), [self.commits[3], "3" * 64])
+        self.assertEqual(result.stderr.count(": not published"), 45)
+
+    def test_the_walk_reads_pages_and_errors_past_its_bound(self):
+        picker = importlib.util.spec_from_file_location("picker", self.PICKER)
+        module = importlib.util.module_from_spec(picker)
+        picker.loader.exec_module(module)
+        cwd = os.getcwd()
+        os.chdir(self.work)
+        try:
+            with unittest.mock.patch.object(module, "PAGE", 2):
+                self.assertEqual(list(module.newer_commits("HEAD", self.commits[1])), self.commits[:1:-1])
+                with unittest.mock.patch.object(module, "MAX_PAGES", 1):
+                    with self.assertRaisesRegex(RuntimeError, "more than 2 commits"):
+                        list(module.newer_commits("HEAD", self.commits[1]))
+        finally:
+            os.chdir(cwd)
 
     def test_repin_checkout_has_the_history_to_walk(self):
         steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]["steps"]

@@ -1,6 +1,7 @@
 """gh-merge-green excuses a red check only when the base branch's latest completed run has the same failures."""
 import contextlib
 import copy
+import re
 import io
 import importlib.util
 import json
@@ -3947,7 +3948,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files(*self.STEP_B)
         self.compiled()
         self.pin_at_head(self.STEP_B_PIN, repo="someone/cmux")
-        with self.assertRaisesRegex(excuse.Refused, "is not manaflow-ai/cmux's own app FFI release download"):
+        with self.assertRaisesRegex(excuse.Refused, "is not the canonical CCmuxAppFFI pin line"):
             self.judge()
         self.assertEqual(self.releases, [])
 
@@ -3991,9 +3992,11 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
                 self.assertRaisesRegex(module.Refused, "HTTP 502; the pinned release could not be read"):
             module.ffi_release_file(REPO, tag, "SOURCE_SHA")
 
-    # Review of 05e6b0a2 (F1, P1): the pin is the one CCmuxAppFFI binary target's url and checksum in code, never a
-    # URL-shaped string anywhere in the manifest.
+    # The pin is app_ffi_pin.py's canonical block (2026-11-07, after five lexer holes): raw text, nothing skipped. Each
+    # attack the lexer once missed now refuses on a forbidden construct, a count, or a line off the template, and no
+    # release is read for it.
     DIVERGED = "d" * 40
+    NOT_CANONICAL = "is not the canonical CCmuxAppFFI pin line"
 
     def refused_with(self, manifest, pattern):
         self.pr_files(*self.STEP_B)
@@ -4002,136 +4005,93 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, pattern):
             self.judge()
 
-    def test_a_published_url_in_a_line_comment_beside_a_diverged_target_is_refused(self):
-        published = self.target(self.STEP_B_PIN).replace("let appFFI: Target = ", "")
-        manifest = "".join(f"// {line}\n" for line in published.splitlines()) + self.target(self.DIVERGED)
-        # The diverged pin is the one read: its release is the one asked for, and it is not on the base.
-        self.compare = "diverged"
-        self.pinned = self.DIVERGED
-        self.source = self.DIVERGED
-        self.refused_with(manifest, "the pinned release's source dddddddddddd is not an ancestor")
-
-    def test_a_published_target_in_a_block_comment_beside_a_diverged_target_is_refused(self):
-        manifest = ("/* an old pin:\n" + self.target(self.STEP_B_PIN) + "/* nested */ still a comment */\n"
-                    + self.target(self.DIVERGED))
-        self.compare, self.pinned, self.source = "diverged", self.DIVERGED, self.DIVERGED
-        self.refused_with(manifest, "the pinned release's source dddddddddddd is not an ancestor")
-
-    def test_a_target_on_another_host_is_refused(self):
-        self.refused_with(self.target(self.STEP_B_PIN, host="github.com.evil.example"),
-                          "is not manaflow-ai/cmux's own app FFI release download")
+    def refused_unread(self, manifest, pattern):
+        self.refused_with(manifest, pattern)
         self.assertEqual(self.releases, [])
+
+    def inline(self, sha):
+        return self.target(sha).replace("let appFFI: Target = ", "").replace("\n", " ").strip()
+
+    def test_a_published_target_in_a_comment_beside_a_diverged_one_is_refused(self):
+        published = self.target(self.STEP_B_PIN)
+        self.refused_unread("".join(f"// {line}\n" for line in published.splitlines()) + self.target(self.DIVERGED),
+                            "has 2 'binaryTarget', not one")
+        self.refused_unread("/* an old pin:\n" + published + "*/\n" + self.target(self.DIVERGED),
+                            "line 1 has '/\\*'")
+
+    def test_a_pin_in_any_string_or_regex_is_refused(self):
+        published = self.target(self.STEP_B_PIN)
+        for opening, closing, token in (('"""\n', '"""', '\'"""\''), ('#"', '"#', "'#\"'"), ("#/", "/#", "'#/'"),
+                                        ("#" * 64 + '"', '"' + "#" * 64, "'#\"'"),
+                                        ("#" * 200 + '"x"' + "#" * 63 + "\n", '"' + "#" * 200, "'#\"'")):
+            with self.subTest(opening=opening[:8]):
+                self.refused_unread(f"let s = {opening}{published}{closing}\nlet ffiName = \"CCmuxAppFFI\"\n"
+                                    + self.target(self.DIVERGED).replace('name: "CCmuxAppFFI"', "name: ffiName"),
+                                    f"has {re.escape(token)}, which no canonical pin file has")
+
+    def test_an_interpolation_or_conditional_compilation_is_refused(self):
+        self.refused_unread(f'let s = "\\(Target.self/* ) " */{self.inline(self.STEP_B_PIN)})"\n',
+                            "has '/\\*'")
+        self.refused_unread(f'let s = "\\(Target.self{self.inline(self.STEP_B_PIN)})"\n',
+                            "line 1 is not the canonical CCmuxAppFFI pin line")
+        self.refused_unread("#if false\n" + self.target(self.STEP_B_PIN) + "#endif\n" + self.target(self.DIVERGED),
+                            "has '#if'")
+
+    def test_a_target_off_the_template_is_refused(self):
+        published = self.target(self.STEP_B_PIN)
+        url = (f"https://github.com/{REPO}/releases/download/cmux-app-ffi-{self.STEP_B_PIN}/"
+               "CCmuxAppFFI.xcframework.zip")
+        for manifest in (
+                published.replace('name: "CCmuxAppFFI"', "name: ffiName"),
+                published.replace('name: "CCmuxAppFFI"', 'name: "CCmux" + "AppFFI"'),
+                published.replace('name: "CCmuxAppFFI"', 'name: "\\(prefix)AppFFI"'),
+                published.replace('url: "https', 'url: "" + "https'),
+                published.replace("    checksum:", '    path: "x",\n    checksum:'),
+                published.replace("    name:", "  name:"),
+                published.replace("let appFFI: Target = ", "let other: Target = "),
+                f'.binaryTarget(name: "CCmuxAppFFI", path: local(url: "{url}", checksum: "{self.CHECKSUM}"))\n',
+                self.target(self.STEP_B_PIN, host="github.com.evil.example"),
+                self.target(self.STEP_B_PIN, repo="someone/cmux")):
+            with self.subTest(manifest=manifest[:90]):
+                self.refused_unread(manifest, self.NOT_CANONICAL)
+
+    def test_a_second_target_or_declaration_is_refused(self):
+        published = self.target(self.STEP_B_PIN)
+        self.refused_unread(published + published.replace("let appFFI", "let b"), "has 2 'binaryTarget', not one")
+        self.refused_unread("let x = 1\n", "has 0 'binaryTarget', not one")
+        self.refused_unread(published + '.target(name: "CCmuxAppFFI", path: "Shim"),\n',
+                            "line 6 names CCmuxAppFFI or appFFI outside the canonical pin")
+        self.refused_unread(published + "let f = [appFFI].first!\n", "names CCmuxAppFFI or appFFI outside")
+
+    def test_the_fixed_reference_shapes_pass(self):
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        self.manifest = ("// CmuxNextCloud -> CCmuxAppFFI (Stack auth)\n" + self.target(self.STEP_B_PIN)
+                         + '        .target(\n            dependencies: ["CmuxNextDesign", .product(name: "A", package: '
+                         '"B"), "CCmuxAppFFI"],\n            dependencies: [\n                "CCmuxAppFFI",\n'
+                         "            ]\n    targets: [\n        appFFI,\n    ] + [appFFI]\n")
+        self.assertEqual(len(self.judge()), 1)
 
     def test_a_checksum_that_is_not_the_releases_archive_entry_is_refused(self):
         self.sums = f"{'3' * 64}  CCmuxAppFFI.xcframework.zip\n{self.CHECKSUM}  CCmuxAppFFI.xcframework.zip.sha256\n"
         self.refused_with(self.manifest, "the pinned checksum 222222222222 is not cmux-app-ffi-1f63d516ecfc798e40d2d031e"
                                          "bfcbb8eb1637e48's SHA256SUMS entry")
 
-    def test_two_ffi_targets_are_refused(self):
-        self.refused_with(self.target(self.STEP_B_PIN) + self.target(self.STEP_B_PIN).replace("let appFFI", "let b"),
-                          "Package.swift has 2 CCmuxAppFFI binary targets in its code, not one")
-        self.refused_with("let x = 1 // .binaryTarget(name: \"CCmuxAppFFI\")\n",
-                          "Package.swift has 0 CCmuxAppFFI binary targets")
-
-    def test_a_target_with_no_single_url_and_checksum_is_refused(self):
-        self.refused_with('.binaryTarget(name: "CCmuxAppFFI", path: "Frameworks/CCmuxAppFFI.xcframework")\n',
-                          "has no single url and checksum")
-
-    def test_a_url_and_checksum_nested_in_another_argument_are_no_pin(self):
-        # Review of 4c957a46 (hq#7508 F1, P1): only the call's own arguments count.
-        url = (f"https://github.com/{REPO}/releases/download/cmux-app-ffi-{self.STEP_B_PIN}/"
-               "CCmuxAppFFI.xcframework.zip")
-        nested = (f'.binaryTarget(name: "CCmuxAppFFI", path: local(url: "{url}", checksum: "{self.CHECKSUM}"))\n')
-        self.refused_with(nested, "has no single url and checksum")
-        extra = self.target(self.STEP_B_PIN).replace('    checksum:', '    path: "x",\n    checksum:')
-        self.refused_with(extra, "has no single url and checksum")
-        joined = self.target(self.STEP_B_PIN).replace('url: "https', 'url: "" + "https')
-        self.refused_with(joined, "has no single url and checksum")
-        self.assertEqual(self.releases, [])
-
-    # Review of c826e054 (cmux#37468 F1, P1): a string's contents are never code, and a target whose name is no
-    # plain literal could be CCmuxAppFFI, so it excuses nothing.
-    def real_target(self, name_expression):
-        return self.target(self.DIVERGED).replace('name: "CCmuxAppFFI"', f"name: {name_expression}")
-
-    def test_a_published_pin_inside_a_multiline_string_is_no_target(self):
-        fake = 'let note = """\n' + self.target(self.STEP_B_PIN) + '"""\nlet ffiName = "CCmuxAppFFI"\n'
-        self.refused_with(fake + self.real_target("ffiName"), "has no single plain string literal name")
-        self.refused_with('let note = """\n' + self.target(self.STEP_B_PIN) + '"""\n',
-                          "Package.swift has 0 CCmuxAppFFI binary targets")
-        self.assertEqual(self.releases, [])
-
-    def test_a_published_pin_inside_a_raw_string_is_no_target(self):
-        for opening, closing in (('#"', '"#'), ('##"""\n', '"""##'), ('#"""\n', '"""#')):
-            fake = f"let note = {opening}" + self.target(self.STEP_B_PIN).replace("\n", " ") + f'{closing}\n'
-            self.refused_with(fake, "Package.swift has 0 CCmuxAppFFI binary targets")
-            self.refused_with(fake + self.real_target("ffiName"), "has no single plain string literal name")
-        self.assertEqual(self.releases, [])
-
-    def test_a_long_raw_delimiter_hides_a_fake_pin_behind_a_shorter_inner_one(self):
-        # Review of hq#7514 at 724855c8 (F1, P1): every leading `#` counts, so a 64- or 200-hash raw string is not
-        # read from a later hash as a shorter one that the inner `"` + 63 hashes would close.
-        for hashes in (64, 65, 200):
-            with self.subTest(hashes=hashes):
-                fake = ("let s = " + "#" * hashes + '"x"' + "#" * 63 + "\n" + self.target(self.STEP_B_PIN)
-                        + "let t = " + "#" * 63 + '"y"' + "#" * hashes + "\n")
-                self.refused_with(fake, "Package.swift has 0 CCmuxAppFFI binary targets")
-                self.refused_with(fake + self.real_target("ffiName"), "has no single plain string literal name")
-        self.assertEqual(self.releases, [])
-
-    def test_a_comment_inside_an_interpolation_cannot_end_its_string(self):
-        # Review of hq#7514 at 1339773d (F1, P1): a `)` or a quote in a comment inside `\\(...)` counts for nothing,
-        # so the target after it is still the interpolation's code, inside the string.
-        inline = self.target(self.STEP_B_PIN).replace("let appFFI: Target = ", "").replace("\n", " ").strip()
-        for comment in ('/* ) " */', '/* ) /* " */ ) " */'):
-            with self.subTest(comment=comment):
-                self.refused_with(f'let s = "\\(Target.self{comment}{inline})"\n',
-                                  "Package.swift has 0 CCmuxAppFFI binary targets")
-        self.refused_with('let s = """\n\\(x // ) """\n' + self.target(self.STEP_B_PIN) + ')\n"""\n',
-                          "Package.swift has 0 CCmuxAppFFI binary targets")
-        self.assertEqual(self.releases, [])
-
-    def test_an_unterminated_raw_string_hides_everything_after_it(self):
-        self.refused_with('let s = ##"never closed"#\n' + self.target(self.STEP_B_PIN),
-                          "Package.swift has 0 CCmuxAppFFI binary targets")
-        self.assertEqual(self.releases, [])
-
-    def test_a_hash_run_with_no_quote_is_no_string(self):
+    def test_a_published_pin_beside_another_red_is_judged_as_before_and_an_unpublished_one_refused(self):
+        # Review of 6e7159aa (F1): beside another red, a published base pin leaves the job to the base comparison
+        # (None from the rule). An unpublished one still refuses: the comparison could set the pin error aside beside
+        # a red the base shares (review of d5c11dd8), so it must not return None.
+        self.gh.logs[1] = self.pin_log("##[error]red check: Localized strings are complete")
         self.pr_files(*self.STEP_B)
         self.compiled()
-        self.manifest = "#if os(macOS)\nlet f = #file\n" + "#" * 300 + "\n#endif\n" + self.target(self.STEP_B_PIN)
-        self.assertEqual(len(self.judge()), 1)
-
-    def test_a_raw_string_beside_the_real_target_is_skipped_whole(self):
-        # A raw string's `"` is no terminator: the real target after it is read, and it is the diverged one.
-        manifest = 'let s = #"a " quote, and .binaryTarget(name: "CCmuxAppFFI"... "#\n' + self.target(self.DIVERGED)
-        self.compare, self.pinned, self.source = "diverged", self.DIVERGED, self.DIVERGED
-        self.refused_with(manifest, "the pinned release's source dddddddddddd is not an ancestor")
-
-    def test_a_target_named_by_a_variable_is_refused(self):
-        self.refused_with("let ffiName = \"CCmuxAppFFI\"\n" + self.real_target("ffiName"),
-                          "has no single plain string literal name, so it could be CCmuxAppFFI")
-        self.refused_with(self.target(self.STEP_B_PIN) + self.real_target("ffiName"),
-                          "has no single plain string literal name")
-        self.assertEqual(self.releases, [])
-
-    def test_a_target_named_by_concatenation_or_interpolation_is_refused(self):
-        for name in ('"CCmux" + "AppFFI"', '"\\(prefix)AppFFI"', '"CCmux\\("AppFFI")"', '#"CCmuxAppFFI"#',
-                     '"""\nCCmuxAppFFI\n"""', '"CCmuxApp\\u{46}FI"'):
-            with self.subTest(name=name):
-                self.refused_with(self.target(self.STEP_B_PIN) + self.real_target(name),
-                                  "has no single plain string literal name")
-        self.assertEqual(self.releases, [])
-
-    def test_another_plainly_named_binary_target_and_strings_leave_the_pin_alone(self):
-        self.pr_files(*self.STEP_B)
-        self.compiled()
-        self.manifest = ('let banner = """\n  "quoted" \\(x) .binaryTarget(\n"""\nlet raw = #"\\(y) "#\n'
-                         '.binaryTarget(name: "Other", path: "Frameworks/Other.xcframework")\n'
-                         + self.target(self.STEP_B_PIN))
-        self.assertEqual(len(self.judge()), 1)
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
+            self.judge()
+        self.source = None
+        with self.assertRaisesRegex(excuse.Refused, "nor is its pin a published base release"):
+            self.judge()
 
     def test_the_real_manifest_reads_its_one_pin(self):
+        # This checkout's Package.swift (the base it branched from) is canonical.
         text = (ROOT / excuse.FFI_PIN_MANIFEST).read_text(encoding="utf-8")
         pin, checksum, why = excuse.ffi_binary_target(text, REPO)
         self.assertEqual(why, "")

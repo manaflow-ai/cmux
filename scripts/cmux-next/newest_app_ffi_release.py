@@ -12,11 +12,16 @@ release it picks; merge_hold's classifier (scripts/ci/base_red_excuse.py) accept
 compiles against it. When nothing newer is published it prints the current pin, so the re-pin is a no-op.
 
 Reads tags with `git ls-remote` and release files anonymously from the release downloads: no API quota.
+The current pin is read only through scripts/ci/app_ffi_pin.py's canonical match; a Package.swift that does not
+match it exits 1. The walk goes newest first, a page of PAGE commits at a time, and ends at the current pin's
+commit (it never goes older than the pin), so any number of unpublished releases is skipped; more than MAX_PAGES
+pages of commits since the pin is an error, never a silent stop.
 Exits 1 when a release file cannot be read for any reason but a 404, or when the manifest pins nothing.
 """
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import re
 import subprocess
@@ -30,11 +35,15 @@ ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "Packages/macOS/CmuxNext/Package.swift"
 ASSET = "CCmuxAppFFI.xcframework.zip"
 TAG = re.compile(r"refs/tags/cmux-app-ffi-([0-9a-f]{40})$")
-PIN = re.compile(r"releases/download/cmux-app-ffi-([0-9a-f]{40})/CCmuxAppFFI\.xcframework\.zip")
-CHECKSUM = re.compile(r'name:\s*"CCmuxAppFFI".*?checksum:\s*"([0-9a-f]{64})"', re.S)
 SUMS_LINE = re.compile(r"^([0-9a-f]{64})  " + re.escape(ASSET) + r"$", re.M)
-TRIES = 40  # published releases looked at, newest first, before giving up on newer ones
+PAGE = 200  # commits read from git per page, newest first
+MAX_PAGES = 50  # 10,000 commits since the pin: past that the walk errors out instead of stopping short
 FETCH_SECONDS = 60
+
+
+_spec = importlib.util.spec_from_file_location("app_ffi_pin", ROOT / "scripts/ci/app_ffi_pin.py")
+app_ffi_pin = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(app_ffi_pin)
 
 
 class Unpublished(Exception):
@@ -73,12 +82,19 @@ def published_tags(remote: str) -> set[str]:
     return {found[1] for line in out.splitlines() if (found := TAG.search(line.split("\t")[-1]))}
 
 
-def newer_commits(tip: str, current: str) -> list[str]:
-    """Commits on TIP not on CURRENT (the pinned source), newest first (topological: never an ancestor first)."""
+def newer_commits(tip: str, current: str):
+    """Commits on TIP not on CURRENT (the pinned source), newest first (topological: never an ancestor first), read
+    a page of PAGE at a time; more than MAX_PAGES pages raises instead of stopping short of the pin."""
     known = subprocess.run(["git", "cat-file", "-e", f"{current}^{{commit}}"], capture_output=True).returncode == 0
     if not known:
         print(f"note: the pinned source {current} is not in this checkout; reading all of {tip}", file=sys.stderr)
-    return git("rev-list", "--topo-order", tip, *([f"^{current}"] if known else [])).split()
+    for page in range(MAX_PAGES):
+        shas = git("rev-list", "--topo-order", f"--max-count={PAGE}", f"--skip={page * PAGE}", tip,
+                   *([f"^{current}"] if known else [])).split()
+        yield from shas
+        if len(shas) < PAGE:
+            return
+    raise RuntimeError(f"more than {MAX_PAGES * PAGE} commits on {tip} since the pinned source {current}")
 
 
 def release(base_url: str, sha: str) -> str:
@@ -96,27 +112,23 @@ def release(base_url: str, sha: str) -> str:
 
 
 def newest(tip: str, manifest: Path, remote: str, base_url: str, log=sys.stderr) -> tuple[str, str]:
-    text = manifest.read_text(encoding="utf-8")
-    pin, checksum = PIN.search(text), CHECKSUM.search(text)
-    if not pin or not checksum:
-        raise SystemExit(f"error: no cmux-app-ffi pin (url and checksum) in {manifest}")
+    try:
+        current, checksum, _ = app_ffi_pin.read(manifest.read_text(encoding="utf-8"))
+    except app_ffi_pin.NotCanonical as why:
+        raise SystemExit(f"error: no canonical cmux-app-ffi pin in {manifest}: {why}") from why
     tags = published_tags(remote)
-    tried = 0
-    for sha in newer_commits(tip, pin[1]):
+    for sha in newer_commits(tip, current):
         if sha not in tags:
             continue
         try:
             found = release(base_url, sha)
         except Unpublished as why:
             print(f"skipped cmux-app-ffi-{sha}: not published ({why})", file=log)
-            tried += 1
-            if tried >= TRIES:
-                break
             continue
         print(f"newest published app FFI release on {tip}: cmux-app-ffi-{sha}", file=log)
         return sha, found
-    print(f"nothing newer than cmux-app-ffi-{pin[1]} is published", file=log)
-    return pin[1], checksum[1]
+    print(f"nothing newer than cmux-app-ffi-{current} is published", file=log)
+    return current, checksum
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -129,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
     base_url = os.environ.get("CMUX_APP_FFI_RELEASE_DOWNLOAD") or f"https://github.com/{repo}/releases/download"
     try:
         sha, checksum = newest(args.tip, args.manifest, args.remote, base_url)
-    except (OSError, subprocess.CalledProcessError, urllib.error.URLError) as error:
+    except (OSError, RuntimeError, subprocess.CalledProcessError, urllib.error.URLError) as error:
         print(f"error: could not read the published app FFI releases: {error}", file=sys.stderr)
         return 1
     print(sha, checksum)
