@@ -3,6 +3,7 @@
 // answered an ask. Render only: no timer, no observer; the typing dots are a CSS wave that reduced
 // motion stills.
 import "./multiplayer.css";
+import { useState } from "react";
 import { useT } from "../i18n";
 import { machineColor } from "../machineColor";
 import { useAvatarPicture } from "../../../pages/home-channels/avatars";
@@ -14,9 +15,12 @@ export const PRESENCE_STACK = 3;
 /// A person's picture, or their initials on their own hue (the hash the pane gives machines). The
 /// picture is the record's, else the one Home's avatar service has for that id (avatars.ts; a page
 /// without the service, such as the agent pane today, reads none).
+/// A picture that does not load (a page whose policy refuses links, a dead link) draws the initials.
 export function Face({ person, size = 16 }: { person: Participant; size?: number }) {
   const served = useAvatarPicture(person.avatar ? undefined : person.id);
-  const picture = person.avatar ?? served ?? undefined;
+  const [broken, setBroken] = useState<string>();
+  const wanted = person.avatar ?? served ?? undefined;
+  const picture = wanted !== broken ? wanted : undefined;
   return (
     <span
       className="cv-face"
@@ -24,7 +28,18 @@ export function Face({ person, size = 16 }: { person: Participant; size?: number
       aria-hidden="true"
     >
       {/* A small face has room for one letter, as Home's avatars. */}
-      {picture ? <img src={picture} alt="" draggable={false} /> : initials(person.name, size >= 24 ? 2 : 1)}
+      {picture ? (
+        <img
+          src={picture}
+          alt=""
+          draggable={false}
+          // A profile picture link tells its host nothing about the chat it is drawn in.
+          referrerPolicy="no-referrer"
+          onError={() => setBroken(picture)}
+        />
+      ) : (
+        initials(person.name, size >= 24 ? 2 : 1)
+      )}
     </span>
   );
 }
