@@ -17,6 +17,18 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let showsBack: Bool
         let backEnabled: Bool
         let progress: Double?
+
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(primary, forKey: .primary)
+            try c.encode(primaryEnabled, forKey: .primaryEnabled)
+            try c.encode(skip, forKey: .skip)
+            try c.encode(showsBack, forKey: .showsBack)
+            try c.encode(backEnabled, forKey: .backEnabled)
+            try c.encodeNullable(progress, forKey: .progress)
+        }
+
+        private enum Keys: String, CodingKey { case primary, primaryEnabled, skip, showsBack, backEnabled, progress }
     }
 
     struct AgentRow: Encodable, Equatable {
@@ -25,6 +37,17 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let auth: String
         let offersSignIn: Bool
         let icon: Image?
+
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(id, forKey: .id)
+            try c.encode(name, forKey: .name)
+            try c.encode(auth, forKey: .auth)
+            try c.encode(offersSignIn, forKey: .offersSignIn)
+            try c.encodeNullable(icon, forKey: .icon)
+        }
+
+        private enum Keys: String, CodingKey { case id, name, auth, offersSignIn, icon }
     }
 
     struct Agents: Encodable, Equatable {
@@ -32,6 +55,16 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let loaded: Bool
         let signingIn: String?
         let signInFailed: Bool
+
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(rows, forKey: .rows)
+            try c.encode(loaded, forKey: .loaded)
+            try c.encodeNullable(signingIn, forKey: .signingIn)
+            try c.encode(signInFailed, forKey: .signInFailed)
+        }
+
+        private enum Keys: String, CodingKey { case rows, loaded, signingIn, signInFailed }
     }
 
     struct Counts: Encodable, Equatable {
@@ -57,6 +90,17 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         var dataKind: String?
         var counts: Counts?
         var reason: String?
+
+        /// Each kind's own fields; `importing` sends `dataKind` as null before its first kind.
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(kind, forKey: .kind)
+            if kind == "importing" { try c.encodeNullable(dataKind, forKey: .dataKind) }
+            try c.encodeIfPresent(counts, forKey: .counts)
+            try c.encodeIfPresent(reason, forKey: .reason)
+        }
+
+        private enum Keys: String, CodingKey { case kind, dataKind, counts, reason }
     }
 
     struct ImportRow: Encodable, Equatable {
@@ -71,6 +115,26 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         var checked: Bool?
         var state: RowState?
         var target: String?
+
+        /// A profile row sends each of its nullable fields as null; an awaiting row only its own fields.
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(kind, forKey: .kind)
+            try c.encode(browserName, forKey: .browserName)
+            try c.encodeNullable(icon, forKey: .icon)
+            guard kind == "profile" else { return try c.encodeIfPresent(browser, forKey: .browser) }
+            try c.encodeIfPresent(id, forKey: .id)
+            try c.encodeNullable(profileName, forKey: .profileName)
+            try c.encodeNullable(avatar, forKey: .avatar)
+            try c.encode(needsFullDiskAccess ?? false, forKey: .needsFullDiskAccess)
+            try c.encode(checked ?? false, forKey: .checked)
+            try c.encodeIfPresent(state, forKey: .state)
+            try c.encodeNullable(target, forKey: .target)
+        }
+
+        private enum Keys: String, CodingKey {
+            case kind, id, browser, browserName, profileName, icon, avatar, needsFullDiskAccess, checked, state, target
+        }
     }
 
     struct Target: Encodable, Equatable {
@@ -114,12 +178,43 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let summary: Summary?
         let access: Access?
         let consent: Consent?
+
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(phase, forKey: .phase)
+            try c.encodeNullable(failure, forKey: .failure)
+            try c.encode(rows, forKey: .rows)
+            try c.encode(editable, forKey: .editable)
+            try c.encode(targetChoices, forKey: .targetChoices)
+            try c.encode(targetFixed, forKey: .targetFixed)
+            try c.encode(kindChoices, forKey: .kindChoices)
+            try c.encode(kinds, forKey: .kinds)
+            try c.encode(keepsHistoryInSync, forKey: .keepsHistoryInSync)
+            try c.encode(offersPasswordCSV, forKey: .offersPasswordCSV)
+            try c.encodeNullable(summary, forKey: .summary)
+            try c.encodeNullable(access, forKey: .access)
+            try c.encodeNullable(consent, forKey: .consent)
+        }
+
+        private enum Keys: String, CodingKey {
+            case phase, failure, rows, editable, targetChoices, targetFixed, kindChoices, kinds, keepsHistoryInSync,
+                 offersPasswordCSV, summary, access, consent
+        }
     }
 
     struct GrantRow: Encodable, Equatable {
         let pane: String
         let control: String
         let icon: Image?
+
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(pane, forKey: .pane)
+            try c.encode(control, forKey: .control)
+            try c.encodeNullable(icon, forKey: .icon)
+        }
+
+        private enum Keys: String, CodingKey { case pane, control, icon }
     }
 
     struct ComputerUse: Encodable, Equatable {
@@ -129,6 +224,18 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let note: String?
         let showsRestart: Bool
         let comebacks: Int
+
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encodeNullable(helperIcon, forKey: .helperIcon)
+            try c.encode(rows, forKey: .rows)
+            try c.encode(allGranted, forKey: .allGranted)
+            try c.encodeNullable(note, forKey: .note)
+            try c.encode(showsRestart, forKey: .showsRestart)
+            try c.encode(comebacks, forKey: .comebacks)
+        }
+
+        private enum Keys: String, CodingKey { case helperIcon, rows, allGranted, note, showsRestart, comebacks }
     }
 
     let step: String
@@ -137,14 +244,15 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
     let importer: Importer?
     let computerUse: ComputerUse?
 
-    /// Every optional is sent, as null when absent: the page reads `null`, never a missing key.
+    /// Every field `ops.ts` types `T | null` is sent, as null when absent: the page reads `null`, never a
+    /// missing key. (Synthesized `Encodable` leaves a nil out, so each such struct encodes itself.)
     func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: Keys.self)
         try container.encode(step, forKey: .step)
         try container.encode(footer, forKey: .footer)
-        try container.encode(agents, forKey: .agents)
-        try container.encode(importer, forKey: .importer)
-        try container.encode(computerUse, forKey: .computerUse)
+        try container.encodeNullable(agents, forKey: .agents)
+        try container.encodeNullable(importer, forKey: .importer)
+        try container.encodeNullable(computerUse, forKey: .computerUse)
     }
 
     private enum Keys: String, CodingKey { case step, footer, agents, importer, computerUse }
@@ -302,5 +410,12 @@ extension OnboardingPageState {
         if model.unavailable { return "unavailable" }
         if permissions.isOff { return "off" }
         return nil
+    }
+}
+
+private extension KeyedEncodingContainer {
+    /// `value`, or JSON null when it is nil (never a missing key).
+    mutating func encodeNullable<T: Encodable>(_ value: T?, forKey key: Key) throws {
+        if let value { try encode(value, forKey: key) } else { try encodeNil(forKey: key) }
     }
 }
