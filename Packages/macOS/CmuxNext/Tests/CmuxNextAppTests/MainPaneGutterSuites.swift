@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextTestSupport
 import CoreGraphics
 import Testing
@@ -17,6 +18,17 @@ import Testing
         if !store.isActive { store.activate(file: nil) }
         store.set(gutter.key, .number(Double(points)))
         defer { store.set(gutter.key, nil) }
+        return try body()
+    }
+
+    /// Runs `body` on the in-memory default chrome style, whose main pane is curved, then puts the style back. The
+    /// style is process-wide: a settings load in a suite that runs alongside leaves it at the file default
+    /// `flat` (no card, `ChromeStyleSetting.fallback`), so a test that reads the curved main pane pins it.
+    static func onCurvedMainPane<T>(_ body: () throws -> T) rethrows -> T {
+        let design = DesignSettings.shared
+        let before = design.chromeStyle
+        design.chromeStyle = .default
+        defer { design.chromeStyle = before }
         return try body()
     }
 }
