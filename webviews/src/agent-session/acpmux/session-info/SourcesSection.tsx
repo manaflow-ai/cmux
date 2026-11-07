@@ -9,6 +9,7 @@ import { extraFolderName } from "../extraFolders";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
 import { SessionInfoFold } from "./SessionInfoSection";
+import { WindowedRows } from "./WindowedRows";
 
 export const SOURCES_SHOWN = 4;
 type RowProps = {
@@ -93,14 +94,17 @@ export function SourcesSection({
             </span>
           </li>
         ))}
-        {shown.map((source, index) => (
-          <SourceRow
-            key={source.image ? `image:${source.image.id}` : `${source.kind}:${source.url ?? source.label}`}
-            source={source}
-            label={labels[index]!}
-            {...navigation}
-          />
-        ))}
+        <WindowedRows
+          items={shown}
+          render={(source, index) => (
+            <SourceRow
+              key={source.image ? `image:${source.image.id}` : `${source.kind}:${source.url ?? source.label}`}
+              source={source}
+              label={labels[index]!}
+              {...navigation}
+            />
+          )}
+        />
       </ul>
       {folds && (
         <SessionInfoFold

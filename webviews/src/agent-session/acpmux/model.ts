@@ -1,5 +1,6 @@
 import { experimentArm } from "../../experiments/experiment";
 import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
+import { permissionCardHeight } from "./permissions/cardHeight";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -8,6 +9,7 @@ import {
   MARK_INDICATOR,
   MARK_STATUS,
   MARK_STEP,
+  MARK_WORKED,
   rowMark,
   gridScale,
   restBand,
@@ -235,8 +237,9 @@ export type AcpmuxAgentPair = {
 };
 
 /// What the chat's agent runs on, from its own start line (Claude Code's system/init, acpmux's
-/// `session_info_update._meta.claude`): drawn once, where the session started
-/// (conversation/SessionStartNote.tsx). `harness` and `cwd` are the chat's when the line came.
+/// `session_info_update._meta.claude`): the chat's summary keeps the latest, and a transcript line
+/// (conversation/SessionStartNote.tsx) marks a turn whose model or route is new. `harness` and `cwd`
+/// are the chat's when the line came.
 export type AcpmuxSessionStart = {
   agent: "claude";
   version: string;
@@ -496,6 +499,9 @@ export type AcpmuxRow = {
   /// The machine the person's own `acpmux send` ran on (acpmux records it on the client, as
   /// `acpmux-cli#…@big-red`): "via CLI on big-red" under their prompt.
   viaCli?: string;
+  /// Part of the person's typed text reads as another agent's output (acpmux `agentText`, a paste
+  /// from a client that marks none): the agent it names, if any. One quiet line under the prompt.
+  agentText?: { from?: string };
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
   /// A turn summary of the chat's last turn, which a failed turn's Retry asks acpmux to retry
@@ -543,14 +549,18 @@ export type AcpmuxRow = {
   /// A reply to the person (not a short note) shown inside an open "Worked for": settled, yet it
   /// keeps its own action row (hasReplyActions; conversation/turns.ts shapeTurn).
   foldedReply?: boolean;
-  /// A run of finished tool calls folded under one summary line (Debug toggle
-  /// `agentPane.debug.codexToolRuns`, on by default; conversation/turns.ts `codexRuns`,
+  /// A run of finished tool calls folded under one summary line (conversation/turns.ts `codexRuns`,
   /// conversation/toolRunSummary.ts).
   /// False keeps a run waiting for edit permission in tool rows without collapsing it.
   foldRun?: boolean;
   /// A run of one-line rows carrying messages between agents, folded under one line
   /// (conversation/messageRuns.ts): what its line counts and the rows it folds.
   messageRun?: AcpmuxMessageRun;
+  /// The transcript frame the row draws in, when it is not the row's id: a message run's line takes
+  /// over its first row's frame (conversation/messageRuns.ts), so the run on screen stays the same
+  /// element when it folds, and does not unmount and enter again. The React key and the live
+  /// entrance follow it (`rowFrameKey`); everything else (the fold set, Find, selection) keys by id.
+  frame?: string;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
   /// A running turn's status line: the title of the call in flight, which it names (WorkingFor.tsx).
@@ -565,9 +575,8 @@ export type AcpmuxRow = {
   /// On the `TURN_RETRY` row: how long the turn's finished retries took, which the live line's
   /// "Thinking" time leaves out (conversation/turns.ts `withRetry`).
   retriedMs?: number;
-  /// A running turn's status line drawn as the turn's last row (Debug Settings
-  /// `agentPane.debug.liveLineBelow`, conversation/turns.ts): no rule under it, and its clock
-  /// never stops while the turn runs.
+  /// A running turn's status line drawn as the turn's last row (conversation/turns.ts): no rule
+  /// under it, and its clock never stops while the turn runs.
   below?: boolean;
   /// The Codex-style live line (conversation/turns.ts `codexLiveTurn`, Thinking.tsx): the call in
   /// flight's start on this computer's clock, which its time counts from; whether `doing` is a raw
@@ -586,6 +595,9 @@ export type AcpmuxRow = {
   /// `doing` names the latest step, finished, which the live line holds until the next step
   /// (conversation/turns.ts `liftedStep`): "Ran grep …".
   doingDone?: boolean;
+  /// The id of the call `doing` names, running or just finished (conversation/turns.ts
+  /// `codexLiveTurn`): while it stays the same call the line's words change in place, with no roll.
+  doingCall?: string;
   /// How long that finished step took, its own start to its own end (conversation/turns.ts
   /// `liftedStep`): the live line says it beside the step, never the turn's time.
   doingForMs?: number;
@@ -825,7 +837,16 @@ export type AcpmuxOfferResult = { offerId: string; childSessionId: string; title
 /** The concrete app, resource, or working directory an approval covers. */
 export type AcpmuxPermissionScope = { kind: "app" | "resource" | "directory"; value: string };
 
+/** A daemon-owned OS access block. Approving retries one retained operation, never grants OS rights. */
+export type ExternalAccess = {
+  kind: "files_and_folders" | "full_disk_access";
+  target: string;
+  operation: "read_text_file";
+  platform: "macos";
+};
+
 export type AcpmuxPermission = {
+  externalAccess?: ExternalAccess;
   permissionId: string;
   groupId?: string;
   turnId?: string;
@@ -1034,6 +1055,9 @@ export type AcpmuxSnapshot = {
     /// autocompact cap, its subagents. Unset while the harness has no readable transcript.
     usageStats?: SessionUsageStats;
     host?: string;
+    /// What Claude Code's last init line said the chat runs on: its version, model id, route and
+    /// folder, for Session Info's Environment and the `/status` card.
+    sessionStart?: AcpmuxSessionStart;
     /// The machine acpmux runs the chat on (acpmux `machine`), for the `/status` card only:
     /// unlike `host` it is set for a local chat too.
     machine?: string;
@@ -1138,6 +1162,8 @@ export type AcpmuxSnapshot = {
   chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
+  /// The current turn's daemon start time, in the session clock. Unset when no turn is running.
+  turnStartedAtMs?: number;
   /**
    * The agent's guess at the person's next prompt (acpmux's `prompt_suggestion` update, Claude
    * Code's prompt suggestions), for the composer's ghost text: set only between turns, while no
@@ -1188,6 +1214,8 @@ export type AcpmuxSnapshot = {
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
+  /// Those asks, in the order they come next (the composer hat steps to each, question/hatModel.ts).
+  permissionsQueued?: readonly AcpmuxPermission[];
   secret?: AcpmuxSecretAsk;
   /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts); the same
   /// array until one comes or goes.
@@ -1365,13 +1393,22 @@ export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
 /// A compact live line keeps its 22px height and composer gap, but is a live indicator for
 /// spacing: classifying it as another step would swallow the run gap before Thinking.
 export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
-  isStepRow(row) ? MARK_STEP : isLiveStep(row, prev) ? MARK_INDICATOR : isStatusRow(row) ? MARK_STATUS : rowMark(row);
+  row.kind === WORKED
+    ? MARK_WORKED
+    : isStepRow(row)
+      ? MARK_STEP
+      : isLiveStep(row, prev)
+        ? MARK_INDICATOR
+        : isStatusRow(row)
+          ? MARK_STATUS
+          : rowMark(row);
 const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
 const TOOL_ROW_PT = 22;
-/// The gap under "Worked for"'s rule (Lucas, 2026-11-06), conversation.css `.cv-worked.has-divider.is-toggle`.
-const WORKED_GAP_PT = gridLength("gap");
+/// The room around "Worked for"'s rule (Lucas, 2026-11-07): 4 under its words, 12 over the next row,
+/// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
+const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap-inner");
 const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
@@ -1796,6 +1833,9 @@ export type AcpmuxMessageRun = {
 /// an inbox notice (each a user row, IncomingMessageCard.tsx and InboxNoticeCard.tsx), a report
 /// batch's head (LaneNoticeBatch.tsx) and the waiting messages' head (PendingMessagesCard.tsx).
 /// App.tsx marks it `acpmux-row--line` and joins it to the step rows beside it.
+/// The frame a row draws in: its `frame`, else its id (the transcript's React key and entrance key).
+export const rowFrameKey = (row: AcpmuxRow) => row.frame ?? row.id;
+
 export const isLineRow = (row: AcpmuxRow) =>
   row.kind === LANE_NOTICE_BATCH ||
   row.kind === MESSAGE_RUN ||
@@ -1962,7 +2002,7 @@ function fallbackRowHeight(
   if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(footerRow());
   // A finished work disclosure is one activity line, including when opened. Its estimate and
   // MARK_STEP use the same 22px rhythm as the calls it reveals (transcript-spacing.md rule 3).
-  // Plus the grid gap under its rule before the fold's rows (conversation.css `.cv-worked.has-divider`).
+  // Plus the room over and under its rule (conversation.css `.cv-worked.has-divider.is-toggle`).
   if (row.kind === WORKED) return finish(toolRowHeight() + WORKED_GAP_PT * chromeScale);
   if (row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
@@ -1988,8 +2028,8 @@ function fallbackRowHeight(
   }
   // The render card: its 36px head over the frame before it reports a height, and 8px below.
   if (row.kind === RENDER) return finish(36 + RENDER_FRAME_MIN_HEIGHT + 8);
-  // Card padding and border, title, button row.
-  if (row.kind === "permission") return finish(87);
+  // Permission and question cards have different frames and content at the grid padding.
+  if (row.kind === "permission") return finish(permissionCardHeight(row.permission, width, chromeScale));
   // A suggested tasks card (offer/SuggestedTasks.tsx): its 28px heading, about 84px per open task
   // and 30px per started one, in 8px of margins.
   if (row.kind === "sessionOffer" && row.offers) {

@@ -30,6 +30,7 @@
 import { Button } from "../../../ui/Button";
 import {
   createContext,
+  Fragment,
   useCallback,
   useContext,
   useLayoutEffect,
@@ -55,8 +56,10 @@ import {
   type BackgroundTask,
   type StopTarget,
 } from "./backgroundTasks";
-import { NestedAgents, SubagentTranscript } from "./SubagentTranscript";
+import { SubagentTranscript } from "./SubagentTranscript";
+import { NestedAgents } from "./subagentTranscriptModel";
 import "./backgroundTasks.css";
+import { FINISHED_PAGE, type PanelSection, panelSections } from "./backgroundTasksPanelModel";
 
 /// Whether this chat's subagents stop on their own (Claude Code's do; App.tsx `stopsSubagents`): a
 /// subagent's row shows no stop button where it would do nothing (never a dead click).
@@ -66,9 +69,6 @@ const StopsAgents = createContext(true);
 /// agents are listed but open nothing.
 export type WorkflowReads = { sessionId?: string; chat: string; connection: string; read: TranscriptRead };
 const Workflows = createContext<WorkflowReads | undefined>(undefined);
-
-/// How many finished tasks a group lists before Show more, and how many more each press adds.
-export const FINISHED_PAGE = 8;
 
 /// The gallery's arms (BackgroundTasksPanel.gallery.tsx). `nested` is Claude Desktop's shape and
 /// the one that ships; `flat` lists the running tasks under each agent with no counts line to open;
@@ -208,21 +208,6 @@ export function BackgroundTasksPanel({
       </Workflows.Provider>
     </StopsAgents.Provider>
   );
-}
-
-export type PanelSection = { id: "running" | "finished"; groups: BackgroundGroup[] };
-
-/// The list under its two headings, as Claude Desktop's panel splits it: "Running N", then
-/// "Finished N" (Leo, 2026-11-03, on its "Finished 28"). The groups keep their order
-/// (backgroundTasks.ts: running first, oldest first; then ended, latest first); a group that still
-/// runs a nested agent is a running one (`isLive`). An empty heading is left out.
-export function panelSections(groups: readonly BackgroundGroup[]): PanelSection[] {
-  const running = groups.filter(isLive);
-  const ended = groups.filter((group) => !isLive(group));
-  return [
-    { id: "running" as const, groups: running },
-    { id: "finished" as const, groups: ended },
-  ].filter((section) => section.groups.length > 0);
 }
 
 /// A heading that folds its groups, open at first; its fold is the panel's own state, so Back from a
@@ -539,13 +524,33 @@ function TaskList({
   const t = useT();
   const [finishedOpen, setFinishedOpen] = useState(!nested);
   const [shown, setShown] = useState(FINISHED_PAGE);
-  const row = (task: BackgroundTask) => (
+  // A command a workflow's agent started sits under that agent while the agent runs.
+  const live = new Set(group.running.map((task) => task.id));
+  const nestedUnder = (task: BackgroundTask) =>
+    task.parent !== undefined && live.has(task.parent) ? task.parent : undefined;
+  const kids = new Map<string, BackgroundTask[]>();
+  for (const task of [...group.running, ...group.finished]) {
+    const parent = nestedUnder(task);
+    if (parent !== undefined) kids.set(parent, [...(kids.get(parent) ?? []), task]);
+  }
+  const taskRow = (task: BackgroundTask) => (
     <TaskRow key={task.id} task={task} now={now} onDrill={onDrill} onStop={onStop} onOpenCommand={onOpenCommand} />
   );
-  const finished = group.finished;
+  const row = (task: BackgroundTask) => {
+    const under = kids.get(task.id);
+    if (!under) return taskRow(task);
+    return (
+      <Fragment key={task.id}>
+        {taskRow(task)}
+        <div className="acpmux-bg__nested">{under.map(taskRow)}</div>
+      </Fragment>
+    );
+  };
+  const running = group.running.filter((task) => nestedUnder(task) === undefined);
+  const finished = group.finished.filter((task) => nestedUnder(task) === undefined);
   return (
     <div className="acpmux-bg__tasks">
-      {group.running.map(row)}
+      {running.map(row)}
       {finished.length > 0 && nested && (
         <Button
           variant="ghost"

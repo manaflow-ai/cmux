@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 public import CmuxNextDesign
+public import CmuxNextHomeModel
 import MessagesLabSidebar
 import Observation
 
@@ -67,13 +68,13 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
                                         label: CmuxSidebarView.unreadTitle, identifier: "cmux.home.sidebar.unread", glass: true)
     /// The Unread toggle's glass circle, under it in the header (Messages' round glass filter
     /// button, the user 2026-10-28): Liquid Glass on macOS 26 and later, the frosted material before.
-    let filterGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2)
+    let filterGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2) // glass-level-allow: a round or capsule control in the system's untinted button glass, as Messages draws it (the user, 2026-10-28)
     /// The avatar-only list's search: Messages' magnifier on a glass circle (`searchGlass`) beside
     /// the Unread toggle; a click opens the search over the band, as ⌘F does.
     let searchButton = HomeHeaderButton(symbol: "magnifyingglass", label: CmuxSidebarView.searchTitle,
                                         identifier: "cmux.home.sidebar.searchIcon", glass: true)
     /// The search circle's glass, under it in the header.
-    let searchGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2)
+    let searchGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2) // glass-level-allow: a round or capsule control in the system's untinted button glass, as Messages draws it (the user, 2026-10-28)
     /// Compose at the chat's top-left at every list width, as in Messages (`HomeChatColumnView`,
     /// which `HomeSidebarSplitView` places beside this list); the list's `compose` stays hidden.
     let chatCompose = HomeChatComposeButton(label: HomeConversationStrings.newMessage)
@@ -618,7 +619,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
 final class HomeSearchCapsule: NSView {
     var onClick: () -> Void = {}
     /// The capsule's glass, edge to edge, its corners half its height.
-    let glass = GlassPanelView(style: .regular)
+    let glass = GlassPanelView(style: .regular) // glass-level-allow: a round or capsule control in the system's untinted button glass, as Messages draws it (the user, 2026-10-28)
 
     init() {
         super.init(frame: .zero)

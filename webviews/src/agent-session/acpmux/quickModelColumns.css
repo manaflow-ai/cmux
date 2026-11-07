@@ -213,6 +213,37 @@
   box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--agent-text) 35%, transparent);
 }
 .acpmux-cols-initial { font-size: var(--text-detail); font-weight: 600; }
+/* A started chat's own tab, beside a held pick of another harness (QuickModelMenu UsedMark): the
+   shipped `glyph` look draws as a hairline ring; `dot` and `caption` draw their mark in the corner. */
+.acpmux-cols-tab[data-used="glyph"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-muted) 55%, transparent);
+}
+.acpmux-cols-tab[data-used="dot"],
+.acpmux-cols-tab[data-used="caption"] {
+  position: relative;
+}
+.acpmux-cols-tab[data-used] > .acpmux-used-mark,
+.acpmux-cols-tab[data-used] > .acpmux-used-caption {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-end: 0;
+  translate: -2px -2px;
+  margin: 0;
+}
+.acpmux-cols-tab[data-used="caption"] > .acpmux-used-caption {
+  display: none;
+}
+.acpmux-cols-tab[data-used="caption"]::after {
+  content: "";
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-end: 0;
+  translate: -2px -2px;
+  width: 5px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--agent-muted);
+}
 
 /* Rows */
 .acpmux-cols-row {

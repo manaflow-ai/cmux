@@ -575,6 +575,17 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   implementation: authenticated owner checks and an atomic asking-mode floor
   through dispatch, queued prompts and the active turn. It cannot replace that
   enforcement or prove the actual Codex bridge profile from a mode name.
+  `session/new` starts a chat on the machine: hostd reads `list-workspaces`,
+  takes the active ordinary workspace (`kind` `normal`; else the first; it sends
+  `create-workspace` when there is none), creates a `registry:<registry_id>`
+  agent tab there with `new-conversation-tab`, then sends `agent-session-start
+  {surface, harness:"claude", vm_kind:"owner"}` with a 90 s deadline. The
+  phone's params may hold only `cwd` (ignored: the machine makes the chat's
+  folder), an empty `mcpServers`, and `_meta.acpmux` with only `harness`
+  `claude` and `policy` `ask`; anything else is refused with -32602. On success the phone
+  gets `_acpmux/session_changed` (`kind: "created"`) and then `{sessionId}`; a
+  refused or timed-out start closes the empty tab. The Mac shows the same tab, since it lives
+  in the machine's own store.
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
   Any size: data frames until `eof`, up to the size the file had when it was opened. A host
   before 2026-10-28 refuses a file over 64 MiB with `too_large`.

@@ -60,6 +60,7 @@ pub async fn deliver(
         cli_host: None,
         attachments: Vec::new(),
         notice: None,
+        relay: None,
     };
     queue_prompt(client, session, text, steer, provenance, &prompt).await
 }

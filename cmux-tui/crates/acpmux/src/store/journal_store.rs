@@ -657,8 +657,13 @@ impl Store for JournalStore {
         }
         // Refused only if the writer stopped since the check: the line is in the log without its
         // record, as after a crash between the two.
-        let lsn =
-            inner.journal.append(KIND_LOG, class, &payload).map_err(JournalStore::journal_error)?;
+        // A kept change's line is synced in the journal's idle time (`cmux_journal` crate docs).
+        let lsn = if kind == RecordClass::Kept {
+            inner.journal.append_kept(KIND_LOG, &payload)
+        } else {
+            inner.journal.append(KIND_LOG, class, &payload)
+        }
+        .map_err(JournalStore::journal_error)?;
         match kind {
             RecordClass::Acked => inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst),
             RecordClass::Kept => inner.kept.store(lsn, std::sync::atomic::Ordering::SeqCst),

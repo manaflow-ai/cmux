@@ -748,7 +748,7 @@ impl Hub {
                 prompt_id: p.prompt_id.to_owned(),
                 turn_id: turn_id.to_owned(),
                 client: p.client.to_owned(),
-                preview: short_text(p.text, 200),
+                preview: short_text(super::inbox::relay_body(p.text), 200),
                 queued_at: now_ms(),
                 withdraw: withdraw.clone(),
                 run: Arc::new(PromptRun {
@@ -1235,8 +1235,11 @@ impl Hub {
                 "promptId": prompt_id,
                 "turnId": turn_id,
                 "prompt": blocks,
-                // Checked again: the folder's trust may have changed across the restart.
-                "trustGate": true,
+                // Gated as it came: a prompt from the CLI's unix socket never was, so a restart
+                // does not hold it on a trust question nobody asked (cmux#37231). The gated ones
+                // are checked again, since the folder's trust may have changed across the
+                // restart, as is one from a log from before `user_message` recorded its gate.
+                "trustGate": e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(true),
                 "restored": "unstarted",
             });
             for k in ["control", "cloudMobile", "images", "inlineParts", "pasted", "_meta"] {
@@ -1560,7 +1563,7 @@ impl Hub {
                 prompt_id: prompt_id.clone(),
                 turn_id,
                 client: field("client"),
-                preview: short_text(&text, 200),
+                preview: short_text(super::inbox::relay_body(&text), 200),
                 queued_at: e.at,
                 withdraw: Arc::new(Notify::new()),
                 run: Arc::new(approved_rules(
