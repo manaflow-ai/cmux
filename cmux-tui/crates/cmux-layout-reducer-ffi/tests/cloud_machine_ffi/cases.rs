@@ -163,3 +163,17 @@ fn the_server_shaped_models_read_over_the_channel() {
         assert!(body.get("value").is_some(), "{kind}: {body}");
     }
 }
+
+#[test]
+fn a_preview_url_with_no_path_opens_the_root() {
+    let url = "https://p.invalid";
+    let (code, bare) = call(c"cloud_model_preview_url", &json!({"url": url}));
+    assert_eq!(code, OK);
+    let (code, root) = call(c"cloud_model_preview_url", &json!({"url": url, "path": "/"}));
+    assert_eq!(code, OK);
+    assert_eq!(bare, root);
+    assert_eq!(bare["url"], url);
+    let (code, deep) = call(c"cloud_model_preview_url", &json!({"url": url, "path": "/x"}));
+    assert_eq!(code, OK);
+    assert_eq!(deep["url"], "https://p.invalid?return_to=/x");
+}
