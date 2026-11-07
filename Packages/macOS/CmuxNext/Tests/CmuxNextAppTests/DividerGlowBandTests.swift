@@ -102,6 +102,28 @@ struct DividerGlowBandTests {
         #expect(abs(view.glow.extent.width - DividerGlowBand.coreThickness) < 0.001)
     }
 
+    /// RESIZE P0 5 (px-col-drag-2-s1r, cmux21, 120 Hz, scale 2): a split's 1 pt line fills the whole gap between its panes,
+    /// and the 2 pt band centered on it lit 0.5 pt of each pane in every drag frame: the terminal's edge showed 1 device px
+    /// short and the page's 1 device px late (its occlusion hole is the lit band), a 1 pt seam the m20 judge failed in
+    /// frames 211-347. The band lights the line itself and nothing past it: on a split it is as wide as the line.
+    @Test func aLitSplitBandStaysInsideItsLine() throws {
+        let view = handle()
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        window.contentView?.addSubview(view)
+        let line = view.lineFrameInSuperview
+        #expect(abs(line.width - view.lineThickness) < 0.001, "SETUP: the resting line is not the divider's line")
+        view.setHovered(true)
+        #expect(view.lineFrameInSuperview == line, "hovered, the band covers \(view.lineFrameInSuperview), past the line \(line)")
+        view.setHovered(false)
+        let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 103, y: 100), modifierFlags: [], timestamp: 0,
+                                                   windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        view.mouseDown(with: down)
+        #expect(view.glow.state == .dragging)
+        #expect(view.lineFrameInSuperview == line, "dragging, the band covers \(view.lineFrameInSuperview), past the line \(line)")
+        view.cancelOperation(nil)
+    }
+
     @Test func bandOpacityIsZeroAtRestAndFullWhileDragging() {
         #expect(DividerGlowBand.opacity(.rest) == 0)
         #expect(DividerGlowBand.opacity(.hovered) > 0 && DividerGlowBand.opacity(.hovered) < 1)
