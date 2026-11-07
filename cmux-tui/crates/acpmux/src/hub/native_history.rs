@@ -277,8 +277,12 @@ pub(crate) async fn handle(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcE
         let mut want = crate::adopt_replay::PAGE_TURNS;
         let mut reread = 0u64;
         let reply = loop {
-            let page =
-                crate::adopt_replay::claude_page_with_turns_open(&mut input, Some(before), want);
+            let page = crate::adopt_replay::claude_page_with_turns_for_session(
+                &mut input,
+                Some(before),
+                want,
+                &session.id,
+            );
             let page_read = page.read;
             let turn_count = page.turns.len();
             // The page and its marks use one descriptor. Recheck after reading for an in-place

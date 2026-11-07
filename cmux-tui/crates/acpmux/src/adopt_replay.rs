@@ -17,11 +17,12 @@ use crate::adopt_tools::{PastTool, ToolResult};
 
 #[path = "adopt_replay_page.rs"]
 mod page;
+pub(crate) use page::claude_page_with_turns_for_session;
+pub(crate) use page::newest_prompt_start_open;
 pub use page::{
     ClaudePage, PAGE_TURNS, claude_page, claude_page_with_turns, newest_claude_page,
     newest_prompt_start,
 };
-pub(crate) use page::{claude_page_with_turns_open, newest_prompt_start_open};
 
 /// One past exchange: the person's prompt, the tool calls it led to, in order, and the
 /// assistant's answer text.
@@ -214,6 +215,10 @@ fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
 /// blocks; tool results settle their calls, and meta lines are not prompts) and
 /// `{"type":"assistant",...}` text and `tool_use` blocks.
 fn claude_steps(record: &Value, at: Option<u64>) -> Vec<Step> {
+    claude_steps_for_session(record, at, None)
+}
+
+fn claude_steps_for_session(record: &Value, at: Option<u64>, session: Option<&str>) -> Vec<Step> {
     let flag = |key: &str| record.get(key).and_then(Value::as_bool) == Some(true);
     if flag("isSidechain") || flag("isMeta") || flag("isCompactSummary") || !from_person(record) {
         return Vec::new();
@@ -226,10 +231,14 @@ fn claude_steps(record: &Value, at: Option<u64>) -> Vec<Step> {
                 blocks.iter().any(|b| b.get("type").and_then(Value::as_str) == Some("tool_result"))
             }) =>
         {
-            crate::adopt_tools::claude_tool_results(content, record.get("toolUseResult"))
-                .into_iter()
-                .map(Step::ToolResult)
-                .collect()
+            crate::adopt_tools::claude_tool_results_for_session(
+                content,
+                record.get("toolUseResult"),
+                session,
+            )
+            .into_iter()
+            .map(Step::ToolResult)
+            .collect()
         }
         Some("assistant") => {
             let mut steps: Vec<Step> = crate::adopt_tools::claude_tool_uses(content, at)

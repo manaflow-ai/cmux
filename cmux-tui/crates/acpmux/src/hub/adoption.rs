@@ -516,6 +516,7 @@ impl Hub {
             return;
         }
         let fam = family.to_owned();
+        let image_session = session.id.clone();
         // A Claude Code transcript is read from its end, one page (`adopt_replay_page.rs`): it can
         // be hundreds of megabytes, and the chat shows its newest turns first.
         let read = tokio::task::spawn_blocking(move || {
@@ -523,10 +524,11 @@ impl Hub {
                 let Ok(mut input) = std::fs::File::open(&file) else {
                     return (Vec::new(), 0, None);
                 };
-                let page = crate::adopt_replay::claude_page_with_turns_open(
+                let page = crate::adopt_replay::claude_page_with_turns_for_session(
                     &mut input,
                     None,
                     crate::adopt_replay::PAGE_TURNS,
+                    &image_session,
                 );
                 let mark = super::native_history::mark(&mut input, page.start);
                 (page.turns, page.start, mark)

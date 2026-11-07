@@ -25,7 +25,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use super::{PastTurn, Step, add, claude_steps, record_time};
+use super::{PastTurn, Step, add, claude_steps, claude_steps_for_session, record_time};
 
 /// The most turns one page holds: as many as adopting showed before pages (`MAX_TURNS`).
 pub const PAGE_TURNS: usize = super::MAX_TURNS;
@@ -56,10 +56,15 @@ pub struct ClaudePage {
 /// when the file cannot be read. It never reads more than [`PAGE_MAX_BYTES`] and a step.
 pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
     let Ok(mut f) = File::open(file) else { return ClaudePage::default() };
-    claude_page_open(&mut f, end, want)
+    claude_page_open(&mut f, end, want, None)
 }
 
-fn claude_page_open(f: &mut File, end: Option<u64>, want: usize) -> ClaudePage {
+fn claude_page_open(
+    f: &mut File,
+    end: Option<u64>,
+    want: usize,
+    session: Option<&str>,
+) -> ClaudePage {
     let len = f.metadata().map(|m| m.len()).unwrap_or(0);
     let end = end.map_or(len, |end| end.min(len));
     let want = want.max(1);
@@ -166,7 +171,7 @@ fn claude_page_open(f: &mut File, end: Option<u64>, want: usize) -> ClaudePage {
             only.prompt_at = at;
             only.answer_at = at;
         }
-        for step in claude_steps(&record, at) {
+        for step in claude_steps_for_session(&record, at, session) {
             add(&mut turns, step, at);
         }
     }
@@ -195,10 +200,29 @@ pub(crate) fn claude_page_with_turns_open(
     end: Option<u64>,
     want: usize,
 ) -> ClaudePage {
-    let mut page = claude_page_open(file, end, want);
+    page_with_turns(file, end, want, None)
+}
+
+/// A page served to an owning chat stores overflow image originals in that chat's uploads.
+pub(crate) fn claude_page_with_turns_for_session(
+    file: &mut File,
+    end: Option<u64>,
+    want: usize,
+    session: &str,
+) -> ClaudePage {
+    page_with_turns(file, end, want, Some(session))
+}
+
+fn page_with_turns(
+    file: &mut File,
+    end: Option<u64>,
+    want: usize,
+    session: Option<&str>,
+) -> ClaudePage {
+    let mut page = claude_page_open(file, end, want, session);
     let mut read = page.read;
     while page.turns.is_empty() && page.start > 0 && read < SCAN_MAX_BYTES {
-        page = claude_page_open(file, Some(page.start), want);
+        page = claude_page_open(file, Some(page.start), want, session);
         read += page.read;
     }
     page.read = read;
@@ -216,7 +240,7 @@ pub fn newest_prompt_start(file: &Path, want: usize) -> Option<u64> {
 pub(crate) fn newest_prompt_start_open(file: &mut File, want: usize) -> Option<u64> {
     let (mut end, mut read) = (None, 0);
     loop {
-        let page = claude_page_open(file, end, want);
+        let page = claude_page_open(file, end, want, None);
         read += page.read;
         if page.turns.first().is_some_and(|t| !t.prompt.is_empty()) {
             return Some(page.start);
