@@ -59,6 +59,8 @@ struct ClassicUpgradeHugeProfileTests {
     private static func profile(_ label: String, sim: ClassicUpgradeSimulator, daemon: pid_t?) async {
         let madeBefore = sim.made().count
         let tapBefore = sim.tap?.timings()
+        let tap = sim.tap
+        let statsBefore = await Task.detached { tap?.serverStats() }.value
         let appCPU = cpuSeconds(getpid()), daemonCPU = daemon.map(cpuSeconds)
         let daemonSample = daemon.map { ExternalSample(pid: $0, seconds: window) }
         let (report, _) = (try? await SelfSampler.run(name: "classic-\(label)", seconds: window) { _ in
@@ -98,8 +100,36 @@ struct ClassicUpgradeHugeProfileTests {
                              Double(now.count - was.count) / perWorkspace, Double(now.bytes - was.bytes) / Double(now.count - was.count)))
             }
         }
+        let statsAfter = await Task.detached { tap?.serverStats() }.value
+        printStats(label, before: statsBefore, after: statsAfter, made: made)
         printHeavy("APP-\(label)", report ?? "")
         printHeavy("DAEMON-\(label)", await daemonSample?.finish() ?? "")
+    }
+
+    /// The daemon's projection and write path counters over the window, per workspace made, and its
+    /// sections at the window's end (histograms included) as JSON.
+    private static func printStats(_ label: String, before: Data?, after: Data?, made: Int) {
+        let decode = { (line: Data?) in line.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } }
+        let (before, after) = (decode(before), decode(after))
+        guard let after else {
+            print("CLASSIC-PROFILE \(label) server-stats unavailable")
+            return
+        }
+        let result = after["result"] as? [String: Any] ?? after
+        let was = before.flatMap { $0["result"] as? [String: Any] ?? $0 }
+        for section in ["resource_projection", "write_path"] {
+            guard let now = result[section] as? [String: Any] else { continue }
+            let then = was?[section] as? [String: Any] ?? [:]
+            for (key, value) in now.sorted(by: { $0.key < $1.key }) {
+                guard let count = value as? Int else { continue }
+                let delta = count - (then[key] as? Int ?? 0)
+                print(String(format: "CLASSIC-PROFILE %@ stat %@.%@ delta=%d per_ws=%.2f total=%d", label, section, key,
+                             delta, Double(delta) / Double(max(made, 1)), count))
+            }
+            if let json = try? JSONSerialization.data(withJSONObject: now, options: [.sortedKeys]) {
+                print("CLASSIC-PROFILE \(label) stat \(section) json=\(String(decoding: json, as: UTF8.self))")
+            }
+        }
     }
 
     /// The daemon the simulation started: a `cmux-tui` this process started (at any depth), else the newest `cmux-tui`

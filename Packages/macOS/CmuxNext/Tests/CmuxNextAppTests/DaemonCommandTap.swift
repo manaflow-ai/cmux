@@ -82,6 +82,38 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
 
     deinit { if !closed { close() } }
 
+    /// The daemon's `server-stats` (with its resource projection and write path sections), read on a
+    /// connection of its own, as its reply line; nil when no app connection named the daemon yet or the read fails.
+    func serverStats() -> Data? {
+        guard let target = lock.withLock({ target }) else { return nil }
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return nil }
+        defer { Darwin.close(fd) }
+        var address = Self.address(target)
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        guard connected == 0 else { return nil }
+        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        let request = Data(("{\"id\":1,\"cmd\":\"identify\"}\n" +
+                            "{\"id\":2,\"cmd\":\"server-stats\",\"include\":[\"resource_projection\",\"write_path\"]}\n").utf8)
+        guard request.withUnsafeBytes({ write(fd, $0.baseAddress, $0.count) }) == request.count else { return nil }
+        var buffer = Data(), chunk = [UInt8](repeating: 0, count: 65536)
+        while true {
+            let read = Darwin.read(fd, &chunk, chunk.count)
+            guard read > 0 else { return nil }
+            buffer.append(contentsOf: chunk[0..<read])
+            while let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
+                let line = buffer[buffer.startIndex..<newline]
+                buffer.removeSubrange(buffer.startIndex...newline)
+                if let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any], object["id"] as? Int == 2 {
+                    return Data(line)
+                }
+            }
+        }
+    }
+
     private func acceptLoop() {
         while true {
             let client = accept(listener, nil, nil)
