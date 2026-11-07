@@ -32,7 +32,13 @@ describe("Cloud preview port cards", () => {
     setCloudPreviewContext({ machineID: "machine-a", sessionId: "chat-a", turnId: "turn-a", active: true });
     const target = {} as Window;
     installCloudPreviewPortHook(target);
-    target.cmuxAcpmuxCloudPreviewPort?.({ port: 5173, process: "vite", machineID: "machine-a", state: "up", known: false });
+    target.cmuxAcpmuxCloudPreviewPort?.({
+      port: 5173,
+      process: "vite",
+      machineID: "machine-a",
+      state: "up",
+      known: false,
+    });
     expect(cloudPreviewPorts()).toEqual([{ port: 5173, process: "vite" }]);
   });
 
