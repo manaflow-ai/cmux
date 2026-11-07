@@ -287,17 +287,23 @@ async fn status_returns_flat_scope_and_durable_turn_receipt() {
 #[tokio::test]
 async fn ensure_records_a_new_trigger_chat_as_a_scripts() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let mut config: Config =
-        serde_json::from_value(json!({"harnesses": {"fake": {"argv": ["python3", fake]}}}))
-            .expect("config");
+    let mut config: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        // A trigger's chat is remote: its folder must be a web root.
+        "webRoots": [std::env::temp_dir()],
+    }))
+    .expect("config");
     config.store.mode = StoreMode::Memory;
     let store = crate::store::open(&config.store, Path::new("/nonexistent")).expect("memory store");
     let hub = Hub::new(config, store);
     let mut scoped = scope();
     scoped.harness = "fake".into();
     scoped.cwd = std::env::temp_dir().to_string_lossy().into_owned();
-    let _ = ensure(&hub, &scoped).await;
-    let meta = hub.resolve(&scoped.session).expect("the trigger's chat").meta();
+    let ensured = ensure(&hub, &scoped).await;
+    let meta = hub
+        .resolve(&scoped.session)
+        .unwrap_or_else(|e| panic!("no trigger chat ({e:?}); ensure: {ensured:?}"))
+        .meta();
     assert_eq!(
         meta.created_by,
         Some(crate::store::CreatedBy {
