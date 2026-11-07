@@ -19,10 +19,11 @@ import Testing
 /// (`PaneHostView.releaseHeldContent`). The release sets the pane content's frame only: its content host and the
 /// terminal host in it keep the start size until the next layout pass, and the terminal lets its surface hold go
 /// before that pass, from the stale host. The surface takes its start size again and sends the start grid; the next
-/// pass sends the final grid again: final, start, final for one press. One press must send each terminal's PTY one
-/// grid, the final one, no later than the press's first frame tick (FRAME OWNER S1B moved it from the key's own turn:
-/// the press presents nothing in its turn, the first tick lays out once), and no surface may take its start size again
-/// after the press.
+/// pass sends the final grid again: final, start, final for one press. No surface may take its start size again after
+/// the press, and each terminal's PTY ends at the final grid with nothing after it. Since FRAME OWNER S4 m18 (#36478)
+/// a key spring's grids go to the PTY coalesced, at most one per refresh and the newest, ending at the landing's
+/// (`TerminalGridReportCoalescer`): the final grid is no longer due by the press's first frame tick
+/// (``coalescingIssues(_:final:start:since:)``).
 ///
 /// The app's own pane content (`PaneContentView`: a tab strip over its content host) shows a real terminal
 /// (`TerminalSession` with a libghostty surface), as a terminal tab does. The IO records the grids it is asked for; a
@@ -74,6 +75,21 @@ struct KeyboardResizeOneGridReportTests {
                 if let size { self?.sizes.append(size) }
             }
         }
+    }
+
+    /// What is wrong with the grids one terminal's PTY got across a key press, `sent` in order, under m18's coalescing
+    /// (#36478): more grids than refreshes since `pressed` (plus the landing's flush), the start grid again, not
+    /// ending at `final`, or any grid after `final`. Empty when the PTY got the press's grids as m18 sends them.
+    static func coalescingIssues(_ sent: [TerminalGridSize], final: TerminalGridSize, start: TerminalGridSize?,
+                                 since pressed: ContinuousClock.Instant) -> [String] {
+        var issues: [String] = []
+        let windows = TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
+        if sent.count > windows { issues.append("\(sent.count) grids, more than one per refresh (\(windows))") }
+        if let start, sent.contains(start) { issues.append("the start grid \(start) again") }
+        if sent.last != final { issues.append("not ending at the final grid \(final)") }
+        let afterFinal = sent.drop(while: { $0 != final }).dropFirst()
+        if !afterFinal.isEmpty { issues.append("\(Array(afterFinal)) after the final grid \(final)") }
+        return issues
     }
 
     /// p1 | p2.
@@ -172,7 +188,8 @@ struct KeyboardResizeOneGridReportTests {
             logs[pane] = SizeLog(surface)
         }
 
-        // The key's turn, then the press's first frame tick (the final grids go there, no later).
+        // The key's turn, then the press's first frame tick (its grids go coalesced, m18).
+        let pressed = ContinuousClock.now
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         #expect(try rig.screen.holdsContentForKeyResize, "the press did not hold the pane contents (K3)")
@@ -196,9 +213,10 @@ struct KeyboardResizeOneGridReportTests {
             let sizes = try #require(logs[pane]).sizes
             let startGrid = before.grid.map { "\($0)" } ?? "none"
             #expect(final != before.grid, "the press did not change \(pane)'s grid (\(final))")
-            #expect(atPress[pane] == [final], "\(pane): up to its first frame the press asked the PTY for \(atPress[pane] ?? []), not the final grid \(final)")
-            #expect(atLanding.isEmpty,
-                    "\(pane): after the final grid \(final) at the press, the landing asked the PTY for \(atLanding) (start grid \(startGrid))")
+            let sent = (atPress[pane] ?? []) + atLanding
+            let issues = Self.coalescingIssues(sent, final: final, start: before.grid, since: pressed)
+            #expect(issues.isEmpty,
+                    "\(pane): the press asked the PTY for \(atPress[pane] ?? []) up to its first frame and \(atLanding) to the landing (start grid \(startGrid)): \(issues)")
             #expect(!sizes.contains(before.size), "\(pane): the surface took its start size \(before.size) again after the press: \(sizes)")
             // At rest the surface fills its host again (no hold left).
             let host = terminal.session.view
@@ -211,8 +229,9 @@ struct KeyboardResizeOneGridReportTests {
     /// landing frame commits, and lets go of what it held, when the run loop next waits; input that comes first runs
     /// before that: a second press (Ctrl-Shift-J) springs the panes beside the first one, and a close arrives during that
     /// spring. p1 is at rest: its terminal sends no grid after the final one of the first press, and its surface never
-    /// takes its start size again. p2 is on the second press's spring, which the close takes over: its terminal sends one
-    /// grid for the close, the final one, measured from its live size (not from the size its key hold kept).
+    /// takes its start size again. p2 is on the second press's spring, which the close takes over: its PTY ends at the
+    /// close's final grid, measured from its live size (not from the size its key hold kept), with nothing after it. The
+    /// presses' grids go coalesced (m18, ``coalescingIssues(_:final:start:since:)``), so they may arrive late.
     /// Only the pane's content area holds (FRAME OWNER S1): the pane content view, its tab strip with it, follows the pane.
     @Test func aCloseDuringASecondPressSendsEachTerminalOnlyItsFinalGrid() async throws {
         let rig = try Rig(Self.besideStack)
@@ -222,8 +241,9 @@ struct KeyboardResizeOneGridReportTests {
         let start = (size: terminal.surface.frame.size, grid: terminal.surface.fittedGrid)
         let log = SizeLog(terminal.surface)
 
-        // Ctrl-Shift-L on p1: p1 grows, p2 and p3 shrink; its first frame sends p1's final grid. The spring lands; its
-        // release waits for that frame's commit.
+        // Ctrl-Shift-L on p1: p1 grows, p2 and p3 shrink; their grids go coalesced (m18). The spring lands; its release
+        // waits for that frame's commit.
+        let pressed = ContinuousClock.now
         #expect(PaneResize.press("p1", .right, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         #expect(rig.root.advanceFrame(1.0 / 120), "the first press did not spring")
@@ -246,8 +266,8 @@ struct KeyboardResizeOneGridReportTests {
         #expect(!host.isOnLayoutSpring, "the second press moved p1")
         let p2 = try rig.terminal("p2")
         try #require(rig.root.context.hosts["p2"]?.isOnLayoutSpring == true, "p2 is not on the second press's spring when p3 closes")
-        // What p2 asked for up to the close (the final grids of both presses) is not the close's.
-        _ = try await rig.grids("p2")
+        // What p2 asked for up to the close (the grids of both presses, coalesced).
+        let p2UpToClose = try await rig.grids("p2")
         let layout = try #require(rig.model.screen(containing: "p1")?.layout)
         rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: Self.closing("p3", in: layout))])
         rig.root.syncWithModel()
@@ -258,15 +278,18 @@ struct KeyboardResizeOneGridReportTests {
         let after = try await rig.grids("p1")
         let startGrid = start.grid.map { "\($0)" } ?? "none"
         #expect(final != start.grid, "the first press did not change p1's grid (\(final))")
-        #expect(atPress == [final], "up to its first frame the first press asked p1's PTY for \(atPress), not the final grid \(final)")
-        #expect(after.isEmpty, "p1: after the final grid \(final) at the first press, letting its content go asked the PTY for \(after) (start grid \(startGrid))")
+        let p1Issues = Self.coalescingIssues(atPress + after, final: final, start: start.grid, since: pressed)
+        #expect(p1Issues.isEmpty,
+                "p1: the first press asked the PTY for \(atPress) up to its first frame and \(after) to letting its content go (start grid \(startGrid)): \(p1Issues)")
         #expect(!log.sizes.contains(start.size), "p1's surface took its start size \(start.size) again after the first press: \(log.sizes)")
         #expect(host.content.frame.size == host.contentRect.size && !area.isHolding,
                 "p1's content is not at its rest size: \(host.content.frame.size) in \(host.contentRect.size), area holding \(area.isHolding)")
 
         let p2Final = try #require(p2.surface.fittedGrid, "p2's terminal fits no grid")
         let p2Grids = try await rig.grids("p2")
-        #expect(p2Grids == [p2Final], "p2: the close that took over its key spring asked the PTY for \(p2Grids), not its final grid \(p2Final) once")
+        // The close that took over p2's key spring ends p2's PTY at the grid of p2's live size, and nothing after it.
+        let p2Issues = Self.coalescingIssues(p2UpToClose + p2Grids, final: p2Final, start: nil, since: pressed)
+        #expect(p2Issues.isEmpty, "p2: the presses asked the PTY for \(p2UpToClose) up to the close and the close \(p2Grids): \(p2Issues)")
         let p2Host = p2.session.view
         #expect(p2.surface.frame.size == p2Host.surfaceSize(forHostSize: p2Host.bounds.size),
                 "p2's surface rests at \(p2.surface.frame.size) in a \(p2Host.bounds.size) host")

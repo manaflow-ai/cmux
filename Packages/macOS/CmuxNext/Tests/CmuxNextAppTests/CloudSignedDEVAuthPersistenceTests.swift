@@ -15,7 +15,7 @@ struct CloudSignedDEVAuthPersistenceTests {
             selection.authNamespace = "production-fixture"
             selection.legacyStorage = true
             selection.authStorageNamespace = nil
-            configuration.runtimeSelection = selection
+            configuration = configuration.selecting(selection)
         }
         configuration.isProductionAuth = true
         configuration.stackProjectID = "production-fixture"
@@ -58,7 +58,7 @@ struct CloudSignedDEVAuthPersistenceTests {
         var selection = try #require(switched.runtimeSelection)
         selection.legacyStorage = false
         selection.authNamespace = "explicit-backend-switch"
-        switched.runtimeSelection = selection
+        switched = switched.selecting(selection)
         let isolated = FileStackTokenStore(directory: switched.credentialsDirectory(homeDirectory: home))
         #expect(await isolated.getStoredAccessToken() == nil)
         #expect(await isolated.getStoredRefreshToken() == nil)

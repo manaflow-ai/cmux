@@ -70,6 +70,10 @@ enum OmnibarStyle {
     /// The star and other trailing address-bar icons, Helium's `kLocationBarTrailingIconSize`
     /// (18 at Standard; Chrome's 20 at Comfortable).
     static var trailingIconSize: CGFloat { metrics.trailingIconSize }
+    /// The bookmark star's drawing side: the toolbar glyph side, so its ink box is the back arrow's
+    /// and the Extensions puzzle's, but never larger than its button (`trailingIconSize + 2`), which a
+    /// short `browser.omnibar.height` shrinks.
+    static var starIconSize: CGFloat { metrics.starIconSize }
     /// Between neighboring toolbar buttons (navigation, extensions, trailing
     /// buttons): Helium's `kToolbarIconDefaultMargin`, the base padding, which
     /// the toolbar's FlexLayout collapses to one gap.

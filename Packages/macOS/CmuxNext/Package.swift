@@ -100,12 +100,15 @@ import PackageDescription
 //     operation sink; plans/cmux-next/app-platform.md)
 //   CmuxNextFocus -> CCmuxAppFFI (the window focus machine: focus state view, events, effects,
 //     topology, and FocusMachine in the input router's cmux_input_* C ABI (FocusInput); no AppKit; cx-8w027.2)
+//   CmuxNextWindowRules -> CCmuxAppFFI, Daemon (the window handlers' rules, asked of cmux-window-rules over the
+//     app FFI's JSON channel, ops window_*: facts in, decisions out; no AppKit)
 //   CmuxNextTasks -> Design, Icons, CCmuxAppFFI (Tasks pane: list, board and inbox prototypes over a
 //     mirror + intent log of the Tasks owner, whose reducer previews pending intents over the FFI;
 //     no daemon; the App supplies the source; plans/cmux-next/tasks.md)
 //   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
 //     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
-//   CmuxNextServer -> Design, Icons (server menubar panel, pairing, approver sheet and health prototypes
+//   CmuxNextServer -> Design, Icons, Pages (server menubar panel, pairing, approver sheet and health prototypes,
+//     the Machines section page
 //     over a projection of `server.status`; no daemon; the App supplies the source;
 //     plans/cmux-next/server.md)
 //   CmuxNextRemoteView -> Design, Icons (remote desktop pane: decode, presenters, chrome, input capture;
@@ -178,8 +181,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-3c5c635f412c722d83d844a7f525b19caa3e87ed/CCmuxAppFFI.xcframework.zip",
-    checksum: "2da354101ea0295244567e0bb05cf7ca42df713608ea96a538120e848be181bd"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-2d7a228cbd4e454d173e300a7fb90bc51a32514f/CCmuxAppFFI.xcframework.zip",
+    checksum: "9e8bcbba41bda423441d16f34c0241468cdcdf64f35656acc485004a9146cd79"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -266,6 +269,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentUpdates",
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
+                "CmuxNextWindowRules",
                 "CmuxNextComputerUse",
                 "CmuxNextAgentQuestion",
                 "CmuxNextAgentPermissions",
@@ -640,7 +644,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextHomeEngineTests",
             dependencies: [
-                "CmuxNextHomeEngine", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome",
+                "CmuxNextHomeEngine", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextTestSupport",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
             ],
             swiftSettings: daemonSwiftSettings
@@ -684,6 +688,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextFocus",
             dependencies: ["CCmuxAppFFI"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .target(
+            name: "CmuxNextWindowRules",
+            dependencies: ["CCmuxAppFFI", "CmuxNextDaemon"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -1215,7 +1224,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextServer",
             // CmuxNextWakeups: the joined rows' one-shot heartbeat deadline (JoinedMachineStore aging).
-            dependencies: ["CmuxNextCloud", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemote", "CmuxNextWakeups"],
+            // CmuxNextPages, CmuxNextSettings: the Machines section's React page host and its provider.
+            dependencies: ["CmuxNextCloud", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextPages", "CmuxNextRemote",
+                           "CmuxNextSettings", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -1606,7 +1617,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextSidebar",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings", "CmuxNextResources", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI"],
             resources: [
                 .process("Resources"),
             ],
@@ -1614,7 +1625,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextSidebarTests",
-            dependencies: ["CmuxNextSidebar", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextDesign", "CmuxNextSidebar", "CmuxNextWakeups"],
             exclude: ["Fixtures"],
             swiftSettings: uiSwiftSettings
         ),
@@ -1660,7 +1671,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextBrowser",
-            dependencies: ["CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer"],
+            dependencies: ["CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextPages", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer"],
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
             resources: [.copy("CEF/Shim/cmux_cef_shim.h"), .process("Resources")],
@@ -1855,6 +1866,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
                 "CmuxNextWebUpdates",
+                "CmuxNextWindowRules",
                 "CmuxNextWorkspaceNaming",
                 "CmuxNextWorkspaceRepair",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),

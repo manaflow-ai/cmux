@@ -50,7 +50,6 @@ use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
 use cmux_remote::session::SessionLimits;
 use cmux_remote::ssh_bootstrap::{BootstrapError, SshBootstrapConfig, SshBootstrapper};
-use cmux_remote::workspace::WorkspaceService;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -2177,7 +2176,10 @@ async fn run_daemon(
             SessionLimits::default(),
             DaemonSessionPolicy { resume_lease: options.resume_lease },
         )?;
-        let workspace = WorkspaceService::new();
+        #[cfg(unix)]
+        let workspace = crate::machine_secrets::daemon_workspace_service(&auth, &state_dir);
+        #[cfg(not(unix))]
+        let workspace = cmux_remote::workspace::WorkspaceService::new();
         // The admin proof and service forwarding must use the same resolved
         // destination, including when the configured path is a symlink.
         let mux_binding = MuxBinding::new(&mux_socket, &link_socket)?;
@@ -2530,6 +2532,7 @@ async fn recover_inactive_predecessor_state(
 /// daemon still serves every other route.
 fn install_grant_verifier(auth: &AuthDatabase, path: &Path) {
     let installed = cmux_remote::grant::FileGrantVerifier::load(path).and_then(|verifier| {
+        let verifier = verifier.with_unknown_kid_hook(Box::new(report_unknown_kid));
         let machine = verifier.config().machine.clone();
         auth.set_grant_verifier(Arc::new(verifier))
             .map(|()| machine)
@@ -2547,6 +2550,34 @@ fn install_grant_verifier(auth: &AuthDatabase, path: &Path) {
         }
     }
 }
+
+/// Tells the Cloud agent a carrier grant named a kid this daemon's keyset
+/// lacks, so it fetches the keyset and rewrites the grant config
+/// (cmux-host `cloud/carrier_keyset.rs`). One line on the agent socket, on
+/// its own thread so a handshake never waits; every step is bounded by
+/// [`UNKNOWN_KID_REPORT_TIMEOUT`], and the verifier reports at most once a
+/// minute.
+fn report_unknown_kid(kid: &str) {
+    let key = cmux_host::cloud::carrier_keyset::REQUEST_KEY;
+    let line = format!("{}\n", serde_json::json!({ key: { "kid": kid } }));
+    let spawned = thread::Builder::new().name("carrier-keyset-report".into()).spawn(move || {
+        use std::io::{Read as _, Write as _};
+        let socket = cmux_host::cloud::wire::AGENT_SOCKET;
+        let Ok(mut stream) = std::os::unix::net::UnixStream::connect(socket) else { return };
+        let _ = stream.set_write_timeout(Some(UNKNOWN_KID_REPORT_TIMEOUT));
+        let _ = stream.set_read_timeout(Some(UNKNOWN_KID_REPORT_TIMEOUT));
+        if stream.write_all(line.as_bytes()).is_ok() {
+            let mut reply = [0_u8; 256];
+            let _ = stream.read(&mut reply);
+        }
+    });
+    if let Err(error) = spawned {
+        crate::client_log::stderr_log!("remote", "{BIN}: carrier keyset report: {error}");
+    }
+}
+
+/// Each step of an unknown-kid report (connect is local and immediate).
+const UNKNOWN_KID_REPORT_TIMEOUT: Duration = Duration::from_secs(2);
 
 async fn load_daemon_auth_during_handoff(
     state_dir: &Path,
