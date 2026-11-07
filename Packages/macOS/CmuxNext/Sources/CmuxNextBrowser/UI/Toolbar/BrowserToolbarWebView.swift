@@ -33,6 +33,9 @@ public final class BrowserToolbarWebView: NSView {
     /// The omnibar's status changed (editing, the card).
     var onStatusChange: (() -> Void)?
 
+    /// Pushes again when the engine's display settings change (`followDisplay`).
+    var displayLoop: ObservationLoop?
+
     public var suggestionEngine: OmniboxSuggestionEngine {
         didSet {
             if suggestionEngine !== oldValue { followDisplay() }
@@ -178,6 +181,8 @@ public final class BrowserToolbarWebView: NSView {
     public func close() {
         queryTask?.cancel()
         queryTask = nil
+        displayLoop?.cancel()
+        displayLoop = nil
         popup.close()
         content?.close()
         content = nil
