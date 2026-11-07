@@ -7,6 +7,7 @@ import type { HomeChannelsStore, HomeSnapshot } from "../home-channels/store";
 import type { HomeConversation, HomeParticipant } from "../home-channels/types";
 import type { Strings } from "../shared/i18n";
 import type { PageClient } from "../shared/pageClient";
+import type { Rect } from "./list/layout";
 import type { MessagesNav } from "./nav";
 
 export type {
@@ -55,6 +56,44 @@ export interface MessagesHost {
   /** The conversations deleted from the list (Delete Conversation…), each with its newest message's
    * seq then: one stays off the list until a newer message. Sent on subscribe and on every change. */
   subscribeHidden(listener: (hidden: HiddenConversations) => void): () => void;
+  /** The list's app facts (tags, the Cloud note, teammates, header sizes); sent on subscribe and on change. */
+  subscribeList(listener: (facts: ListFacts) => void): () => void;
+  /** The list's width kept for this window (null: the standard width). */
+  loadWidth(): Promise<number | null>;
+  /** The person's drag set the width (null: the divider's double-click put it back). */
+  saveWidth(width: number | null): void;
+  /** The list header's band and its controls, in page points: the band's empty space moves the window. */
+  setDragBand(band: Rect, controls: readonly Rect[]): void;
+}
+
+/** A person the list offers to chat to (a teammate with no DM yet). */
+export interface ListPerson {
+  id: string;
+  name: string;
+}
+
+/** The list header's sizes at the sidebar's density and text size (the native `HomeSidebarHeaderMetrics`). */
+export interface HeaderMetrics {
+  side: number;
+  chipHeight: number;
+  chipGap: number;
+  chipPadding: number;
+  /** Points added to the chip's and the empty list's text. */
+  textStep: number;
+}
+
+/** What the app adds to the list (`cmux.home.messages.list`, HomeMessagesListFeed.swift). */
+export interface ListFacts {
+  /** Each conversation's tag after its name: a Chief's "Main · Cloud", "This Mac" or engine. */
+  badges: ReadonlyMap<string, string>;
+  /** The quiet line under the list (Cloud conversations not reachable). */
+  note?: string;
+  /** The team members with no DM yet: rows after the conversations while no search runs. */
+  teammates: readonly ListPerson[];
+  /** Everyone with no DM yet: a search lists the matches under "Teammates". */
+  people: readonly ListPerson[];
+  /** Absent: the Compact sizes with the default text. */
+  header?: HeaderMetrics;
 }
 
 /** Deleted conversations by id, with the newest seq each had when deleted. */

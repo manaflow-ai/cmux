@@ -19,12 +19,25 @@
 //   the same way, one file per entry (attachmentDrafts.ts `AttachmentKeeper`); `files: {[conversation]:
 //   {[hash]: at}}` names the ones whose bytes the app keeps, written with `attachments.write {hash,
 //   offset, byteCount, data}` and read with `attachments.read {hash, offset, length}` (~1 MB frames).
+// - the `list` stream (HomeMessagesListFeed.swift): each row's Chief tag, the Cloud note, the
+//   teammates with no DM yet, the header's sizes at the sidebar's density and text size;
+// - `width.load {}` -> `{width}` and `width.save {width}`: the list's width kept per window;
+// - `dragBand {band, controls}`: the list header's band, whose empty space moves the window.
 // In a browser (no host) there are no host items and no lights.
 import type { PageClient } from "../shared/pageClient";
 import type { HomeAttachment } from "../home-channels/types";
 import type { DraftKeeper } from "./nav";
 import type { AttachmentKeeper, KeptAttachments, LegacyAttachment } from "./transcript/attachmentDrafts";
-import type { HiddenConversations, HostMenuItem, MessagesChrome, MessagesHost } from "./types";
+import type { Rect } from "./list/layout";
+import type {
+  HeaderMetrics,
+  HiddenConversations,
+  HostMenuItem,
+  ListFacts,
+  ListPerson,
+  MessagesChrome,
+  MessagesHost,
+} from "./types";
 
 export const MessagesOps = {
   menu: "cmux.home.messages.menu",
@@ -39,6 +52,10 @@ export const MessagesOps = {
   releaseAttachments: "cmux.home.messages.attachments.release",
   writeAttachment: "cmux.home.messages.attachments.write",
   readAttachment: "cmux.home.messages.attachments.read",
+  list: "cmux.home.messages.list",
+  loadWidth: "cmux.home.messages.width.load",
+  saveWidth: "cmux.home.messages.width.save",
+  dragBand: "cmux.home.messages.dragBand",
 } as const;
 
 /** A kept file's bytes move in frames this size (as the upload's own); reads are a multiple of 3. */
@@ -236,6 +253,59 @@ export function pageMessagesHost(client: PageClient): MessagesHost {
     subscribeHidden(listener) {
       return follow(client, MessagesOps.hidden, (data) => listener(parseHidden(data)));
     },
+    subscribeList(listener) {
+      return follow(client, MessagesOps.list, (data) => listener(parseListFacts(data)));
+    },
+    async loadWidth() {
+      const answer = await client.call<{ width?: unknown }>(MessagesOps.loadWidth, {}).catch(() => undefined);
+      const width = answer?.width;
+      return typeof width === "number" && Number.isFinite(width) && width > 0 ? width : null;
+    },
+    saveWidth(width) {
+      void client
+        .call(MessagesOps.saveWidth, { width: width === null ? null : Math.round(width) })
+        .catch(() => undefined);
+    },
+    setDragBand(band, controls) {
+      void client.call(MessagesOps.dragBand, { band, controls }).catch(() => undefined);
+    },
+  };
+}
+
+/** No facts: no tags, no note, no teammates, the standard header. */
+export const NO_LIST_FACTS: ListFacts = { badges: new Map(), teammates: [], people: [] };
+
+/** The list facts the host sent; anything malformed reads as none. */
+export function parseListFacts(value: unknown): ListFacts {
+  const data = (value ?? {}) as {
+    badges?: unknown;
+    note?: unknown;
+    teammates?: unknown;
+    people?: unknown;
+    header?: unknown;
+  };
+  const badges = new Map<string, string>();
+  if (data.badges && typeof data.badges === "object" && !Array.isArray(data.badges))
+    for (const [id, tag] of Object.entries(data.badges as Record<string, unknown>))
+      if (typeof tag === "string" && tag) badges.set(id, tag);
+  const people = (list: unknown): ListPerson[] =>
+    Array.isArray(list)
+      ? list.filter(
+          (p): p is ListPerson =>
+            !!p && typeof p === "object" && typeof p.id === "string" && !!p.id && typeof p.name === "string",
+        )
+      : [];
+  const header = data.header as Partial<HeaderMetrics> | undefined;
+  const sizes = ["side", "chipHeight", "chipGap", "chipPadding", "textStep"] as const;
+  const validHeader =
+    !!header &&
+    sizes.every((key) => typeof header[key] === "number" && Number.isFinite(header[key]) && header[key] >= 0);
+  return {
+    badges,
+    ...(typeof data.note === "string" && data.note ? { note: data.note } : {}),
+    teammates: people(data.teammates),
+    people: people(data.people),
+    ...(validHeader ? { header: header as HeaderMetrics } : {}),
   };
 }
 
@@ -262,6 +332,10 @@ export const noMessagesHost: MessagesHost = {
   perform: async () => {},
   subscribeChrome: () => () => {},
   subscribeHidden: () => () => {},
+  subscribeList: () => () => {},
+  loadWidth: async () => null,
+  saveWidth: () => {},
+  setDragBand: (_band: Rect, _controls: readonly Rect[]) => {},
 };
 
 function isMenuItem(value: unknown): value is HostMenuItem {

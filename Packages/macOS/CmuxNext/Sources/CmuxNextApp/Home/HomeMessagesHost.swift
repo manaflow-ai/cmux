@@ -59,6 +59,8 @@ final class HomeMessagesHostProvider: PageProvider {
     var onShown: (@MainActor (ConversationID?, Bool) -> Void)?
     /// The `hidden` stream: the deleted conversations and the archived Chiefs' ones.
     let hidden = HomeMessagesHiddenFeed()
+    /// The `list` stream (tags, Cloud note, teammates, header sizes) and the list's width (``HomeMessagesListFeed``).
+    let list: HomeMessagesListFeed
     private var previewProvider: HomeLinkPreviewProvider?
     private var keeping: HomeMessagesKept?
     private var bubbleOps: HomeMessagesBubbleOps?
@@ -72,8 +74,9 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The window the page is in (the header panels read it).
     var window: () -> NSWindow? = { nil }
 
-    init(services: AppServices) {
+    init(services: AppServices, widthKey: String) {
         self.services = services
+        list = HomeMessagesListFeed(widthKey: { widthKey })
     }
 
     nonisolated deinit {
@@ -131,7 +134,7 @@ final class HomeMessagesHostProvider: PageProvider {
             return (await home.groupActions.setChiefReplies(policy, id)).pageOutcome
         case "contacts":
             let team = services.cloud.isSignedIn ? services.cloud.auth.activeTeam.team?.displayName : nil
-            return HomeContact.pageAnswer(home.contacts(), inviteTeam: team, rows: home.homeStore.rows, roster: home.chiefRoster, harnesses: home.directory.chiefHarnesses)
+            return HomeContact.pageAnswer(home.chiefRoster.mainFirst(home.contacts(), rows: home.homeStore.rows), inviteTeam: team, rows: home.homeStore.rows, roster: home.chiefRoster, harnesses: home.directory.chiefHarnesses)
         case "chief.create":
             let name = (fields["name"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { throw PageError.invalidParams("name must not be empty") }

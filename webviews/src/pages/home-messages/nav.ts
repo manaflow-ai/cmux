@@ -222,6 +222,22 @@ export class MessagesNav {
     this.set({ draftEpoch: this.state.draftEpoch + 1 });
   }
 
+  /** A gone conversation (a Chief home made again: the owner no longer lists `from`) was replaced
+   * by the live Chief `to`: what the person typed and attached there goes with it, after the
+   * Chief's own (`own + "\n" + text`, the files one per hash), and `from` empties, as the native
+   * page's `replaceGone`. Returns whether anything went. */
+  carry(from: string, to: string): boolean {
+    if (from === to) return false;
+    const text = this.draft(from);
+    if (text) {
+      const own = this.draft(to);
+      this.replaceDraft(to, own ? `${own}\n${text}` : text);
+      this.replaceDraft(from, "");
+    }
+    const files = this.attachments.carry(from, to);
+    return !!text || files > 0;
+  }
+
   /** `conversation`'s draft version (its composer's key): it changes when the draft is replaced. */
   draftVersion(conversation: string): number {
     return this.versions.get(conversation) ?? 0;

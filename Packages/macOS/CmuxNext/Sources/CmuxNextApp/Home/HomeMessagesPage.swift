@@ -65,9 +65,9 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
     required init?(coder: NSCoder) { nil }
 
     /// The Messages page for the docked Home (`dock`), classic Home's top page or a Home pane tab
-    /// (no dock: no view switch); nil when the page bundle is missing.
-    static func make(services: AppServices, dock: HomeDockView? = nil) -> HomeMessagesPage? {
-        guard let made = PageFactory(services: services).homeMessagesWebPage(dock: dock) else { return nil }
+    /// (no dock: no view switch); nil when the page bundle is missing. `widthKey`: the list's width is kept per key.
+    static func make(services: AppServices, dock: HomeDockView? = nil, widthKey: String = HomeDockTab.widthKey) -> HomeMessagesPage? {
+        guard let made = PageFactory(services: services).homeMessagesWebPage(dock: dock, widthKey: widthKey) else { return nil }
         // A web link the person clicks opens on the Home workspace's right side, as in Channels.
         made.page.onOpenExternal = { [weak services] in services?.home.dock.openLink($0, on: services?.daemon.connection) }
         return HomeMessagesPage(services: services, page: made.page, route: made.route, host: made.host)
@@ -87,7 +87,7 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
 
     override func layout() {
         super.layout()
-        dragStrip.frame = CGRect(x: 0, y: 0, width: bounds.width, height: HomeWindowDragStrip.height)
+        dragStrip.frame = dragStrip.frame(in: bounds)
         updateWindowControls()
     }
 
@@ -99,19 +99,7 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
     /// The window's traffic lights over the page's top band, in its points from its top-left; nil
     /// when none lie there (the window's sidebar beside the page, full screen, no window).
     func updateWindowControls() {
-        route.setWindowControls(windowControls(band: Self.band))
-    }
-
-    private func windowControls(band: CGFloat) -> CGRect? {
-        guard let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) else { return nil }
-        var controls = lights
-        if let accessory = (window as? any TitlebarAccessoryHosting)?.titlebarAccessoryFrame, accessory.width > 0,
-           abs(accessory.midY - lights.midY) < lights.height {
-            controls = controls.union(accessory)
-        }
-        let local = convert(controls, from: nil)
-        guard local.intersects(CGRect(x: 0, y: 0, width: bounds.width, height: band)) else { return nil }
-        return local.integral
+        route.setWindowControls(HomeWindowDragStrip.windowControls(over: self, band: Self.band))
     }
 
     private func watch(_ home: HomeService) {
@@ -150,6 +138,10 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
         host.hidden.hidden = { [weak self] in self?.sidebar.hidden ?? [:] }
         host.hidden.archived = { HomeArchivedChiefs(home.directory.archivedChiefs, me: home.homeStore.me?.id).hiddenConversations(store.rows) }
         let source = sidebar
+        host.list.sources = HomeMessagesListSources(model: { [weak source] in source?.model() }, contacts: { [weak home] in home?.contacts() ?? [] },
+                                                    rows: { store.rows }, chiefsChanged: { [weak home] in home?.refreshChiefHarnesses(); home?.refreshChiefAvatars() },
+                                                    listedChanged: { [weak home] in home?.requests.refresh() })
+        host.list.onDragBand = { [weak self] in self?.dragStrip.setBand($0, controls: $1) }
         // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
         watches.append(Task { [weak self] in
             var last = home.hiddenRevision

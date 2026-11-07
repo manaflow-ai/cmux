@@ -240,6 +240,8 @@ export interface DebugContext {
   nav: Pick<MessagesNav, "focus" | "dismiss" | "openCompose" | "requestFocus" | "getSnapshot">;
   /** The list as it shows now. */
   model: ListModel;
+  /** The quiet line under the list (the app's Cloud note), if any. */
+  note?: string;
   messages: Pick<MessagesHost, "menu" | "perform">;
   strings: Strings;
   debug: MessagesDebug;
@@ -321,7 +323,7 @@ export function snapshot(context: DebugContext, params: Json): Json {
       unread: item.unread,
       chief: item.conversation.kind === "chief" || item.peer?.chief === true,
     })),
-    note: null,
+    note: context.note ?? null,
     cloud: null,
     shown: composing ? null : (state.selected ?? null),
     open_thread: state.thread ?? null,

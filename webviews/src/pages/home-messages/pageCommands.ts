@@ -253,3 +253,45 @@ export function followPageFocus(
   target.addEventListener("focus", focused);
   return () => target.removeEventListener("focus", focused);
 }
+
+/** A key the message box takes from anywhere on the page (KeyRouter.isPrintable or isDeadKey): one
+ * typed character (space too) or a dead key, with no Command or Control chord. */
+export function isTypedKey(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey">): boolean {
+  if (event.metaKey || event.ctrlKey) return false;
+  if (event.key === "Dead") return true;
+  // One code point (a letter, a symbol, an emoji); a named key ("Enter", "ArrowDown") is longer.
+  const code = event.key.codePointAt(0) ?? 0;
+  return event.key.length === String.fromCodePoint(code).length && code >= 0x20 && code !== 0x7f;
+}
+
+/** Whether `element` keeps its own keys: a text field, a text area or editable text. */
+function ownsTypedText(element: Element): boolean {
+  const tag = element.tagName;
+  if (tag === "TEXTAREA" || tag === "SELECT" || tag === "INPUT") return true;
+  return (element as HTMLElement).isContentEditable === true;
+}
+
+/**
+ * A letter typed while the page itself or the conversation list has the keyboard goes to the
+ * message box (or To: on New Message), as the native Home routed it
+ * (TopHomePageView+PrimaryInputTarget: `routesToPrimaryInput`; Lawrence 2026-10-19: "If I type
+ * randomly ... it doesn't actually work"). The box takes the keyboard during the key's keydown, so
+ * the key's character lands in it. The list keeps its arrows and Return; a text field (the search,
+ * a sheet's field) keeps its keys; a button or menu with the keyboard is left alone.
+ */
+export function followTyping(
+  target: Pick<Window, "addEventListener" | "removeEventListener">,
+  doc: Pick<Document, "activeElement" | "body">,
+  nav: Pick<MessagesNav, "focus">,
+): () => void {
+  const typed = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.isComposing || !isTypedKey(event)) return;
+    const active = doc.activeElement;
+    const page = !active || active === doc.body;
+    const list = !!active && !page && !ownsTypedText(active) && active.closest?.(".hm-scroller") === active;
+    if (!page && !list) return;
+    nav.focus();
+  };
+  target.addEventListener("keydown", typed as EventListener);
+  return () => target.removeEventListener("keydown", typed as EventListener);
+}

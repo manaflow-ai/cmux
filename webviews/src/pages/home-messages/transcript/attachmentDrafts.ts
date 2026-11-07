@@ -350,6 +350,24 @@ export class AttachmentDrafts {
     if (back.length) this.write(conversation, [...back, ...tray]);
   }
 
+  /** `from`'s finished files go to `to`'s tray after its own (one per hash), and `from`'s tray
+   * empties: a gone conversation's files follow the live Chief that replaced it (nav `carry`).
+   * Files still uploading or failed stay behind with their upload. Returns how many went. */
+  carry(from: string, to: string): number {
+    if (from === to) return 0;
+    const own = this.files(to);
+    const moving = this.files(from).filter((item) => item.part);
+    if (!moving.length) return 0;
+    const hashes = new Set(own.flatMap((item) => (item.part ? [item.part.hash] : [])));
+    const added = moving.filter((item) => item.part && !hashes.has(item.part.hash));
+    this.write(
+      from,
+      this.files(from).filter((item) => !item.part),
+    );
+    if (added.length) this.write(to, [...own, ...added]);
+    return moving.length;
+  }
+
   /** Every running upload stops (a composer that owns its own drafts went away). */
   abortAll(): void {
     for (const controller of this.uploads.values()) controller.abort();

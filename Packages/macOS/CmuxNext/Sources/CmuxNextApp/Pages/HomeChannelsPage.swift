@@ -53,7 +53,7 @@ extension PageFactory {
     /// (``HomeMessagesPage``). Its route serves the row and compose menus (``HomeConversationMenu``,
     /// ``HomePageMenus``), the runs, the unread colour and the traffic lights; ``HomeMessagesHostProvider``
     /// serves its sheets, cards, colours and the conversation it shows.
-    func homeMessagesWebPage(dock: HomeDockView? = nil) -> (page: PageWebView, route: HomeMessagesPageRoute, host: HomeMessagesHostProvider)? {
+    func homeMessagesWebPage(dock: HomeDockView? = nil, widthKey: String) -> (page: PageWebView, route: HomeMessagesPageRoute, host: HomeMessagesHostProvider)? {
         let (home, registry, app) = (services.home, services.registry, services)
         let route = HomeMessagesPageRoute(menu: { id in
             let entries = id.map { id in home.homeStore.rows.first { $0.id.rawValue == id }.map(home.conversationMenu.entries) ?? [] }
@@ -66,13 +66,13 @@ extension PageFactory {
             return true
         }, unreadColor: { app.settings?.snapshot.attention.color?.nsColor ?? Palette.notificationBlue },
            personOnlyMessage: RefusalStrings.personOnlyFromPage)
-        let host = HomeMessagesHostProvider(services: services)
+        let host = HomeMessagesHostProvider(services: services, widthKey: widthKey)
         let firstRun = HomeMessagesFirstRunProvider(sources: Self.firstRunSources(services), shown: { [weak host] in host?.shown })
         host.firstRun = firstRun
         let actions = PageGestureActionProvider(page: .homeMessages, wrapping: AppPageNativeProvider(services: services, page: .homeMessages))
         let extra = [PageRoute(prefix: HomeMessagesPageRoute.prefix, provider: route), PageRoute(prefix: PageNativeOp.actionRun, provider: actions)]
             + HomeMessagesHostProvider.prefixes.map { PageRoute(prefix: $0, provider: host) }
-            + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun)]
+            + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun)] + HomeMessagesListFeed.prefixes.map { PageRoute(prefix: $0, provider: host.list) }
         guard let page = homeWebPage(.homeMessages, dock: dock, extra: extra) else { return nil }
         host.window = { [weak page] in page?.window }
         services.home.homeDidOpen(asked: true)
