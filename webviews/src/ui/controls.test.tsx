@@ -109,15 +109,9 @@ test("Button is a focusable button with our variant and size, and disabled silen
 
 test("solid danger buttons keep a danger hover and open-popup fill", () => {
   const css = fs.readFileSync(path.join(import.meta.dir, "controls.css"), "utf8");
-  expect(css).toContain(
-    '.ui-btn[data-danger][data-variant="solid"]:hover:not([data-disabled])',
-  );
-  expect(css).toContain(
-    '.ui-btn[data-danger][data-variant="solid"][data-popup-open]',
-  );
-  expect(css).toContain(
-    "color-mix(in srgb, var(--ds-color-danger) 88%, var(--ds-color-on-accent))",
-  );
+  expect(css).toContain('.ui-btn[data-danger][data-variant="solid"]:hover:not([data-disabled])');
+  expect(css).toContain('.ui-btn[data-danger][data-variant="solid"][data-popup-open]');
+  expect(css).toContain("color-mix(in srgb, var(--ds-color-danger) 88%, var(--ds-color-on-accent))");
 });
 
 test("Switch is role switch, toggles on click and reports its state", () => {
