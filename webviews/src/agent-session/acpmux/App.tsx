@@ -9615,6 +9615,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                               !childRows && opened.cold ? opened.open : undefined
                                                             }
                                                             onColdOpenShown={coldOpenShown}
+                                                            // Still reading the chat: what lands after a blank or partly blank
+                                                            // first paint fades in rather than popping (shared/loadFade.ts).
+                                                            loading={
+                                                              !childRows &&
+                                                              snapshot.sessionId !== undefined &&
+                                                              snapshot.chatRead !== true
+                                                            }
                                                             afterLatest={
                                                               childRows
                                                                 ? undefined
