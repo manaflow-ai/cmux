@@ -289,6 +289,8 @@ impl Adapter {
         let ending: Vec<Scope> = {
             let mut state = self.st();
             state.observed = current.clone();
+            // An off switch read during the pass (it fences at once) ends the current scope too.
+            let fenced = fenced || state.unavailable;
             if fenced {
                 state.scopes.extend(current.clone());
             }
@@ -425,21 +427,32 @@ impl Adapter {
 
     /// Fences holder use at once when Cloud policy is off. Turning it on again keeps the holder
     /// home on disk, so a later confirmed run reuses its login without another device code.
+    /// The off switch's fence alone, at once: no request, renewal or write goes on, and running
+    /// transfers and resume passes end. The retirement comes with ``set_available``.
+    pub fn fence(&self) {
+        Self::fence_in(&mut self.st());
+    }
+
+    fn fence_in(state: &mut State) {
+        state.unavailable = true;
+        for (_, _, cx) in state.runs.values() {
+            cx.cancel();
+        }
+        if let Some(pass) = &state.resume_pass {
+            pass.cancel();
+        }
+    }
+
     pub fn set_available(self: &Arc<Self>, enabled: bool) {
         let retiring: Vec<Scope> = {
             let mut state = self.st();
-            state.unavailable = !enabled;
             // Off retires every scope each time it is said, so the outcome never depends on
             // whether an earlier line already fenced (a holder started under the fence, say).
             if enabled {
+                state.unavailable = false;
                 return;
             }
-            for (_, _, cx) in state.runs.values() {
-                cx.cancel();
-            }
-            if let Some(pass) = &state.resume_pass {
-                pass.cancel();
-            }
+            Self::fence_in(&mut state);
             if let Some(scope) = (self.current_scope)() {
                 state.scopes.insert(scope);
             }

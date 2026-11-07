@@ -53,6 +53,44 @@ struct CloudCodexHolderPipeTests {
         #expect(team(lines[3]) == "t2", "the switch comes after it")
     }
 
+    /// A holder that ended between the caller's `isRunning` read and its send was started again
+    /// with no acpmux path, and every transfer it ran then failed (cmux#37306 review): the pipe
+    /// keeps the path it last had.
+    @Test func aHolderStartedWithoutAPathGetsTheLastOne() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("codex-holder-acpmux-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let script = folder.appendingPathComponent("holder")
+        try Data("""
+        #!/bin/sh
+        n=$(cat '\(folder.path)/n' 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > '\(folder.path)/n'
+        if [ "$n" = 1 ]; then head -n 3 > '\(folder.path)/child1'; else head -n 4 > '\(folder.path)/child2'; fi
+        """.utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+
+        let (events, sink) = AsyncStream<CloudCodexHolderPipe.Event>.makeStream()
+        let pipe = CloudCodexHolderPipe(binary: script, config: Data(#"{"op":"config"}"#.utf8), events: sink)
+        let team: [String: Any] = ["user": "u1", "team": "t1"]
+        let acpmux = URL(fileURLWithPath: "/opt/acpmux")
+        let first = try JSONSerialization.data(withJSONObject: ["op": "delivers", "id": 1, "current": team])
+        #expect(await pipe.send(.init(data: first, id: 1), acpmux: acpmux))
+        var stream = events.makeAsyncIterator()
+        while let event = await stream.next() {
+            if case .ended(1, _) = event { break }
+        }
+
+        let second = try JSONSerialization.data(withJSONObject: ["op": "delivers", "id": 2, "current": team])
+        #expect(await pipe.send(.init(data: second, id: 2), acpmux: nil))
+        while let event = await stream.next() {
+            if case .ended(2, _) = event { break }
+        }
+        let lines = try String(contentsOf: folder.appendingPathComponent("child2"), encoding: .utf8)
+            .split(separator: "\n")
+            .map { try #require(JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]) }
+        #expect(lines.map { $0["op"] as? String } == ["config", "available", "restore", "delivers"])
+        #expect(lines[1]["acpmux"] as? String == acpmux.path)
+    }
+
     /// A holder that writes faster than the app reads is ended, and that end still reaches the app
     /// though its lines filled the buffer: the requests it never answered fail, so a sign-out or quit
     /// never waits forever and a lifecycle request goes again (cmux#37306 review).

@@ -34,6 +34,9 @@ actor CloudCodexHolderPipe {
     private var generation = 0
     private var sent: Set<Int> = []
     private var available = true
+    /// The holder child's executable last resolved: a child that ended between the caller's
+    /// ``isRunning`` read and its ``send(_:acpmux:)`` is started again with it, not without one.
+    private var acpmux: URL?
     /// What the running holder knows, replayed into the next one (``replay``): the scopes it
     /// served, the current scope it last held and the live machines of the last list. Without it
     /// a holder started again could not erase what the last one delivered.
@@ -72,7 +75,8 @@ actor CloudCodexHolderPipe {
         // machines, then this line ends that scope and erases them.
         let before = known
         if line.answerFor == nil { remember(line.data) }
-        if process == nil, !start(acpmux: acpmux, knowing: before) { return false }
+        if let acpmux { self.acpmux = acpmux }
+        if process == nil, !start(acpmux: acpmux ?? self.acpmux, knowing: before) { return false }
         guard write(line.data) else { return false }
         if let id = line.id { sent.insert(id) }
         return true

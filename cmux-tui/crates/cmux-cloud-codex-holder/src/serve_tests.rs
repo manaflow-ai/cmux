@@ -3,10 +3,11 @@
 
 use super::*;
 use crate::target::{ACCESS_PATH, ExecResult, MODE_PATH, VmError};
-use crate::test_support::holder_script;
+use crate::test_support::{Gate, holder_script};
 
+/// A machine's files; a read waits at the gate when one is set.
 #[derive(Default)]
-struct Files(Mutex<HashMap<String, Vec<u8>>>);
+struct Files(Mutex<HashMap<String, Vec<u8>>>, Mutex<Option<Arc<Gate>>>);
 
 #[async_trait]
 impl Machines for Files {
@@ -37,6 +38,10 @@ impl Machines for Files {
         })
     }
     async fn read(&self, _: Option<&str>, _: &str, path: &str) -> Result<Vec<u8>, VmError> {
+        let gate = lock(&self.1).clone();
+        if let Some(gate) = gate {
+            gate.pause().await;
+        }
         lock(&self.0).get(path).cloned().ok_or(VmError {
             status: 404,
             code: Some("vm_file_not_found".into()),
@@ -402,4 +407,52 @@ async fn a_switch_the_last_holder_never_read_still_erases_the_old_teams_access()
     assert_eq!(pipe.reply(2).await["ok"], true);
     assert!(!world.delivered(), "the old team's access is erased");
     pipe.quit().await;
+}
+
+/// cmux#37306 review: an off switch read while a restore was blocked on a machine took effect
+/// only once the restore ended, so a renewal could go on meanwhile. It fences when read, and
+/// what the restore was taking back is still erased.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_off_switch_fences_at_once_while_a_restore_is_blocked() {
+    let world = World::new();
+    world.delivered_by_a_holder_that_ended().await;
+    let gate = Gate::new();
+    *lock(&world.files.1) = Some(gate.clone());
+    let (out, mut lines) = mpsc::unbounded_channel::<String>();
+    let app = Arc::new(App {
+        out,
+        waiting: Mutex::default(),
+        next: AtomicU64::new(0),
+        closed: AtomicBool::new(false),
+    });
+    let machines: Arc<dyn Machines> = world.files.clone();
+    let holder = Holder::new(Config::from_json(&world.config()).unwrap(), app.clone(), machines);
+    // The app: answers every question, and passes on the holder's replies.
+    let (replies, mut replied) = mpsc::unbounded_channel::<Value>();
+    let answers = app.clone();
+    tokio::spawn(async move {
+        while let Some(line) = lines.recv().await {
+            let line: Value = serde_json::from_str(&line).unwrap();
+            if line.get("reply").is_some() {
+                let _ = replies.send(line);
+            } else if let (Some(kind), Some(id)) = (line["ask"].as_str(), line["id"].as_u64()) {
+                answers.answer(id, json!(matches!(kind, "owner" | "live")));
+            }
+        }
+    });
+
+    holder.take(
+        &json!({"op": "restore", "scopes": [scope()], "live": ["vm_1"], "current": scope(),
+            "acpmux": world.acpmux})
+        .to_string(),
+    );
+    gate.entered().await;
+    holder.take(&json!({"op": "available", "enabled": false, "current": scope()}).to_string());
+    assert!(!holder.adapter.available(), "fenced while the restore still waits on the machine");
+
+    *lock(&world.files.1) = None;
+    gate.open();
+    holder.take(&json!({"op": "pending_cleanup", "id": 2, "current": scope()}).to_string());
+    assert_eq!(replied.recv().await.unwrap()["ok"], true);
+    assert!(!world.delivered(), "the off switch still erased it");
 }

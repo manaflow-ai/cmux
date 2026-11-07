@@ -11,7 +11,8 @@
 //! A holder the app starts again (the last one ended) gets `restore {"scopes":[scope],"live":[ids]}`
 //! right after the config, under the `current` the last one held: what that one knew. Every
 //! later line but `answer` and `cancel` waits until the restore is done, so a sign-out, switch or
-//! off switch that follows erases what the last holder delivered.
+//! off switch that follows erases what the last holder delivered. An off switch still fences at
+//! once (no renewal or write goes on); only its retirement waits.
 //!
 //! Holder to app: `{"reply":id,"ok":true,"value":V}` or
 //! `{"reply":id,"ok":false,"error":code,"message":text}`, and questions
@@ -263,6 +264,11 @@ impl Holder {
     fn take(self: &Arc<Self>, line: &str) -> bool {
         let Ok(message) = serde_json::from_str::<Value>(line) else { return false };
         let op = message.get("op").and_then(Value::as_str).unwrap_or_default();
+        // The off switch fences at once, even while a restore holds the lines after it: a renewal
+        // already running stops there. Its retirement still comes in order (below).
+        if op == "available" && message.get("enabled").and_then(Value::as_bool) == Some(false) {
+            self.adapter.fence();
+        }
         // A restore's own questions need their answers, and a cancel may end a held run.
         if op != "answer" && op != "cancel" {
             let mut held = lock(&self.held);
