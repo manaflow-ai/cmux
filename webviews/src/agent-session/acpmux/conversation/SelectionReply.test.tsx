@@ -232,7 +232,8 @@ const at = (right: number, start = 100) => ({
   column: COLUMN,
 });
 const hit = (a: Rect, b: Rect) =>
-  Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5;
+  Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 &&
+  Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5;
 /// Every probe the placement makes is recorded, so a test can see it measured each spot it took.
 const probeOf = (text: readonly Rect[]) => (box: Rect) => text.filter((rect) => hit(box, rect));
 const chipBox = (place: { left: number; top: number }): Rect => ({
@@ -295,10 +296,18 @@ test("two short words in dense text: each spot measured where it is, never a far
   for (let k = -5; k <= 5; k += 1) if (k !== 0) text.push(row(200 + 26 * k));
   text.push(rest(100, 400), rest(450));
   const place = selectionReplyPlace(at(450, 400), SIZE, PANE, probeOf(text));
-  // No free spot within three lines: the spot covering least, over its own words and 22 px of the
-  // prefix on its own line, no other line.
-  expect(place).toEqual({ left: 378, top: 197 });
-  for (const rect of text.filter((rect) => rect.top !== 200)) expect(covers(place, rect)).toBe(false);
+  // Nothing near is free and the full chip would cover the prefix: its glyph alone (28 px) over
+  // the selection's own words, covering nothing else.
+  expect(place).toEqual({ left: 422, top: 197, compact: true });
+  const glyph = { left: 422, right: 450, top: 197, bottom: 225 };
+  for (const rect of text) expect(hit(glyph, rect)).toBe(false);
+  // A selection narrower than the glyph (400 to 410): the glyph on its own line, at its end,
+  // covering 18 px of the prefix and no other line.
+  const narrow = [...text.filter((rect) => rect.top !== 200), rest(100, 400), rest(410)];
+  const least = selectionReplyPlace(at(410, 400), SIZE, PANE, probeOf(narrow));
+  expect(least).toEqual({ left: 382, top: 197, compact: true });
+  const small = { left: 382, right: 410, top: 197, bottom: 225 };
+  for (const rect of narrow.filter((rect) => rect.top !== 200)) expect(hit(small, rect)).toBe(false);
 });
 
 test("a backward multi-line drag: spots near its end are measured there, not near where it started", () => {

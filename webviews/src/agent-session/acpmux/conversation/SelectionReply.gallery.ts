@@ -196,7 +196,10 @@ const backwardMulti = (ctx: PlayContext) =>
     "Each retry",
     (node, ends) => ({
       from: [node, node.data.indexOf(" ", Math.floor((ends[1]! + ends[2]!) / 2)) + 1],
-      to: [node, Math.min(node.data.length, node.data.indexOf(" ", Math.floor((ends[3]! + (ends[4] ?? node.data.length)) / 2)))],
+      to: [
+        node,
+        Math.min(node.data.length, node.data.indexOf(" ", Math.floor((ends[3]! + (ends[4] ?? node.data.length)) / 2))),
+      ],
     }),
     true,
   );
@@ -280,7 +283,7 @@ export default agentPaneEntry({
     "chip-short-mid": {
       ...variant(
         "chip",
-        "Two words mid-paragraph in a dense reply: the chip measures every spot it tries, and takes one with no other text under it, or covers the least.",
+        "Two words mid-paragraph in a dense reply: every spot near holds text, so the chip is its glyph alone over the selected words.",
         shortMid,
         chat(denseRows),
       ),
@@ -319,8 +322,11 @@ export default agentPaneEntry({
     definition: selectionReplyWrap,
     script: [
       {
+        // Only the stages with the long reply have that line; the others keep their own selection.
         name: "Select to the line's right edge",
-        run: rightEdge,
+        run: async (ctx) => {
+          if (ctx.document.querySelector('[data-row-id="gallery-reply-long"]')) await rightEdge(ctx);
+        },
       },
     ],
   },
