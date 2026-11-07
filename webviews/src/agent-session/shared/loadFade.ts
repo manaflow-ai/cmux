@@ -17,11 +17,11 @@ export const LOAD_FADE_CLASS = "cmux-load-fade";
 /// How long after the view's load ends (its read landed) content that arrives still counts as part
 /// of the load: a second chunk right after the first fades as the first did. Past it, arrivals are
 /// live and take their own entrance (or none).
-export const LOAD_FADE_WINDOW_MS = 600;
+export const LOAD_FADE_WINDOW_MS = 600; // motion-allow: how long arrivals count as the load, not an animation
 
 /// How soon after it arrived an item must mount to fade. An item that arrived off screen and mounts
 /// later, because the reader scrolled to it, is history drawn in place and never fades.
-export const LOAD_FADE_MOUNT_MS = 250;
+export const LOAD_FADE_MOUNT_MS = 250; // motion-allow: an arrival-to-mount bound, not an animation
 
 /// The load phase of one keyed view (the chat transcript's rows): which items arrived while it
 /// loaded, so their first mount fades. O(1) per item; it holds only the ids that arrived in the
