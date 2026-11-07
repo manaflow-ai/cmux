@@ -411,12 +411,19 @@ The script bakes once (about 4 min), runs the verifier on the bake, derives the 
 4. The derive summary: one id per size, each booted and checked.
 5. The secret check: the model-plane file holds no `crt_` token (the bake's own step).
 
-### 13.8 Canary and rollout
+### 13.8 NEXT development validation
 
-1. After the PR merges, wait for the production deploy to be READY. Then create a machine through the production API with the sanctioned smoke (`bun scripts/cloud-vm/smoke-vm-api.mjs production --create --provider default --paid --edge-check`, the form the canary workflow uses). Attach from a released Mac app to the md machine, run one agent, and delete the machines.
-2. Watch the scheduled `Cloud VM canary` workflow (every 5 min against production) for three consecutive green runs. Watch create errors and attach failures in Axiom (`cmux-prod-otel-traces`, `POST /api/vm`, `POST /api/vm/[id]/attach-endpoint`) for 60 minutes against the previous day's rate.
-3. Roll back (section 13.2) on any of these: a failed canary that passes again after the revert; an attach failure rate above the previous day's; a verifier or smoke regression found later.
-4. Running machines are not touched. If the old host loop on long-lived machines needs fixing before users recreate them, that is a separate, opt-in fleet action: new terminals need a new host. `upgrade-fleet-cmux-tui.ts` replaces only the daemon, and the daemon adopts old hosts.
+The classic production smoke and scheduled canary procedure is retired. It no
+longer creates or inspects classic Cloud machines. For current development
+validation, switch to `feat-cmux-next` and run from `web/`:
+
+```bash
+bun scripts/cmux-vm-image/dev-e2e.ts --out-dir /tmp/cmux-next-e2e
+bun scripts/cmux-vm-image/dev-idle-e2e.ts --out-dir /tmp/cmux-next-idle-e2e
+```
+
+These checks exercise the NEXT development API and delete only their own
+machines by exact id. Existing classic customer machines are unchanged.
 
 ### 13.9 Prototype evidence (2026-10-02, no production change)
 
