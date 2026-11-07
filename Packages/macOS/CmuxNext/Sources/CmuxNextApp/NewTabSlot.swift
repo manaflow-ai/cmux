@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextSettings
 import CmuxNextWakeups
 
@@ -17,16 +18,23 @@ enum NewTabSlot {
 
     /// A slot other than the end (the end is nil: the daemon appends).
     enum Target: Equatable {
-        /// Right after this tab, after its tab group.
-        case after(TabModel)
+        /// Right after this tab, after its tab group; `joins`: in its group (a duplicate, as Chrome's).
+        case after(TabModel, joins: Bool = false)
         /// First after the pinned tabs of the pane this tab is in.
         case start(TabModel)
 
+        var joins: TabModel? { if case .after(let tab, true) = self { tab } else { nil } } // whose group the new tab joins
         /// The tab that names the pane.
-        var anchor: TabModel { switch self { case .after(let tab), .start(let tab): tab } }
+        var anchor: TabModel {
+            switch self { case .after(let tab, _), .start(let tab): tab }
+        }
 
         static func == (lhs: Target, rhs: Target) -> Bool {
-            switch (lhs, rhs) { case (.after(let a), .after(let b)), (.start(let a), .start(let b)): return a === b; default: return false }
+            switch (lhs, rhs) {
+            case (.after(let a, let x), .after(let b, let y)): a === b && x == y
+            case (.start(let a), .start(let b)): a === b
+            default: false
+            }
         }
     }
 
@@ -36,21 +44,21 @@ enum NewTabSlot {
     static func target(current: TabModel?, pane: [TabModel], explicit: NewTabPosition?, user: Bool, setting: NewTabPosition?) -> Target? {
         switch explicit ?? (user ? setting ?? NewTabPosition.fallback : .end) {
         case .end: nil
-        case .afterCurrent: current.map(Target.after)
+        case .afterCurrent: current.map { .after($0) }
         case .start: (current ?? pane.first).map(Target.start)
         }
     }
 
-    /// `then` for a new tab's surface that first moves the tab right after `anchor`.
-    static func placing(after anchor: TabModel?, services: AppServices,
+    /// `then` for a new tab's surface that first moves the tab right after `anchor` (into its group when `joins`).
+    static func placing(after anchor: TabModel?, joins: Bool = false, services: AppServices,
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
-        placing(anchor.map(Target.after), services: services, then: then)
+        placing(anchor.map { .after($0, joins: joins) }, services: services, then: then)
     }
 
     /// Same for a tab named by its id (agent tabs and the New Tab page).
-    static func placing(after anchor: TabModel?, services: AppServices,
+    static func placing(after anchor: TabModel?, joins: Bool = false, services: AppServices,
                         then: (@MainActor (String) -> Void)?) -> (@MainActor (String) -> Void)? {
-        placing(anchor.map(Target.after), services: services, then: then)
+        placing(anchor.map { .after($0, joins: joins) }, services: services, then: then)
     }
 
     /// `then` for a new tab's surface that first moves the tab into `target`'s slot.
@@ -62,7 +70,7 @@ enum NewTabSlot {
         return { [weak pane] surface in
             if let pane { NewTabSuccession.made(surface, in: pane, by: open) }
             then?(surface)
-            place(in: { home(of: target.anchor, services) ?? pane }, turn: turn, services: services, find: { $0.tabs.first { $0.surface == surface } }) { slot(for: target, in: $0, pane: pane, open: open, services: services) }
+            place(in: { home(of: target.anchor, services) ?? pane }, turn: turn, services: services, find: { $0.tabs.first { $0.surface == surface } }, joins: target.joins) { slot(for: target, in: $0, pane: pane, open: open, services: services) }
         }
     }
 
@@ -74,7 +82,7 @@ enum NewTabSlot {
         let open = pane.flatMap { begin(target, in: $0, services: services) }, turn = reserve(pane, services: services) // shown in its slot at once
         return { [weak pane] key in
             then?(key)
-            place(in: { home(of: target.anchor, services) ?? pane }, turn: turn, services: services, find: { pane in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }) {
+            place(in: { home(of: target.anchor, services) ?? pane }, turn: turn, services: services, find: { pane in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }, joins: target.joins) {
                 slot(for: target, in: $0, pane: pane, open: open, services: services)
             }
         }
@@ -83,7 +91,7 @@ enum NewTabSlot {
     @discardableResult
     private static func begin(_ target: Target, in pane: PaneModel, services: AppServices) -> DemandTimer? {
         switch target {
-        case .after(let anchor): NewTabSuccession.begin(after: anchor.id, in: pane, services: services)
+        case .after(let anchor, let joins): NewTabSuccession.begin(after: anchor.id, joining: joins && anchor.tabGroup != nil, in: pane, services: services)
         case .start: NewTabSuccession.begin(after: nil, in: pane, services: services)
         }
     }
@@ -120,7 +128,7 @@ enum NewTabSlot {
     /// lists it, and once the pane's previous new tab moved (`turn`): a burst's second Cmd-T goes right after the first new tab,
     /// which sat at the end until its own move, so a slot read before that kept the second there (`a b 1 c 2`).
     private static func place(in pane: @escaping @MainActor () -> PaneModel?, turn: WorkTurn<ActionWorkFailure?>?, services: AppServices,
-                              find: @escaping @MainActor (PaneModel) -> TabModel?, index: @escaping @MainActor ([TabModel]) -> Int?) {
+                              find: @escaping @MainActor (PaneModel) -> TabModel?, joins: TabModel? = nil, index: @escaping @MainActor ([TabModel]) -> Int?) {
         let locate = { @MainActor () -> (TabModel, PaneModel)? in pane().flatMap { pane in find(pane).map { ($0, pane) } } }, earlier = turn?.earlier
         let placement: ActionWork = Task { @MainActor in
             let listed = Task { @MainActor () -> Bool in
@@ -132,6 +140,11 @@ enum NewTabSlot {
             let found = await listed.value
             bound.cancel()
             _ = await earlier?.value // its own list wait, then its move's reply
+            // A duplicate joins its original's group right after it, in one write that also puts it there.
+            if found, let joins, case let (tab, pane)? = locate(), let joined = await TabGroupWrites.join(tab, beside: joins, in: pane, daemon: services.daemon(for: pane)) {
+                if !joined { services.paneController(for: pane)?.resyncStrip() }
+                return nil
+            }
             guard found, let located = locate(), case let (tab, pane) = located, let final = index(pane.tabs.filter { $0 !== tab }),
                   pane.tabs.firstIndex(where: { $0 === tab }) != final else { return nil }
             await withCheckedContinuation { landed in TabMoves.move(tab, to: pane, index: final, services: services) { _ in landed.resume() } }
@@ -146,9 +159,8 @@ enum NewTabSlot {
     /// the tab (``NewTabSuccession/rebasedSlot(in:by:among:)``), else nil. The start is right after the pinned tabs.
     static func slot(for target: Target, in others: [TabModel], pane: PaneModel? = nil, open: DemandTimer? = nil, services: AppServices? = nil) -> Int? {
         switch target {
-        // The open's live anchor first (re-anchored, after an earlier open's tab: Ctrl-` then Cmd-T), then the one it began with.
-        case .after(let anchor): pane.flatMap { NewTabSuccession.rebasedSlot(in: $0, by: open, among: others) } ?? others.newTabSlot(after: anchor)
-            ?? pane.flatMap { pane in services?.daemon(for: pane).store.creations.replacement(ofStandIn: anchor.id, in: pane).flatMap { others.newTabSlot(after: $0) } }
+        case .after(let anchor, _): TabGroupWrites.slot(after: anchor, in: others) ?? pane.flatMap { pane in services?.daemon(for: pane).store.creations.replacement(ofStandIn: anchor.id, in: pane)
+            .flatMap { TabGroupWrites.slot(after: $0, in: others) } ?? NewTabSuccession.rebasedSlot(in: pane, by: open, among: others) }
         case .start: others.prefix { $0.pinned }.count
         }
     }

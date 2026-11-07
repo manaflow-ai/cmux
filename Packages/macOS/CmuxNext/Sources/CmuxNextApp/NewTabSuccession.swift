@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextWakeups
 
 /// Leo 2026-10-13: a new tab appears where it will live. The daemon makes a tab at the end of its pane, and a tab bound
@@ -23,8 +24,8 @@ struct NewTabSuccession {
 
     /// The New Tab page the new tab replaces, if it replaces one.
     let page: StripTabID?
-    /// The tab the new one goes right after; nil: the first unpinned slot. Re-anchored when it closes first.
-    var before: StripTabID?
+    /// The tab the new one goes right after (in its group when `joins`: a duplicate); nil: the first unpinned slot. Re-anchored when it closes first.
+    var before: StripTabID?, joins = false
     /// The pane's daemon tabs when the open started, in its order.
     let known: [String]
     /// The new tab (its stand-in, then the daemon's tab) and its surface, once known.
@@ -45,16 +46,16 @@ struct NewTabSuccession {
         return begin(page: StripTabID(key), after: index > 0 ? pane.tabs[index - 1].id : nil, in: pane, services: services)
     }
 
-    /// Starts showing the pane's next new tab right after `anchor`, or first after its pinned tabs for nil. Returns the open, for `made`.
+    /// Starts showing the pane's next new tab right after `anchor`, or first after its pinned tabs for nil (`joining`: in its group). Returns the open, for `made`.
     @discardableResult
-    static func begin(after anchor: String?, in pane: PaneModel, services: AppServices) -> DemandTimer? {
-        begin(page: nil, after: anchor, in: pane, services: services)
+    static func begin(after anchor: String?, joining: Bool = false, in pane: PaneModel, services: AppServices) -> DemandTimer? {
+        begin(page: nil, after: anchor, joining: joining, in: pane, services: services)
     }
 
-    private static func begin(page: StripTabID?, after anchor: String?, in pane: PaneModel, services: AppServices) -> DemandTimer? {
+    private static func begin(page: StripTabID?, after anchor: String?, joining: Bool = false, in pane: PaneModel, services: AppServices) -> DemandTimer? {
         // A CLI or script open selects nothing and shows nothing: its tab lands as reported (opens being placed keep their slots).
         guard ActionRunScope.viewChangeAllowed() else { return nil }
-        let succession = NewTabSuccession(page: page, before: anchor.map { StripTabID($0) }, known: pane.tabs.map(\.id),
+        let succession = NewTabSuccession(page: page, before: anchor.map { StripTabID($0) }, joins: joining, known: pane.tabs.map(\.id),
                                           deadline: ContinuousClock.now.advanced(by: answerLimit), services: services, pane: pane)
         active[ObjectIdentifier(pane), default: []].append(succession)
         succession.expire(after: answerLimit)
@@ -74,13 +75,8 @@ struct NewTabSuccession {
         expire(after: Self.orderLimit)
     }
 
-    /// Where `open`'s new tab goes among `others` (the pane's tabs but it): after the tab the strip shows it after (re-anchored when its anchor
-    /// closed, the daemon's tab for a stand-in); nil once the open ended or that tab is not listed.
-    static func rebasedSlot(in pane: PaneModel, by open: DemandTimer?, among others: [TabModel]) -> Int? {
-        guard let open = active[ObjectIdentifier(pane)]?.first(where: { $0.expiry === open }) else { return nil }
-        guard let before = open.before.map({ open.resolved($0, in: pane) }) else { return others.prefix { $0.pinned }.count }
-        return others.first { $0.id == before.rawValue }.flatMap { others.newTabSlot(after: $0) }
-    }
+    /// Where `open`'s new tab goes among `others` (the pane's tabs but it) once its anchor closed: after `order`'s re-anchor; nil once the open ended.
+    static func rebasedSlot(in pane: PaneModel, by open: DemandTimer?, among others: [TabModel]) -> Int? { active[ObjectIdentifier(pane)]?.first { $0.expiry === open }.map { open in open.before.map { open.resolved($0, in: pane) }.flatMap { id in others.first { $0.id == id.rawValue } }.flatMap { TabGroupWrites.slot(after: $0, in: others) } ?? others.prefix { $0.pinned }.count } }
 
     /// `id`, or the daemon's tab stand-in `id` became; `resolving` does it for the open's tab and anchor.
     private func resolved(_ id: StripTabID, in pane: PaneModel) -> StripTabID { services?.daemon(for: pane).store.creations.replacement(ofStandIn: id.rawValue, in: pane).map { StripTabID($0.id) } ?? id }
@@ -138,7 +134,14 @@ struct NewTabSuccession {
             // Re-anchored when its anchor closed; a stand-in under way or a listed tab (hidden until answered) stays: the move reads it (`a b 2 1 c`).
             let after = open.before.flatMap { before in others.contains { $0.id == before } ? before : pane.stripModel.anchor(replacing: before, newTab: left.union([item.id]), staying: Set(others.map(\.id)), opened: open.known.map { StripTabID($0) }) }
             if let before = open.before?.rawValue, !pane.daemon.store.creations.isUnderway(standIn: before), !pane.pane.tabs.contains(where: { $0.id == before }) { open.before = after }
-            others.insert(item, at: others.newTabSlot(after: after, replacing: open.page != nil)) // `NewTabSlot`'s: the page's, else after the anchor's group
+            // `NewTabSlot`'s slot: the page's, else right after the anchor's group (a duplicate: in it; re-anchored above when it closed), never among the pinned tabs.
+            var slot = others.prefix { $0.isPinned }.count, placed = item
+            if let before = after, var index = others.firstIndex(where: { $0.id == before }) {
+                if open.joins, let group = others[index].groupID { placed.groupID = group }
+                while open.page == nil, !open.joins, let group = others[index].groupID, index + 1 < others.count, others[index + 1].groupID == group { index += 1 }
+                slot = open.page == nil ? max(index + 1, slot) : index + 1
+            }
+            others.insert(placed, at: slot)
             if let page = open.page, listed.contains(page) { pane.stripModel.successors[item.id] = page }
             if items == others { open.expiry.cancel() } else { kept.append(open) } // done once the daemon's order agrees (the page closed, the move landed)
             items = others

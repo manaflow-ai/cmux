@@ -73,7 +73,7 @@ import { chatGallery } from "../summary/chatGallery";
 import { GalleryDialog } from "../summary/GalleryDialog";
 import { useScrollEdges } from "../summary/scrollEdges";
 import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from "../summary/sessionSummary";
-import { waitingSubagents } from "../summary/SubagentStatusList";
+import { waitingSubagents } from "../summary/subagentStatusListModel";
 import type { Artifact } from "../conversation/artifactPreview";
 import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./ChangesSection";
@@ -440,18 +440,28 @@ function nativeTop(shell: HTMLElement | null | undefined, tabRowHeight: number):
 /// box is empty and only its children have one. One ResizeObserver on the dock and its children (a
 /// MutationObserver re-observes when its children change), both disconnected when `on` goes false or
 /// the shell changes.
+/// A change the observers see is drawn in the frame the stack changed (flushSync, as VirtualTranscript
+/// follows the same stack): a scheduled render drew the panel's old foot over the grown stack for a
+/// frame or more (the running tray coming in under an expanded Session Info).
 function useDockHeight(shell: HTMLElement | null | undefined, on: boolean): number {
   const [height, setHeight] = useState(0);
   useLayoutEffect(() => {
     const dock = on ? shell?.querySelector<HTMLElement>(".acpmux-dock") : null;
     if (!shell || !dock) return;
-    const read = () => {
+    const measure = () => {
       let top = Infinity;
       for (const part of [dock, ...dock.children]) {
         const box = part.getBoundingClientRect();
         if (box.height > 0) top = Math.min(top, box.top);
       }
-      setHeight(top === Infinity ? 0 : Math.max(0, Math.round(shell.getBoundingClientRect().bottom - top)));
+      return top === Infinity ? 0 : Math.max(0, Math.round(shell.getBoundingClientRect().bottom - top));
+    };
+    let last = measure();
+    const read = () => {
+      const next = measure();
+      if (next === last) return;
+      last = next;
+      flushSync(() => setHeight(next));
     };
     const resize = new ResizeObserver(read);
     const observe = () => {
@@ -460,7 +470,7 @@ function useDockHeight(shell: HTMLElement | null | undefined, on: boolean): numb
       for (const child of dock.children) resize.observe(child);
     };
     observe();
-    read();
+    setHeight(last);
     const children = new MutationObserver(() => {
       observe();
       read();
@@ -1673,6 +1683,18 @@ export function SessionInfoPanel({
   useChatCut(frame, !presence?.leaving, `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`);
   // The foot animates only once it has been drawn at its first measure: the open draws it at once.
   const footKnown = foot !== undefined && foot > 0;
+  // Only a foot that goes down (the composer's stack shrank) glides. One that rises (the stack grew: the
+  // running tray coming in, a queued prompt, a taller draft) moves in the frame the stack moved, with it:
+  // gliding, the card's lower part lay over the grown stack for the glide, and that overlap switched
+  // its glass between the App's and the page's own (data-glass-keeps-underlay, seeThroughBlur.ts) and
+  // back, a flash each time a tool call brought the tray in or out (Leo, 2026-11-07: "im still seeing
+  // session info flash ... when im slowly scrolling down as you're doing the thinking/tool calls").
+  const [footWas, setFootWas] = useState(foot);
+  const [footRises, setFootRises] = useState(false);
+  if (foot !== footWas) {
+    setFootWas(foot);
+    setFootRises(foot !== undefined && footWas !== undefined && foot > footWas);
+  }
   const [footSettled, setFootSettled] = useState(false);
   useEffect(() => {
     if (!footKnown) {
@@ -1719,7 +1741,7 @@ export function SessionInfoPanel({
       data-chrome={title ? "title" : onClose ? chrome : "none"}
       data-over-chat={foot !== undefined ? "" : undefined}
       data-popover={onDismiss ? "" : undefined}
-      data-foot-moves={footKnown && footSettled ? "" : undefined}
+      data-foot-moves={footKnown && footSettled && !footRises ? "" : undefined}
       style={
         {
           width,
