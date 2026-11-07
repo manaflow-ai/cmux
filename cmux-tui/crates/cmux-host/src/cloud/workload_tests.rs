@@ -31,7 +31,7 @@ fn listeners_are_listen_state_sockets_by_port() {
    2: 0100007F:0BB8 0100007F:D431 01 00000000:00000000 00:00000000 00000000  1000        0 333 1 0\n";
     assert_eq!(
         parse_listeners(tcp),
-        vec![(3000, 111), (22, 222)],
+        Some(vec![(3000, 111), (22, 222)]),
         "an established socket is not one"
     );
 }
@@ -276,6 +276,17 @@ fn the_reader_finds_processes_listener_owners_and_timers_under_a_root() {
     fs::rename(r.join("proc/net/tcp"), r.join("proc/net/tcp6")).unwrap();
     assert!(read_snapshot(r, 5).is_none(), "no IPv4 table: unknown");
     fs::remove_file(r.join("proc/net/tcp6")).unwrap();
+    // A row that does not read could be a listener: unknown, never fewer listeners.
+    for garbled in [
+        "   3: 00000000:ZZZZ 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 444 1 0\n",
+        "   3: 00000000:1F91 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 x 1 0\n",
+        "   3: 00000000:1F91 00000000:0000\n",
+    ] {
+        fs::write(r.join("proc/net/tcp"), format!("{tcp}{garbled}")).unwrap();
+        assert!(read_snapshot(r, 5).is_none(), "a garbled row: unknown ({garbled:?})");
+    }
+    fs::write(r.join("proc/net/tcp"), format!("{tcp}\n")).unwrap();
+    assert!(read_snapshot(r, 5).is_some(), "a blank line is no row");
     fs::write(r.join("proc/net/tcp"), tcp).unwrap();
     // A process whose stat exists but does not read is unknown, not gone.
     fs::create_dir_all(r.join("proc/300/stat")).unwrap();

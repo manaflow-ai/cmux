@@ -1,6 +1,7 @@
 // What a finished thought draws (Leo 2026-10-20, as Claude Desktop and Codex do): consecutive
 // thoughts in one step are one row, and a thought with nothing to read draws no row at all.
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { PrefixFlatCache, type PrefixFlat } from "./prefixFlatMap";
 
 /// A thought shorter than this many characters (trimmed)...
 export const QUIET_THOUGHT_CHARS = 40;
@@ -79,22 +80,40 @@ function shapeRow(row: AcpmuxRow, keepLast: boolean): AcpmuxRow | null {
 /// turns mark `live`, or with `live` (the chat is working), the last of the last row. `rows` itself
 /// when nothing changes.
 export function withoutQuietThoughts(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
-  let changed = false;
-  const out: AcpmuxRow[] = [];
-  rows.forEach((row, index) => {
-    const keepLast = row.live === true || (live && index === rows.length - 1);
-    let next: AcpmuxRow | null;
-    if (keepLast) next = shapeRow(row, true);
-    else if (shaped.has(row)) next = shaped.get(row)!;
-    else {
-      next = shapeRow(row, false);
-      shaped.set(row, next);
-    }
-    if (next !== row) changed = true;
-    if (next) out.push(next);
-  });
-  return changed ? out : rows;
+  // The pane shapes its rows on every snapshot: the rows before the last are read again only after
+  // the last one kept (prefixFlatMap.ts), so a snapshot costs the rows it changed. The last row
+  // with `live` keeps its streaming thought and is shaped on its own.
+  const split = live && rows.length > 0;
+  const head = split ? rows.slice(0, -1) : rows;
+  const read = quietReads.read(head);
+  const last = split ? shapeRow(rows.at(-1)!, true) : undefined;
+  const kept = quietOutputs.get(read);
+  if (kept && kept.split === split && kept.last === last) return kept.out;
+  let changed = read.items.length !== head.length || (split && last !== rows.at(-1));
+  for (let index = 0; !changed && index < head.length; index += 1) changed = read.items[index] !== head[index];
+  const out = changed ? (last ? [...read.items, last] : [...read.items]) : rows;
+  quietOutputs.set(read, { split, last, out });
+  return out;
 }
+
+/// One row as `withoutQuietThoughts` draws it: none for a step of quiet thoughts only.
+function quietRow(row: AcpmuxRow): readonly AcpmuxRow[] {
+  let next: AcpmuxRow | null;
+  if (row.live === true) next = shapeRow(row, true);
+  else if (shaped.has(row)) next = shaped.get(row)!;
+  else {
+    next = shapeRow(row, false);
+    shaped.set(row, next);
+  }
+  return next ? [next] : [];
+}
+
+const quietReads = new PrefixFlatCache<AcpmuxRow, AcpmuxRow>(quietRow);
+/// Each pass's answer, with the last row it was given (a pass with another last row answers again).
+const quietOutputs = new WeakMap<
+  PrefixFlat<AcpmuxRow, AcpmuxRow>,
+  { split: boolean; last: AcpmuxRow | null | undefined; out: AcpmuxRow[] }
+>();
 
 /// One part of a thought's text: a heading line as its own title, or the text between headings.
 export type ThoughtPart = { title: string } | { text: string };
