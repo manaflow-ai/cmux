@@ -49,6 +49,8 @@ final class TerminalPanel: Panel, ObservableObject {
     /// a workspace with AWS_PROFILE=prod) is preserved on respawn rather than being
     /// stripped and replaced by the workspace value (issue #5995).
     var seededWorkspaceEnvironment: [String: String] = [:]
+    /// The Claude account keys a switch gave this pane; respawns and session snapshots carry it.
+    var claudeAccountEnvironment: ClaudeAccountPaneEnvironment?
 
     /// Published title from the terminal process
     @Published private(set) var title: String = "Terminal"
@@ -697,6 +699,7 @@ final class TerminalPanel: Panel, ObservableObject {
     func close() {
         isClosingPanel = true
         GlobalSearchCoordinator.shared.purgePanel(id: id)
+        ClaudeAccountAutoSwitchCoordinator.shared.paneClosed(panelId: id)
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,
             panelId: id

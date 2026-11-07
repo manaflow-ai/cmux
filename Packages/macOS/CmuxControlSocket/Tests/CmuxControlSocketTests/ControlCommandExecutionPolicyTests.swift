@@ -87,7 +87,7 @@ struct ControlCommandExecutionPolicyTests {
         }
         for method in [
             "agent.restore.admit", "agent.restore.release",
-            "agent.hibernate", "agent.wake",
+            "agent.hibernate", "agent.wake", "claude_account.switch",
             "agent.message.send", "agent.message.list", "agent.message.claim",
             "agent.message.ack",
             "agent.message.mark_read", "agent.message.poll", "agent.message.settings",

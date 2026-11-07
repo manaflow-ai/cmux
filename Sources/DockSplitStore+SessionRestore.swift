@@ -490,10 +490,13 @@ extension DockSplitStore {
         ).isEmpty == false ? deferredAgentResumeCandidateInput : nil
         let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil
         let initialCommand = tmuxLauncher
-        let initialInput = bindingLaunch?.initialInput ??
+        // A pane switched to another Claude account (and moved into the Dock) resumes with the
+        // keys it cleared unset, as in a workspace restore.
+        let claudeAccount = terminalSnapshot.claudeAccountEnvironment
+        let initialInput = (bindingLaunch?.initialInput ??
             agentLaunch?.initialInput ??
             deferredAgentResumeStartupInput ??
-            claudeBackgroundAttach?.startupInput
+            claudeBackgroundAttach?.startupInput).map { claudeAccount?.restoreStartupInput($0) ?? $0 }
         let willRunAgentInput =
             agentLaunch?.initialInput != nil ||
             (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
@@ -542,6 +545,8 @@ extension DockSplitStore {
             initialCommand: initialCommand,
             tmuxStartCommand: restoredTmuxStartCommand,
             initialInput: initialInput,
+            // The Dock has no workspace env; the switch's rule masks only what the app env supplies.
+            initialEnvironmentOverrides: claudeAccount?.surfaceEnvironment(workspaceEnvironment: [:]).overrides ?? [:],
             additionalEnvironment: replayEnvironment,
             stableSurfaceId: snapshot.stableSurfaceId.flatMap {
                 excludingStableIdentities.contains($0) ? nil : $0
@@ -556,6 +561,7 @@ extension DockSplitStore {
         )
         terminal.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
         terminal.restoreSessionTextBoxDraft(terminalSnapshot.textBoxDraft)
+        terminal.claudeAccountEnvironment = claudeAccount
 
         guard attachSessionRestoredPanel(terminal, snapshot: snapshot, inPane: paneId) != nil else {
             if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }

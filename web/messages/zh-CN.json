@@ -2210,6 +2210,7 @@
           "workspaceAutoNaming": "可选的 AI 自动命名：根据代理对话内容自动命名工作区和标签页。启用后，cmux 会使用各受支持代理自己的二进制文件将会话总结为简短标题；手动重命名始终优先。",
           "autoNamingAgent": "为每个会话生成自动名称的代理。\"auto\"（默认）使用各会话自己的代理来命名；任意代理标识（claude、codex、grok、opencode、pi、omp 等）会覆盖所有会话的命名，包括其他代理的会话。无法驱动或未安装的代理会回退到会话自身的代理，因此命名永不中断。",
           "agentAutoResume": "当 cmux 启动的代理因可重试的上游错误（模型容量已满、过载或连接中断）结束回合时，按退避策略向其发送 `continue`。等待人工输入的回合永远不会被恢复。",
+          "claudeAccountAutoSwitch": "当 cmux 启动的 Claude Code 会话因其账号达到用量上限而停止时，cmux 会将其切换到 `agents.claudeAccounts` 中的下一个账号，并继续同一段对话。仍处于上限的账号会被跳过，直到上限重置。",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {

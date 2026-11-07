@@ -2210,6 +2210,7 @@
           "workspaceAutoNaming": "Opt-in: KI-basierte automatische Benennung von Workspaces und Tabs aus dem Gesprächsinhalt der Agenten. Wenn aktiviert, fasst cmux unterstützte Agent-Sitzungen mit dem eigenen Binary des jeweiligen Agenten zu kurzen Titeln zusammen; manuelle Umbenennungen haben immer Vorrang.",
           "autoNamingAgent": "Welcher Agent für jede Sitzung automatische Namen erzeugt. „auto“ (Standard) benennt jede Sitzung mit ihrem eigenen Agenten; ein beliebiger Agent-Slug (claude, codex, grok, opencode, pi, omp, …) überschreibt die Benennung für alle Sitzungen, auch für die anderer Agenten. Nicht ansteuerbare oder nicht installierte Agenten greifen auf den eigenen Agenten der Sitzung zurück, sodass die Benennung nie fehlschlägt.",
           "agentAutoResume": "Sendet `continue` mit Backoff an einen von cmux gestarteten Agenten, dessen Zug mit einem wiederholbaren Upstream-Fehler endete (Modell ausgelastet, überlastet oder Verbindung verloren). Züge, die auf eine Person warten, werden nie fortgesetzt.",
+          "claudeAccountAutoSwitch": "Wenn eine von cmux gestartete Claude-Code-Sitzung stoppt, weil ihr Konto das Nutzungslimit erreicht hat, verschiebt cmux sie auf das nächste Konto in `agents.claudeAccounts` und setzt dieselbe Unterhaltung fort. Konten, die ihr Limit noch erreicht haben, werden bis zum Zurücksetzen übersprungen.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
