@@ -521,7 +521,13 @@ chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] 
 /// `engine show`'s permission mode line: the mode, what chose it, and when
 /// it applies.
 pub fn permission_mode_line(choice: &EngineChoice, user: Option<&serde_json::Value>) -> String {
-    let (mode, source) = permission_mode(choice, user_permission_mode(user).as_deref());
+    permission_mode_line_for(choice, user_permission_mode(user).as_deref())
+}
+
+/// [`permission_mode_line`] for the user's `chief.permissionMode` string
+/// itself (`user_permission_mode_checked`: Manual for an unreadable file).
+pub fn permission_mode_line_for(choice: &EngineChoice, user: Option<&str>) -> String {
+    let (mode, source) = permission_mode(choice, user);
     let source = match source {
         "engine" => "chief engine set --mode",
         "settings" => "Settings > Chief > Permission Mode (chief.permissionMode)",
@@ -559,9 +565,14 @@ pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
                 "turn routing: {}\n",
                 choice.turn_routing.as_deref().unwrap_or("off")
             ));
-            let user = std::env::var_os("HOME")
-                .and_then(|h| crate::agent_memory::settings::document(std::path::Path::new(&h)));
-            out.push_str(&permission_mode_line(&choice, user.as_ref()));
+            // The turns' own read (brain/reaction_wake.rs): an unreadable
+            // settings file shows Manual, as the turns run.
+            let user = match std::env::var_os("HOME") {
+                Some(h) => crate::agent_memory::settings::document_checked(std::path::Path::new(&h)),
+                None => Ok(None),
+            };
+            let user = user_permission_mode_checked(user.as_ref().map(Option::as_ref));
+            out.push_str(&permission_mode_line_for(&choice, user.as_deref()));
             // The CLI each role runs, as the host resolved it at its start.
             match load_resolved(&home) {
                 Some(r) => {

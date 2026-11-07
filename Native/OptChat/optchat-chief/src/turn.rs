@@ -583,6 +583,21 @@ pub fn run_with_drafts(
             return refused(trace, start, &reason);
         }
     };
+    // A Manual turn on a Claude harness runs under `ask` (brain/turns.rs, from
+    // the brain's guess of the family): under any other policy acpmux would
+    // allow every ask, so a session that turned out Claude is refused.
+    if admitted.family == crate::acpmux::Family::Claude
+        && start.permission_mode.as_deref() == Some("default")
+        && start.session.policy != crate::approval::ASK
+    {
+        let reason = format!(
+            "the turn's permission mode is Manual, but its session runs under {}",
+            start.session.policy
+        );
+        log(&format!("turn {}: {reason}", start.key));
+        let _ = agents.end_session(&session);
+        return refused(trace, start, &reason);
+    }
     // codex under approve-all: no workspace-write sandbox, so the turn's
     // cmux calls reach the app and daemon sockets (E6). A Claude turn under
     // approve-all: the Chief's permission mode (cmux#37392), set on a kept

@@ -641,7 +641,9 @@ impl Brain {
         // The kept session, when this turn has the same session shape and
         // keeps the frozen view: only what it has not read goes to it. The
         // policy is part of the shape: an approve-all session never serves a
-        // turn another person started, and an `ask` one never an owner turn.
+        // turn another person started. An `ask` one serves only `ask` turns:
+        // one that carries another person's text, or a Manual owner turn,
+        // which sets `default` on it again before its prompt (turn.rs).
         let sig = keep.then(|| {
             keep_sig(
                 &engine,

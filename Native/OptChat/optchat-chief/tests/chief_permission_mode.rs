@@ -108,6 +108,11 @@ fn an_unreadable_settings_file_caps_the_chief_at_manual() {
         engine::permission_mode(&EngineChoice::default(), user.as_deref()),
         ("default", "settings")
     );
+    // `engine show` reads it the same way.
+    assert!(
+        engine::permission_mode_line_for(&EngineChoice::default(), user.as_deref())
+            .starts_with("permission mode: default (Settings"),
+    );
     std::fs::write(
         dir.join("cmux-next.json"),
         "{\"chief\": {\"permissionMode\": \"auto\"}}",
@@ -175,6 +180,7 @@ fn only_an_approve_all_claude_turn_takes_the_chief_mode() {
         Some(optchat_chief::acpmux::CODEX_FULL_ACCESS_MODE)
     );
     assert_eq!(chief_turn_mode(Family::Codex, "ask", bypass), None);
+    assert_eq!(chief_turn_mode(Family::Codex, "ask", Some("default")), None);
     assert_eq!(chief_turn_mode(Family::Other, "approve-all", bypass), None);
 }
 
