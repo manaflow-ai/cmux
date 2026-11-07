@@ -1,37 +1,34 @@
-ci-step gate-green-02baffb0: scripts/ci/run-swift-testing-suites.sh Packages/macOS/CmuxNext at 02baffb0b3c281e6c3ad0ede6a6de56461a9d3ca: exit 1
-==> same-tree cmux-tui: source=published fallback_seconds=0 total_seconds=16
+ci-step placement-owner-standin-tests-c53cfc9: scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext LinkOpenSplitDirectTests,CmdClickOpensRightTests,SplitBrowserFailureTests,BrowserEnabledToggleTests,HomeLoneDockTests,HomeChiefPaneHasNoTabBarTests,HomeSplitKeysTests at c53cfc9a66620369d3a2a0a7f52b73fd8b99093d: exit 1
+==> same-tree cmux-tui: source=local-set fallback_seconds=107 total_seconds=109
 434 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
 444 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
 434 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
 444 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
  36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
 120 | private nonisolated func controlError(_ error: Error) -> ControlError {
 313 |     nonisolated static func message(for error: Error) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
- 27 |     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
 79 |     private static func reason(_ error: any Error) -> String {
 79 |     private static func reason(_ error: any Error) -> String {
 79 |     private static func reason(_ error: any Error) -> String {
@@ -81,6 +78,7 @@ ci-step gate-green-02baffb0: scripts/ci/run-swift-testing-suites.sh Packages/mac
  36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
  36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
  36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
 120 | private nonisolated func controlError(_ error: Error) -> ControlError {
 313 |     nonisolated static func message(for error: Error) -> String {
 120 | private nonisolated func controlError(_ error: Error) -> ControlError {
@@ -129,8 +127,56 @@ ci-step gate-green-02baffb0: scripts/ci/run-swift-testing-suites.sh Packages/mac
 313 |     nonisolated static func message(for error: Error) -> String {
 120 | private nonisolated func controlError(_ error: Error) -> ControlError {
 313 |     nonisolated static func message(for error: Error) -> String {
-✘ Test aRecheckWithNoHarnessListForgetsTheLastHealth() recorded an issue at OnboardingAgentsStepTests.swift:196:9: Expectation failed: await harnesses.agentSignIns(recheck: false).map(\.auth) == [.signedIn]
-✘ Test aRecheckWithNoHarnessListForgetsTheLastHealth() failed after 0.001 seconds with 1 issue.
-✘ Suite OnboardingAgentsStepTests failed after 0.440 seconds with 1 issue.
-✘ Test run with 20 tests in 1 suite failed after 0.441 seconds with 1 issue.
-ci-step gate-green-02baffb0 exited 1
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+macro expansion @Test:16:30: error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+   |   |                              `- error: main actor-isolated static property 'cases' cannot be accessed from outside of the actor
+ci-step placement-owner-standin-tests-c53cfc9 exited 1
