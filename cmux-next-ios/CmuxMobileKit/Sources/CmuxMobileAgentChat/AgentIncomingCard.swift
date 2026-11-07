@@ -11,12 +11,17 @@ import UIKit
 /// one line per message, each opening in place.
 struct AgentIncomingCard: View {
     let incoming: AgentIncoming
+    /// The images and files the prompt carried, as the person's bubble draws them.
+    var attachments: [AgentAttachment] = []
     let at: Date
     @State private var open: Set<Int> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
+            if !attachments.isEmpty {
+                SentAttachments(attachments: attachments)
+            }
             if incoming.messages.count == 1 {
                 MarkdownView(markdown: incoming.messages[0].text, margin: 0)
             } else {

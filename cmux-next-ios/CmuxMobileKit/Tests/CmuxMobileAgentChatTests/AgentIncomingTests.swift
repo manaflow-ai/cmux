@@ -216,6 +216,25 @@ import Testing
         #expect(store.turns.last?.incoming?.text == "Merged #36125")
     }
 
+    /// A prompt an unverified sender (a plain `acpmux send`, a Cloud phone) sent with an image is its
+    /// card, and the card's row keeps the image: the person's bubble no longer draws it.
+    @MainActor @Test func anIncomingCardKeepsThePromptsAttachments() throws {
+        let store = AgentChatStore(source: Recorder())
+        let image = AgentAttachment(id: "img-1", kind: .image, name: "screen.png", data: Data([1]))
+        store.apply(.userMessage(text: "Look at this", promptId: "p-1", turnId: "t-1", attachments: [image], at: Date()))
+        let provenance = try json(#"{"kind":"unverified","to":"s-1","transport":"unix","verified":false}"#)
+        store.apply(.promptFrom(turnId: "t-1", incoming: try #require(AgentIncoming.parse(text: "Look at this", provenance: provenance))))
+        let rows = ChatTranscriptBuilder(diffs: ChatDiffCache()).build(turns: store.turns, pendingPermission: nil, askOpen: false,
+                                                                         permissionBarHidden: false)
+        let row = try #require(rows.flatMap(\.rows).first { $0.id == "u-t-1" })
+        guard case .incoming(let incoming, let attachments, _) = row.kind else {
+            Issue.record("the prompt is not an incoming card: \(row.kind)")
+            return
+        }
+        #expect(incoming.unverified)
+        #expect(attachments.map(\.id) == ["img-1"])
+    }
+
     @Test func personsPromptAndUnknownTextStayAsWritten() throws {
         #expect(AgentIncoming.parse(text: "Fix the grid", provenance: nil) == nil)
         let person = try json(#"{"kind":"person_message","from":"s-1","fromName":"Ana"}"#)
