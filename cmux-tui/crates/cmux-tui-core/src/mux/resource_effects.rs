@@ -329,9 +329,9 @@ impl Mux {
                     std::iter::once(placed).chain(requested).collect::<Vec<_>>()
                 });
                 let projection = match scope {
-                    Some(scope) => {
-                        self.resource_effect_projection_scoped_locked(registry, state, &scope, result)?
-                    }
+                    Some(scope) => self.resource_effect_projection_scoped_locked(
+                        registry, state, &scope, result,
+                    )?,
                     None => self.resource_effect_projection_locked(registry, state, result)?,
                 };
                 Ok(projection_plan(projection))

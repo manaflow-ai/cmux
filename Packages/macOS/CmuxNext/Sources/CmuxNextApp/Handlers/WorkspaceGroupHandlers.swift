@@ -237,7 +237,7 @@ enum WorkspaceGroupHandlers {
     /// `workspaceGroups` (by the group's anchor folder), when it names a placement: after its first
     /// workspace (`top`, and `afterCurrent`, whose reference is the anchor for the header's + and the
     /// CLI), else last. Else `workspaces.newPlacement`, as for every new workspace made in a group
-    /// (`NewWorkspaceDefaultSlot.slot(inGroup:members:)`): the group's top under the default `top`.
+    /// (`NewWorkspaceDefaultSlot.slot(inGroup:members:)`): below its shown member, else its end, by default.
     private static func groupSlot(_ shown: CmuxNextSidebar.GroupID, in model: SidebarModel, window: String?,
                                   _ context: AppActionContext) -> WorkspaceSlot {
         let members = model.group(shown)?.workspaces.map(\.id.rawValue) ?? []

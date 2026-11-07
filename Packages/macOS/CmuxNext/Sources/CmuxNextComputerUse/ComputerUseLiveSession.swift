@@ -35,6 +35,8 @@ public nonisolated struct ComputerUseLiveSession: Equatable, Sendable {
     public var terminalID: String?
     /// The workspace the agent runs in (`agent.workspace_id`), when attributed.
     public var workspaceID: String?
+    /// The person took over (`status.state` `paused`): the host rejects the agent's acts until resume.
+    public var paused: Bool
 
     /// - Parameters:
     ///   - id: The session's id.
@@ -42,12 +44,15 @@ public nonisolated struct ComputerUseLiveSession: Equatable, Sendable {
     ///   - target: What it drives.
     ///   - terminalID: The terminal it started in.
     ///   - workspaceID: The workspace it started in.
-    public init(id: String, lastActionAt: Date, target: Target? = nil, terminalID: String? = nil, workspaceID: String? = nil) {
+    ///   - paused: The person took over.
+    public init(id: String, lastActionAt: Date, target: Target? = nil, terminalID: String? = nil, workspaceID: String? = nil,
+                paused: Bool = false) {
         self.id = id
         self.lastActionAt = lastActionAt
         self.target = target
         self.terminalID = terminalID
         self.workspaceID = workspaceID
+        self.paused = paused
     }
 
     /// The live (not ended) sessions of an `activity_sessions_list` result, newest action first.
@@ -60,8 +65,8 @@ public nonisolated struct ComputerUseLiveSession: Equatable, Sendable {
     }
 
     private static func session(_ json: [String: Any]) -> ComputerUseLiveSession? {
-        guard let id = json["id"] as? String, !id.isEmpty,
-              (json["status"] as? [String: Any])?["state"] as? String != "ended" else { return nil }
+        let state = (json["status"] as? [String: Any])?["state"] as? String
+        guard let id = json["id"] as? String, !id.isEmpty, state != "ended" else { return nil }
         let agent = json["agent"] as? [String: Any] ?? [:]
         let target = (json["targets"] as? [[String: Any]])?.last.map { row in
             Target(pid: (row["pid"] as? NSNumber)?.int32Value, bundleID: nonEmpty(row["app_bundle_id"]),
@@ -69,7 +74,8 @@ public nonisolated struct ComputerUseLiveSession: Equatable, Sendable {
         }
         let millis = (json["last_action_at_ms"] as? NSNumber)?.doubleValue ?? (json["started_at_ms"] as? NSNumber)?.doubleValue ?? 0
         return ComputerUseLiveSession(id: id, lastActionAt: Date(timeIntervalSince1970: millis / 1000), target: target,
-                                      terminalID: nonEmpty(agent["terminal_id"]), workspaceID: nonEmpty(agent["workspace_id"]))
+                                      terminalID: nonEmpty(agent["terminal_id"]), workspaceID: nonEmpty(agent["workspace_id"]),
+                                      paused: state == "paused")
     }
 }
 
