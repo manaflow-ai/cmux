@@ -55,6 +55,21 @@ struct AgentSessionShareRequestTests {
         ]))
     }
 
+    /// `agent-session-share-invite-chat` names the chat (its surface and the session the caller saw) and
+    /// the account; the share's terms and the owner token go only when given.
+    @Test func inviteChatNamesTheChatAndTheAccount() throws {
+        let full = AgentSessionShareInviteChatRequest(surface: 3, session: "acp-1", account: "leo@cmux.com", role: "view",
+                                                      ttlSecs: 3600, createId: "req-1", ownerToken: "jwt")
+        #expect(try fields(full) == .object([
+            "id": .number(1), "cmd": .string("agent-session-share-invite-chat"), "surface": .number(3),
+            "session": .string("acp-1"), "account": .string("leo@cmux.com"), "role": .string("view"),
+            "ttl_secs": .number(3600), "create_id": .string("req-1"), "owner_token": .string("jwt"),
+        ]))
+        #expect(try fields(AgentSessionShareInviteChatRequest(surface: 3, account: "@theo")) == .object([
+            "id": .number(1), "cmd": .string("agent-session-share-invite-chat"), "surface": .number(3), "account": .string("@theo"),
+        ]))
+    }
+
     /// List names each share's invitees and the account an invited guest joined as; a daemon from
     /// before invites lists none.
     @Test func listAnswersCarryInvitees() throws {
