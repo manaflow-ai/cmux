@@ -82,4 +82,4 @@ Built in `worktreeSetup.gallery.tsx` over the same states:
 - Footer, right-aligned: the repository files read, Clear Saved (when a saved recipe exists),
   Revert, Save (solid). Save and Revert are off until something changed.
 - Switching projects changes only values, never which fields show.
-- A build whose page relay does not reach `project.list` says so in one line instead of the form.
+- Settings reaches the session host through the native `cmux.settings.worktree.` route (`list`, `read`, and `save` on your click), on the app's own connection: the session host refuses project and git operations from a page. A build without that route says so in one line instead of the form.

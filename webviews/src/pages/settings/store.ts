@@ -717,21 +717,21 @@ export class SettingsStore {
   /** Settings > Agents > Worktree Setup: the session host's projects with their saved recipes,
    * or the host's refusal (a build whose page relay does not reach `project.list`). */
   async worktreeProjects(): Promise<{ projects: WorktreeProject[]; error: string | null; unavailable: boolean }> {
-    const reply = await this.request("cmux.project.list", { limit: 200 });
+    const reply = await this.request("cmux.settings.worktree.list", { limit: 200 });
     if (!reply.ok) return { projects: [], error: reply.error.message, unavailable: isUnsupported(reply.error) };
     return { projects: readWorktreeProjects(reply.value), error: null, unavailable: false };
   }
 
   /** The recipe a new worktree of the project at `path` gets, and what each source says. */
   async worktreeRecipe(path: string): Promise<{ recipe: ResolvedWorktreeRecipe | null; error: string | null }> {
-    const reply = await this.request("cmux.git.worktree.setup", { path });
+    const reply = await this.request("cmux.settings.worktree.read", { path });
     if (!reply.ok) return { recipe: null, error: reply.error.message };
     return { recipe: readSetupReply(reply.value)?.recipe ?? null, error: null };
   }
 
   /** Saves the project's own recipe (null clears it); the host's failure text, else null. */
   async saveWorktreeRecipe(path: string, worktree: WorktreeRecipe | null): Promise<string | null> {
-    const reply = await this.request("cmux.project.update", { path, worktree, idempotency_key: newIdempotencyKey() });
+    const reply = await this.request("cmux.settings.worktree.save", { path, worktree, idempotency_key: newIdempotencyKey() });
     return reply.ok ? null : reply.error.message;
   }
 
