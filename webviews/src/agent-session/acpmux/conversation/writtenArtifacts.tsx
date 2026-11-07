@@ -4,7 +4,6 @@ import type { AcpmuxActivity } from "../model";
 import { useT } from "../i18n";
 import { ArtifactContext } from "./artifactPreview";
 import { toolArtifacts } from "./artifactWrites";
-export { toolArtifacts } from "./artifactWrites";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 /** The same Open action for a lone write, a folded edits group and Session Info's Outputs. */
