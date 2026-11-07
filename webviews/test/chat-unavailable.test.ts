@@ -12,6 +12,34 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ChatUnavailableState } from "../src/agent-session/acpmux/ChatUnavailableState";
 
 describe("chatUnavailable", () => {
+  // A sender chip opened a tab by `HOST/NAME` for a machine this Mac's acpmux has no connection to
+  // (Leo, 2026-11-07: such a chip "just fundamentally doesn't load"): once acpmux's resolver named no
+  // chat, the tab says the machine can't be reached from here, never "Reconnecting…".
+  test("a machine named only by the tab's id, that acpmux does not connect to, is unreached", () => {
+    const named = { peer: "gcp-codex-swarm-01", peerNamed: true, peers: {} };
+    expect(chatUnavailable({ ...named, waitedMs: 0 })).toEqual({ reason: "offline", machine: "gcp-codex-swarm-01" });
+    expect(chatUnavailable({ ...named, waitedMs: 0, resolvedNone: true })).toEqual({
+      reason: "unreached",
+      machine: "gcp-codex-swarm-01",
+    });
+    expect(chatUnavailable({ ...named, waitedMs: CONNECTING_GRACE_MS })).toEqual({
+      reason: "unreached",
+      machine: "gcp-codex-swarm-01",
+    });
+    // A machine acpmux does connect to is never called unreached.
+    const peers = { "gcp-codex-swarm-01": { connected: true, state: "connected" } };
+    expect(chatUnavailable({ ...named, peers, waitedMs: 0, resolvedNone: true }).reason).toBe("deleted");
+    const html = renderToStaticMarkup(
+      createElement(ChatUnavailableState, {
+        unavailable: { reason: "unreached", machine: "gcp-codex-swarm-01" },
+        onRemove: () => undefined,
+        onReconnect: () => undefined,
+      } as never),
+    );
+    expect(html).toContain("Can&#x27;t reach gcp-codex-swarm-01 from here");
+    expect(html).not.toContain('data-action="reconnect"');
+  });
+
   test("no machine down: a chat the pane saw leave the list was deleted; one never seen is not found", () => {
     expect(chatUnavailable({ peers: {}, waitedMs: 0, seenListed: true })).toEqual({ reason: "deleted" });
     expect(

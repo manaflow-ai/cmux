@@ -689,10 +689,16 @@ fn host(mux: &Arc<Mux>, share_id: &str) {
 /// socket sends `end` and its queued `DELETE` runs.
 pub(super) fn ended(shares: &LinkShares, ended: &[(String, Option<String>)]) {
     let Some(mux) = shares.mux.lock().unwrap_or_else(|e| e.into_inner()).upgrade() else { return };
+    // One reconcile per share, however many of its guests ended (forgotten guests come by the
+    // hundred, `forget_gone`).
+    let mut reconciled = std::collections::HashSet::new();
     for (share_id, guest) in ended {
         shares.bridge.forget(share_id, guest.as_deref());
         if guest.is_some() {
             // An ended share's own entry sends `end`; its kicks are moot.
+            if !reconciled.insert(share_id.as_str()) {
+                continue;
+            }
             if view(&mux, share_id).is_some_and(|v| v.state == ShareState::Active) {
                 shares.bridge.command(share_id, Cmd::Reconcile);
             }
@@ -1197,9 +1203,8 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 Ok(guest) => {
                     let mut answer = json!({"v": 1, "t": "redeemed", "request_id": request_id,
                         "guest_id": guest.get("guest_id")});
-                    // An invitee's role, or a link guest's when its share names one, so a view
-                    // guest's page has no composer; nothing else about the account reaches the
-                    // room. A link guest of a share without a role has none.
+                    // The guest's role (a link guest's is always `view`), so a view guest's page
+                    // has no composer; nothing else about the account reaches the room.
                     if let Some(role) = guest.get("role") {
                         answer["role"] = role.clone();
                     }
