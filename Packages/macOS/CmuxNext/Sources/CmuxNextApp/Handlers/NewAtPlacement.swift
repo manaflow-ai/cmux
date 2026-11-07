@@ -97,7 +97,7 @@ enum NewAtPlacement {
         let shown = layout?.showSplitSizing(sizing)
         let cancel = { if let shown { layout?.cancelSplitSizing(shown) } }
         let started = pane.services.agentTabs.openTab(in: pane, seed: pane.agentSeedFromSelectedTab(), select: false, split: direction,
-                                                      then: { _ in if let shown { layout?.commitSplitSizing(shown) } }, failed: cancel)
+                                                      then: { _ in if let shown { layout?.commitSplitSizing(shown) } }, failed: { cancel() })
         guard started else {
             cancel()
             return true // refused with its reason (AgentTabStore.openTab)
@@ -195,7 +195,7 @@ enum NewAtPlacement {
     }
 
     /// A move's refusal, which ends its wait (observed).
-    @Observable @MainActor private final class MoveOutcome {
+    @Observable @MainActor final class MoveOutcome {
         var refused = false
     }
 
