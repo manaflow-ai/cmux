@@ -25,6 +25,8 @@ public final class OverlayDialogDrawing: CmuxDialogDrawing {
     public func attach(_ dialog: CmuxDialogPresentation, in window: NSWindow?) -> NSView? {
         if let shown = views[ObjectIdentifier(dialog)] { return shown.container }
         guard let (page, provider) = pool.claim() else { return nil }
+        // A private dialog's page (a revealed password) refuses page probes while it shows it.
+        page.refusesProbes = dialog.isPrivate
         let container = OverlayDialogView(page: page, activeLook: dialog.activeLook)
         container.setAccessibilityIdentifier(dialog.spec.identifier ?? "cmux.dialog")
         views[ObjectIdentifier(dialog)] = (container, page)
@@ -61,6 +63,7 @@ public final class OverlayDialogDrawing: CmuxDialogDrawing {
         // Scrubbed before it waits for the next dialog: the page drops the card, and with it what the
         // person typed (a password), once the fade is over.
         container.releasePageWhenOffScreen { [pool] in
+            // A private dialog's page keeps refusing probes as the spare: the next dialog's claim sets it again.
             pool.provider(of: page)?.show(nil)
             pool.release(page)
         }

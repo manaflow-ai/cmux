@@ -558,6 +558,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// When the current document painted its first frame (``PagePaintProbe``), in
     /// `ProcessInfo.systemUptime` seconds; nil until it has.
     public internal(set) var paintedUptime: TimeInterval?
+    /// It shows what must never leave the screen (a revealed password): page probes (`debug.page` query,
+    /// snapshot, call and list) never reach it, as screen capture never does.
+    public var refusesProbes = false
     public var hasPainted: Bool { paintedUptime != nil }
     /// Callbacks for the current document's first frame (`whenPainted`).
     var paintWaiters: [() -> Void] = []

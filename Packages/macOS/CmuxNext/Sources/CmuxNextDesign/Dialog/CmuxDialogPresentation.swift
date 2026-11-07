@@ -48,6 +48,9 @@ public final class CmuxDialogPresentation {
 
     /// The window the dialog shows in (its overlay panel), while it shows.
     public var window: NSWindow? { view?.window }
+    /// What it shows must never leave the screen (``CmuxDialogCaptureExcludedHost``): no capture, and its
+    /// drawing refuses page probes.
+    public internal(set) var isPrivate = false
 
     /// The host presented ``view`` in its overlay (it may wait in its source window before, while its
     /// card draws); false again when the overlay hides it.

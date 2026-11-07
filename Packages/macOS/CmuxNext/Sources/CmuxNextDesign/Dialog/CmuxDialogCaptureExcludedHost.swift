@@ -25,6 +25,7 @@ public final class CmuxDialogCaptureExcludedHost: CmuxDialogHosting {
     }
 
     public func show(_ dialog: CmuxDialogPresentation, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
+        dialog.isPrivate = true
         inner.show(dialog, in: scope, scopeGone: scopeGone)
         // The window it shows in is the overlay's, known once the host presents it: its view may wait in
         // the source window before, invisible, while the page draws the card.
