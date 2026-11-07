@@ -411,7 +411,7 @@ impl Mux {
                             .and_then(Value::as_f64)
                             .map(|value| value as f32),
                         fit: fields
-                            .get(super::PANE_SPLIT_FIT_FIELD)
+                            .get(PANE_SPLIT_FIT_FIELD)
                             .and_then(Value::as_bool)
                             .unwrap_or(false),
                         row_height: rows::row_height_field(fields)?,

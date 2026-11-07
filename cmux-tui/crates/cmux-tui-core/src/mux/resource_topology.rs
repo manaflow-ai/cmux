@@ -128,12 +128,12 @@ pub(crate) use pane_browser::{PANE_BROWSER_URL_FIELD, TabSplit};
 /// it and focus the new pane.
 pub(crate) const PANE_SPLIT_FOCUS_FIELD: &str = "focus";
 
-/// `pane.split`'s `fit` field, with `viewport_width`: whether the new column
-/// makes room in a screen whose columns fit the window, so the row never
-/// scrolls sideways (`Screen::fit_strip_after_insert`). The resource router
-/// sends `true` when a caller omits it, so a script's column fits; `false`
-/// keeps the asked width and lets the strip scroll. The app's own New Column
-/// omits it and resizes no column (R3b).
+/// `pane.split`'s internal `fit` field, with `viewport_width`: whether the new
+/// column makes room in a screen whose columns fit the window, so the row never
+/// scrolls sideways (`Screen::fit_strip_after_insert`). Not a caller parameter
+/// (the catalog refuses it): the resource router sets it on every programmatic
+/// split with `viewport_width`, so a script's column fits. The app's own New
+/// Column never carries it and resizes no column (R3b).
 pub(crate) const PANE_SPLIT_FIT_FIELD: &str = "fit";
 
 /// `workspace.create`'s `focus` field: whether the new workspace becomes the

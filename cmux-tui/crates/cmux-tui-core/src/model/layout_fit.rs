@@ -131,9 +131,9 @@ mod tests {
 
     #[test]
     fn a_third_column_takes_a_third_and_keeps_the_others_proportions() {
-        let mut screen = screen(&[0.5, 0.5, 0.5]);
-        assert!(screen.fit_strip_after_insert(102));
-        close(&widths(&screen), &[1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]);
+        let mut even = screen(&[0.5, 0.5, 0.5]);
+        assert!(even.fit_strip_after_insert(102));
+        close(&widths(&even), &[1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]);
         let mut uneven = screen(&[0.75, 0.25, 0.5]);
         assert!(uneven.fit_strip_after_insert(102));
         close(&widths(&uneven), &[0.5, 1.0 / 6.0, 1.0 / 3.0]);
