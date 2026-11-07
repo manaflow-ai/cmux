@@ -30,8 +30,9 @@ await requireBrowserLane("chat-gallery-reduce-transparency.test.ts", async () =>
     const page = await browser!.newPage();
     await page.setContent(
       // A translucent window (or a custom surface) sends a fully clear page background, so the solid
-      // look must come from the always-opaque surface token, as the composer's does.
-      `<style>:root{--agent-page-bg:transparent;--cmux-surface-solid:rgb(30, 30, 30);--acpmux-base:rgb(40, 40, 40)}${css}</style><div class="acpmux-chat-gallery" id="g"></div>`,
+      // look must come from the always-opaque surface token, as the composer's does. The glass
+      // levels come from desktop.css in the app; the page sets the popover level's values here.
+      `<style>:root{--agent-page-bg:transparent;--cmux-surface-solid:rgb(30, 30, 30);--acpmux-base:rgb(40, 40, 40);--ds-glass-popover-tint:70%;--ds-glass-popover-blur:blur(24px) saturate(1.25)}${css}</style><div class="acpmux-chat-gallery" id="g"></div>`,
     );
     return page;
   }

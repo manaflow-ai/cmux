@@ -24,6 +24,6 @@ struct ChiefPetShowInMiniStateTests {
                                 lanes: lanes, localHost: { "install:mac" }, settings: { nil }, pet: { nil }, acpmux: nil)
         #expect(mini.sendName(ChiefPetSubject.Chat(host: "huge-blue", session: "abc123")) == "huge-blue/abc123")
         #expect(mini.sendName(ChiefPetSubject.Chat(host: "install:mac", session: "local1")) == "local1")
-        #expect(mini.sendName(ChiefPetSubject.Chat(host: "big-red", session: "abc123")) == "big-red/abc123", "the saved host, not the lane's peer")
+        #expect(mini.sendName(ChiefPetSubject.Chat(host: "my-vm", session: "abc123")) == "my-vm/abc123", "the saved host, not the lane's peer")
     }
 }
