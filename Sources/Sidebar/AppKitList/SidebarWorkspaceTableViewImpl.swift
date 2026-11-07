@@ -12,6 +12,10 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     private var pointerTrackingArea: NSTrackingArea?
     private(set) var lastPointerWindowLocation: NSPoint?
 
+    /// An inactive cmux window should accept a first click on a workspace row
+    /// instead of spending the click only activating the window.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     /// Pointer location for hover recomputes that no event drove (content
     /// applies, menu close, viewport changes). Tracking events stop while a
     /// context menu or drag session runs, so the cached point can be where

@@ -14,6 +14,12 @@ import Testing
 struct SidebarWorkspaceTableTests {
     @Test
     @MainActor
+    func workspaceTableAcceptsFirstMouseForInactiveWindowClicks() {
+        #expect(SidebarWorkspaceTableViewImpl().acceptsFirstMouse(for: nil))
+    }
+
+    @Test
+    @MainActor
     func reorderDropDestinationIsOverlayNotTable() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()
         let pasteboardType = SidebarWorkspaceReorderDropOverlay.pasteboardType
