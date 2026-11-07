@@ -291,6 +291,31 @@ pub fn record(prompt_id: &str, claimed: Option<Value>, checked: Option<Value>) -
     Some(record)
 }
 
+/// What the daemon knows of a connection's other end, for [`check_trust`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SocketPeer {
+    /// No peer pid: a WebSocket, a Windows pipe, an in-process caller. Never trusted.
+    #[default]
+    Unknown,
+    /// The unix socket peer's pid, read at accept.
+    Pid(u32),
+    /// The daemon's own outbox delivering a send it kept (`server/outbox.rs`), the one local
+    /// connection whose [`CHECKED_KEY`] is the daemon's own.
+    Outbox,
+}
+
+/// For a `session/prompt` or `send_queue`: the pid to walk from, and whether the
+/// [`CHECKED_KEY`] it carries is the daemon's own (`carried`). Fails closed: a local connection
+/// with no peer pid that is not the outbox (a Windows pipe, any in-process bridge) is checked by
+/// nothing and its [`CHECKED_KEY`] is dropped, as a Web client's is.
+pub fn check_trust(peer: SocketPeer, local: bool, peer_token: bool) -> (Option<u32>, bool) {
+    match peer {
+        SocketPeer::Outbox => (None, true),
+        SocketPeer::Pid(pid) if local => (Some(pid), false),
+        _ => (None, !local && peer_token),
+    }
+}
+
 /// Where the daemon carries what it found (`checked`) in `_meta.acpmux`, from the request path to
 /// the prompt's record, through the outbox and a peer link. Never taken from a client: see
 /// [`stamp_checked`].
@@ -298,8 +323,8 @@ pub const CHECKED_KEY: &str = "senderHarnessChecked";
 
 /// The daemon's first look at a send carrying a claim, before the outbox keeps it or a peer gets
 /// it: what the unix socket peer's process chain shows goes in [`CHECKED_KEY`]. `carried` is a
-/// connection whose [`CHECKED_KEY`] is the daemon's own (the outbox's own connection, a peer daemon
-/// proven by its peer token); from any other, one it sent is dropped. Reads the chain (and runs
+/// connection whose [`CHECKED_KEY`] is the daemon's own ([`check_trust`]); from any other, one it
+/// sent is dropped. Reads the chain (and runs
 /// `codesign` on macOS) only for a send carrying a claim, off the async workers.
 pub async fn stamp_checked(prompt: &mut Value, peer_pid: Option<u32>, carried: bool) {
     let Some(mux) = prompt.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) else {

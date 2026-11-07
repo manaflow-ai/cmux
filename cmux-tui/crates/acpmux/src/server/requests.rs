@@ -934,13 +934,14 @@ pub(super) async fn handle_request(
     // What the socket peer's process chain shows of a send that names its harness, looked at
     // once here, before the outbox keeps it or a peer gets it (`sender_harness.rs`).
     if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE) {
-        let local = conn.origin == super::Origin::Local;
-        let carried = (local && conn.peer_pid.is_none())
-            || (conn.origin == super::Origin::Peer && conn.auth == super::ConnAuth::PeerToken);
+        let (pid, carried) = crate::sender_harness::check_trust(
+            conn.socket_peer,
+            conn.origin == super::Origin::Local,
+            conn.origin == super::Origin::Peer && conn.auth == super::ConnAuth::PeerToken,
+        );
         let prompt =
             if m == method::MUX_SEND_QUEUE { params.get_mut("request") } else { Some(&mut params) };
         if let Some(prompt) = prompt {
-            let pid = conn.peer_pid.filter(|_| local);
             crate::sender_harness::stamp_checked(prompt, pid, carried).await;
         }
     }

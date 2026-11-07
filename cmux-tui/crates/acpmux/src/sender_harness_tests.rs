@@ -238,3 +238,21 @@ fn this_process_reads_by_its_own_pid() {
         assert_eq!(lookup(own).map(|p| p.pid), Some(own));
     }
 }
+
+#[test]
+fn only_the_outbox_and_a_proven_peer_carry_the_daemons_check() {
+    // The unix socket's peer: walked, and what it sent of a check dropped.
+    assert_eq!(check_trust(SocketPeer::Pid(50), true, false), (Some(50), false));
+    // The daemon's own outbox delivering a send it checked at enqueue.
+    assert_eq!(check_trust(SocketPeer::Outbox, true, false), (None, true));
+    // A peer daemon proven by its peer token.
+    assert_eq!(check_trust(SocketPeer::Unknown, false, true), (None, true));
+    // A local connection with no peer pid (a Windows pipe, an in-process bridge) is no outbox:
+    // its forged check is dropped and nothing is walked.
+    assert_eq!(check_trust(SocketPeer::Unknown, true, false), (None, false));
+    assert_eq!(check_trust(SocketPeer::Unknown, true, true), (None, false));
+    // A paired device or Web client.
+    assert_eq!(check_trust(SocketPeer::Unknown, false, false), (None, false));
+    // A pid never comes from off the unix socket; if one did, it is not walked.
+    assert_eq!(check_trust(SocketPeer::Pid(50), false, false), (None, false));
+}
