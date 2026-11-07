@@ -36,6 +36,19 @@ const nextReading: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[data-reading="next"]'));
 };
 
+/// Back to the first reading (the button toggles), waiting for the first reading's state.
+const firstReading: Play = async (ctx) => {
+  await ctx.click({ selector: ".context-ring-motion-gallery__next" });
+  await ctx.waitFor(() => ctx.document.querySelector('[data-reading="first"]'));
+};
+
+/// The experiment starts at the first reading whatever the variant's play left: the variants with a
+/// play end on the next reading, and the script's "Next reading" would then toggle back and wait.
+const startAtFirst: Play = async (ctx) => {
+  if (!ctx.document.querySelector('[data-reading="next"]')) return;
+  await firstReading(ctx);
+};
+
 /// The next reading, held 300 ms into its 600 ms ease (every running motion paused there).
 const holdMidway: Play = async (ctx) => {
   await nextReading(ctx);
@@ -77,9 +90,10 @@ export default componentEntry<Props>({
   // *-mid); `ease` shipped: the CSS transition on one registered number, the percent counting with it.
   experiment: {
     definition: contextRingMotion,
+    setup: startAtFirst,
     script: [
       { name: "Next reading", run: nextReading },
-      { name: "Back", run: nextReading },
+      { name: "Back", run: firstReading },
     ],
   },
   variants: {
