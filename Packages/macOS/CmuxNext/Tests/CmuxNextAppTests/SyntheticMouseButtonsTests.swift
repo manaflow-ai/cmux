@@ -42,6 +42,20 @@ struct SyntheticMouseButtonsTests {
         #expect(NSEvent.pressedMouseButtons & 2 == 0, "a synthetic right mouse-up kept button 2 held")
     }
 
+    /// A native control's tracking loop takes a click's mouse-up from the queue itself, so `sendEvent` never sees
+    /// it: the next synthetic event that does arrive lets go of the button that release would have.
+    @Test func aReleaseATrackingLoopTookLetsGoAtTheNextSyntheticEvent() throws {
+        let base = 903_000 + Double.random(in: 0..<1000)
+        let down = try Self.event(.leftMouseDown, at: base)
+        let up = try Self.event(.leftMouseUp, at: base + 0.01)
+        let moved = try Self.event(.mouseMoved, at: base + 0.02)
+        SyntheticInput.register([down, up, moved])
+        #expect(!SyntheticInput.isUserInput(down))
+        #expect(NSEvent.pressedMouseButtons & 1 == 1)
+        #expect(!SyntheticInput.isUserInput(moved))
+        #expect(NSEvent.pressedMouseButtons & 1 == 0, "a click whose release a tracking loop took kept button 1 held")
+    }
+
     /// The person's own press is the hardware's to report: one that was never registered changes nothing.
     @Test func thePersonsOwnPressHoldsNoSyntheticButton() throws {
         let base = 902_000 + Double.random(in: 0..<1000)
