@@ -19,13 +19,14 @@ public extension WindowDockFrame {
         frameChiefPanelArm = now.advanced(by: Self.chiefPanelLinkWindow)
     }
 
-    /// A show of `target` is about to replace the shown workspace: an armed link opens the panel over it. Any show
-    /// of another workspace takes the arm, used or not.
+    /// A show of `target` is about to replace the shown workspace: an armed link opens the panel floating over it,
+    /// also when the person docked it before (cmux#37372: no link click docks the Chief). Any show of another
+    /// workspace takes the arm, used or not.
     func openChiefPanelOnLeave(for target: String, now: ContinuousClock.Instant = .now) {
         guard let until = frameChiefPanelArm, target != frameHome else { return }
         frameChiefPanelArm = nil
         guard now < until else { return }
-        frameChiefPanel.open()
+        frameChiefPanel.openFloating()
         frameSaveRecord()
     }
 
