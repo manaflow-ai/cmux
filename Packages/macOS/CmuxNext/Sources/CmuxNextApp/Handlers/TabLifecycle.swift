@@ -8,6 +8,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextWakeups
+import CmuxNextWindowRules
 import Foundation
 import enum CmuxNextLayout.ChatColumnPlacement
 import enum CmuxNextLayout.NewChatPlacement
@@ -134,18 +135,14 @@ enum TabLifecycle {
         // Cmd-T opens a tab in the current workspace, like a browser, also in a pane that hides its
         // tab bar (an agent chat alone): Lawrence decided 2026-10-11 (cx-04fy), replacing the
         // "follows the tab bar" rule of cx-xt5k. New Workspace (Cmd-N) opens one in a new workspace.
-        var sameKind = NewTabKind.resolve(
-            selectedKind: tab?.kind, engine: tab?.browserEngine,
-            isLocalBrowser: selectedID?.hasPrefix(LocalBrowserTab.prefix) == true, isAgent: onAgentTab
-        )
-        if onAgentTab, let selectedID, ctx.services.agentTabs.isNewTabPage(selectedID) { sameKind = .page }
+        // The kind is Rust's (cmux-window-rules `tabs::new_tab_kind`); agent tabs and the page live in a
+        // shown pane whose daemon holds agent tabs.
+        let facts = NewTabKind.facts(tab, id: selectedID, agent: onAgentTab, newTabPage: onAgentTab && selectedID.map(ctx.services.agentTabs.isNewTabPage) == true,
+                                     user: user, followsSetting: followsSetting, canHostAgent: controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false)
         // The position action's slot, else a person's setting (the +: `tabs.newTabButtonPosition`, else `tabs.newTabPosition`), else the end (NewTabSlot).
         let slot = NewTabSlot.target(current: tab, pane: pane.tabs, explicit: position, user: user, setting: invocation[StripNewTab.button]?.boolValue == true
                                      ? ctx.services.settings?.snapshot.newTabButtonPosition ?? .buttonDefault : ctx.services.settings?.snapshot.newTabPosition)
-        var kind = user && followsSetting ? .page : sameKind
-        // Agent tabs and the page live in a shown pane whose daemon holds agent tabs; elsewhere,
-        // a terminal. A build without the agent page has no new tab page either.
-        if kind == .agent || kind == .page, !(controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false) { kind = .terminal }
+        let kind = WindowRules().newTabKind(facts)?.kind ?? .terminal
         switch kind {
         case .terminal:
             newTerminal(ctx, invocation, slot: slot)
@@ -191,14 +188,19 @@ enum TabLifecycle {
     /// then closes the original (engines are fixed per tab).
     static func reopen(_ ctx: AppActionContext, _ invocation: ActionInvocation, on engine: BrowserEngineTag) {
         guard let (pane, id) = ctx.tab(invocation) else { return }
-        guard let tab = pane.tab(id), tab.kind == .browser else { return ctx.refuse(RefusalStrings.notABrowserTab) }
-        let current = BrowserEngineTag(rawValue: tab.browserEngine ?? "") ?? .webkit
-        guard current != engine else { return }
-        if engine == .webkit, ctx.services.cache.pageRequests.staysOffThisMacLocalhost(tab.id) {
-            return ctx.refuse(RefusalStrings.proxiedTabStaysInChromium)
-        }
-        if engine == .cef, let reason = ctx.services.cache.browserTabs.cefUnavailableReason() {
-            return ctx.refuse(reason)
+        let tab = pane.tab(id)
+        let chromiumReason = engine == .cef ? ctx.services.cache.browserTabs.cefUnavailableReason() : nil
+        // The guards are Rust's (cmux-window-rules `tabs::reopen`).
+        let facts = WindowRules.ReopenFacts(isBrowser: tab?.kind == .browser, current: tab?.browserEngine, target: engine.rawValue,
+                                            proxied: engine == .webkit && tab.map { ctx.services.cache.pageRequests.staysOffThisMacLocalhost($0.id) } == true,
+                                            chromiumUnavailable: chromiumReason != nil)
+        guard let decision = WindowRules().reopen(facts), let tab else { return ctx.refuse(RefusalStrings.notABrowserTab) }
+        switch (decision.decision, decision.reason) {
+        case ("reopen", _): break
+        case ("same", _): return
+        case (_, "proxiedTabStaysInChromium"?): return ctx.refuse(RefusalStrings.proxiedTabStaysInChromium)
+        case (_, "chromiumUnavailable"?): return ctx.refuse(chromiumReason ?? RefusalStrings.notABrowserTab)
+        default: return ctx.refuse(RefusalStrings.notABrowserTab)
         }
         let live = ctx.services.cache.existingBrowser(tab.id)?.tab.state.url
         let url = live ?? tab.url.flatMap(URL.init(string:))
@@ -254,10 +256,19 @@ enum TabLifecycle {
         }
         if docked { return }
         // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md).
+        // Whether it opens behind and is an agent's: Rust's (cmux-window-rules `tabs::browser_placement`).
+        // An agent never swaps out the page the person is working in: its tab opens unselected in the
+        // pane that has their focus, or wherever the run asks (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.1).
+        let scripted = [.cli, .mcp, .script].contains(invocation.origin)
+        let placement = WindowRules().browserPlacement(WindowRules.BrowserPlacementFacts(
+            scripted: scripted, allowsViewChange: invocation.allowsViewChange,
+            focusedHere: ctx.services.windows.active?.focusedPane?.pane.id == pane.id, besideCaller: invocation.besideCaller,
+            newColumnBeside: invocation.newColumnBeside, opensInBackground: invocation.opensInBackground
+        ))
         let cache: TabContentCache? = ctx.services.cache
         var agentTab: (@MainActor (SurfaceID) -> Void)?
         var homePlacement = false
-        if [.cli, .mcp, .script].contains(invocation.origin) {
+        if placement?.agentDriven ?? scripted {
             agentTab = { @MainActor [weak cache] surface in cache?.markAgentDriven(surface: surface) }
         }
         // An agent's tab beside its chat: selected there, focus stays in the chat; with no column
@@ -266,11 +277,7 @@ enum TabLifecycle {
         if invocation.besideCaller {
             agentTab = AgentBesidePlacement.placed(invocation, pane: pane, controller: beside, services: ctx.services, then: agentTab)
         }
-        // An agent never swaps out the page the person is working in: its tab opens unselected in the
-        // pane that has their focus, or wherever the run asks (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.1).
-        let personIsHere = [.cli, .mcp, .script].contains(invocation.origin) && !invocation.allowsViewChange
-            && ctx.services.windows.active?.focusedPane?.pane.id == pane.id
-        let background = (invocation.besideCaller && invocation.newColumnBeside) || invocation.opensInBackground || personIsHere
+        let background = placement?.background ?? (scripted || invocation.opensInBackground)
         // A script's tab aimed at Home's dock opens beside it (HomeDockOpens); an agent's beside its
         // chat is placed by AgentBesidePlacement.
         if !invocation.besideCaller {

@@ -18,6 +18,9 @@ cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file | -> --socket <unix socket> [--client-token-stdin]
 cmux wg dial --hub <unix socket> <host> <port>
+cmux carrier dial --machine <vm_id> [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N]
+cmux carrier key --public
+cmux carrier serve --machine <vm_id> --socket <absolute path> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]
 cmux link dial --host <install or host id> [--service daemon|ssh|owner_session|desktop] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--cloud-token-file PATH] [--handoff]
 cmux link stop --state-dir <dir>
@@ -48,6 +51,72 @@ installs at startup (a cloud transport, a WebSocket listener, the search index)
 are not listed. The cmux NEXT app bundle records the list, with acpmux's, in
 `Contents/Resources/bin/daemon-capabilities.json`. `cmux capabilities` is the
 classic verb that asks the running app (`system.capabilities`).
+
+`carrier dial` bridges standard I/O to a Cloud machine's session daemon over its
+carrier (`design/cloud-carrier.md`): a cmux-remote session through the machine's
+relay (`relay+do`), admitted by a carrier grant for this device's Noise key,
+with the daemon key from the machine record pinned. Its ticket and grant come from
+cmux-platform (`POST /v1/cloud/machines/{id}/carrier`) with the caller's credential
+(`--cloud-api` or `CMUX_CLOUD_API_URL`, `--cloud-token-file` or
+`CMUX_CLOUD_ACCESS_TOKEN`). `--team` or `CMUX_CLOUD_TEAM` (`team_` and 20 lowercase
+hex digits, else `bad_request`) is sent as `x-cmux-team`, so a machine of a shared team
+is found; unset, no header is sent. A grant is single-use, so each connect attempt asks
+again, and a resume of the session presents none. stderr gets one JSON line first, `{"ok":true,"path_state":"relay",
+"route":"carrier"}` or `{"ok":false,"error_code":...,"error_detail"?:...}`, where
+`error_code` names the step the dial did not get past: `ticket`, `relay`,
+`parked_timeout` (the relay held the connect until the deadline: the machine's
+daemon never registered) or `handshake` (`bad_request` for bad usage). On `ok`,
+stdin and stdout carry `cmux.protocol/2` lines on the session's mux control service.
+With `--service desktop` they carry the machine's desktop instead (raw `cmux.rd/1`
+bytes, cmux-remote's `local-socket` to `/run/cmux-rd/desktop.sock`), which the daemon
+opens only for the machine owner's grant; its refusal is `error_code` `service_refused`
+(exit 6).
+Each attempt then writes `cloud.connect route=carrier machine=<vm_id>
+phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>` on stderr and appends it to
+`<workspace state dir>/carrier/connect.log`, a file only the dial writes, never
+emptied or replaced (it stops growing at 4 MiB). One
+deadline (`--deadline-ms`, default 180000) covers every step, with full-jitter
+retries inside it. Exit codes: 0, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake,
+6 service_refused, 64 usage. On a Mac the Noise key is a login Keychain item (accessible after first
+unlock, this device only); elsewhere each dial makes its own.
+The ok line also has `"vmk":"owner"` or `"vmk":"team"`, the person's role on the
+machine from the carrier grant's `vmk` claim; a grant without one leaves it out.
+`--answer-fd N` hands over the first attempt's answer, the `carrier` that a create or
+spare claim answered with: the descriptor's first line is `{"carrier_answer":{…}}`
+holding that object as answered (with 0, stdin's first line, and the stream follows it). That attempt dials at once without asking the platform. Without
+`daemon_key`, it asks for the key while the relay holds the connect, and once more when
+the daemon registers if needed. The handshake always waits for the pin. A stale answer is
+dropped and the attempt asks; any line that is not an answer is `bad_request` (64).
+
+`carrier key --public` prints this device's carrier Noise static public key on stdout as
+one line of unpadded base64url (43 characters), the `carrier.noise_key` of a create
+request, and exits 0. It is the key dial and serve use: on a Mac the login Keychain item
+`com.cmuxterm.app.next.carrier-noise-key` (account `device`), made the same way when
+missing. Nothing private is printed. Elsewhere no key lasts past one dial, so it prints
+nothing and writes the dial's failure line (`handshake`, exit 5); other arguments are
+`bad_request` (64).
+
+`carrier serve` serves the same stream on a Unix socket, for callers that hand a
+daemon socket path on: each accepted connection is its own dial (a fresh grant,
+the daemon key pin, its own deadline and session) and then carries
+`cmux.protocol/2` lines like a local daemon socket. A failed dial closes that
+connection having written nothing; the listener goes on, up to 64 connections at
+once. The socket is claimed like a daemon's (a live socket or another file at the
+path is refused, a stale socket is replaced, the directory must be the user's
+alone) and is 0600. Once listening, stderr gets
+`{"ok":true,"socket":PATH,"route":"carrier"}`; after it, one line per accepted
+connection before its bytes flow, `{"ok":true,"route":"carrier","vmk"?:…}` when its
+dial connected (`vmk` as on the dial's ok line) or the dial's failure line (`ticket`,
+`relay`, `parked_timeout`, `handshake`) when it did not, plus one `bad_request` per
+unusable stdin line and one `socket` if the listener fails for good. None holds `cloud.connect`: route lines go
+only to `connect.log`. stdin carries JSON lines: `{"access_token":"…"}` replaces the
+credential for every later dial, and sessions already up stay up.
+`{"carrier_answer":{…}}` is used by the next accepted connection's first attempt,
+as with `dial --answer-fd`. Before ready a
+failure writes the dial's failure line: exit 64 usage or a path it cannot claim (a
+live listener, a file that is not a socket), 2 no API or credential, 5 no device
+key. It exits 0 when stdin ends or on SIGTERM or SIGINT, 6 when accepting fails for
+good, and removes the socket on every exit after the bind.
 
 `link dial` bridges standard I/O to a service of a paired install or a Cloud
 host (`host_…`) through this machine's running `cmux link` (the caller never

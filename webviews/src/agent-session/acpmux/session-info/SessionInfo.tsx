@@ -73,12 +73,13 @@ import { chatGallery } from "../summary/chatGallery";
 import { GalleryDialog } from "../summary/GalleryDialog";
 import { useScrollEdges } from "../summary/scrollEdges";
 import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from "../summary/sessionSummary";
-import { waitingSubagents } from "../summary/SubagentStatusList";
+import { waitingSubagents } from "../summary/subagentStatusListModel";
 import type { Artifact } from "../conversation/artifactPreview";
 import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./ChangesSection";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
+import { summarizeConnectors } from "./connectorState";
 import { useIMessage, type IMessageView } from "./imessage";
 import { EnvironmentSection, type AccessGrant, type ProjectRowLook } from "./EnvironmentSection";
 import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
@@ -439,18 +440,28 @@ function nativeTop(shell: HTMLElement | null | undefined, tabRowHeight: number):
 /// box is empty and only its children have one. One ResizeObserver on the dock and its children (a
 /// MutationObserver re-observes when its children change), both disconnected when `on` goes false or
 /// the shell changes.
+/// A change the observers see is drawn in the frame the stack changed (flushSync, as VirtualTranscript
+/// follows the same stack): a scheduled render drew the panel's old foot over the grown stack for a
+/// frame or more (the running tray coming in under an expanded Session Info).
 function useDockHeight(shell: HTMLElement | null | undefined, on: boolean): number {
   const [height, setHeight] = useState(0);
   useLayoutEffect(() => {
     const dock = on ? shell?.querySelector<HTMLElement>(".acpmux-dock") : null;
     if (!shell || !dock) return;
-    const read = () => {
+    const measure = () => {
       let top = Infinity;
       for (const part of [dock, ...dock.children]) {
         const box = part.getBoundingClientRect();
         if (box.height > 0) top = Math.min(top, box.top);
       }
-      setHeight(top === Infinity ? 0 : Math.max(0, Math.round(shell.getBoundingClientRect().bottom - top)));
+      return top === Infinity ? 0 : Math.max(0, Math.round(shell.getBoundingClientRect().bottom - top));
+    };
+    let last = measure();
+    const read = () => {
+      const next = measure();
+      if (next === last) return;
+      last = next;
+      flushSync(() => setHeight(next));
     };
     const resize = new ResizeObserver(read);
     const observe = () => {
@@ -459,7 +470,7 @@ function useDockHeight(shell: HTMLElement | null | undefined, on: boolean): numb
       for (const child of dock.children) resize.observe(child);
     };
     observe();
-    read();
+    setHeight(last);
     const children = new MutationObserver(() => {
       observe();
       read();
@@ -567,6 +578,7 @@ export function useSessionInfo({
   onReconnectMcp,
   remoteControl,
   onCompact,
+  onViewPrompt,
   onOpenChat,
   onShowUsage,
   onRender,
@@ -648,6 +660,9 @@ export function useSessionInfo({
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Sends the chat's agent its `/compact` (Context's and Usage's Compact); unset where it cannot reach.
   onCompact?: () => void;
+  /// Context's View Prompt: opens the Context screen (context/ContextScreen.tsx); unset for a chat
+  /// whose prompt text acpmux does not hand this pane.
+  onViewPrompt?: () => void;
   /// Opens any chat acpmux lists, this Mac's or a peer's (Usage's rows).
   onOpenChat?: (sessionId: string) => void;
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
@@ -730,6 +745,7 @@ export function useSessionInfo({
   const stableOnSaveEnvironment = useStableCallback(onSaveEnvironment);
   const stableOnReconnectMcp = useStableCallback(onReconnectMcp);
   const stableOnCompact = useStableCallback(onCompact);
+  const stableOnViewPrompt = useStableCallback(onViewPrompt);
   const stableOnOpenChat = useStableCallback(onOpenChat);
   const stableOnShowUsage = useStableCallback(onShowUsage);
   const stableOnShowCall = useStableCallback(onShowCall);
@@ -856,6 +872,7 @@ export function useSessionInfo({
         onReconnectMcp={stableOnReconnectMcp}
         remoteControl={remoteControl}
         onCompact={stableOnCompact}
+        onViewPrompt={stableOnViewPrompt}
         onOpenChat={stableOnOpenChat}
         onShowUsage={stableOnShowUsage}
         onRender={onRender}
@@ -938,6 +955,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onReconnectMcp,
   remoteControl,
   onCompact,
+  onViewPrompt,
   onOpenChat,
   onShowUsage,
   onRender,
@@ -1002,6 +1020,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onReconnectMcp?: (server: string) => Promise<unknown>;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
+  onViewPrompt?: () => void;
   onOpenChat?: (sessionId: string) => void;
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
   /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
@@ -1498,6 +1517,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           onReconnectMcp={onReconnectMcp}
           remoteControl={scope ? undefined : remoteControl}
           onCompact={scope ? undefined : onCompact}
+          onViewPrompt={scope ? undefined : onViewPrompt}
           onOpenFolder={openFolder}
           onShowCall={onShowCall}
           revealed={revealed}
@@ -1590,6 +1610,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         remoteControl={scope ? undefined : remoteControl}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}
+        onViewPrompt={scope ? undefined : onViewPrompt}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
       />
@@ -1662,6 +1683,18 @@ export function SessionInfoPanel({
   useChatCut(frame, !presence?.leaving, `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`);
   // The foot animates only once it has been drawn at its first measure: the open draws it at once.
   const footKnown = foot !== undefined && foot > 0;
+  // Only a foot that goes down (the composer's stack shrank) glides. One that rises (the stack grew: the
+  // running tray coming in, a queued prompt, a taller draft) moves in the frame the stack moved, with it:
+  // gliding, the card's lower part lay over the grown stack for the glide, and that overlap switched
+  // its glass between the App's and the page's own (data-glass-keeps-underlay, seeThroughBlur.ts) and
+  // back, a flash each time a tool call brought the tray in or out (Leo, 2026-11-07: "im still seeing
+  // session info flash ... when im slowly scrolling down as you're doing the thinking/tool calls").
+  const [footWas, setFootWas] = useState(foot);
+  const [footRises, setFootRises] = useState(false);
+  if (foot !== footWas) {
+    setFootWas(foot);
+    setFootRises(foot !== undefined && footWas !== undefined && foot > footWas);
+  }
   const [footSettled, setFootSettled] = useState(false);
   useEffect(() => {
     if (!footKnown) {
@@ -1701,11 +1734,14 @@ export function SessionInfoPanel({
       }}
       inert={presence?.leaving}
       className={glass ? "ui-glass ui-glass-floats acpmux-session-info" : "acpmux-session-info"}
+      // Its glass is the App's own popover glass, drawn under the page (ui/glass/hostGlass.ts; Leo,
+      // 2026-11-06: "the f***ing session info. Like, wait, why the f*** is this not glass?").
+      data-host-glass={glass ? "popover" : undefined}
       data-placement={placement}
       data-chrome={title ? "title" : onClose ? chrome : "none"}
       data-over-chat={foot !== undefined ? "" : undefined}
       data-popover={onDismiss ? "" : undefined}
-      data-foot-moves={footKnown && footSettled ? "" : undefined}
+      data-foot-moves={footKnown && footSettled && !footRises ? "" : undefined}
       style={
         {
           width,
@@ -1855,6 +1891,7 @@ export function SessionInfo({
   onSaveEnvironment,
   onReconnectMcp,
   onCompact,
+  onViewPrompt,
   onOpenFolder,
   edits,
   onOpenChanges,
@@ -1945,6 +1982,8 @@ export function SessionInfo({
   /// Sends the chat's agent its `/compact`: Context's Compact session (ContextSection), live while a
   /// turn runs (the /compact queues behind it), and Usage's next step for its context (UsageSection.tsx).
   onCompact?: () => void;
+  /// Context's View Prompt (useSessionInfo's).
+  onViewPrompt?: () => void;
   /// Every chat acpmux lists, this Mac's and its peers', for Usage (UsageSection.tsx); unset in a
   /// subagent's own panel.
   allSessions?: readonly AcpmuxSessionEntry[];
@@ -2097,7 +2136,7 @@ export function SessionInfo({
     [madeFiles, missing],
   );
   const mcp = summary?.mcpServers ?? [];
-  const reconnect = mcp.filter((server) => server.status === "failed").length;
+  const connectorSummary = summarizeConnectors(mcp);
   const runningTasks = commands.filter((command) => command.state === "running").length;
   // Subagents shows only for a chat that has subagents or started chats: one that never used them
   // shows nothing.
@@ -2176,7 +2215,13 @@ export function SessionInfo({
         </>
       }
     >
-      <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} rowsOnly />
+      <ContextSection
+        usage={usage}
+        percent={percent}
+        breakdown={summary?.contextBreakdown}
+        rowsOnly
+        onViewPrompt={onViewPrompt}
+      />
     </SessionInfoSection>
   ) : (
     progress.length > 0 && (
@@ -2192,19 +2237,20 @@ export function SessionInfo({
       title={t("rail.connectors")}
       open={hasConnectors && state.connectors}
       onOpenChange={hasConnectors ? fold("connectors") : undefined}
-      // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
+      // This count describes the attached harness inventory. A loaded MCP server is not proof
+      // of provider authentication or authorization, so never present it as a green connected count.
       meta={value(
         !hasConnectors
           ? t("sessionInfo.none")
-          : reconnect > 0
-            ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-            : mcp.length === 0 && imessage && imessage.data.status !== "connected"
-              ? t("imessage.connect")
-              : t("rail.connected", {
-                  count:
-                    mcp.filter((server) => server.status === "connected").length +
-                    (mcp.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
-                }),
+          : mcp.length === 0 && imessage
+            ? imessage.data.status === "connected"
+              ? t("rail.connected", { count: 1 })
+              : t("imessage.connect")
+            : connectorSummary.kind === "reconnect"
+              ? t("sessionInfo.connectors.reconnect", { count: connectorSummary.count })
+              : connectorSummary.kind === "connecting"
+                ? t("sessionInfo.connectors.connecting", { count: connectorSummary.count })
+                : t("sessionInfo.connectors.loaded", { count: connectorSummary.count }),
       )}
     >
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} imessage={imessage} />
