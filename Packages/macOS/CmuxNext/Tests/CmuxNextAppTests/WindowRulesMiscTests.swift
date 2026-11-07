@@ -67,6 +67,10 @@ import Testing
         let verb = rules.appearance(.init(scope: "workspace", property: "theme", set: true))
         #expect(verb?.themeAction == "workspace.setTheme" && verb?.properties == [])
         #expect(rules.appearance(.init(scope: "app", property: nil, set: false))?.refusal == "badProperty")
+        // pane.clearBackground: every property set at the pane level (not blur), no theme action.
+        let clear = rules.appearance(.init(scope: "pane", property: nil, set: false))
+        #expect(clear?.level == "pane" && clear?.themeAction == nil)
+        #expect(clear?.properties == ["theme", "background", "tint", "opacity", "fontSize", "cursorStyle"])
         let edits = rules.focusRingStyle("glow", wasEnabled: false)
         #expect(edits?.map(\.path) == [["focusRing", "style"], ["focusRing", "enabled"]])
         #expect(edits?.first?.text == "glow" && edits?.last?.flag == true)

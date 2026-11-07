@@ -18,8 +18,10 @@ struct PaneBackgroundHandlers {
             if !saved { ctx.refuse(PaneBackgroundStrings.noDurablePane) }
         }
 
-        func reset(_ target: AppearanceTarget, properties: [AppearanceProperty]) -> Bool {
-            properties.filter { $0.levels.contains(target.level) }
+        /// Clears `target`'s own values of the properties a reset verb names (Rust names only those set
+        /// at the level).
+        func reset(_ target: AppearanceTarget, _ verb: WindowRules.AppearanceVerb) -> Bool {
+            (verb.properties ?? []).compactMap(AppearanceProperty.init(rawValue:))
                 .allSatisfy { ctx.services.themes.setOwnValue(nil, $0, of: target) }
         }
 
@@ -33,13 +35,17 @@ struct PaneBackgroundHandlers {
 
         /// What `appearance.set|reset` does: the level and property it names, whether the property is
         /// set there, and which theme action a level's theme goes through (cmux-window-rules `appearance`).
-        func appearanceVerb(_ invocation: ActionInvocation, set: Bool) -> (AppearanceLevel, WindowRules.AppearanceVerb)? {
-            let ask = WindowRules.AppearanceAsk(scope: invocation["scope"]?.stringValue, property: invocation["property"]?.stringValue, set: set)
+        func appearanceVerb(scope: String?, property: String?, set: Bool) -> (AppearanceLevel, WindowRules.AppearanceVerb)? {
+            let ask = WindowRules.AppearanceAsk(scope: scope, property: property, set: set)
             let verb = WindowRules().appearance(ask)
             guard let verb, let level = verb.level.flatMap(AppearanceLevel.init(name:)) else {
                 return ctx.refuse(verb?.refusal == "notAtLevel" ? PaneBackgroundStrings.notAtLevel : PaneBackgroundStrings.badProperty)
             }
             return (level, verb)
+        }
+
+        func appearanceVerb(_ invocation: ActionInvocation, set: Bool) -> (AppearanceLevel, WindowRules.AppearanceVerb)? {
+            appearanceVerb(scope: invocation["scope"]?.stringValue, property: invocation["property"]?.stringValue, set: set)
         }
 
         func target(_ level: AppearanceLevel, _ invocation: ActionInvocation) -> AppearanceTarget? {
@@ -73,8 +79,9 @@ struct PaneBackgroundHandlers {
             save(ctx.services.themes.setOwnValue(tint, .tint, of: .pane(pane)))
         })
         registry.bind("pane.clearBackground", invoke: { invocation in
-            guard let pane = ctx.paneController(invocation) else { return }
-            save(reset(.pane(pane), properties: AppearanceProperty.allCases))
+            guard let pane = ctx.paneController(invocation),
+                  let (_, verb) = appearanceVerb(scope: AppearanceLevel.pane.name, property: nil, set: false) else { return }
+            save(reset(.pane(pane), verb))
         })
         registry.bind("workspace.setTint", invoke: { invocation in
             guard let id = ctx.scope(invocation).workspace?.id ?? ctx.refuse(RefusalStrings.noWindowShowsWorkspace),
@@ -104,8 +111,7 @@ struct PaneBackgroundHandlers {
             if let forwarded = verb.themeAction {
                 _ = ctx.services.registry.perform(ActionID(rawValue: forwarded), invocation: forward(invocation, theme: nil))
             }
-            let properties = (verb.properties ?? []).compactMap(AppearanceProperty.init(rawValue:))
-            save(properties.allSatisfy { ctx.services.themes.setOwnValue(nil, $0, of: target) })
+            save(reset(target, verb))
         })
     }
 
