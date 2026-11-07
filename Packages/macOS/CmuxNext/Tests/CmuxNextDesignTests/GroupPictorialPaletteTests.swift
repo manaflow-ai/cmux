@@ -49,11 +49,13 @@ import Testing
         sampled.bands = [WallpaperTint(red: 0.8, green: 0.2, blue: 0.1)]
         let color = sampled
         let watch = DesktopWallpaperWatch(read: { DesktopWallpaperWatch.Reading(picture: picture, dark: false) }, sample: { _ in color })
+        defer { DesignSettings.shared.groupWallpaperTint = nil }
         await watch.refreshed()
         #expect(watch.tint == nil, "nothing asked for the picture yet")
         watch.samplesForGroups = true
         await watch.settled()
         #expect(watch.tint == color && watch.tint?.bands.count == 1)
+        #expect(DesignSettings.shared.groupWallpaperTint?.bands == color.bands, "the bands reach the groups")
         #expect(!watch.tintEnabled, "the windows' tint stays off")
     }
 

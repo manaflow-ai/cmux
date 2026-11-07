@@ -92,21 +92,20 @@ public final class DesktopWallpaperWatch {
         didSet {
             guard tintEnabled != oldValue else { return }
             // Off: a sample under way finishes into the cache but publishes nothing.
-            if !samples || !sampleIfNeeded() { refreshViews() }
+            if !tintEnabled || !sampleIfNeeded() { refreshViews() }
         }
     }
 
-    /// The sidebar's group colors follow the picture (`sidebar.groupPalette` `wallpaper` or `pictorial`): pictures are
-    /// sampled as under ``tintEnabled``, without leaning the windows' tint toward them (that stays ``tintEnabled``'s).
+    /// The Wallpaper or Pictorial group palette is chosen (`sidebar.groupPalette`): pictures are sampled for it even
+    /// with `appearance.wallpaperTint` off, and each color lands in `DesignSettings.groupWallpaperTint`, so the sidebar's
+    /// groups repaint when the desktop picture changes. The window's own tint still follows only `tintEnabled`.
     public var samplesForGroups = false {
         didSet {
             guard samplesForGroups != oldValue else { return }
-            if !samples || !sampleIfNeeded() { refreshViews() }
+            DesignSettings.shared.groupWallpaperTint = samplesForGroups ? tint : nil
+            if samplesForGroups { sampleIfNeeded() }
         }
     }
-
-    /// Whether pictures are sampled: for the windows' tint or for the sidebar's group colors.
-    private var samples: Bool { tintEnabled || samplesForGroups }
 
     /// How many bands a sample takes, top to bottom (`WallpaperTint.bands`).
     nonisolated static let bandCount = 16
@@ -251,7 +250,7 @@ public final class DesktopWallpaperWatch {
     /// true: the views re-applied), else one sample off the main actor, when none is under way.
     @discardableResult
     private func sampleIfNeeded() -> Bool {
-        guard samples, let reading = current, published != reading, !isHidden() else { return false }
+        guard tintEnabled || samplesForGroups, let reading = current, published != reading, !isHidden() else { return false }
         if let known = colors[reading] {
             publish(known, for: reading)
             return true
@@ -288,6 +287,7 @@ public final class DesktopWallpaperWatch {
         tint = color
         published = reading
         if let color { defaults?.set([color.red, color.green, color.blue], forKey: Self.lastTintKey) }
+        if samplesForGroups { DesignSettings.shared.groupWallpaperTint = color }
         refreshViews()
         if changed { for follower in followers.allObjects { (follower as? DesktopWallpaperColorFollower)?.desktopWallpaperColorDidChange() } }
     }

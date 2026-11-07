@@ -82,7 +82,7 @@ extension SidebarListViewComponents {
         }
         let sections = DesignSettings.shared.sidebarSections
         drawnTints = SidebarGroup.drawnTints(ordered, palette: sections.groupPalette, gradient: sections.groupGradient,
-                                             wallpaper: BackdropImageStore.shared.desktop.tint?.bands ?? [])
+                                             wallpaper: DesignSettings.shared.groupWallpaperTint?.bands ?? [])
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()

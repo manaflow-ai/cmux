@@ -209,9 +209,9 @@
   in 16 horizontal bands (`WallpaperTint.bands`); each group with a palette color takes the band at its place among
   them, top group from the top of the picture, its hue kept and lifted to the group colors' lightness (gallery P2
   "soft": the slice's color, no detail). Same path as Gradient (`SidebarGroup.drawnTints`, once per reload); a new
-  picture's color reloads the list once (`DesktopWallpaperWatch.follow`). The picture is sampled for the
-  Wallpaper and Pictorial palettes without turning on the window tint (`samplesForGroups`); before, the Wallpaper
-  palette drew vibrant unless `appearance.wallpaperTint` was on. The picture itself inside a header (P1 "window")
+  picture's color reloads the list once (`DesktopWallpaperWatch.follow`). The bands ride on
+  `DesignSettings.groupWallpaperTint`, sampled for Pictorial as for Wallpaper (`samplesForGroups`, keyed on
+  `GroupPalette.followsWallpaper`). The picture itself inside a header (P1 "window")
   is a follow-up. Regression: `GroupPictorialPaletteTests`, `GroupGradientPlacementTests.pictorialPlacesGroupsDownThePicture`.
 - 2026-11-07: the Gradient palette (`sidebar.groupPalette` `gradient`, `sidebar.groupGradient`: Sunset, Aurora,
   Lagoon, Two-Tone). Leo, verbatim: "imagine the gradients are just, like, based off of placement, and they're not,
@@ -239,6 +239,12 @@
   `sidebar.groupColors` (fixed/theme). Gallery: lane group-colors' SVG sheets (palettes on dark and light glass, the
   orange-header-over-blue-dots clash, three picker layouts; the two-row layout won). Regression: `GroupPaletteTests`,
   `GroupAutomaticColorTests`, `SidebarGroupPaletteSettingTests`.
+  Every path that makes a group takes the palette's color: New Group, New Empty Group, a drop that groups two rows,
+  the space menu's New Group and New Subgroup (router review F3). The Wallpaper palette samples the desktop picture
+  on its own, with `appearance.wallpaperTint` off too, and the groups repaint when the picture changes
+  (`DesignSettings.groupWallpaperTint`, router review F2). Regression: `GroupAutomaticColorTests`
+  (`droppingARowOntoAnotherGroupsThemInThePalettesNextColor`), `WallpaperTintTests`
+  (`theWallpaperGroupPaletteSamplesWithTheWindowTintOff`).
 - 2026-11-05: a group with no color reads as a group: one faint neutral block behind its header and members, no hue
   and no indent (`sidebar.noColorGroup`, default `glass`: the `group` role untinted, its veil and rim). Leo, verbatim: "if you're gonna allow the no color option,
   which is, like, I find kind of weird, you might as well have it be at least slightly distinguishing from, like,
