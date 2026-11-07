@@ -40,10 +40,13 @@ public struct CloudCarrierDial: Equatable, Sendable {
     }
 
     /// The dial's credential: `CMUX_CLOUD_API_URL` (the platform origin), `CMUX_CLOUD_ACCESS_TOKEN`, and
-    /// `CMUX_CLOUD_TEAM` (the machine's team, sent as `x-cmux-team`) when the record names one.
-    public static func environment(platform: URL, accessToken: String, team: String?) -> [String: String] {
+    /// `CMUX_CLOUD_TEAM` (the machine's team, sent as `x-cmux-team`) when the record names one; and
+    /// `CMUX_TUI_STATE_DIR`, the build's daemon state directory (``DaemonLauncher/appNames(build:applicationSupport:log:)``),
+    /// under which the dial writes `carrier/connect.log`.
+    public static func environment(platform: URL, accessToken: String, team: String?, stateDirectory: URL? = nil) -> [String: String] {
         var environment = ["CMUX_CLOUD_API_URL": platform.absoluteString, "CMUX_CLOUD_ACCESS_TOKEN": accessToken]
         if let team, !team.isEmpty { environment["CMUX_CLOUD_TEAM"] = team }
+        if let stateDirectory { environment["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         return environment
     }
 
@@ -63,13 +66,19 @@ public struct CloudCarrierDial: Equatable, Sendable {
     /// after, one refused connection's dial). Nil for anything else.
     public enum ServeLine: Equatable, Sendable {
         case ready(socket: String)
+        /// One connection's dial got through; `vmk` is the grant's `owner` or `team`, nil when it had none.
+        case connected(vmk: String?)
         case refused(code: String, detail: String?)
     }
 
-    /// Reads `{"ok":true,"socket":PATH,"route":"carrier"}` or `{"ok":false,"error_code":…,"error_detail"?:…}`.
+    /// Reads `{"ok":true,"socket":PATH,"route":"carrier"}`, `{"ok":true,"route":"carrier","vmk"?:…}` or
+    /// `{"ok":false,"error_code":…,"error_detail"?:…}`.
     public static func serveLine(_ line: String) -> ServeLine? {
         guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any] else { return nil }
-        if object["ok"] as? Bool == true, let socket = object["socket"] as? String, !socket.isEmpty { return .ready(socket: socket) }
+        if object["ok"] as? Bool == true {
+            if let socket = object["socket"] as? String, !socket.isEmpty { return .ready(socket: socket) }
+            return .connected(vmk: object["vmk"] as? String)
+        }
         guard object["ok"] as? Bool == false, let code = object["error_code"] as? String else { return nil }
         return .refused(code: code, detail: object["error_detail"] as? String)
     }
@@ -100,10 +109,13 @@ public struct CloudCarrierDial: Equatable, Sendable {
         public let environment: @Sendable () async throws -> [String: String]
 
         /// Nil without the bundled CLI or for an id that is not a machine's.
-        public init?(machine: String, service: Service, cli: URL?, auth: CloudAuth, platform: URL, team: String?) {
+        /// `stateDirectory`: the build's daemon state directory (nil: cmux-tui's default).
+        public init?(machine: String, service: Service, cli: URL?, auth: CloudAuth, platform: URL, team: String?, stateDirectory: URL?) {
             guard let cli, let dial = CloudCarrierDial(machine: machine, service: service) else { return nil }
             (self.cli, self.dial) = (cli, dial)
-            environment = { CloudCarrierDial.environment(platform: platform, accessToken: try await auth.tokens().access, team: team) }
+            environment = {
+                CloudCarrierDial.environment(platform: platform, accessToken: try await auth.tokens().access, team: team, stateDirectory: stateDirectory)
+            }
         }
 
         init(cli: URL, dial: CloudCarrierDial, environment: @escaping @Sendable () async throws -> [String: String]) {

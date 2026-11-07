@@ -55,8 +55,8 @@ final class CloudService {
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits, makesRoom: true) }
-    /// The app's `cmux-tui` (the moves').
-    @ObservationIgnored let binary: URL?
+    /// The app's `cmux-tui` (the moves', the carrier's) and its daemon's state directory (the carrier's `CMUX_TUI_STATE_DIR`).
+    @ObservationIgnored let binary: URL?, tuiState: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
@@ -223,7 +223,7 @@ final class CloudService {
         let linkBuild = LaunchIdentity.current().build
         link = CloudLinkLifecycle(launcher: CloudLinkLauncher.forApp(build: linkBuild), installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
-        binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
+        (binary, tuiState) = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment), DaemonLauncher.appNames(build: linkBuild).stateDirectory)
         move.cli = binary
         move.ledger = .standard
         movedChats.defaults = { [weak self] in self?.move.ledger }
@@ -622,7 +622,7 @@ final class CloudService {
         guard !policyDisabled else { return nil }
         // The carrier: one `cmux carrier serve` for the session; the record names the owner.
         let serve = CloudCarrierDial.Connector(machine: machine.id, service: .mux, cli: binary, auth: auth, platform: configuration.relayAPIBaseURL(),
-                                               team: machine.team).map { CloudCarrierServe(connector: $0, paths: paths) }
+                                               team: machine.team, stateDirectory: tuiState).map { CloudCarrierServe(connector: $0, paths: paths) }
         let resolver = CloudCarrierResolver(serve: serve) { @MainActor [weak self, id = machine.id] in
             CloudCallerOwnership(creator: self?.machines.session(id)?.machine.createdBy, caller: self?.auth.user?.id)
         }

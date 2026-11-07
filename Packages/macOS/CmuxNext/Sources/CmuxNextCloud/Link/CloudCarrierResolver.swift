@@ -3,8 +3,8 @@ public import Foundation
 /// The carrier's link of a Cloud machine (design/cloud-carrier.md): one `cmux carrier serve` child for the
 /// session (``CloudCarrierServe``), whose private socket dials the machine's `mux` once per connection, the
 /// way the old link socket did. Every client of the machine's daemon gets that socket: the daemon
-/// connection, the CLI's copies, moves, uploads and updates, and the phone. The owner answer is the
-/// machine record's: its creator is the caller.
+/// connection, the CLI's copies, moves, uploads and updates, and the phone. The owner answer is the latest
+/// connected line's `vmk`, else the machine record's creator rule.
 public struct CloudCarrierResolver: CloudLinkResolver {
     private let serve: CloudCarrierServe?
     private let ownership: @Sendable () async -> CloudCallerOwnership
@@ -19,8 +19,9 @@ public struct CloudCarrierResolver: CloudLinkResolver {
     public func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
         guard let serve else { throw CloudLinkError.helperNotRunning(reason: "no bundled cmux-tui") }
         let socket = try await serve.socketPath()
-        // TODO(carrier): read "vmk":"owner"|"team" from the dial's ok line once the carrier sends it.
-        let caller = await ownership()
+        // The grant's answer on serve's latest connected line; the record's creator rule until one arrives.
+        let granted = CloudCallerOwnership(vmk: await serve.vmk)
+        let caller = if let granted { granted } else { await ownership() }
         return CloudLinkSocket(key: key, path: socket, generation: nil, callerOwnsVM: caller == .owner, callerIsTeammate: caller == .team)
     }
 
@@ -47,6 +48,8 @@ public actor CloudCarrierServe {
     private var starting: Task<String, any Error>?
     /// The last refused dial since the current connect.
     private(set) var refusal: CloudLinkError?
+    /// The `vmk` of the latest connection serve reported connected (`owner` or `team`); nil before one.
+    private(set) var vmk: String?
 
     /// The socket is the machine's `cmux-link-<12 hex>.sock` in this user's private temporary folder
     /// (``CloudPaths``), which ``CloudLinkSocketPolicy`` checks once the child is ready.
@@ -80,6 +83,7 @@ public actor CloudCarrierServe {
     }
 
     private func noteRefused(_ error: CloudLinkError) { refusal = error }
+    private func noteConnected(vmk: String?) { if let vmk { self.vmk = vmk } }
 
     private func launch() async throws -> String {
         if let previous = child { previous.closeInput(); _ = await previous.waitForExit() }
@@ -95,7 +99,11 @@ public actor CloudCarrierServe {
             for await text in lines {
                 guard let line = CloudCarrierDial.serveLine(text) else { continue }
                 if !answered { answered = true; answer.yield(line); answer.finish(); continue }
-                if case .refused(let code, let detail) = line { await self?.noteRefused(CloudCarrierDial.linkError(code: code, detail: detail)) }
+                switch line {
+                case .refused(let code, let detail): await self?.noteRefused(CloudCarrierDial.linkError(code: code, detail: detail))
+                case .connected(let vmk): await self?.noteConnected(vmk: vmk)
+                case .ready: break
+                }
             }
             answer.finish()
         }
@@ -109,6 +117,8 @@ public actor CloudCarrierServe {
             case .ready(let served)?:
                 guard served == socket else { throw CloudLinkError.invalidAnswer("served another socket") }
                 try check(served)
+            case .connected?:
+                throw CloudLinkError.invalidAnswer("no ready line")
             case .refused(let code, let detail)?:
                 throw code == "socket" ? Self.socketTaken : CloudCarrierDial.linkError(code: code, detail: detail)
             case nil:
@@ -127,6 +137,15 @@ public actor CloudCarrierServe {
 }
 
 extension CloudCallerOwnership {
+    /// A grant's `vmk`: `owner` or `team`; nil for anything else (no answer yet).
+    public init?(vmk: String?) {
+        switch vmk {
+        case "owner": self = .owner
+        case "team": self = .team
+        default: return nil
+        }
+    }
+
     /// The record's rule (cloud-machine-ops.ts `CloudVmKind`): the machine's creator is its `owner`, any
     /// other member of its team is `team`; unknown while either id is missing.
     public init(creator: String?, caller: String?) {
