@@ -82,8 +82,8 @@ struct NewTabSuccession {
         return others.first { $0.id == before.rawValue }.flatMap { others.newTabSlot(after: $0) }
     }
 
-    /// `id`, or once the pane drops stand-in `id` (the strip is a step late), the daemon's tab it became; `resolving`: the open's tab and anchor.
-    private func resolved(_ id: StripTabID, in pane: PaneModel) -> StripTabID { pane.tabs.contains { $0.id == id.rawValue } ? id : services?.daemon(for: pane).store.creations.replacement(ofStandIn: id.rawValue, in: pane).map { StripTabID($0.id) } ?? id }
+    /// `id`, or the daemon's tab stand-in `id` became; `resolving` does it for the open's tab and anchor.
+    private func resolved(_ id: StripTabID, in pane: PaneModel) -> StripTabID { services?.daemon(for: pane).store.creations.replacement(ofStandIn: id.rawValue, in: pane).map { StripTabID($0.id) } ?? id }
     private func resolving(_ pane: PaneModel) -> Self { var open = self; (open.claimed, open.before) = (claimed.map { resolved($0, in: pane) }, before.map { resolved($0, in: pane) }); return open }
 
     private func expire(after limit: Duration) {
