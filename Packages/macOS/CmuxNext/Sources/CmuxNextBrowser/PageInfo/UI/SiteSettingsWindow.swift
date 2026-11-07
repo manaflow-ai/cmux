@@ -33,7 +33,7 @@ final class SiteSettingsWindow: PageInfoWindow {
         grid.rowSpacing = PageInfoStyle.spacing * 2
         grid.columnSpacing = PageInfoStyle.inset
         for kind in SitePermissionKind.allCases where provider.supportedSitePermissions.contains(kind) {
-            let icon = ThemedImageView(image: PageInfoStyle.symbol(PageInfoPages.symbol(kind, blocked: false)) ?? NSImage())
+            let icon = ThemedImageView(image: PageInfoStyle.symbol(Self.symbol(kind)) ?? NSImage())
             icon.themeTint = { PageInfoStyle.text }
             let name = PageInfoStyle.label(PageInfoStrings.name(kind), font: PageInfoStyle.bodyFont, color: PageInfoStyle.text)
             let menu = ThemedPopUpButton(frame: .zero, pullsDown: false)
@@ -130,4 +130,32 @@ final class SiteSettingsWindow: PageInfoWindow {
         guard let host = URL(string: origin)?.host() else { return }
         send(.deleteSiteData(domain: SiteDomain.registrable(host)))
     }
+
+    /// A permission's row icon (SF Symbols).
+    static func symbol(_ kind: SitePermissionKind) -> String {
+        switch kind {
+        case .location: "location"
+        case .camera: "video"
+        case .microphone: "mic"
+        case .notifications: "bell"
+        case .javascript: "curlybraces"
+        case .images: "photo"
+        case .popups: "arrow.up.forward.app"
+        case .sound: "speaker.wave.2"
+        case .automaticDownloads: "arrow.down.circle"
+        case .midi: "pianokeys"
+        case .usb: "cable.connector"
+        case .serial: "cable.connector.horizontal"
+        case .hid: "gamecontroller"
+        case .clipboard: "doc.on.clipboard"
+        case .sensors: "gyroscope"
+        case .bluetooth: "dot.radiowaves.left.and.right"
+        case .fileEditing: "doc.badge.gearshape"
+        case .windowManagement: "macwindow.on.rectangle"
+        case .localFonts: "textformat"
+        case .backgroundSync: "arrow.triangle.2.circlepath"
+        case .autoPictureInPicture: "pip"
+        case .thirdPartySignIn: "person.badge.key"
+        case .insecureContent: "shield.slash"
+        }
 }

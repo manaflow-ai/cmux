@@ -4,55 +4,54 @@ import Foundation
 /// (`cmux.page-info.state`) and the commands it sends back (`cmux.page-info.command`). Plain
 /// Foundation JSON: this module does not link the page host.
 extension PageInfoModel {
-    /// The bubble's state as JSON. The page turns kinds and settings into text itself.
+    /// The bubble's state as JSON, in the page's `PageInfoModel` shape
+    /// (webviews/src/browser-chrome/page-info/model.ts). The page words kinds and settings itself.
     public var wireState: [String: Any] {
         var state: [String: Any] = [
             "page": page.wire,
             "site": site.wire,
             "permissions": permissions.map { ["kind": $0.kind.rawValue, "setting": $0.setting.rawValue, "isDefault": $0.isDefault, "isInUse": $0.isInUse] },
-            "choices": Dictionary(uniqueKeysWithValues: permissions.map { ($0.kind.rawValue, $0.kind.choices.map(\.rawValue)) }),
-            "resettableCount": resettableCount,
-            "needsReload": needsReload,
-            "showsAboutThisPage": showsAboutThisPage,
-            "certificateValid": isCertificateValid,
+            "siteData": siteData.map { data -> Any in
+                ["firstPartyCookies": data.firstPartyCookies, "siteCount": data.siteCount,
+                 "thirdPartyPolicy": data.thirdPartyPolicy == .blocked ? "blocked" : "allowed"]
+            } ?? NSNull(),
+            "certificate": certificateRow ?? NSNull(),
             "certificateWarningsOff": certificateWarningsOff,
             "certificateWarningScope": certificateWarningScope == .profile ? "profile" : "site",
+            "needsReload": needsReload,
+            "showsAboutThisPage": showsAboutThisPage,
         ]
         if let certificateFailure { state["certificateFailure"] = certificateFailure }
-        if let certificates {
-            state["certificates"] = certificates.map { certificate in
-                ["issuer": certificate.issuer.commonName ?? certificate.issuer.organization ?? "",
-                 "subject": certificate.subject.commonName ?? certificate.subject.organization ?? ""]
-            }
-        }
-        if let siteData {
-            state["siteData"] = [
-                "thirdPartyBlocked": siteData.thirdPartyPolicy == .blocked,
-                "entries": siteData.entries.map { ["domain": $0.domain, "cookieCount": $0.cookieCount, "hasOtherData": $0.hasOtherData, "isThirdParty": $0.isThirdParty] },
-            ]
-        }
         return state
+    }
+
+    /// The security page's certificate row: https pages whose chain is loading or not empty.
+    private var certificateRow: [String: Any]? {
+        guard site.url?.scheme == "https", certificates.map({ !$0.isEmpty }) ?? true else { return nil }
+        var row: [String: Any] = ["valid": isCertificateValid]
+        if let issuer = certificates?.first?.issuer, let name = issuer.commonName ?? issuer.organization { row["issuer"] = name }
+        return row
     }
 }
 
 extension PageInfoPage {
     var wire: [String: Any] {
         switch self {
-        case .main: ["kind": "main"]
-        case .security: ["kind": "security"]
-        case .cookies: ["kind": "cookies"]
-        case .permission(let kind): ["kind": "permission", "permission": kind.rawValue]
+        case .main: ["type": "main"]
+        case .security: ["type": "security"]
+        case .cookies: ["type": "cookies"]
+        case .permission(let kind): ["type": "permission", "kind": kind.rawValue]
         }
     }
 
     init?(wire: Any?) {
         guard let wire = wire as? [String: Any] else { return nil }
-        switch wire["kind"] as? String {
+        switch wire["type"] as? String {
         case "main": self = .main
         case "security": self = .security
         case "cookies": self = .cookies
         case "permission":
-            guard let kind = (wire["permission"] as? String).flatMap(SitePermissionKind.init(rawValue:)) else { return nil }
+            guard let kind = (wire["kind"] as? String).flatMap(SitePermissionKind.init(rawValue:)) else { return nil }
             self = .permission(kind)
         default: return nil
         }
@@ -62,8 +61,6 @@ extension PageInfoPage {
 extension PageInfoSite {
     var wire: [String: Any] {
         var site: [String: Any] = ["displayName": displayName]
-        if let url { site["url"] = url.absoluteString }
-        if let host { site["host"] = host }
         switch kind {
         case .web(let connection):
             site["kind"] = "web"
@@ -72,13 +69,11 @@ extension PageInfoSite {
             case .insecure: site["connection"] = "insecure"
             case .mixedContent: site["connection"] = "mixedContent"
             case .dangerous: site["connection"] = "dangerous"
-            case .certificateError(let code):
-                site["connection"] = "certificateError"
-                if let code { site["certificateErrorCode"] = code }
+            case .certificateError: site["connection"] = "certificateError"
             }
         case .file: site["kind"] = "file"
-        case .internalPage: site["kind"] = "internal"
-        case .extensionPage: site["kind"] = "extension"
+        case .internalPage: site["kind"] = "internalPage"
+        case .extensionPage: site["kind"] = "extensionPage"
         case .viewSource: site["kind"] = "viewSource"
         case .devTools: site["kind"] = "devTools"
         case .empty: site["kind"] = "empty"
@@ -96,7 +91,7 @@ extension PageInfoCommand {
             self = .show(page)
         case "showCertificate": self = .showCertificate
         case "setPermission":
-            guard let kind = (wire["permission"] as? String).flatMap(SitePermissionKind.init(rawValue:)),
+            guard let kind = (wire["kind"] as? String).flatMap(SitePermissionKind.init(rawValue:)),
                   let setting = (wire["setting"] as? String).flatMap(SitePermissionSetting.init(rawValue:)),
                   kind.choices.contains(setting) else { return nil }
             self = .setPermission(kind, setting)
