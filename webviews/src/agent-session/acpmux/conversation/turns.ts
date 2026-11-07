@@ -1785,6 +1785,7 @@ function codexLiveTurn(
   // 2026-10-21). Between steps it reads "Thinking 18s", timed from the prompt.
   const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at, kind: THINKING, below: true, verbKey: user.id };
   if (!last) return [...rows, line];
+  const compactingRow = named ? undefined : liveCompaction(drawn);
   if (named) {
     const call = named.tool;
     // A command reads its short line; one with no line yet reads its title ("Run make"). While
@@ -1800,6 +1801,17 @@ function codexLiveTurn(
     if (call.kind === "execute" && !line.doingDraft && call.background === undefined) line.doingCommand = true;
     Object.assign(line, sendingTo(call));
     line.doingAt = (call.startedAt ?? named.at) + clockOffset;
+  } else if (compactingRow) {
+    // A compaction running is the line's state, timed from its own start: no model thinks or
+    // writes then, so the line never reads "Thinking" or counts tokens, and the compaction's own
+    // row folds into it, one status line (Leo, 2026-11-07: "when you're compacting the
+    // conversation, just show it as you're compacting ... You're not thinking during this time ...
+    // That should replace the thinking area"). Once it ends the line holds its note until the
+    // next step, as it holds any finished step (`liftedStep`), so no row lands as the line changes.
+    rows = rows.filter((row) => row.id !== compactingRow.id);
+    line.liveState = "compacting";
+    line.liveCompaction = compactingRow.compaction;
+    line.doingAt = compactingRow.at + clockOffset;
   } else if (last.kind === "assistant") {
     line.quietKey = `${last.id}:${last.version}`;
     // When that reply was written, so a chat opened long after it paused reads "Thinking" at once
@@ -1821,11 +1833,12 @@ function codexLiveTurn(
   const statusPlan = sessionStatus ? plan : undefined;
   // No call in flight and no answer streaming, while foreground subagents still run: the agent
   // waits on them ("Waiting on 2 subagents"), whatever its last row was.
-  const agents = named || answering ? 0 : foregroundAgents(drawn) + trayAgents;
+  const compacting = line.liveState === "compacting";
+  const agents = named || answering || compacting ? 0 : foregroundAgents(drawn) + trayAgents;
   if (agents > 0) Object.assign(line, { liveState: "subagents", liveAgents: agents });
   // With a todo list and no answer streaming, the activity line under the list is the live line
   // (below), which names the plan's step, so no call leaves its run for it.
-  if (!named && !answering && !statusPlan && agents === 0) {
+  if (!named && !answering && !compacting && !statusPlan && agents === 0) {
     // Between calls the line keeps the latest finished step ("Ran grep …") instead of a separate
     // "Thinking" under it, shimmering and timed from the prompt like any step: the line is the
     // turn's current activity and just keeps going (Leo, 2026-11-01: "this should be replacing
@@ -1847,8 +1860,8 @@ function codexLiveTurn(
   if (line.doing === undefined && line.liveState === undefined) line.thoughtMs = thoughtTime(drawn);
   if (!plan) return [...rows, line];
   const work = rows.filter((row) => row !== plan);
-  // The answer streams over the list, the line under both.
-  if (answering || !statusPlan) return [...work, plan, line];
+  // The answer streams over the list, the line under both; a compaction keeps its line there too.
+  if (answering || compacting || !statusPlan) return [...work, plan, line];
   // With a todo list the activity line under it is the live line (cx-ncc.102), as without these
   // toggles; it reads the call in flight from the turn's rows, which the runs no longer hold.
   return [
@@ -1862,6 +1875,19 @@ function codexLiveTurn(
       named?.tool,
     ),
   ];
+}
+
+/// The turn's latest step when it is a compaction, running or completed, with nothing from the agent
+/// since: no reply, call or prompt after it. A note after it (a failover, a background task's end)
+/// leaves it the latest step. A failed one keeps its row, as a failed call keeps its mark.
+function liveCompaction(drawn: readonly AcpmuxRow[]): AcpmuxRow | undefined {
+  for (let index = drawn.length - 1; index >= 0; index -= 1) {
+    const row = drawn[index]!;
+    if (row.kind === "compaction")
+      return row.compaction?.state === "running" || row.compaction?.state === "completed" ? row : undefined;
+    if (row.kind === "assistant" || row.kind === "activity" || row.kind === "user") return undefined;
+  }
+  return undefined;
 }
 
 /// The latest run's last finished call, lifted out of the run for the live line to name: a command

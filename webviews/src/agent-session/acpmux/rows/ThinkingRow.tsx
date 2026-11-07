@@ -19,6 +19,7 @@ export const ThinkingRow = memo(
         doneMs={row.doingForMs}
         liveState={row.liveState}
         liveAgents={row.liveAgents}
+        liveCompaction={row.liveCompaction}
         thoughtMs={row.thoughtMs}
         turnTotal={row.turnTotal}
         untimed={row.untimed}
@@ -46,6 +47,7 @@ export const ThinkingRow = memo(
     a.row.doingForMs === b.row.doingForMs &&
     a.row.liveState === b.row.liveState &&
     a.row.liveAgents === b.row.liveAgents &&
+    a.row.liveCompaction === b.row.liveCompaction &&
     a.row.thoughtMs === b.row.thoughtMs &&
     a.row.turnTotal === b.row.turnTotal &&
     a.row.untimed === b.row.untimed &&

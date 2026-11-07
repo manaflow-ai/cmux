@@ -41,16 +41,31 @@ test("a running compaction is the live line's state, and its row folds into the 
   expect(shaped.some((entry) => entry.kind === "compaction")).toBe(false);
 });
 
-test("a finished compaction gives the line back and stays in the transcript", () => {
+test("a note after a running compaction leaves it the line's state; a reply after it does not", () => {
+  const note = row("failover-10", "failover", 40, { failover: { from: "claude", to: "codex" } });
+  const noted = view([prompt, reply, compacting(), note]);
+  expect(noted.at(-1)!.liveState).toBe("compacting");
+  expect(noted.some((entry) => entry.kind === "compaction")).toBe(false);
+  const answered = view([prompt, compacting(), row("a-2", "assistant", 50, { text: "Picking up again." })]);
+  expect(answered.at(-1)!.liveState).not.toBe("compacting");
+});
+
+test("a finished compaction is held on the line until the next step, then lands in the transcript", () => {
   const done = { ...compacting(), version: 2, compaction: { state: "completed" as const } };
-  const shaped = view([prompt, reply, done]);
-  expect(shaped.at(-1)!.liveState).toBeUndefined();
-  expect(shaped.some((entry) => entry.id === "compaction-9")).toBe(true);
+  const held = view([prompt, reply, done]);
+  expect(held.at(-1)!).toMatchObject({ liveState: "compacting", liveCompaction: { state: "completed" } });
+  expect(held.some((entry) => entry.id === "compaction-9")).toBe(false);
+  const next = view([prompt, reply, done, row("a-2", "assistant", 50, { text: "Picking up again." })]);
+  expect(next.at(-1)!.liveState).not.toBe("compacting");
+  expect(next.some((entry) => entry.id === "compaction-9")).toBe(true);
+  // A failed one keeps its row, as a failed call keeps its mark.
+  const failed = { ...done, compaction: { state: "failed" as const, error: "Prompt is too long" } };
+  expect(view([prompt, reply, failed]).some((entry) => entry.id === "compaction-9")).toBe(true);
 });
 
 test("an account-switch compaction keeps its own words on the line", () => {
   const line = view([prompt, reply, compacting("account_switch")]).at(-1)!;
-  expect(line).toMatchObject({ liveState: "compacting", liveAccountSwitch: true });
+  expect(line).toMatchObject({ liveState: "compacting", liveCompaction: { reason: "account_switch" } });
 });
 
 let dom: JSDOM | undefined;
@@ -110,7 +125,9 @@ test("the compacting line says Compacting with the compaction's time, never Thin
   expect(container.textContent).toContain("Thinking");
   expect(container.textContent).toContain("tokens");
 
-  act(() => root!.render(line({ liveState: "compacting", doingAt: START + 83_000 })));
+  act(() =>
+    root!.render(line({ liveState: "compacting", liveCompaction: { state: "running" }, doingAt: START + 83_000 })),
+  );
   const text = container.querySelector(".cv-worked")!.textContent!;
   expect(text).toContain("Compacting conversation…");
   expect(text).toContain("12s");
@@ -121,7 +138,25 @@ test("the compacting line says Compacting with the compaction's time, never Thin
 });
 
 test("the account-switch compaction's line keeps its meaning", () => {
-  act(() => root!.render(line({ liveState: "compacting", liveAccountSwitch: true, doingAt: START + 83_000 })));
+  act(() =>
+    root!.render(
+      line({
+        liveState: "compacting",
+        liveCompaction: { state: "running", reason: "account_switch" },
+        doingAt: START + 83_000,
+      }),
+    ),
+  );
   expect(container.textContent).toContain("Compacting the conversation to continue on another account…");
   expect(container.textContent).not.toContain("Thinking");
+});
+
+test("a completed compaction reads as its note on the line, with the turn's time again", () => {
+  const compaction = { state: "completed" as const, preTokens: 412_000, postTokens: 18_400 };
+  act(() => root!.render(line({ liveState: "compacting", liveCompaction: compaction, doingAt: START + 83_000 })));
+  const text = container.querySelector(".cv-worked")!.textContent!;
+  expect(text).toContain("Conversation compacted");
+  expect(text).toContain("1m 35s");
+  expect(text).not.toContain("Thinking");
+  expect(container.querySelector("[data-compacting]")).toBeNull();
 });

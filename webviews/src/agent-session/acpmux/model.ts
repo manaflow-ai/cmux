@@ -594,9 +594,13 @@ export type AcpmuxRow = {
   /// What the Codex-style live line says when it names no call (conversation/turns.ts
   /// `codexLiveTurn`): the agent waits on its foreground subagents (`liveAgents` of them still
   /// running), or writes its reply. Neither reads "Thinking" (Leo, 2026-11-03: "i think the
-  /// "thinking" accounting is also off pretty frequently").
-  liveState?: "subagents" | "writing";
+  /// "thinking" accounting is also off pretty frequently"), and neither does a compaction
+  /// (`compacting`: `liveCompaction` running, timed from its start at `doingAt`, or just completed):
+  /// its own row folds into the line (Leo, 2026-11-07: "You're not thinking during this time ...
+  /// That should replace the thinking area").
+  liveState?: "subagents" | "writing" | "compacting";
   liveAgents?: number;
+  liveCompaction?: AcpmuxCompaction;
   /// With the line reading "Thinking" past the first step: how long the turn's thoughts streamed,
   /// summed (conversation/turns.ts `thoughtTime`), the time it shows beside the word.
   thoughtMs?: number;

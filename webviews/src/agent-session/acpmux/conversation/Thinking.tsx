@@ -16,6 +16,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { usePaneLanguage, useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
 import { liveLineTokens } from "./liveLineTokens.experiment";
+import { compactingLine } from "./compactingLine.experiment";
 import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
@@ -27,7 +28,8 @@ import { verbLeads } from "./ToolVerb";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
-import type { AcpmuxTurnRetry } from "../model";
+import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
+import { compactionText } from "./CompactionNote";
 import type { Translate } from "../i18n";
 
 /// A rate limit or an overloaded model: the model answered and is busy, not out of reach.
@@ -172,6 +174,7 @@ export function Thinking({
   doneMs,
   liveState,
   liveAgents = 0,
+  liveCompaction,
   thoughtMs,
   turnTotal = false,
   untimed = false,
@@ -199,9 +202,12 @@ export function Thinking({
   /// How long that finished step took (turns.ts `liftedStep`): the time beside it with `turnTotal`.
   doneMs?: number;
   /// With no call named: the agent waits on `liveAgents` foreground subagents, or writes its reply
-  /// (turns.ts `codexLiveTurn`). Otherwise it reads "Thinking".
-  liveState?: "subagents" | "writing";
+  /// (turns.ts `codexLiveTurn`), or compacts the conversation (`compacting`: `liveCompaction`
+  /// running, timed from `doingAt`, or just completed, which the line holds as a finished step).
+  /// Otherwise it reads "Thinking".
+  liveState?: "subagents" | "writing" | "compacting";
   liveAgents?: number;
+  liveCompaction?: AcpmuxCompaction;
   /// "Thinking" past the first step: the turn's summed thinking time, shown beside the word.
   thoughtMs?: number;
   /// Past the turn's first step the clock reads as the turn's whole time ("2s · 4m"), after the
@@ -253,17 +259,29 @@ export function Thinking({
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const waitsOnAgents = liveState === "subagents" && liveAgents > 0;
   const writing = liveState === "writing" && stillWriting;
+  // A compaction says so with its own clock: no model thinks or writes then, so never "Thinking"
+  // and no token count (Leo, 2026-11-07: "You're not thinking during this time. So it shouldn't be
+  // labeled as thinking"). The look's arm sets its clock (compactingLine.experiment.ts). A completed
+  // one is the turn's latest step, held with the turn's clock and tokens as any finished step is.
+  const compaction = doing === undefined && liveState === "compacting" ? liveCompaction : undefined;
+  const compacted = compaction?.state === "completed";
+  const compacting = compaction !== undefined && !compacted;
+  const compactLook = compacting ? experimentArm(compactingLine) : undefined;
   const elapsedMs = timed ? Math.max(0, time - from) : 0;
   const turnVerb = thinkingVerb(thinkingVerbs, verbKey);
-  const decorative = doing === undefined && !waitsOnAgents && !writing;
+  const decorative = doing === undefined && !waitsOnAgents && !writing && compaction === undefined;
   const label =
     doing === undefined
-      ? waitsOnAgents
-        ? t("turn.live.waitingOnSubagents", { n: liveAgents })
-        : writing
-          ? t("turn.live.writing")
-          : (turnVerb ??
-            (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking")))
+      ? compaction
+        ? compacting
+          ? t(compaction.reason === "account_switch" ? "compaction.runningAccountSwitch" : "turn.live.compacting")
+          : compactionText(t, compaction)
+        : waitsOnAgents
+          ? t("turn.live.waitingOnSubagents", { n: liveAgents })
+          : writing
+            ? t("turn.live.writing")
+            : (turnVerb ??
+              (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking")))
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
@@ -288,10 +306,28 @@ export function Thinking({
   const total = turnTotal && turnTime !== undefined;
   // What stands beside the label then, never a clock that starts again at a call (Leo, 2026-11-01:
   // "it should just keep going"): a finished step's own start to end, or the turn's summed thinking.
-  const ownMs = doing === undefined ? (waitsOnAgents || writing ? undefined : thoughtMs) : done ? doneMs : undefined;
+  const compactMs = compacting && timed && doingAt !== undefined ? Math.max(0, time - doingAt) : undefined;
+  const ownMs = compaction
+    ? compactLook === "turn"
+      ? compactMs
+      : undefined
+    : doing === undefined
+      ? waitsOnAgents || writing
+        ? undefined
+        : thoughtMs
+      : done
+        ? doneMs
+        : undefined;
   // Under a second it says its milliseconds, as the step's own row does ("856ms"), never "0s".
-  const own = total && ownMs !== undefined ? spanDuration(t, ownMs) : undefined;
-  const elapsed = own ?? turnTime;
+  const own = total && ownMs !== undefined ? (compacting ? formatDuration(ownMs) : spanDuration(t, ownMs)) : undefined;
+  // The compaction's own clock alone (`own` arm), never the turn's: the turn did not think that long.
+  const elapsed = compacting
+    ? compactLook === "own" && compactMs !== undefined
+      ? formatDuration(compactMs)
+      : compactLook === "turn"
+        ? own
+        : undefined
+    : (own ?? turnTime);
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
@@ -301,7 +337,7 @@ export function Thinking({
   // (Leo, 2026-11-02, on "Sending message to … 3m 56s · ↓1.4K out ↑819.5K in" among the message
   // rows: "i also think this is quite weird looking").
   const sending = doing !== undefined && sendName !== undefined;
-  const showTokens = Boolean(tokens) && timed && !sending;
+  const showTokens = Boolean(tokens) && timed && !sending && !compacting;
   // One count, as Claude Code's live line says it ("47.4K tokens"): the turn's output, with the
   // split on hover (liveLineTokens.experiment.ts). Never "↓ out ↑ in" in the line's words (the
   // coordinator, relaying Leo's capture of "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in").
@@ -351,7 +387,11 @@ export function Thinking({
     );
   return (
     // `cv-worked--live`: its words start on the icon column, with no icon slot (conversation.css).
-    <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}`} data-find-skip>
+    <div
+      className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
+      data-find-skip
+      data-compacting={compacting && !waiting ? "" : undefined}
+    >
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           <span className="cv-needs-input-glyph" aria-hidden="true" />
@@ -375,37 +415,41 @@ export function Thinking({
             />
           )}
           <output
-            className="cv-thinking is-shimmer"
+            className={`cv-thinking${compactLook === "calm" ? "" : " is-shimmer"}`}
             data-roll={roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
             aria-label={decorative ? t("thinking") : undefined}
             aria-live={decorative ? "off" : undefined}
           >
-            <ShimmerText
-              text={label}
-              baseText={
-                lead ? (
+            {compactLook === "calm" ? (
+              label
+            ) : (
+              <ShimmerText
+                text={label}
+                baseText={
+                  lead ? (
+                    <>
+                      <span className="cv-worked__lead">{lead.lead}</span>
+                      {lead.rest}
+                    </>
+                  ) : decorative ? (
+                    <span className="cv-status-verb">
+                      {verbSizes}
+                      <span className="cv-status-verb__word">{label}</span>
+                    </span>
+                  ) : (
+                    label
+                  )
+                }
+                lit={
                   <>
-                    <span className="cv-worked__lead">{lead.lead}</span>
-                    {lead.rest}
+                    <span className={`cv-shimmer__lit-label${decorative ? " cv-status-verb" : ""}`} data-text={label}>
+                      {decorative && verbSizes}
+                    </span>
+                    {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
                   </>
-                ) : decorative ? (
-                  <span className="cv-status-verb">
-                    {verbSizes}
-                    <span className="cv-status-verb__word">{label}</span>
-                  </span>
-                ) : (
-                  label
-                )
-              }
-              lit={
-                <>
-                  <span className={`cv-shimmer__lit-label${decorative ? " cv-status-verb" : ""}`} data-text={label}>
-                    {decorative && verbSizes}
-                  </span>
-                  {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
-                </>
-              }
-            />
+                }
+              />
+            )}
           </output>
           {elapsed && <span className={own ? "cv-worked__own" : "cv-worked__time"}>{elapsed}</span>}
         </span>
