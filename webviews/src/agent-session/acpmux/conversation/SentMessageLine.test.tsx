@@ -10,7 +10,7 @@ import { acpmuxSendCall } from "./acpmuxSends";
 import { sendEntries, toolGroups } from "./toolGroups";
 import { AcpmuxSendLine, configureSentLook } from "./SentMessageLine";
 import { configureMessageLineLook } from "./messageLineLook";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import type { AcpmuxSessionEntry } from "../sessionList";
 

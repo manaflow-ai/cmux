@@ -39,7 +39,7 @@ import { acpmuxMcpSendCall } from "./acpmuxMcpSends";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
 import { ShellBlock } from "./ShellBlock";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useMessageLineLook } from "./messageLineLook";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import "./AgentMessageRow.css";

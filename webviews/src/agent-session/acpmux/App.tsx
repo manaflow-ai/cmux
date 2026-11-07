@@ -512,7 +512,7 @@ import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
 import { NewestSteerContext, takeBackSteer, takesSteersBack } from "./conversation/PendingSteer";
-import { type WorkingCounts, WorkingCountsContext } from "./conversation/WorkingFor";
+import { type WorkingCounts, WorkingCountsContext } from "./conversation/workingForModel";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";

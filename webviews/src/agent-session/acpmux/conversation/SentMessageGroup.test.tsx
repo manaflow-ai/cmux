@@ -15,7 +15,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { sendEntries, toolGroups } from "./toolGroups";
 import { ToolRows } from "./TurnRows";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { turnView } from "./turns";
 
 let dom: JSDOM | undefined;

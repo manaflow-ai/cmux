@@ -12,7 +12,8 @@ import { CardCopyLookContext, CardCopyWriterContext, type CardCopyLook } from ".
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import { SubsessionCallCard } from "./SubsessionCallCard";
 import { subsessionCall } from "./subsessionCalls";
-import { resetTranscriptDisclosure, TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Props = { look: CardCopyLook; card: "prompt" | "message" };
 

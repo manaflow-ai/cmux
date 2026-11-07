@@ -7,13 +7,13 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, memo } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { TranscriptDisclosureProvider } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
 import {
   resetTranscriptDisclosure,
-  TranscriptDisclosureProvider,
   useTranscriptDisclosure,
   useTranscriptViewContext,
   viewChat,
-} from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+} from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 import {
   makeTranscriptViewDefault,
   resetTranscriptViews,

@@ -11,7 +11,7 @@ import type { AcpmuxActivity } from "../model";
 import { agentMessage } from "./agentMessages";
 import { AgentNamesContext, AgentOpenContext, agentViews } from "./agentNames";
 import { MessageCard } from "./MessageCard";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import type { Subagent } from "../subagents/subagentFold";
 
 let dom: JSDOM | undefined;
