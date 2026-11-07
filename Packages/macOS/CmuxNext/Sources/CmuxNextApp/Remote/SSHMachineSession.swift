@@ -81,7 +81,7 @@ final class SSHMachineSession {
          machineID: String? = nil, mainWork: MainWorkScheduler) {
         self.host = host
         self.machineID = machineID ?? host.machineID
-        daemon = DaemonService(machineID: self.machineID, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        daemon = DaemonService(machineID: self.machineID, echoesPlacementShift: true, mainWork: mainWork)
         // The actor reports each status change; only the latest matters.
         let (statuses, continuation) = AsyncStream.makeStream(of: SSHConnectionMachine.Status.self, bufferingPolicy: .bufferingNewest(8))
         link = SSHMachineLink(host: host, binary: binary, paths: paths, environment: environment) { continuation.yield($0) }
