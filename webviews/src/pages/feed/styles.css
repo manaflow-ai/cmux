@@ -709,6 +709,37 @@
   min-width: 0;
 }
 
+/* A pane narrower than the column and the detail side by side (330 + 360 px) stacks them
+   whatever the density, so the detail and its answers (a report and its reply) stay in view. */
+@media (max-width: 690px) {
+  .feed-inbox {
+    flex-direction: column;
+  }
+
+  .feed-inbox .feed-inbox-column {
+    width: auto;
+    height: 45%;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--ds-color-separator);
+  }
+
+  .feed-inbox .feed-inbox-detail {
+    min-width: 0;
+  }
+
+  .feed-reports {
+    flex-direction: column;
+  }
+
+  .feed-reports-column {
+    flex: 0 0 45%;
+    min-width: 0;
+    max-width: none;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--ds-color-separator);
+  }
+}
+
 .feed-inbox-header {
   flex: none;
 }

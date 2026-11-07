@@ -333,6 +333,14 @@ impl Mux {
         }
     }
 
+    /// The app set or cleared the cloud lease: the feed client forgets
+    /// another person's account at once and its socket stops waiting.
+    pub(crate) fn feed_lease_changed(&self) {
+        if let Some(feed) = self.cloud_services().feed.get() {
+            feed.lease_changed();
+        }
+    }
+
     /// Stops the feed client's threads (daemon shutdown).
     pub(crate) fn shutdown_feed_client(&self) {
         if let Some(feed) = self.cloud_services().feed.get() {

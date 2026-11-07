@@ -311,6 +311,17 @@ impl FeedClient {
         }
     }
 
+    /// The lease changed (`cloud-session-set`, `cloud-session-clear`):
+    /// another person's lease takes the old account's state away now, not
+    /// when the socket's receive ends, and the receive ends at once so the
+    /// driver reconnects on the new lease.
+    pub fn lease_changed(&self) {
+        if let Some(cloud) = &self.inner.deps.cloud {
+            driver::forget_other_lease(&self.inner, cloud);
+        }
+        Inner::wake_wire(&self.inner.lock());
+    }
+
     pub fn set_reply_sender(&self, sender: Option<ReplySender>) {
         *self.inner.reply.lock().unwrap_or_else(PoisonError::into_inner) = sender;
     }

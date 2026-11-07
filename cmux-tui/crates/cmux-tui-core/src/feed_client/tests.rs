@@ -443,8 +443,9 @@ fn a_lease_of_another_person_forgets_the_old_account_before_it_connects() {
     }
     // (The mirror itself: a feed read would start the driver, which does the same.)
     assert!(h.feed.inner.lock().mirror.confirmed("fi_a").is_some());
-    // Before any socket opens on the new lease, A's items are gone.
-    super::driver::forget_other_lease(&h.feed.inner, &cloud);
+    // Before any socket opens on the new lease, A's items are gone (the
+    // daemon's cloud-session-set calls this).
+    h.feed.lease_changed();
     let state = h.feed.inner.lock();
     assert!(state.mirror.confirmed("fi_a").is_none());
     assert_eq!(state.account, None);

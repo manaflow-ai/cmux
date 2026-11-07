@@ -215,6 +215,10 @@ fn pump(
             WireRecv::Idle => {}
             WireRecv::Closed { code: Some(4401) } => return Ended::Unauthenticated,
             WireRecv::Closed { .. } => return Ended::Dropped,
+            // A frame read after the lease changed is the old lease's: dropped.
+            WireRecv::Text(_) if cloud.lease_generation() != generation => {
+                return Ended::NewLease;
+            }
             WireRecv::Text(text) => {
                 if apply(inner, &text) {
                     *backoff = Duration::from_secs(1);
