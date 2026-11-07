@@ -81,6 +81,12 @@ pub(super) struct Status {
     /// name another process after a crash or a restart.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pid_started: Option<u64>,
+    /// The session host running the copy and the setup, and when it
+    /// started, so another host can tell a live run from one cut short.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_started: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include: Option<Report>,
     pub started_ms: u64,
@@ -134,6 +140,8 @@ pub(super) fn start(place: Place, recipe: Recipe) -> Value {
         state: "copying".into(),
         port,
         setup: recipe.setup.clone(),
+        host_pid: Some(std::process::id()),
+        host_started: process_started(std::process::id()),
         started_ms: now_ms(),
         ..Status::default()
     };
@@ -374,15 +382,16 @@ pub(super) fn read(root: &Path, git_dir: &Path, since: u64) -> Value {
     // Live here, or (for a setup another session host started) its
     // process group still there.
     let live = running().lock().unwrap_or_else(PoisonError::into_inner).contains_key(root)
-        || status.pid.is_some_and(|pid| {
-            status.pid_started.is_some_and(|started| process_started(pid) == Some(started))
-        });
+        || same_process(status.host_pid, status.host_started)
+        || same_process(status.pid, status.pid_started);
     if matches!(status.state.as_str(), "copying" | "running") && !live {
         status.state = "interrupted".into();
     }
     let (output, start, end) = tail(&git_dir.join(LOG_FILE), since, MAX_OUTPUT_BYTES);
     status.pid = None;
     status.pid_started = None;
+    status.host_pid = None;
+    status.host_started = None;
     let mut value = json!(status);
     value["port"] = json!(port.or(status.port));
     value["started_ms"] = json!(status.started_ms.to_string());
@@ -462,10 +471,10 @@ fn stop(place: &Place) {
         // If that host is gone, the group its status file names is ended,
         // but only while that pid is still the process that started then.
         let unfinished = |status: Option<Status>| {
-            status.is_some_and(|status| match status.state.as_str() {
-                "copying" => true,
-                "running" => status.pid.is_none_or(group_alive),
-                _ => false,
+            status.is_some_and(|status| {
+                matches!(status.state.as_str(), "copying" | "running")
+                    && (same_process(status.host_pid, status.host_started)
+                        || same_process(status.pid, status.pid_started))
             })
         };
         if unfinished(read_status(&place.git_dir)) {
@@ -477,7 +486,7 @@ fn stop(place: &Place) {
         }
         if let Some(status) = read_status(&place.git_dir).filter(|status| status.state == "running")
             && let Some(pid) = status.pid
-            && status.pid_started.is_some_and(|started| process_started(pid) == Some(started))
+            && same_process(status.pid, status.pid_started)
         {
             signal_group(pid, Signal::Terminate);
             let deadline = Instant::now() + STOP_GRACE;
@@ -544,6 +553,11 @@ impl Run {
 fn running() -> &'static Mutex<HashMap<PathBuf, Arc<Run>>> {
     static RUNNING: OnceLock<Mutex<HashMap<PathBuf, Arc<Run>>>> = OnceLock::new();
     RUNNING.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Whether `pid` is still the process that started at `started`.
+fn same_process(pid: Option<u32>, started: Option<u64>) -> bool {
+    pid.zip(started).is_some_and(|(pid, started)| process_started(pid) == Some(started))
 }
 
 /// When the process `pid` started (Linux: clock ticks after boot; macOS:

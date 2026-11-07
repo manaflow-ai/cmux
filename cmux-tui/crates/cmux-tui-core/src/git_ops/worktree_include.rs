@@ -131,7 +131,9 @@ impl Report {
 }
 
 /// Copies what `patterns` select from `source` (the main checkout) into
-/// `destination` (the new worktree), until `cancelled` says to stop.
+/// `destination` (the new worktree), until `cancelled` says to stop. Both
+/// trees are opened once and then only gone through by folder handle,
+/// never through a link, so neither can be swapped for one mid-copy.
 pub(crate) fn copy(
     source: &Path,
     destination: &Path,
@@ -142,23 +144,38 @@ pub(crate) fn copy(
     for problem in &patterns.problems {
         Report::note(&mut report.problems, problem.clone());
     }
-    let (Ok(source_root), Ok(destination_root)) =
-        (fs::canonicalize(source), fs::canonicalize(destination))
-    else {
-        Report::note(&mut report.problems, "the checkout or the worktree is gone".into());
-        return report;
+    let roots = fs::canonicalize(source).and_then(|source_root| {
+        let destination_root = fs::canonicalize(destination)?;
+        Ok((at::root(&source_root)?, at::root(&destination_root)?, source_root))
+    });
+    let (source, destination, source_root) = match roots {
+        Ok(roots) => roots,
+        Err(error) if error.kind() == std::io::ErrorKind::Unsupported => {
+            Report::note(&mut report.problems, error.to_string());
+            return report;
+        }
+        Err(_) => {
+            Report::note(&mut report.problems, "the checkout or the worktree is gone".into());
+            return report;
+        }
     };
-    let mut copier =
-        Copier { source_root, destination_root, report, patterns: &patterns.patterns, cancelled };
-    let (paths, ran_out) = select(&copier.source_root, &patterns.patterns);
+    let (paths, ran_out) = select(&source_root, &patterns.patterns);
     if ran_out {
         Report::note(
-            &mut copier.report.problems,
+            &mut report.problems,
             format!(
                 "stopped looking after {MAX_VISITED_DIRECTORIES} folders: some matches are not copied"
             ),
         );
     }
+    let mut copier = Copier {
+        source,
+        destination,
+        source_root,
+        report,
+        patterns: &patterns.patterns,
+        cancelled,
+    };
     for path in paths {
         copier.entry(&path);
     }
@@ -337,8 +354,11 @@ fn glob(pattern: &[u8], name: &[u8]) -> bool {
 }
 
 struct Copier<'a> {
+    source: at::Folder,
+    destination: at::Folder,
+    /// Where the checkout is, to list a folder's names and to tell a link
+    /// inside it from one out of it; every read goes through `source`.
     source_root: PathBuf,
-    destination_root: PathBuf,
     report: Report,
     /// A `!` pattern takes a path back inside a selected folder too.
     patterns: &'a [Pattern],
@@ -347,46 +367,53 @@ struct Copier<'a> {
 
 impl Copier<'_> {
     fn entry(&mut self, relative: &Path) {
-        let source = self.source_root.join(relative);
         if (self.cancelled)() {
             return;
         }
-        let Ok(metadata) = fs::symlink_metadata(&source) else { return };
-        if deciding(self.patterns, relative, metadata.is_dir()).is_some_and(|last| last.negated) {
+        let Some(name) = relative.file_name() else { return };
+        let parent = relative.parent().unwrap_or(Path::new(""));
+        // A source folder swapped for a link since the walk fails here.
+        let Ok(source_parent) = self.source.folder(parent, false) else { return };
+        let Ok(kind) = source_parent.kind(name) else { return };
+        if deciding(self.patterns, relative, kind == at::Kind::Folder)
+            .is_some_and(|last| last.negated)
+        {
             return;
         }
-        if metadata.is_dir() {
-            if let Err(error) = destination::folder(&self.destination_root, relative) {
-                self.problem(relative, &error);
+        let made = match kind {
+            at::Kind::Folder => {
+                if let Err(error) = self.destination.folder(relative, true) {
+                    self.problem(relative, &error);
+                    return;
+                }
+                let Ok(entries) = fs::read_dir(self.source_root.join(relative)) else { return };
+                let mut names: Vec<_> = entries.flatten().map(|entry| entry.file_name()).collect();
+                names.sort();
+                for name in names.into_iter().filter(|name| name != ".git") {
+                    self.entry(&relative.join(name));
+                }
                 return;
             }
-            let Ok(entries) = fs::read_dir(&source) else { return };
-            let mut names: Vec<_> = entries.flatten().map(|entry| entry.file_name()).collect();
-            names.sort();
-            for name in names.into_iter().filter(|name| name != ".git") {
-                self.entry(&relative.join(name));
+            at::Kind::Other => {
+                let entry = format!("{}: not a regular file", relative.display());
+                Report::note(&mut self.report.problems, entry);
+                return;
             }
-            return;
-        }
-        let is_link = metadata.file_type().is_symlink();
-        if !is_link && !metadata.is_file() {
-            Report::note(
-                &mut self.report.problems,
-                format!("{}: not a regular file", relative.display()),
-            );
-            return;
-        }
-        if is_link
-            && !fs::canonicalize(&source).is_ok_and(|target| target.starts_with(&self.source_root))
-        {
-            Report::note(&mut self.report.outside, relative.display().to_string());
-            return;
-        }
-        let made = if is_link {
-            fs::read_link(&source)
-                .and_then(|target| destination::link(&self.destination_root, relative, &target))
-        } else {
-            destination::copy(&source, &self.destination_root, relative, &metadata)
+            at::Kind::Link => {
+                let inside = fs::canonicalize(self.source_root.join(relative))
+                    .is_ok_and(|target| target.starts_with(&self.source_root));
+                if !inside {
+                    Report::note(&mut self.report.outside, relative.display().to_string());
+                    return;
+                }
+                source_parent
+                    .read_link(name)
+                    .and_then(|target| self.destination.folder(parent, true)?.link(name, &target))
+            }
+            at::Kind::File => self
+                .destination
+                .folder(parent, true)
+                .and_then(|destination| destination.copy_from(&source_parent, name)),
         };
         match made {
             Ok(()) => self.report.copied += 1,
@@ -399,7 +426,7 @@ impl Copier<'_> {
     }
 
     fn problem(&mut self, relative: &Path, error: &std::io::Error) {
-        let entry = if destination::is_link_error(error) {
+        let entry = if at::is_link_error(error) {
             format!("{}: the worktree has a link there", relative.display())
         } else {
             format!("{}: {error}", relative.display())
@@ -408,20 +435,34 @@ impl Copier<'_> {
     }
 }
 
-/// Writes into the worktree one name at a time from its root, never
-/// through a link: a folder swapped for a link mid-copy fails the write
-/// instead of carrying it out of the worktree.
+/// Files and folders reached one name at a time from a folder handle,
+/// never through a link: a folder swapped for a link fails the step
+/// instead of carrying a read or a write out of its tree.
 #[cfg(unix)]
-mod destination {
+mod at {
     use std::ffi::{CString, OsStr};
-    use std::fs::{self, File};
+    use std::fs::File;
     use std::io;
     use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
-    use std::os::unix::ffi::OsStrExt as _;
-    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+    use std::os::unix::ffi::{OsStrExt as _, OsStringExt as _};
+    use std::os::unix::fs::PermissionsExt as _;
     use std::path::{Component, Path};
 
-    fn name(name: &OsStr) -> io::Result<CString> {
+    const FOLDER_FLAGS: libc::c_int =
+        libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(super) enum Kind {
+        Folder,
+        File,
+        Link,
+        Other,
+    }
+
+    /// An open folder.
+    pub(super) struct Folder(OwnedFd);
+
+    fn c_name(name: &OsStr) -> io::Result<CString> {
         CString::new(name.as_bytes()).map_err(|_| io::ErrorKind::InvalidInput.into())
     }
 
@@ -429,87 +470,143 @@ mod destination {
         if fd < 0 {
             return Err(io::Error::last_os_error());
         }
-        // SAFETY: a descriptor openat(2) just returned, owned by no one else.
+        // SAFETY: a descriptor the system just returned, owned by no one else.
         Ok(unsafe { OwnedFd::from_raw_fd(fd) })
     }
 
-    /// The folder `relative` names under `root`, made where missing.
-    pub(super) fn folder(root: &Path, relative: &Path) -> io::Result<OwnedFd> {
-        let root = name(root.as_os_str())?;
-        let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC;
+    fn checked(result: libc::c_int) -> io::Result<()> {
+        if result < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
+    }
+
+    /// The folder at `path` (canonical), held for the whole copy.
+    pub(super) fn root(path: &Path) -> io::Result<Folder> {
+        let path = c_name(path.as_os_str())?;
         // SAFETY: a NUL-terminated path; the result is checked.
-        let mut folder = opened(unsafe { libc::open(root.as_ptr(), flags) })?;
-        for component in relative.components() {
-            let Component::Normal(part) = component else {
-                return Err(io::ErrorKind::InvalidInput.into());
-            };
-            let part = name(part)?;
+        opened(unsafe { libc::open(path.as_ptr(), FOLDER_FLAGS) }).map(Folder)
+    }
+
+    impl Folder {
+        /// The folder `relative` names under this one; `make` makes the
+        /// missing ones.
+        pub(super) fn folder(&self, relative: &Path, make: bool) -> io::Result<Folder> {
+            let dot = c_name(OsStr::new("."))?;
             // SAFETY: a live descriptor and a NUL-terminated name.
-            if unsafe { libc::mkdirat(folder.as_raw_fd(), part.as_ptr(), 0o777) } < 0 {
-                let error = io::Error::last_os_error();
-                if error.kind() != io::ErrorKind::AlreadyExists {
-                    return Err(error);
+            let mut folder =
+                opened(unsafe { libc::openat(self.0.as_raw_fd(), dot.as_ptr(), FOLDER_FLAGS) })?;
+            for component in relative.components() {
+                let Component::Normal(part) = component else {
+                    return Err(io::ErrorKind::InvalidInput.into());
+                };
+                let part = c_name(part)?;
+                if make {
+                    // SAFETY: as above.
+                    if let Err(error) =
+                        checked(unsafe { libc::mkdirat(folder.as_raw_fd(), part.as_ptr(), 0o777) })
+                        && error.kind() != io::ErrorKind::AlreadyExists
+                    {
+                        return Err(error);
+                    }
                 }
+                // SAFETY: as above; O_NOFOLLOW refuses a link in the folder's place.
+                folder = opened(unsafe {
+                    libc::openat(folder.as_raw_fd(), part.as_ptr(), FOLDER_FLAGS)
+                })?;
             }
-            // SAFETY: as above; O_NOFOLLOW refuses a link in the folder's place.
-            folder = opened(unsafe {
-                libc::openat(folder.as_raw_fd(), part.as_ptr(), flags | libc::O_NOFOLLOW)
+            Ok(Folder(folder))
+        }
+
+        /// What `name` is here, without following a link.
+        pub(super) fn kind(&self, name: &OsStr) -> io::Result<Kind> {
+            let name = c_name(name)?;
+            // SAFETY: plain data the call fills.
+            let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+            // SAFETY: a live descriptor, a NUL-terminated name and a live buffer.
+            checked(unsafe {
+                libc::fstatat(
+                    self.0.as_raw_fd(),
+                    name.as_ptr(),
+                    &raw mut stat,
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
             })?;
+            Ok(match stat.st_mode & libc::S_IFMT {
+                libc::S_IFDIR => Kind::Folder,
+                libc::S_IFREG => Kind::File,
+                libc::S_IFLNK => Kind::Link,
+                _ => Kind::Other,
+            })
         }
-        Ok(folder)
-    }
 
-    fn split(relative: &Path) -> io::Result<(&Path, CString)> {
-        let file = relative.file_name().ok_or(io::ErrorKind::InvalidInput)?;
-        Ok((relative.parent().unwrap_or(Path::new("")), name(file)?))
-    }
-
-    /// A new link at `relative`.
-    pub(super) fn link(root: &Path, relative: &Path, target: &Path) -> io::Result<()> {
-        let (parent, file) = split(relative)?;
-        let folder = folder(root, parent)?;
-        let target = name(target.as_os_str())?;
-        // SAFETY: a live descriptor and NUL-terminated strings.
-        if unsafe { libc::symlinkat(target.as_ptr(), folder.as_raw_fd(), file.as_ptr()) } < 0 {
-            return Err(io::Error::last_os_error());
+        /// Where the link `name` points.
+        pub(super) fn read_link(&self, name: &OsStr) -> io::Result<std::path::PathBuf> {
+            let name = c_name(name)?;
+            let mut buffer = vec![0_u8; libc::PATH_MAX as usize];
+            // SAFETY: a live descriptor, a NUL-terminated name and a buffer of that length.
+            let length = unsafe {
+                libc::readlinkat(
+                    self.0.as_raw_fd(),
+                    name.as_ptr(),
+                    buffer.as_mut_ptr().cast(),
+                    buffer.len(),
+                )
+            };
+            let length = usize::try_from(length).map_err(|_| io::Error::last_os_error())?;
+            buffer.truncate(length);
+            Ok(std::path::PathBuf::from(std::ffi::OsString::from_vec(buffer)))
         }
-        Ok(())
-    }
 
-    /// A new file at `relative` with `source`'s bytes and mode. The create
-    /// is exclusive, so a file already there (or saved meanwhile) is kept,
-    /// and the source must still be a regular file once open.
-    pub(super) fn copy(
-        source: &Path,
-        root: &Path,
-        relative: &Path,
-        metadata: &fs::Metadata,
-    ) -> io::Result<()> {
-        // Non-blocking, so a FIFO put in the file's place cannot hang the copy.
-        let mut reader = fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(source)?;
-        if !reader.metadata()?.is_file() {
-            return Err(io::Error::other("not a regular file"));
+        /// A new link `name` to `target`; one already there is kept.
+        pub(super) fn link(&self, name: &OsStr, target: &Path) -> io::Result<()> {
+            let (name, target) = (c_name(name)?, c_name(target.as_os_str())?);
+            // SAFETY: a live descriptor and NUL-terminated strings.
+            checked(unsafe { libc::symlinkat(target.as_ptr(), self.0.as_raw_fd(), name.as_ptr()) })
         }
-        let (parent, file) = split(relative)?;
-        let folder = folder(root, parent)?;
-        let flags =
-            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC;
-        let mode = metadata.permissions().mode() & 0o7777;
-        // SAFETY: a live descriptor and a NUL-terminated name; the result is checked.
-        let made = opened(unsafe {
-            libc::openat(folder.as_raw_fd(), file.as_ptr(), flags, mode as libc::c_uint)
-        })?;
-        let mut writer = File::from(made);
-        if let Err(error) = io::copy(&mut reader, &mut writer) {
-            drop(writer);
+
+        /// A new file `name` here with the bytes and mode of `name` in
+        /// `source`. It is written under a name of its own and then linked
+        /// into place, which fails when a file is there: one already there,
+        /// or saved meanwhile, is kept, and a failed copy removes only its
+        /// own file.
+        pub(super) fn copy_from(&self, source: &Folder, name: &OsStr) -> io::Result<()> {
+            let c = c_name(name)?;
+            // Non-blocking, so a FIFO put in the file's place cannot hang the copy.
+            let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
+            // SAFETY: a live descriptor and a NUL-terminated name.
+            let mut reader = File::from(opened(unsafe {
+                libc::openat(source.0.as_raw_fd(), c.as_ptr(), flags)
+            })?);
+            let metadata = reader.metadata()?;
+            if !metadata.is_file() {
+                return Err(io::Error::other("not a regular file"));
+            }
+            let mut bytes = [0_u8; 6];
+            getrandom::fill(&mut bytes).map_err(|_| io::Error::other("no random bytes"))?;
+            let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+            let staged = c_name(OsStr::new(&format!(".cmux-copy-{hex}")))?;
+            let mode = metadata.permissions().mode() & 0o7777;
+            let flags =
+                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+            // SAFETY: as above; the result is checked.
+            let mut writer = File::from(opened(unsafe {
+                libc::openat(self.0.as_raw_fd(), staged.as_ptr(), flags, mode as libc::c_uint)
+            })?);
+            let installed = io::copy(&mut reader, &mut writer).and_then(|_| {
+                drop(writer);
+                // SAFETY: a live descriptor and NUL-terminated names.
+                checked(unsafe {
+                    libc::linkat(
+                        self.0.as_raw_fd(),
+                        staged.as_ptr(),
+                        self.0.as_raw_fd(),
+                        c.as_ptr(),
+                        0,
+                    )
+                })
+            });
             // SAFETY: as above; removes only the file this copy made.
-            unsafe { libc::unlinkat(folder.as_raw_fd(), file.as_ptr(), 0) };
-            return Err(error);
+            unsafe { libc::unlinkat(self.0.as_raw_fd(), staged.as_ptr(), 0) };
+            installed
         }
-        Ok(())
     }
 
     /// The error a link where a folder should be gives.
@@ -518,32 +615,51 @@ mod destination {
     }
 }
 
+/// Copying needs folder handles that refuse links; elsewhere nothing is
+/// copied.
 #[cfg(not(unix))]
-mod destination {
-    use std::fs;
+mod at {
+    use std::ffi::OsStr;
     use std::io;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
-    pub(super) fn folder(root: &Path, relative: &Path) -> io::Result<()> {
-        fs::create_dir_all(root.join(relative))
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(super) enum Kind {
+        Folder,
+        File,
+        Link,
+        Other,
     }
 
-    pub(super) fn link(_root: &Path, _relative: &Path, _target: &Path) -> io::Result<()> {
-        Err(io::Error::other("links are not copied on this platform"))
+    pub(super) struct Folder;
+
+    pub(super) fn root(_path: &Path) -> io::Result<Folder> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "files are not copied into a worktree on this platform",
+        ))
     }
 
-    pub(super) fn copy(
-        source: &Path,
-        root: &Path,
-        relative: &Path,
-        _metadata: &fs::Metadata,
-    ) -> io::Result<()> {
-        if let Some(parent) = relative.parent() {
-            folder(root, parent)?;
+    impl Folder {
+        pub(super) fn folder(&self, _relative: &Path, _make: bool) -> io::Result<Folder> {
+            Err(io::ErrorKind::Unsupported.into())
         }
-        let mut target =
-            fs::OpenOptions::new().write(true).create_new(true).open(root.join(relative))?;
-        io::copy(&mut fs::File::open(source)?, &mut target).map(|_| ())
+
+        pub(super) fn kind(&self, _name: &OsStr) -> io::Result<Kind> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+
+        pub(super) fn read_link(&self, _name: &OsStr) -> io::Result<PathBuf> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+
+        pub(super) fn link(&self, _name: &OsStr, _target: &Path) -> io::Result<()> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+
+        pub(super) fn copy_from(&self, _source: &Folder, _name: &OsStr) -> io::Result<()> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
     }
 
     pub(super) fn is_link_error(_error: &io::Error) -> bool {
