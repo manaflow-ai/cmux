@@ -125,18 +125,22 @@ fn managed_now() -> ManagedPreferences {
 /// after another in one locked stretch share its [`CAP`] and the [`WAIT_GRACE`] after the last
 /// running turn. Only a read that says unlocked ends a stretch: an unknown read keeps it, and an
 /// unlock and a lock again while no session runs are not seen, so the next turn counts from the
-/// earlier lock and the hold can only end sooner, never later.
+/// earlier lock and the hold can only end sooner, never later. A worker that starts while the
+/// screen is locked or its state is unknown (a daemon restart during a stretch) cannot know when
+/// the stretch began, so it holds nothing until a read says unlocked.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Tracker {
     last_running: Instant,
     locked_since: Option<Instant>,
+    /// Until a read says unlocked, a locked screen counts as past the [`CAP`].
+    needs_unlock: bool,
 }
 
 impl Tracker {
     /// A tracker whose worker read `first` when it started.
     pub(crate) fn new(now: Instant, first: Lock) -> Self {
-        let _ = first;
-        Self { last_running: now, locked_since: None }
+        let needs_unlock = matches!(first, Lock::Locked | Lock::Unknown);
+        Self { last_running: now, locked_since: None, needs_unlock }
     }
 
     /// One reading at `now`. `None` when no session runs or waits: the worker goes idle.
@@ -155,6 +159,7 @@ impl Tracker {
             self.last_running = now;
         }
         let locked_for = match (lock, self.locked_since) {
+            (Lock::Locked, _) if self.needs_unlock => CAP,
             (Lock::Locked, Some(since)) => now.saturating_duration_since(since),
             (Lock::Locked, None) => {
                 self.locked_since = Some(now);
@@ -163,6 +168,7 @@ impl Tracker {
             (Lock::Unknown, _) => Duration::ZERO,
             (Lock::Unlocked | Lock::None, _) => {
                 self.locked_since = None;
+                self.needs_unlock = false;
                 Duration::ZERO
             }
         };

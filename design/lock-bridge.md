@@ -49,7 +49,10 @@ A locked stretch starts when the worker first sees the screen locked, and only a
 unlocked ends it. Turns one after another share it: a turn that ends and a new one that starts while
 the screen stays locked do not open a new window, and neither does a lock read that fails. If the Mac
 is unlocked and locked again while no turn runs, the worker does not see it, and the next turn counts
-from the earlier lock: the hold can only end sooner, never later.
+from the earlier lock: the hold can only end sooner, never later. A daemon that starts while the
+Mac is locked (or its lock state is unknown) holds nothing until it sees an unlock: it cannot know
+when the stretch began, so a restart never opens a fresh window, and restart after restart cannot
+keep a locked Mac up past the cap. `acpmux status` then shows `lockedForS` at the cap.
 
 When no session runs or waits, the worker releases the hold and sleeps until the next status change:
 no timer runs. Neither a turn that never ends nor turn after turn can keep the Mac up past 2 hours of
