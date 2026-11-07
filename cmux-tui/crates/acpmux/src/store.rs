@@ -766,10 +766,20 @@ pub struct Tag {
 pub const META_SCHEMA: &str = "acpmux.session.v1";
 
 pub fn now_ms() -> u64 {
-    std::time::SystemTime::now()
+    let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+        .unwrap_or(0);
+    #[cfg(test)]
+    let now = now + CLOCK_AHEAD_MS.with(std::cell::Cell::get);
+    now
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests only: how far this thread's [`now_ms`] is put forward (the move simulation's clock,
+    /// `hub/move_sim_tests.rs`).
+    pub(crate) static CLOCK_AHEAD_MS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 pub trait Store: Send + Sync {
@@ -956,6 +966,15 @@ pub trait Store: Send + Sync {
     /// the chat's append lock.
     fn commit_compaction(&self, _id: &str, _staged: Staged) -> Result<bool> {
         Ok(false)
+    }
+    /// Leaves out every record of chat `id` past `after`, in place (`CompactMode::Truncate`):
+    /// false when the log changed meanwhile, or the store cannot. Its caller holds the chat's
+    /// append lock. A journal restore's only (`hub/journal_restore.rs`).
+    fn truncate_after(&self, id: &str, after: u64) -> Result<bool> {
+        match self.stage_compaction(id, CompactMode::Truncate { after })? {
+            Some(staged) => self.commit_compaction(id, staged),
+            None => Ok(false),
+        }
     }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {

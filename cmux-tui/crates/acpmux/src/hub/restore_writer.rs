@@ -1,0 +1,230 @@
+//! Part of `Hub`; see `hub/mod.rs`. The one writer of a chat's journal while a journal restore
+//! owns it (review of #37284 at 4dcbe192, F1 to F3: a seq taken while a restore owns the chat,
+//! one path at a time, made the restore diverge or wrote into the seqs it needed).
+//!
+//! Every record of a chat's journal is appended by `Hub::append_record_locked` (`hub/mod.rs`),
+//! under the chat's `append_lock`: turns, recovery (a cut turn's continuation, its unknown
+//! outcome), `queued` and every `queue_*` record, admissions, forwarded prompts, an agent's own
+//! updates. A restore's own records go in by `journal_restore.rs` under the same lock, at the seqs
+//! they had. No other code appends a chat's record (`a_chat_journal_is_appended_in_one_place`
+//! reads the source for it).
+//!
+//! From a restore's admission until it ends (its last try, or its hold's lapse) the chat parks:
+//! a record appended meanwhile takes no seq and goes nowhere yet. It is kept, in order, and
+//! appended, published and counted when the restore ends, after the restore's records and the
+//! recovery that follows them. Only the restore's own thread, holding the token of its try,
+//! writes meanwhile ([`RestoreWriter`]). Turns and prompts wait for `restore_done` before they
+//! write (`queue.rs`), so what parks is what comes on its own: an agent's update between turns, a
+//! client's edit of the queue, a status.
+//!
+//! A parked record's caller gets it back with seq 0: the seq is its own only once it is in.
+
+use super::*;
+use std::cell::Cell;
+
+/// A record appended while a restore owned its chat, kept until the restore ends.
+pub(super) struct Parked {
+    dir: String,
+    kind: String,
+    msg: Value,
+    host_seq: Option<u64>,
+    at: u64,
+    stored_only: bool,
+    kept: log_deferral::Kept,
+    notify: bool,
+}
+
+thread_local! {
+    /// The chat (its address) and the restore try whose token this thread holds.
+    static WRITER: Cell<(usize, u64)> = const { Cell::new((0, 0)) };
+    /// Set while this thread writes a log's recovery (`log_load.rs`): its records are marked.
+    static RECOVERING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The key that marks a record this machine's own recovery wrote after a restart (a cut turn's
+/// unknown outcome and continuation, a lost wait, a queue put back): a journal restore takes
+/// those seqs back when the owner's copy holds what was really there (review of #37284 at
+/// 4dcbe192, F1), and the recovery is made again on the restored log.
+pub(super) const RECOVERY_MARK: &str = "_acpmuxRecovery";
+
+/// Marks every record this thread appends, while it lives, as recovery ([`RECOVERY_MARK`]).
+pub(super) struct Recovering {
+    before: bool,
+}
+
+impl Recovering {
+    pub(super) fn start() -> Self {
+        Recovering { before: RECOVERING.with(|r| r.replace(true)) }
+    }
+}
+
+impl Drop for Recovering {
+    fn drop(&mut self) {
+        RECOVERING.with(|r| r.set(self.before));
+    }
+}
+
+/// `msg` marked as recovery when this thread writes one ([`Recovering`]).
+pub(super) fn marked(mut msg: Value) -> Value {
+    if RECOVERING.with(Cell::get)
+        && let Some(fields) = msg.as_object_mut()
+    {
+        fields.insert(RECOVERY_MARK.into(), Value::Bool(true));
+    }
+    msg
+}
+
+/// Whether a record is one recovery wrote ([`RECOVERY_MARK`]).
+pub(super) fn is_recovery(record: &EventRecord) -> bool {
+    record.msg.get(RECOVERY_MARK) == Some(&Value::Bool(true))
+}
+
+/// The token of restore try `n` of `session` on this thread while it lives: only this thread
+/// writes the chat's journal meanwhile.
+pub(super) struct RestoreWriter {
+    before: (usize, u64),
+}
+
+impl RestoreWriter {
+    pub(super) fn hold(session: &Session) -> Self {
+        let n = session.restore_token.load(Ordering::SeqCst);
+        let before = WRITER.with(|w| w.replace((std::ptr::from_ref(session) as usize, n)));
+        RestoreWriter { before }
+    }
+}
+
+impl Drop for RestoreWriter {
+    fn drop(&mut self) {
+        WRITER.with(|w| w.set(self.before));
+    }
+}
+
+fn holds_token(session: &Session) -> bool {
+    let n = session.restore_token.load(Ordering::SeqCst);
+    n != 0 && WRITER.with(Cell::get) == (std::ptr::from_ref(session) as usize, n)
+}
+
+impl Hub {
+    /// From now on `session` parks every record but its restore's (`journal_restore.rs`, at its
+    /// admission). Try `n`'s token writes.
+    pub(super) fn park_writes(&self, session: &Session, n: u64) {
+        let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+        session.restore_token.store(n, Ordering::SeqCst);
+        if !self.at_4dcb() {
+            session.parked.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Vec::new);
+        }
+    }
+
+    /// The restore ended: what parked meanwhile goes in, in order, and the chat writes as before.
+    pub(super) fn unpark_writes(&self, session: &Session) {
+        let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+        session.restore_token.store(0, Ordering::SeqCst);
+        let parked = session.parked.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let parked = parked.unwrap_or_default();
+        if !parked.is_empty() {
+            tracing::info!(session = %session.id, records = parked.len(), "records kept while a restore owned this chat go in");
+            self.catch_up_locked(session);
+        }
+        for p in parked {
+            // Its deferral counted it stored when it parked (`log_deferral.rs`).
+            let _ = self.append_record_locked(
+                session,
+                &p.dir,
+                &p.kind,
+                p.msg,
+                p.host_seq,
+                Some(p.at),
+                p.stored_only,
+                p.kept,
+                p.notify,
+            );
+        }
+    }
+
+    /// Parks a record `append_record_locked` was given while a restore owns `session` and this
+    /// thread holds no token of it; None when it writes now. The caller holds `append_lock`.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn parked_write(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+        at: Option<u64>,
+        stored_only: bool,
+        kept: log_deferral::Kept,
+        notify: bool,
+    ) -> Result<(EventRecord, bool), (Value, log_deferral::Kept)> {
+        let mut parked = session.parked.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(parked) = parked.as_mut().filter(|_| !holds_token(session)) else {
+            return Err((msg, kept));
+        };
+        let at = at.unwrap_or_else(now_ms);
+        let record = EventRecord {
+            seq: 0,
+            at,
+            dir: dir.into(),
+            kind: kind.into(),
+            msg: msg.clone(),
+            host_seq,
+        };
+        parked.push(Parked {
+            dir: dir.into(),
+            kind: kind.into(),
+            msg,
+            host_seq,
+            at,
+            stored_only,
+            kept,
+            notify,
+        });
+        Ok((record, true))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Every append of a chat's journal record is `append_record_locked`'s (the restore's own
+    /// records aside, `journal_restore.rs`): no other code calls the store's `append`, so nothing
+    /// takes a seq while a restore owns the chat but through the writer that parks it. An import
+    /// writes a new chat's log before it is listed; the machine journal is no chat's.
+    #[test]
+    fn a_chat_journal_is_appended_in_one_place() {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+        let allowed =
+            ["hub/mod.rs", "hub/journal_restore.rs", "hub/transfer.rs", "write_journal.rs"];
+        let mut found = Vec::new();
+        let mut dirs = vec![std::path::PathBuf::from(root)];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    dirs.push(path);
+                    continue;
+                }
+                let rel = path.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+                if !rel.ends_with(".rs")
+                    || rel.ends_with("_tests.rs")
+                    || rel.starts_with("store")
+                    || allowed.contains(&rel.as_str())
+                {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).unwrap();
+                // A file's own test module may write a log directly.
+                let text = text.split("#[cfg(test)]\nmod tests").next().unwrap_or_default();
+                for (n, line) in text.lines().enumerate() {
+                    if line.contains("store.append(") || line.contains(".append_line(") {
+                        found.push(format!("{rel}:{}: {}", n + 1, line.trim()));
+                    }
+                }
+            }
+        }
+        assert!(
+            found.is_empty(),
+            "a chat's journal appended past its writer:\n{}",
+            found.join("\n")
+        );
+    }
+}

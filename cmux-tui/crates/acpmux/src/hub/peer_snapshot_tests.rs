@@ -17,7 +17,7 @@ fn key(mux: &str) -> Key {
 }
 
 fn store_at(dir: &Path) -> Store {
-    let mut store = Store::new(disk::root(dir), Arc::default());
+    let mut store = Store::new(disk::root(dir), Arc::default(), Arc::default());
     store.scan();
     store
 }
@@ -163,7 +163,7 @@ fn copies_a_late_scan_finds_stay_within_their_bound_and_written_ones_go_first() 
     assert!(store.own <= KEPT_TOTAL && store.copies.len() == 40);
     // The next run cannot read the disk at first and keeps new copies meanwhile; nothing it
     // writes works.
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     again.write = refuse;
     for i in 0..30 {
         keep(&mut again, &format!("new{i}"), empty());
@@ -184,7 +184,7 @@ fn a_copy_a_late_scan_finds_goes_before_any_copy_not_written_yet() {
     let cost = store.copies[&key("written-earlier")].own;
     // The next run, before its disk reads, keeps unwritten copies until the written one no
     // longer fits beside them.
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     again.write = refuse;
     let mut n = 0;
     while again.own + cost <= KEPT_TOTAL {
@@ -333,7 +333,7 @@ fn a_directory_that_does_not_read_or_is_a_symlink_holds_up_every_write() {
     std::fs::create_dir(&elsewhere).unwrap();
     std::fs::write(elsewhere.join("keep.txt"), b"not ours").unwrap();
     std::os::unix::fs::symlink(&elsewhere, disk::root(linked.path())).unwrap();
-    let mut store = Store::new(disk::root(linked.path()), Arc::default());
+    let mut store = Store::new(disk::root(linked.path()), Arc::default(), Arc::default());
     assert!(!store.scan() && elsewhere.join("keep.txt").exists());
 }
 
@@ -497,13 +497,21 @@ fn a_page_continues_a_copy_only_where_it_joins_it() {
     put(&mut store, "m1", events(7, 1, 8, recs(9..=10)));
     put(&mut store, "m1", attach(7, 1, true, recs(9..=11)));
     assert_eq!(seqs(&mut store, "m1"), (5..=11).collect::<Vec<_>>());
-    // On another link, a peer behind the copy (an older disk) replaces it; on the link that
-    // paged it, a page that raced a live record does not.
+    // On the link that paged it, a page that raced a live record changes nothing.
     live(&mut store, "m1", 1, 12);
     let mut raced = attach(7, 1, true, recs(9..=11));
     raced.host_last_seq = Some(11);
     put(&mut store, "m1", raced);
     assert_eq!(seqs(&mut store, "m1"), (5..=12).collect::<Vec<_>>());
+    // On another link, a peer behind the copy (an older disk) leaves it: the copy holds every
+    // record past where the peer is, and goes back to it (`restore.rs`).
+    put(&mut store, "m1", attach(7, 2, true, recs(8..=9)));
+    assert_eq!(seqs(&mut store, "m1"), (5..=12).collect::<Vec<_>>());
+    let (ahead, _) = store.ahead(PEER, vec![("m1".into(), 7, 9)]);
+    let back: Vec<u64> = ahead[0].3.iter().filter_map(seq_of).collect();
+    assert_eq!((ahead.len(), ahead[0].2, back), (1, 9, vec![10, 11, 12]));
+    // The peer refused them (another history): the copy goes, and its next page starts one.
+    store.take(Op::Restored { key: key("m1"), link: (1, 2), generation: 7, last: None });
     put(&mut store, "m1", attach(7, 2, true, recs(8..=9)));
     assert_eq!(seqs(&mut store, "m1"), vec![8, 9]);
 }
@@ -597,18 +605,34 @@ fn a_peer_behind_what_the_copy_saw_replaces_it_and_older_history_is_left_out() {
 }
 
 #[test]
-fn an_empty_page_from_a_peer_gone_back_drops_the_copy() {
+fn an_empty_page_from_a_peer_gone_back_keeps_the_copy_until_the_peer_takes_it_back() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
     let mut store = store_at(dir.path());
     list(&mut store, &[("m1", 7)]);
     put(&mut store, "m1", attach(7, 1, false, recs(1..=3)));
     // A VM resumed from before its first record: an empty attach on a new link, `lastSeq` 0.
+    // The copy stays: it holds every record the peer lost, which go back to it.
     let mut empty = attach(7, 2, false, vec![]);
     empty.host_last_seq = Some(0);
     put(&mut store, "m1", empty);
-    assert!(seqs(&mut store, "m1").is_empty());
-    // Its new journal never joins the old one.
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3]);
+    assert_eq!(store.ahead(PEER, vec![("m1".into(), 7, 0)]).0[0].3.len(), 3);
+    // Taken back, the peer's journal ends where the copy does, and its pages join it.
+    store.take(Op::Restored { key: key("m1"), link: (1, 2), generation: 7, last: Some(3) });
     put(&mut store, "m1", attach(7, 2, true, recs(4..=5)));
+    assert_eq!(seqs(&mut store, "m1"), (1..=5).collect::<Vec<_>>());
+    // A peer that refuses them is another history: the copy goes, and its pages start one.
+    let mut empty = attach(7, 3, false, vec![]);
+    empty.host_last_seq = Some(0);
+    put(&mut store, "m1", empty);
+    // A refusal on the link before, or of another generation, proves nothing of this one: the
+    // copy stays (review of #37284 at af36583c, F1).
+    store.take(Op::Restored { key: key("m1"), link: (1, 2), generation: 7, last: None });
+    store.take(Op::Restored { key: key("m1"), link: (1, 3), generation: 6, last: None });
+    assert_eq!(seqs(&mut store, "m1"), (1..=5).collect::<Vec<_>>());
+    store.take(Op::Restored { key: key("m1"), link: (1, 3), generation: 7, last: None });
+    assert!(seqs(&mut store, "m1").is_empty());
+    put(&mut store, "m1", attach(7, 3, true, recs(4..=5)));
     assert_eq!(seqs(&mut store, "m1"), vec![4, 5]);
 }
 
@@ -744,7 +768,7 @@ fn what_was_purged_or_unlisted_before_the_disk_read_is_applied_to_it() {
     store.write_due(None, When::Last);
     // The next run cannot read the disk at first; meanwhile m1 is purged, m2 recreated, and a
     // full list leaves m3 out.
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     again.take(Op::Gone { key: key("m1"), generation: Some(7) });
     list(&mut again, &[("m2", 8)]);
     assert!(again.scan());
@@ -763,7 +787,7 @@ fn what_was_purged_or_unlisted_before_the_disk_read_is_applied_to_it() {
     let page = attach(7, 1, false, vec![json!({"sessionId": "n", "seq": 1, "kind": "k"})]);
     store.take(Op::Page { key: ("other".into(), "n".into()), page });
     store.write_due(None, When::Last);
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     again.take(Op::LostPeer(PEER.into()));
     again.take(Op::LostPeer("other".into()));
     assert!(again.scan());
@@ -793,7 +817,7 @@ fn a_late_purge_of_an_older_generation_keeps_a_newer_copy_on_disk_and_a_late_lis
     store.write_due(None, When::Last);
     // The next run lists 8, then is told of a purge of 7, before it can read the disk: generation
     // 8 there stays.
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     list(&mut again, &[("m1", 8)]);
     again.take(Op::Gone { key: key("m1"), generation: Some(7) });
     assert!(again.scan());
@@ -824,7 +848,7 @@ fn a_purge_told_again_without_its_generation_still_lets_the_recreated_session_ba
     }
     assert!(store.barred.len() <= BARRED_KEYS);
     // Before the disk reads, a bar that goes takes everything an earlier run kept with it.
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     for i in 0..=BARRED_KEYS {
         again.take(Op::Gone { key: key(&format!("x{i}")), generation: Some(1) });
     }
@@ -886,7 +910,7 @@ fn nothing_of_a_peer_is_queued_while_its_loss_waits() {
     assert_eq!(ops.len(), 2);
     assert!(matches!(&ops[0], Op::LostPeer(p) if p == PEER));
     assert!(matches!(&ops[1], Op::Listed { peer, .. } if peer == "other"));
-    let mut store = Store::new(disk::root(dir.path()), snaps.dropped.clone());
+    let mut store = Store::new(disk::root(dir.path()), snaps.dropped.clone(), Arc::default());
     store.scan();
     store.barred.insert(key("m1"), None);
     store.links.insert(PEER.into(), (1, 1));
@@ -901,7 +925,7 @@ fn past_its_bound_what_went_before_the_disk_read_takes_every_earlier_copy() {
     list(&mut store, &[("m1", 7)]);
     put(&mut store, "m1", attach(7, 1, false, recs(1..=2)));
     store.write_due(None, When::Last);
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     for i in 0..=UNREAD_KEYS {
         again.remove(&key(&format!("x{i}")));
         again.take(Op::LostPeer(format!("p{i}")));
@@ -1330,4 +1354,310 @@ fn the_hub_keeps_its_snapshots_beside_the_peer_caches_never_among_them() {
         std::fs::read_dir(&peers).unwrap().flatten().map(|e| e.file_name()).collect();
     assert_eq!(listed, vec![std::ffi::OsString::from(".snapshots")]);
     assert!(std::fs::read_dir(peers.join(".snapshots")).unwrap().next().is_none());
+}
+
+/// A record of prompt `prompt`'s life, of `kind`.
+fn life(mux: &str, seq: u64, kind: &str, prompt: &str) -> Value {
+    json!({"sessionId": mux, "seq": seq, "at": seq, "dir": "mux", "kind": kind,
+           "msg": {"promptId": prompt, "turnId": format!("t-{prompt}")}})
+}
+
+/// Review of #37284 at 0c98c292, F1 and F2: a write reports only the records it put on disk (not
+/// one the copy's bound cut before it); the delivery holds them as its proof past the copy's
+/// bound, the captures' queue overflowing and the disk's eviction, and a restore gives them back;
+/// a proof whose life the copy did not see whole gives back nothing that would run again; only
+/// a later link that shows them held releases it.
+#[test]
+fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
+    use crate::hub::open_delivery as od;
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
+    let hook: Written = {
+        let told = told.clone();
+        Arc::new(move |_, _, _, records| told.lock().unwrap().push(records))
+    };
+    let mut store =
+        Store::new(disk::root(dir.path()), Arc::default(), Arc::new(StdMutex::new(Some(hook))));
+    store.scan();
+    let outbox = crate::hub::outbox::Outbox::default();
+    let now = crate::store::now_ms();
+    let delivery = |id: &str, prompt: &str| -> crate::hub::outbox::Delivery {
+        serde_json::from_value(json!({
+            "id": id, "target": format!("{PEER}/m1"),
+            "request": {"sessionId": format!("{PEER}/m1"), "_meta": {"acpmux": {"promptId": prompt}}},
+            "state": "delivered", "openOnPeer": true, "createdAt": now, "updatedAt": now,
+            "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
+        }))
+        .unwrap()
+    };
+    outbox.add(delivery("d1", "p1"));
+    outbox.add(delivery("d2", "p2"));
+    keep(&mut store, "m1", 1..=3);
+    store.add(&key("m1"), vec![life("m1", 4, "queued", "p1")]);
+    store.write_due(None, When::Last);
+    // p2 runs, and a turn writes past the copy's bound before the next write.
+    store.add(&key("m1"), vec![life("m1", 5, "user_message", "p2")]);
+    keep(&mut store, "m1", 6..=(6 + SESSION_EVENTS as u64));
+    store.write_due(None, When::Last);
+    let told = std::mem::take(&mut *told.lock().unwrap());
+    let seqs_told: Vec<u64> = told.iter().flatten().filter_map(seq_of).collect();
+    assert_eq!(seqs_told, vec![4], "only what a write put on disk is told");
+    for records in &told {
+        od::take_written(&outbox, (PEER, "m1", 7), records, (1, 1));
+    }
+    let proof = |id: &str| outbox.get(id).and_then(|d| d.proof);
+    assert!(proof("d2").is_none(), "a record cut before its write proves nothing");
+    assert_eq!(proof("d1").map(|p| p.records.len()), Some(1));
+    assert!(!seqs(&mut store, "m1").contains(&4), "the copy's bound cut it");
+
+    // The machine comes back on a disk that ends at 3. The bound cut p2's record before a write
+    // reported it (review at 91b1343d, F1): the copy saw every record only from past it, so
+    // whether p1 left its queue meanwhile is not known, and nothing of p1 goes back.
+    let rows = vec![("m1".to_owned(), 7, 3)];
+    let (ahead, since) = store.ahead(PEER, rows.clone());
+    assert_eq!(since["m1"], (7, 6));
+    let proofs = od::proofs_past(&outbox, PEER, &rows, &since);
+    assert!(proofs.is_empty());
+    let (back, _) = restore::with_proofs(ahead, proofs, &rows);
+    assert!(back[0].3.first().and_then(seq_of) > Some(5), "p1's proof went back");
+
+    // The captures' queue overflowed: the copy went, so whether p1 left its queue since is not
+    // known: nothing of it goes back (it would run again), and it stays open.
+    store.take(Op::LostPeer(PEER.into()));
+    let (_, since) = store.ahead(PEER, rows.clone());
+    assert!(od::proofs_past(&outbox, PEER, &rows, &since).is_empty());
+    // Its removal from the queue came in its proof before: then all of it goes back.
+    od::take_written(&outbox, (PEER, "m1", 7), &[life("m1", 9, "queue_removed", "p1")], (1, 1));
+    let back = od::proofs_past(&outbox, PEER, &rows, &since);
+    let back: Vec<u64> = back["m1"].iter().flatten().filter_map(seq_of).collect();
+    assert_eq!(back, vec![4, 9]);
+
+    // Released only by a later link whose journal holds it, of its generation.
+    let d1 = outbox.get("d1").unwrap();
+    let ends = |g: u64, last: u64| HashMap::from([("m1".to_owned(), (g, last))]);
+    assert_eq!(od::step(&d1, now, (1, 2), &ends(7, 3)), od::Step::Wait);
+    assert_eq!(od::step(&d1, now, (1, 1), &ends(7, 9)), od::Step::Wait);
+    assert_eq!(od::step(&d1, now, (1, 2), &ends(7, 9)), od::Step::Check);
+    assert_eq!(od::checked(Some(true)), od::Step::Release);
+    assert_eq!(od::checked(Some(false)), od::Step::Lost);
+    assert_eq!(od::step(&d1, now, (1, 2), &ends(8, 9)), od::Step::Stale);
+    let lapsed = now + crate::hub::outbox::OPEN_ON_PEER_FOR_MS;
+    assert_eq!(od::step(&d1, lapsed, (1, 2), &ends(7, 9)), od::Step::Lapse);
+    assert_eq!(od::step(&outbox.get("d2").unwrap(), now, (1, 2), &ends(7, 9)), od::Step::Again);
+}
+
+/// What goes back to a machine on a disk that ends at 3 from a proof of p1's `queued` (seq 4),
+/// once its removal (seq 5) came and the copy's bound cut it before a write reported it; under
+/// the rules of 91b1343d when `rules_of_91b`.
+fn back_after_a_cut_removal(rules_of_91b: bool) -> Vec<u64> {
+    use crate::hub::open_delivery as od;
+    crate::hub::journal_restore::OLD_RULES
+        .with(|r| r.set(if rules_of_91b { crate::hub::journal_restore::AT_91B } else { 0 }));
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
+    let hook: Written = {
+        let told = told.clone();
+        Arc::new(move |_, _, _, records| told.lock().unwrap().push(records))
+    };
+    let mut store =
+        Store::new(disk::root(dir.path()), Arc::default(), Arc::new(StdMutex::new(Some(hook))));
+    store.scan();
+    let outbox = crate::hub::outbox::Outbox::default();
+    let now = crate::store::now_ms();
+    let d: crate::hub::outbox::Delivery = serde_json::from_value(json!({
+        "id": "d1", "target": format!("{PEER}/m1"),
+        "request": {"sessionId": format!("{PEER}/m1"), "_meta": {"acpmux": {"promptId": "p1"}}},
+        "state": "delivered", "openOnPeer": true, "createdAt": now, "updatedAt": now,
+        "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
+    }))
+    .unwrap();
+    outbox.add(d);
+    keep(&mut store, "m1", 1..=3);
+    store.add(&key("m1"), vec![life("m1", 4, "queued", "p1")]);
+    store.write_due(None, When::Last);
+    // p1 is taken off the queue, and a turn writes past the copy's bound before the next write.
+    store.add(&key("m1"), vec![life("m1", 5, "queue_removed", "p1")]);
+    keep(&mut store, "m1", 6..=(6 + SESSION_EVENTS as u64));
+    store.write_due(None, When::Last);
+    for records in std::mem::take(&mut *told.lock().unwrap()) {
+        od::take_written(&outbox, (PEER, "m1", 7), &records, (1, 1));
+    }
+    let rows = vec![("m1".to_owned(), 7, 3)];
+    let (_, since) = store.ahead(PEER, rows.clone());
+    let back = od::proofs_past(&outbox, PEER, &rows, &since);
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
+    back.get("m1").map_or(vec![], |r| r.iter().flatten().filter_map(seq_of).collect())
+}
+
+/// Review of #37284 at 91b1343d, F1: a record of a prompt's life the bound cuts before a write
+/// reported it moves where the copy saw every record from past it, so the proof that needed it
+/// is not whole and nothing of it goes back. Under 91b1343d's rules the `queued` record went
+/// back without its removal, and the canceled prompt ran.
+#[test]
+fn a_removal_the_bound_cut_before_its_write_keeps_its_prompt_from_going_back() {
+    assert_eq!(back_after_a_cut_removal(true), vec![4], "91b1343d gave back the canceled prompt");
+    assert!(back_after_a_cut_removal(false).is_empty());
+}
+
+/// Review of #37284 at 91b1343d, F5: a copy and its proofs past what one restore takes are not
+/// restored, and their session comes back held (its prompts held, its deliveries open), never
+/// dropped as clear. Under 91b1343d's rules it went with nothing held.
+#[test]
+fn a_restore_past_what_one_takes_stays_held() {
+    let max = crate::hub::journal_restore::MAX_RECORDS as u64;
+    let rows = vec![("m1".to_owned(), 7, 0), ("m2".to_owned(), 7, 0)];
+    let ahead =
+        || vec![("m1".to_owned(), 7, 0, recs(1..=max - 10)), ("m2".to_owned(), 7, 0, recs(1..=3))];
+    let proofs = || HashMap::from([("m1".to_owned(), vec![recs(max - 9..=max + 20)])]);
+    let (back, held) = restore::with_proofs(ahead(), proofs(), &rows);
+    assert_eq!(back.iter().map(|a| a.0.as_str()).collect::<Vec<_>>(), vec!["m2"]);
+    assert_eq!(held, HashSet::from(["m1".to_owned()]));
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(crate::hub::journal_restore::AT_91B));
+    let (back, held) = restore::with_proofs(ahead(), proofs(), &rows);
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
+    assert_eq!(back.len(), 1);
+    assert!(held.is_empty(), "91b1343d dropped it and held nothing");
+}
+
+/// The move simulation, round 9 (seed 1092): a proof of another history than the copy (its
+/// machine came back on a disk where the prompt's record is the same, and wrote other records
+/// where its end was) goes back whole or not at all: never its `queued` record without its end.
+#[test]
+fn a_proof_of_another_history_than_the_copy_goes_back_not_at_all() {
+    let rows = vec![("m1".to_owned(), 7, 34)];
+    let copy = vec![("m1".to_owned(), 7, 34, recs(42..=56))];
+    let proof = vec![
+        life("m1", 35, "queued", "p0"),
+        life("m1", 53, "user_message", "p0"),
+        life("m1", 55, "turn_result", "p0"),
+    ];
+    let (back, _) =
+        restore::with_proofs(copy.clone(), HashMap::from([("m1".to_owned(), vec![proof])]), &rows);
+    let seqs: Vec<u64> = back[0].3.iter().filter_map(seq_of).collect();
+    assert_eq!(seqs, (42..=56).collect::<Vec<_>>(), "a part of the proof went back");
+    // One that fits goes back with the copy.
+    let proof = vec![life("m1", 35, "queued", "p0"), life("m1", 40, "queue_removed", "p0")];
+    let (back, _) =
+        restore::with_proofs(copy, HashMap::from([("m1".to_owned(), vec![proof])]), &rows);
+    assert_eq!(back[0].3.iter().filter_map(seq_of).take(2).collect::<Vec<_>>(), vec![35, 40]);
+}
+
+/// A delivery of prompt `prompt` to `m1` (generation 7), open on its peer, pinned at link (1, 1).
+fn open_delivery(id: &str, prompt: &str, blocks: Value) -> crate::hub::outbox::Delivery {
+    let now = crate::store::now_ms();
+    serde_json::from_value(json!({
+        "id": id, "target": format!("{PEER}/m1"),
+        "request": {"sessionId": format!("{PEER}/m1"), "prompt": blocks,
+                    "_meta": {"acpmux": {"promptId": prompt}}},
+        "state": "delivered", "openOnPeer": true, "createdAt": now, "updatedAt": now,
+        "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
+    }))
+    .unwrap()
+}
+
+fn set_rules(rules: u8) {
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(rules));
+}
+
+/// The files a proven delivery with a non-image attachment gives back, under `rules`.
+fn files_of_a_proven_attachment(rules: u8) -> Vec<(std::path::PathBuf, Vec<u8>)> {
+    use crate::hub::open_delivery as od;
+    use base64::Engine as _;
+    set_rules(rules);
+    let outbox = crate::hub::outbox::Outbox::default();
+    let data = base64::engine::general_purpose::STANDARD.encode(b"the notes");
+    let attachment = json!([{"type": "resource", "resource": {"uri": "attachment:notes.txt", "blob": data},
+                             "_meta": {"acpmux": {"attachment": {"name": "notes.txt"}}}}]);
+    outbox.add(open_delivery("d1", "p1", attachment));
+    let queued = json!({"sessionId": "m1", "seq": 4, "at": 4, "dir": "mux", "kind": "queued",
+        "msg": {"promptId": "p1", "turnId": "t-p1", "prompt": [
+            {"type": "resource_link", "uri": "file:///up/m1/019a/notes.txt", "name": "notes.txt"}]}});
+    od::take_written(&outbox, (PEER, "m1", 7), &[queued], (1, 1));
+    let files = od::proof_files(&outbox.get("d1").unwrap());
+    set_rules(0);
+    files
+}
+
+/// Review of #37284 at 4dcbe192, F4: a proven delivery keeps its non-image attachment's bytes,
+/// and names the path its machine saved it at: a restore writes it back there. Under 4dcbe192's
+/// rules the bytes went at the proof, and the restored prompt named a file its disk lacked.
+#[test]
+fn a_proven_delivery_keeps_the_files_its_prompt_was_saved_as() {
+    assert!(files_of_a_proven_attachment(crate::hub::journal_restore::AT_4DCB).is_empty());
+    let files = files_of_a_proven_attachment(0);
+    assert_eq!(files, vec![("/up/m1/019a/notes.txt".into(), b"the notes".to_vec())]);
+}
+
+/// A proof of p1's `queued` (seq 4) and a Stop's `queue_paused` holding it (seq 5), the hold cut
+/// by the copy's bound before a write reported it: the proof's records, and where the copy saw
+/// every record from.
+fn stop_then_bound(rules: u8) -> (Vec<u64>, u64) {
+    use crate::hub::open_delivery as od;
+    set_rules(rules);
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
+    let hook: Written = {
+        let told = told.clone();
+        Arc::new(move |_, _, _, records| told.lock().unwrap().push(records))
+    };
+    let mut store =
+        Store::new(disk::root(dir.path()), Arc::default(), Arc::new(StdMutex::new(Some(hook))));
+    store.scan();
+    let outbox = crate::hub::outbox::Outbox::default();
+    outbox.add(open_delivery("d1", "p1", json!([])));
+    keep(&mut store, "m1", 1..=3);
+    let paused = json!({"sessionId": "m1", "seq": 5, "at": 5, "dir": "mux", "kind": "queue_paused",
+                        "msg": {"held": ["p1"], "reason": "stop"}});
+    store.add(&key("m1"), vec![life("m1", 4, "queued", "p1")]);
+    store.write_due(None, When::Last);
+    store.add(&key("m1"), vec![paused.clone()]);
+    store.write_due(None, When::Last);
+    for records in std::mem::take(&mut *told.lock().unwrap()) {
+        od::take_written(&outbox, (PEER, "m1", 7), &records, (1, 1));
+    }
+    let proof: Vec<u64> =
+        outbox.get("d1").unwrap().proof.unwrap().records.iter().filter_map(seq_of).collect();
+    // Another Stop's hold, cut by the bound before its write.
+    let mut again = paused;
+    again["seq"] = json!(6);
+    store.add(&key("m1"), vec![again]);
+    keep(&mut store, "m1", 7..=(7 + SESSION_EVENTS as u64));
+    let since = store.copies[&key("m1")].head.since;
+    set_rules(0);
+    (proof, since)
+}
+
+/// Review of #37284 at 4dcbe192, F5: a proof takes the queue's records that hold or free its
+/// prompt (a Stop's `queue_paused` names it in `held`), and the copy's bound cutting one before a
+/// write moves where the copy saw every record from past it. Under 4dcbe192's rules the proof
+/// went back without the hold, and the stopped prompt ran.
+#[test]
+fn a_proof_keeps_the_stop_that_held_its_prompt() {
+    let (proof, since) = stop_then_bound(crate::hub::journal_restore::AT_4DCB);
+    assert_eq!(proof, vec![4], "4dcbe192 took the hold");
+    assert!(since < 7, "4dcbe192 moved since");
+    let (proof, since) = stop_then_bound(0);
+    assert_eq!(proof, vec![4, 5]);
+    assert_eq!(since, 7);
+}
+
+/// Review of #37284 at 4dcbe192, F6: a proof the owner kept across its own restart is checked on
+/// the next link, whatever its numbers (they start again at each start). Under 4dcbe192's rules
+/// it waited for a link numbered past its own, which might never come, and lapsed as lost.
+#[test]
+fn a_proof_from_an_earlier_start_is_checked_on_the_next_link() {
+    use crate::hub::open_delivery as od;
+    let mut d = open_delivery("d1", "p1", json!([]));
+    d.pin.as_mut().unwrap().link = (7, 9);
+    od::take_proof(&mut d, &[life("m1", 4, "queued", "p1")], (7, 9));
+    od::INCARNATION.with(|i| *i.borrow_mut() = Some("a later start".into()));
+    let ends = HashMap::from([("m1".to_owned(), (7, 9))]);
+    let now = crate::store::now_ms();
+    set_rules(crate::hub::journal_restore::AT_4DCB);
+    let before = od::step(&d, now, (1, 1), &ends);
+    set_rules(0);
+    let after = od::step(&d, now, (1, 1), &ends);
+    od::INCARNATION.with(|i| *i.borrow_mut() = None);
+    assert_eq!(before, od::Step::Wait, "4dcbe192 checked it");
+    assert_eq!(after, od::Step::Check);
 }

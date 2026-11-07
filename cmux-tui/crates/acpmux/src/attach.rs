@@ -345,6 +345,49 @@ pub fn all(blocks: &[Value]) -> bool {
     blocks.iter().all(|b| mark(b).is_some())
 }
 
+/// The name [`receive`] saves each attachment of `blocks` under, by its index: its own name,
+/// made safe; two of one message under one name, the later ones with a number.
+pub fn saved_names(blocks: &[Value]) -> Vec<(usize, String)> {
+    let mut names = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for (index, b) in blocks.iter().enumerate() {
+        let Some(m) = mark(b) else { continue };
+        let base = safe_name(m.get("name").and_then(Value::as_str).unwrap_or("attachment"));
+        let (mut name, mut n) = (base.clone(), 1);
+        while !names.insert(name.clone()) {
+            n += 1;
+            name = safe_name(&format!("{n}-{base}"));
+        }
+        out.push((index, name));
+    }
+    out
+}
+
+/// An attachment block's bytes, decoded.
+pub fn bytes_of(block: &Value) -> Option<Vec<u8>> {
+    base64::engine::general_purpose::STANDARD.decode(data_of(block)?).ok()
+}
+
+/// The files a `queued` record's prompt names that [`receive`] saved on its machine
+/// (`resource_link` blocks with a `file://` URI): each one's path and name.
+pub fn saved_links(blocks: &[Value]) -> Vec<(std::path::PathBuf, String)> {
+    blocks
+        .iter()
+        .filter(|b| b.get("type").and_then(Value::as_str) == Some("resource_link"))
+        .filter_map(|b| {
+            let uri = reqwest::Url::parse(b.get("uri")?.as_str()?).ok()?;
+            let path = uri.to_file_path().ok()?;
+            Some((path, b.get("name")?.as_str()?.to_owned()))
+        })
+        .collect()
+}
+
+/// The hex SHA-256 of `bytes`: how an owner and its machine compare a saved file.
+pub fn sha256(bytes: &[u8]) -> String {
+    use sha2::Digest as _;
+    sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// An attachment block's base64 bytes.
 fn data_of(block: &Value) -> Option<&str> {
     match block.get("type").and_then(Value::as_str) {
@@ -415,9 +458,9 @@ pub fn receive(
         ));
     }
     let mut files = Vec::new();
-    let mut names = std::collections::HashSet::new();
-    for (index, b) in blocks.iter().enumerate() {
-        let Some(m) = mark(b) else { continue };
+    let names = saved_names(blocks);
+    for (index, name) in names {
+        let Some(b) = blocks.get(index) else { continue };
         let data = data_of(b).ok_or_else(|| {
             refused(
                 "attach.invalid",
@@ -427,13 +470,6 @@ pub fn receive(
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
             .map_err(|e| refused("attach.invalid", format!("an attachment is not base64: {e}")))?;
-        let base = safe_name(m.get("name").and_then(Value::as_str).unwrap_or("attachment"));
-        // Two files of one message under one name: the later ones get a number.
-        let (mut name, mut n) = (base.clone(), 1);
-        while !names.insert(name.clone()) {
-            n += 1;
-            name = safe_name(&format!("{n}-{base}"));
-        }
         files.push((index, name, bytes));
     }
     let uploads = crate::hub::file_uploads::session_dir(session)
