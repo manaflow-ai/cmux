@@ -265,6 +265,23 @@ fn attaching_a_row_already_under_its_creator_changes_nothing() {
     assert_eq!(reply, EditReply { changed: false, sections: None });
 }
 
+#[test]
+fn attaching_a_child_to_another_creator_in_its_container_moves_it() {
+    let sections = tree(vec![loose("a"), loose("b<a"), loose("c")]);
+    let (changed, after) = run(Intent::Attach { ids: ids(&["b"]), creator: "c".into() }, &sections);
+    assert!(changed);
+    assert_eq!(top(&after), ["a", "c", "b<c"]);
+}
+
+#[test]
+fn moving_a_row_whose_creator_is_not_listed_keeps_the_link() {
+    let sections = tree(vec![loose("b<elsewhere"), loose("x")]);
+    let (changed, after) =
+        run(Intent::Reorder { ids: ids(&["b"]), position: at(None, 1) }, &sections);
+    assert!(changed);
+    assert_eq!(top(&after), ["x", "b<elsewhere"]);
+}
+
 /// One keyboard step of `id`, as the app runs it: the slot, then a reorder.
 fn step(id: &str, direction: Direction, sections: &[Section]) -> Vec<String> {
     let position = keyboard_target(&ids(&[id]), direction, sections).expect("a slot");

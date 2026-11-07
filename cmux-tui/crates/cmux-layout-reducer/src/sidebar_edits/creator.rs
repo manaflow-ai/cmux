@@ -347,8 +347,8 @@ fn named_moves(intent: &Intent) -> &[String] {
 
 /// After an accepted edit: break the links to creators it closed
 /// (`listed_before` but no longer listed) and of the rows it named that left
-/// their creator's subtree, then list every child right after its creator's
-/// subtree.
+/// their listed creator's subtree, then list every child right after its
+/// creator's subtree. A link to a creator this window doesn't list is kept.
 pub(super) fn settle(
     sections: &mut [Section],
     listed_before: &HashSet<(String, String)>,
@@ -360,10 +360,10 @@ pub(super) fn settle(
     for section in sections.iter_mut() {
         for node in &mut section.nodes {
             if let Node::Group { group } = node {
-                settle_container(&mut group.members, &gone, &named);
+                settle_container(&mut group.members, &gone, &named, &listed_now);
             }
         }
-        settle_container(&mut section.nodes, &gone, &named);
+        settle_container(&mut section.nodes, &gone, &named, &listed_now);
     }
 }
 
@@ -371,6 +371,7 @@ fn settle_container<R: Row>(
     rows: &mut Vec<R>,
     gone: &HashSet<&(String, String)>,
     named: &HashSet<&str>,
+    listed_now: &HashSet<(String, String)>,
 ) {
     let strays: Vec<usize> = {
         let links = links(rows);
@@ -381,12 +382,14 @@ fn settle_container<R: Row>(
             .filter_map(|(row, ws)| {
                 let ws = (*ws)?;
                 let creator = ws.creator.clone()?;
-                if gone.contains(&(creator, ws.machine.clone())) {
+                let key = (creator, ws.machine.clone());
+                if gone.contains(&key) {
                     return Some(row);
                 }
-                // A named row stays linked only inside its creator's subtree.
+                // A named row stays linked only inside its listed creator's subtree.
                 let inside = nesting.depth.get(row).copied().flatten().is_some_and(|d| d > 0);
-                (named.contains(ws.id.as_str()) && !inside).then_some(row)
+                (named.contains(ws.id.as_str()) && !inside && listed_now.contains(&key))
+                    .then_some(row)
             })
             .collect()
     };
@@ -498,7 +501,7 @@ pub(super) fn attach(ids: &[String], creator: &str, sections: &mut [Section]) ->
         steps += 1;
     }
     let Some(section) = sections.get(home.section) else { return false };
-    if already_children(&named, &home, section) {
+    if already_children(&named, creator, &home, section) {
         return false;
     }
     let moving = with_subtrees(&ordered, sections);
@@ -524,8 +527,13 @@ pub(super) fn attach(ids: &[String], creator: &str, sections: &mut [Section]) ->
     sections != before.as_slice()
 }
 
-/// Whether every named row already lists under the creator at `home`.
-fn already_children(named: &HashSet<&str>, home: &Location, section: &Section) -> bool {
+/// Whether every named row already lists under `creator`, found at `home`.
+fn already_children(
+    named: &HashSet<&str>,
+    creator: &str,
+    home: &Location,
+    section: &Section,
+) -> bool {
     let links = match (home.child, section.nodes.get(home.node)) {
         (Some(_), Some(Node::Group { group })) => links(&group.members),
         _ => links(&section.nodes),
@@ -541,7 +549,7 @@ fn already_children(named: &HashSet<&str>, home: &Location, section: &Section) -
         let under =
             parents.get(row).copied().flatten().and_then(|p| links.get(p).copied().flatten());
         let inside = nesting.depth.get(row).copied().flatten().is_some_and(|d| d > 0);
-        if !(inside && under.is_some_and(|creator| creates(creator, ws))) {
+        if !(inside && under.is_some_and(|under| under.id == creator && creates(under, ws))) {
             return false;
         }
         found += 1;
