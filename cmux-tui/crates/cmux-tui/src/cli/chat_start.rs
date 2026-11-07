@@ -6,7 +6,7 @@
 //! One flag, `--on`, whose value decides the kind of target, so it is learned once for every verb
 //! that runs something somewhere:
 //!
-//! - no `--on` (and no `CMUX_TARGET`), or `--on here`: right here, as `cmux agents chat new`
+//! - no `--on` (and no `CMUX_ON`), or `--on here`: right here, as `cmux agents chat new`
 //!   starts it (a chat tab in the app, in this machine's acpmux);
 //! - `--on cloud`: cmux Cloud, today a new Cloud VM;
 //! - `--on vm:new`: a new Cloud VM; `--on vm:ID|NAME`: the app's existing Cloud VM with that id,
@@ -18,7 +18,7 @@
 //!   run agent chats or one not running is refused before anything starts. Nothing here keeps a
 //!   device list of its own.
 //!
-//! `CMUX_TARGET` names the target when `--on` is absent, as `DOCKER_CONTEXT` does. A refusal says
+//! `CMUX_ON` names the target when `--on` is absent, as `DOCKER_CONTEXT` does. A refusal says
 //! what to run next. `cloud`, `here` and `vm:…` are selectors, never device names: a device called
 //! "cloud" is reached by its id.
 
@@ -38,7 +38,7 @@ const TAKES_VALUE: &[&str] =
 const OTHER_VERBS: &[&str] = &["send", "read", "wait", "list", "create", "replies", "colors"];
 
 /// The environment variable that names the target when `--on` is absent.
-pub(super) const TARGET_ENV: &str = "CMUX_TARGET";
+pub(super) const TARGET_ENV: &str = "CMUX_ON";
 
 /// How long the catalog read may take.
 const CATALOG_TIMEOUT: Duration = Duration::from_secs(10);
@@ -59,7 +59,7 @@ Starts an agent chat, right here unless --on names another target:
   --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm list-machines`)
   --on DEVICE        A connected device by its id or name (`cmux machine list`);
                      it must be yours, running, and run agent chats
-  CMUX_TARGET=TARGET names the target when --on is absent.
+  CMUX_ON=TARGET names the target when --on is absent.
 
   --agent AGENT      claude (default), codex, ...
   --model MODEL      The agent's model (a chat here)
@@ -84,7 +84,7 @@ Exit codes: 0 ok, 1 refused, 2 bad arguments.
 /// A parsed `cmux chat …` start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Start {
-    /// `--on`'s value, else `CMUX_TARGET`'s; None is here.
+    /// `--on`'s value, else `CMUX_ON`'s; None is here.
     pub on: Option<String>,
     pub agent: Option<String>,
     pub model: Option<String>,
@@ -138,7 +138,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     Some(run(&global, prefix, start))
 }
 
-/// The words after `chat` (or `chat new`); `env_target` is `CMUX_TARGET`, read when `--on` is
+/// The words after `chat` (or `chat new`); `env_target` is `CMUX_ON`, read when `--on` is
 /// absent (an empty one is unset).
 pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Parsed, UsageError> {
     let mut start = Start {

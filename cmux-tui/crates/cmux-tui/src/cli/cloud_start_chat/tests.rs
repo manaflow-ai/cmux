@@ -296,8 +296,10 @@ fn a_failure_after_making_the_machine_names_it() {
         stderr: json!({"code": "unavailable", "message": "Machine didn't connect"}).to_string(),
         ..Ran::default()
     };
+    // `--wait` makes the machine first (`cloud new-machine`), then starts the session there.
     let mut fake = Fake::new(vec![signed_in(), made(), no_relay(), refused()]);
-    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x"])) else {
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
         panic!("{:?}", fake.ran)
     };
     assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--json"]));
