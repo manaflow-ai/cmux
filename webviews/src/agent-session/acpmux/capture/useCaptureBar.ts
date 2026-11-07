@@ -28,8 +28,9 @@ export type CaptureBarHost = {
   notice(text: string): void;
   /// Whether the shown chat's agent runs on this Mac, so it can open a recording's file.
   chatIsLocal(): boolean;
-  /// The shown chat's session id: a recording lands only in the chat it was started from.
-  chat(): string | undefined;
+  /// The shown chat's identity (its session, and for a chat with none yet, its New Tab visit): a
+  /// capture lands only in the chat it was made for.
+  chat(): string;
 };
 
 type Shot = {

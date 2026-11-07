@@ -49,8 +49,8 @@ public nonisolated enum AgentPaneCapturePayload: Equatable, Sendable {
 
     /// The image types a capture is (``AgentPaneCapture/fit(_:)``).
     static let imageTypes: Set<String> = ["image/png", "image/jpeg"]
-    /// Bytes past this are not a capture this bridge made (it caps them at 5 MB).
-    static let maxBytes = 4 * AgentPaneCapture.maxBytes
+    /// Bytes past this are not a capture this bridge made (``AgentPaneCapture/maxBytes``).
+    static let maxBytes = AgentPaneCapture.maxBytes
 
     init?(_ params: [String: Any]?) {
         if let path = params?["path"] as? String {

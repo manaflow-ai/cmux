@@ -3971,6 +3971,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   newTabNow.current = newTab;
   const currentNewTab = useCallback(() => newTabNow.current, []);
   const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
+  const newTabGenerationRef = useRef(newTabGeneration);
+  newTabGenerationRef.current = newTabGeneration;
   // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
   // A new adoption has a different generation and never inherits this pending/error view.
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
@@ -5728,7 +5730,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     attach: (attachment) => composerHandle.current?.attach(attachment),
     notice: (text) => notices.transient(text),
     chatIsLocal: () => chatIsLocal.current,
-    chat: () => sessionIdRef.current,
+    // A chat with no session yet is told apart by its New Tab adoption, as the folder default does.
+    chat: () => `${sessionIdRef.current ?? ""}:${newTabGenerationRef.current}`,
   });
   // The bridge (installed once below) reaches the newest toggle.
   const captureBarToggle = useRef(captureBar.toggle);
