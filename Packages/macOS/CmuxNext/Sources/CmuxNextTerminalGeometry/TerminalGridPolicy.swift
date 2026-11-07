@@ -60,6 +60,21 @@ public nonisolated struct TerminalGridPolicy: Sendable {
         return grid
     }
 
+    /// RESIZE P0 8 (cause T): the grid of the size a key spring draws ahead for its next refresh goes to the owner one
+    /// refresh before the view fits it, in place of the grid held for the size it fits now. Returns the grid to report
+    /// (nil when the owner has it); `desired` stays the grid the view fits, and the landing at that grid reports nothing
+    /// more.
+    public mutating func aheadSized(_ grid: TerminalGridSize) -> TerminalGridSize? {
+        guard ownsGeometry else { return nil }
+        guard heldForce || grid != reported else {
+            held = false
+            return nil
+        }
+        (held, heldForce) = (false, false)
+        reported = grid
+        return grid
+    }
+
     /// Whether a grid waits for ``releaseHeld()``.
     public private(set) var held = false
     private var heldForce = false
