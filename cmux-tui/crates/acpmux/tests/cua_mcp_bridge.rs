@@ -379,3 +379,58 @@ async fn a_tool_call_while_the_mac_is_locked_answers_mac_locked_and_never_reache
     }
     assert_eq!(connects.load(Ordering::SeqCst), 0, "a locked Mac never connects to the helper");
 }
+
+/// The lock is read again at execution (review of #37239, F1): a call that passed the gate while
+/// the screen was unlocked, then waited on the helper connection and the consent answer while the
+/// Mac locked, answers `mac_locked` and is never sent to the helper.
+#[tokio::test]
+async fn a_call_whose_mac_locks_during_the_consent_wait_never_reaches_the_helper() {
+    use acpmux::cua_v2::{Helper, serve_gated};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let locked = Arc::new(AtomicBool::new(false));
+    let (client, server) = tokio::io::duplex(4096);
+    let client = std::sync::Mutex::new(Some(client));
+    let peer = tokio::spawn({
+        let locked = locked.clone();
+        async move {
+            let mut server = tokio::io::BufReader::new(server);
+            let mut line = String::new();
+            server.read_line(&mut line).await.unwrap();
+            server.get_mut().write_all(b"{\"ok\":true,\"protocol\":1}\n").await.unwrap();
+            line.clear();
+            server.read_line(&mut line).await.unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["method"], "machine/consent");
+            // The person locks the Mac while the consent answer is on its way, then it grants.
+            locked.store(true, Ordering::SeqCst);
+            let reply = json!({"id":request["id"],"ok":true,"result":{"consentRequired":true,
+                "consent":{"screen":"granted","control":"granted"}}});
+            server.get_mut().write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+            line.clear();
+            assert_eq!(server.read_line(&mut line).await.unwrap(), 0, "a call reached the helper: {line}");
+        }
+    });
+    let input = format!(
+        "{}\n",
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"click","arguments":{"x":1,"y":2}}})
+    );
+    let mut output = Vec::new();
+    serve_gated(
+        tokio::io::BufReader::new(input.as_bytes()),
+        &mut output,
+        || {
+            let stream = client.lock().unwrap().take();
+            async move { Helper::admit(stream.ok_or_else(|| anyhow::anyhow!("one helper"))?, SECRET).await }
+        },
+        || locked.load(Ordering::SeqCst),
+    )
+    .await
+    .unwrap();
+    let reply: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(reply["id"], 1);
+    assert_eq!(reply["result"]["structuredContent"]["error"], "mac_locked", "{reply}");
+    peer.await.unwrap();
+}
