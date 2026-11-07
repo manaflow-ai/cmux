@@ -77,7 +77,7 @@ extension SidebarBridge {
                 return
             }
             // A double-click in a group's empty part, or its "+": that group, where `workspaces.newPlacement` puts a
-            // new workspace in it (its top under the default `top`).
+            // new workspace in it (under the default `afterCurrent`: below its shown member, else its end).
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
                 ?? services.machines.daemon(machine: state.machineID)
             // A machine turned off by policy (DisabledFeatures) gets nothing, not a local stand-in.

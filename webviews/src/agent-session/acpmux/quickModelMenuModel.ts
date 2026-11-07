@@ -155,8 +155,6 @@ export type QuickFamily = {
   /// The harness's probe failed (its catalog entry is unavailable): its catalog rows are stale, so
   /// a launch entry keeps its one-click launch tab instead of listing them.
   unavailable?: boolean;
-  /// A started chat's other harness: offer Fork to it in place of models.
-  fork?: boolean;
   /// The acpmux family an account added from this tab serves ("claude", "codex", "opencode").
   accountFamily?: string;
   /// The model family the entry runs ("claude", "openai"): entries of one family share one tab,
@@ -208,6 +206,10 @@ export function leadRoute(tab: QuickTab, running: string | undefined): QuickFami
   );
 }
 
+/// How the menus mark what a started chat ran, beside a held pick of another harness's model
+/// (UsedMark): `glyph` ships; `dot` and `caption` are the gallery's other versions.
+export type UsedLook = "glyph" | "dot" | "caption";
+
 export type QuickFamilies = {
   list: QuickFamily[];
   /// The chat's harness: its tab opens first, and only it shows Effort and Account.
@@ -216,12 +218,23 @@ export type QuickFamilies = {
   /// Add harness…, the last item in the harness strip.
   onAddHarness?(): void;
   onLaunch?(id: string): void;
-  onFork?(id: string): void;
-  forkReady?: boolean;
+  /// A started chat's pick of another harness's model (or launch route, `id` absent), held as its
+  /// next message's target (forkHold.ts): its row is the checked one and its tab opens first, and
+  /// the columns' settings show its `effort` and `fast`.
+  held?: { family: string; id?: string; effort?: string; fast?: boolean };
+  /// A started chat: the chat's own tab and running model (and its provider) carry the "used
+  /// here" mark (UsedMark) in this look, whatever is held.
+  used?: UsedLook;
   /// Starred models: each row's star at its trailing edge shows and toggles it (the Starred tab
   /// lists them). Absent: no stars on the rows.
   stars?: { has(model: QuickModel): boolean; toggle(model: QuickModel): void };
 };
+
+/// The tab a held pick of another harness opens the menu on, when the rail lists it.
+export function heldTab(families: QuickFamilies | undefined): string | undefined {
+  const held = families?.held;
+  return held && families.list.some((family) => family.id === held.family) ? held.family : undefined;
+}
 
 /// One harness's search matches under its name. Groups keep the rail's order; Starred is never one,
 /// since every starred model also sits under its own harness.

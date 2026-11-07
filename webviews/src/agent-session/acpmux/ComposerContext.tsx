@@ -64,6 +64,7 @@ import { machineLoadWarning, type MachineResources } from "./machineResources";
 import { useComposerSettings } from "./composerSettings";
 import { repickMachine, type RepickMachine } from "./cloudRepick";
 import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel";
+import { chatComputerId, ownMachineName, type ChatPlace } from "./chatMachine";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
 /// - `where-machine` (Codex desktop): Project | Where (This Mac, Cloud, Another machine) | Machine,
@@ -125,6 +126,7 @@ export function ComposerContext({
   onNoProject,
   noProject = false,
   localName,
+  route,
   onNewChat,
   onBrowseFolder,
   onConnect,
@@ -179,6 +181,9 @@ export function ComposerContext({
   noProject?: boolean;
   /// This Mac's name (the handshake's `machineName`).
   localName?: string;
+  /// The page's route to its acpmux (chatMachine.ts `chatPlace`): over a remote route the `local`
+  /// row names the machine it reaches, never this Mac.
+  route?: ChatPlace;
   /// A started chat's New Chat Here, or a folder picked from its menu: a new chat in that folder,
   /// in a tab of its own.
   onNewChat?(cwd: string): void;
@@ -256,6 +261,8 @@ export function ComposerContext({
   const accountSignedIn = useCloudSignedIn();
   const cloudSignedIn = cloudSignedInSeam ?? accountSignedIn;
   const shownMachines = cloudMachines ?? accountMachines;
+  // The page's own acpmux by name: this Mac, or the machine a remote route reaches (chatMachine.ts).
+  const ownName = ownMachineName(summary, localName, peerKinds, route);
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
   // one's transport and state, in both the environment picker and the plain Computer menu; for a
   // new chat, then the account's Cloud machines acpmux does not list (a paused one, say).
@@ -263,7 +270,7 @@ export function ComposerContext({
     // A Cloud machine acpmux has no link to that the account says is paused or resuming reads so,
     // not as a lost link; in a new chat a paused one is a pick that resumes it.
     const listed = withCloudSleep(
-      availableComputers(summary, sessions, peers, peerKinds, localName, peerConnected, peerStates, peerResources),
+      availableComputers(summary, sessions, peers, peerKinds, ownName, peerConnected, peerStates, peerResources),
       shownMachines,
       newChat,
     );
@@ -280,7 +287,7 @@ export function ComposerContext({
     peerConnected,
     peerStates,
     peerResources,
-    localName,
+    ownName,
     newChat,
     shownMachines,
     t,
@@ -732,7 +739,7 @@ export function ComposerContext({
         : layout === "where-machine" && localMachine
           ? t(CONTEXT_LABELS.chooseMachine)
           : localMachine
-            ? (localName ?? t("composer.thisMac"))
+            ? (ownName ?? t("composer.thisMac"))
             : placeName;
   const machineLive =
     cloudPicked || sandboxPicked || savedPick || waiting || (layout === "where-machine" && localMachine)
@@ -1086,10 +1093,9 @@ function BranchIcon() {
   );
 }
 
-/// The machine a chat runs on: its peer (an SSH or Cloud machine), else its Cloud host, else this Mac.
-function computerId(summary?: Summary): string {
-  return summary?.peer || (summary?.hostKind === "cloud" && summary.host) || "local";
-}
+/// The machine a chat runs on: its peer (an SSH or Cloud machine), else its Cloud host, else the page's
+/// own acpmux (chatMachine.ts, the source Session Info's machine row draws from).
+const computerId = (summary?: Summary): string => chatComputerId(summary);
 
 function availableComputers(
   summary: Summary | undefined,

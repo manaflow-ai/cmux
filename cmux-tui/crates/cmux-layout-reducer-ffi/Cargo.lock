@@ -72,6 +72,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-handlers"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-cloud-start-core"
 version = "0.1.0"
 dependencies = [
@@ -121,6 +129,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-bookmarks-core",
  "cmux-cloud-config",
+ "cmux-cloud-handlers",
  "cmux-cloud-machine",
  "cmux-cloud-start-core",
  "cmux-cloud-tasks",
@@ -128,6 +137,7 @@ dependencies = [
  "cmux-imessage",
  "cmux-layout-reducer",
  "cmux-tasks-core",
+ "cmux-window-rules",
  "serde",
  "serde_json",
 ]
@@ -139,6 +149,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "cmux-window-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

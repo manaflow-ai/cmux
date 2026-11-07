@@ -126,9 +126,6 @@ extension WorkspaceRowSetting {
         }
     }
 
-    /// Every `sidebar.workspaceRow.*` key (agents may set them: looks only).
-    static var keys: Set<String> { Set(descriptors().map(\.id)) }
-
     static var orderChoices: [SettingChoice] {
         WorkspaceRowElement.secondLine.map { SettingChoice($0.rawValue, title($0)) }
     }
