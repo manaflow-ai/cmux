@@ -182,6 +182,9 @@ public final class WebCardPanel: NSPanel {
     /// down and up on the button, not a key, an Accessibility press, a posted event or a script; held
     /// through a mouse-up AppKit dispatches on its own), on the key panel, the card hears it once.
     func dispatch(_ event: NSEvent, _ body: () -> Void) {
+        // A move setFrame did not see (a drag of the panel) still counts: Confirm somewhere new on
+        // screen rearms first, so that click is not taken.
+        if event.type == .leftMouseDown, hasFooter, controlScreenRect != currentControlScreenRect { controlMoved() }
         guard personClick.dispatch(event, allow: { [weak self] in self?.enabledControl }, in: windowNumber, body),
               isKeyForPerson(self), let card else { return }
         cards[card]?.personPressed()
@@ -189,8 +192,54 @@ public final class WebCardPanel: NSPanel {
 
     /// The native control while it shows enabled for the shown card.
     private var enabledControl: NSControl? {
-        guard let card, controls[card]?.isEnabled == true, !personButton.isHidden else { return nil }
+        guard let card, controls[card]?.isEnabled == true, !personButton.isHidden, isControlWhole else { return nil }
         return personButton
+    }
+
+    /// SECURITY: whether the control shows whole: its full fitting size, inside the card.
+    private var isControlWhole: Bool {
+        let frame = personButton.convert(personButton.bounds, to: glass)
+        let fitting = personButton.fittingSize
+        return glass.bounds.contains(frame) && frame.width >= fitting.width && frame.height >= fitting.height
+    }
+
+    /// Where the control was on screen when the guard last rearmed for it.
+    private var controlScreenRect: NSRect?
+    private var currentControlScreenRect: NSRect {
+        convertToScreen(personButton.convert(personButton.bounds, to: nil))
+    }
+
+    /// Confirm moved on screen (or appeared): a click begun before it has stayed put is not taken.
+    private func controlMoved() {
+        controlScreenRect = currentControlScreenRect
+        rearm()
+    }
+
+    private func frameChanged() {
+        guard hasFooter else { return }
+        glass.layoutSubtreeIfNeeded()
+        controlMoved()
+    }
+
+    /// The smallest content while a control shows: the footer and the control at full size.
+    private var minimumContent: NSSize {
+        NSSize(width: personButton.fittingSize.width + 2 * WebCardSurface.inset, height: surface.footerHeight)
+    }
+
+    /// SECURITY: while a control shows the panel never gets smaller than its footer (whatever size
+    /// the page asks for), keeping its top edge; every change moves Confirm, so the guard rearms.
+    override public func setFrame(_ newFrame: NSRect, display flag: Bool) {
+        var rect = newFrame
+        if hasFooter {
+            // Borderless with a full-size content view: the content is the frame.
+            let minimum = minimumContent
+            let top = rect.maxY
+            rect.size = NSSize(width: max(rect.width, minimum.width), height: max(rect.height, minimum.height))
+            rect.origin.y = top - rect.height
+        }
+        let moved = rect != frame
+        super.setFrame(rect, display: flag)
+        if moved { frameChanged() }
     }
 
     /// Whether a control shows in the footer for the shown card.
@@ -200,13 +249,22 @@ public final class WebCardPanel: NSPanel {
     private func placePersonControl() {
         let control = card.flatMap { controls[$0] }
         surface.show(control)
-        rearm()
+        if control != nil {
+            contentMinSize = minimumContent
+            // Grow to the footer at once when the panel is smaller.
+            setFrame(frame, display: isVisible)
+            controlMoved()
+        } else {
+            contentMinSize = .zero
+            controlScreenRect = nil
+            rearm()
+        }
     }
 
     /// The panel's size for a page content size: the footer under it while a control shows.
     private func panelSize(_ content: NSSize) -> NSSize {
         guard hasFooter else { return content }
-        return NSSize(width: content.width, height: content.height + surface.footerHeight)
+        return NSSize(width: max(content.width, minimumContent.width), height: content.height + surface.footerHeight)
     }
 
     /// How long the native control stays put (and the card unchanged) before a click on it counts.

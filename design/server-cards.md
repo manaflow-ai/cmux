@@ -38,17 +38,17 @@ calls, the invite socket, the clipboard); every card's look and every step it wa
 ## Security
 
 An action that pairs a machine or lets one in (Confirm, Try Again, an approver's Approve) is not a
-page control: a grant needs a control the page cannot press, name or move a click onto. The card
-names it (`PersonControl`: its title and whether it is enabled, from the card's own state), the
-page leaves a slot for it (marked `data-person-click`, laid out like the button it stands for and
-never drawn), and the panel draws a native button over that slot. The button keeps its own size
-(at least 72 by 24 pt), stays inside the card whatever slot the page reports, and its click reaches
-the card (`WebCard.personPressed`) only as the person's own left click from the HID system (not a
-key, an Accessibility press, a posted event or a script) that went down on it, on the key panel,
-begun at least a double-click interval after the card last drew (a machine arrived and Confirm
-appeared under a pointer aimed at what was there before) and 500 ms after the button last moved
-(the page could move the slot under the pointer). The page has no approve op; the Name field
-reaches the card by `setName`. This one control stays in Swift as the security boundary.
+page control: a grant needs a control the page cannot press, name, move or hide. The card names it
+(`PersonControl`: its title and whether it is enabled, from the card's own state), and while it
+shows the panel lays out its own native footer under the page with that control at its own size
+at the trailing edge; the page's size covers only the content above, and the page has no Confirm.
+While the footer shows the panel never gets smaller than it (whatever size the page asks for), and
+the control takes a click only while it shows whole. Its click reaches the card
+(`WebCard.personPressed`) only as the person's own left click from the HID system (not a key, an
+Accessibility press, a posted event or a script) that went down and up on it, on the key panel,
+begun at least the system's double-click interval (and 500 ms) after the card last drew or the
+control last moved on screen (any move or resize of the panel). The page has no approve op; the
+Name field reaches the card by `setName`. This one control stays in Swift as the security boundary.
 Copy, New Code and options need the person's own click or key (`userGesture`). A copied code is
 written concealed and transient so clipboard managers do not keep it.
 
