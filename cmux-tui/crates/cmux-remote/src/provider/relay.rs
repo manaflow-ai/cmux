@@ -2543,7 +2543,8 @@ mod tests {
             ),
             "; stderr: 71 bytes, codes carrier.unavailable, owner.unreachable, HTTP 503"
         );
-        let five = b"auth.refused carrier.busy vm.unbound carrier.unreachable carrier.bad_answer HTTP 500";
+        let five =
+            b"auth.refused carrier.busy vm.unbound carrier.unreachable carrier.bad_answer HTTP 500";
         assert_eq!(
             stderr_summary(five),
             format!(
