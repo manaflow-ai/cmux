@@ -333,17 +333,17 @@
 .cv-media.has-short-video > .cv-media__actions {
   top: 0;
 }
-/* They fade as a message's hover row does (conversation.css --cv-actions-*, #23769): in after a
- * beat under the pointer, at once from the keyboard, out quickly. */
+/* They follow the pointer's dwell as a message's hover row does (conversation.css --cv-actions-*):
+ * in as long as the pointer stays, at once from the keyboard, out a little faster. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-media__actions {
-    transition: opacity var(--cv-actions-out, 80ms) var(--cv-actions-ease, ease-out);
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-media:hover .cv-media__actions {
-    transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out) var(--cv-actions-in-delay, 100ms);
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
   .cv-media__actions:focus-within {
-    transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out);
+    transition: none;
   }
 }
 .cv-media__action {

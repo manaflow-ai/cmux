@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 use super::{
-    Member, Node, Position, Section, can_place, locate, locate_group, position_of,
+    Member, Node, Position, Section, can_place, creator, locate, locate_group, position_of,
     remove_workspaces, tree_order, wire, workspace,
 };
 
@@ -31,7 +31,8 @@ pub enum GroupMove {
 /// down among every place the block could be inserted in its own section.
 /// Moving down past an expanded group enters it as the first child; moving
 /// up from a group's first child leaves it. Collapsed groups are stepped
-/// over. The block never leaves its section, so a keyboard move never pins,
+/// over, and so is another creator's subtree; a creator moves with its
+/// children (`creator`). The block never leaves its section, so a keyboard move never pins,
 /// unpins or crosses machines.
 pub fn keyboard_target(
     ids: &[String],
@@ -41,17 +42,24 @@ pub fn keyboard_target(
     let ordered = tree_order(ids, sections);
     let first = ordered.first()?;
     let anchor = locate(first, sections)?;
+    let head = workspace(first, sections)?;
     // Nothing precedes the anchor in tree order, so its indices already are "after removal" coordinates.
     let current = position_of(first, sections)?;
+    // A creator steps with its children, and over another creator's subtree as one row.
+    let moving = creator::with_subtrees(&ordered, sections);
     let mut remaining = sections.to_vec();
-    remove_workspaces(&ordered.iter().map(String::as_str).collect(), &mut remaining);
-    let slots = slots(remaining.get(anchor.section)?);
+    remove_workspaces(&moving.iter().map(String::as_str).collect(), &mut remaining);
+    let section = remaining.get(anchor.section)?;
+    let slots: Vec<Position> = slots(section)
+        .into_iter()
+        .filter(|slot| *slot == current || creator::opens(slot, head, section))
+        .collect();
     let i = slots.iter().position(|slot| *slot == current)?;
     let j = match direction {
         Direction::Up => i.checked_sub(1)?,
         Direction::Down => i.checked_add(1)?,
     };
-    slots.get(j).cloned()
+    Some(creator::reorder_slot(slots.get(j)?, &ordered, &moving, sections))
 }
 
 /// Every insertion slot of a section, in visual order. Nested groups list

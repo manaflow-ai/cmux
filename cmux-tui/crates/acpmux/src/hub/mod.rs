@@ -49,6 +49,7 @@ mod cursor_ext;
 mod digest;
 pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
+mod gemini_plan;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
 mod first_work_tests;
@@ -68,6 +69,7 @@ mod startup_wait_tests;
 #[cfg(test)]
 mod transcript_seq_tests;
 pub(crate) use fork::offers_fork;
+pub mod created_by;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
@@ -116,6 +118,7 @@ mod log_deferral;
 mod log_load;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
+mod machine_info;
 mod repo_sync;
 mod retention;
 pub use retention::RetentionRequest;
@@ -157,6 +160,7 @@ pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
+mod elevation;
 mod git_watch;
 mod github_owner;
 mod lane_report_reads;
@@ -784,6 +788,10 @@ pub struct Hub {
     /// (`start_retry.rs` `fail_unless_shutdown_settles`); it blocks its thread.
     #[cfg(test)]
     pub(super) settle_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a dispatch check's refusal between its shutdown check and its
+    /// `prompt_refused` write (`web_control.rs` `check_dispatch`); it blocks its thread.
+    #[cfg(test)]
+    pub(super) refuse_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
@@ -1070,6 +1078,8 @@ impl Hub {
             retry_seam: Default::default(),
             #[cfg(test)]
             settle_seam: Default::default(),
+            #[cfg(test)]
+            refuse_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
