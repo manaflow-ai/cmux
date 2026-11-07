@@ -54,6 +54,13 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
+/// `renameat2` flags (`linux/fs.h`): fail when the target exists, or swap
+/// the two names atomically.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const RENAME_NOREPLACE: libc::c_uint = 1;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const RENAME_EXCHANGE: libc::c_uint = 2;
+
 /// How a staged file was put in place, which is how a rollback undoes it.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Placed {
@@ -341,11 +348,11 @@ fn place(file: &Staged, expect: Expect<'_>, ours: &[u8]) -> (Placed, io::Result<
         let Some(expected) = expected else {
             // Only where there is no file: an outside create wins.
             return renamed(
-                rename(libc::RENAME_NOREPLACE)
+                rename(RENAME_NOREPLACE)
                     .map_err(|error| changed(error, io::ErrorKind::AlreadyExists)),
             );
         };
-        if let Err(error) = rename(libc::RENAME_EXCHANGE) {
+        if let Err(error) = rename(RENAME_EXCHANGE) {
             return (Placed::No, Err(changed(error, io::ErrorKind::NotFound)));
         }
         // The file swapped out is exactly what was live at the swap.
@@ -355,7 +362,7 @@ fn place(file: &Staged, expect: Expect<'_>, ours: &[u8]) -> (Placed, io::Result<
         }
         let error = swapped.err().unwrap_or_else(|| io::Error::other(Changed));
         between_swaps();
-        match rename(libc::RENAME_EXCHANGE) {
+        match rename(RENAME_EXCHANGE) {
             Ok(()) => {
                 settle(file, &file.temporary, ours, &[ours]);
                 (Placed::No, Err(error))
@@ -385,11 +392,21 @@ fn rename_at(
 ) -> io::Result<()> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     if flags != 0 {
-        // SAFETY: both names are NUL-terminated and relative to the same open folder.
-        return check(unsafe {
-            libc::renameat2(directory, from.as_ptr(), directory, to.as_ptr(), flags)
-        })
-        .map(|_| ());
+        // The system call, not the C library's wrapper: the musl a static
+        // build links may predate `renameat2`.
+        // SAFETY: both names are NUL-terminated and relative to the same open
+        // folder; the kernel reads nothing else.
+        let result = unsafe {
+            libc::syscall(
+                libc::SYS_renameat2,
+                directory,
+                from.as_ptr(),
+                directory,
+                to.as_ptr(),
+                flags,
+            )
+        };
+        return if result < 0 { Err(io::Error::last_os_error()) } else { Ok(()) };
     }
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
     let _ = flags;
@@ -424,7 +441,7 @@ fn undo(file: &Staged, old: Option<&CString>, ours: &[u8], expected: Option<&[u8
     let directory = file.directory.as_raw_fd();
     match old {
         Some(old) => {
-            if rename_at(directory, old, &file.file_name, libc::RENAME_EXCHANGE).is_ok() {
+            if rename_at(directory, old, &file.file_name, RENAME_EXCHANGE).is_ok() {
                 between_swaps();
                 // The old file is ours to remove only when it is the one the
                 // change read.
@@ -436,14 +453,13 @@ fn undo(file: &Staged, old: Option<&CString>, ours: &[u8], expected: Option<&[u8
             let Ok(aside) = sibling(&file.file_name, "undo") else {
                 return;
             };
-            if rename_at(directory, &file.file_name, &aside, libc::RENAME_NOREPLACE).is_err() {
+            if rename_at(directory, &file.file_name, &aside, RENAME_NOREPLACE).is_err() {
                 return;
             }
             if is_ours(file, &aside, &[ours]) {
                 // SAFETY: `aside` is NUL-terminated and relative to the open folder.
                 unsafe { libc::unlinkat(directory, aside.as_ptr(), 0) };
-            } else if rename_at(directory, &aside, &file.file_name, libc::RENAME_NOREPLACE).is_err()
-            {
+            } else if rename_at(directory, &aside, &file.file_name, RENAME_NOREPLACE).is_err() {
                 keep(file, &aside);
             }
         }
@@ -462,7 +478,7 @@ fn settle(file: &Staged, holder: &CString, ours: &[u8], removable: &[&[u8]]) {
         return;
     }
     let directory = file.directory.as_raw_fd();
-    if rename_at(directory, holder, &file.file_name, libc::RENAME_EXCHANGE).is_err()
+    if rename_at(directory, holder, &file.file_name, RENAME_EXCHANGE).is_err()
         || !is_ours(file, holder, removable)
     {
         keep(file, holder);
@@ -479,7 +495,7 @@ fn is_ours(file: &Staged, name: &CString, bytes: &[&[u8]]) -> bool {
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn keep(file: &Staged, holder: &CString) {
     if let Ok(kept) = sibling(&file.file_name, "kept") {
-        let _ = rename_at(file.directory.as_raw_fd(), holder, &kept, libc::RENAME_NOREPLACE);
+        let _ = rename_at(file.directory.as_raw_fd(), holder, &kept, RENAME_NOREPLACE);
     }
 }
 
