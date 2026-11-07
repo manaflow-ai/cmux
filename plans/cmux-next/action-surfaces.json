@@ -32740,9 +32740,7 @@
           "name" : "viewer",
           "required" : false,
           "values" : [
-            "rd",
-            "web",
-            "native"
+            "rd"
           ]
         }
       ],
