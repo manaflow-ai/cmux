@@ -641,6 +641,13 @@ export type AcpmuxRow = {
   /// A "Worked for" disclosure whose fold mixes the agent's messages with its work reads "N previous
   /// messages", as Codex's does (conversation/turns.ts `foldMixesMessages`).
   previous?: number;
+  /// The messages between agents a finished turn's "Worked for" folds, which its label names in the
+  /// `messages` arm of workedForMessages.experiment.ts (conversation/turns.ts `shapeTurn`).
+  workedMessages?: { sent: number; received: number };
+  /// The prompt of other agents' messages a finished turn's "Worked for" folds (conversation/turns.ts
+  /// `shapedTurn`): the line stands for that prompt where the closed fold draws none, so the turn
+  /// keeps its minimap tick (threadMinimap/model.ts `minimapTurns`).
+  foldedPrompt?: AcpmuxRow;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
   queued?: string;
   /// A prompt sent into a running turn: `waiting` until the agent reads it (it reads a steer when
@@ -694,6 +701,10 @@ export type AcpmuxRow = {
   pendingMessages?: { rows: readonly AcpmuxRow[]; displayRows?: readonly AcpmuxRow[]; flat?: boolean };
   /// A received row expanded from an inbox notice; used to keep its waiting run flat.
   inboxDelivery?: true;
+  /// The id of the inbox notice row a delivery was expanded from (laneNoticeBatches.ts
+  /// `inboxChildren`): a turn the notice opened keeps the notice's fold key and minimap anchor
+  /// (conversation/turns.ts `turnFoldFor`, threadMinimap/model.ts `minimapTurns`).
+  inboxSource?: string;
   inboxDeliveryBatch?: true;
   /// Metadata retained for a preview-only inbox delivery so opening it can hydrate its thread.
   inboxThread?: {
@@ -2018,9 +2029,6 @@ function fallbackRowHeight(
   if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(20);
-  // The preview card mounts unloaded: one compact row, and 6px below (PreviewCard.tsx). Once the
-  // reader clicks Load preview, the transcript's ResizeObserver measures the head over its frame.
-  if (row.kind === PREVIEW) return finish(previewCardHeight(row.text, false));
   // A tagged ask's card (conversation/NextStepCard.tsx): waiting, 12px padding over the question
   // and its muted line, then a 36px row of answers; answered or superseded, the question over the
   // answer in 8px.
@@ -2431,8 +2439,7 @@ function measuredRowHeight(
   if (row.incoming?.kind === "hidden") return finish(0);
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
   if (onlyQuietThoughts(row)) return finish(0);
-  // A preview row's text is its address, not prose: the card's height is fixed.
-  if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+  if (!row.text) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
   let entry = cache.get(row.id);
   if (!entry) {
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
@@ -2903,7 +2910,6 @@ import { acpmuxSendCalls } from "./conversation/acpmuxSends";
 import { acpmuxMcpSends } from "./conversation/acpmuxMcpSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
-import { previewCardHeight } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
 import {
   ACTIVITY_LINE,
@@ -2911,7 +2917,6 @@ import {
   isEmptyFooter,
   isFoldedCopy,
   NEXT_STEP,
-  PREVIEW,
   RENDER,
   THINKING,
   WORKED,
