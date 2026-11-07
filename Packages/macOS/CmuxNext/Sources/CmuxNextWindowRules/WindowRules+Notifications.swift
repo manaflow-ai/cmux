@@ -29,6 +29,14 @@ extension WindowRules {
         return call("window_notifications_last_prompt", Request(prompts: prompts), as: Reply.self)?.index
     }
 
+    /// The tab whose agent was prompted last, of `tabs` in tree order (a tie goes to the first in the
+    /// tree: `last_prompt` breaks ties by the order it is sent); nil when none was prompted.
+    public func lastPrompted<Tab>(_ tabs: [Tab], prompt: (Tab) -> UInt64?) -> Tab? {
+        let prompted = tabs.compactMap { tab in prompt(tab).map { (tab, $0) } }
+        guard let index = lastPrompt(prompted.map(\.1)), prompted.indices.contains(index) else { return nil }
+        return prompted[index].0
+    }
+
     /// Mute Workspace: the muted keys after toggling `key` (a `legacy` key unmutes with it), sorted.
     public func toggleMute(_ muted: [String], key: String, legacy: String?) -> [String]? {
         struct Request: Encodable { var muted: [String], key: String, legacy: String? }

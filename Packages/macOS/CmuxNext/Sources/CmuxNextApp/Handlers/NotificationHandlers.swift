@@ -33,15 +33,10 @@ enum NotificationHandlers {
         // shown as a user jump: its window comes forward and its pane takes focus.
         registry.bind("jumpToLastPrompt", run: { _ in
             _ = try context.requireConnection()
-            // The prompted surfaces still in the tree, by the store's surface index: no walk of the workspaces.
-            let store = context.daemon.store
-            let prompted = store.agents.lastPromptBySurface.compactMap { surface, at in store.tab(surface: surface).map { ($0, at) } }
-                .sorted { $0.0.surface.rawValue < $1.0.surface.rawValue }
-            guard let index = WindowRules().lastPrompt(prompted.map(\.1)), prompted.indices.contains(index) else {
-                throw ActionFailure(message: MiscHandlerStrings.noPrompt)
-            }
+            let prompts = context.daemon.store.agents.lastPromptBySurface
+            guard let last = WindowRules().lastPrompted(context.allTabs, prompt: { prompts[$0.tab.surface] }) else { throw ActionFailure(message: MiscHandlerStrings.noPrompt) }
             guard ActionRunScope.viewChangeAllowed() else { return }
-            context.services.revealTab(prompted[index].0.id)
+            context.services.revealTab(last.tab.id)
         })
         registry.bind("markOldestUnreadAndJumpNext", requires: ack, daemon: context.daemon, run: { _ in try run(.markOldestAndJumpNext, context) })
         registry.bind("markAllNotificationsRead", requires: ack, daemon: context.daemon, run: { _ in try run(.markAllRead, context) })

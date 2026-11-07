@@ -17,6 +17,14 @@ import Testing
         #expect(rules.toggleBanners("never") == "unlessFocused")
     }
 
+    /// Jump to Last Prompt sends the prompted tabs in tree order, so a tie goes to the first in the tree,
+    /// not to the lowest surface id.
+    @Test func lastPromptTieGoesToTheFirstInTheTree() {
+        let tree: [(surface: Int, prompt: UInt64?)] = [(9, nil), (7, 5), (3, 8), (1, 8)]
+        #expect(rules.lastPrompted(tree, prompt: { $0.prompt })?.surface == 3)
+        #expect(rules.lastPrompted(tree.filter { $0.prompt == nil }, prompt: { $0.prompt }) == nil)
+    }
+
     @Test func historyTableAndLayoutUndo() throws {
         let table = try #require(rules.historyActions())
         #expect(table.walks.map(\.action) == ["focusHistoryBack", "focusHistoryForward", "focusHistoryLast"])
