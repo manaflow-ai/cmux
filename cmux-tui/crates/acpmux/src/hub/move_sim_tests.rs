@@ -447,6 +447,10 @@ impl World {
             return;
         }
         let link = self.link;
+        // A task of a link before goes with it (`restore.rs`: it stops where it is).
+        if self.task.as_ref().is_some_and(|t| t.link != link) {
+            self.task = None;
+        }
         let task = self.task.get_or_insert(RestoreTask {
             link,
             rows: (self.machine.generation, self.machine.end()),
@@ -606,6 +610,11 @@ impl World {
             45..=54 => self.capture(),
             55..=59 => {
                 let journal = self.machine.journal.clone();
+                self.note(format!(
+                    "snapshot {} (ends {})",
+                    self.machine.snapshots.len(),
+                    self.machine.end()
+                ));
                 self.machine.snapshots.push(journal);
             }
             60..=64 => self.restart_older(),

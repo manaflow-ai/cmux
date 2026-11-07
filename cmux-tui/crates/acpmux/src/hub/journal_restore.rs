@@ -14,7 +14,7 @@
 //! and continued, and a prompt it had queued waits in this queue again, under its own id, so a
 //! resend of that id joins it instead of running it twice.
 //!
-//! Design (fifth review of #37284): a restore is one exclusive operation on its chat, from
+//! Design (sixth review of #37284): a restore is one exclusive operation on its chat, from
 //! the owner's first try until every record it holds is in and flushed, or the owner gave up.
 //! - Locks, in this order: `close_lock` (as a stop or purge takes it; refused `generation` when
 //!   the chat was purged, replaced under its id, or has another `createdAt`), `turn_lock` (at
@@ -28,9 +28,12 @@
 //!   Short of the last record, or any flush error, answers `append_failed`: the owner keeps its
 //!   copy and tries again. The try that finishes settles the log as a restart's load does.
 //! - On the owner (`peer_snapshot/restore.rs`): every step of a restore, each try and each change
-//!   to its copy, goes only on the link and of the generation it started on; a replaced link's
-//!   task stops and the new link's owns the copy. A delivery the peer took stays open (kept, and
-//!   sent again with its generation) until its journal shows it, or fails visibly after 30 days.
+//!   to its copy, goes only on the link and of the generation it started on; a copy that holds
+//!   records past the machine's end stays, across a gap too, and goes back.
+//! - A message the machine took stays open on the owner until the owner's copy of that session
+//!   and generation holds its record on disk (`open_delivery.rs`): "accepted" and "duplicate" are
+//!   no proof. Its session is pinned before its first attempt and kept for every later one.
+//!   Checked by the seeded move simulation (`peer_snapshot/move_sim_tests.rs`).
 
 use super::*;
 use std::time::Duration;
