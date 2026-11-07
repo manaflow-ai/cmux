@@ -19,6 +19,7 @@ import { PICKER_LABELS } from "./composerPickerModel";
 import { Spinner } from "./conversation/icons";
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
+import { useComposerSettings } from "./composerSettings";
 import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
 import { BoltIcon } from "./BoltIcon";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
@@ -399,6 +400,9 @@ export function ModelPicker(props: ModelPickerProps) {
   const t = useT();
   // The Default row's name follows the pane language (`sectionsFor`), so the model rows do too.
   const lang = usePaneLanguage();
+  // The plain footer (composerSettings.ts plainFooter) draws the chip as text: its harness mark is
+  // in the chip's own ink, as the mode's symbol is, so it follows the chip's color, hover included.
+  const { plainFooter } = useComposerSettings();
   const newTab = useContext(OnNewTab);
   /// The chat's agent CLI has an update (hq#2569 #12): a row in the menu and the picker and a line
   /// in the chip's tooltip, never a banner over the chat. Never a dot on the chip: drawn between the
@@ -1179,7 +1183,9 @@ export function ModelPicker(props: ModelPickerProps) {
   const fastModeText = t("picker.fastMode");
   const chipFace = (
     <>
-      <AgentMark agent={chipHarness} size={16} />
+      {/* The provider's logo left of the model's name (cmux#38053): Claude for Claude models, OpenAI
+          for Codex and GPT, each harness's own mark, as the model menu draws it. */}
+      <AgentMark agent={chipHarness} size={16} tint={plainFooter} />
       {sessionAuthChip && (
         <span className="acpmux-model-detail" aria-label={sessionAuthText}>
           {sessionAuthChip}
