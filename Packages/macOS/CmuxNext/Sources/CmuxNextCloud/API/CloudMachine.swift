@@ -36,6 +36,13 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
         public var at: Date?
         /// What to show: the message, else the code.
         public var text: String
+
+        public init(code: String, message: String, at: Date? = nil, text: String) {
+            self.code = code
+            self.message = message
+            self.at = at
+            self.text = text
+        }
     }
 
     /// Why a paused machine is paused: the idle auto-pause or a Pause Machine.
