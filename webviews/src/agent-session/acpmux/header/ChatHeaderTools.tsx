@@ -11,6 +11,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
+import { useCountedRender } from "../perfRender";
 import {
   activityCue,
   morphIntoTab,
@@ -158,6 +159,8 @@ export function ChatHeaderTools({
   /// The motion style, when the gallery picks one; else the App's (`agentChat.headerMotion`).
   motion?: HeaderMotionStyle;
 }) {
+  // Debug measurement (acpmuxPerf): the header's committed renders (perf.ts `renders`).
+  useCountedRender("header");
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
   const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
