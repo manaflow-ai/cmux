@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use super::super::commit::{AFTER_PLACE, BEFORE_COMMIT, BETWEEN_SWAPS, FAIL_AT};
+use super::super::commit::{AFTER_PLACE, BEFORE_COMMIT, BETWEEN_SWAPS, FAIL_AT, FAIL_UNDO};
 use super::super::files;
 use super::super::seal::Purpose;
 use super::{fixture, random_hex};
@@ -347,5 +347,78 @@ fn saves_racing_a_rollback_are_never_lost() {
     assert!(
         names.iter().all(|name| !name.ends_with(".tmp") && !name.ends_with(".bak")),
         "a temporary or backup was left: {names:?}"
+    );
+}
+
+#[test]
+fn a_rollback_that_fails_keeps_every_old_file() {
+    let fixture = fixture(&[]);
+    std::fs::create_dir_all(fixture.home.join(".claude")).unwrap();
+    std::fs::create_dir_all(fixture.home.join(".config/cmux/agent-auth")).unwrap();
+    let old_settings = r#"{"theme":"dark"}"#;
+    let old_credentials =
+        format!(r#"{{"claudeAiOauth":{{"accessToken":"old-{}"}}}}"#, random_hex(8));
+    std::fs::write(fixture.home.join(".claude/settings.json"), old_settings).unwrap();
+    std::fs::write(fixture.home.join(".claude/.credentials.json"), &old_credentials).unwrap();
+    std::fs::write(fixture.home.join(".config/cmux/agent-auth/claude"), "managed\n").unwrap();
+    let token = format!("sk-ant-oat01-{}", random_hex(24));
+    let item = fixture.seal(Purpose::HarnessLogin, "claude", &token);
+    // The marker's rename (step 5) fails after settings and credentials went
+    // in, and putting them back fails too.
+    FAIL_UNDO.with(|fail| fail.set(true));
+    let result = {
+        let _fail = FailAt::set(Some(5));
+        fixture.secrets.install_harness_login(&item)
+    };
+    FAIL_UNDO.with(|fail| fail.set(false));
+    let error = result.unwrap_err();
+    assert!(error.message.starts_with("write"), "{error}");
+    let texts: Vec<String> = snapshot(&fixture.home)
+        .into_values()
+        .filter_map(|bytes| String::from_utf8(bytes).ok())
+        .collect();
+    for old in [old_settings, old_credentials.as_str(), "managed\n"] {
+        assert!(texts.iter().any(|text| text == old), "{old} was lost");
+    }
+    // Only our own staged copy that never went in (the marker's) is gone.
+    let names: Vec<_> = snapshot(&fixture.home).into_keys().collect();
+    assert!(names.iter().all(|name| !name.ends_with(".tmp")), "{names:?}");
+}
+
+#[test]
+fn a_write_through_a_descriptor_opened_before_the_swap_is_kept() {
+    use std::io::{Seek as _, Write as _};
+    let fixture = fixture(&[]);
+    std::fs::create_dir_all(fixture.home.join(".claude")).unwrap();
+    let settings = fixture.home.join(".claude/settings.json");
+    std::fs::write(&settings, r#"{"theme":"dark"}"#).unwrap();
+    // An editor holding the old file open writes through its descriptor
+    // after the swap and the check.
+    let mut held = std::fs::OpenOptions::new().write(true).open(&settings).unwrap();
+    let written = std::rc::Rc::new(std::cell::Cell::new(false));
+    let flag = std::rc::Rc::clone(&written);
+    AFTER_PLACE.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |index| {
+            if index == 0 {
+                held.set_len(0).unwrap();
+                held.rewind().unwrap();
+                held.write_all(br#"{"theme":"through-fd"}"#).unwrap();
+                flag.set(true);
+            }
+        }));
+    });
+    let token = format!("sk-ant-oat01-{}", random_hex(24));
+    let item = fixture.seal(Purpose::HarnessLogin, "claude", &token);
+    let result = fixture.secrets.install_harness_login(&item);
+    AFTER_PLACE.with(|hook| hook.borrow_mut().take());
+    assert_eq!(result.unwrap(), "claude");
+    assert!(written.get());
+    let texts: Vec<String> = snapshot(&fixture.home)
+        .into_values()
+        .filter_map(|bytes| String::from_utf8(bytes).ok())
+        .collect();
+    assert!(
+        texts.iter().any(|text| text == r#"{"theme":"through-fd"}"#),
+        "the descriptor's write was lost: {texts:?}"
     );
 }

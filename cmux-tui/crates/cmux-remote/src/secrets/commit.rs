@@ -52,6 +52,8 @@ thread_local! {
     /// outside save would.
     pub(super) static BETWEEN_SWAPS: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
         const { std::cell::RefCell::new(None) };
+    /// Tests only: every rollback step fails, as a full disk would.
+    pub(super) static FAIL_UNDO: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// `renameat2` flags (`linux/fs.h`): fail when the target exists, or swap
@@ -138,9 +140,23 @@ fn replace_all_with(
         .or_else(|| guards.iter().find_map(|guard| check_guard(home, guard).err()))
         .or_else(|| staged.iter().find_map(|file| sync_dir(&file.directory).err()));
     if let Some(error) = failed {
-        roll_back(&staged, writes);
-        discard(&staged);
+        if roll_back(&staged, writes) {
+            discard(&staged);
+        } else {
+            // A file couldn't be put back: every copy of an old file stays.
+            preserve(&staged, writes);
+        }
         return Err(error);
+    }
+    // A writer that opened the old settings before the swap may have
+    // written to it since: what was swapped out is removed only while it is
+    // still the bytes the change read.
+    for (file, write) in staged.iter().zip(writes) {
+        if let (Placed::Exchanged, Expect::Exactly(Some(expected))) = (file.placed, write.expect) {
+            if !is_ours(file, &file.temporary, &[expected]) {
+                keep(file, &file.temporary);
+            }
+        }
     }
     discard(&staged);
     for file in &staged {
@@ -417,7 +433,8 @@ fn rename_at(
 /// Put back every file already replaced, newest first: the old file over
 /// it, or none when there was none. Best effort, and only while the live
 /// file is still ours: an outside save after it went in place is kept.
-fn roll_back(staged: &[Staged], writes: &[Planned<'_>]) {
+fn roll_back(staged: &[Staged], writes: &[Planned<'_>]) -> bool {
+    let mut restored = true;
     for (file, write) in staged.iter().zip(writes).rev() {
         let old = match file.placed {
             Placed::No => continue,
@@ -428,7 +445,31 @@ fn roll_back(staged: &[Staged], writes: &[Planned<'_>]) {
             Expect::Exactly(expected) => expected,
             Expect::Anything => None,
         };
-        undo(file, old, write.bytes, expected);
+        #[cfg(test)]
+        if FAIL_UNDO.with(std::cell::Cell::get) {
+            restored = false;
+            continue;
+        }
+        restored &= undo(file, old, write.bytes, expected);
+        restored &= sync_dir(&file.directory).is_ok();
+    }
+    restored
+}
+
+/// After a rollback that couldn't put every file back: no old file is
+/// removed. Each backup, and each temporary that isn't this change's own
+/// bytes, is kept beside its file ([`keep`]); only our own staged copies go.
+fn preserve(staged: &[Staged], writes: &[Planned<'_>]) {
+    for (file, write) in staged.iter().zip(writes) {
+        if is_ours(file, &file.temporary, &[write.bytes]) {
+            // SAFETY: `temporary` is NUL-terminated and relative to the open folder.
+            unsafe { libc::unlinkat(file.directory.as_raw_fd(), file.temporary.as_ptr(), 0) };
+        } else {
+            keep(file, &file.temporary);
+        }
+        if let Some(backup) = &file.backup {
+            keep(file, backup);
+        }
         let _ = sync_dir(&file.directory);
     }
 }
@@ -437,24 +478,28 @@ fn roll_back(staged: &[Staged], writes: &[Planned<'_>]) {
 /// was none) and check that what came out is our bytes; anything else is an
 /// outside save, which goes back in place ([`settle`]).
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn undo(file: &Staged, old: Option<&CString>, ours: &[u8], expected: Option<&[u8]>) {
+fn undo(file: &Staged, old: Option<&CString>, ours: &[u8], expected: Option<&[u8]>) -> bool {
     let directory = file.directory.as_raw_fd();
     match old {
         Some(old) => {
-            if rename_at(directory, old, &file.file_name, RENAME_EXCHANGE).is_ok() {
-                between_swaps();
-                // The old file is ours to remove only when it is the one the
-                // change read.
-                let removable: Vec<&[u8]> = std::iter::once(ours).chain(expected).collect();
-                settle(file, old, ours, &removable);
+            if rename_at(directory, old, &file.file_name, RENAME_EXCHANGE).is_err() {
+                return false;
             }
+            between_swaps();
+            // The old file is ours to remove only when it is the one the
+            // change read.
+            let removable: Vec<&[u8]> = std::iter::once(ours).chain(expected).collect();
+            settle(file, old, ours, &removable);
+            true
         }
         None => {
             let Ok(aside) = sibling(&file.file_name, "undo") else {
-                return;
+                return false;
             };
-            if rename_at(directory, &file.file_name, &aside, RENAME_NOREPLACE).is_err() {
-                return;
+            match rename_at(directory, &file.file_name, &aside, RENAME_NOREPLACE) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return true,
+                Err(_) => return false,
             }
             if is_ours(file, &aside, &[ours]) {
                 // SAFETY: `aside` is NUL-terminated and relative to the open folder.
@@ -462,6 +507,7 @@ fn undo(file: &Staged, old: Option<&CString>, ours: &[u8], expected: Option<&[u8
             } else if rename_at(directory, &aside, &file.file_name, RENAME_NOREPLACE).is_err() {
                 keep(file, &aside);
             }
+            true
         }
     }
 }
@@ -485,17 +531,16 @@ fn settle(file: &Staged, holder: &CString, ours: &[u8], removable: &[&[u8]]) {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 /// Whether `name` holds one of `bytes`.
 fn is_ours(file: &Staged, name: &CString, bytes: &[&[u8]]) -> bool {
     matches!(read_at(&file.directory, name), Ok(Some(held)) if bytes.contains(&held.as_slice()))
 }
 
-/// Move `holder` out of the cleanup's way: `.NAME.<random>.kept`.
-#[cfg(any(target_os = "linux", target_os = "android"))]
+/// Move `holder` out of the cleanup's way: `.NAME.<random>.kept` (a fresh
+/// random name, so nothing is replaced).
 fn keep(file: &Staged, holder: &CString) {
     if let Ok(kept) = sibling(&file.file_name, "kept") {
-        let _ = rename_at(file.directory.as_raw_fd(), holder, &kept, RENAME_NOREPLACE);
+        let _ = rename_at(file.directory.as_raw_fd(), holder, &kept, 0);
     }
 }
 
@@ -507,20 +552,16 @@ fn between_swaps() {
 
 /// [`undo`] with no atomic swap: compare, then rename.
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
-fn undo(file: &Staged, old: Option<&CString>, ours: &[u8], _: Option<&[u8]>) {
+fn undo(file: &Staged, old: Option<&CString>, ours: &[u8], _: Option<&[u8]>) -> bool {
     let directory = file.directory.as_raw_fd();
-    if !matches!(read_at(&file.directory, &file.file_name), Ok(Some(bytes)) if bytes.as_slice() == ours)
-    {
-        return;
+    if !is_ours(file, &file.file_name, &[ours]) {
+        // An outside save is live now: it stays.
+        return true;
     }
     match old {
-        Some(old) => {
-            let _ = rename_at(directory, old, &file.file_name, 0);
-        }
+        Some(old) => rename_at(directory, old, &file.file_name, 0).is_ok(),
         // SAFETY: `file_name` is NUL-terminated and relative to the open folder.
-        None => unsafe {
-            libc::unlinkat(directory, file.file_name.as_ptr(), 0);
-        },
+        None => unsafe { libc::unlinkat(directory, file.file_name.as_ptr(), 0) == 0 },
     }
 }
 
