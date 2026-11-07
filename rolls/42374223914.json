@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42374223914",
+  "recorded_at": "2026-11-07T12:58:36Z",
+  "reason": "cmux-tui 2d7a228cbd4e changes the image's cmux-tui (pinned 470857dcd954)",
+  "dry_run": false,
+  "cmux_tui": "2d7a228cbd4e454d173e300a7fb90bc51a32514f",
+  "fixes": [
+    {
+      "sha": "2d7a228cbd4e454d173e300a7fb90bc51a32514f",
+      "mergedAt": "2026-11-07T04:34:50-08:00",
+      "subject": "secrets-v1: the machine's daemon opens HPKE-sealed secrets and harness logins (#37208)"
+    },
+    {
+      "sha": "862695d57544c5d078dce49a86d8b9304c34ff5e",
+      "mergedAt": "2026-11-07T04:33:16-08:00",
+      "subject": "Move the Codex access holder for Cloud machines to Rust (#37306)"
+    },
+    {
+      "sha": "f7c0310ebbace5d7a2374e1a2ad5ed38e3ec711a",
+      "mergedAt": "2026-11-07T12:30:59Z",
+      "subject": "cmux-host: the relay ticket command is the cmux host entry, not the session host binary (#37770)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T12:58:36Z",
+    "snapshot_id": "sh-3fab52350635492baf564c8703e3b5a8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42374223914): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7c856984cad58f5bf802466551242a075edbfab3",
+    "image": "cloud-native-auto-2d7a228c-42374223914-1",
+    "revision": "ci-42374223914-1",
+    "at": "2026-11-07T12:58:36Z"
+  },
+  "rolled_back": false
+}
