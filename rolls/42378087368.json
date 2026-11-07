@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42378087368",
+  "recorded_at": "2026-11-07T13:49:40Z",
+  "reason": "cmux-tui 9035d3ab42f7 changes the image's cmux-tui (pinned a70271f93a69)",
+  "dry_run": false,
+  "cmux_tui": "9035d3ab42f76288ef2c7e81ab9a4a1ee28819fb",
+  "fixes": [
+    {
+      "sha": "9035d3ab42f76288ef2c7e81ab9a4a1ee28819fb",
+      "mergedAt": "2026-11-07T05:26:11-08:00",
+      "subject": "Palette: every setting row reads On or Off, flips in place, and is named by its setting (#37613)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T13:49:40Z",
+    "snapshot_id": "sh-98277a52f6f54fb196bd5a6bc8c3f261",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42378087368): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1e550af05234bbc1969f64ba7e7389e0db54c98a",
+    "image": "cloud-native-auto-9035d3ab-42378087368-1",
+    "revision": "ci-42378087368-1",
+    "at": "2026-11-07T13:49:40Z"
+  },
+  "rolled_back": false
+}
