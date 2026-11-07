@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42390273564",
+  "recorded_at": "2026-11-07T16:23:07Z",
+  "reason": "cmux-tui 92885f8f9b17 changes the image's cmux-tui (pinned ace6366eb509)",
+  "dry_run": false,
+  "cmux_tui": "92885f8f9b1774e6e0dd7dd9ed66c6ab1b67655e",
+  "fixes": [
+    {
+      "sha": "92885f8f9b1774e6e0dd7dd9ed66c6ab1b67655e",
+      "mergedAt": "2026-11-07T08:00:21-08:00",
+      "subject": "cmux-tui: dial-tcp's SIGTERM tests signal only after the daemon or carrier saw the client (#37917)"
+    },
+    {
+      "sha": "cc9d9c87c2d83ac0569c79f71644c5f4b40eabad",
+      "mergedAt": "2026-11-07T07:59:57-08:00",
+      "subject": "smoltcp (vendored): an RST in SYN-RECEIVED returns to LISTEN with a fresh MSS and window (#37922)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T16:23:07Z",
+    "snapshot_id": "sh-ec99ced1c39e4ccc9a687b41d85a092a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42390273564): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "02cd93fe284df1004c73b5bfd3e9ed62aab96af2",
+    "image": "cloud-native-auto-92885f8f-42390273564-1",
+    "revision": "ci-42390273564-1",
+    "at": "2026-11-07T16:23:07Z"
+  },
+  "rolled_back": false
+}
