@@ -1,0 +1,275 @@
+{
+  "version": 1,
+  "build": "4236135856501",
+  "notes": "notes/4236135856501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 37532,
+      "title": "Reopen Closed: a chat closed in the last 30 s comes back with its page already drawn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37428,
+      "title": "perf(sidebar): a drag move reuses its base and crosses into Rust with numbers only (step B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37598,
+      "title": "Computer-use arena: every engine x Claude Code and Codex on one task suite, with success, time, tokens, CPU and memory",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37605,
+      "title": "scripts: delete 15 one-off probes and demos nothing references",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37630,
+      "title": "repo: delete two stray report and log files at the root",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37520,
+      "title": "Agent pane header: no ghost slot after the tools, one right inset in every pane, quiet tools in an unfocused pane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37641,
+      "title": "Agent chat: the selection's Reply chip reads over any transcript (a 90% veil of the theme surface, full-strength label)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37648,
+      "title": "Composer: Send and Stop morph into each other in 180 ms, both directions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37651,
+      "title": "Agent chat: a time with no date is the one nearest its message, and a future time says \"in 15 min\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37668,
+      "title": "docs(cmux-next): design lessons from 6,333 labelled fixes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37677,
+      "title": "try-pr daemon swap: companions go in too; a failed launch or web part is not a success",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37665,
+      "title": "acpmux: a trust check with no answer during a daemon restart answers the restart, not trust.pending",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27966,
+      "title": "fix: clarify connector inventory state",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37662,
+      "title": "base red: register gateway-e2e.yml in the Xcode guard and warm-sources",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37661,
+      "title": "automations: bounded watch cleanup, condition pipes, queued and manual guards (#37557 follow-ups)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37659,
+      "title": "web overlay: an overlay built for another page bridge is refused",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37568,
+      "title": "Agent chat: one tool call is one row from pending to done",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37437,
+      "title": "Cloud: SandboxRunFollower runs the cloud task follower's Rust rules (step B of #37291)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37567,
+      "title": "acpmux: a steered turn's typed failure keeps its kind and recovery",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37657,
+      "title": "test(generated-files guard): no detached git gc in the scratch repo",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37550,
+      "title": "base red: window cleanup traits, menu bar tooltip marker, staged-update probe wait, toast check reads a receipt's drawn box (#36958, #36969, #37408, #37279)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37530,
+      "title": "Agent chat: a streamed chunk restyles neither the composer nor Session Info",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34456,
+      "title": "Gemini plan approvals show their plan: acpmux reads the plan file for the approval card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37647,
+      "title": "try-pr: a daemon PR swaps its daemon into the app, no dev build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37590,
+      "title": "acpmux: Session Info Outputs reads only new rows per update",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37646,
+      "title": "base red: NewTabPlacementPathsTests' scenarios are nonisolated, so @Test(arguments:) can read them (from #37597)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37664,
+      "title": "docs(layout): a snapped key resize with a resized host presents at the next tick",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37616,
+      "title": "cmux NEXT: the window's lit rim runs over the main pane and browser panes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37625,
+      "title": "design: composer dictation sources, outside-dictation detection and indicator",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37606,
+      "title": "test(webviews): the zoom-1.25 drag-select case checks the line, not the release letter (base flake)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37211,
+      "title": "Cloud carrier: cmux carrier dial, the device side (a cmux-remote session over the machine's relay slot)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36808,
+      "title": "cmux-next diff tab: a failed or interrupted reconcile of a precomputed diff never shows it as current",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37650,
+      "title": "NewTabPlacementPathsTests: scenarios is nonisolated, so @Test(arguments:) can read it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37594,
+      "title": "cmux NEXT composer: a quieter rim, focus is a subtle brighten",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37640,
+      "title": "gateway-e2e: run on a feat-cmux-next push that changes its request file",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37554,
+      "title": "webviews: delete omniboxAction, the New Tab classifier classifyNewTabInput replaced",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37288,
+      "title": "settings: the source format covers every descriptor; the Tabs rows move to tabs.json",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37507,
+      "title": "Agent pane: the selection's Reply chip sits on the selection's last line, never in the margin",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37380,
+      "title": "Fork Conversation: the fork's tab draws from the chat it forked, and a fork-to-usable-tab bench",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37581,
+      "title": "Agent chat: a closed fold's runs arm splits runs where the open fold does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37560,
+      "title": "Agent chat: provider file ids in code, images and huge prompts; a refused take-back drop is not asked again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37503,
+      "title": "base red: ghostty-vt reads the prompt redraw's grid without indexing (panic ratchet indexing_slicing 107 > 103, #37461)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37575,
+      "title": "Agent chat: a tool call draws neither the composer nor Session Info",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37578,
+      "title": "cmux-action-catalog: Open Chief Dock is Show/Hide Chief, as the app's catalog has it since 23f42b1",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
