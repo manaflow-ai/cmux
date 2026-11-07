@@ -194,11 +194,8 @@ test("the last reply stays open when short notes and tools come after it", () =>
     summary(),
   ];
   const open = drawn(rows, new Set(["worked-u"]));
-  expect(open.filter((entry) => entry.startsWith("activity:"))).toEqual([
-    "activity:read",
-    "activity:grep",
-    "activity:test",
-  ]);
+  // The short note joins the runs on either side of it (turns.ts mergeShortNotes).
+  expect(open.filter((entry) => entry.startsWith("activity:"))).toEqual(["activity:read", "activity:grep"]);
   expect(open.slice(-2)).toEqual(["assistant:answer", "turnSummary:end"]);
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:answer", "turnSummary:end"]);
 });

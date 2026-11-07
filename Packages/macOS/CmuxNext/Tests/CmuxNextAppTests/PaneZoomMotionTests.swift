@@ -187,10 +187,13 @@ struct PaneZoomMotionTests {
     @Test func reduceMotionZoomsAndUnzoomsInOneFrame() throws {
         let screen = Screen(Self.grid2, reduceMotion: true)
         defer { screen.window.closeAfterTest() }
+        // A snap that resizes a pane shows at the next frame tick, its content drawn at the new size (#37330): one frame.
         screen.zoom("p1")
+        screen.step()
         #expect(screen.shown("p1") == screen.screen?.geometry.panes["p1"])
         #expect(["p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 0 })
         screen.unzoom()
+        screen.step()
         #expect(["p1", "p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 1 })
         #expect(screen.shown("p1") == screen.screen?.geometry.panes["p1"])
     }
