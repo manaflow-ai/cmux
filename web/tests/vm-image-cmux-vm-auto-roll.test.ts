@@ -101,7 +101,9 @@ describe("auto-roll rollback", () => {
     const second = rollback(result.text, entry("301").id);
     expect(second.nowFirst).toBe(locate(wrangler, "production").images[0]!.id);
     expect(locate(second.text, "production").images).toEqual(locate(wrangler, "production").images);
-    expect(rollback(second.text, entry("300").id)).toMatchObject({ rolledBack: false, reason: expect.stringMatching(/in neither list/) });
+    const gone = rollback(second.text, entry("300").id);
+    expect(gone.rolledBack).toBe(false);
+    expect(gone.reason).toMatch(/in neither list/);
   });
 
   test("never rolls back a hand-approved image", () => {
@@ -335,7 +337,9 @@ describe("auto-roll scripts", () => {
 
       const ok = await plan(full, older);
       expect(ok.status).toBe(0);
-      expect(JSON.parse(ok.stdout)).toMatchObject({ roll: false, reason: expect.stringMatching(/older than the pinned/) });
+      const decided = JSON.parse(ok.stdout) as { roll: boolean; reason: string };
+      expect(decided.roll).toBe(false);
+      expect(decided.reason).toMatch(/older than the pinned/);
 
       // A depth-1 clone of the tip: the old build is unreachable, the guard cannot decide, the plan errors.
       const shallow = path.join(dir, "shallow");
