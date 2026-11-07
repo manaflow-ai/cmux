@@ -282,6 +282,8 @@
     "setting.agents.guidance.codex": true,
     "setting.agents.guidance.otherAgents": true,
     "setting.agents.guidance.userSkills": true,
+    "setting.agents.hiddenChats.discard": false,
+    "setting.agents.hiddenChats.discardAfterMinutes": 15,
     "setting.agents.modelRouter.model": "deepseek/deepseek-v4.1-flash-1017",
     "setting.agents.promptCache": "1h",
     "setting.agents.subsessions.answerQuestions": false,
