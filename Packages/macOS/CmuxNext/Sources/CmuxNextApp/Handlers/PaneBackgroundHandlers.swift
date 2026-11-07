@@ -34,9 +34,7 @@ struct PaneBackgroundHandlers {
         /// What `appearance.set|reset` does: the level and property it names, whether the property is
         /// set there, and which theme action a level's theme goes through (cmux-window-rules `appearance`).
         func appearanceVerb(_ invocation: ActionInvocation, set: Bool) -> (AppearanceLevel, WindowRules.AppearanceVerb)? {
-            let property = invocation["property"]?.stringValue
-            let levels = property.flatMap(AppearanceProperty.init(rawValue:)).map { $0.levels.map(\.name) } ?? []
-            let ask = WindowRules.AppearanceAsk(scope: invocation["scope"]?.stringValue, property: property, propertyLevels: levels, set: set)
+            let ask = WindowRules.AppearanceAsk(scope: invocation["scope"]?.stringValue, property: invocation["property"]?.stringValue, set: set)
             let verb = WindowRules().appearance(ask)
             guard let verb, let level = verb.level.flatMap(AppearanceLevel.init(name:)) else {
                 return ctx.refuse(verb?.refusal == "notAtLevel" ? PaneBackgroundStrings.notAtLevel : PaneBackgroundStrings.badProperty)
@@ -106,7 +104,8 @@ struct PaneBackgroundHandlers {
             if let forwarded = verb.themeAction {
                 _ = ctx.services.registry.perform(ActionID(rawValue: forwarded), invocation: forward(invocation, theme: nil))
             }
-            save(reset(target, properties: (verb.properties ?? []).compactMap(AppearanceProperty.init(rawValue:))))
+            let properties = (verb.properties ?? []).compactMap(AppearanceProperty.init(rawValue:))
+            save(properties.allSatisfy { ctx.services.themes.setOwnValue(nil, $0, of: target) })
         })
     }
 

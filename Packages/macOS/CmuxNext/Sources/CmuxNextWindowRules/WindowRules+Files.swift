@@ -82,16 +82,16 @@ extension WindowRules {
         return call("window_files_open_with", Request(app: app, byPerson: byPerson, selection: selection), as: Open.self)
     }
 
-    /// An `appearance.set|reset` run.
+    /// An `appearance.set|reset` run (Rust owns the levels each property is set at).
     public nonisolated struct AppearanceAsk: Encodable, Equatable, Sendable {
-        public var scope: String?, property: String?, propertyLevels: [String], set: Bool
-        public init(scope: String?, property: String?, propertyLevels: [String], set: Bool) {
-            (self.scope, self.property, self.propertyLevels, self.set) = (scope, property, propertyLevels, set)
+        public var scope: String?, property: String?, set: Bool
+        public init(scope: String?, property: String?, set: Bool) {
+            (self.scope, self.property, self.set) = (scope, property, set)
         }
     }
 
     /// What an appearance verb does: `refusal` (`badProperty`, `notAtLevel`), else the level, the theme
-    /// action its theme goes through, and the properties it writes.
+    /// action its theme goes through, and the properties it writes (only those set at the level).
     public nonisolated struct AppearanceVerb: Decodable, Equatable, Sendable {
         public var refusal: String?
         public var level: String?

@@ -64,9 +64,9 @@ import Testing
     }
 
     @Test func appearanceRingStyleAndKeymapToast() {
-        let verb = rules.appearance(.init(scope: "workspace", property: "theme", propertyLevels: ["workspace"], set: true))
+        let verb = rules.appearance(.init(scope: "workspace", property: "theme", set: true))
         #expect(verb?.themeAction == "workspace.setTheme" && verb?.properties == [])
-        #expect(rules.appearance(.init(scope: "app", property: nil, propertyLevels: [], set: false))?.refusal == "badProperty")
+        #expect(rules.appearance(.init(scope: "app", property: nil, set: false))?.refusal == "badProperty")
         let edits = rules.focusRingStyle("glow", wasEnabled: false)
         #expect(edits?.map(\.path) == [["focusRing", "style"], ["focusRing", "enabled"]])
         #expect(edits?.first?.text == "glow" && edits?.last?.flag == true)
