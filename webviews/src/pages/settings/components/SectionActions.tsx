@@ -24,7 +24,7 @@ export function SectionActions({ section }: { section: string }) {
                 className="button"
                 data-action={action.id}
                 disabled={!action.enabled}
-                title={action.hint}
+                title={action.hint ?? undefined}
                 onClick={() => store.runSectionAction(action.id)}
               >
                 {action.title}
