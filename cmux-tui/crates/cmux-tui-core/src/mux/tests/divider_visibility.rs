@@ -55,6 +55,8 @@ fn hiding_and_showing_a_divider_persists_and_sends_one_layout_change_each() {
     // A ratio change keeps the flag.
     mux.set_split_ratio_checked(inner_split, 0.3).unwrap();
     assert_eq!(hidden_dividers(&mux), vec![inner_split]);
+    // The ratio change's own layout-changed (still listing the hidden divider) is not the show's.
+    events.try_iter().for_each(drop);
 
     mux.set_divider_visible_checked_as(&Actor::Daemon, inner_split, true, None).unwrap();
     assert!(hidden_dividers(&mux).is_empty());
