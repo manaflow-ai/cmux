@@ -830,7 +830,10 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI",
       "targets": [
         "CmuxNextCloud",
-        "CmuxNextDesign"
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextPages",
+        "CmuxNextSettings"
       ],
       "packages": []
     },
@@ -841,6 +844,8 @@
         "CmuxNextCloud",
         "CmuxNextCloudUI",
         "CmuxNextDesign",
+        "CmuxNextPages",
+        "CmuxNextSettings",
         "CmuxNextTestSupport"
       ],
       "packages": [],

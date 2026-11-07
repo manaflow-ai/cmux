@@ -86,6 +86,20 @@
       ],
       "confirm": [],
       "events": []
+    },
+    "bookmarks": {
+      "description": "Bookmarks. Reads and searches one browser profile's bookmark tree; every edit (add, rename, move, delete, a dropped row) is one bookmarks.apply on the person's gesture; it hears bookmarks-changed, so an open page re-reads when any surface changes the tree.",
+      "read": [
+        "bookmarks.list",
+        "bookmarks.search"
+      ],
+      "gesture": [
+        "bookmarks.apply"
+      ],
+      "confirm": [],
+      "events": [
+        "bookmarks-changed"
+      ]
     }
   },
   "namespaces": {
@@ -117,6 +131,21 @@
       ],
       "mutation": [
         "agent_session.trust.set"
+      ]
+    },
+    "bookmarks": {
+      "owner": "bookmarks.tree",
+      "description": "The bookmark tree of each browser profile in the home session (bookmarks-v1, server/bookmarks_routed.rs): list, search, the omnibar rank and the Netscape export as reads; apply (the bookmark ops in turn, each replay-keyed), import_html and import_source as mutations. Unix socket and authenticated WebSocket connections; mutations need origin user.",
+      "read": [
+        "bookmarks.list",
+        "bookmarks.search",
+        "bookmarks.rank",
+        "bookmarks.export"
+      ],
+      "mutation": [
+        "bookmarks.apply",
+        "bookmarks.import_html",
+        "bookmarks.import_source"
       ]
     }
   }
