@@ -210,7 +210,7 @@ fn run(global: &GlobalArgs, action: &str, words: &[String]) -> i32 {
     super::app::run_cli_action(global, action, words).unwrap_or_else(|| {
         super::app::failure(
             "app.unreachable",
-            &format!("the cmux app has no `{action}`; update cmux"),
+            &format!("the cmux app does not answer `{action}`; see `cmux {action} --help`"),
             global.output,
             3,
         )
