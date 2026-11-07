@@ -101,7 +101,10 @@ Narrowing it to -34018 is a Swift change for its own PR.
   the helper reads it in its consent gate (`ConsentGate.admit`), after the target check, the
   takeover wait and the consent answer, with no await before the driver runs. The legacy
   `cmux-cua` reads it in its tool registry after its last consent check, right before dispatch
-  (`scripts/cmux-cua-lock-at-execution.patch`). A call that passed
+  (`scripts/cmux-cua-lock-at-execution.patch`), and says so in its `initialize` answer
+  (`capabilities.experimental["cmux/lock-at-execution-v1"]`). The gate sends a legacy helper that
+  does not say it (an older installed one) no call at all: each call gets `cua_helper_outdated`,
+  whose text says to update cmux. A call that passed
   while unlocked and waited while the Mac locked gets the same `mac_locked` result. This applies
   **whether or not the toggle is on**: it is the safe answer on any locked Mac. `tools/list` still
   answers, so the agent knows the tools exist and can retry after the unlock.

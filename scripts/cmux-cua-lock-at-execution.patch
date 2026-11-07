@@ -1,3 +1,68 @@
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/protocol.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/protocol.rs
+index a82e4186..573b8f10 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/protocol.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/protocol.rs
+@@ -147,10 +147,27 @@ impl ToolResult {
+ 
+ // ── Initialize result ─────────────────────────────────────────────────────────
+ 
++/// The `capabilities.experimental` key of an initialize result from a server
++/// that reads the screen lock after its last consent check, right before it
++/// dispatches a call (`ToolRegistry::require_unlocked`). cmux's lock gate
++/// passes a call while the Mac is unlocked, and runs only a helper that
++/// says this, so a call that waits while the Mac locks never runs.
++pub const LOCK_AT_EXECUTION_CAPABILITY: &str = "cmux/lock-at-execution-v1";
++
++/// `capabilities` with [`LOCK_AT_EXECUTION_CAPABILITY`] on a Mac, the only
++/// platform that installs the screen lock hook.
++fn capabilities(tools: Value) -> Value {
++    let mut capabilities = serde_json::json!({ "tools": tools });
++    if cfg!(target_os = "macos") {
++        capabilities["experimental"] = serde_json::json!({ LOCK_AT_EXECUTION_CAPABILITY: {} });
++    }
++    capabilities
++}
++
+ pub fn initialize_result() -> Value {
+     serde_json::json!({
+         "protocolVersion": "2025-06-18",
+-        "capabilities": { "tools": {} },
++        "capabilities": capabilities(serde_json::json!({})),
+         "serverInfo": { "name": "cmux-cua", "version": env!("CARGO_PKG_VERSION") },
+         "instructions": agent_instructions()
+     })
+@@ -162,7 +179,7 @@ pub fn initialize_result() -> Value {
+ pub fn codex_computer_use_initialize_result() -> Value {
+     serde_json::json!({
+         "protocolVersion": "2025-06-18",
+-        "capabilities": { "tools": { "listChanged": false } },
++        "capabilities": capabilities(serde_json::json!({ "listChanged": false })),
+         "serverInfo": { "name": "Computer Use", "version": env!("CARGO_PKG_VERSION") }
+     })
+ }
+@@ -219,7 +236,21 @@ Calls that target the user's cmux, other terminal apps, or macOS security surfac
+ 
+ #[cfg(test)]
+ mod image_mime_type_tests {
+-    use super::{codex_computer_use_initialize_result, Content};
++    use super::{codex_computer_use_initialize_result, initialize_result, Content};
++
++    /// cmux runs a legacy helper only when it says it checks the screen lock
++    /// right before dispatch (review of cmux#37239); both profiles say so on
++    /// a Mac.
++    #[test]
++    fn a_mac_build_advertises_the_lock_check_at_execution() {
++        for result in [initialize_result(), codex_computer_use_initialize_result()] {
++            let advertised = result["capabilities"]["experimental"]
++                .get("cmux/lock-at-execution-v1")
++                .is_some();
++            assert_eq!(advertised, cfg!(target_os = "macos"), "{result}");
++            assert!(result["capabilities"]["tools"].is_object(), "{result}");
++        }
++    }
+ 
+     #[test]
+     fn codex_computer_use_initialize_matches_builtin_shape() {
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
 index 379762eb..8d79867a 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs

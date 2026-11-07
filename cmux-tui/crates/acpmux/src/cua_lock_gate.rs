@@ -14,6 +14,16 @@
 //! through both ways and ends with the helper. A call is gated in every form: a request, a
 //! notification, a batch. The gate only refuses: it never answers a call as done, never approves
 //! anything, and never reads the helper's tokens (they stay in the child's env).
+//!
+//! The gate reads the lock as a call comes in, and a call can then wait in the helper (on consent,
+//! on fronting its target) while the Mac locks. So the legacy helper must read the lock again right
+//! before it acts, and say so in its `initialize` answer
+//! ([`LOCK_AT_EXECUTION_CAPABILITY`], `scripts/cmux-cua-lock-at-execution.patch`). A helper that
+//! does not say it (one built before that check) gets no call at all: each one is answered with
+//! [`HELPER_OUTDATED`], which says to update cmux.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
@@ -24,11 +34,27 @@ use crate::mac_lock::{MAC_LOCKED, MAC_LOCKED_TEXT};
 /// The acpmux command word of the legacy driver's gate (`acpmux cua-lock-gate -- CMD ARGS`).
 pub const COMMAND: &str = "cua-lock-gate";
 
+/// The `capabilities.experimental` key of the legacy helper's `initialize` answer when it reads
+/// the screen lock right before it dispatches a call (`scripts/cmux-cua-lock-at-execution.patch`).
+pub const LOCK_AT_EXECUTION_CAPABILITY: &str = "cmux/lock-at-execution-v1";
+
+/// The typed reason a call gets when the legacy helper does not say it checks the lock at execution.
+pub const HELPER_OUTDATED: &str = "cua_helper_outdated";
+
+/// The text of a [`HELPER_OUTDATED`] answer.
+pub const HELPER_OUTDATED_TEXT: &str = "cua_helper_outdated: this Mac's Computer Use helper is too \
+    old to check the screen lock right before it acts, so cmux sends it no steps. The step was not \
+    run. Update cmux, which updates the helper, then start a new chat.";
+
 /// The `tools/call` result a gated call gets: an error result with the typed reason.
 pub fn locked_result() -> Value {
+    refused_result(MAC_LOCKED, MAC_LOCKED_TEXT)
+}
+
+fn refused_result(reason: &str, text: &str) -> Value {
     json!({
-        "content": [{"type": "text", "text": MAC_LOCKED_TEXT}],
-        "structuredContent": {"error": MAC_LOCKED},
+        "content": [{"type": "text", "text": text}],
+        "structuredContent": {"error": reason},
         "isError": true,
     })
 }
@@ -50,19 +76,25 @@ pub enum Gated {
 /// per request in it, and none of it passes. Anything else passes (`locked` is only asked for a
 /// call).
 pub fn gate(message: &Value, locked: impl FnOnce() -> bool) -> Gated {
+    refuse_calls(message, locked, MAC_LOCKED, MAC_LOCKED_TEXT)
+}
+
+/// [`gate`] with the reason a held call is answered with.
+fn refuse_calls(message: &Value, held: impl FnOnce() -> bool, reason: &str, text: &str) -> Gated {
     let has_call = match message {
         Value::Array(items) => items.iter().any(is_call),
         _ => is_call(message),
     };
-    if !has_call || !locked() {
+    if !has_call || !held() {
         return Gated::Pass;
     }
+    let reply = |message: &Value| refused_reply(message, reason, text);
     match message {
         Value::Array(items) => {
-            let replies: Vec<Value> = items.iter().filter_map(locked_reply).collect();
+            let replies: Vec<Value> = items.iter().filter_map(reply).collect();
             if replies.is_empty() { Gated::Drop } else { Gated::Reply(Value::Array(replies)) }
         }
-        _ => locked_reply(message).map_or(Gated::Drop, Gated::Reply),
+        _ => reply(message).map_or(Gated::Drop, Gated::Reply),
     }
 }
 
@@ -70,16 +102,51 @@ fn is_call(message: &Value) -> bool {
     message["method"] == "tools/call"
 }
 
-/// The answer, while locked, to one request of a message that holds a call: a call gets the
+/// The answer, while held, to one request of a message that holds a call: a call gets the
 /// typed result, another request the same reason as an error. A notification gets none.
-fn locked_reply(message: &Value) -> Option<Value> {
+fn refused_reply(message: &Value, reason: &str, text: &str) -> Option<Value> {
     let id = message.get("id")?;
     message.get("method")?;
     Some(if is_call(message) {
-        json!({"jsonrpc": "2.0", "id": id, "result": locked_result()})
+        json!({"jsonrpc": "2.0", "id": id, "result": refused_result(reason, text)})
     } else {
-        json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32000, "message": MAC_LOCKED_TEXT}})
+        json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32000, "message": text}})
     })
+}
+
+/// The ids of the agent's `initialize` requests in one message.
+fn initialize_ids(message: &Value) -> Vec<Value> {
+    let one = |item: &Value| {
+        let initialize = item.get("method").and_then(Value::as_str) == Some("initialize");
+        if initialize { item.get("id").cloned() } else { None }
+    };
+    match message {
+        Value::Array(items) => items.iter().filter_map(one).collect(),
+        _ => one(message).into_iter().collect(),
+    }
+}
+
+/// What the helper's answers in one message say about the lock check at execution, for the
+/// `initialize` requests in `pending` (each one answered is taken out): `Some` for the last one
+/// answered, `None` when the message answers none of them.
+fn lock_check_answer(message: &Value, pending: &mut Vec<Value>) -> Option<bool> {
+    let items = match message {
+        Value::Array(items) => items.as_slice(),
+        _ => std::slice::from_ref(message),
+    };
+    let mut said = None;
+    for item in items {
+        if item.get("method").is_some() {
+            continue; // a request or notification from the helper, not an answer
+        }
+        let Some(at) = item.get("id").and_then(|id| pending.iter().position(|p| p == id)) else {
+            continue;
+        };
+        pending.swap_remove(at);
+        let experimental = item.pointer("/result/capabilities/experimental");
+        said = Some(experimental.and_then(|e| e.get(LOCK_AT_EXECUTION_CAPABILITY)).is_some());
+    }
+    said
 }
 
 /// `acpmux cua-lock-gate -- CMD ARGS`: runs CMD as the agent's MCP server, passing its stdio
@@ -147,18 +214,34 @@ where
             }
         }
     });
+    // Whether the helper said, answering `initialize`, that it reads the lock right before it
+    // acts. It is set before that answer reaches the agent, and an MCP client calls a tool only
+    // after it has the answer, so no call is refused for a helper that does say it.
+    let checks_lock = Arc::new(AtomicBool::new(false));
+    let pending_initialize = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
     let server_out = out_tx.clone();
+    let (server_checks_lock, server_pending) = (checks_lock.clone(), pending_initialize.clone());
     let from_server = tokio::spawn(async move {
         let mut lines = BufReader::new(from_child).lines();
         while let Ok(Some(line)) = lines.next_line().await {
+            if let Ok(message) = serde_json::from_str::<Value>(&line) {
+                let mut pending = server_pending.lock().unwrap_or_else(|e| e.into_inner());
+                if !pending.is_empty()
+                    && let Some(said) = lock_check_answer(&message, &mut pending)
+                {
+                    server_checks_lock.store(said, Ordering::SeqCst);
+                }
+            }
             if server_out.send(format!("{line}\n")).is_err() {
                 return;
             }
         }
     });
+    let outdated = || !checks_lock.load(Ordering::SeqCst);
     // The helper reads what the gate read: each message goes on as the gate parsed it, so a line
     // two parsers read differently (a repeated key) cannot pass as one thing and act as another.
-    // A line that does not parse goes on as it is, unless the screen is locked.
+    // A line that does not parse goes on as it is, unless the screen is locked or the helper is
+    // one that gets no call.
     let mut lines = input.lines();
     let mut from_server = from_server;
     let mut server_ended = false;
@@ -172,8 +255,19 @@ where
         };
         let Some(line) = line else { break };
         let (gated, text) = match serde_json::from_str::<Value>(&line) {
-            Ok(message) => (gate(&message, &locked), message.to_string()),
-            Err(_) if locked() => (Gated::Drop, String::new()),
+            Ok(message) => {
+                let ids = initialize_ids(&message);
+                if !ids.is_empty() {
+                    pending_initialize.lock().unwrap_or_else(|e| e.into_inner()).extend(ids);
+                }
+                let gated =
+                    match refuse_calls(&message, outdated, HELPER_OUTDATED, HELPER_OUTDATED_TEXT) {
+                        Gated::Pass => gate(&message, &locked),
+                        refused => refused,
+                    };
+                (gated, message.to_string())
+            }
+            Err(_) if outdated() || locked() => (Gated::Drop, String::new()),
             Err(_) => (Gated::Pass, line),
         };
         match gated {
