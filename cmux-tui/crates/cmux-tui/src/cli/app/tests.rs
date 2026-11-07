@@ -2032,3 +2032,51 @@ fn a_persons_new_machine_opens_the_machine_it_made() {
     assert!(open.to_string().contains("machine:vm_1"), "{open}");
     assert_eq!(open["focus"], true, "a CLI run shows the workspace only when it asks to: {open}");
 }
+
+/// `exchange_within` keeps one deadline: an app that sends a byte now and then, never a whole
+/// line, ends the read at the deadline, not when it stops (#37485's review, F1).
+#[test]
+fn exchange_within_ends_at_its_deadline_for_an_app_that_trickles() {
+    let (mut ours, mut app) = UnixStream::pair().unwrap();
+    let trickle = std::thread::spawn(move || {
+        let mut request = [0_u8; 256];
+        let _ = app.read(&mut request);
+        for _ in 0..40 {
+            if app.write_all(b" ").is_err() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    });
+    let started = std::time::Instant::now();
+    let answer = super::exchange_within(
+        &mut ours,
+        "settings.get",
+        json!({ "path": "chat.on" }),
+        Duration::from_millis(300),
+    );
+    let took = started.elapsed();
+    assert!(answer.is_err(), "{answer:?}");
+    assert!(took < Duration::from_millis(1000), "took {took:?}, the app trickled for 2 s");
+    drop(ours);
+    trickle.join().unwrap();
+}
+
+/// A whole line within the deadline is the answer.
+#[test]
+fn exchange_within_reads_a_whole_line() {
+    let (mut ours, mut app) = UnixStream::pair().unwrap();
+    let answer = std::thread::spawn(move || {
+        let mut request = [0_u8; 256];
+        let _ = app.read(&mut request);
+        app.write_all(b"{\"id\":1,\"ok\":true,\"result\":{\"value\":\"cloud\"}}\n").unwrap();
+    });
+    let reply = super::exchange_within(
+        &mut ours,
+        "settings.get",
+        json!({ "path": "chat.on" }),
+        Duration::from_secs(5),
+    );
+    answer.join().unwrap();
+    assert_eq!(reply, Ok(Ok(json!({ "value": "cloud" }))));
+}
