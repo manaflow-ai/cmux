@@ -2,7 +2,8 @@ import AppKit
 import CmuxNextDesign
 
 /// The pet's reply box: one capsule of the notices' size and glass with who it goes to and the
-/// text, just over the pet in the notices' place. It takes the keys without activating cmux (as Start Agent's panel does), so the app you
+/// text, just over the pet in the notices' place. Talking to the mini's own chat (Show in Mini), it
+/// also shows that chat's newest reply under the field: two lines, unfolded by a click on them. It takes the keys without activating cmux (as Start Agent's panel does), so the app you
 /// were in stays in front; a click elsewhere, Esc or a sent reply puts it away.
 final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
     static let accessibilityID = "cmux.chiefPet.reply"
@@ -11,19 +12,33 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
     static let gap: CGFloat = 12
 
     /// In the notices' place by the pet: toward the quadrant with room (`ChiefPetBubblePanel.frame`).
-    static func frame(over pet: CGRect, in visible: CGRect) -> CGRect {
-        ChiefPetBubblePanel.frame(height: size.height, over: pet, in: visible, width: size.width, gap: gap)
+    static func frame(over pet: CGRect, in visible: CGRect, height: CGFloat = size.height) -> CGRect {
+        ChiefPetBubblePanel.frame(height: height, over: pet, in: visible, width: size.width, gap: gap)
     }
+
+    /// The newest reply's lines while folded, and unfolded at most.
+    static let foldedLines = 2
+    static let unfoldedLines = 12
+    /// The reply's inset from the box's sides and bottom, and its gap under the field's row.
+    static let side: CGFloat = 22
+    static let bottom: CGFloat = 14
 
     /// Return (or ⌘Return) in the field with the chosen target and the text.
     var onSubmit: ((ChiefPetReplyTarget, String, _ command: Bool) -> Void)?
     var onClose: (() -> Void)?
+    /// The box's height changed (a reply shown, gone, unfolded): the controller places it again.
+    var onResize: (() -> Void)?
     let field = ThemedTextField(frame: .zero)
     let picker = ThemedPopUpButton(frame: .zero, pullsDown: false)
     private let surface: NSView = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
         ? Glass.makeOverlayPanel(cornerRadius: ChiefPetReplyPanel.size.height / 2)
         : Glass.makePanel(style: .regular, cornerRadius: ChiefPetReplyPanel.size.height / 2, interactive: true)
     private(set) var targets: [ChiefPetReplyTarget] = []
+    /// The newest reply of the mini's chat (``ChiefPetHome/latest``), and the target it belongs to.
+    private(set) var latest: (target: ChiefPetReplyTarget, text: String)?
+    /// The reply unfolded past its two lines (a click on it).
+    private(set) var unfolded = false
+    let latestLabel = ChromeLabel(wrappingLabelWithString: "")
 
     init() {
         super.init(contentRect: NSRect(origin: .zero, size: Self.size),
@@ -63,8 +78,46 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
         field.delegate = self
+        latestLabel.font = .systemFont(ofSize: TypeScale.body)
+        // Wrapped, the last line that fits ends in an ellipsis: unfolded, more lines show.
+        latestLabel.wraps = true
+        latestLabel.truncatesLastVisibleLine = true
+        latestLabel.maximumNumberOfLines = Self.foldedLines
+        latestLabel.isSelectable = false
+        latestLabel.isHidden = true
+        latestLabel.setAccessibilityRole(.button)
         container.addSubview(picker)
         container.addSubview(field)
+        container.addSubview(latestLabel)
+        container.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(clicked(_:))))
+    }
+
+    /// A click on the reply unfolds it to ``unfoldedLines``, and folds it again.
+    @objc private func clicked(_ recognizer: NSClickGestureRecognizer) {
+        guard !latestLabel.isHidden, latestLabel.frame.contains(recognizer.location(in: recognizer.view)) else { return }
+        unfolded.toggle()
+        layoutRow()
+    }
+
+    /// The height the box needs: the field's row, and the shown reply under it.
+    var preferredHeight: CGFloat {
+        guard !latestLabel.isHidden else { return Self.size.height }
+        return Self.size.height + latestHeight + Self.bottom
+    }
+
+    private var latestHeight: CGFloat {
+        let width = Self.size.width - Self.side * 2
+        return ceil(latestLabel.size(forWidth: width).height)
+    }
+
+    /// The newest reply of the mini's chat `target` (nil: none, or the Chief's box without one). It
+    /// shows while that target is chosen; a new reply folds back to two lines.
+    func show(latest text: String?, of target: ChiefPetReplyTarget) {
+        let next = text.map { (target, $0.trimmingCharacters(in: .whitespacesAndNewlines)) }.flatMap { $0.1.isEmpty ? nil : $0 }
+        guard next?.0 != latest?.target || next?.1 != latest?.text else { return }
+        if next?.1 != latest?.text { unfolded = false }
+        latest = next.map { (target: $0.0, text: $0.1) }
+        layoutRow()
     }
 
     override var canBecomeKey: Bool { true }
@@ -89,7 +142,8 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         if let kept {
             let stayed = targets.firstIndex { ChiefPetReply.sameTarget($0, kept) }
             if stayed == nil { field.stringValue = "" }
-            picker.selectItem(at: stayed ?? targets.firstIndex(of: .chief) ?? 0)
+            // The fallback is the mini's own chat, the last target (the Chief by default).
+            picker.selectItem(at: stayed ?? max(targets.count - 1, 0))
         } else {
             picker.selectItem(at: 0)
         }
@@ -102,14 +156,29 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
     }
 
     private func layoutRow() {
+        let oldHeight = preferredHeight
+        // The reply shows under its own chat only: another target chosen hides it.
+        let reply = latest.flatMap { latest in target.map { ChiefPetReply.sameTarget($0, latest.target) } == true ? latest.text : nil }
+        latestLabel.isHidden = reply == nil
+        latestLabel.stringValue = reply ?? ""
+        latestLabel.textColor = Palette.textSecondary
+        latestLabel.maximumNumberOfLines = unfolded ? Self.unfoldedLines : Self.foldedLines
+        latestLabel.setAccessibilityLabel(reply)
+        latestLabel.setAccessibilityHelp(unfolded ? ChiefPetStrings.showLess : ChiefPetStrings.showMore)
+        let total = preferredHeight
+        let rowY = total - Self.size.height
         picker.sizeToFit()
         let height = Self.size.height
-        let side: CGFloat = 22
+        let side = Self.side
         let width = min(picker.frame.width, 140)
-        picker.frame = CGRect(x: side, y: ((height - picker.frame.height) / 2).rounded(), width: width, height: picker.frame.height)
+        picker.frame = CGRect(x: side, y: rowY + ((height - picker.frame.height) / 2).rounded(), width: width, height: picker.frame.height)
         let fieldHeight = ceil(field.intrinsicContentSize.height)
         let x = picker.frame.maxX + 6
-        field.frame = CGRect(x: x, y: ((height - fieldHeight) / 2).rounded(), width: Self.size.width - x - side - 4, height: fieldHeight)
+        field.frame = CGRect(x: x, y: rowY + ((height - fieldHeight) / 2).rounded(), width: Self.size.width - x - side - 4, height: fieldHeight)
+        if !latestLabel.isHidden {
+            latestLabel.frame = CGRect(x: side, y: Self.bottom, width: Self.size.width - side * 2, height: latestHeight)
+        }
+        if total != oldHeight || frame.height != total { onResize?() }
     }
 
     /// Takes the keys (never activating cmux) with the caret in the field.
