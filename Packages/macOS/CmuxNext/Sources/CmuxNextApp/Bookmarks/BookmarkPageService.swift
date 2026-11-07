@@ -110,15 +110,7 @@ final class BookmarkManagerSourceAdapter: BookmarkManagerSource {
         services.registry.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .bookmark, id: node.id)))
     }
 
-    func apply(_ operation: BookmarkOperation) -> Bool {
-        do {
-            try services.bookmarks.apply(operation, profile: profile)
-            return true
-        } catch {
-            services.registry.refuse(BookmarkAppStrings.failure(error))
-            return false
-        }
-    }
+    func apply(_ operation: BookmarkOperation) -> Bool { services.bookmarks.applyOrRefuse(operation, profile: profile) }
 
     func open(_ node: BookmarkNode, disposition: BookmarkOpenDisposition) {
         BookmarkOpener(services: services).open(node, profile: profile, disposition: disposition, fromTab: tabKey)

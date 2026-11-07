@@ -74,6 +74,7 @@ enum BookmarkAppStrings {
 
     static func failure(_ error: any Error) -> String {
         switch error as? BookmarkError {
+        case .unavailable(let message)?: message
         case .notFound?: t("bookmarks.error.notFound", "That bookmark no longer exists")
         case .invalidParent?: notFolder
         case .cycle?: t("bookmarks.error.cycle", "A folder cannot move into itself")
