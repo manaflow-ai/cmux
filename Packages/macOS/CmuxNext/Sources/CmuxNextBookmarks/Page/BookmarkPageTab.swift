@@ -32,7 +32,7 @@ public final class BookmarkPageTab: BrowserTab {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
-        var state = BrowserTabState(url: BookmarkPageAddress.url, title: BookmarkStrings.pageTitle)
+        var state = BrowserTabState(url: .bookmarkPage, title: BookmarkStrings.pageTitle)
         state.phase = .finished
         self.state = state
         self.host = host
@@ -46,7 +46,7 @@ public final class BookmarkPageTab: BrowserTab {
     }
 
     public func load(_ url: URL) {
-        if BookmarkPageAddress.matches(url) { return reload() }
+        if url.isBookmarkPage { return reload() }
         onNavigate?(url)
     }
 
