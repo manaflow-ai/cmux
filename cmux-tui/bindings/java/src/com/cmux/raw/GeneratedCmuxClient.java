@@ -1478,6 +1478,11 @@ public abstract class GeneratedCmuxClient {
         return UsageSetEnabledResult.fromWire(result);
     }
 
+    public final UsageSetSharingResult usageSetSharing(UsageSetSharingRequest request) throws CmuxException {
+        Object result = execute(Commands.USAGE_SET_SHARING, request.toWire());
+        return UsageSetSharingResult.fromWire(result);
+    }
+
     public final VtStateResult vtState(VtStateRequest request) throws CmuxException {
         Object result = execute(Commands.VT_STATE, request.toWire());
         return VtStateResult.fromWire(result);

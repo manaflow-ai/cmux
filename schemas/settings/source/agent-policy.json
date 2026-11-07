@@ -1312,6 +1312,13 @@
       ]
     },
     {
+      "agent": "privacy",
+      "why": "Whether this Mac sends its usage record (counts and timings, never content) to the person's team: the person's choice only.",
+      "keys": [
+        "diagnostics.usageSharing"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "What a new chat may do without asking: an agent must not widen its own approvals.",
       "keys": [

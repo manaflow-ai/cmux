@@ -1895,7 +1895,8 @@
           {
             "key" : "settings.group.usageRecording",
             "rows" : [
-              "diagnostics.usageRecording"
+              "diagnostics.usageRecording",
+              "diagnostics.usageSharing"
             ],
             "title" : {
               "key" : "settings.group.usageRecording",
@@ -99694,6 +99695,144 @@
       "title" : {
         "key" : "settings.diagnostics.usageRecording",
         "text" : "Record Usage on This Mac"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.usageRecording",
+        "text" : "Usage Recording"
+      },
+      "help" : {
+        "key" : "settings.diagnostics.usageSharing.help",
+        "text" : "Sends this Mac's usage record to your cmux team about every six hours, while Record Usage on This Mac is on. It is the same record: counts and timings, never file names, web addresses, titles, terminal or chat text, or anything you type. Run cmux usage delete-shared to delete what you shared."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "diagnostics.usageSharing",
+      "keywords" : [
+        "usage",
+        "analytics",
+        "share",
+        "team",
+        "upload",
+        "telemetry",
+        "privacy",
+        "patterns"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diagnostics",
+        "usageSharing"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : {
+        "key" : "settings.diagnostics.usageSharing.summary",
+        "text" : "Sends the usage record to your team. Needs Record Usage."
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:diagnostics.usageSharing"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.diagnostics.usageSharing",
+        "text" : "Share Usage with the Team"
       },
       "validation" : "portable"
     },

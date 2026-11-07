@@ -891,6 +891,9 @@ class GeneratedClientMixin:
     def usage_set_enabled(self, on: bool) -> UsageSetEnabledResult:
         return self._invoke_command('usage-set-enabled', UsageSetEnabledRequest(on=on))
 
+    def usage_set_sharing(self, on: bool) -> UsageSetSharingResult:
+        return self._invoke_command('usage-set-sharing', UsageSetSharingRequest(on=on))
+
     def vt_state(self, surface: Id) -> VtStateResult:
         return self._invoke_command('vt-state', VtStateRequest(surface=surface))
 
@@ -1197,6 +1200,7 @@ GeneratedClientMixin.url_open_result.__cmux_command__ = COMMANDS['url-open-resul
 GeneratedClientMixin.url_open_subscribe.__cmux_command__ = COMMANDS['url-open-subscribe']
 GeneratedClientMixin.usage_record.__cmux_command__ = COMMANDS['usage-record']
 GeneratedClientMixin.usage_set_enabled.__cmux_command__ = COMMANDS['usage-set-enabled']
+GeneratedClientMixin.usage_set_sharing.__cmux_command__ = COMMANDS['usage-set-sharing']
 GeneratedClientMixin.vt_state.__cmux_command__ = COMMANDS['vt-state']
 GeneratedClientMixin.wait_for.__cmux_command__ = COMMANDS['wait-for']
 GeneratedClientMixin.ws_listen.__cmux_command__ = COMMANDS['ws-listen']

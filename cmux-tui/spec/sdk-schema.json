@@ -10124,6 +10124,28 @@
     }
    },
    "additional_properties": false
+  },
+  "UsageSetSharingResult": {
+   "kind": "object",
+   "fields": {
+    "on": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "dir": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -26205,6 +26227,34 @@
    "stream": null,
    "constraints": [
     "Switching off keeps what was recorded; nothing is deleted."
+   ]
+  },
+  "usage-set-sharing": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "on": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "UsageSetSharingResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Sharing needs recording: on refuses while recording is off, and switching recording off also switches sharing off.",
+    "`cmux usage upload` refuses without this switch, so a synced settings file or an agent cannot make a Mac upload."
    ]
   },
   "put-blob": {

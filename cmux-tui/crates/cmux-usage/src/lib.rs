@@ -6,10 +6,12 @@
 //! chats, action ids and how they were started (splits, new tabs and closes are actions), counts of what is open, latencies,
 //! and agent turns with the token counts their harness reports. Never content: no message text,
 //! file paths, URLs or titles; object ids are hashed with a per-install salt ([`event`]).
-//! `cmux usage report` reads the files back as distributions ([`report`]).
+//! `cmux usage report` reads the files back as distributions ([`report`]). A second opt-in,
+//! `diagnostics.usageSharing`, lets `cmux usage upload` send them to the person's team ([`share`]).
 
 pub mod event;
 pub mod report;
+pub mod share;
 pub mod store;
 
 pub use event::{Entry, Event, Id, Record, Source, Surface, Token};

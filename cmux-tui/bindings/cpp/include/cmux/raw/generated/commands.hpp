@@ -334,6 +334,7 @@ public:
     [[nodiscard]] Result<EventStream> url_open_subscribe(const UrlOpenSubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<UsageRecordResult> usage_record(const UsageRecordRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<UsageSetEnabledResult> usage_set_enabled(const UsageSetEnabledRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<UsageSetSharingResult> usage_set_sharing(const UsageSetSharingRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<VtStateResult> vt_state(const VtStateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WaitForResult> wait_for(const WaitForRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> ws_listen(const WsListenRequest& request = {}, RequestOptions options = {});

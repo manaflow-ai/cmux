@@ -2,6 +2,8 @@
 //!
 //! ```text
 //! <dir>/enabled          present while recording is on (the app writes it from the person's own yes)
+//! <dir>/share            present while this Mac also shares its record with the team (`share`)
+//! <dir>/upload-cursor    how far `cmux usage upload` has reached (`share::Cursor`)
 //! <dir>/salt             32 random bytes (hex), made at the first switch-on; ids are hashed with it
 //! <dir>/<stem>.jsonl     one Record per line, appended by one writer (app-nightly, daemon, acpmux)
 //! <dir>/<stem>.jsonl.1   the previous generation, replaced at each roll
@@ -23,7 +25,10 @@ use crate::event::{Event, Record, Source, Token};
 pub const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 
 const ENABLED: &str = "enabled";
+const SHARE: &str = "share";
 const SALT: &str = "salt";
+/// The upload cursor's file name ([`crate::share::Cursor`]).
+pub(crate) const UPLOAD_CURSOR: &str = "upload-cursor";
 
 /// The usage folder: `CMUX_USAGE_DIR`, else `~/Library/Application Support/cmux/usage` on macOS,
 /// else `$XDG_STATE_HOME/cmux/usage` (`~/.local/state/cmux/usage`).
@@ -82,14 +87,13 @@ impl UsageDir {
     }
 
     /// Switches recording on or off. On makes the folder and the salt if needed; off removes the
-    /// on-switch and keeps what was recorded ([`UsageDir::clear`] deletes it).
+    /// on-switch and the sharing switch (sharing needs recording) and keeps what was recorded
+    /// ([`UsageDir::clear`] deletes it).
     pub fn set_enabled(&self, on: bool) -> io::Result<()> {
         let marker = self.dir.join(ENABLED);
         if !on {
-            return match fs::remove_file(marker) {
-                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-                other => other,
-            };
+            remove_if_present(&self.dir.join(SHARE))?;
+            return remove_if_present(&marker);
         }
         if self.is_enabled() {
             return Ok(());
@@ -97,6 +101,40 @@ impl UsageDir {
         fs::create_dir_all(&self.dir)?;
         self.salt()?;
         fs::write(marker, format!("{{\"since\":{}}}\n", now_ms()))
+    }
+
+    /// Whether this Mac shares its record with the team: the sharing switch exists. Only the
+    /// app writes it, from this Mac's own consent (`usage-set-sharing`); `cmux usage upload`
+    /// refuses without it, so a synced settings file or an agent cannot make it upload.
+    pub fn is_sharing(&self) -> bool {
+        self.dir.join(SHARE).is_file()
+    }
+
+    /// When sharing was last switched on (Unix ms), if it is on.
+    pub fn sharing_since(&self) -> Option<u64> {
+        let text = fs::read_to_string(self.dir.join(SHARE)).ok()?;
+        serde_json::from_str::<serde_json::Value>(&text).ok()?.get("since")?.as_u64()
+    }
+
+    /// Switches sharing on or off. On makes the folder if needed; off removes the switch and
+    /// keeps the upload cursor, so turning it on again does not send a record twice.
+    pub fn set_sharing(&self, on: bool) -> io::Result<()> {
+        let marker = self.dir.join(SHARE);
+        if !on {
+            return remove_if_present(&marker);
+        }
+        if self.is_sharing() {
+            return Ok(());
+        }
+        fs::create_dir_all(&self.dir)?;
+        fs::write(marker, format!("{{\"since\":{}}}\n", now_ms()))
+    }
+
+    /// This install's salt as it is now, never making one (nil before the first switch-on or
+    /// after [`UsageDir::clear`]).
+    pub fn existing_salt(&self) -> Option<Vec<u8>> {
+        let text = fs::read_to_string(self.dir.join(SALT)).ok()?;
+        hex::decode(text.trim()).ok().filter(|bytes| bytes.len() == 32)
     }
 
     /// This install's salt, made on first use.
@@ -151,15 +189,20 @@ impl UsageDir {
         records
     }
 
-    /// Deletes every usage file and the salt (the on-switch stays as it is).
+    /// Deletes every usage file, the salt and the upload cursor (the switches stay as they are).
     pub fn clear(&self) -> io::Result<()> {
         for file in self.files() {
             fs::remove_file(file)?;
         }
-        match fs::remove_file(self.dir.join(SALT)) {
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-            other => other,
-        }
+        remove_if_present(&self.dir.join(UPLOAD_CURSOR))?;
+        remove_if_present(&self.dir.join(SALT))
+    }
+}
+
+fn remove_if_present(path: &Path) -> io::Result<()> {
+    match fs::remove_file(path) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        other => other,
     }
 }
 

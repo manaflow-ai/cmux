@@ -484,6 +484,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "update-tab-group",
     "usage-record",
     "usage-set-enabled",
+    "usage-set-sharing",
     "wait-for",
     "ws-listen",
 ];
