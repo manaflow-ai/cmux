@@ -10252,7 +10252,7 @@ struct CMUXCLI {
         case "feed", "claude":
             return hookInvocationHasNoSocketTarget(commandArgs: commandArgs, environment: environment)
         default:
-            guard Self.agentDef(named: first) != nil else {
+            guard Self.hookEventTargetDef(named: first) != nil else {
                 // Let the local parser report an unknown target instead of
                 // masking it with a missing-socket error.
                 return true
@@ -35754,6 +35754,12 @@ struct CMUXCLI {
         guard ProcessInfo.processInfo.environment[agentHookRelayOriginEnvironmentKey] != "1" else {
             return false
         }
+        // An agent declared in cmux.json resumes through its Vault `resumeCommand`.
+        // The hook knows no command for it, and the nil path below would clear a
+        // binding the agent published itself.
+        guard kind == "claude" || Self.agentDef(named: kind) != nil else {
+            return false
+        }
         if kind == "hermes-agent" {
             var stateEnvironment = ProcessInfo.processInfo.environment
             if let launchEnvironment = launchCommand?.environment {
@@ -39168,7 +39174,8 @@ export default {
                         )
                     }
                 }
-                if !clearAgentSurfaceResumeBinding(
+                // Agents declared in cmux.json keep the binding Vault restores them from.
+                if Self.agentDef(named: def.name) != nil, !clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: consumed.workspaceId,
                     surfaceId: consumed.surfaceId,
@@ -45658,7 +45665,7 @@ export default {
             return true
 
         default:
-            guard let def = Self.agentDef(named: first) else {
+            guard let def = Self.hookEventTargetDef(named: first) else {
                 if first == "feed" || first == "claude" {
                     return false
                 }
@@ -45674,6 +45681,15 @@ export default {
                 refreshManagedPiExtensionIfNeeded(def)
             }
             let actionArgs = Array(rest.dropFirst())
+            if action == "install" || action == "uninstall", Self.agentDef(named: def.name) == nil {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.error.vaultAgentNothingToInstall",
+                        defaultValue: "%@ is declared in cmux.json and has no cmux-managed hooks to install or uninstall."
+                    ),
+                    first
+                ))
+            }
             switch action {
             case "extension-source" where def.name == "pi":
                 print(Self.piExtensionSource, terminator: "")
@@ -45709,7 +45725,7 @@ export default {
             return !usesPinnedHookDispatch(def)
         }
         if first == "feed" || first == "claude" { return true }
-        guard let def = Self.agentDef(named: first) else { return false }
+        guard let def = Self.hookEventTargetDef(named: first) else { return false }
         let action = commandArgs.dropFirst().first?.lowercased()
         if def.name == "pi", action == "extension-source" { return false }
         // Grok and Muse clear CMUX_* from hook subprocesses; their pinned
@@ -45812,7 +45828,7 @@ export default {
             }
 
         default:
-            guard let def = Self.agentDef(named: first) else {
+            guard let def = Self.hookEventTargetDef(named: first) else {
                 throw CLIError(message: "Unknown hooks target: \(first)")
             }
             telemetry.breadcrumb("hooks.\(def.name).dispatch")
