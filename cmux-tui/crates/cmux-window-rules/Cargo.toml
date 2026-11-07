@@ -1,0 +1,17 @@
+[package]
+name = "cmux-window-rules"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The cmux NEXT window handlers' rules (pure; the macOS app asks them over the app FFI): what a close asks and whether it earns an undo toast"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
