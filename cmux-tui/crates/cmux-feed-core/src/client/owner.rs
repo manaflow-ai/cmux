@@ -138,6 +138,22 @@ impl IntegrationOwner {
         (ids, self.publish(closed, None))
     }
 
+    /// Drops every item `drop` matches, with no close: they were never this
+    /// reader's (the account that read them left). One event, or none.
+    pub fn remove_where(&mut self, drop: impl Fn(&FeedItem) -> bool) -> Option<OwnerEvent> {
+        let mut removed: Vec<String> =
+            self.items.values().filter(|item| drop(item)).map(|item| item.id.clone()).collect();
+        if removed.is_empty() {
+            return None;
+        }
+        removed.sort();
+        for id in &removed {
+            self.items.remove(id);
+        }
+        self.revision = self.revision.saturating_add(1);
+        Some(OwnerEvent { revision: self.revision, tx: None, items: Vec::new(), removed })
+    }
+
     /// Commits one intent: its events, then its settle line (`Err`: the
     /// owner refused it).
     pub fn commit(&mut self, intent: &Intent) -> (Result<(), Reject>, Vec<OwnerEvent>) {

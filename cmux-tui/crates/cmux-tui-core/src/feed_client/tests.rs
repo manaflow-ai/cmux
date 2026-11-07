@@ -345,6 +345,7 @@ fn the_github_poller_posts_with_etags_and_stops_when_turned_off() {
 #[test]
 fn another_account_starts_the_github_poller_over() {
     let h = harness(None);
+    super::driver::change_account(&mut h.feed.inner.lock(), Some("u1".to_owned()), NOW);
     {
         let mut answers = h.gh.answers.lock().unwrap();
         answers.push_back(Ok(b"HTTP/2.0 304 Not Modified\r\nETag: \"n1\"\r\n\r\n".to_vec()));
@@ -358,6 +359,7 @@ fn another_account_starts_the_github_poller_over() {
     {
         let mut state = h.feed.inner.lock();
         super::driver::change_account(&mut state, Some("u2".to_owned()), NOW);
+        assert!(state.owner.is_empty(), "a GitHub row of the old account stays");
         assert_eq!(state.github_epoch, epoch.wrapping_add(1));
         assert!(
             state.github.etag(Query::POLLED[0]).is_none(),
