@@ -231,6 +231,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
     /// natively drawn Session Info steps behind; empty when none shows.
     case sessionInfoOverlays([AgentPaneSessionInfoOverlay])
+    /// `pane.toastAvoidance {rects}`: the page's bottom stack (viewport CSS pixels), which the
+    /// window's toasts rest above; nil when the page has none (AgentPaneView+ToastAvoidance.swift).
+    case toastAvoidance(CGRect?)
     /// Copies a native Session Info menu item through the platform clipboard.
     case copyText(String)
     /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.

@@ -254,6 +254,9 @@ extension AgentPaneModel {
         case .sessionInfoOverlays(let rects):
             sessionInfo.updateOverlays(rects)
             return AgentPaneReply.success()
+        case .toastAvoidance(let rect):
+            setToastAvoidance(rect)
+            return AgentPaneReply.success()
         case .copyText(let text):
             guard transport.gestures.consume() else {
                 return Self.transportFailure(.gestureRequired)
@@ -365,5 +368,14 @@ extension AgentPaneModel {
         }
         let moves: Set<String> = ["cloudMove", "cloudBringBack"]
         return ids(chatMenuItems?() ?? []).filter(moves.contains)
+    }
+}
+
+extension AgentPaneModel {
+    /// Keeps the page's bottom stack (`pane.toastAvoidance`); a change moves the window's toasts.
+    func setToastAvoidance(_ rect: CGRect?) {
+        guard rect != toastAvoidance else { return }
+        toastAvoidance = rect
+        onToastAvoidance?()
     }
 }

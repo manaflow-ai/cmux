@@ -44,6 +44,8 @@ await requireBrowserLane("agent-pane-composer-still-under-toasts.test.ts", async
   /// The composer card's bottom and the stage's height, in CSS pixels, after two frames.
   const measure = (page: Page) =>
     page.evaluate(async () => {
+      // raf-read: the boxes come from getBoundingClientRect, which runs style and layout itself; the frames only let a
+      // host call's effects (a variable, an animation start) land first, and nothing here needs a painted frame.
       await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
       const composer = document.querySelector("form.acpmux-composer")!.getBoundingClientRect();
       const stage = document.querySelector(".acpmux-main > .acpmux-stage")!.getBoundingClientRect();
