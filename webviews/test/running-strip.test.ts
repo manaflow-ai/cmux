@@ -57,7 +57,19 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       (value) => (window as unknown as { __showTray: (c: boolean) => void }).__showTray(value),
       clickable,
     );
+    // One line heads the hat folded (Leo, 2026-11-07): its header opens it; the pointer then leaves
+    // the header, so what the tests read is the line at rest.
+    await page.waitForSelector(".acpmux-running-tray");
+    await openRunningTray(page);
+    await page.mouse.move(0, 0);
     await page.waitForSelector(".acpmux-running-tray .acpmux-agent-line");
+    // The header's hover wash fades out (summary.css's background transition): wait for the pointer
+    // to have left it and finish that fade, so the line is read at rest.
+    await page.waitForFunction(() => !document.querySelector(".acpmux-running-tray__head:hover"));
+    await page.evaluate(() => {
+      for (const animation of document.getAnimations())
+        if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
+    });
     // The tray rises in as it joins the stack (bottomStack.css ui-enter): measure where it lands.
     return page;
   }

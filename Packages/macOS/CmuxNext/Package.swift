@@ -182,8 +182,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-b127f368c58a0d78bb644baa844a5d1c9d473452/CCmuxAppFFI.xcframework.zip",
-    checksum: "af5cd206cc812d56208075de37deb03b923aa084895f9682cfacd17e2bb9d90f"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-2d7a228cbd4e454d173e300a7fb90bc51a32514f/CCmuxAppFFI.xcframework.zip",
+    checksum: "9e8bcbba41bda423441d16f34c0241468cdcdf64f35656acc485004a9146cd79"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -1673,7 +1673,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextBrowser",
-            dependencies: ["CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer"],
+            dependencies: ["CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextPages", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer"],
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
             resources: [.copy("CEF/Shim/cmux_cef_shim.h"), .process("Resources")],
