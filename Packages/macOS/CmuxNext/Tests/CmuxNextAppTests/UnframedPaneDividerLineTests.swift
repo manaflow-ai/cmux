@@ -52,7 +52,7 @@ struct UnframedPaneDividerLineTests {
         let root: LayoutRootView
         let window: NSWindow
 
-        init(framed: [PaneID: Bool], separation: PaneSeparation = .borders) {
+        init(framed: [PaneID: Bool], separation: PaneSeparation = .borders, hitWidth: CGFloat? = nil) {
             _ = NSApplication.shared
             provider = Panes(framed: framed)
             let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
@@ -64,6 +64,7 @@ struct UnframedPaneDividerLineTests {
             style.drawsLines = true
             style.panePadding = 0
             style.columnGap = 0
+            if let hitWidth { style.dividerHitThickness = hitWidth }
             model.followsDesignMetrics = false
             model.baseStyle = style
             root = LayoutRootView(model: model, contentProvider: provider)
@@ -105,6 +106,13 @@ struct UnframedPaneDividerLineTests {
         #expect(try harness.handle.isLineVisible, "a chat tab took the pane: the line shows")
         content.show(framed: true)
         #expect(try !harness.handle.isLineVisible, "a terminal tab is back: its outline separates it again")
+    }
+
+    /// A drag width as thin as the line (`dividerHitWidth` 1): the panes only touch the hit area, and still count.
+    @Test func aThinDragWidthStillFindsTheChatBesideIt() throws {
+        let harness = Harness(framed: ["p1": true, "p2": false], hitWidth: 1)
+        defer { harness.window.closeAfterTest() }
+        #expect(try harness.handle.isLineVisible)
     }
 
     /// `none` and `cards` keep their own look: no line at rest beside a chat either.

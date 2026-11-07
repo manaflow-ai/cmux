@@ -12,9 +12,14 @@ extension ScreenContentView {
         if style.showsDividerLine { return true }
         guard style.drawsLines, style.showsPaneBorder, case let .split(id) = kind,
               let divider = baseGeometry.dividers.first(where: { $0.id == id }) else { return false }
-        // The panes on either side of the line reach into its hit area, which is centered on their gap.
+        // The panes on either side of the line reach into its hit area, which is centered on their gap; a
+        // point more catches panes that only touch it (a drag width as thin as the line). Docked splits and
+        // panes are in view coordinates, the strip's in content coordinates: only one space is compared.
+        let docked = baseGeometry.fixedSplits.contains(id)
+        let area = divider.hitFrame.insetBy(dx: -1, dy: -1)
         return baseGeometry.panes.contains { pane, frame in
-            frame.intersects(divider.hitFrame) && context.hosts[pane]?.framesContent == false
+            baseGeometry.fixedPanes.contains(pane) == docked && frame.intersects(area)
+                && context.hosts[pane]?.framesContent == false
         }
     }
 
