@@ -12,9 +12,7 @@ public protocol UsageRecordingHost: AnyObject, Sendable {
     var usageWorkspaces: [WorkspaceModel] { get }
     /// Open windows.
     var usageWindowCount: Int { get }
-    /// The active window's sidebar is hidden (true with no window).
-    var usageSidebarHidden: Bool { get }
-    /// The active window's sidebar width in points.
+    /// The active window's sidebar width in points; 0 while it is hidden or with no window.
     var usageSidebarWidth: Double { get }
     /// The app is active.
     var usageAppActive: Bool { get }

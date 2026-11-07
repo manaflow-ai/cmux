@@ -53,9 +53,7 @@ enum UserOnlySettingConfirmation {
         guard shown == .bool(true) else { return text }
         switch CmuxConfigFile.keyPath(from: key) {
         case HangReportsSetting.path: return text + "\n\n" + HangReportsStrings.privacySummary
-        case UsageRecordingSetting.path: return text + "\n\n" + UsageRecorder.privacySummary
-        case UsageSharingSetting.path: return text + "\n\n" + UsageSharing.privacySummary
-        default: return text
+        case let path: return UsageSharing.privacySummary(forPath: path).map { text + "\n\n" + $0 } ?? text
         }
     }
 

@@ -3,15 +3,13 @@ import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextSettings
 
-// Opt-in usage recording and team sharing (UsageRecorder, CmuxNextControl): one-line forwards to what it counts, asks
-// and uploads with (sharing's token is the install token `cmux auth token` mints, for the selected backend's platform).
+// Opt-in usage recording and team sharing (UsageRecorder, UsageSharing in CmuxNextControl): one-line forwards.
 extension AppServices: UsageRecordingHost {
     var usageChannel: String { crashReporting.reporter.policy.channel?.rawValue ?? CrashReportingPolicy.Channel.dev.rawValue }
     var usagePreviousRun: String { crashRecovery.marker == nil ? "unknown" : crashRecovery.recovery.isRestart ? "crash" : "clean" }
     var usageWorkspaces: [WorkspaceModel] { daemon.store.workspaces }
     var usageWindowCount: Int { windows.controllers.count }
-    var usageSidebarHidden: Bool { windows.active?.state.sidebarHidden ?? true }
-    var usageSidebarWidth: Double { Double(windows.active?.sidebar.model.width ?? 0) }
+    var usageSidebarWidth: Double { windows.active.map { $0.state.sidebarHidden ? 0 : Double($0.sidebar.model.width) } ?? 0 }
     var usageAppActive: Bool { appActiveSource() }
     func usageConnection() async -> DaemonConnection? { await daemon.connectionAfterFirst() }
     func usageIsChat(_ id: String) -> Bool { agentTabs.isAgentTab(id) }

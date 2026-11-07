@@ -279,6 +279,16 @@ public final class UsageSharing {
         }
     }
 
+    /// The card's privacy summary of a usage setting turned on (recording or sharing), for the
+    /// sheet that confirms the person's own write of it; nil for any other key path.
+    public static func privacySummary(forPath path: [String]) -> String? {
+        switch path {
+        case UsageRecordingSetting.path: UsageRecorder.privacySummary
+        case UsageSharingSetting.path: privacySummary
+        default: nil
+        }
+    }
+
     /// What sharing sends and to whom: the card's detail, and the confirmation sheet of
     /// `cmux settings set diagnostics.usageSharing true --confirm` (both record consent).
     public static var privacySummary: String {

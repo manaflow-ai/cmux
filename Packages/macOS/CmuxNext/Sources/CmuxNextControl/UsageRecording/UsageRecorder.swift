@@ -124,7 +124,7 @@ public final class UsageRecorder {
             counts: { [weak host] in
                 guard let host else { return UsageCounts() }
                 return UsageCounts(workspaces: host.usageWorkspaces, windows: host.usageWindowCount,
-                                   sidebarWidth: host.usageSidebarHidden ? 0 : Int(exactly: host.usageSidebarWidth.rounded()) ?? 0,
+                                   sidebarWidth: Int(exactly: host.usageSidebarWidth.rounded()) ?? 0,
                                    isChat: host.usageIsChat)
             },
             appActive: { [weak host] in host?.usageAppActive ?? false },
