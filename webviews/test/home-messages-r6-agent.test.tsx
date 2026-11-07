@@ -338,3 +338,86 @@ test("a toast over the message box takes room under the newest message, and give
   await settle();
   expect(keys()).not.toContain("toast-room");
 });
+
+const { TurnSteps, statusParts, turnDetails, stepsSummary } =
+  await import("../src/pages/home-messages/transcript/turnSteps");
+const { newestActivity, ChiefStatusLine } = await import("../src/pages/home-messages/transcript/ChiefStatusLine");
+
+test("the status line folds the turn's finished steps and counts the running one", () => {
+  const steps = new TurnSteps();
+  const t0 = 1_700_000_000_000;
+  steps.record({ line: "Running git log", since: t0 });
+  steps.record({ line: "Running ls", since: t0 + 2000 });
+  // The same start with a sharper line stays one step.
+  steps.record({ line: "Reading", since: t0 + 3000 });
+  steps.record({ line: "Reading notes.md", since: t0 + 3000 });
+  steps.record({ line: "Checking on a31", since: t0 + 5000 });
+  expect(steps.steps.map((step) => step.line)).toEqual([
+    "Running git log",
+    "Running ls",
+    "Reading notes.md",
+    "Checking on a31",
+  ]);
+  expect(statusParts(steps, { line: "Checking on a31", since: t0 + 5000 }, t0 + 135_000, strings)).toEqual([
+    "Ran 2 commands · Reading notes.md ›",
+    "Checking on a31 · 2m 10s",
+  ]);
+  const details = turnDetails(steps, t0 + 135_000, strings);
+  expect(details.total).toBe("Total 2m 15s");
+  expect(details.rows.map((row) => `${row.line} ${row.duration}`)).toEqual([
+    "Running git log 2s",
+    "Running ls 1s",
+    "Reading notes.md 2s",
+    "Checking on a31 now",
+  ]);
+  // An older clock is a new run: the record starts over.
+  steps.record({ line: "Thinking", since: t0 - 1 });
+  expect(steps.steps).toHaveLength(1);
+});
+
+test("several generic steps are never counted, and the model's own lines are no steps", () => {
+  expect(stepsSummary(["Thinking", "Writing the reply"], strings)).toBeUndefined();
+  expect(stepsSummary(["Telling a1", "Checking on a2"], strings)).toBeUndefined();
+  expect(stepsSummary(["Telling a1"], strings)).toBe("Telling a1 ›");
+});
+
+test("the line follows the newest run that still runs", () => {
+  const lives = [
+    { conversation: "c1", author: "chief", run: "r1", steps: [], activity: { line: "Old", since: 1, at: 1 } },
+    {
+      conversation: "c1",
+      author: "chief",
+      run: "r2",
+      steps: [],
+      activity: { line: "Editing app.ts", since: 2, at: 2 },
+    },
+  ];
+  expect(newestActivity(lives, [{ id: "r1", author: "chief" }])?.activity.line).toBe("Old");
+  expect(newestActivity(lives, [{ id: "r2", author: "chief" }])?.run).toBe("r2");
+  expect(newestActivity(lives, [])).toBeUndefined();
+});
+
+test("the status line draws its parts and names its steps list", async () => {
+  const container = installDom();
+  const steps = new TurnSteps();
+  const now = Date.now();
+  steps.record({ line: "Running ls", since: now - 5000 });
+  steps.record({ line: "Running pwd", since: now - 4000 });
+  steps.record({ line: "Editing app.ts", since: now - 3000 });
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ChiefStatusLine
+        activity={{ run: "r1", author: "chief", activity: { line: "Editing app.ts", since: now - 3000 } }}
+        steps={steps}
+        strings={strings}
+      />,
+    );
+  });
+  const line = container.querySelector<HTMLButtonElement>(".mt-chief-status-line")!;
+  expect(line.title).toBe("Show This Turn's Steps");
+  expect([...line.querySelectorAll(".mt-chief-status-part")].map((part) => part.textContent)).toEqual([
+    "Ran 2 commands ›",
+    "Editing app.ts · 3s",
+  ]);
+});

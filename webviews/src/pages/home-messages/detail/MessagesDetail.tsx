@@ -45,6 +45,8 @@ import { timelineReplyCounts } from "../transcript/rows";
 import { threadBranch, threadPath } from "../transcript/threadBranch";
 import type { MessagesDetailProps } from "../types";
 import { useChiefTurn } from "../transcript/useChiefTurn";
+import { ChiefStatusLine, useChiefActivity } from "../transcript/ChiefStatusLine";
+import type { TranscriptExtras } from "../transcript/extras";
 import {
   bubbleHostActions,
   chatAppearance,
@@ -441,6 +443,27 @@ function ConversationView(
     conversation.lastSeq,
     words.transcript,
   );
+  // What the Chief works on now, under the newest message while its run streams it (HomeTurnProgress).
+  // The row changes only when the line or its run does (the clock ticks inside it).
+  const live = useChiefActivity(store.live, store.runs, conversation.id);
+  const activity = live?.activity;
+  const steps = live?.steps;
+  const extras = useMemo<TranscriptExtras | undefined>(
+    () =>
+      activity && steps
+        ? {
+            tail: [
+              {
+                key: "chief-status",
+                estimate: 24,
+                node: <ChiefStatusLine activity={activity} steps={steps} strings={words.transcript} />,
+              },
+            ],
+          }
+        : undefined,
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the activity's own fields, not its object
+    [activity?.run, activity?.author, activity?.activity.line, activity?.activity.since, steps, words.transcript],
+  );
   if (!me) return null;
   const { look, colors } = props.appearance(conversation);
   const id = conversation.id;
@@ -529,6 +552,7 @@ function ConversationView(
         {...(props.approvals ? { approvals: props.approvals } : {})}
         {...(props.approvals ? { approvals: props.approvals } : {})}
         {...turn}
+        {...(extras ? { extras } : {})}
         {...(firstRunShown
           ? {
               empty: (

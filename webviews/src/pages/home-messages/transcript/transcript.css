@@ -708,3 +708,67 @@
 .mt-toast-line {
   display: block;
 }
+
+/* The Chief's status line while its turn runs (HomeTurnProgress): one caption line, a click lists the steps. */
+.mt-chief-status {
+  display: flex;
+  padding: var(--ds-space-1) var(--ds-space-3) 0;
+}
+
+.mt-chief-status-line {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  gap: var(--ds-space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--mt-caption);
+  font: var(--text-caption);
+  text-align: start;
+}
+
+.mt-chief-status-part {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mt-chief-status-part:last-child {
+  flex: none;
+}
+
+.mt-turn-details {
+  display: flex;
+  min-width: 220px;
+  max-width: 420px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  font: var(--text-caption);
+}
+
+.mt-turn-title,
+.mt-turn-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+}
+
+.mt-turn-line {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mt-turn-time {
+  flex: none;
+  color: var(--mt-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.mt-turn-row.running .mt-turn-time {
+  color: var(--page-text);
+}
