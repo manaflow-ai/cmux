@@ -13,8 +13,8 @@ public nonisolated enum SidebarLeadingColumnLook: String, Sendable, CaseIterable
     /// As `inset`, and a text-only row keeps the icon column empty, so every title starts at the one text x. Takes
     /// back Lawrence msg 11405 ("text needs to be as left as possible"); kept for comparison only.
     case slotted
-    /// Before msg 19643: each glyph's ink centers in the column (Leo 2026-10-28, "the alignment"), so a narrow pin
-    /// starts about 5 pt right of the inset and Home's house about 2 pt.
+    /// Before msg 19643: each workspace row glyph's ink centers in the column too (Leo 2026-10-28, "the alignment"), as
+    /// Home's glyph and the pins do at every look (#38061).
     case centered
 
     public var tunableTitle: String {
