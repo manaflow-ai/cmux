@@ -146,8 +146,7 @@ import Testing
 
         #expect(!menuAsked, "the more button showed the right-click menu")
         #expect(sidebar.list.groupEditor.shownGroup == ids[0], "the more button did not open the group editor")
-        let content = try #require(sidebar.list.groupEditor.bubble?.contentView)
-        let rows = Self.views(SidebarGroupEditorRow.self, in: content).map(\.item)
+        let rows = sidebar.list.groupEditor.shownItems.flatMap(\.self)
         // No More Group Actions row (Lawrence 2026-10-20): a right-click shows the flat menu, and
         // the editor offers Pin and Move to Top itself.
         #expect(rows.map(\.id) == ["workspaceGroup.newWorkspace", "workspaceGroup.moveToNewWindow", "workspaceGroup.closeWorkspaces",
