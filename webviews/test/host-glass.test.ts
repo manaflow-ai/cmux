@@ -1,5 +1,5 @@
 // The App draws a floating surface's glass under a see-through Chromium page (ui/glass/hostGlass.ts;
-// Leo, 2026-11-06: "why the fuck is this not glass? Like the way the native menus are"). A marked
+// Leo, 2026-11-06: "why the f*** is this not glass? Like the way the native menus are"). A marked
 // surface is reported with its box, level, radius and opacity, draws nothing until the App has drawn
 // its glass, keeps the page's own glass past the deadline or when the App refuses, and its report is
 // withdrawn when it goes.
@@ -22,6 +22,12 @@ function page({ seeThrough = true, chromium = true } = {}): Document {
   const window = dom.window as unknown as Window & typeof globalThis;
   // Chromium has no -webkit-backdrop-filter; WebKit does.
   Object.defineProperty(window, "CSS", { value: { supports: () => !chromium }, configurable: true });
+  // JSDOM has no ResizeObserver; the in-place blur needs one to follow its surface.
+  (window as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
   const doc = window.document;
   if (seeThrough) doc.documentElement.setAttribute("data-cmux-see-through", "");
   // JSDOM lays nothing out: a marked surface sits at 40,60, 200 x 120.
@@ -209,4 +215,29 @@ test("a surface that misses the deadline after measuring settled is withdrawn fr
   await pastDeadline();
   await frames();
   expect(reports.at(-1)).toEqual([]);
+});
+
+test("a drawn cover surface blurs the page under it in place, and stops when it goes", async () => {
+  const doc = page();
+  const transcript = doc.createElement("section");
+  doc.getElementById("root")!.append(transcript);
+  const window = dom!.window;
+  const base = window.Element.prototype.getBoundingClientRect;
+  window.Element.prototype.getBoundingClientRect = function (this: Element) {
+    if (this === transcript)
+      return { left: 0, top: 0, right: 600, bottom: 400, width: 600, height: 400, x: 0, y: 0 } as DOMRect;
+    return base.call(this);
+  };
+  stop = reportHostGlass(doc, () => Promise.resolve(), { candidates: () => [transcript] });
+  const menu = surface(doc, "menu");
+  menu.setAttribute("data-host-glass-cover", "");
+  await frames();
+  await settled();
+  await frames();
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  expect(transcript.hasAttribute("data-glass-under")).toBe(true);
+  expect(menu.hasAttribute("data-glass-over")).toBe(true);
+  menu.remove();
+  await frames();
+  expect(transcript.hasAttribute("data-glass-under")).toBe(false);
 });
