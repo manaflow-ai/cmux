@@ -1787,15 +1787,12 @@ mod help_contract_tests {
         use super::{Command, flatten};
         let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
         let run = parse(&["acpmux", "run", "lane", "--harness", "codex", "hi"]);
-        assert!(
-            matches!(run, Ok(Command::New(ref a)) if a.model.as_deref() == Some("codex")),
-            "{run:?}"
-        );
+        assert!(matches!(run, Ok(Command::New(ref a)) if a.model.as_deref() == Some("codex")));
         let ensure = parse(&["acpmux", "ensure", "lane", "--harness", "claude/opus"]);
-        assert!(
-            matches!(ensure, Ok(Command::Ensure { ref model, .. }) if model.as_deref() == Some("claude/opus")),
-            "{ensure:?}"
-        );
+        assert!(matches!(
+            ensure,
+            Ok(Command::Ensure { ref model, .. }) if model.as_deref() == Some("claude/opus")
+        ));
     }
 
     /// `session inbox`: --thread [--mark-read] reads the inbox's threads, --digest [--dry-run]
