@@ -17,7 +17,7 @@ public struct AgentShareLinks {
     public func open(_ link: URL, openTab: @escaping @MainActor (URL) -> Void) {
         let fallback = link.scheme?.lowercased() == "https" ? link : nil
         // task-owner: AgentShareLinks.open: one daemon request, then one tab; ends with it.
-        Task { @MainActor [self] in
+        Task { [self] in
             guard let page = await page(link) ?? fallback else { return }
             openTab(page)
         }
