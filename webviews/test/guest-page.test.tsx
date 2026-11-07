@@ -45,7 +45,9 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configu
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { GuestPage, endedBy } = await import("../src/agent-session/guest/GuestPage");
+const { GuestPage, loadGuestTranscript, endedBy } = await import("../src/agent-session/guest/GuestPage");
+// The transcript is its own chunk (GuestTranscript.tsx); load it once so the room's frames draw at once.
+await loadGuestTranscript();
 const { attemptId } = await import("../src/agent-session/guest/redeem");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 const { askingRecords, fakeRoom, joinFrames, memoryStorage, workingRecords } =

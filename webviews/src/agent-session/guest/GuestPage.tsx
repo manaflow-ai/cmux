@@ -2,15 +2,18 @@
 // and the ended page. The chat draws with the owner's own transcript (VirtualTranscript) over a
 // client fed by the room's socket (AcpmuxDirectClient.fed), with nothing of the pane around it:
 // no composer pickers, sessions, inspector or permission buttons. A pending ask shows who it waits on.
+// The chat's first frame is its final layout: the header, the transcript's area and the composer at
+// the bottom draw at once, the socket opens at once, and the transcript's chunk (GuestTranscript.tsx)
+// loads beside it and fades in where it stays (Leo, 2026-11-07: "we should be able to expect that it
+// goes on the bottom when it loads in the web app").
 // An invite (`/i/<id>`, a person invited by account) joins as the signed-in account, with no name
 // field; a `view` invitee watches with no composer.
 import "./guest.css";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { VirtualTranscript } from "../acpmux/App";
-import { AcpmuxDirectClient } from "../acpmux/direct";
-import { GuestActionsBoundary } from "../acpmux/conversation/GuestActionsBoundary";
+import { AvatarContext } from "../../pages/home-channels/avatars";
 import { useT } from "../acpmux/i18n";
 import type { AcpmuxSnapshot } from "../acpmux/model";
+import type { GuestFeed } from "./GuestTranscript";
 import { PresenceStack } from "../acpmux/multiplayer/Faces";
 import { displayName, participant, type Participant } from "../acpmux/multiplayer/participants";
 import { GuestComposer, GuestMessages } from "./GuestComposer";
@@ -29,6 +32,11 @@ import {
 
 /** What ended the page: the share's end, or a redeem the room refused for good. */
 export type GuestEnded = GuestEnd | "used";
+
+type TranscriptModule = typeof import("./GuestTranscript");
+let transcriptChunk: Promise<TranscriptModule> | undefined;
+/** Loads the transcript's chunk once; main.tsx starts it as the page opens, before it is drawn. */
+export const loadGuestTranscript = (): Promise<TranscriptModule> => (transcriptChunk ??= import("./GuestTranscript"));
 
 /** The fed client's id for the one chat a guest sees; the room never names the owner's session. */
 const GUEST_SESSION = "guest-chat";
@@ -226,25 +234,42 @@ export function LiveChat({
   const typing = useMemo(() => new TypingSignal((on) => socket.current?.send({ t: "typing", on }) ?? false), []);
   useEffect(() => () => typing.dispose(), [typing]);
 
+  // The socket opens on the first commit; the records it brings wait for the transcript's chunk,
+  // in arrival order, if they come first.
+  const [transcript, setTranscript] = useState<TranscriptModule>();
   useEffect(() => {
-    const client = AcpmuxDirectClient.fed(GUEST_SESSION, setSnapshot);
+    let stopped = false;
+    let client: GuestFeed | undefined;
+    const waiting: ((client: GuestFeed) => void)[] = [];
+    const withClient = (run: (client: GuestFeed) => void) => (client ? run(client) : waiting.push(run));
+    void loadGuestTranscript().then((module) => {
+      if (stopped) return;
+      client = module.feedClient(GUEST_SESSION, setSnapshot);
+      setTranscript(module);
+      for (const run of waiting.splice(0)) run(client);
+    });
+    const stop = () => {
+      stopped = true;
+      waiting.length = 0;
+      client?.dispose();
+    };
     const room = new ShareSocket(
       { url: socketUrl, unresolved: () => prompts.held(), ...(openSocket ? { open: openSocket } : {}) },
       {
         snapshot: (next) => {
           setChat(next.chat);
           setHasMore(next.hasMore);
-          client.feed(next.records, "snapshot");
+          withClient((fed) => fed.feed(next.records, "snapshot"));
           sendQueue.snapshot(next.prompts);
           typing.reset();
           // A page asked for on the old connection never comes; the new history is in place.
           pageArrived.current?.();
           pageArrived.current = undefined;
         },
-        records: (records) => client.feed(records, "live"),
+        records: (records) => withClient((fed) => fed.feed(records, "live")),
         page: (records, more) => {
           setHasMore(more);
-          client.feed(records, "older");
+          withClient((fed) => fed.feed(records, "older"));
           pageArrived.current?.();
           pageArrived.current = undefined;
         },
@@ -256,7 +281,7 @@ export function LiveChat({
         },
         ended: (reason) => {
           sendQueue.stop();
-          client.dispose();
+          stop();
           ended.current(reason);
         },
       },
@@ -266,7 +291,7 @@ export function LiveChat({
     return () => {
       sendQueue.disconnected();
       room.stop();
-      client.dispose();
+      stop();
       pageArrived.current?.();
     };
   }, [socketUrl, openSocket, prompts, typing, sendQueue]);
@@ -303,38 +328,40 @@ export function LiveChat({
     .filter((person) => person.viewing !== false && !isMe(person.id, guestId))
     .flatMap((person) => participant(person.id, person.name) ?? []);
   return (
-    <GuestActionsBoundary>
+    // Faces and chips ask no owner's avatar service (GuestTranscript's boundary does the same).
+    <AvatarContext.Provider value={undefined}>
       {/* The whole page reports nothing to an owner's context menu (conversation/messageMenu.ts). */}
       <div className="guest-live" data-read-only-transcript="">
+        {/* One height from the first frame: the title and the owner's line hold their lines while
+            the room has not named them yet, so nothing below moves when they arrive. */}
         <header className="guest-live__header">
           <div className="guest-live__titles">
-            <h1 className="guest-live__title">{displayName(chat.title) ?? t("guest.live.untitled")}</h1>
-            {owner && <p className="guest-live__owner">{t("guest.live.sharedBy", { owner: owner.name })}</p>}
+            <h1 className="guest-live__title">
+              {snapshot || chat.title ? (displayName(chat.title) ?? t("guest.live.untitled")) : ""}
+            </h1>
+            <p className="guest-live__owner">{owner ? t("guest.live.sharedBy", { owner: owner.name }) : ""}</p>
           </div>
           <PresenceStack viewing={viewing} />
         </header>
-        {connection !== "live" && (
-          <output className="guest-live__notice">
-            {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
-          </output>
-        )}
-        {snapshot && (
-          <div className="guest-live__transcript">
-            <VirtualTranscript
-              rows={snapshot.rows}
+        {/* The transcript's area fills the page from the first frame, so the composer sits at the
+            bottom before the room's snapshot; the notice floats in it and moves nothing. */}
+        <div className="guest-live__transcript" aria-busy={!snapshot}>
+          {snapshot && transcript && (
+            <transcript.GuestTranscript
+              snapshot={snapshot}
               sessionId={GUEST_SESSION}
               expanded={expanded}
-              onToggleActivity={toggle}
-              working={snapshot.isWorking}
-              readOnly
-              // The thread rail is the owner's pane chrome; here it drew a lone tick at the page's edge.
-              showMinimap={false}
-              canLoadOlder={hasMore}
-              historyFrom={snapshot.historyFrom}
+              onToggle={toggle}
+              hasMore={hasMore}
               onLoadOlder={loadOlder}
             />
-          </div>
-        )}
+          )}
+          {connection !== "live" && (
+            <output className="guest-live__notice">
+              {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
+            </output>
+          )}
+        </div>
         {snapshot?.permission && (
           <output className="guest-live__ask">
             {t("guest.live.waitingAnswer", { owner: ownerName })}
@@ -350,7 +377,7 @@ export function LiveChat({
           )}
         </div>
       </div>
-    </GuestActionsBoundary>
+    </AvatarContext.Provider>
   );
 }
 
