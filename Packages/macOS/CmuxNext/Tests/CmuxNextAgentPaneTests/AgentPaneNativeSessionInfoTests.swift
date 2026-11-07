@@ -667,15 +667,15 @@ struct AgentPaneNativeSessionInfoTests {
             #expect(!line.showsChevron)
             let titleX = try title(line).minX
             #expect(images(line).allSatisfy { $0.isHidden || $0.frame.maxX <= titleX })
-            #expect(chevrons(line).allSatisfy(\.isHidden))
+            #expect(chevrons(line).allSatisfy { $0.isHidden })
         }
         #expect(images(changes).filter { !$0.isHidden }.isEmpty)
         // Foldable headers carry a chevron (one glyph that turns: down open, right folded); a plain one does not.
         #expect(images(context).count == 1)
         #expect(images(changes).isEmpty)
         #expect(images(plain).isEmpty)
-        #expect(chevrons(context).map(\.degrees) == [90])
-        #expect(chevrons(changes).map(\.degrees) == [0])
+        #expect(chevrons(context).map { $0.degrees } == [90])
+        #expect(chevrons(changes).map { $0.degrees } == [0])
         #expect(chevrons(plain).isEmpty)
 
         let enter = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
