@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42358869165",
+  "recorded_at": "2026-11-07T09:20:51Z",
+  "reason": "cmux-tui e905d8ad6bc4 changes the image's cmux-tui (pinned f1e0cec40249)",
+  "dry_run": false,
+  "cmux_tui": "e905d8ad6bc4d24361bab5e910ce41d3b50a6d2e",
+  "fixes": [
+    {
+      "sha": "97fe89ec0cf89f9852006014b0acb243584871f8",
+      "mergedAt": "2026-11-07T08:59:04Z",
+      "subject": "Cloud carrier: cmux carrier dial, the device side (a cmux-remote session over the machine's relay slot) (#37211)"
+    },
+    {
+      "sha": "f6a856127ecb2e7b08be8e1826c2ec7de8cdccec",
+      "mergedAt": "2026-11-07T08:37:19Z",
+      "subject": "Agent chat: provider file ids in code, images and huge prompts; a refused take-back drop is not asked again (#37560)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T09:20:51Z",
+    "snapshot_id": "sh-6bb2fa0e6a0246689430e1bd97cd1931",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42358869165): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1a8b207808df797a42894d5108b798d85f75a456",
+    "image": "cloud-native-auto-e905d8ad-42358869165-1",
+    "revision": "ci-42358869165-1",
+    "at": "2026-11-07T09:20:51Z"
+  },
+  "rolled_back": false
+}
