@@ -8,9 +8,9 @@ import Observation
 import CmuxNextWakeups
 
 /// One Cloud machine: its record, its link, and the daemon connection over
-/// the link socket. The link is the Cloud app server's (`appLink`, through
-/// ``CloudLinkSession``, contract 2.3), whose socket serves one connection per connect: after a
-///   drop, a `cloud.link.changed` down or revoked, or a failed connect the
+/// the link socket. The link is the session's `carrier serve` (`appLink`, through
+/// ``CloudLinkSession``), which dials the machine once per connection: after a
+///   refused dial, a `cloud.link.changed` down or revoked, or a failed connect the
 ///   machine shows "disconnected, click to connect" (`linkEnded`).
 @Observable
 final class CloudMachineSession {
@@ -249,7 +249,7 @@ final class CloudMachineSession {
             do {
                 return try await appLink.endpoint(ticket)
             } catch {
-                // The connection asked again: it dropped.
+                // The link ended: a refused carrier dial, the serve child gone, or a superseded ticket.
                 let message = await self?.endAppLink(error, ticket: ticket.id) ?? String(describing: error)
                 throw DaemonError.endpointBlocked(message)
             }
@@ -261,9 +261,9 @@ final class CloudMachineSession {
                 throw error
             }
         }, stream: {
-            // An agent chat's attach and the history reader dial the same carrier: never the drop signal above.
+            // An agent chat's attach and the history reader dial the same carrier: never ends the link.
             try await appLink.streamEndpoint(ticket)
-        })
+        }, handshake: CloudCarrierDial.handshakeDeadline)
     }
 
     private func noteMutationInterruption() {

@@ -17,10 +17,17 @@ public protocol CloudLinkResolver: Sendable {
     func close(_ key: CloudLinkKey) async
     /// Why the link refused a connection since the last connect, when it says (a carrier dial's step).
     func refusal(_ key: CloudLinkKey) async -> CloudLinkError?
+    /// True when the socket dials the machine once per connection (the carrier): the daemon connection's
+    /// retry and reconnect get the same socket again until ``refusal(_:)`` names why the link ended.
+    var redials: Bool { get }
+    /// Hands the link newer answers about the caller (a carrier connection's `vmk`) as they come.
+    func observeOwnership(_ key: CloudLinkKey, _ update: @escaping @Sendable (CloudCallerOwnership) async -> Void) async
 }
 
 extension CloudLinkResolver {
     public func refusal(_ key: CloudLinkKey) async -> CloudLinkError? { nil }
+    public var redials: Bool { false }
+    public func observeOwnership(_ key: CloudLinkKey, _ update: @escaping @Sendable (CloudCallerOwnership) async -> Void) async {}
 }
 
 /// A link whose every connect fails with `error` (a capture scene's ended link).

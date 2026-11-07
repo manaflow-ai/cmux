@@ -20,6 +20,9 @@ public struct CloudCarrierDial: Equatable, Sendable {
     /// ``DaemonBridge`` waits for the answer line this much past the dial's deadline, so the dial's own
     /// refusal (`parked_timeout`) arrives instead of the bridge's "no answer".
     static let answerSlackMs = 2_000
+    /// A daemon connection through `carrier serve`: its handshake and first connection wait out the
+    /// carrier's dial of a cold machine, which serve allows 180 s per connection.
+    public static let handshakeDeadline: Duration = .milliseconds(deadlineMs + answerSlackMs)
 
     /// The machine's id (`vm_…`).
     public let machine: String

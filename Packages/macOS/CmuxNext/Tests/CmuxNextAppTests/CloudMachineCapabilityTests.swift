@@ -76,10 +76,8 @@ struct CloudMachineCapabilityTests {
         #expect(machine.servesDesktop)
         #expect(machine.capabilities.desktop)
         #expect(machine.allows(.desktop))
-        #expect(machine.opensCarrierDesktop(for: "user_u0000000000000000001"))
-        // The carrier desktop is the creator's alone: a teammate, or no signed-in user, is refused up front.
-        #expect(!machine.opensCarrierDesktop(for: "user_u0000000000000000002"))
-        #expect(!machine.opensCarrierDesktop(for: nil))
+        // Whoever asks: the carrier itself refuses anyone but the creator (`service_refused`).
+        #expect(machine.opensCarrierDesktop)
         // Serving the desktop declares nothing else: the other actions keep the undeclared default.
         #expect(machine.declaredCapabilities == nil)
         #expect(machine.allows(.ports))
@@ -94,7 +92,7 @@ struct CloudMachineCapabilityTests {
             let machine = try #require(CloudMachine(next: record))
             #expect(!machine.servesDesktop)
             #expect(!machine.capabilities.desktop)
-            #expect(!machine.opensCarrierDesktop(for: "user_u0000000000000000001"))
+            #expect(!machine.opensCarrierDesktop)
         }
     }
 

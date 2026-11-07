@@ -164,7 +164,7 @@ extension AppServices {
             guard let link = session.appLink, !session.machine.isGoneForPhones else { continue }
             let socket = await link.currentLinkSocket
             guard machines.session(session.machineID) === session, !session.machine.isGoneForPhones else { continue }
-            result.append(MobileHostCloudLink(machine: session.machine, machineID: session.machineID, teamID: team, socket: socket, cachedOwner: link.ownership.callerOwnsVM, user: user))
+            result.append(MobileHostCloudLink(machine: session.machine, machineID: session.machineID, teamID: team, socket: socket, cachedOwner: link.ownership.callerOwnsVM, user: cloud.auth.platformUserID ?? user))
         }
         // An account transition during either actor hop invalidates the whole answer.
         guard cloud.auth.isSignedIn, cloud.auth.user?.id == user, cloud.auth.teamID == selectedTeam else { return MobileHostCloudLinks() }
