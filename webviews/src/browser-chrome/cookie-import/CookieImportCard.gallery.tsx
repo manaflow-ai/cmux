@@ -97,5 +97,20 @@ export default componentEntry<Props>({
       },
       note: "Longer labels: the two buttons stay one width.",
     },
+    "split-narrow-long-labels": {
+      props: {
+        model: {
+          ...chrome,
+          title: "Cookies aus Google Chrome importieren",
+          detail: "Bleiben Sie bei Ihren Websites angemeldet. Nichts verlässt diesen Mac.",
+          importTitle: "Importieren …",
+          notNowTitle: "Jetzt nicht",
+          neverTitle: "Nicht mehr anzeigen",
+        },
+        look: "split",
+        width: 300,
+      },
+      note: "Longer labels in a narrow pane: the buttons go to their own line at the end, inside the card.",
+    },
   },
 });

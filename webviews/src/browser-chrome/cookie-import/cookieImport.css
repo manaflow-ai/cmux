@@ -55,9 +55,12 @@
   -webkit-line-clamp: 2;
 }
 
-/* The row of answers: on the text column (split), or across the card (trailing). */
+/* The row of answers: on the text column (split), or across the card (trailing). When the labels
+   do not fit beside the link (a narrow pane, longer languages), the buttons go to their own line at
+   the end; narrower still, they shrink and their labels end in an ellipsis, never past the card. */
 .ci-row {
   display: flex;
+  flex-wrap: wrap;
   grid-column: 2;
   align-items: center;
   gap: var(--ds-space-2);
@@ -72,14 +75,19 @@
 }
 .ci-answers {
   display: grid;
-  flex: none;
-  grid-auto-columns: 1fr;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-start: auto;
+  grid-auto-columns: minmax(0, 1fr);
   grid-auto-flow: column;
   gap: var(--ds-space-2);
 }
 .ci-answer.ui-btn {
-  min-width: calc(var(--ds-space-6) * 2);
+  min-width: min(calc(var(--ds-space-6) * 2), 100%);
+  overflow: hidden;
   padding-inline: var(--ds-space-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Don't Show Again: a quiet link with a button's height, its text on the title's column. */
