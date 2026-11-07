@@ -16,15 +16,19 @@
 //! signals the recorded process groups, then re-raises).
 
 use std::collections::HashMap;
+#[cfg(unix)]
 use std::fs::OpenOptions;
 use std::io::Read;
-use std::process::{Child, Command, Stdio};
+use std::process::Child;
+#[cfg(unix)]
+use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
 use crate::automation::Automation;
 use crate::gate::MAX_EVENT_BYTES;
 use crate::store::Store;
+#[cfg(unix)]
 use crate::sys::private_file;
 use crate::trigger::Trigger;
 
@@ -255,9 +259,7 @@ impl Watches {
 
     fn due_at(&self, id: &str, p: &Pending) -> i64 {
         let debounce = self.debounce_ms(id);
-        p.last_ms
-            .saturating_add(debounce)
-            .min(p.first_ms.saturating_add(MAX_HOLD_MS.max(debounce)))
+        p.last_ms.saturating_add(debounce).min(p.first_ms.saturating_add(MAX_HOLD_MS.max(debounce)))
     }
 
     /// The events whose debounce ended by `now_ms`, oldest first.
@@ -276,11 +278,14 @@ impl Watches {
             if p.cut > 0 {
                 text.push_str(&format!("[{} more line(s) not kept]\n", p.cut));
             }
-            out.push((p.first_ms, WatchEvent {
-                automation: id,
-                text,
-                key: format!("{}-{}-{}", p.first_ms, std::process::id(), self.events),
-            }));
+            out.push((
+                p.first_ms,
+                WatchEvent {
+                    automation: id,
+                    text,
+                    key: format!("{}-{}-{}", p.first_ms, std::process::id(), self.events),
+                },
+            ));
         }
         out.sort_by_key(|(first, _)| *first);
         out.into_iter().map(|(_, e)| e).collect()
@@ -440,9 +445,9 @@ mod signals {
     static INSTALL: Once = Once::new();
 
     pub(super) fn remember(pgid: libc::pid_t) -> bool {
-        GROUPS.iter().any(|slot| {
-            slot.compare_exchange(0, pgid, Ordering::SeqCst, Ordering::SeqCst).is_ok()
-        })
+        GROUPS
+            .iter()
+            .any(|slot| slot.compare_exchange(0, pgid, Ordering::SeqCst, Ordering::SeqCst).is_ok())
     }
 
     pub(super) fn forget(pgid: libc::pid_t) {

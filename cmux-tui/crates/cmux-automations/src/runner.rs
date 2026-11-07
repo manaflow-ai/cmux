@@ -27,15 +27,23 @@ pub trait Executor {
 /// How a run's process ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExecOutcome {
-    Exited { code: i32 },
-    Signaled { signal: i32 },
+    Exited {
+        code: i32,
+    },
+    Signaled {
+        signal: i32,
+    },
     TimedOut,
     Error(String),
     /// The body never ran: the condition said no (`condition_false`).
-    Skipped { reason: String },
+    Skipped {
+        reason: String,
+    },
     /// The body never ran: the condition failed (`condition_exit_N`,
     /// `condition_timeout`).
-    Refused { reason: String },
+    Refused {
+        reason: String,
+    },
 }
 
 /// What one tick did.

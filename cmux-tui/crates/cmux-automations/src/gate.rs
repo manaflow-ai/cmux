@@ -46,12 +46,19 @@ pub struct Gate {
 pub enum Verdict {
     Go,
     /// A run of this automation is still live.
-    Busy { run: String },
+    Busy {
+        run: String,
+    },
     /// The cooldown after the last run ends at `until`.
-    Cooldown { until: i64 },
+    Cooldown {
+        until: i64,
+    },
     /// `max` runs started in the last 24 hours; the oldest of them leaves the
     /// window at `until`.
-    Cap { max: u32, until: i64 },
+    Cap {
+        max: u32,
+        until: i64,
+    },
 }
 
 impl Verdict {
@@ -87,7 +94,8 @@ pub fn verdict(gate: &Gate, history: &[Run], now: i64, alive: &dyn Fn(u32) -> bo
     if let Some(r) = live {
         return Verdict::Busy { run: r.id.clone() };
     }
-    let starts: Vec<i64> = history.iter().filter(|r| fired(r)).filter_map(|r| r.started_at).collect();
+    let starts: Vec<i64> =
+        history.iter().filter(|r| fired(r)).filter_map(|r| r.started_at).collect();
     if gate.cooldown_seconds > 0
         && let Some(last) = starts.iter().copied().max()
     {

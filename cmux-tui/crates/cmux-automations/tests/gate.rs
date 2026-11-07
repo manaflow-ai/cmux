@@ -93,13 +93,17 @@ fn a_condition_that_says_yes_runs_the_body_with_the_event_and_its_output() {
     assert_eq!(r.event.as_deref(), Some("FATAL db timeout"));
     let log = std::fs::read_to_string(store.log_path(&a.id, &run)).unwrap();
     assert!(log.contains("FATAL db timeout"), "{log}");
-    assert!(log.contains("[saw FATAL db timeout"), "the condition's output reaches the body: {log}");
+    assert!(
+        log.contains("[saw FATAL db timeout"),
+        "the condition's output reaches the body: {log}"
+    );
 }
 
 #[test]
 fn a_condition_that_says_no_skips_the_run_and_one_that_fails_fails_it() {
     let store = store("cond-no");
-    let no = store.create(spec("no", Trigger::Manual, "echo ran", condition("exit 1")), T0).unwrap();
+    let no =
+        store.create(spec("no", Trigger::Manual, "echo ran", condition("exit 1")), T0).unwrap();
     let run = start_manual_with_event(&store, &no.id, "k", None, T0, &mut Pending).unwrap();
     run_job(&store, &no.id, &run).unwrap();
     let r = store.run(&no.id, &run).unwrap().unwrap();
@@ -122,7 +126,10 @@ fn guardrails_one_live_run_then_cooldown_then_the_daily_cap() {
     let a = store.create(spec("guarded", watch(), "true", gate), T0).unwrap();
     let mut exec = Recorder { alive: true, ..Recorder::default() };
 
-    assert!(matches!(start_event(&store, &a.id, "e1", "1", T0, &mut exec).unwrap(), EventOutcome::Started(_)));
+    assert!(matches!(
+        start_event(&store, &a.id, "e1", "1", T0, &mut exec).unwrap(),
+        EventOutcome::Started(_)
+    ));
     // The run is live: the next event is dropped and counted, never rowed.
     assert_eq!(
         start_event(&store, &a.id, "e2", "2", T0 + 1, &mut exec).unwrap(),
@@ -230,15 +237,22 @@ fn bursts_of_lines_are_one_event_after_the_debounce() {
 fn a_real_watch_command_turns_its_lines_into_an_event_and_stops_with_the_runner() {
     let store = store("real");
     let pidfile = std::env::temp_dir().join(format!("cmux-watch-pid-{}", std::process::id()));
-    let cmd = format!("echo $$ > {}; echo FATAL one; echo FATAL two; exec sleep 600", pidfile.display());
+    let cmd =
+        format!("echo $$ > {}; echo FATAL one; echo FATAL two; exec sleep 600", pidfile.display());
     let a = store
-        .create(spec("real", Trigger::Watch { command: cmd, debounce_seconds: 1 }, "true", Gate::default()), T0)
+        .create(
+            spec(
+                "real",
+                Trigger::Watch { command: cmd, debounce_seconds: 1 },
+                "true",
+                Gate::default(),
+            ),
+            T0,
+        )
         .unwrap();
     let now_ms = || {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as i64
     };
     let mut w = Watches::new(store.clone());
     w.reconcile(&[a.clone()], now_ms());
