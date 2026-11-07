@@ -50,6 +50,11 @@ type RelayCircuitStream = SplitStream<RelaySocket>;
 const MAX_RELAY_CREDENTIAL_BYTES: usize = 4 * 1024;
 const MAX_RELAY_CONTROL_MESSAGE_BYTES: usize = 16 * 1024;
 const DEFAULT_CREDENTIAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+/// How much of a failed credential command's stderr its error keeps: the
+/// last bytes, where the reason usually is.
+const CREDENTIAL_COMMAND_STDERR_TAIL_BYTES: usize = 2 * 1024;
+/// Every credential source error starts with this.
+const CREDENTIAL_SOURCE_ERROR_PREFIX: &str = "relay credential source ";
 const RELAY_BATCH_MAGIC: [u8; 4] = *b"CMXB";
 const RELAY_BATCH_VERSION: u8 = 1;
 const RELAY_BATCH_HEADER_BYTES: usize = 8;
@@ -111,8 +116,10 @@ impl RelayCredentialSource {
     }
 
     /// Execute an argv-based command without a shell on every authentication.
-    /// The credential is read from stdout; stderr and command errors are never
-    /// included in returned errors.
+    /// The credential is read from stdout and never appears in an error. When
+    /// the command fails or times out, its error carries the exit status and
+    /// the last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] of its stderr, with
+    /// anything token-shaped redacted.
     pub fn command<I, S>(program: impl Into<OsString>, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -233,10 +240,11 @@ async fn read_credential_command(
         .args(&source.args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .kill_on_drop(true);
     let mut child =
         command.spawn().map_err(|_| credential_source_error("command could not be started"))?;
+    let mut stderr = StderrTail::spawn(child.stderr.take());
     let stdout = match child.stdout.take() {
         Some(stdout) => stdout,
         None => {
@@ -251,7 +259,10 @@ async fn read_credential_command(
             .await
             .map_err(|_| credential_source_error("command could not be completed"))?;
         if !status.success() {
-            return Err(credential_source_error("command was unsuccessful"));
+            return Err(credential_source_error(&format!(
+                "command was unsuccessful ({status}){}",
+                stderr.describe().await
+            )));
         }
         Ok(output)
     })
@@ -264,9 +275,148 @@ async fn read_credential_command(
         }
         Err(_) => {
             terminate_child(&mut child).await;
-            Err(credential_source_error("command timed out"))
+            Err(credential_source_error(&format!(
+                "command timed out after {} ms{}",
+                source.timeout.as_millis(),
+                stderr.describe().await
+            )))
         }
     }
+}
+
+/// The last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] a credential command
+/// wrote to stderr, read while it runs so a full pipe never stalls it. The
+/// reader stops with the source: it is aborted on drop.
+struct StderrTail {
+    tail: Arc<std::sync::Mutex<VecDeque<u8>>>,
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl StderrTail {
+    fn spawn(stderr: Option<tokio::process::ChildStderr>) -> Self {
+        let tail = Arc::new(std::sync::Mutex::new(VecDeque::new()));
+        let task = stderr.map(|mut stderr| {
+            let tail = tail.clone();
+            tokio::spawn(async move {
+                let mut chunk = [0_u8; 512];
+                while let Ok(read) = stderr.read(&mut chunk).await {
+                    if read == 0 {
+                        break;
+                    }
+                    let mut tail = tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    tail.extend(&chunk[..read]);
+                    let excess = tail.len().saturating_sub(CREDENTIAL_COMMAND_STDERR_TAIL_BYTES);
+                    tail.drain(..excess);
+                }
+            })
+        });
+        Self { tail, task }
+    }
+
+    /// `; stderr: …` with the redacted tail, or nothing when it was empty.
+    /// Waits briefly for the reader to drain what an exited command wrote.
+    async fn describe(&mut self) -> String {
+        if let Some(task) = &mut self.task
+            && tokio::time::timeout(Duration::from_millis(100), task).await.is_ok()
+        {
+            // A finished handle must not be polled again.
+            self.task = None;
+        }
+        let bytes: Vec<u8> = {
+            let tail = self.tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            tail.iter().copied().collect()
+        };
+        let text = redact_token_shaped(&String::from_utf8_lossy(&bytes));
+        if text.is_empty() { String::new() } else { format!("; stderr: {text}") }
+    }
+}
+
+impl Drop for StderrTail {
+    fn drop(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+
+/// One line of diagnostic text with anything that may be a secret replaced
+/// by `[REDACTED]`: a run of 20 or more token characters (base64, base64url,
+/// hex, JWT) that mixes letters and digits and is not a path (it does not
+/// start with `/` or `.`), the value after `Bearer`, and the
+/// value of a `key=value` or `key: value` whose key names a secret.
+fn redact_token_shaped(text: &str) -> String {
+    const SECRET_KEYS: [&str; 7] =
+        ["token", "ticket", "secret", "password", "authorization", "credential", "key"];
+    fn token_char(character: char) -> bool {
+        character.is_ascii_alphanumeric()
+            || matches!(character, '-' | '_' | '.' | '~' | '+' | '/' | '=')
+    }
+    fn secret_key(key: &str) -> bool {
+        let key = key.to_ascii_lowercase();
+        SECRET_KEYS.iter().any(|secret| key.contains(secret))
+    }
+    let line: String = text
+        .chars()
+        .map(|character| if character.is_control() { ' ' } else { character })
+        .collect();
+    // After `Bearer` the next word is the credential. After `ticket:` it is
+    // one only when it looks like a value (8 or more token characters with a
+    // digit), so `carrier-ticket: agent answered 503` keeps its reason.
+    let value_like = |word: &str| {
+        word.len() >= 8
+            && word.chars().all(token_char)
+            && word.chars().any(|character| character.is_ascii_digit())
+    };
+    let mut words = Vec::new();
+    let mut after_bearer = false;
+    let mut after_key = false;
+    for word in line.split_whitespace() {
+        let follows_key = std::mem::take(&mut after_key);
+        if std::mem::take(&mut after_bearer) || (follows_key && value_like(word)) {
+            words.push("[REDACTED]".to_owned());
+            continue;
+        }
+        if word.eq_ignore_ascii_case("bearer") {
+            after_bearer = true;
+            words.push(word.to_owned());
+            continue;
+        }
+        if let Some(index) = word.find(['=', ':'])
+            && secret_key(&word[..index])
+        {
+            if index + 1 == word.len() {
+                after_key = true;
+                words.push(word.to_owned());
+            } else {
+                words.push(format!("{}[REDACTED]", &word[..=index]));
+            }
+            continue;
+        }
+        let mut redacted = String::with_capacity(word.len());
+        let mut run = String::new();
+        let flush = |run: &mut String, redacted: &mut String| {
+            let mixed = run.chars().any(|character| character.is_ascii_digit())
+                && run.chars().any(|character| character.is_ascii_alphabetic());
+            let path = run.starts_with(['/', '.']);
+            if run.len() >= 20 && mixed && !path {
+                redacted.push_str("[REDACTED]");
+            } else {
+                redacted.push_str(run);
+            }
+            run.clear();
+        };
+        for character in word.chars() {
+            if token_char(character) {
+                run.push(character);
+            } else {
+                flush(&mut run, &mut redacted);
+                redacted.push(character);
+            }
+        }
+        flush(&mut run, &mut redacted);
+        words.push(redacted);
+    }
+    words.join(" ")
 }
 
 /// Kill and reap a credential command on every cancellation or failure path.
@@ -297,7 +447,13 @@ async fn read_limited_credential(
 }
 
 fn credential_source_error(reason: &str) -> ProviderError {
-    ProviderError::Transport(format!("relay credential source {reason}"))
+    ProviderError::Transport(format!("{CREDENTIAL_SOURCE_ERROR_PREFIX}{reason}"))
+}
+
+/// The credential source (a ticket command, file or callback) failed, as
+/// opposed to the relay.
+fn is_credential_source_error(error: &ProviderError) -> bool {
+    matches!(error, ProviderError::Transport(message) if message.starts_with(CREDENTIAL_SOURCE_ERROR_PREFIX))
 }
 
 #[derive(Clone)]
@@ -1215,10 +1371,47 @@ pub async fn register_relay_daemon_with_credentials(
         credentials,
         shutdown_rx,
         Some(ready_tx),
+        None,
     ));
     ready_rx.await.map_err(|_| {
         ProviderError::Transport("relay registration stopped before ready".into())
     })??;
+    Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task) })
+}
+
+/// Register on a relay in the background and return at once.
+///
+/// Unlike [`register_relay_daemon_with_credentials`], no failure is fatal:
+/// a credential source that fails (a ticket command that exits non-zero or
+/// hangs past its timeout) or a relay that refuses is retried until
+/// [`RelayDaemonRegistration::shutdown`] or drop. Each failed attempt is
+/// written to stderr once, prefixed by `log_label`, with its reason. The
+/// wait between attempts is jittered and capped: 5 s after a relay failure,
+/// 60 s after a credential source failure. Only an invalid configuration is
+/// an error here. A daemon uses this so that its local services start and
+/// stay up while the relay route is unavailable.
+pub fn spawn_relay_daemon_registration(
+    daemon: Arc<RemoteDaemon>,
+    mut config: RelayDaemonConfig,
+    credentials: RelayCredentialSource,
+    log_label: &str,
+) -> Result<RelayDaemonRegistration, ProviderError> {
+    config.ticket.zeroize();
+    config.validate_common()?;
+    let framing = RelayCircuitFraming::for_route(&sanitized_route(&config.endpoint));
+    let route = sanitized_route(&config.endpoint);
+    let endpoint = relay_websocket_url(&config.endpoint, &config.slot, RelayRole::Daemon)?;
+    let config = RelayDaemonConfig { endpoint, ..config };
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let task = tokio::spawn(run_registration_loop(
+        daemon,
+        config,
+        framing,
+        credentials,
+        shutdown_rx,
+        None,
+        Some(format!("{log_label}: relay registration on {route}")),
+    ));
     Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task) })
 }
 
@@ -1229,8 +1422,11 @@ async fn run_registration_loop(
     credentials: RelayCredentialSource,
     mut shutdown: watch::Receiver<bool>,
     mut first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
+    log: Option<String>,
 ) {
     let mut backoff = Backoff::new();
+    let mut credential_backoff = Backoff::credential();
+    let mut failures = 0_u64;
     loop {
         if *shutdown.borrow() {
             return;
@@ -1253,21 +1449,40 @@ async fn run_registration_loop(
         // restart, an expired ticket) registers again from the first wait.
         if registered {
             backoff.reset();
+            credential_backoff.reset();
+            if let Some(label) = &log
+                && failures > 0
+            {
+                eprintln!("{label}: registered after {failures} failed attempts");
+            }
+            failures = 0;
         }
-        if let Err(error) = result
-            && first_ready.is_some()
-            && !error.is_retryable_carrier_failure()
+        let credential_failure = result.as_ref().is_err_and(is_credential_source_error);
+        if first_ready.is_some()
+            && result.as_ref().is_err_and(|error| !error.is_retryable_carrier_failure())
         {
             if let Some(sender) = first_ready.take() {
-                let _ = sender.send(Err(error));
+                let _ = sender.send(result);
             }
             return;
         }
         if *shutdown.borrow() {
             return;
         }
+        let wait = if credential_failure {
+            credential_backoff.next(random_unit())
+        } else {
+            backoff.next(random_unit())
+        };
+        if let (Some(label), Err(error)) = (&log, &result) {
+            failures += 1;
+            eprintln!(
+                "{label}: attempt {failures} failed, retrying in {} ms: {error}",
+                wait.as_millis()
+            );
+        }
         tokio::select! {
-            _ = tokio::time::sleep(backoff.next(random_unit())) => {}
+            _ = tokio::time::sleep(wait) => {}
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
                     return;
@@ -2136,6 +2351,116 @@ mod tests {
         registration.abort();
         assert!(registration.await.unwrap_err().is_cancelled());
         assert!(server.await.unwrap());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_credential_command_reports_its_status_and_redacted_stderr_tail() {
+        let source = RelayCredentialSource::command(
+            "/bin/sh",
+            [
+                "-c",
+                "head -c 5000 /dev/zero | tr '\\0' x >&2; \
+                 echo ' agent refused: token=short Bearer sk_live_9 \
+                 0123456789abcdefABCDEF0123 see /var/lib/cmux/carrier.json' >&2; exit 3",
+            ],
+        );
+        let error = source.fetch().await.unwrap_err();
+        assert!(is_credential_source_error(&error), "{error}");
+        let message = error.to_string();
+        assert!(message.contains("unsuccessful (exit status: 3)"), "{message}");
+        assert!(message.contains("agent refused: token=[REDACTED] Bearer [REDACTED]"), "{message}");
+        assert!(message.contains("[REDACTED] see /var/lib/cmux/carrier.json"), "{message}");
+        for secret in ["short", "sk_live_9", "0123456789abcdefABCDEF0123"] {
+            assert!(!message.contains(secret), "{secret} leaked: {message}");
+        }
+        assert!(
+            message.len() < CREDENTIAL_COMMAND_STDERR_TAIL_BYTES + 200,
+            "the stderr tail is unbounded: {} bytes",
+            message.len()
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn timed_out_credential_command_reports_its_stderr() {
+        let source = RelayCredentialSource::command_with_timeout(
+            "/bin/sh",
+            ["-c", "echo stuck on the agent >&2; exec sleep 30"],
+            Duration::from_millis(200),
+        );
+        let started = Instant::now();
+        let message = source.fetch().await.unwrap_err().to_string();
+        assert!(started.elapsed() < Duration::from_secs(5), "the command was not stopped");
+        assert!(
+            message.contains("timed out after 200 ms; stderr: stuck on the agent"),
+            "{message}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn background_registration_retries_a_failing_ticket_command_until_shutdown() {
+        use crate::identity::AuthDatabase;
+        use crate::session::SessionLimits;
+
+        let directory = tempfile::tempdir().unwrap();
+        let attempts = directory.path().join("attempts");
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "relay-ticket-retry", true).unwrap();
+        let (daemon, _clients) = RemoteDaemon::new(auth, SessionLimits::default());
+        let registration = spawn_relay_daemon_registration(
+            daemon,
+            RelayDaemonConfig {
+                endpoint: Url::parse("relay+ws://127.0.0.1:9").unwrap(),
+                slot: "ticket-retry-slot".into(),
+                ticket: String::new(),
+                maximum_frame_bytes: 65_535,
+                control_timeout: Duration::from_secs(1),
+            },
+            RelayCredentialSource::command(
+                "/bin/sh",
+                [
+                    "-c".to_owned(),
+                    format!("echo attempt >> '{}'; echo refused >&2; exit 1", attempts.display()),
+                ],
+            ),
+            "test",
+        )
+        .expect("a failing ticket command is not a configuration error");
+        let count =
+            || std::fs::read_to_string(&attempts).map(|text| text.lines().count()).unwrap_or(0);
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while count() < 2 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the registration did not retry the ticket command");
+        tokio::time::timeout(Duration::from_secs(1), registration.shutdown())
+            .await
+            .expect("the registration did not stop at shutdown");
+        let stopped = count();
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        assert_eq!(count(), stopped, "the registration kept running after shutdown");
+    }
+
+    #[test]
+    fn redaction_keeps_words_and_paths_and_drops_token_shaped_values() {
+        assert_eq!(
+            redact_token_shaped("POST /v1/cloud/machines/carrier failed:\n503 retry later"),
+            "POST /v1/cloud/machines/carrier failed: 503 retry later"
+        );
+        assert_eq!(
+            redact_token_shaped(
+                "ticket: abc12345xyz password=hunter2 eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjF9.x1"
+            ),
+            "ticket: [REDACTED] password=[REDACTED] [REDACTED]"
+        );
+        assert_eq!(
+            redact_token_shaped("carrier-ticket: agent answered 503"),
+            "carrier-ticket: agent answered 503"
+        );
     }
 
     #[tokio::test]

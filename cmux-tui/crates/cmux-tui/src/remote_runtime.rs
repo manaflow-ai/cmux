@@ -39,7 +39,7 @@ use cmux_remote::provider::{
     ConnectRequest, Dialer, DirectWebSocketProvider, IrohPathMode, LinkGroup, ProviderError,
     RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
     RelayProvider, SshProvider, SshProviderConfig, SupportedClientAuthModes, TransportProvider,
-    UnixProvider, register_relay_daemon_with_credentials, sanitized_route, sanitized_route_text,
+    UnixProvider, sanitized_route, sanitized_route_text, spawn_relay_daemon_registration,
 };
 #[cfg(feature = "iroh-transport")]
 use cmux_remote::provider::{
@@ -2250,34 +2250,24 @@ async fn run_daemon(
                 None => None,
             };
 
-            let mut relay_tasks = tokio::task::JoinSet::new();
-            for relay in options.relays.iter().cloned() {
-                let daemon = daemon.clone();
-                relay_tasks.spawn(async move {
-                    register_relay_daemon_with_credentials(
-                        daemon,
-                        RelayDaemonConfig {
-                            endpoint: relay.endpoint,
-                            slot: relay.slot,
-                            ticket: String::new(),
-                            maximum_frame_bytes: MAX_CARRIER_FRAME_BYTES,
-                            control_timeout: Duration::from_secs(15),
-                        },
-                        relay.credentials,
-                    )
-                    .await
-                });
-            }
+            // The relay registers in the background: a ticket command that
+            // fails or hangs, or a relay that is down, is retried and logged
+            // while the local sockets serve. Only an invalid relay
+            // configuration fails startup.
             let mut relays = Vec::with_capacity(options.relays.len());
-            while !relay_tasks.is_empty() {
-                let result = tokio::select! {
-                    result = relay_tasks.join_next() => result,
-                    _ = wait_for_shutdown(&mut startup_shutdown) => {
-                        return Err(anyhow!("remote daemon startup was cancelled"));
-                    }
-                };
-                let result = result.expect("a non-empty relay task set has a result");
-                relays.push(result.context("relay registration task failed")??);
+            for relay in options.relays.iter().cloned() {
+                relays.push(spawn_relay_daemon_registration(
+                    daemon.clone(),
+                    RelayDaemonConfig {
+                        endpoint: relay.endpoint,
+                        slot: relay.slot,
+                        ticket: String::new(),
+                        maximum_frame_bytes: MAX_CARRIER_FRAME_BYTES,
+                        control_timeout: Duration::from_secs(15),
+                    },
+                    relay.credentials,
+                    &BIN.to_string(),
+                )?);
             }
 
             #[cfg(not(feature = "iroh-transport"))]
