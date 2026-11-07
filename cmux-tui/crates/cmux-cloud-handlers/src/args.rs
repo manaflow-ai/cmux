@@ -246,7 +246,8 @@ pub struct NewMachine {
     pub bootstrap_path: Option<String>,
     pub bootstrap_kind: BootstrapKind,
     pub machine_config_path: Option<String>,
-    pub repo: Option<String>,
+    /// `--repo`, parsed: never the raw spec, so no login or token passes.
+    pub repo: Option<crate::repo::MachineRepo>,
 }
 
 /// The invocation's `name`, `size`, `persistent`, `bootstrap`, `bootstrapScript`,
@@ -305,7 +306,9 @@ pub fn new_machine(args: &Args, home: &str) -> Checked<NewMachine> {
     if request.bootstrap_kind == BootstrapKind::Lane && request.name.is_none() {
         return Err(Said::key("laneNeedsName"));
     }
-    request.repo = text(args, "repo").map(str::to_owned);
+    if let Some(spec) = text(args, "repo") {
+        request.repo = Some(crate::repo::parse(spec)?);
+    }
     Ok(request)
 }
 

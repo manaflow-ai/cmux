@@ -14,6 +14,7 @@
 //!   the diagnostics summary, the team switch and the destructive prompts.
 //! - [`fields`]: the `action.run` result fields of the machine actions.
 //! - [`answers`]: the text and fields of the actions whose answer someone reads.
+//! - [`repo`]: the `--repo` spec parser, which refuses a login or token in the URL.
 //!
 //! A refusal is a [`Said`]: a key the app turns into its localized text (the
 //! words stay in the app's string tables), with the values it names.
@@ -22,6 +23,7 @@ pub mod answers;
 pub mod args;
 pub mod decide;
 pub mod fields;
+pub mod repo;
 mod said;
 pub mod time;
 

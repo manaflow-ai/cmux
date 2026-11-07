@@ -112,13 +112,19 @@ fn a_quoted_tilde_is_the_home_folders() {
 }
 
 #[test]
-fn an_empty_machine_config_is_refused_and_a_repo_is_passed_on() {
+fn an_empty_machine_config_is_refused_and_a_repo_is_parsed() {
     assert_eq!(
         new_machine(&args(json!({"machineConfig": ""})), HOME).unwrap_err(),
         Said::with("machineConfigUnreadable", [""])
     );
     let request = new_machine(&args(json!({"repo": "manaflow-ai/cmux"})), HOME).unwrap();
-    assert_eq!(request.repo.as_deref(), Some("manaflow-ai/cmux"));
+    assert_eq!(
+        request.repo.map(|repo| repo.url).as_deref(),
+        Some("https://github.com/manaflow-ai/cmux.git")
+    );
+    let refused =
+        new_machine(&args(json!({"repo": "https://ghp_x@github.com/o/n"})), HOME).unwrap_err();
+    assert_eq!(refused.key, "repoCredentialsInURL");
 }
 
 #[test]
