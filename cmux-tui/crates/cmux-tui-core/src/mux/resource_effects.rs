@@ -283,12 +283,45 @@ impl Mux {
             None,
             |state, registry| {
                 let projection = self.resource_effect_projection_locked(registry, state, result)?;
-                Ok(ResourceMutationPlan::new(
-                    projection.patch,
-                    projection.result,
-                    projection.changes,
-                    |_| {},
-                ))
+                Ok(projection_plan(projection))
+            },
+        )
+    }
+
+    /// [`Self::commit_full_resource_projection_with_mutation`] for a terminal
+    /// just created in the workspace whose key is `workspace_key`: once the
+    /// public fold is seeded, only that workspace is projected (as
+    /// [`Self::created_view_projection_locked`] does for an effect commit),
+    /// so the commit and its journal record do not grow with the session.
+    /// Each keyed `create-terminal` restated every live resource, about 1500
+    /// upserts and 650 KB on the session stream per create at 290 workspaces
+    /// in the classic import.
+    #[track_caller]
+    pub(crate) fn commit_created_terminal_projection_with_mutation(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        workspace_key: &str,
+        result: Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_resource_mutation_plan(
+            mutation,
+            operation,
+            fingerprint,
+            None,
+            None,
+            |state, registry| {
+                let workspace = state
+                    .workspace_by_key(workspace_key)
+                    .map(|workspace| workspace.public_id.clone())
+                    .filter(|_| registry.public_fold_seeded());
+                let projection = match workspace {
+                    Some(workspace) => self
+                        .resource_effect_projection_scoped_locked(registry, state, &[workspace], result)?,
+                    None => self.resource_effect_projection_locked(registry, state, result)?,
+                };
+                Ok(projection_plan(projection))
             },
         )
     }
@@ -388,4 +421,13 @@ impl Mux {
             .terminal_record(&host_id)?
             .is_some_and(|terminal| terminal.lifecycle != TerminalLifecycle::Tombstoned))
     }
+}
+
+/// The plan that commits `projection`; a full projection's restates every
+/// live resource, so its commit may seed the public fold.
+fn projection_plan(projection: ResourceEffectProjection) -> ResourceMutationPlan {
+    let mut plan =
+        ResourceMutationPlan::new(projection.patch, projection.result, projection.changes, |_| {});
+    plan.restates_all = projection.restates_all;
+    plan
 }

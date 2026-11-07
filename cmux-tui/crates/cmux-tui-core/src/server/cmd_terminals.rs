@@ -320,10 +320,11 @@ pub(super) fn create_terminal(
             "terminal_id":result.terminal_id,
             "workspace_key":key,
         });
-        mux.commit_full_resource_projection_with_mutation(
+        mux.commit_created_terminal_projection_with_mutation(
             &workspace_mutation,
             "raw.terminal.create",
             &projection_fingerprint,
+            &key,
             json!({
                 "terminal_id":result.terminal_id,
                 "workspace_key":key,

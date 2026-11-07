@@ -205,6 +205,9 @@ impl Mux {
         } else {
             self.subscribers.publish_deferred_session_paths(session_paths);
         }
+        if plan.restates_all && !commit.replayed {
+            registry.record_full_projection_fold(commit.revision, &plan.deltas);
+        }
         // `apply` consumes the plan; keep what the tree delta needs.
         let ledger = plan
             .workspace_ledger
