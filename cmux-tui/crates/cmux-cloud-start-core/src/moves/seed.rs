@@ -89,7 +89,7 @@ impl Reader {
         progress.fallback_code.clone_from(&self.fallback_code);
         progress.install_url.clone_from(&self.install_url);
         let due = self.phase.as_deref() != Some(progress.phase.as_str())
-            || self.last_ms.is_none_or(|last| now_ms.saturating_sub(last) >= EVERY_MS);
+            || self.last_ms.is_none_or(|last| now_ms - last >= EVERY_MS);
         if !due {
             return None;
         }
