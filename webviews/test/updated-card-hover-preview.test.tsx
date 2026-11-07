@@ -168,6 +168,93 @@ describe("the preview's rows", () => {
     const titles = previewEntries(data, span, "en").map((row) => row.title);
     expect(titles).toEqual(["Rows keep their color", "Paste keeps its spaces"]);
   });
+
+  // #37615 F1: the generic entry is known by its source identity (its id and English title), not
+  // by the title the page shows; in German it read as a row of its own.
+  test("leave out the generic entry in every language", () => {
+    const span = [
+      {
+        build: "1",
+        shortVersion: "1.0.0-nightly.1",
+        date: "2026-11-06",
+        highlights: [],
+        changes: [],
+        items: [{ title: "fix(terminal): paste keeps its spaces", pr: 6 }],
+        whatsNew: {
+          version: "1.0.0-nightly.1",
+          channel: "nightly",
+          date: "2026-11-06",
+          headline: { en: "Fixes and improvements" },
+          entries: [
+            {
+              id: "fixes-and-improvements",
+              category: "improved",
+              title: { en: "Fixes and improvements", de: "Fehlerbehebungen und Verbesserungen" },
+              summary: {
+                en: "This build brings fixes and improvements. The link lists every change in it.",
+                de: "Dieser Build bringt Fehlerbehebungen und Verbesserungen.",
+              },
+            },
+          ],
+        },
+      },
+    ] as unknown as ReleaseNotes[];
+    const titles = previewEntries(data, span, "de").map((row) => row.title);
+    expect(titles).not.toContain("Fehlerbehebungen und Verbesserungen");
+    expect(titles).toEqual(["Paste keeps its spaces"]);
+  });
+
+  // #37615 F4: a build with reviewed entries lists those, not its commits too, as the card's summary.
+  test("list a build's commits only when it has no reviewed entries", () => {
+    const span = [
+      {
+        build: "2",
+        shortVersion: "1.0.0-nightly.2",
+        date: "2026-11-07",
+        highlights: [],
+        changes: [],
+        items: [{ title: "feat(sidebar): rows keep their color", pr: 5 }],
+        whatsNew: {
+          version: "1.0.0-nightly.2",
+          channel: "nightly",
+          date: "2026-11-07",
+          headline: { en: "Sidebar colors" },
+          entries: [
+            {
+              id: "sidebar-colors",
+              category: "new",
+              title: { en: "Sidebar groups take a palette color" },
+              summary: { en: "" },
+            },
+          ],
+        },
+      },
+      {
+        build: "1",
+        shortVersion: "1.0.0-nightly.1",
+        date: "2026-11-06",
+        highlights: [],
+        changes: [],
+        items: [{ title: "fix(terminal): paste keeps its spaces", pr: 6 }],
+      },
+    ] as unknown as ReleaseNotes[];
+    const titles = previewEntries(data, span, "en").map((row) => row.title);
+    expect(titles).toEqual(["Sidebar groups take a palette color", "Paste keeps its spaces"]);
+  });
+
+  // #37615 F5: the preview promises every change of the update; none drops off the end.
+  test("list every change, however many", () => {
+    const items = Array.from({ length: 60 }, (_, index) => ({
+      title: `fix(terminal): change number ${index + 1} keeps working`,
+      pr: 100 + index,
+    }));
+    const span = [
+      { build: "1", shortVersion: "1.0.0-nightly.1", date: "2026-11-06", highlights: [], changes: [], items },
+    ] as unknown as ReleaseNotes[];
+    const rows = previewEntries(data, span, "en");
+    expect(rows).toHaveLength(60);
+    expect(rows.at(-1)!.title).toBe("Change number 60 keeps working");
+  });
 });
 
 describe("the card", () => {
@@ -300,6 +387,44 @@ describe("the card", () => {
     expect(Date.now() - started).toBeGreaterThanOrEqual(380);
     // The card's own 48 px and the list's 120 px.
     expect(sizes).toEqual([168]);
+  });
+
+  // #37615 F2: with motion reduced or off the preview has no close transition to wait for, so the
+  // room goes back as the preview closes.
+  test("with motion reduced, the room goes back as the preview closes", async () => {
+    const page = dom.window.document.documentElement;
+    page.dataset.cmuxMotion = "reduced";
+    try {
+      const sizes: number[] = [];
+      let host: HTMLElement;
+      ({ host } = await render({ hostPointer: false, onPreviewSize: (h: number) => sizes.push(h) }));
+      ({ host } = await render({ hostPointer: true, onPreviewSize: (h: number) => sizes.push(h) }));
+      const state = () => host.querySelector(".wn-card")?.getAttribute("data-preview");
+      await until(() => state() === "open");
+      expect(sizes).toEqual([168]);
+      // The same card hears the pointer leave (render() would mount a new one).
+      const { UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
+      const { createStrings } = await import("../src/pages/shared/i18n");
+      const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+      await act(async () =>
+        root!.render(
+          <UpdatedCard
+            data={data}
+            strings={createStrings(table)}
+            actions={{ openChangelog: () => undefined, dismiss: () => undefined }}
+            closeButton={false}
+            decoration={null}
+            hostPointer={false}
+            onPreviewSize={(h: number) => sizes.push(h)}
+          />,
+        ),
+      );
+      await until(() => state() === "closed");
+      expect(state()).toBe("closed");
+      expect(sizes).toEqual([168, 0]);
+    } finally {
+      delete page.dataset.cmuxMotion;
+    }
   });
 });
 
