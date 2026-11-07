@@ -257,9 +257,14 @@ describe("cmux VM image snapshot-ready check", () => {
       );
   });
 
-  test("runs last, right before the snapshot", () => {
+  test("runs right before the snapshot, after the page cache warm and before the machine-health arm", () => {
     const source = readFileSync(path.join(import.meta.dir, "../scripts/cmux-vm-image/bake.ts"), "utf8");
     const at = source.indexOf('L.step(vm, "snapshot-ready", snapshotReadyCommand())');
-    expect(at).toBeGreaterThan(source.indexOf('L.step(vm, "machine-health-arm"'));
+    expect(at).toBeGreaterThan(source.indexOf('"drop-cache-warm-bind-path"'));
+    expect(at).toBeLessThan(source.indexOf('L.step(vm, "machine-health-arm"'));
+  });
+
+  test("covers the bind's identity receipt (cmux-host identity.rs RECEIPT)", () => {
+    expect(bake.PER_MACHINE_FILES).toContain("/var/lib/cmux/install/identity.json");
   });
 });

@@ -337,11 +337,12 @@ function parkCommand(): string {
   ].join(" && ");
 }
 
-/** Files a machine makes for itself at bind (cmux-host cloud/wire.rs, carrier_entry.rs): a snapshot holding one gives it to every clone. */
+/** Files a machine makes for itself at bind (cmux-host cloud/wire.rs, identity.rs RECEIPT, carrier_entry.rs): a snapshot holding one gives it to every clone. */
 export const PER_MACHINE_FILES = [
   "/var/lib/cmux/bind.json",
   "/var/lib/cmux/bound.json",
   "/var/lib/cmux/install/key.json",
+  "/var/lib/cmux/install/identity.json",
   "/var/lib/cmux/wg/key.json",
   "/var/lib/cmux/carrier.json",
   "/run/cmux/carrier-grant.json",
@@ -349,7 +350,7 @@ export const PER_MACHINE_FILES = [
 ] as const;
 
 /**
- * The last step before the snapshot: a clone resumes with cmux-host and acpmux already running (nothing waits on
+ * Right before the snapshot (only the machine-health arm follows it): a clone resumes with cmux-host and acpmux already running (nothing waits on
  * their start), and holds no per-machine identity, which each clone mints at bind (cmux-host's rekey: machine-id,
  * random seed, SSH host key; the session host: its remote identity). `root` prefixes every path (tests only).
  */
@@ -809,8 +810,8 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
   result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
   result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
-  await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
   await L.step(vm, "snapshot-ready", snapshotReadyCommand());
+  await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
 }
 
 /**
