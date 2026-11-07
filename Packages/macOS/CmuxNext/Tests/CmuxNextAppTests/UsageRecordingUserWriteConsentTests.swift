@@ -54,6 +54,27 @@ import Testing
         #expect(!hangConsented(defaults))
     }
 
+    /// Sharing keeps its own record beside recording's: the person's write of one never records
+    /// the other, and turning sharing off removes only its own.
+    @Test func sharingRecordsOnlyItsOwnConsent() async throws {
+        let (defaults, suite) = defaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let home = FileManager.default.temporaryDirectory.appending(path: suite)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await settings(home: home, defaults: defaults, usageFirst: true)
+        settings.chainUserWillWrite { descriptor, value in
+            UsageSharing.recordUserWrite(defaults: defaults, path: descriptor.path, value: value)
+        }
+        try await settings.setSetting(at: UsageRecordingSetting.path, to: .bool(true), by: .user)
+        #expect(UsageRecorder.consented(defaults))
+        #expect(!UsageSharing.consented(defaults))
+        try await settings.setSetting(at: UsageSharingSetting.path, to: .bool(true), by: .user)
+        #expect(UsageSharing.consented(defaults))
+        try await settings.setSetting(at: UsageSharingSetting.path, to: .bool(false), by: .user)
+        #expect(!UsageSharing.consented(defaults))
+        #expect(UsageRecorder.consented(defaults))
+    }
+
     @Test func aWriteByAnotherCallerRecordsNoConsent() async throws {
         let (defaults, suite) = defaults()
         defer { defaults.removePersistentDomain(forName: suite) }

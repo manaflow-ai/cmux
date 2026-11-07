@@ -36,4 +36,10 @@ import Testing
         #expect(!UserOnlySettingConfirmation.body(key: "diagnostics.usageRecording", value: .bool(false)).contains(UsageRecorder.privacySummary))
         #expect(!UserOnlySettingConfirmation.body(key: "diagnostics.hangReports", value: .bool(true)).contains(UsageRecorder.privacySummary))
     }
+
+    @Test func theConfirmationSheetForSharingShowsWhatGoesToTheTeam() {
+        #expect(UserOnlySettingConfirmation.body(key: "diagnostics.usageSharing", value: .bool(true)).contains(UsageSharing.privacySummary))
+        #expect(!UserOnlySettingConfirmation.body(key: "diagnostics.usageSharing", value: .bool(false)).contains(UsageSharing.privacySummary))
+        #expect(!UserOnlySettingConfirmation.body(key: "diagnostics.usageRecording", value: .bool(true)).contains(UsageSharing.privacySummary))
+    }
 }

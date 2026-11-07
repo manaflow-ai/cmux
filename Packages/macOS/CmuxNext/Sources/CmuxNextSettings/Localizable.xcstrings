@@ -212435,6 +212435,399 @@
           }
         }
       }
+    },
+    "settings.diagnostics.usageSharing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة الاستخدام مع الفريق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeli korištenje s timom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del brug med teamet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzung mit dem Team teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Usage with the Team"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir el uso con el equipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager l’utilisation avec l’équipe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condividi l’utilizzo con il team"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームと使用状況を共有"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចែករំលែក​ការប្រើប្រាស់​ជាមួយ​ក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀과 사용 기록 공유"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del bruk med teamet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępniaj użycie zespołowi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar o uso com a equipe"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Делиться использованием с командой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์การใช้งานกับทีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanımı Ekiple Paylaş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ділитися використанням із командою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sẻ cách sử dụng với nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与团队共享使用情况"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "與團隊共享使用情況"
+          }
+        }
+      }
+    },
+    "settings.diagnostics.usageSharing.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرسل سجل الاستخدام إلى فريقك. يتطلب تسجيل الاستخدام."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šalje zapis korištenja vašem timu. Potrebno je bilježenje korištenja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sender brugsregistreringen til dit team. Kræver registrering af brug."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendet die Nutzungsaufzeichnung an dein Team. Erfordert die Nutzungsaufzeichnung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends the usage record to your team. Needs Record Usage."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía el registro de uso a tu equipo. Requiere el registro de uso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoie l’enregistrement d’utilisation à votre équipe. Nécessite l’enregistrement de l’utilisation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia la registrazione dell’utilizzo al tuo team. Richiede la registrazione dell’utilizzo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用状況の記録をチームに送信します。使用状況の記録が必要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើ​កំណត់ត្រា​ការប្រើប្រាស់​ទៅ​ក្រុម​របស់​អ្នក។ ត្រូវ​ការ​ការកត់ត្រា​ការប្រើប្រាស់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 기록을 팀에 보냅니다. 사용 기록이 켜져 있어야 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sender bruksregistreringen til teamet ditt. Krever registrering av bruk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysyła zapis użycia do zespołu. Wymaga rejestrowania użycia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envia o registro de uso para sua equipe. Requer o registro de uso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправляет запись использования вашей команде. Нужна запись использования."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งบันทึกการใช้งานให้ทีมของคุณ ต้องเปิดการบันทึกการใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım kaydını ekibinize gönderir. Kullanım kaydı gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надсилає запис використання вашій команді. Потрібен запис використання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi bản ghi sử dụng cho nhóm của bạn. Cần bật ghi lại cách sử dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将使用记录发送给你的团队。需要开启使用情况记录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將使用記錄傳送給你的團隊。需要開啟使用情況記錄。"
+          }
+        }
+      }
+    },
+    "settings.diagnostics.usageSharing.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرسل سجل استخدام هذا الـ Mac إلى فريقك في cmux كل ست ساعات تقريبًا، ما دام تسجيل الاستخدام على هذا الـ Mac مفعّلًا. إنه السجل نفسه: أعداد وتوقيتات، ولا يتضمن أبدًا أسماء الملفات أو عناوين الويب أو العناوين أو نصوص الطرفية أو الدردشة أو أي شيء تكتبه. شغّل cmux usage delete-shared لحذف ما شاركته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šalje zapis korištenja ovog Maca vašem cmux timu otprilike svakih šest sati, dok je uključeno Bilježi korištenje na ovom Macu. To je isti zapis: brojevi i trajanja, nikad imena datoteka, web adrese, naslovi, tekst terminala ili chata, niti išta što kucate. Pokrenite cmux usage delete-shared da obrišete ono što ste podijelili."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sender denne Macs brugsregistrering til dit cmux-team cirka hver sjette time, mens Registrér brug på denne Mac er slået til. Det er den samme registrering: antal og tider, aldrig filnavne, webadresser, titler, terminal- eller chattekst eller noget, du skriver. Kør cmux usage delete-shared for at slette det, du har delt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendet die Nutzungsaufzeichnung dieses Macs etwa alle sechs Stunden an dein cmux-Team, solange „Nutzung auf diesem Mac aufzeichnen“ aktiv ist. Es ist dieselbe Aufzeichnung: Anzahlen und Zeiten, nie Dateinamen, Webadressen, Titel, Terminal- oder Chattext oder etwas, das du tippst. Mit cmux usage delete-shared löschst du, was du geteilt hast."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends this Mac's usage record to your cmux team about every six hours, while Record Usage on This Mac is on. It is the same record: counts and timings, never file names, web addresses, titles, terminal or chat text, or anything you type. Run cmux usage delete-shared to delete what you shared."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía el registro de uso de este Mac a tu equipo de cmux cada seis horas aproximadamente, mientras Registrar el uso en este Mac esté activado. Es el mismo registro: recuentos y tiempos, nunca nombres de archivo, direcciones web, títulos, texto de terminal o chat, ni nada que escribas. Ejecuta cmux usage delete-shared para eliminar lo que compartiste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoie l’enregistrement d’utilisation de ce Mac à votre équipe cmux environ toutes les six heures, tant que « Enregistrer l’utilisation sur ce Mac » est activé. C’est le même enregistrement : des nombres et des durées, jamais de noms de fichiers, d’adresses web, de titres, de texte du terminal ou du chat, ni rien de ce que vous tapez. Exécutez cmux usage delete-shared pour supprimer ce que vous avez partagé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia la registrazione dell’utilizzo di questo Mac al tuo team cmux circa ogni sei ore, finché Registra l’utilizzo su questo Mac è attivo. È la stessa registrazione: conteggi e tempi, mai nomi di file, indirizzi web, titoli, testo del terminale o della chat, né nulla di ciò che digiti. Esegui cmux usage delete-shared per eliminare ciò che hai condiviso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「このMacで使用状況を記録」がオンの間、このMacの使用状況の記録を約6時間ごとにcmuxのチームに送信します。送るのは同じ記録です: 回数と時間だけで、ファイル名、Webアドレス、タイトル、ターミナルやチャットのテキスト、入力した内容は含みません。共有した記録は cmux usage delete-shared で削除できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើ​កំណត់ត្រា​ការប្រើប្រាស់​របស់ Mac នេះ​ទៅ​ក្រុម cmux របស់​អ្នក​ប្រហែល​រៀងរាល់​ប្រាំមួយ​ម៉ោង​ម្តង ខណៈ​ដែល​ការកត់ត្រា​ការប្រើប្រាស់​នៅលើ Mac នេះ​បើក។ វា​ជា​កំណត់ត្រា​ដដែល៖ ចំនួន និង​រយៈពេល មិនដែល​មាន​ឈ្មោះ​ឯកសារ អាសយដ្ឋាន​បណ្ដាញ ចំណងជើង អត្ថបទ​ស្ថានីយ ឬ​ជជែក ឬ​អ្វី​ដែល​អ្នក​វាយ​ទេ។ ដំណើរការ cmux usage delete-shared ដើម្បី​លុប​អ្វី​ដែល​អ្នក​បាន​ចែករំលែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 사용 기록이 켜져 있는 동안 이 Mac의 사용 기록을 약 6시간마다 cmux 팀에 보냅니다. 같은 기록입니다: 횟수와 시간만 담고, 파일 이름, 웹 주소, 제목, 터미널이나 채팅 텍스트, 입력한 내용은 절대 포함하지 않습니다. 공유한 기록은 cmux usage delete-shared로 삭제할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sender bruksregistreringen fra denne Macen til cmux-teamet ditt omtrent hver sjette time, mens Registrer bruk på denne Macen er på. Det er den samme registreringen: antall og tider, aldri filnavn, nettadresser, titler, terminal- eller chattekst eller noe du skriver. Kjør cmux usage delete-shared for å slette det du har delt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysyła zapis użycia tego Maca do Twojego zespołu cmux mniej więcej co sześć godzin, dopóki Rejestruj użycie na tym Macu jest włączone. To ten sam zapis: liczby i czasy, nigdy nazwy plików, adresy stron, tytuły, tekst terminala lub czatu ani nic, co wpisujesz. Uruchom cmux usage delete-shared, aby usunąć to, co udostępniono."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envia o registro de uso deste Mac para sua equipe do cmux a cada seis horas, mais ou menos, enquanto Registrar o uso neste Mac estiver ativado. É o mesmo registro: contagens e tempos, nunca nomes de arquivos, endereços web, títulos, texto do terminal ou do chat, nem nada que você digite. Execute cmux usage delete-shared para apagar o que você compartilhou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправляет запись использования этого Mac вашей команде cmux примерно раз в шесть часов, пока включено «Записывать использование на этом Mac». Это та же запись: количества и время, без имён файлов, веб-адресов, заголовков, текста терминала или чата и всего, что вы вводите. Чтобы удалить то, чем вы поделились, выполните cmux usage delete-shared."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งบันทึกการใช้งานของ Mac เครื่องนี้ให้ทีม cmux ของคุณประมาณทุกหกชั่วโมง ขณะที่บันทึกการใช้งานบน Mac เครื่องนี้เปิดอยู่ เป็นบันทึกเดียวกัน: มีแค่จำนวนและเวลา ไม่มีชื่อไฟล์ ที่อยู่เว็บ ชื่อเรื่อง ข้อความในเทอร์มินัลหรือแชท หรือสิ่งที่คุณพิมพ์ เรียกใช้ cmux usage delete-shared เพื่อลบสิ่งที่คุณแชร์ไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac’in kullanım kaydını, Bu Mac’te Kullanımı Kaydet açık olduğu sürece yaklaşık altı saatte bir cmux ekibinize gönderir. Aynı kayıttır: sayılar ve süreler; dosya adları, web adresleri, başlıklar, terminal veya sohbet metni ya da yazdığınız hiçbir şey yoktur. Paylaştıklarınızı silmek için cmux usage delete-shared komutunu çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надсилає запис використання цього Mac вашій команді cmux приблизно раз на шість годин, поки ввімкнено «Записувати використання на цьому Mac». Це той самий запис: кількості й час, ніколи не назви файлів, вебадреси, заголовки, текст термінала чи чату або те, що ви вводите. Щоб видалити те, чим ви поділилися, виконайте cmux usage delete-shared."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi bản ghi sử dụng của máy Mac này cho nhóm cmux của bạn khoảng sáu giờ một lần, khi Ghi lại cách sử dụng trên máy Mac này đang bật. Đó là cùng một bản ghi: số lượng và thời gian, không bao giờ có tên tệp, địa chỉ web, tiêu đề, văn bản terminal hay trò chuyện, hoặc bất cứ thứ gì bạn gõ. Chạy cmux usage delete-shared để xóa những gì bạn đã chia sẻ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“在此 Mac 上记录使用情况”开启期间，大约每六小时将此 Mac 的使用记录发送给你的 cmux 团队。发送的是同一份记录：只有次数和时长，绝不包含文件名、网址、标题、终端或聊天文本，或你输入的任何内容。运行 cmux usage delete-shared 可删除你共享的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「在此 Mac 上記錄使用情況」開啟期間，大約每六小時將此 Mac 的使用記錄傳送給你的 cmux 團隊。傳送的是同一份記錄：只有次數和時間，絕不包含檔案名稱、網址、標題、終端機或聊天文字，或你輸入的任何內容。執行 cmux usage delete-shared 可刪除你共享的內容。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

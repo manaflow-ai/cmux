@@ -543,6 +543,25 @@ impl Platform {
         if let Some(body) = body {
             request = request.json(&body);
         }
+        self.finish(request).await
+    }
+
+    /// `POST path` with `body`, already JSON text, sent as is (`cmux usage upload`, whose batches
+    /// are sized in bytes).
+    pub(crate) fn post_text(&self, path: &str, body: String) -> Result<Value, CallError> {
+        let request = self
+            .client
+            .post(format!("{}{path}", self.origin))
+            .bearer_auth(&self.credential)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .timeout(self.timeout)
+            .body(body);
+        self.runtime.block_on(self.finish(request))
+    }
+
+    /// Sends `request` (with the pinned team) and reads the answer.
+    async fn finish(&self, mut request: reqwest::RequestBuilder) -> Result<Value, CallError> {
         if let Some(team) = &self.team {
             request = request.header("x-cmux-team", team.as_str());
         }
@@ -700,8 +719,9 @@ fn entries(body: Value) -> Option<Vec<Value>> {
     }
 }
 
-/// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 46] = [
+/// The platform's refusal codes (machine join and the other platform verbs). Errors print only
+/// these, from this table.
+const KNOWN_CODES: [&str; 53] = [
     "lease.not_found",
     "reservation.expired",
     "reservation.terminal",
@@ -743,6 +763,14 @@ const KNOWN_CODES: [&str; 46] = [
     "workspace_machine.not_admitted",
     "workspace_machine.machine_taken",
     "workspace_machine.machine_gone",
+    // Team usage sharing (`cmux usage upload|delete-shared`).
+    "usage.invalid",
+    "usage.unauthorized",
+    "usage.forbidden",
+    "usage.not_team_member",
+    "usage.not_found",
+    "usage.too_large",
+    "usage.unavailable",
     "bad_request",
     "unauthorized",
     "not_found",

@@ -2189,6 +2189,12 @@
       "title" : "Record Usage on This Mac",
       "type" : "boolean"
     },
+    "diagnostics.usageSharing" : {
+      "default" : false,
+      "description" : "Sends this Mac's usage record to your cmux team about every six hours, while Record Usage on This Mac is on. It is the same record: counts and timings, never file names, web addresses, titles, terminal or chat text, or anything you type. Run cmux usage delete-shared to delete what you shared.",
+      "title" : "Share Usage with the Team",
+      "type" : "boolean"
+    },
     "diff.colors" : {
       "default" : "theme",
       "description" : "diff.colors",

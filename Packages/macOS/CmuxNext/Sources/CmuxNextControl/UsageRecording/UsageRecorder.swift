@@ -94,15 +94,20 @@ public final class UsageRecorder {
     private var switchInFlight: Bool?
     private var launchRecorded = false
     private var askedThisLaunch = false
+    /// Team sharing, the second opt-in (nil: none in this build or test).
+    let sharing: UsageSharing?
 
     /// - Parameters:
     ///   - ports: The app's sources and the daemon's calls.
     ///   - managedDisables: Whether a managed profile forces `DisableTelemetry` (called off main).
-    ///   - defaults: Where this Mac's consent record lives.
-    init(ports: Ports, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard) {
+    ///   - defaults: Where this Mac's consent records live.
+    ///   - sharing: Team sharing's ports, or nil for none.
+    init(ports: Ports, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard,
+         sharing: UsageSharing.Ports? = nil) {
         self.ports = ports
         self.managedDisables = managedDisables
         self.defaults = defaults
+        self.sharing = sharing.map { UsageSharing(ports: $0, defaults: defaults) }
     }
 
     /// The recorder over the app (`AppServices`), its local daemon and this Mac's defaults.
@@ -119,14 +124,21 @@ public final class UsageRecorder {
             counts: { [weak host] in
                 guard let host else { return UsageCounts() }
                 return UsageCounts(workspaces: host.usageWorkspaces, windows: host.usageWindowCount,
-                                   sidebarWidth: host.usageSidebarHidden ? 0 : Int(exactly: host.usageSidebarWidth.rounded()) ?? 0,
+                                   sidebarWidth: Int(exactly: host.usageSidebarWidth.rounded()) ?? 0,
                                    isChat: host.usageIsChat)
             },
             appActive: { [weak host] in host?.usageAppActive ?? false },
             ask: { [weak host] title, detail, yes, no in await host?.usageAsk(title, detail: detail, yes: yes, no: no) ?? false },
             setEnabled: { on in try await connected().setUsageRecording(on) },
             record: { source, events in try await connected().recordUsage(source: source, events: events) })
-        self.init(ports: ports, managedDisables: { [weak host] in host?.usageManagedDisables() ?? false })
+        let sharing = UsageSharing.Ports(
+            ask: { [weak host] title, detail, yes, no in await host?.usageAsk(title, detail: detail, yes: yes, no: no) ?? false },
+            setSharing: { on in try await connected().setUsageSharing(on) },
+            upload: { [weak host] in
+                guard let host, let access = await host.usageShareAccess(), let cli = await host.usageCLI.resolve() else { return false }
+                return await UsageSharing.runUpload(cli: cli, access: access)
+            })
+        self.init(ports: ports, managedDisables: { [weak host] in host?.usageManagedDisables() ?? false }, sharing: sharing)
     }
 
     /// Whether it records now.
@@ -149,6 +161,7 @@ public final class UsageRecorder {
         settings.chainUserWillWrite { [defaults] descriptor, value in
             Self.recordUserWrite(defaults: defaults, path: descriptor.path, value: value)
         }
+        sharing?.start(settings: settings, isFirstLaunch: isFirstLaunch, firstWindow: firstWindow)
         let managedDisables = managedDisables
         // task-owner: follows the setting for the life of the process (the recorder lives with it,
         // AppProcessRoot); ends at once under a managed block.
@@ -240,6 +253,8 @@ public final class UsageRecorder {
         switchInFlight = nil
         if ok {
             switchSent = on
+            // Sharing waits for the daemon's recording marker (it refuses a share switch without it).
+            if on, queue != nil { sharing?.recording(true) }
         } else if on, let queue, queue === self.queue {
             end()
         }
@@ -263,6 +278,7 @@ public final class UsageRecorder {
     }
 
     private func end() {
+        sharing?.recording(false)
         actions?.setRunSink(nil)
         queue?.stop()
         queue = nil
@@ -306,6 +322,7 @@ public final class UsageRecorder {
         lastActive = on
         stage([.active(on: on)])
         guard !on, flushing else { return }
+        sharing?.appResigned()
         stage([.counts(ports.counts())])
         let actions = actions
         // task-owner: one fold and send; ends when the daemon answers.

@@ -12,9 +12,7 @@ public protocol UsageRecordingHost: AnyObject, Sendable {
     var usageWorkspaces: [WorkspaceModel] { get }
     /// Open windows.
     var usageWindowCount: Int { get }
-    /// The active window's sidebar is hidden (true with no window).
-    var usageSidebarHidden: Bool { get }
-    /// The active window's sidebar width in points.
+    /// The active window's sidebar width in points; 0 while it is hidden or with no window.
     var usageSidebarWidth: Double { get }
     /// The app is active.
     var usageAppActive: Bool { get }
@@ -27,4 +25,8 @@ public protocol UsageRecordingHost: AnyObject, Sendable {
     func usageAsk(_ title: String, detail: String, yes: String, no: String) async -> Bool
     /// Whether a managed profile forces `DisableTelemetry` (reads the managed preferences: off main).
     nonisolated func usageManagedDisables() -> Bool
+    /// The bundled `cmux` that runs `cmux usage upload` (team sharing).
+    var usageCLI: BundledExecutable { get }
+    /// The selected backend's platform and a fresh install token, or nil when signed out.
+    func usageShareAccess() async -> UsageShareAccess?
 }

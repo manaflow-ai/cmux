@@ -614,6 +614,24 @@ Params: `{on: boolean}`. Result: `{on: boolean, dir: string}`, `dir` being the
 usage dir. On writes the `enabled` marker and makes the folder and salt if
 needed; off removes the marker and keeps what was recorded.
 
+### usage-set-sharing
+
+| Field | Value |
+| --- | --- |
+| name | `usage-set-sharing` |
+| status | implemented |
+| since | protocol 12 |
+
+Switches sharing the opt-in usage record with the person's team on or off, from
+this Mac's own consent in the app (`diagnostics.usageSharing`). The verified
+cmux app only (the `frontend` actor); any other client is refused.
+
+Params: `{on: boolean}`. Result: `{on: boolean, dir: string}`. On writes the
+`share` marker in the usage dir, and refuses while recording is off (no
+`enabled` marker); off removes it. Switching recording off also removes it.
+`cmux usage upload` refuses to send anything without this marker, so a synced
+settings file or an agent cannot make a Mac upload.
+
 ### server-stats
 
 | Field | Value |

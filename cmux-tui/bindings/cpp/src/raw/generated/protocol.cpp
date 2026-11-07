@@ -14826,6 +14826,43 @@ Result<UsageSetEnabledResult> Codec<UsageSetEnabledResult>::decode(const Json& v
     return result;
 }
 
+Result<Json> Codec<UsageSetSharingResult>::encode(const UsageSetSharingResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_dir = encode_value(value.dir);
+    if (!encoded_dir) return std::move(encoded_dir).error();
+    object.emplace("dir", std::move(encoded_dir).value());
+    auto encoded_on = encode_value(value.on);
+    if (!encoded_on) return std::move(encoded_on).error();
+    object.emplace("on", std::move(encoded_on).value());
+    return Json(std::move(object));
+}
+
+Result<UsageSetSharingResult> Codec<UsageSetSharingResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    UsageSetSharingResult result{};
+    const Json* field_dir = value.find("dir");
+    if (!field_dir) {
+        return make_error(ErrorCode::decode, "missing required field 'dir'");
+    }
+    if (field_dir) {
+        auto decoded = decode_value<std::string>(*field_dir);
+        if (!decoded) return std::move(decoded).error();
+        result.dir = std::move(decoded).value();
+    }
+    const Json* field_on = value.find("on");
+    if (!field_on) {
+        return make_error(ErrorCode::decode, "missing required field 'on'");
+    }
+    if (field_on) {
+        auto decoded = decode_value<bool>(*field_on);
+        if (!decoded) return std::move(decoded).error();
+        result.on = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<ViewAttachmentOutcome>::encode(const ViewAttachmentOutcome& value) {
     switch (value) {
         case ViewAttachmentOutcome::applied: return Json(std::string("applied"));
@@ -34844,6 +34881,31 @@ Result<UsageSetEnabledRequest> Codec<UsageSetEnabledRequest>::decode(const Json&
     return result;
 }
 
+Result<Json> Codec<UsageSetSharingRequest>::encode(const UsageSetSharingRequest& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_on = encode_value(value.on);
+    if (!encoded_on) return std::move(encoded_on).error();
+    object.emplace("on", std::move(encoded_on).value());
+    return Json(std::move(object));
+}
+
+Result<UsageSetSharingRequest> Codec<UsageSetSharingRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    UsageSetSharingRequest result{};
+    const Json* field_on = value.find("on");
+    if (!field_on) {
+        return make_error(ErrorCode::decode, "missing required field 'on'");
+    }
+    if (field_on) {
+        auto decoded = decode_value<bool>(*field_on);
+        if (!decoded) return std::move(decoded).error();
+        result.on = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<VtStateRequest>::encode(const VtStateRequest& value) {
     (void)value;
     Json::Object object;
@@ -43874,7 +43936,7 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand284FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand285FieldRequirements{{
     {"icon", 12U, "tab-group-icon-v1"},
 }};
-constexpr std::array<CommandMetadata, 297> kCommands{{
+constexpr std::array<CommandMetadata, 298> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-screens-to-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-tabs-to-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -44168,6 +44230,7 @@ constexpr std::array<CommandMetadata, 297> kCommands{{
     {"url-open-subscribe", "frontend", 12U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>{}},
     {"usage-record", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"usage-set-enabled", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"usage-set-sharing", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"vt-state", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"wait-for", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -47497,6 +47560,17 @@ Result<UsageSetEnabledResult> Client::usage_set_enabled(
     auto response = core_.request("usage-set-enabled", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<UsageSetEnabledResult>(response.value());
+}
+
+Result<UsageSetSharingResult> Client::usage_set_sharing(
+    const UsageSetSharingRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("usage-set-sharing", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<UsageSetSharingResult>(response.value());
 }
 
 Result<VtStateResult> Client::vt_state(

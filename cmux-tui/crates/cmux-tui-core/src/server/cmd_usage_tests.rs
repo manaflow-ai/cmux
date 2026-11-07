@@ -32,6 +32,8 @@ fn assert_refused(mux: &Arc<Mux>, client: u64) {
     assert!(error.to_string().contains("verified cmux app"), "{error}");
     let error = set_enabled(mux, client, &SetEnabledParams { on: true }).expect_err("refused");
     assert!(error.to_string().contains("verified cmux app"), "{error}");
+    let error = set_sharing(mux, client, &SetSharingParams { on: true }).expect_err("refused");
+    assert!(error.to_string().contains("verified cmux app"), "{error}");
 }
 
 #[test]
@@ -89,5 +91,23 @@ fn a_batch_with_an_unknown_field_is_refused_whole() {
     let error = record_in(&dir, "app-dev", bad).expect_err("refused");
     assert!(error.to_string().starts_with("bad request"), "{error}");
     assert!(dir.read(0).is_empty());
+    let _ = std::fs::remove_dir_all(dir.path());
+}
+
+#[test]
+fn sharing_switches_only_while_recording_is_on() {
+    let dir = temp_dir("share");
+    let error = set_sharing_in(&dir, true).expect_err("recording off");
+    assert!(error.to_string().contains("needs usage recording"), "{error}");
+    assert!(!dir.is_sharing());
+
+    set_enabled_in(&dir, true).expect("on");
+    let reply = set_sharing_in(&dir, true).expect("share");
+    assert_eq!(reply["on"], true);
+    assert!(dir.is_sharing());
+    // Recording off takes sharing with it.
+    set_enabled_in(&dir, false).expect("off");
+    assert!(!dir.is_sharing());
+    assert_eq!(set_sharing_in(&dir, false).expect("off is always fine")["on"], false);
     let _ = std::fs::remove_dir_all(dir.path());
 }

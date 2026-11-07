@@ -2,8 +2,12 @@
 //! machine (cmux-usage). Everything is local files: no socket, no app, no network, so it works
 //! with the app closed and on a machine that only runs the daemon or acpmux.
 //!
-//! Turning recording on or off is the `diagnostics.usageRecording` setting, which the app guards
-//! with this Mac's consent record; there is deliberately no `cmux usage on`.
+//! `cmux usage upload|delete-shared` are the second opt-in, sharing the record with the person's
+//! team (`usage_sharing.rs`).
+//!
+//! Turning recording or sharing on or off is the `diagnostics.usageRecording` and
+//! `diagnostics.usageSharing` settings, which the app guards with this Mac's consent records;
+//! there is deliberately no `cmux usage on`.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -19,10 +23,29 @@ const DEFAULT_DAYS: u64 = 7;
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Invocation {
     Help,
-    Report { dir: Option<PathBuf>, days: u64 },
-    Status { dir: Option<PathBuf> },
-    Path { dir: Option<PathBuf> },
-    Clear { dir: Option<PathBuf> },
+    Report {
+        dir: Option<PathBuf>,
+        days: u64,
+    },
+    Status {
+        dir: Option<PathBuf>,
+    },
+    Path {
+        dir: Option<PathBuf>,
+    },
+    Clear {
+        dir: Option<PathBuf>,
+    },
+    /// `upload`: `dry_run` sends nothing; `credential_stdin` reads the platform and token from
+    /// stdin (the app) instead of asking the app for a token.
+    Upload {
+        dir: Option<PathBuf>,
+        dry_run: bool,
+        credential_stdin: bool,
+    },
+    DeleteShared {
+        credential_stdin: bool,
+    },
 }
 
 /// `cmux usage …`. `None` for any other command.
@@ -50,6 +73,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
     let Some((verb, tail)) = rest.split_first() else { return Ok(Invocation::Help) };
     let mut dir = None;
     let mut days = DEFAULT_DAYS;
+    let (mut dry_run, mut credential_stdin) = (false, false);
     let mut args = tail.iter();
     while let Some(arg) = args.next() {
         let mut value = |flag: &str| {
@@ -58,7 +82,11 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
                 .ok_or_else(|| UsageError::new(app.missing_value.replace("{flag}", flag)))
         };
         match arg.as_str() {
-            "--dir" => dir = Some(PathBuf::from(value("--dir")?)),
+            "--dir" if verb != "delete-shared" => dir = Some(PathBuf::from(value("--dir")?)),
+            "--dry-run" if verb == "upload" => dry_run = true,
+            "--credential-stdin" if verb == "upload" || verb == "delete-shared" => {
+                credential_stdin = true;
+            }
             "--days" if verb == "report" => {
                 let text = value("--days")?;
                 days = text.parse::<u64>().ok().filter(|d| *d > 0).ok_or_else(|| {
@@ -76,11 +104,13 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
         "status" => Ok(Invocation::Status { dir }),
         "path" => Ok(Invocation::Path { dir }),
         "clear" => Ok(Invocation::Clear { dir }),
+        "upload" => Ok(Invocation::Upload { dir, dry_run, credential_stdin }),
+        "delete-shared" => Ok(Invocation::DeleteShared { credential_stdin }),
         other => Err(UsageError::new(messages.unknown_verb.replace("{verb}", other))),
     }
 }
 
-fn run(output: OutputMode, _global: &GlobalArgs, invocation: Invocation) -> i32 {
+fn run(output: OutputMode, global: &GlobalArgs, invocation: Invocation) -> i32 {
     let messages = &crate::localization::catalog().usage_recording;
     let folder = |dir: Option<PathBuf>| dir.map(UsageDir::new).or_else(UsageDir::default_location);
     match invocation {
@@ -131,6 +161,13 @@ fn run(output: OutputMode, _global: &GlobalArgs, invocation: Invocation) -> i32 
                 .replace("{dir}", &dir.path().display().to_string());
             print(output, &json!({ "deleted": files, "dir": dir.path() }), &human)
         }
+        Invocation::Upload { dir, dry_run, credential_stdin } => {
+            let Some(dir) = folder(dir) else { return no_home(output) };
+            super::usage_sharing::upload(output, global, &dir, dry_run, credential_stdin)
+        }
+        Invocation::DeleteShared { credential_stdin } => {
+            super::usage_sharing::delete_shared(output, global, credential_stdin)
+        }
     }
 }
 
@@ -139,7 +176,7 @@ fn no_home(output: OutputMode) -> i32 {
     super::app::failure("usage.no_dir", messages.no_home, output, 2)
 }
 
-fn print(output: OutputMode, value: &Value, human: &str) -> i32 {
+pub(super) fn print(output: OutputMode, value: &Value, human: &str) -> i32 {
     match output {
         OutputMode::Quiet => 0,
         OutputMode::Json | OutputMode::JsonLines => super::wire::print_local_success(value, output),
@@ -174,6 +211,45 @@ mod tests {
         assert_eq!(parse(&words(&["status"])), Ok(Invocation::Status { dir: None }));
         assert_eq!(parse(&words(&["path"])), Ok(Invocation::Path { dir: None }));
         assert_eq!(parse(&words(&["clear"])), Ok(Invocation::Clear { dir: None }));
+    }
+
+    #[test]
+    fn parses_upload_and_delete_shared() {
+        assert_eq!(
+            parse(&words(&["upload"])),
+            Ok(Invocation::Upload { dir: None, dry_run: false, credential_stdin: false })
+        );
+        assert_eq!(
+            parse(&words(&["upload", "--dry-run", "--dir", "/tmp/u"])),
+            Ok(Invocation::Upload {
+                dir: Some(PathBuf::from("/tmp/u")),
+                dry_run: true,
+                credential_stdin: false
+            })
+        );
+        assert_eq!(
+            parse(&words(&["upload", "--credential-stdin"])),
+            Ok(Invocation::Upload { dir: None, dry_run: false, credential_stdin: true })
+        );
+        assert_eq!(
+            parse(&words(&["delete-shared"])),
+            Ok(Invocation::DeleteShared { credential_stdin: false })
+        );
+        assert_eq!(
+            parse(&words(&["delete-shared", "--credential-stdin"])),
+            Ok(Invocation::DeleteShared { credential_stdin: true })
+        );
+        assert_eq!(parse(&words(&["upload", "--help"])), Ok(Invocation::Help));
+    }
+
+    #[test]
+    fn upload_flags_stay_with_their_verbs() {
+        assert!(parse(&words(&["report", "--dry-run"])).is_err());
+        assert!(parse(&words(&["status", "--credential-stdin"])).is_err());
+        assert!(parse(&words(&["delete-shared", "--dry-run"])).is_err());
+        assert!(parse(&words(&["delete-shared", "--dir", "/tmp/u"])).is_err());
+        assert!(parse(&words(&["upload", "--days", "3"])).is_err());
+        assert!(parse(&words(&["upload", "now"])).is_err());
     }
 
     #[test]
