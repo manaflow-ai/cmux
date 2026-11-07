@@ -17,6 +17,23 @@ struct LinkOpenPlacementTests {
         #expect(rule.target(source: "terminal", takesTabs: true, right: nil) == .splitRight(of: "terminal"))
     }
 
+    /// Leo 2026-11-07: "if you click open on GitHub, it's already in the second pane, and it
+    /// therefore doesn't need to open the right split. It can just open the tab in its existing
+    /// pane." A page that already sits beside another pane (`left`) and has nothing on its own right
+    /// opens a tab in its own pane; it split again, so the screen gained a third column.
+    @Test func aPageAlreadyBesideAnotherPaneOpensATabInItsOwnPane() {
+        let rule = Rule(setting: .splitRight)
+        #expect(rule.target(source: "github", takesTabs: true, right: nil, left: "chat") == .pane("github"))
+        // A pane already on its right still gets the open, as before.
+        #expect(rule.target(source: "github", takesTabs: true, right: "browser", left: "chat") == .pane("browser"))
+        // Nothing on its left: the first open beside it still splits right.
+        #expect(rule.target(source: "github", takesTabs: true, right: nil, left: nil) == .splitRight(of: "github"))
+        // A pane that takes no tabs still opens beside itself, and a chosen new column stays a column.
+        #expect(rule.target(source: "dock", takesTabs: false, right: nil, left: "chat") == .besideDock("dock"))
+        #expect(Rule(setting: .newColumn).target(source: "github", takesTabs: true, right: nil, left: "chat")
+                == .newColumn(rightOf: "github"))
+    }
+
     /// With the right column not measured, the pane on the right gets the tab.
     @Test func thePaneOnTheRightIsReused() {
         let rule = Rule(setting: .splitRight)
