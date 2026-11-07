@@ -129,8 +129,30 @@ const fourOptions: AcpmuxPermission = {
       kind: "allow_always",
       allow: true,
     },
-    { id: "abort", name: "No, and tell Codex what to do differently", kind: "reject_once", allow: false },
+    {
+      id: "abort",
+      name: "No, and tell Codex what to do differently",
+      kind: "reject_once",
+      allow: false,
+    },
     { id: "denied", name: "No, continue without running it", kind: "reject_always", allow: false },
+  ],
+};
+
+const externalRead: AcpmuxPermission = {
+  permissionId: "gallery-external-access",
+  kind: "read",
+  title: "Read Documents/report.txt",
+  pending: true,
+  externalAccess: {
+    kind: "files_and_folders",
+    target: "/Users/you/Documents/report.txt",
+    operation: "read_text_file",
+    platform: "macos",
+  },
+  options: [
+    { id: "allow_once", name: "Allow once", kind: "allow_once", allow: true },
+    { id: "reject_once", name: "Skip", kind: "reject_once", allow: false },
   ],
 };
 
@@ -229,6 +251,18 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 540, wide: 760 },
   height: 260,
   variants: {
+    "external-access": {
+      note: "Selected: the blocked read in the shipped card layout, Skip, Open Settings and the filled Allow once together at the trailing edge. OS access is separate from the one-time retry.",
+      props: { permission: externalRead, harness: "claude" },
+    },
+    "external-access-keycaps": {
+      note: "Alternative: keycap hints emphasize keyboard access but compete with the three actions.",
+      props: { permission: externalRead, harness: "claude", rowStyle: "keycap" },
+    },
+    "external-access-trailing": {
+      note: "Alternative: the trailing row style, with the scope line also at the trailing edge.",
+      props: { permission: externalRead, harness: "claude", rowStyle: "trailing" },
+    },
     "grid-pending": {
       note: "Grid measurement: pending permission without a play that answers it.",
       props: { permission: shortRule, harness: "claude" },
