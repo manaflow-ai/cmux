@@ -9,22 +9,25 @@
 # Run alone on a worker (it launches an app):
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-10x-idle.sh --ref SHA [--arg=counts=1,10,50] [--arg=measure=60] \
-#     [--arg=agents=20,100]
+#     [--arg=agents=20,100] [--arg=purge=1]
 # agents: also measure that many idle agent chats (one workspace each, on the
 # acpmux test agent cmux-tui/crates/acpmux/tests/fake_agent.py, its first turn
 # answered), as PERF-IDLE app-agents lines (resource-efficiency-DESIGN.md).
+# purge=1 (with one agents= count, e.g. agents=100): after the agent count, Chromium's memory purge of every hidden chat's renderer (no
+# reload; bench_memory.py --purge-hidden), sampled again as purged-N.
 # Output: PERF-IDLE lines; JSON under .build/perf-idle.
 set -euo pipefail
 counts="1,10,50"
 measure=60
 agents=""
-reload_config=()
+reload_config=() purge=()
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     counts=*) counts="${arg#counts=}" ;;
     measure=*) measure="${arg#measure=}" ;;
     agents=*) agents="${arg#agents=}" ;;
+    purge=1) purge=(--purge-hidden) ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -94,7 +97,7 @@ if [[ -n "$agents" ]]; then
   echo "PERF-IDLE-LOAD agents $(uptime | sed 's/.*load averages*: //')"
   python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
     --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py \
-    --settle 20 --measure "$measure" --top 8 --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
+    --settle 20 --measure "$measure" --top 8 ${purge[@]+"${purge[@]}"} --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
   python3 - "$work/agents.json" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))

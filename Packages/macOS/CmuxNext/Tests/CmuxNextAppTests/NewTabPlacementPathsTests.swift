@@ -15,9 +15,9 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(6)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct NewTabPlacementPathsTests {
     /// What the person does: a + click, a row of the +'s menu (New Terminal Tab), Cmd-T, or New Terminal Tab's key.
-    enum Press: String, Sendable { case plus, plusMenu, cmdT, ctrlBacktick }
+    nonisolated enum Press: String, Sendable { case plus, plusMenu, cmdT, ctrlBacktick }
 
-    struct Scenario: Sendable, CustomTestStringConvertible {
+    nonisolated struct Scenario: Sendable, CustomTestStringConvertible {
         let presses: [Press]
         /// A narrow window whose strip overflows (eight more tabs left of `a b c`).
         var narrow = false

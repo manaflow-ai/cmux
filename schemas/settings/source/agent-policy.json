@@ -1075,6 +1075,13 @@
       ]
     },
     {
+      "agent": "settable",
+      "why": "Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.",
+      "keys": [
+        "browser.openPullRequestsInGitHubPage"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "Off, the person's links leave cmux and no page opens: an agent must not turn the browser it drives off or on.",
       "keys": [
