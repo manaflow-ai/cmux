@@ -59,6 +59,7 @@ import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experim
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
+import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -87,6 +88,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   pausedMachineResume,
   codeRouterOffer,
   stoppedTurnLook,
+  timeHoverWording,
   chromiumGlassUnderlay,
   questionPreviewLayout,
   toolErrorLook,
