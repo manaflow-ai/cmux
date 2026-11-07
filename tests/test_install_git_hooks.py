@@ -827,6 +827,20 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
         self.assertEqual(lib.read_text(), "pub mod a;\n\nfn shared() {}\nfn b() {\n    2\n}\nfn a() {\n    1\n}\n")
 
+        # A line of the file that looks like a conflict marker is content, never a hunk.
+        self.git("checkout", "--quiet", "-b", "marker-base", base)
+        log.write_text("# Log\n\nTitle\n=======\n<<<<<<< see docs\n- first\n")
+        self.commit_all("marker base")
+        marker_base = self.git("rev-parse", "HEAD").stdout.strip()
+        log.write_text("# Log\n\nTitle\n=======\n<<<<<<< see docs\n- first\n- x\n")
+        self.commit_all("marker x")
+        self.git("checkout", "--quiet", "-b", "marker-y", marker_base)
+        log.write_text("# Log\n\nTitle\n=======\n<<<<<<< see docs\n- first\n- y\n")
+        self.commit_all("marker y")
+        merged = self.git("merge", "--no-edit", "marker-base", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(log.read_text(), "# Log\n\nTitle\n=======\n<<<<<<< see docs\n- first\n- y\n- x\n")
+
         # The same line changed two ways is still the author's conflict.
         self.git("checkout", "--quiet", "-b", "other", base)
         lib.write_text("pub mod a;\n\nfn shared() { other() }\n")

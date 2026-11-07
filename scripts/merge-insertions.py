@@ -25,6 +25,14 @@ import subprocess
 import sys
 
 
+def plain_merge(ours: str, base: str, theirs: str, size: int) -> bytes:
+    return subprocess.run(
+        ["git", "merge-file", "-p", f"--marker-size={size}",
+         "-L", "ours", "-L", "base", "-L", "theirs", ours, base, theirs],
+        capture_output=True,
+    ).stdout
+
+
 def merge_file(ours: str, base: str, theirs: str, path: str, size: int) -> tuple[bytes, int]:
     result = subprocess.run(
         ["git", "merge-file", "-p", "--diff3", f"--marker-size={size}",
@@ -36,11 +44,19 @@ def merge_file(ours: str, base: str, theirs: str, path: str, size: int) -> tuple
     return result.stdout, result.returncode
 
 
-def settle(text: bytes, size: int) -> tuple[bytes, int]:
-    """Resolve both-sides-inserted hunks; return the text and how many conflicts remain."""
-    start, mid_base, mid, end = (c * size for c in (b"<", b"|", b"=", b">"))
+# git writes its markers this long for the parse, so a line of the file that looks like
+# a seven-character marker (a Markdown `=======` underline) is never read as one.
+PARSE_MARKER = 51
+
+
+def settle(text: bytes, size: int) -> tuple[bytes, int, int]:
+    """Resolve both-sides-inserted hunks in merge-file output written with PARSE_MARKER
+    markers; return the text (remaining conflicts rewritten with `size` markers), how many
+    conflicts remain, and how many hunks were read."""
+    start, mid_base, mid, end = (c * PARSE_MARKER for c in (b"<", b"|", b"=", b">"))
+    out_start, out_mid, out_end = (c * size for c in (b"<", b"=", b">"))
     out: list[bytes] = []
-    remaining = 0
+    remaining = hunks = 0
     lines = text.splitlines(keepends=True)
     i = 0
     while i < len(lines):
@@ -64,17 +80,18 @@ def settle(text: bytes, size: int) -> tuple[bytes, int]:
             else:
                 sections[part].append(current)
             j += 1
-        if not closed:  # not a hunk this driver wrote; leave the rest as it is
+        if not closed:  # not a hunk git wrote; the caller falls back to the plain merge
             out.extend(lines[i:])
             remaining += 1
             break
+        hunks += 1
         if sections["base"]:
             # Something both sides changed: keep git's conflict, without the base section.
-            out.append(line)
+            out.append(out_start + b" ours\n")
             out.extend(sections["ours"])
-            out.append(mid + b"\n")
+            out.append(out_mid + b"\n")
             out.extend(sections["theirs"])
-            out.append(lines[j])
+            out.append(out_end + b" theirs\n")
             remaining += 1
         else:
             # Every line of both insertions, ours first. Lines both sides inserted
@@ -85,7 +102,7 @@ def settle(text: bytes, size: int) -> tuple[bytes, int]:
                     block[-1] += b"\n"
                 out.extend(block)
         i = j + 1
-    return b"".join(out), remaining
+    return b"".join(out), remaining, hunks
 
 
 def unique_keys(pairs):
@@ -102,9 +119,9 @@ def parses(path: str, text: bytes) -> bool:
         if path.endswith(".json"):
             json.loads(text, object_pairs_hook=unique_keys)
         elif path.endswith(".toml"):
-            import tomllib
+            import tomllib  # Python 3.11+; an older python3 cannot check, so the merge stays a conflict
             tomllib.loads(text.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, UnicodeDecodeError, ImportError):
         return False
     return True
 
@@ -115,18 +132,15 @@ def main(argv: list[str]) -> int:
         return 2
     base, ours, theirs, path = argv[1:5]
     size = int(argv[5]) if len(argv) == 6 else 7
-    merged, status = merge_file(ours, base, theirs, path, size)
+    merged, status = merge_file(ours, base, theirs, path, PARSE_MARKER)
     if status == 0:
         result, remaining = merged, 0
     else:
-        result, remaining = settle(merged, size)
-        if remaining == 0 and not parses(path, result):
-            plain = subprocess.run(
-                ["git", "merge-file", "-p", f"--marker-size={size}",
-                 "-L", "ours", "-L", "base", "-L", "theirs", ours, base, theirs],
-                capture_output=True,
-            )
-            result, remaining = plain.stdout, 1
+        result, remaining, hunks = settle(merged, size)
+        # git's exit status is its conflict count: a parse that read a different number
+        # of hunks, or a result that does not parse, keeps git's own conflict instead.
+        if hunks != status or (remaining == 0 and not parses(path, result)):
+            result, remaining = plain_merge(ours, base, theirs, size), 1
     with open(ours, "wb") as handle:
         handle.write(result)
     return 1 if remaining else 0
