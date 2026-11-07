@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42355735598",
+  "recorded_at": "2026-11-07T08:39:31Z",
+  "reason": "cmux-tui 12d3c55690c2 changes the image's cmux-tui (pinned d3e739b655d0)",
+  "dry_run": false,
+  "cmux_tui": "12d3c55690c2ae711a32576dbe9b491fb2d2c8ea",
+  "fixes": [
+    {
+      "sha": "12d3c55690c2ae711a32576dbe9b491fb2d2c8ea",
+      "mergedAt": "2026-11-07T00:16:32-08:00",
+      "subject": "cmux-host: carrier bind reads the root layout's Noise key and waits for it; keyset rotation, carrier.json removal, unspent jti (#37361)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T08:39:31Z",
+    "snapshot_id": "sh-02f54b8afcbd475ca12d1370cfc52bd5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42355735598): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5633dcdb0084b6fad3b4a8529f932e556c80391b",
+    "image": "cloud-native-auto-12d3c556-42355735598-1",
+    "revision": "ci-42355735598-1",
+    "at": "2026-11-07T08:39:31Z"
+  },
+  "rolled_back": false
+}
