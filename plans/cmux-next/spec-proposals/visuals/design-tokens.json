@@ -2230,7 +2230,7 @@
     },
     "source": "Chromium main 6d3c98f4fe5 tab_container_impl.cc L1258-1306, L1348-1377 (StartRemoveTabAnimation)",
     "unit": "s",
-    "use": "A closing tab shrinks to the overlap width (18 pt) with its left edge pinned while the others move to their slots (ui.animations.newTab); also the resize when mouse closing mode ends."
+    "use": "A closing tab shrinks to the overlap width (18 pt) with its left edge pinned while the others move to their slots (the tabs category, not ui.animations.newTab: close case A, cmux-ad m49); also the resize when mouse closing mode ends."
    },
    "tabMove": {
     "value": {

@@ -52,6 +52,7 @@ members = [
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
+    "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
     "crates/cmux-window-rules",
@@ -144,6 +145,7 @@ default-members = [
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
+    "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
     "crates/cmux-window-rules",
@@ -245,6 +247,7 @@ cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
 cmux-bookmarks-ops = { path = "crates/cmux-bookmarks-ops" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
+cmux-cloud-machine = { path = "crates/cmux-cloud-machine" }
 cmux-cloud-tasks = { path = "crates/cmux-cloud-tasks" }
 cmux-cloud-config = { path = "crates/cmux-cloud-config" }
 cmux-window-rules = { path = "crates/cmux-window-rules" }
