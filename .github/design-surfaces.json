@@ -434,6 +434,13 @@
         "webviews/src/agent-session/acpmux/icons/",
         "webviews/src/agent-session/acpmux/conversation/icons.tsx"
       ]
+    },
+    "markdown-viewer": {
+      "spec": "leo-workspace design/markdown-viewer.md",
+      "aliases": ["markdown", "markdown viewer", "reading settings", "markdown page"],
+      "paths": [
+        "webviews/src/pages/markdown/"
+      ]
     }
   }
 }
