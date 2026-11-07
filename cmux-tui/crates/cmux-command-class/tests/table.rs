@@ -196,8 +196,8 @@ fn wrappers() {
         ("timeout 10 bash -c 'curl -s https://x'", Network, "curl"),
         ("env FOO=1 timeout 5 nice -n 1 bash -c 'rm x'", FileWrite, "rm"),
         ("ls | xargs rm", FileWrite, "rm"),
-        ("ls | xargs -n 1 -I{} wc -l {}", FileRead, "wc"),
-        ("ls | xargs", FileRead, "xargs"),
+        ("xargs -n 1 -I{} wc -l {}", FileRead, "wc"),
+        ("xargs", FileRead, "xargs"),
         ("find . -name '*.rs' -exec grep -l foo {} +", FileRead, "find"),
         ("eval 'git push'", Network, "git push"),
     ]);
