@@ -1623,6 +1623,83 @@
   min-width: 100%;
   padding-inline-end: var(--cv-code-corner-reserve);
 }
+/* The reserve clears the actions only at the line's scroll end. Before it, a long first line (or a
+   diagram's second, under the actions' lower half) would run under the bare glyphs, which have no
+   strip to hide it. So the body is masked under the actions' box: the scrolling text fades out over
+   `--cv-code-corner-veil-fade` and is cut under the glyphs, at every scroll offset, in the body's
+   own box so it never scrolls along. The veil comes in and goes out with the actions (the same
+   hover fade), so at rest every line reads to the card's edge. Both the plain lines and Pierre's
+   shadow root are inside the body, so one mask covers both. `--cv-code-corner-clear` is the
+   actions' footprint from the body's right edge (their 6px inset less the body's 1px);
+   `--cv-code-corner-veil-height` is their bottom below the body's top (6px + 26px - 13px). */
+@property --cv-code-corner-veil {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+.cv-codeblock--corner {
+  --cv-code-corner-clear: calc(
+    var(--cv-code-corner-actions) * 26px + (var(--cv-code-corner-actions) - 1) * var(--cv-code-action-gap) + 5px
+  );
+  --cv-code-corner-veil-fade: 8px;
+  --cv-code-corner-veil-height: 19px;
+}
+.cv-codeblock--corner .cv-codeblock__body {
+  --cv-code-corner-veil: 0;
+  -webkit-mask-image:
+    linear-gradient(
+      to left,
+      rgb(0 0 0 / calc(1 - var(--cv-code-corner-veil))) var(--cv-code-corner-clear),
+      #000 calc(var(--cv-code-corner-clear) + var(--cv-code-corner-veil-fade))
+    ),
+    linear-gradient(#000, #000);
+  mask-image:
+    linear-gradient(
+      to left,
+      rgb(0 0 0 / calc(1 - var(--cv-code-corner-veil))) var(--cv-code-corner-clear),
+      #000 calc(var(--cv-code-corner-clear) + var(--cv-code-corner-veil-fade))
+    ),
+    linear-gradient(#000, #000);
+  -webkit-mask-size:
+    100% var(--cv-code-corner-veil-height),
+    100% calc(100% - var(--cv-code-corner-veil-height));
+  mask-size:
+    100% var(--cv-code-corner-veil-height),
+    100% calc(100% - var(--cv-code-corner-veil-height));
+  -webkit-mask-position: top, bottom;
+  mask-position: top, bottom;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+.cv-codeblock--corner:hover .cv-codeblock__body,
+.cv-codeblock--corner:focus-within .cv-codeblock__body,
+.cv-codeblock--corner:has([data-popup-open]) .cv-codeblock__body {
+  --cv-code-corner-veil: 1;
+}
+/* It eases with the actions' own fade (above): out quickly, in after the same beat on hover. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-codeblock--corner .cv-codeblock__body {
+    transition: --cv-code-corner-veil var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-codeblock--corner:hover .cv-codeblock__body,
+  .cv-codeblock--corner:has([data-popup-open]) .cv-codeblock__body {
+    transition: --cv-code-corner-veil var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-codeblock--corner:focus-within .cv-codeblock__body {
+    transition: --cv-code-corner-veil var(--cv-actions-in) var(--cv-actions-ease);
+  }
+}
+/* The gallery's other veils (CodeToolbarButtons.gallery.tsx `veil`): always on, a hard cut with no
+   fade, and a wider 24px fade. */
+[data-corner-veil="always"] .cv-codeblock--corner .cv-codeblock__body {
+  --cv-code-corner-veil: 1;
+}
+[data-corner-veil="cut"] .cv-codeblock--corner {
+  --cv-code-corner-veil-fade: 0px;
+}
+[data-corner-veil="wide"] .cv-codeblock--corner {
+  --cv-code-corner-veil-fade: 24px;
+}
 /* The code-actions-look arms (codeActions.experiment.ts) the gallery compares; `bare` ships and
    sets no attribute. `spaced`: the old 4px between the buttons. */
 :root[data-code-actions="spaced"] {
