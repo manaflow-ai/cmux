@@ -64,6 +64,27 @@ await requireBrowserLane("agent-message-row-css-browser.test.ts", async () => {
       );
     });
 
+    test("a long first line gives way before the sender's name", async () => {
+      const row = page.getByTestId("long-preview");
+      const sizes = await row.locator(".cv-agentmsg__line").evaluate((line) => {
+        const cut = (node: Element | null) =>
+          node ? { scroll: node.scrollWidth, client: node.clientWidth } : { scroll: -1, client: -1 };
+        const sender = line.querySelector(".cv-received__sender");
+        return {
+          sender: cut(sender),
+          label: cut(sender?.querySelector(".cv-agent-tag__label") ?? null),
+          preview: cut(line.querySelector(".cv-agentmsg__preview")),
+          text: sender?.textContent ?? "",
+        };
+      });
+      expect(sizes.text).toContain("summary-panel");
+      // The preview is the one cut.
+      expect(sizes.preview.scroll).toBeGreaterThan(sizes.preview.client);
+      // The name is whole: neither its part of the line nor its label inside the chip is cut.
+      expect(sizes.sender.scroll).toBeLessThanOrEqual(sizes.sender.client);
+      expect(sizes.label.scroll).toBeLessThanOrEqual(sizes.label.client);
+    });
+
     test("an opened message card holds its floated corner copy", async () => {
       const card = page.getByTestId("received").locator(".cv-agentmsg__card");
       await expect(card.evaluate((node) => getComputedStyle(node).display)).resolves.toBe("flow-root");

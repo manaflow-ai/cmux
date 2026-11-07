@@ -10,10 +10,14 @@ import { PendingMessagesCard } from "../../src/agent-session/acpmux/conversation
 import "../../src/pages/shared/desktop.css";
 import "../../src/agent-session/shared/styles.css";
 import "../../src/agent-session/acpmux/styles.css";
+import "../../src/agent-session/acpmux/conversation/conversation.css";
 
-const message = (text: string) => ({ name: "release-rings-32", sessionId: "lane-1", text, raw: text });
-const waiting = (id: string, text: string) =>
-  ({ id, kind: "incoming", incoming: { kind: "message", message: message(text) } }) as unknown as AcpmuxRow;
+const message = (text: string, name = "release-rings-32") => ({ name, sessionId: "lane-1", text, raw: text });
+const waiting = (id: string, text: string, name?: string) =>
+  ({ id, kind: "incoming", incoming: { kind: "message", message: message(text, name) } }) as unknown as AcpmuxRow;
+// A first line far wider than the row: it, not the sender's name, gives way (cmux#37653 review).
+const LONG =
+  "Confirmed. On feat-cmux-next today, the overlay card is as tall as its content and ends 15px under its last section, so no fix needed.";
 const group = {
   id: "pending-group",
   pendingMessages: { rows: [waiting("w-1", "First waiting message"), waiting("w-2", "Second waiting message")] },
@@ -33,6 +37,9 @@ createRoot(document.getElementById("root")!).render(
     </div>
     <div className="acpmux-row" data-testid="received" style={{ top: 300 }}>
       {draw(waiting("r-1", "A received message\n\nwith a second paragraph"))}
+    </div>
+    <div className="acpmux-row" data-testid="long-preview" style={{ top: 560 }}>
+      {draw(waiting("r-2", LONG, "summary-panel"))}
     </div>
   </div>,
 );
