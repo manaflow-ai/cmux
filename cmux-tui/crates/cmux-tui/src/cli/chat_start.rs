@@ -111,7 +111,7 @@ pub(super) enum Route {
 }
 
 /// `Some(exit code)` when `args` is a chat start: `cmux chat` with no words, `cmux chat new …`,
-/// or `cmux chat` followed by a flag. Every other `chat` verb runs where it did.
+/// or `cmux chat` followed by a flag or the prompt. Every other `chat` verb runs where it did.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (mut global, command) = super::parse_globals(args).ok()?;
     let (scope, rest) = command.split_first()?;
@@ -119,7 +119,6 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return None;
     }
     let rest = start_words(rest)?;
-    let prefix = args.get(..args.len().saturating_sub(command.len())).unwrap_or_default();
     let words = cloud_start_chat::lift_output_of(rest, &mut global.output, TAKES_VALUE);
     let start = match parse(&words, std::env::var(TARGET_ENV).ok()) {
         Ok(Parsed::Help) => {
@@ -129,7 +128,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Ok(Parsed::Run(start)) => start,
         Err(error) => return Some(usage_failure(&error, global.output)),
     };
-    Some(run(&global, prefix, start))
+    Some(run(&global, start))
 }
 
 /// The start's words after `chat`, or `None` for another chat verb. Anything but a verb (a flag,
@@ -266,16 +265,19 @@ where
             return Ok(Route::Cloud(Machine::New));
         }
         let vm = vm.strip_prefix("machine:").unwrap_or(vm);
-        return existing_vm(vm, Some(vm), &(reads.cloud_machines)()?).map(Route::Cloud).map_err(
-            |found| {
-                refusal(
-                    "chat_target.unknown_vm",
-                    format!("no one VM of yours has the id or name {vm}"),
-                    LIST_VMS,
-                    json!({"vm": vm, "matches": found}),
-                )
-            },
-        );
+        let listed = (reads.cloud_machines)()?;
+        // Signed out, the app lists no VMs: say to sign in, not that the VM is unknown.
+        if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
+            return Err(refused(&ChatTargetRefusal::SignedOut));
+        }
+        return existing_vm(vm, Some(vm), &listed).map(Route::Cloud).map_err(|found| {
+            refusal(
+                "chat_target.unknown_vm",
+                format!("no one VM of yours has the id or name {vm}"),
+                LIST_VMS,
+                json!({"vm": vm, "matches": found}),
+            )
+        });
     }
     let catalog = (reads.catalog)()?;
     let id = device_id(on, &catalog)?;
@@ -378,7 +380,7 @@ fn text<'a>(machine: &'a Value, key: &str) -> Option<&'a str> {
     machine.get(key).and_then(Value::as_str)
 }
 
-fn run(global: &GlobalArgs, prefix: &[String], start: Start) -> i32 {
+fn run(global: &GlobalArgs, start: Start) -> i32 {
     let reads = Reads {
         catalog: || read_catalog(global),
         signed_in: || cloud_start_chat::app_signed_in(global),
@@ -389,7 +391,7 @@ fn run(global: &GlobalArgs, prefix: &[String], start: Start) -> i32 {
         Err(error) => return super::wire::print_local_error(&error, global.output, 1),
     };
     match route {
-        Route::Here => match here_words(prefix, &start) {
+        Route::Here => match here_words(&global_words(global), &start) {
             Ok(words) => super::agents::run_if_requested(&words).unwrap_or(2),
             Err(error) => usage_failure(&error, global.output),
         },
@@ -427,6 +429,38 @@ fn read_catalog(global: &GlobalArgs) -> Result<Value, Value> {
         cmux::Client::connect(cmux::Config::from_socket_path(socket).with_timeout(CATALOG_TIMEOUT))
             .map_err(unreachable)?;
     client.call("machine.list", CallKind::Read, json!({"catalog": true})).map_err(unreachable)
+}
+
+/// The global options `global` holds, as words: the chat here runs with them wherever they were
+/// typed (`cmux chat --prompt hi --json`, `cmux --socket S chat hi`).
+pub(super) fn global_words(global: &GlobalArgs) -> Vec<String> {
+    let mut words = Vec::new();
+    let paths = [("--socket", &global.socket), ("--app-socket", &global.app_socket)];
+    for (flag, value) in paths {
+        if let Some(value) = value {
+            words.extend([flag.to_owned(), value.to_string_lossy().into_owned()]);
+        }
+    }
+    let texts = [
+        ("--session", &global.session),
+        ("--machine", &global.machine),
+        ("--idempotency-key", &global.idempotency_key),
+    ];
+    for (flag, value) in texts {
+        if let Some(value) = value {
+            words.extend([flag.to_owned(), value.clone()]);
+        }
+    }
+    if global.all_sessions {
+        words.push("--all-sessions".to_owned());
+    }
+    match global.output {
+        OutputMode::Human => {}
+        OutputMode::Json => words.push("--json".to_owned()),
+        OutputMode::JsonLines => words.push("--jsonl".to_owned()),
+        OutputMode::Quiet => words.push("--quiet".to_owned()),
+    }
+    words
 }
 
 /// `agents chat new …` with this start's settings, after the same globals.

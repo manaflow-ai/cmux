@@ -3,7 +3,10 @@ use std::cell::Cell;
 use serde_json::{Value, json};
 
 use super::super::cloud_start_chat::Machine;
-use super::{Parsed, Reads, Route, Start, cloud_words, here_words, parse, route, start_words};
+use super::{
+    Parsed, Reads, Route, Start, TAKES_VALUE, cloud_words, global_words, here_words, parse, route,
+    start_words,
+};
 
 fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
@@ -234,8 +237,47 @@ fn a_cloud_device_is_an_existing_cloud_vm() {
 fn a_bare_prompt_is_a_start() {
     assert_eq!(start_words(&words(&["fix the tests"])), Some(&words(&["fix the tests"])[..]));
     assert_eq!(start_words(&words(&["new", "hi"])), Some(&words(&["hi"])[..]));
-    assert_eq!(start_words(&words(&["--on", "cloud", "hi"])), Some(&words(&["--on", "cloud", "hi"])[..]));
+    assert_eq!(
+        start_words(&words(&["--on", "cloud", "hi"])),
+        Some(&words(&["--on", "cloud", "hi"])[..])
+    );
     assert_eq!(start_words(&[]), Some(&[][..]));
     assert_eq!(start_words(&words(&["send", "x"])), None);
     assert_eq!(start_words(&words(&["list"])), None);
+}
+
+/// A chat here keeps the global options wherever they were typed, and runs `agents chat new`.
+#[test]
+fn a_chat_here_keeps_the_globals_typed_after_chat() {
+    let here = |args: &[&str]| {
+        let (mut global, command) = super::super::parse_globals(&words(args)).ok().unwrap();
+        let rest = start_words(&command[1..]).unwrap();
+        let lifted =
+            super::super::cloud_start_chat::lift_output_of(rest, &mut global.output, TAKES_VALUE);
+        let Parsed::Run(start) = parse(&lifted, None).unwrap() else { panic!("help") };
+        here_words(&global_words(&global), &start).unwrap()
+    };
+    assert_eq!(
+        here(&["chat", "--prompt", "hi", "--json"]),
+        words(&["--json", "agents", "chat", "new", "--", "hi"])
+    );
+    assert_eq!(
+        here(&["chat", "hi", "--socket", "/s"]),
+        words(&["--socket", "/s", "agents", "chat", "new", "--", "hi"])
+    );
+    assert_eq!(
+        here(&["--socket", "/s", "chat", "new", "hi"]),
+        words(&["--socket", "/s", "agents", "chat", "new", "--", "hi"])
+    );
+}
+
+/// Signed out, a `vm:` target says to sign in, not that the VM is unknown.
+#[test]
+fn a_vm_target_signed_out_says_to_sign_in() {
+    let reads = Reads {
+        catalog: || -> Result<Value, Value> { panic!("catalog") },
+        signed_in: || false,
+        cloud_machines: || Ok(json!({"account": {"signed_in": false}, "machines": []})),
+    };
+    assert_eq!(code(route(Some("vm:dev"), reads)), "chat_target.signed_out");
 }
