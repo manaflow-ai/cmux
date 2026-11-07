@@ -67,10 +67,10 @@ impl MachineRepo {
 /// `@REF` is the first `@` in the path: a URL's or the scp form's login comes before it.
 fn split_ref(text: &str) -> (String, Option<String>) {
     if let Some((scheme, rest)) = text.split_once("://") {
-        if let Some((authority, path)) = rest.split_once('/') {
-            if let Some((path, reference)) = path.split_once('@') {
-                return (format!("{scheme}://{authority}/{path}"), Some(reference.to_owned()));
-            }
+        if let Some((authority, path)) = rest.split_once('/')
+            && let Some((path, reference)) = path.split_once('@')
+        {
+            return (format!("{scheme}://{authority}/{path}"), Some(reference.to_owned()));
         }
         return (text.to_owned(), None);
     }
