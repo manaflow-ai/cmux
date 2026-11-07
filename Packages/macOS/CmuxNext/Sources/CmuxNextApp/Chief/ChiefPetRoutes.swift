@@ -42,7 +42,7 @@ struct ChiefPetRoutes {
     func send(to target: ChiefPetReplyTarget, _ text: String) async -> Bool {
         guard let services else { return false }
         guard case .notice(let notice) = target else {
-            guard let chief = TopHomePageView.chief(services.home) else { return false }
+            guard let chief = HomeDefaultConversation.chief(services.home) else { return false }
             return (try? await services.home.homeStore.send(conversation: ConversationID(chief), text: text, attachments: [])) != nil
         }
         return await services.notifications.typeChiefPetReply(text, to: notice)

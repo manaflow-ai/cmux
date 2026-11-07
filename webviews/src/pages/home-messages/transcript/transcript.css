@@ -586,3 +586,19 @@
     background: var(--cmux-surface-solid, Canvas);
   }
 }
+
+/* What an empty conversation shows under the header (a Chief's first run): it fills the room the
+   rows would, so the composer under it never moves when the first message replaces it. */
+.mt-empty {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: calc(100% - var(--mt-top-room));
+  padding: 0 var(--ds-space-3);
+}
+
+/* The message a link or the host opened at. */
+.mt-bubble.highlighted,
+.mt-media.highlighted {
+  box-shadow: 0 0 0 2px var(--cmux-app-accent, var(--mt-imessage-blue));
+}

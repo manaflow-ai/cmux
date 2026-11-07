@@ -31,14 +31,16 @@ import Testing
     @Test func homesTypingIndicatorsDoNotLoopUnderReduceMotion() {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
-        // The Home column hosts the vendored list; building it wires cmux's motion into it.
-        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
+        // Installing Home's mirror wires cmux's motion into the vendored list and transcript.
+        HomeReduceMotion.install()
+        let list = CmuxSidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
+        list.wantsLayer = true
         #expect(CmuxSidebarView.reduceMotionOverride == true)
         #expect(MessagesLabHomeView.reduceMotionOverride == true)
-        home.list.show([CmuxSidebarEntry(id: "chief", title: "Chief", people: [], preview: "", previewSender: nil, lastAt: Date(),
-                                         unreadCount: 0, pinned: false, typing: true)], pinned: [])
-        home.layoutSubtreeIfNeeded()
-        #expect(Self.loops(under: home.layer) == [])
+        list.show([CmuxSidebarEntry(id: "chief", title: "Chief", people: [], preview: "", previewSender: nil, lastAt: Date(),
+                                    unreadCount: 0, pinned: false, typing: true)], pinned: [])
+        list.layoutSubtreeIfNeeded()
+        #expect(Self.loops(under: list.layer) == [])
 
         let bubble = SidebarTypingLayer()
         bubble.animate()
@@ -56,13 +58,14 @@ import Testing
     @Test func reduceMotionTurningOnStopsAPulsingBubble() {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
+        HomeReduceMotion.install()
+        let list = CmuxSidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
         // The list's motion is off by default (87e2cea19de, msg 20105: its bubbles stand still);
         // this test is about the pulse Reduce Motion stops, so it turns the list's motion on.
-        home.list.animates = true
-        home.list.wantsLayer = true
+        list.animates = true
+        list.wantsLayer = true
         let bubble = SidebarTypingLayer()
-        home.list.layer?.addSublayer(bubble)
+        list.layer?.addSublayer(bubble)
         bubble.animate()
         #expect(Self.loops(under: bubble) != [], "the bubble should pulse before Reduce Motion")
         Motion.reduceMotionOverride = true
@@ -106,7 +109,7 @@ import Testing
 
     /// The pins follow `Motion.reduceMotionOverride` after the mirror is installed.
     @Test func homesPinsFollowMotionsOverride() {
-        _ = HomeSidebarView(frame: .zero)
+        HomeReduceMotion.install()
         Motion.reduceMotionOverride = true
         #expect(CmuxSidebarView.reduceMotionOverride == true)
         Motion.reduceMotionOverride = nil
@@ -117,7 +120,7 @@ import Testing
     /// Calm mode (`ui.calm`) reduces motion everywhere `Motion` reaches; Home's vendored views
     /// only see their pins, so the mirror pins them on while it is on and gives them back after.
     @Test func calmModePinsHomesReduceMotion() {
-        _ = HomeSidebarView(frame: .zero)
+        HomeReduceMotion.install()
         let design = DesignSettings.shared
         let saved = design.calmMode
         defer { design.calmMode = saved }

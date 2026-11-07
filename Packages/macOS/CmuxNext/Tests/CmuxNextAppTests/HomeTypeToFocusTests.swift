@@ -2,7 +2,6 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextHome
 import CmuxHomeCore
-@testable import MessagesLabSidebar
 import Testing
 import CmuxNextTestSupport
 
@@ -10,10 +9,9 @@ import CmuxNextTestSupport
 /// focus the pane and start typing, it doesn't actually work. I have to click outside, not in the
 /// text input area, and start typing for that to work."
 ///
-/// Home's message box is the primary input of every Home container: the docked Home (an internal
-/// page tab whose content is `HomeDockView`), a Home tab (`TopHomePageView`) and a conversation tab
-/// (`HomeHostView`). Whatever left the keyboard where it is (a pane-focus shortcut from a terminal,
-/// the sidebar, app or window activation: no responder; the conversation list; a hidden field),
+/// Home's message box is the primary input of a conversation tab (`HomeHostView`; the docked Home
+/// and the Home tab show the React Messages page). Whatever left the keyboard where it is (a
+/// pane-focus shortcut from a terminal, the sidebar, app or window activation: no responder; a hidden field),
 /// the pane getting focus and the next printable keys must put the text in the box, none lost.
 ///
 /// The two steps run here as the app runs them: the focus applier gives the pane's content its
@@ -65,7 +63,8 @@ import CmuxNextTestSupport
         func close() { window.closeWithHomePopovers() }
     }
 
-    enum Container: String, CaseIterable { case dock, homeTab, conversationTab }
+    /// The native hosts (the docked Home's Messages view is the React page now).
+    enum Container: String, CaseIterable { case conversationTab }
 
     private static func wait(_ limit: Duration = .seconds(10), until done: () -> Bool) async {
         let deadline = ContinuousClock.now + limit
@@ -91,16 +90,6 @@ import CmuxNextTestSupport
         let content: TabContent
         let host: () -> HomeHostView?
         switch container {
-        case .dock:
-            let dock = HomeDockView(services: services, mode: .messages)
-            dock.messages?.show(conversation)
-            content = .page(InternalPageView(key: "type-to-focus-dock", page: .homeDock, content: dock))
-            host = { dock.messages?.host }
-        case .homeTab:
-            let page = TopHomePageView(services: services, windowKey: { "type-to-focus" })
-            page.show(conversation)
-            content = .page(InternalPageView(key: "type-to-focus-tab", page: .homeTab, content: page))
-            host = { page.host }
         case .conversationTab:
             let view = HomeHostView(services: services, conversation: conversation.rawValue)
             content = .conversation(view)
@@ -153,7 +142,7 @@ import CmuxNextTestSupport
     // MARK: Typing while Home already has the pane focus
 
     /// Typing while the keyboard sits on a part of Home that takes no text (the transcript
-    /// after a click on a bubble or on empty space, the conversation list, a header button).
+    /// after a click on a bubble or on empty space, a header button).
     @Test(arguments: Container.allCases)
     func typingWhileHomeHasNoTextInputFocusedFillsTheBox(_ container: Container) async throws {
         let h = try await Self.harness(container)
@@ -174,8 +163,7 @@ import CmuxNextTestSupport
             h.type("ok")
             #expect(h.box.string == "ok", "\(container): with \(type(of: holder)) focused the box has \"\(h.box.string)\"")
         }
-        // The list and transcript containers have the conversation list, which takes the keyboard.
-        if container != .conversationTab { #expect(!tried.isEmpty, "\(container): no view of Home took the keyboard") }
+        _ = tried
     }
 
     /// A text field of Home that was hidden while it had the keyboard (the Chief settings' name
@@ -225,29 +213,6 @@ import CmuxNextTestSupport
             #expect(h.content.landKeyboardInPrimaryInput(in: h.window))
             #expect(h.window.firstResponder === h.box, "\(container): from \(String(describing: start)) the keyboard is on \(String(describing: h.window.firstResponder))")
         }
-    }
-
-    /// The conversation list keeps the keyboard a pane focus finds there (its arrow keys move the
-    /// selection), and a printable key still goes to the box.
-    @Test(arguments: [Container.dock, .homeTab])
-    func theConversationListKeepsArrowsAndTypingGoesToTheBox(_ container: Container) async throws {
-        let h = try await Self.harness(container)
-        defer { h.close() }
-        let page: TopHomePageView
-        switch h.content {
-        case .page(let view): page = try #require((view.content as? HomeDockView)?.messages ?? view.content as? TopHomePageView)
-        default: Issue.record("not a page"); return
-        }
-        // The list's own keyboard view (its rows' document view), not the first view of the list
-        // that accepts the keyboard: that was the header's compose button until the avatar-only
-        // list hid it (33224e07f08), then the scroll view, which hands the keyboard to its document.
-        let holder = page.list.list.controller.document
-        try #require(h.window.makeFirstResponder(holder))
-        try #require(h.window.firstResponder === holder, "the conversation list takes no keyboard")
-        #expect(h.content.landKeyboardInPrimaryInput(in: h.window))
-        #expect(h.window.firstResponder === holder, "a pane focus took the keyboard from the list")
-        h.type("yo")
-        #expect(h.box.string == "yo")
     }
 
     /// A hidden field inside Home gives the keyboard to the box on a pane focus.

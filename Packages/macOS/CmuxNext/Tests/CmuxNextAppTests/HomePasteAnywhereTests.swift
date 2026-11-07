@@ -62,7 +62,8 @@ import CmuxNextTestSupport
         }
     }
 
-    enum Container: String, CaseIterable { case dock, homeTab, conversationTab }
+    /// The native hosts (the docked Home's Messages view is the React page now).
+    enum Container: String, CaseIterable { case conversationTab }
 
     private static func wait(_ limit: Duration = .seconds(10), until done: () -> Bool) async {
         let deadline = ContinuousClock.now + limit
@@ -76,16 +77,6 @@ import CmuxNextTestSupport
         let content: TabContent
         let host: () -> HomeHostView?
         switch container {
-        case .dock:
-            let dock = HomeDockView(services: services, mode: .messages)
-            dock.messages?.show(conversation)
-            content = .page(InternalPageView(key: "paste-anywhere-dock", page: .homeDock, content: dock))
-            host = { dock.messages?.host }
-        case .homeTab:
-            let page = TopHomePageView(services: services, windowKey: { "paste-anywhere" })
-            page.show(conversation)
-            content = .page(InternalPageView(key: "paste-anywhere-tab", page: .homeTab, content: page))
-            host = { page.host }
         case .conversationTab:
             let view = HomeHostView(services: services, conversation: conversation.rawValue)
             content = .conversation(view)

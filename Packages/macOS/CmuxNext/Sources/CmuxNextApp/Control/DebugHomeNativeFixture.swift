@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextSettings
 
 /// DEBUG ONLY: `debug.home_native_fixture.open` opens the native Home
@@ -24,16 +25,16 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
     /// The open fixture whose transcript is `view`.
     func fixture(showing view: HomeNativeTranscriptView) -> HomeNativeFixture? { fixtures.values.first { $0.shows(view) } }
-    /// The next page shows the attachment fixture (`{"attachments": true}`), under the chat column's compose button (`{"compose": true}`).
-    var next = (attachments: false, compose: false)
+    /// The next page shows the attachment fixture (`{"attachments": true}`).
+    var next = false
 
     var page: InternalPageID { .homeNativeFixture }
     var title: String { HomeNativeFixture.title }
     var symbol: String { "bubble.left.and.bubble.right" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let fixture = HomeNativeFixture(attachments: next.attachments, openPanel: openPanel, compose: next.compose)
-        next = (false, false)
+        let fixture = HomeNativeFixture(attachments: next, openPanel: openPanel)
+        next = false
         fixtures[key] = fixture
         return fixture.container
     }
@@ -57,12 +58,11 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | list | presence | live | agent_messages (notes, open, group, step, pill) | faces, text, steps, elapsed, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | presence | live | agent_messages (notes, open, group, step, pill) | faces, text, steps, elapsed, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
     static func drive(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
-        if params["action"]?.stringValue == "list" { return DebugHome.driveDockList(params, services: services) }
         if params["action"]?.stringValue == "legacy_pins" { return DebugHome.legacyPins(params, services: services) }
         if params["action"]?.stringValue == "permalink" { return permalink(params, services: services) }
         let view: HomeNativeTranscriptView?
@@ -230,13 +230,13 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     /// `permalink {url}`: opens a message link as the docked Home's hand-off does.
     static func permalink(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let link = HomeDockSelection(link: params["url"]?.stringValue ?? "") else { return .object(["error": .string("not a link")]) }
-        if !services.home.dock.isClassic, let dock = HomeDockTab.view(services) { dock.open(link) } else { (services.windows.active?.topPages.views[.home] as? TopHomePageView)?.show(link) }
+        if !services.home.dock.isClassic, let dock = HomeDockTab.view(services) { dock.open(link) } else { AppActions.listedPage(services)?.show(link) }
         return .object(["ok": .bool(true)])
     }
 
-    static func open(services: AppServices, attachments: Bool = false, compose: Bool = false, fresh: Bool = false) -> JSONValue {
+    static func open(services: AppServices, attachments: Bool = false, fresh: Bool = false) -> JSONValue {
         if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel)) }
-        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.next = (attachments, compose)
+        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.next = attachments
         let view = fresh ? services.pages.openNew(.homeNativeFixture, in: services.windows.active, focus: true)
             : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])

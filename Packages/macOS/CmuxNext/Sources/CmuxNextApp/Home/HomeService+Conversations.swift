@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextFloating
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import Foundation
@@ -27,17 +28,6 @@ extension HomeService {
         let rows = HomeArchivedChiefs(directory.archivedChiefs, me: me).visible(homeStore.rows)
         return HomeContact.merged(team: team, connections: HomeContact.connections(in: rows, me: me),
                                   agents: HomeContact.agents(in: rows, me: me))
-    }
-
-    /// New Message's list before anything is typed: its Chiefs (main first), then the team
-    /// (`HomeNewMessageDraft.idleSuggestions`); how each row draws is HomeChiefRoster+NewMessage.
-    func newMessageChiefs(_ draft: HomeNewMessageDraft) -> [HomeContact] {
-        draft.idleSuggestions(contacts: chiefRoster.mainFirst(contacts(), rows: homeStore.rows))
-    }
-    func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
-        chiefRoster.look(recipient, rows: homeStore.rows, avatars: chiefFaces,
-                         fallback: .chiefDefault,  // each Chief's own pick is in chiefFaces
-                         harnesses: directory.chiefHarnesses)
     }
 
     /// Starts a DM or a group; the page shows it once the inbox lists it.
@@ -132,7 +122,7 @@ extension HomeService {
     var messageRouting: HomeMessageRouting {
         HomeMessageRouting(store: homeStore, actions: groupActions,
                            chief: { [weak self] in
-            guard let self, let chief = TopHomePageView.chief(self) else { return nil }
+            guard let self, let chief = HomeDefaultConversation.chief(self) else { return nil }
             return ConversationID(chief)
         }, chiefNames: { [weak self] in self?.chiefNames ?? [:] })
     }

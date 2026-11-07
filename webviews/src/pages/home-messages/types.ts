@@ -7,6 +7,7 @@ import type { HomeChannelsStore, HomeSnapshot } from "../home-channels/store";
 import type { HomeConversation, HomeParticipant } from "../home-channels/types";
 import type { Strings } from "../shared/i18n";
 import type { PageClient } from "../shared/pageClient";
+import type { MessagesNav } from "./nav";
 
 export type {
   ConversationKind,
@@ -68,6 +69,8 @@ export interface MessagesDetailProps {
   chrome: MessagesChrome;
   /** The person opened the conversation (a click or Return in the list): the composer takes the keyboard. */
   openedAt?: number;
+  /** The page's view state the list shares: New Message, the sheet, drafts, the keyboard. */
+  nav: MessagesNav;
 }
 
 /** The detail slot: the shell calls it with the open conversation's props. */

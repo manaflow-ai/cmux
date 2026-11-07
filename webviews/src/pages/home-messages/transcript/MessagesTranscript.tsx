@@ -11,7 +11,17 @@
 // viewport render (useTimelineWindow), so a chat of 10,000 messages opens as one of 10 does. A send
 // moves the rows above it together: the stack is moved by the new row's height in the same frame
 // the window scrolls, then eases back to rest, so nothing jumps and nothing pops in after.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type Ref,
+} from "react";
 import { AttachmentContext } from "../../home-channels/AttachmentViews";
 import type { AttachmentService } from "../../home-channels/attachmentService";
 import { conversationName } from "../../home-channels/model";
@@ -25,12 +35,18 @@ import { historyEntries } from "./history";
 import { MessageComposer, dragOffersFiles, type DictationCall, type MessageComposerHandle } from "./MessageComposer";
 import { estimateRow, RowCache, transcriptRows, type TranscriptData, type TranscriptRow } from "./rows";
 import { TranscriptHeader, alsoHereNames, type HeaderPanelItem } from "./TranscriptHeader";
-import { TranscriptRowView, type RowActions } from "./TranscriptRows";
+import { TranscriptRowView, type RowActions, type RowLinks } from "./TranscriptRows";
 import "./transcript.css";
 
 /** The room the header takes over the rows (its avatar, pill and padding). */
 const HEADER_ROOM = 76;
 const TOP_KEY = "top";
+
+/** What the page asks of a shown transcript. */
+export interface MessagesTranscriptHandle {
+  /** The message box takes the keyboard; true when it did. */
+  focusComposer(): boolean;
+}
 
 export interface MessagesTranscriptProps extends TranscriptData {
   strings: Strings;
@@ -60,6 +76,15 @@ export interface MessagesTranscriptProps extends TranscriptData {
   onCopy?(text: string): void;
   /** The clock for day labels (the gallery's); default: now. */
   now?: number;
+  /** A message a link or the host opened at: it scrolls into view, marked. */
+  highlight?: string;
+  /** What shows in place of the rows while the conversation has none (a Chief's first run). */
+  empty?: ReactNode;
+  /** A new value starts the message box again from `initialDraft` (a draft set from outside). */
+  composerKey?: string;
+  /** Link chips in people's text: their previews and opening. Absent: plain text. */
+  links?: RowLinks;
+  ref?: Ref<MessagesTranscriptHandle>;
 }
 
 const reducedMotion = () => {
@@ -80,6 +105,9 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
     pinned,
     onLoadOlder,
     onRead,
+    highlight,
+    empty,
+    links,
   } = props;
   const [clock] = useState(() => Date.now());
   const now = props.now ?? clock;
@@ -130,7 +158,12 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
     }
     return out;
   }, [rows, pinnedHeight, estimates]);
-  const { items, total, scroller, measure, onScroll } = useTimelineWindow(sized, conversation.id);
+  // The highlighted message's first row: the window scrolls it to the middle once.
+  const focusKey = useMemo(
+    () => (highlight ? rows.find((row) => row.kind === "bubble" && row.message.id === highlight)?.key : undefined),
+    [rows, highlight],
+  );
+  const { items, total, scroller, measure, onScroll } = useTimelineWindow(sized, conversation.id, focusKey);
   const people = useMemo(() => new Map(conversation.participants.map((p) => [p.id, p])), [conversation.participants]);
   const composer = useRef<MessageComposerHandle | null>(null);
   const stack = useRef<HTMLDivElement | null>(null);
@@ -142,9 +175,17 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       onDiscard: props.onDiscard,
       onReact: props.onReact,
       onCopy: props.onCopy ?? ((text) => void navigator.clipboard?.writeText(text)),
+      ...(links ? { links } : {}),
     }),
-    [props.onRetry, props.onDiscard, props.onReact, props.onCopy],
+    [props.onRetry, props.onDiscard, props.onReact, props.onCopy, links],
   );
+  useImperativeHandle(props.ref, () => ({
+    focusComposer: () => {
+      if (!composer.current) return false;
+      composer.current.focus();
+      return true;
+    },
+  }));
 
   // A send (new rows at the end while the reader is at the newest): the window already scrolled by
   // the new rows' height this frame; the stack starts that far down and eases up, so every row above
@@ -265,6 +306,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
                       now={now}
                       people={people}
                       actions={actions}
+                      highlight={highlight}
                     />
                   ) : (
                     <div className="mt-top" style={{ height: HEADER_ROOM + pinnedHeight }} />
@@ -273,6 +315,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
               );
             })}
           </div>
+          {empty && rows.length === 0 && <div className="mt-empty">{empty}</div>}
         </div>
         <TranscriptHeader
           title={title}
@@ -299,7 +342,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           dictation={props.dictation}
           initialText={props.initialDraft}
           onDraftChange={props.onDraftChange}
-          key={conversation.id}
+          key={`${conversation.id}:${props.composerKey ?? ""}`}
         />
       </section>
     </AttachmentContext.Provider>

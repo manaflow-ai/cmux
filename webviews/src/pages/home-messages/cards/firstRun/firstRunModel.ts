@@ -9,15 +9,15 @@ import type { Strings } from "../strings";
 export const FIRST_RUN_OPS = {
   /** `{action}`: a row's action (`HomeFirstRunAction`): a terminal tab, a new agent chat, the Chief
    * pet's Show / Hide, memory import. */
-  action: "cmux.home.firstRun.action",
+  action: "cmux.home.messages.firstRun.action",
   /** `{id}`: an agent row's daemon tab, opened. */
-  openAgent: "cmux.home.firstRun.openAgent",
+  openAgent: "cmux.home.messages.firstRun.openAgent",
   /** `{}`: the Switching card's Hide, recorded so it never shows again. */
-  hideSwitchKeys: "cmux.home.firstRun.hideSwitchKeys",
+  hideSwitchKeys: "cmux.home.messages.firstRun.hideSwitchKeys",
   /** `{}`: the Switching card's note button: System Settings > Keyboard > Keyboard Shortcuts. */
-  openKeyboardSettings: "cmux.home.firstRun.openKeyboardSettings",
+  openKeyboardSettings: "cmux.home.messages.firstRun.openKeyboardSettings",
   /** `{kind, conversation}`: the intro showed (`ChiefIntroStore.markShown`); it never returns. */
-  markIntroShown: "cmux.home.firstRun.markIntroShown",
+  markIntroShown: "cmux.home.messages.firstRun.markIntroShown",
 } as const;
 
 /** What a first-run row asks the app to do. */
