@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextPages
+import CmuxNextServer
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -23,11 +24,13 @@ import Testing
         (.homeMessages, PageFactory.homeChannelsEngineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
         (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard),
+        (.serverCards, WebCardPanel.engineOptions),
     ]
 
     /// The pages that still show in WebKit, and why (webviews-chromium-AUDIT.md).
     private static let stillOnWebKit: [String: PageWebKitReason] = [
         PageDescriptor.iconPicker.id: .transparentOverlay,
+        PageDescriptor.serverCards.id: .transparentOverlay,
         PageDescriptor.groupEditor.id: .transparentOverlay,
     ]
 
