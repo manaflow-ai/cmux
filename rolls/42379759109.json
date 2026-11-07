@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42379759109",
+  "recorded_at": "2026-11-07T14:17:37Z",
+  "reason": "cmux-tui e3e51f684dfb changes the image's cmux-tui (pinned 7e2cd1d84d77)",
+  "dry_run": false,
+  "cmux_tui": "e3e51f684dfb29896ad2944759773490832c2fa2",
+  "fixes": [
+    {
+      "sha": "e3e51f684dfb29896ad2944759773490832c2fa2",
+      "mergedAt": "2026-11-07T05:49:37-08:00",
+      "subject": "cmux-daemon-conn-core: the app's control connection rules in Rust, over the app FFI (step A) (#37332)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T14:17:37Z",
+    "snapshot_id": "sh-e3fa25ffb98c429ea9a4904b371a6783",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42379759109): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "01ad36332d75eb767be6f963ea74a2d8a4d0cc01",
+    "image": "cloud-native-auto-e3e51f68-42379759109-1",
+    "revision": "ci-42379759109-1",
+    "at": "2026-11-07T14:17:37Z"
+  },
+  "rolled_back": false
+}
