@@ -81,6 +81,9 @@ export function locate(text: string, env: Env): { start: number; end: number; im
 
 export function replaceList(text: string, env: Env, images: BootImage[]): string {
   validate(images, env);
+  // Only a write is held to the size cap: settle still reads a deployed commit's list from before a trim.
+  const bytes = Buffer.byteLength(JSON.stringify(images), "utf8");
+  if (bytes > MAX_BYTES) throw new Error(`env ${env} VM_BOOT_IMAGES: ${bytes} bytes, at most ${MAX_BYTES} (Cloudflare's text binding limit)`);
   const { start, end } = locate(text, env);
   return text.slice(0, start) + JSON.stringify(JSON.stringify(images)) + text.slice(end);
 }
@@ -92,8 +95,6 @@ export function validate(images: BootImage[], env: string): void {
   };
   if (!Array.isArray(images)) fail("not a list");
   if (images.length > MAX_ENTRIES) fail(`${images.length} entries, at most ${MAX_ENTRIES}`);
-  const bytes = Buffer.byteLength(JSON.stringify(images), "utf8");
-  if (bytes > MAX_BYTES) fail(`${bytes} bytes, at most ${MAX_BYTES} (Cloudflare's text binding limit)`);
   if (new Set(images.map((i) => i.id)).size !== images.length) fail("duplicate ids");
   for (const i of images) {
     const keys = Object.keys(i).sort().join(",");

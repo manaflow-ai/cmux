@@ -92,6 +92,8 @@ describe("auto-roll approve", () => {
     expect(Buffer.byteLength(JSON.stringify(many))).toBeGreaterThan(MAX_BYTES);
     const big = wrangler.replace(/("staging": \{[\s\S]*?"VM_BOOT_IMAGES": )("(?:[^"\\\n]|\\.)*")/u, (_, head: string) => head + JSON.stringify(JSON.stringify(many)));
     expect(() => approve(big, entry("8"))).toThrow(/bytes, at most 5120/);
+    // A list deployed before a trim still reads, so settle can roll that deploy back.
+    expect(locate(big, "staging").images).toHaveLength(24);
   });
 
   test("the checked-in lists, plus one more roll, stay under the text binding limit", () => {
