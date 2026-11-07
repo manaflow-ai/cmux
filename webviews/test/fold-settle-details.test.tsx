@@ -11,7 +11,7 @@ useFoldPage();
 
 const details = () => fold.container.querySelector("details")!;
 const summary = () => fold.container.querySelector("summary")!;
-const body = () => fold.container.querySelector(".fold-details__body")!;
+const body = () => fold.container.querySelector<HTMLElement>(".fold-details__body")!;
 
 function page() {
   render(
