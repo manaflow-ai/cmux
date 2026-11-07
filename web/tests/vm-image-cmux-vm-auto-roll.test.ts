@@ -19,8 +19,15 @@ import {
 } from "../../images/cmux-vm/auto-roll";
 import { runChild, runChildOk } from "./helpers/run-child";
 
-// images/cmux-vm/auto-roll.ts edits the checked-in workers/cmux-vm/wrangler.jsonc; these run on that file.
-const wrangler = readFileSync(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url), "utf8");
+// images/cmux-vm/auto-roll.ts edits the checked-in workers/cmux-vm/wrangler.jsonc; these run on that file with its
+// auto-rolled entries taken out. Since the roll went live (#37494) every roll commits one to it, and approve's trim to
+// KEEP_AUTO then moved entries these tests expect to stay, so each roll could turn them red.
+const handOnly = (text: string) =>
+  (["production", "staging"] as const).reduce(
+    (out, env) => replaceList(out, env, locate(out, env).images.filter((image) => !image.id.startsWith(AUTO_PREFIX))),
+    text,
+  );
+const wrangler = handOnly(readFileSync(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url), "utf8"));
 const candidate = { snapshot_id: `sh-${"a".repeat(32)}`, lock_sha256: "0".repeat(64), run: 1 };
 const tui = "1234567890abcdef1234567890abcdef12345678";
 const entry = (run: string, attempt = "1"): BootImage => rolledImage(candidate, `ci-${run}-${attempt}`, tui, run, attempt);
