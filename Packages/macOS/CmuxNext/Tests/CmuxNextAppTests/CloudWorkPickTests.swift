@@ -164,14 +164,14 @@ struct CloudWorkPickTests {
     }
 
     @Test func theAnswersSizePickIsTheHandoffsSize() throws {
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: Data(#"""
+        let machine = try CloudMachine.classic(Data(#"""
             {"id":"vm-1","provider":"freestyle","sizePick":{"vcpus":8,"memoryGb":16,"pick":"lg","reason":"8 vCPU · 16 GB, picked from 3 earlier runs"}}
             """#.utf8))
         let pick = try #require(machine.sizePick)
         #expect(pick == CloudSizePick(vcpus: 8, memoryGb: 16, pick: "lg", reason: "8 vCPU · 16 GB, picked from 3 earlier runs"))
         #expect(pick.handoffSize["vcpus"] as? Int == 8)
         #expect(pick.handoffSize["memoryGb"] as? Double == 16)
-        let bad = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-2","sizePick":{"vcpus":"x"}}"#.utf8))
+        let bad = try CloudMachine.classic(Data(#"{"id":"vm-2","sizePick":{"vcpus":"x"}}"#.utf8))
         #expect(bad.sizePick == nil, "a malformed pick drops the line, never the machine")
     }
 }
