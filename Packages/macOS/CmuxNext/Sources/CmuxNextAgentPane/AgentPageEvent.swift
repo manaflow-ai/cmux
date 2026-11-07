@@ -72,6 +72,12 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
         return AgentPageEvent(kind: "micActivity", value: .object(value))
     }
 
+    /// A hand-off from the Toggle Dictation shortcut that did not happen (`{code}`): the composer
+    /// shows why, as for the mic's click (webviews dictation.ts).
+    public static func dictationHandoff(failure code: String) -> AgentPageEvent {
+        AgentPageEvent(kind: "dictationHandoff", value: ["code": .string(code)])
+    }
+
     /// Shows the turn a `#turn-<id>` link names.
     public static func revealTurn(_ turnId: String) -> AgentPageEvent {
         AgentPageEvent(kind: "revealTurn", value: .string(turnId))
