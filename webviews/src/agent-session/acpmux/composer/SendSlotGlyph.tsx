@@ -13,7 +13,8 @@ import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { Spinner } from "../conversation/icons";
-import { ArrowUpIcon, RETURN_GLYPH_PATH, ReturnIcon, StopIcon } from "../ComposerPickers";
+import { ArrowUpIcon, ReturnIcon, StopIcon } from "../ComposerPickers";
+import { RETURN_GLYPH_PATH } from "../composerPickerModel";
 import { reducedMotion } from "../threadMinimap/scrollMotion";
 import { sendStopMorph, type SendStopMorphArm } from "./sendStopMorph.experiment";
 

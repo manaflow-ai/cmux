@@ -54,7 +54,7 @@ import {
 } from "./mentionItems";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
-import type { Choice } from "./ComposerPickers";
+import type { Choice } from "./composerPickerModel";
 import type { FileSearchSource } from "./fileSearchModel";
 import {
   CMUX_PASS_THROUGH,
