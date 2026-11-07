@@ -136,8 +136,14 @@ test("the page lists stashes; a row restores its page and Restore in New Workspa
   await act(async () => rows()[0]!.querySelector<HTMLButtonElement>(".stash-row-main")!.click());
   expect(last(provider, StashOps.restore)).toEqual({ stash: "s1", members: ["m1"], new_workspace: false });
   expect(titles()[0]).toBe("Design review — editor states");
+  // The header shows Restore All only; the rest is in its menu (Shift-F10 on Restore All).
   const group = host.querySelector<HTMLElement>(".stash-group")!;
-  await act(async () => button("Restore in New Workspace", group).click());
+  expect([...group.querySelectorAll(".stash-group-header button")].map((item) => item.textContent)).toEqual([
+    "Restore All",
+  ]);
+  await menuKey(button("Restore All", group));
+  expect(menuLabels()).toEqual(["Restore All", "Restore in New Workspace", "Delete Group"]);
+  await act(async () => menuItem("Restore in New Workspace")!.click());
   expect(last(provider, StashOps.restore)).toEqual({ stash: "s1", members: ["m2", "m3"], new_workspace: true });
   expect(titles()[0]).toBe("backend");
 });
@@ -160,7 +166,8 @@ test("a delete hides its row while the app's Undo toast is up; Undo brings it ba
   // No Undo this time: the group goes for good.
   provider.toast = undefined;
   provider.undo = false;
-  await act(async () => button("Delete Group").click());
+  await menuKey(button("Restore All", host.querySelector<HTMLElement>(".stash-group")!));
+  await act(async () => menuItem("Delete Group")!.click());
   expect(titles()).not.toContain("Atlas release notes");
   expect(provider.stashes.map((stash) => stash.id)).toEqual(["s2", "s3"]);
 });

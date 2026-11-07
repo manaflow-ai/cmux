@@ -20,8 +20,9 @@ import os
 ///
 /// Every other `cmux.history.` call and stream goes to `relay` (the daemon), but the list, remove
 /// and clear go to ``history``, the app's own History path (as the native page): the list merges
-/// every machine's command rows and greys unreachable locations, and the entries it showed are what
-/// a remove or an open acts on, older search hits included; a remove or clear also drops the pages
+/// every machine's command rows and greys unreachable locations, and the entries it showed (``shown``,
+/// this page's own) are what a remove or an open acts on, older search hits included, whatever another
+/// page lists; a remove or clear also drops the pages
 /// from every profile's omnibar suggestions. A remove or clear (``gestureOperations``) goes only on
 /// the person's own click, each click once, whatever the daemon checks (cmux#37302).
 @MainActor
@@ -34,6 +35,8 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
     public var relay: (any PageProvider)?
     /// The app's History owner for the list, remove and clear (HistoryService, as the native page); nil relays them.
     public weak var history: (any HistoryPageEditing)?
+    /// The entries this page's last list showed, by id: a remove or an open of one acts on it (HistoryService.entry(id:)).
+    public private(set) var shown: [String: HistoryEntry] = [:]
     /// The gesture (its event's uptime) the last delete, remove or clear spent.
     private var spentGesture: TimeInterval?
     /// The page view the dialog attaches to.
@@ -60,7 +63,12 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
             return ["confirmed": true, "deleted": CmuxNextSettings.JSONValue(await delete(ids))]
         default:
             guard let relay, op.hasPrefix("cmux.history.") else { throw PageError.unknownOp(op) }
-            if op == "cmux.history.entries.list", let history { return try await history.list(params) }
+            if op == "cmux.history.entries.list", let history {
+                let read = try await history.list(params)
+                shown = Dictionary(read.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                // The daemon's row shape (webviews/src/pages/history/types.ts).
+                return ["entries": .array(read.entries.map(\.pageJSON)), "revision": .number(0)]
+            }
             guard Self.gestureOperations.contains(op) else { return try await relay.call(op, params: params, context: context) }
             try spendGesture(context)
             guard let history else { return try await relay.call(op, params: params, context: context) }

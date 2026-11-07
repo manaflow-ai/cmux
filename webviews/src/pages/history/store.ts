@@ -162,7 +162,10 @@ export class HistoryStore {
         if (!alive()) return;
         this.set(failure(error));
       }
-      if (alive() && (await this.followChanges(alive)) && alive()) await this.reload();
+      // The entries do not wait on the change stream: the list is the app's read model (its own log,
+      // every machine's commands), which can answer while the local daemon's stream is down.
+      if (alive()) await this.followChanges(alive);
+      if (alive()) await this.reload();
     } finally {
       if (alive()) this.starting = false;
     }
@@ -181,9 +184,9 @@ export class HistoryStore {
     this.unpage = undefined;
   }
 
-  /** Subscribes to `history-changed` unless it already is; true when the page may read
-   * (subscribed, or an owner without the stream). A failure shows the disconnected state; the next
-   * reconnect asks again. */
+  /** Subscribes to `history-changed` unless it already is; true when it follows them (subscribed,
+   * or an owner without the stream). A failure shows the disconnected state until a read answers;
+   * the next reconnect asks again. */
   private async followChanges(alive: () => boolean): Promise<boolean> {
     if (!this.client) return false;
     if (this.unsubscribe || this.changesUnsupported) return true;
@@ -234,7 +237,8 @@ export class HistoryStore {
   private refollow(alive: () => boolean): void {
     if (!alive()) return;
     void (async () => {
-      if ((await this.followChanges(alive)) && alive()) await this.reload();
+      await this.followChanges(alive);
+      if (alive()) await this.reload();
     })();
   }
 

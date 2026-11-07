@@ -22,7 +22,7 @@ export default componentEntry<StashGalleryProps>({
     },
     empty: { note: "Nothing stashed yet: the hint says where Save and Close is.", props: { stashes: "empty" } },
     "many-stashes": {
-      note: "Twelve groups of long titles: rows truncate, group actions wrap in a narrow pane.",
+      note: "Twelve groups of long titles: rows and group names truncate; Restore All stays on each header row.",
       props: { stashes: "many" },
     },
     search: {
@@ -47,6 +47,31 @@ export default componentEntry<StashGalleryProps>({
           throw new Error("a stash row has a second button");
         }
         await ctx.contextMenu({ selector: ".stash-row" });
+        await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
+      },
+    },
+    "group-menu": {
+      note: "A group header shows Restore All only; Shift-F10 on it opens the group's menu: Restore All, Restore in New Workspace, Delete Group.",
+      props: {},
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".stash-group-header"));
+        if (
+          ctx.document.querySelectorAll(".stash-group-header button").length !==
+          ctx.document.querySelectorAll(".stash-group").length
+        ) {
+          throw new Error("a group header shows more than Restore All");
+        }
+        await ctx.focus({ selector: ".stash-group:first-of-type .stash-group-restore" });
+        await ctx.press("Shift+F10");
+        await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
+      },
+    },
+    "group-menu-pointer": {
+      note: "A right-click on a group header opens the same menu.",
+      props: {},
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".stash-group-header"));
+        await ctx.contextMenu({ selector: ".stash-group:first-of-type .stash-group-name" });
         await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
       },
     },
@@ -78,7 +103,7 @@ export default componentEntry<StashGalleryProps>({
         await ctx.click({ selector: ".page-menu-item.destructive" });
         await ctx.waitFor(() => titles().length === 5);
         await ctx.waitFor(() => !ctx.document.querySelector(".page-menu"));
-        await ctx.click({ selector: ".stash-group:last-of-type .stash-group-actions button" });
+        await ctx.click({ selector: ".stash-group:last-of-type .stash-group-restore" });
         await ctx.waitFor(() => titles().length === 4);
         if (titles().includes("https://example.org/long/path")) throw new Error("Restore All reopened the hidden row");
       },

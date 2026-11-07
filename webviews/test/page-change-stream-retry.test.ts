@@ -56,6 +56,8 @@ for (const page of [
     read: StashOps.list,
     answers: { [StashOps.list]: [] },
     make: (client: PageClient) => new StashStore(client),
+    // The stash list is the daemon's own: no stream, no read.
+    readsWithoutStream: false,
   },
   {
     name: "History",
@@ -63,6 +65,8 @@ for (const page of [
     read: HistoryOps.list,
     answers: { [HistoryOps.list]: { entries: [] } },
     make: (client: PageClient) => new HistoryStore(client),
+    // The list is the app's read model (cmux#37302 review), which answers while the daemon's stream is down.
+    readsWithoutStream: true,
   },
 ]) {
   test(`${page.name}: a change subscribe refused at start is retried on reconnect, then the page reads`, async () => {
@@ -72,8 +76,13 @@ for (const page of [
     await settle();
     expect(client.subscribes[0]).toBe(PAGE_CONNECTION);
     expect(client.subscribes.filter((s) => s === page.changed)).toHaveLength(1);
-    expect(store.getSnapshot().connection).toBe("disconnected");
-    expect(client.calls).not.toContain(page.read);
+    if (page.readsWithoutStream) {
+      expect(client.calls.filter((op) => op === page.read)).toHaveLength(1);
+      expect(store.getSnapshot().connection).toBe("connected");
+    } else {
+      expect(store.getSnapshot().connection).toBe("disconnected");
+      expect(client.calls).not.toContain(page.read);
+    }
 
     client.link(false);
     client.link(true);
@@ -174,3 +183,30 @@ for (const page of [
     stop();
   });
 }
+
+/** cmux#37302 review: History's entries do not wait on the change stream. The local daemon is down
+ * (its stream answers `closed`), and the list (the app's read model) still answers: the page shows
+ * the entries, and the stream is asked for again on the next reconnect. */
+test("History: a change stream that fails does not keep the entries from the list", async () => {
+  const entry = {
+    id: "command:build-box/7",
+    kind: "command",
+    at_ms: 1_000,
+    title: "make test",
+    available: true,
+    machine: "build-box",
+  };
+  const client = new FlakyClient(HistoryOps.changed, { [HistoryOps.list]: { entries: [entry] } }, 1);
+  const store = new HistoryStore(client);
+  const stop = store.subscribe(() => {});
+  await settle();
+  expect(client.calls.filter((op) => op === HistoryOps.list)).toHaveLength(1);
+  expect(store.getSnapshot().entries.map((row) => row.id)).toEqual(["command:build-box/7"]);
+  expect(store.getSnapshot().connection).toBe("connected");
+
+  client.link(false);
+  client.link(true);
+  await settle();
+  expect(client.subscribes.filter((s) => s === HistoryOps.changed)).toHaveLength(2);
+  stop();
+});

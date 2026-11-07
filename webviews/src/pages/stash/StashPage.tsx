@@ -1,7 +1,8 @@
 // The Stashed Tabs page (a OneTab of cmux's own): stashed groups, newest first, each dated and
 // named after its workspace, one compact line per page or workspace. A row's click restores it; its
 // menu (a right-click, or Shift-F10 / the context-menu key on the focused row) deletes it behind the
-// app's Undo toast. A row carries no destructive control of its own. State lives in `StashStore`; this file renders
+// app's Undo toast. A row carries no destructive control of its own; a group's header shows Restore
+// All only, and its menu (the same right-click or keys on Restore All) holds the rest. State lives in `StashStore`; this file renders
 // it and turns plain keys and clicks into store intents. Cmd/Ctrl chords never reach it.
 import { useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent } from "react";
 import { PageMenu, pageMenuKey, type PageMenuItem } from "../shared/PageMenu";
@@ -181,32 +182,17 @@ export function StashPage({ store, strings }: { store: StashStore; strings: Stri
                   <h2 className="stash-group-name">{name}</h2>
                   <span className="stash-meta">{date.format(group.created_at_ms)}</span>
                   <span className="stash-meta stash-count">{count.format(whole.members.length)}</span>
-                  <span className="stash-group-actions">
-                    <button
-                      type="button"
-                      className="stash-text-button"
-                      disabled={off}
-                      onClick={() => void store.restore(whole)}
-                    >
-                      {t("stash.restoreAll")}
-                    </button>
-                    <button
-                      type="button"
-                      className="stash-text-button"
-                      disabled={off}
-                      onClick={() => void store.restore(whole, undefined, true)}
-                    >
-                      {t("stash.restoreInNewWorkspace")}
-                    </button>
-                    <button
-                      type="button"
-                      className="stash-text-button danger"
-                      disabled={off}
-                      onClick={() => void store.delete(whole)}
-                    >
-                      {t("stash.deleteGroup")}
-                    </button>
-                  </span>
+                  {/* The group's one visible action, on its header row (the native page's first); Restore in
+                      New Workspace and Delete Group are in the header's menu (a right-click, or Shift-F10 /
+                      the context-menu key on Restore All). */}
+                  <button
+                    type="button"
+                    className="stash-text-button stash-group-restore"
+                    disabled={off}
+                    onClick={() => void store.restore(whole)}
+                  >
+                    {t("stash.restoreAll")}
+                  </button>
                 </div>
                 {group.members.map((member) => {
                   const tabs = workspaceTabs(member);

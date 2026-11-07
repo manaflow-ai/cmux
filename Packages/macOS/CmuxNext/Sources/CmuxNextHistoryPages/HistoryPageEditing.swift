@@ -5,13 +5,12 @@ import Foundation
 
 /// The app's History owner as the History page reaches it: the calls the native page made
 /// (HistoryService). `read` is the merged read model (the local daemon's entries, every machine's
-/// command rows, locations greyed while unreachable); the list keeps its entries in `pageEntries`,
-/// so `entry(id:)` finds one the page shows (an older search hit) for a remove or an open, as the
-/// native page passed its loaded entry.
+/// command rows, locations greyed while unreachable). Each page's provider keeps the entries its
+/// list showed (``HistoryCookieBackupsPageProvider/shown``), and `entry(id:)` finds one any open
+/// page shows (an older search hit) for a remove or an open, as the native page passed its loaded entry.
 /// A remove or clear also drops the pages from every profile's omnibar suggestions.
 @MainActor
 public protocol HistoryPageEditing: AnyObject {
-    var pageEntries: [String: HistoryEntry] { get set }
     func read(_ query: HistoryQuery) async -> HistoryRead
     func entry(id: String) async -> HistoryEntry?
     func remove(_ entry: HistoryEntry)
@@ -20,9 +19,8 @@ public protocol HistoryPageEditing: AnyObject {
 }
 
 extension HistoryPageEditing {
-    /// `cmux.history.entries.list {kinds?, text?, range?, limit?}` -> `{entries, revision}`, the
-    /// daemon's row shape (webviews/src/pages/history/types.ts). Closed when no owner answered.
-    func list(_ params: CmuxNextSettings.JSONValue) async throws -> CmuxNextSettings.JSONValue {
+    /// The read of `cmux.history.entries.list {kinds?, text?, range?, limit?}`. Closed when no owner answered.
+    func list(_ params: CmuxNextSettings.JSONValue) async throws -> HistoryRead {
         var query = HistoryQuery(text: params["text"]?.stringValue ?? "", kinds: try Self.kinds(params),
                                  limit: max(1, min(params["limit"]?.intValue ?? 1_000, 5_000)))
         if let range = params["range"]?.stringValue {
@@ -30,10 +28,9 @@ extension HistoryPageEditing {
             query.range = parsed
         }
         let read = await read(query)
-        pageEntries = Dictionary(read.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         // No owner answered: the page shows its disconnected state, as for a closed relay.
         if read.unavailable, read.entries.isEmpty { throw PageError.closed }
-        return ["entries": .array(read.entries.map(\.pageJSON)), "revision": .number(0)]
+        return read
     }
 
     /// The page op's params, read the way the daemon reads them; anything else is refused.

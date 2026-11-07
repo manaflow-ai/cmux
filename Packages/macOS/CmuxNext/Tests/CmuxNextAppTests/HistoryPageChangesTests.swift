@@ -89,8 +89,9 @@ import Testing
         #expect(world.relay.sent.isEmpty)
     }
 
-    /// cmux#37302 review: an older visit, past the 5,000-row window `entry(id:)` searches, that the
-    /// page shows as a search hit can be removed and opened: the page's read keeps its entries.
+    /// cmux#37302 review: an older visit, past the 5,000-row window `entry(id:)` searches, that a
+    /// page shows as a search hit can be removed and opened from that page, even after another
+    /// History page listed another query: each page keeps the rows it showed.
     @Test func anOlderSearchHitCanBeRemovedAndOpened() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -108,24 +109,34 @@ import Testing
         let hit = try #require(await services.history.read(HistoryQuery(text: "old.example", kinds: [.page])).entries.first)
         #expect(await services.history.entry(id: hit.id) == nil, "the id window no longer misses the older visit; this test shows nothing")
 
-        let provider = HistoryCookieBackupsPageProvider { nil }
-        provider.relay = Relay()
-        provider.history = services.history
-        let listed = try await provider.call("cmux.history.entries.list", params: ["text": "old.example", "kinds": .array([.string("page")])],
-                                             context: PageCallContext(page: "cmux.history"))
+        // Two History pages, wired as PageFactory wires them: A searches the old visit, then B lists another query.
+        func page() -> HistoryCookieBackupsPageProvider {
+            let provider = HistoryCookieBackupsPageProvider { nil }
+            provider.relay = Relay()
+            provider.history = services.history
+            services.history.pages.add(provider)
+            return provider
+        }
+        let pageA = page(), pageB = page()
+        let listed = try await pageA.call("cmux.history.entries.list", params: ["text": "old.example", "kinds": .array([.string("page")])],
+                                          context: PageCallContext(page: "cmux.history"))
         let rows = try #require(listed["entries"]?.arrayValue)
         #expect(rows.compactMap { $0["id"]?.stringValue } == [hit.id])
-        // Open (`history.open`) and remove both resolve the shown row.
+        _ = try await pageB.call("cmux.history.entries.list", params: ["text": "new.example/5", "kinds": .array([.string("page")])],
+                                 context: PageCallContext(page: "cmux.history"))
+        #expect(pageB.shown[hit.id] == nil)
+        // A's Open (`history.open` resolves through `entry(id:)`) and A's remove both find the row A shows.
         #expect(await services.history.entry(id: hit.id)?.id == hit.id)
-        _ = try await provider.call("cmux.history.entries.remove", params: ["ids": .array([.string(hit.id)])], context: Self.click(9))
+        _ = try await pageA.call("cmux.history.entries.remove", params: ["ids": .array([.string(hit.id)])], context: Self.click(9))
         #expect(!history.entries.contains { $0.url.absoluteString == "https://old.example/target" })
+        let after = await services.history.read(HistoryQuery(text: "old.example", kinds: [.page])).entries
+        #expect(after.isEmpty, "the remove left the visit in the log")
     }
 
     /// The app's read model behind the page's list (as the native page showed it).
     final class ReadModel: HistoryPageEditing {
         var entries: [HistoryEntry] = []
         var queries: [HistoryQuery] = []
-        var pageEntries: [String: HistoryEntry] = [:]
         func read(_ query: HistoryQuery) async -> HistoryRead {
             queries.append(query)
             return HistoryRead(entries: entries)

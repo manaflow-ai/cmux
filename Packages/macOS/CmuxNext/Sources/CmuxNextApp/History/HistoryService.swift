@@ -3,6 +3,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextHistoryDaemon
+import CmuxNextHistoryPages
 import CmuxNextSettings
 import Foundation
 
@@ -17,7 +18,7 @@ final class HistoryService {
     /// history in memory only (tests).
     var supportDirectory: URL?
     private var sinks: [BrowserProfileID: BrowserVisitSink] = [:]
-    var pageEntries: [String: HistoryEntry] = [:] // The History page's last read, by id (HistoryPageEditing.list).
+    let pages = NSHashTable<HistoryCookieBackupsPageProvider>.weakObjects() // The open History pages (their shown rows).
     /// The omnibox persistence per profile: the daemon when it serves `history-v1`, else `sinks`.
     private var routes: [BrowserProfileID: RoutingVisitSink] = [:]
     let hidden: HiddenHistoryStore
@@ -145,7 +146,7 @@ final class HistoryService {
 
     /// The entry with `id`: one the History page shows, else among every owner's current entries, or nil when it is gone.
     func entry(id: String) async -> HistoryEntry? {
-        if let shown = pageEntries[id] { return shown }
+        if let shown = pages.allObjects.lazy.compactMap({ $0.shown[id] }).first { return shown }
         if let daemon = daemonHistory { return await daemonEntry(id: id, daemon) }
         return await entries(HistoryQuery(limit: 5_000)).first { $0.id == id }
     }

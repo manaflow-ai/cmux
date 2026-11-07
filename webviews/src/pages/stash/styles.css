@@ -131,9 +131,8 @@
 
 .stash-group-header {
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 12px;
+  gap: 12px;
   margin: 12px 8px 4px;
   min-width: 0;
 }
@@ -149,6 +148,7 @@
 }
 
 .stash-meta {
+  flex-shrink: 0;
   font-size: var(--text-caption);
   color: var(--page-text-3);
   white-space: nowrap;
@@ -158,11 +158,11 @@
   font-variant-numeric: tabular-nums;
 }
 
-.stash-group-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
+/* Restore All stays on the header row (the name truncates first); its text ends where the rows' times end. */
+.stash-group-restore {
+  flex-shrink: 0;
   margin-inline-start: auto;
+  margin-inline-end: -8px;
 }
 
 .stash-row {
