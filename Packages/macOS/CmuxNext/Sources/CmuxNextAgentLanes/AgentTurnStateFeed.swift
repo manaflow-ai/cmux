@@ -230,8 +230,10 @@ public final class AgentTurnStateFeed {
                       generatedTitles: page.generatedTitles, sessionNames: page.sessionNames, details: page.details, source: source,
                       peers: page.peers, keeping: keeping, keepingPeers: keepingPeers)
         turns.replaceStartedBy(page.startedBy, source: source, keeping: keeping)
+        // A session's lane is one per id, whichever row pushed it last: a push of this Mac's
+        // session or of a peer's row is newer than the page, a purge's missing lane included.
         var lanes = page.lanes
-        for id in keeping { lanes[id] = self.lanes.lanes[id] }
+        for id in keeping.union(keepingPeers.keys) { lanes[id] = self.lanes.lanes[id] }
         if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
     }
 
