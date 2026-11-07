@@ -364,7 +364,7 @@ function Description({
       {!details ? (
         <p className="gh-muted">{strings.t("github.description.loading")}</p>
       ) : details.body.trim() ? (
-        <GitHubMarkdown source={details.body} open={open} />
+        <GitHubMarkdown source={details.body} html={details.html} open={open} />
       ) : (
         <p className="gh-muted">{strings.t("github.description.none")}</p>
       )}
@@ -437,7 +437,7 @@ function Entry({
             <span className="gh-entry-time">{relativeTime(at, now(), strings.language)}</span>
           ))}
       </div>
-      {entry.body.trim() && <GitHubMarkdown source={entry.body} open={open} />}
+      {entry.body.trim() && <GitHubMarkdown source={entry.body} html={entry.html} open={open} />}
       {entry.comments.length > 0 && (
         <ul className="gh-review-comments">
           {entry.comments.map((comment, index) => (
@@ -446,7 +446,7 @@ function Entry({
                 {comment.path}
                 {comment.line != null && `:${comment.line}`}
               </span>
-              <GitHubMarkdown source={comment.body} open={open} />
+              <GitHubMarkdown source={comment.body} html={comment.html} open={open} />
             </li>
           ))}
         </ul>

@@ -20,6 +20,8 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
         public var path: String
         public var line: Int?
         public var body: String
+        /// GitHub's own rendering of `body` (``html(_:)``), empty when it is too long to send whole.
+        public var html: String = ""
         public var url: String?
     }
 
@@ -29,6 +31,8 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
         public var kind: String
         public var author: String
         public var body: String
+        /// GitHub's own rendering of `body` (``html(_:)``), empty when it is too long to send whole.
+        public var html: String = ""
         /// GitHub's ISO 8601 text.
         public var at: String
         public var url: String?
@@ -53,6 +57,8 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
     }
 
     public var body: String
+    /// GitHub's own rendering of `body` (``html(_:)``), empty when it is too long to send whole.
+    public var html: String = ""
     /// The head commit the page shows, the one its Merge is pinned to.
     public var headCommit: String
     /// GitHub's `mergeStateStatus`, lowercased (`clean`, `unstable`, `blocked`, `behind`, `dirty`, …).
@@ -71,6 +77,9 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
     static let maximumReviewComments = 30
     static let maximumBody = 64_000
     static let maximumCommentBody = 20_000
+    /// GitHub's HTML of a body is longer than its Markdown (its links, its image proxy's URLs); past
+    /// this it is dropped, never cut, since a cut tag breaks the markup, and the page draws the text.
+    static let maximumHTML = 160_000
 
     /// GraphQL's non-null mark, spelled apart so the crash ratchet does not read it as an unwrap.
     private static let required = "!"
@@ -78,11 +87,11 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
     static let query = """
         query($owner: String\(required), $name: String\(required), $number: Int\(required)) { repository(owner: $owner, name: $name) {
           viewerDefaultMergeMethod
-          pullRequest(number: $number) { body headRefOid mergeStateStatus
+          pullRequest(number: $number) { body bodyHTML headRefOid mergeStateStatus
             labels(first: 20) { nodes { name color } }
-            comments(last: \(maximumComments)) { totalCount nodes { author { login } body createdAt url } }
-            reviews(last: \(maximumReviews)) { totalCount nodes { author { login } state body submittedAt url
-              comments(first: \(maximumReviewComments)) { nodes { path line originalLine body url } } } }
+            comments(last: \(maximumComments)) { totalCount nodes { author { login } body bodyHTML createdAt url } }
+            reviews(last: \(maximumReviews)) { totalCount nodes { author { login } state body bodyHTML submittedAt url
+              comments(first: \(maximumReviewComments)) { nodes { path line originalLine body bodyHTML url } } } }
             reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } ... on Bot { login } } } }
             latestOpinionatedReviews(first: 20) { nodes { author { login } state } }
             closingIssuesReferences(first: 10) { nodes { number title url state } } } } }
@@ -111,22 +120,23 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
         let total = { (key: String) in ((pull[key] as? [String: Any])?["totalCount"] as? Int) ?? 0 }
         let login = { (node: [String: Any]) in ((node["author"] as? [String: Any])?["login"] as? String) ?? "" }
         let text = { (value: Any?, limit: Int) in String((value as? String ?? "").prefix(limit)) }
+        let html = { (node: [String: Any]) in Self.html(node["bodyHTML"]) }
         let comments = nodes("comments", pull).map { node in
-            Entry(kind: "comment", author: login(node), body: text(node["body"], maximumCommentBody),
+            Entry(kind: "comment", author: login(node), body: text(node["body"], maximumCommentBody), html: html(node),
                   at: node["createdAt"] as? String ?? "", url: link(node["url"]))
         }
         let reviews = nodes("reviews", pull).compactMap { node -> Entry? in
             let inline = nodes("comments", node).prefix(maximumReviewComments).compactMap { comment -> ReviewComment? in
                 guard let path = comment["path"] as? String, !path.isEmpty else { return nil }
                 return ReviewComment(path: path, line: (comment["line"] as? Int) ?? (comment["originalLine"] as? Int),
-                                     body: text(comment["body"], maximumCommentBody), url: link(comment["url"]))
+                                     body: text(comment["body"], maximumCommentBody), html: html(comment), url: link(comment["url"]))
             }
             let body = text(node["body"], maximumCommentBody)
             let state = (node["state"] as? String)?.lowercased() ?? "commented"
             // A bare "commented" review with nothing in it (a pending one, a reply's wrapper) says nothing.
             if state == "commented", body.isEmpty, inline.isEmpty { return nil }
             if state == "pending" { return nil }
-            return Entry(kind: "review", author: login(node), body: body, at: node["submittedAt"] as? String ?? "",
+            return Entry(kind: "review", author: login(node), body: body, html: html(node), at: node["submittedAt"] as? String ?? "",
                          url: link(node["url"]), state: state, comments: Array(inline))
         }
         // ISO 8601 in UTC sorts as text.
@@ -153,11 +163,19 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
         }
         let method = (repository["viewerDefaultMergeMethod"] as? String)?.lowercased() ?? ""
         return GitHubPullRequestDetails(
-            body: text(pull["body"], maximumBody), headCommit: (pull["headRefOid"] as? String) ?? "",
+            body: text(pull["body"], maximumBody), html: html(pull), headCommit: (pull["headRefOid"] as? String) ?? "",
             mergeState: (pull["mergeStateStatus"] as? String)?.lowercased() ?? "",
             mergeMethod: ["merge", "squash", "rebase"].contains(method) ? method : "merge",
             labels: labels, conversation: conversation, conversationTotal: total("comments") + total("reviews"),
             reviewers: reviewers, linked: linked)
+    }
+
+    /// GitHub's rendering of a body (`bodyHTML`: its Markdown and the HTML GitHub allows, sanitized,
+    /// images through GitHub's proxy), whole or not at all. The page parses it inertly and keeps only
+    /// its own allowlist (webviews/src/pages/github/githubHTML.ts).
+    static func html(_ value: Any?) -> String {
+        guard let text = value as? String, text.utf8.count <= maximumHTML else { return "" }
+        return text
     }
 
     /// `value` when it is a github.com https link, the only kind the page opens.
@@ -170,15 +188,16 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
     public var json: JSONValue {
         let optional = { (text: String?) in text.map(JSONValue.string) ?? .null }
         return .object([
-            "body": .string(body), "headCommit": .string(headCommit), "mergeState": .string(mergeState),
+            "body": .string(body), "html": .string(html), "headCommit": .string(headCommit), "mergeState": .string(mergeState),
             "mergeMethod": .string(mergeMethod), "conversationTotal": JSONValue(conversationTotal),
             "labels": .array(labels.map { .object(["name": .string($0.name), "color": .string($0.color)]) }),
             "conversation": .array(conversation.map { entry in
                 .object(["kind": .string(entry.kind), "author": .string(entry.author), "body": .string(entry.body),
+                         "html": .string(entry.html),
                          "at": .string(entry.at), "url": optional(entry.url), "state": optional(entry.state),
                          "comments": .array(entry.comments.map { comment in
                              .object(["path": .string(comment.path), "line": comment.line.map { JSONValue($0) } ?? .null,
-                                      "body": .string(comment.body), "url": optional(comment.url)])
+                                      "body": .string(comment.body), "html": .string(comment.html), "url": optional(comment.url)])
                          })])
             }),
             "reviewers": .array(reviewers.map { .object(["name": .string($0.name), "state": .string($0.state)]) }),

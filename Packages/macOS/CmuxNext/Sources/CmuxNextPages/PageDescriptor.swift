@@ -240,7 +240,16 @@ public extension PageDescriptor {
     /// request drawn from the app's pull request cache, with no github.com page load. One tab per workspace, which
     /// every pull request link of a chat moves to its own route (`#/pull?url=`), so a second link is a route change
     /// in a page already running, never a new tab or a new web page.
-    static let github = PageDescriptor(id: "cmux.github", resource: "github", namespaces: ["cmux.github."])
+    /// Its only remote images are the ones GitHub's own rendering of a body points at (`bodyHTML`), which
+    /// go through GitHub's image proxy: camo for an outside image, so its host never sees the reader,
+    /// and the signed links of images people attached. No other host loads.
+    static let github = PageDescriptor(
+        id: "cmux.github", resource: "github", namespaces: ["cmux.github."], csp: PageCSP(image: githubImageSources))
+
+    static let githubImageSources = [
+        "https://camo.githubusercontent.com", "https://private-user-images.githubusercontent.com",
+        "https://user-images.githubusercontent.com", "https://avatars.githubusercontent.com",
+    ]
 
     /// The browser's Page Info bubble (webviews/src/pages/page-info, its owner CmuxNextBrowser's
     /// PageInfoController through the App's BrowserChromeWebHost): one page per pane, kept between
