@@ -6,8 +6,8 @@
 // the panel starts under the header, the toggle is the topmost element at its own centre, and a
 // real mouse click there closes the panel without moving anything left on the page (the misplaced
 // click folded the Environment section and Context jumped up under it, 84 px in the gallery, a layout
-// shift the gallery graded as failing). With the header's tools in the pane's tab row (the
-// `chrome.tabs.rowTools` Debug setting, header/tabRow.ts), the panel starts at that row's foot.
+// shift the gallery graded as failing). With the header's tools in the pane's tab row
+// (header/tabRow.ts), the panel starts at that row's foot.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // (support/papercutChat.ts). Real Chromium and WebKit (the app's engine); CI fails the file when it

@@ -42,7 +42,9 @@
 /* Claude Code's split adds the quiet row (28 px and its 4 px gap) under the card: the transcript
    gives that up first, down to 64 px above the stack, so a short pane with a queued prompt keeps the
    quiet row inside it (re-review of #22285). */
-.acpmux-main[data-dock="float"]:has(.acpmux-composer-foot) > .acpmux-dock {
+/* The dock is the `:has()` subject, never the pane: one on the pane would be checked again for every node a
+   streamed chunk inserts into the transcript (test/agent-pane-stream-composer-still.test.ts). */
+.acpmux-main[data-dock="float"] > .acpmux-dock:has(.acpmux-composer-foot) {
   max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
 }
 /* A part of the floating stack is a band the pane's width wide whose card or bar sits inset in it by
