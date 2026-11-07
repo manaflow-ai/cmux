@@ -14,6 +14,7 @@ import { lazy, Suspense, useEffect, useState, useSyncExternalStore, type CSSProp
 import { relativeTime } from "../../agent-session/acpmux/conversation/relativeTime";
 import type { Strings } from "../shared/i18n";
 import { ChecksDashboard } from "./ChecksDashboard";
+import { withRollup } from "./checksModel";
 import { GitHubMarkdown } from "./GitHubMarkdown";
 import type { GitHubSnapshot, GitHubStore } from "./store";
 import type { ConversationEntry, FilePatch, LinkedPullRequest, PullRequestDetails } from "./types";
@@ -136,7 +137,7 @@ export function GitHubPage({
     pr &&
     (snapshot.checks ? (
       <ChecksDashboard
-        checks={snapshot.checks}
+        checks={withRollup(snapshot.checks, pr.checkList ?? [])}
         rerun={snapshot.rerun}
         store={store}
         strings={strings}

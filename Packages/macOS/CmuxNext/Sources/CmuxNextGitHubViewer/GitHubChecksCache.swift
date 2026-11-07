@@ -14,6 +14,8 @@ import CmuxNextAgentPane
 ///
 /// A failed job's failing step and log excerpt (``GitHubJobFailure``) are read once per job id,
 /// at most ``maximumFailureReads`` per checks read, and kept: a finished job's log never changes.
+/// A read that found nothing (offline, a rate limit) is not kept; it is tried again after
+/// ``failureRetry`` (30 s), doubling each time, at most ``maximumFailureTries`` times.
 @MainActor
 public final class GitHubChecksCache {
     private struct Entry {
@@ -29,6 +31,7 @@ public final class GitHubChecksCache {
     static let maximumKept = 16
     static let maximumFailures = 64
     static let maximumFailureReads = 4
+    static let maximumFailureTries = 5
     /// A read that failed (offline, a rate limit) is not tried again before this.
     static let retry: Duration = .seconds(60)
 
@@ -37,6 +40,10 @@ public final class GitHubChecksCache {
     private var entries: [URL: Entry] = [:]
     private var failures: [Int: GitHubJobFailure] = [:]
     private var failureReads: [Int: Task<Void, Never>] = [:]
+    /// Jobs whose failure read found nothing: how many times, and when it may be tried again.
+    /// The first wait before a failure read that found nothing is tried again (tests shorten it).
+    var failureRetry: Duration = .seconds(30)
+    private var failureMisses: [Int: (tries: Int, next: ContinuousClock.Instant)] = [:]
     /// GitHub calls made, for the tests and the PR's before/after count.
     private(set) var reads = 0
     private(set) var failureCalls = 0
@@ -112,7 +119,12 @@ public final class GitHubChecksCache {
 
     /// Reads the failure of each failed job not read yet, a few per checks read.
     private func readFailures(_ checks: GitHubChecks, repository: String) {
-        let wanted = checks.jobs.filter { $0.state == "failed" && $0.id > 0 && failures[$0.id] == nil && failureReads[$0.id] == nil }
+        let now = ContinuousClock.now
+        let wanted = checks.jobs.filter { job in
+            guard job.state == "failed", job.id > 0, failures[job.id] == nil, failureReads[job.id] == nil else { return false }
+            guard let miss = failureMisses[job.id] else { return true }
+            return miss.tries < Self.maximumFailureTries && now >= miss.next
+        }
         let reader = failureReader
         for job in wanted.prefix(Self.maximumFailureReads) {
             failureCalls += 1
@@ -126,8 +138,17 @@ public final class GitHubChecksCache {
 
     private func keep(_ failure: GitHubJobFailure?, for job: Int) {
         failureReads[job] = nil
-        // A read that found nothing is kept too, as an empty failure: it is not read again.
-        failures[job] = failure ?? GitHubJobFailure(step: nil, excerpt: "")
+        guard let failure else {
+            // Nothing found: tried again later (a later checks read asks), each wait twice the one before.
+            let tries = (failureMisses[job]?.tries ?? 0) + 1
+            failureMisses[job] = (tries, .now + failureRetry * (1 << min(tries - 1, 10)))
+            while failureMisses.count > Self.maximumFailures, let other = failureMisses.keys.first(where: { $0 != job }) {
+                failureMisses[other] = nil
+            }
+            return
+        }
+        failureMisses[job] = nil
+        failures[job] = failure
         while failures.count > Self.maximumFailures, let other = failures.keys.first(where: { $0 != job }) { failures[other] = nil }
     }
 
@@ -146,8 +167,9 @@ public final class GitHubChecksCache {
         }
     }
 
-    /// Waits for every failure read running now (tests).
+    /// Waits for every checks read, then every failure read, running now (tests).
     func settle() async {
+        for task in entries.values.compactMap(\.read) { await task.value }
         for task in Array(failureReads.values) { await task.value }
     }
 }

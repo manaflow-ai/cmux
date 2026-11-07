@@ -379,3 +379,30 @@ test("a new head never shows the old head's checks", async () => {
   await store.loadChecks();
   expect(store.getSnapshot().checks?.head).toBe(pushed);
 });
+
+test("another pull request's checks are asked while the last one's ask is still out", async () => {
+  const host = new RichHost();
+  const pending: { url: string; resolve: (reply: unknown) => void }[] = [];
+  const call = host.call.bind(host);
+  host.call = <R>(op: string, params: unknown): Promise<R> => {
+    if (op !== GitHubOps.checks) return call<R>(op, params);
+    const url = (params as { url: string }).url;
+    return new Promise<R>((resolve) => pending.push({ url, resolve: resolve as (reply: unknown) => void }));
+  };
+  const other = "https://github.com/example/app/pull/483";
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  expect(pending.map((ask) => ask.url)).toEqual([MOCK_URL]);
+  host.replies.push({ pullRequest: { ...mockPullRequest, number: 483, url: other }, fetchedAt: 2 });
+  await store.route(route(other));
+  await settle();
+  // The new pull request's ask goes out at once, not after the old one's answer.
+  expect(pending.map((ask) => ask.url)).toEqual([MOCK_URL, other]);
+  pending[0]!.resolve({ checks: mockChecks, reading: false });
+  await settle();
+  expect(store.getSnapshot().checks).toBeUndefined();
+  pending[1]!.resolve({ checks: { ...mockChecks, head: mockChecks.head }, reading: false });
+  await settle();
+  expect(store.getSnapshot().checks?.jobs.length).toBe(mockChecks.jobs.length);
+});

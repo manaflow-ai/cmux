@@ -2,7 +2,15 @@
 // matrix's shards are one row, rows go failing, running, queued, then passed, and the summary's
 // tally, share done and ETA come from the jobs.
 import { expect, test } from "bun:test";
-import { dashboardBuckets, dashboardRows, dashboardSummary, duration, elapsed, failedRuns } from "./checksModel";
+import {
+  dashboardBuckets,
+  dashboardRows,
+  dashboardSummary,
+  duration,
+  elapsed,
+  failedRuns,
+  withRollup,
+} from "./checksModel";
 import { mockChecks } from "./mockProvider";
 import type { DashboardJob } from "./types";
 
@@ -81,5 +89,36 @@ test("one matrix's push run and pull_request run are separate rows", () => {
   expect(rows.map((row) => [row.state, row.jobs.length])).toEqual([
     ["failed", 2],
     ["passed", 2],
+  ]);
+});
+
+test("the rollup marks a failing job on the base, and fills a cut-short read's failures", () => {
+  const job = (id: number, name: string, state: DashboardJob["state"]): DashboardJob => ({
+    id,
+    name,
+    workflow: "ci",
+    state,
+    startedAt: "",
+    completedAt: "",
+  });
+  const rollup = [
+    { name: "lint", state: "failed", onBase: true },
+    { name: "build", state: "passed", onBase: true },
+    { name: "deploy", state: "failed", url: "https://github.com/x/1" },
+    { name: "docs", state: "pending" },
+    { name: "format", state: "passed" },
+  ];
+  const checks = { head: "abc", settled: true, jobs: [job(1, "lint", "failed"), job(2, "build", "passed")] };
+  // Only a failing job is marked; a whole read adds nothing.
+  expect(withRollup(checks, rollup).jobs.map((each) => [each.name, each.onBase ?? false])).toEqual([
+    ["lint", true],
+    ["build", false],
+  ]);
+  const cut = withRollup({ ...checks, settled: false, truncated: true }, rollup);
+  expect(cut.jobs.map((each) => [each.name, each.state])).toEqual([
+    ["lint", "failed"],
+    ["build", "passed"],
+    ["deploy", "failed"],
+    ["docs", "running"],
   ]);
 });

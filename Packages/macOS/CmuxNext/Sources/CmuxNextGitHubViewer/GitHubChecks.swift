@@ -33,9 +33,12 @@ public nonisolated struct GitHubChecks: Equatable, Sendable {
 
     public var head: String
     public var jobs: [Job]
+    /// GitHub has more suites or check runs than one read takes (``maximumSuites``, ``maximumRuns``):
+    /// `jobs` is not every job, so the set is never settled and the page says more exist.
+    public var truncated = false
 
-    /// Every job is done (or there are none): nothing will change until a push or a re-run.
-    public var settled: Bool { jobs.allSatisfy { $0.state != "running" && $0.state != "queued" } }
+    /// Every job is done (or there are none) and all were read: nothing will change until a push or a re-run.
+    public var settled: Bool { !truncated && jobs.allSatisfy { $0.state != "running" && $0.state != "queued" } }
 
     /// How long a read stays fresh: a running pull request is read again soon, a settled one rarely.
     public var freshness: Duration { settled ? .seconds(300) : .seconds(20) }
@@ -46,16 +49,17 @@ public nonisolated struct GitHubChecks: Equatable, Sendable {
     /// GraphQL's non-null mark, spelled apart so the crash ratchet does not read it as an unwrap.
     private static let required = "!"
     /// `checkType: LATEST` drops a re-run's earlier attempts within a suite; an earlier suite of the
-    /// same workflow and event (the commit pushed again) is dropped in ``parse(_:)``.
+    /// same workflow (by id, not its display name) and event (the commit pushed again) is dropped in
+    /// ``parse(_:)``. `hasNextPage` says the read was cut short.
     static let query = """
         query($owner: String\(required), $name: String\(required), $number: Int\(required)) { repository(owner: $owner, name: $name) {
           pullRequest(number: $number) { headRefOid
             commits(last: 1) { nodes { commit {
-              checkSuites(first: \(maximumSuites)) { nodes { workflowRun { databaseId event workflow { name } }
-                checkRuns(first: \(maximumRuns), filterBy: { checkType: LATEST }) { nodes {
+              checkSuites(first: \(maximumSuites)) { pageInfo { hasNextPage } nodes { workflowRun { databaseId event workflow { databaseId name } }
+                checkRuns(first: \(maximumRuns), filterBy: { checkType: LATEST }) { pageInfo { hasNextPage } nodes {
                   databaseId name status conclusion startedAt completedAt detailsUrl } } } }
               status { contexts { context state targetUrl createdAt } } } } }
-            baseRef { target { ... on Commit { checkSuites(first: \(maximumSuites)) { nodes { workflowRun { workflow { name } }
+            baseRef { target { ... on Commit { checkSuites(first: \(maximumSuites)) { nodes { workflowRun { workflow { databaseId name } }
               checkRuns(first: \(maximumRuns), filterBy: { checkType: LATEST, status: COMPLETED }) { nodes {
                 name conclusion startedAt completedAt } } } } } } } } } }
         """
@@ -91,43 +95,49 @@ public nonisolated struct GitHubChecks: Equatable, Sendable {
               let repository = (object["data"] as? [String: Any])?["repository"] as? [String: Any],
               let pull = repository["pullRequest"] as? [String: Any] else { return nil }
         let nodes = { (value: Any?) in ((value as? [String: Any])?["nodes"] as? [[String: Any]]) ?? [] }
-        let workflowName = { (suite: [String: Any]) in
-            (((suite["workflowRun"] as? [String: Any])?["workflow"] as? [String: Any])?["name"] as? String) ?? ""
-        }
-        // How long each job took at the base's tip, by workflow and name; only a passing one says how long it takes.
+        let workflow = { (suite: [String: Any]) in (suite["workflowRun"] as? [String: Any])?["workflow"] as? [String: Any] }
+        let more = { (value: Any?) in (((value as? [String: Any])?["pageInfo"] as? [String: Any])?["hasNextPage"] as? Bool) == true }
+        // How long each job took at the base's tip, by workflow id and name; only a passing one says how long it takes.
         var expected: [String: Double] = [:]
         let baseTarget = (pull["baseRef"] as? [String: Any])?["target"] as? [String: Any]
         for suite in nodes(baseTarget?["checkSuites"]) {
+            guard let id = workflow(suite)?["databaseId"] as? Int else { continue }
             for run in nodes(suite["checkRuns"]) where (run["conclusion"] as? String)?.uppercased() == "SUCCESS" {
                 guard let name = run["name"] as? String, let seconds = duration(run["startedAt"], run["completedAt"]) else { continue }
-                expected["\(workflowName(suite))\u{0}\(name)"] = seconds
+                expected["\(id)\u{0}\(name)"] = seconds
             }
         }
         let commit = nodes(pull["commits"]).last?["commit"] as? [String: Any]
+        var truncated = more(commit?["checkSuites"])
         var latest: [String: Job] = [:]
         var order: [String] = []
-        for suite in nodes(commit?["checkSuites"]) {
-            let workflow = workflowName(suite)
+        for (index, suite) in nodes(commit?["checkSuites"]).enumerated() {
+            let name = workflow(suite)?["name"] as? String ?? ""
+            let id = workflow(suite)?["databaseId"] as? Int
             let run = (suite["workflowRun"] as? [String: Any])?["databaseId"] as? Int
             let event = (suite["workflowRun"] as? [String: Any])?["event"] as? String ?? ""
-            for check in nodes(suite["checkRuns"]) {
-                guard let name = check["name"] as? String, !name.isEmpty else { continue }
-                let key = "\(workflow)\u{0}\(event)\u{0}\(name)"
-                let job = Job(id: check["databaseId"] as? Int ?? 0, name: name, workflow: workflow, run: run, event: event,
+            truncated = truncated || more(suite["checkRuns"])
+            for (position, check) in nodes(suite["checkRuns"]).enumerated() {
+                guard let job = check["name"] as? String, !job.isEmpty else { continue }
+                // One workflow (by id: two workflows may share a name) and event is one execution, run
+                // again by a push; another app's check run has no workflow and is never merged.
+                let key = id.map { "run\u{0}\($0)\u{0}\(event)\u{0}\(job)" } ?? "app\u{0}\(index)\u{0}\(position)"
+                let row = Job(id: check["databaseId"] as? Int ?? 0, name: job, workflow: name, run: run, event: event,
                               state: state(status: check["status"] as? String, conclusion: check["conclusion"] as? String),
                               startedAt: check["startedAt"] as? String ?? "", completedAt: check["completedAt"] as? String ?? "",
-                              url: link(check["detailsUrl"]), expected: expected["\(workflow)\u{0}\(name)"])
-                // The same job of the same workflow and event again (the commit pushed again): the newest
-                // run stands, by GitHub's ids, which only grow; a queued one with no start yet still wins.
-                if let kept = latest[key], ((kept.run ?? 0), kept.id) >= ((job.run ?? 0), job.id) { continue }
+                              url: link(check["detailsUrl"]), expected: id.flatMap { expected["\($0)\u{0}\(job)"] })
+                // The same job of the same execution again (the commit pushed again): the newest run
+                // stands, by GitHub's ids, which only grow; a queued one with no start yet still wins.
+                if let kept = latest[key], ((kept.run ?? 0), kept.id) >= ((row.run ?? 0), row.id) { continue }
                 if latest[key] == nil { order.append(key) }
-                latest[key] = job
+                latest[key] = row
             }
         }
+        // GitHub gives each status context once, its latest state.
         let contexts = ((commit?["status"] as? [String: Any])?["contexts"] as? [[String: Any]]) ?? []
         for context in contexts {
             guard let name = context["context"] as? String, !name.isEmpty else { continue }
-            let key = "\u{0}\(name)"
+            let key = "status\u{0}\(name)"
             let state: String = switch (context["state"] as? String)?.uppercased() {
             case "SUCCESS": "passed"
             case "PENDING", "EXPECTED": "running"
@@ -137,7 +147,7 @@ public nonisolated struct GitHubChecks: Equatable, Sendable {
             latest[key] = Job(id: 0, name: name, workflow: "", run: nil, state: state, startedAt: context["createdAt"] as? String ?? "",
                               completedAt: "", url: link(context["targetUrl"]), expected: nil)
         }
-        return GitHubChecks(head: pull["headRefOid"] as? String ?? "", jobs: order.compactMap { latest[$0] })
+        return GitHubChecks(head: pull["headRefOid"] as? String ?? "", jobs: order.compactMap { latest[$0] }, truncated: truncated)
     }
 
     /// Seconds from `start` to `end` (ISO 8601), nil unless both parse.
@@ -154,7 +164,7 @@ public nonisolated struct GitHubChecks: Equatable, Sendable {
     }
 
     public var json: JSONValue {
-        .object(["head": .string(head), "settled": .bool(settled), "jobs": .array(jobs.map { job in
+        .object(["head": .string(head), "settled": .bool(settled), "truncated": .bool(truncated), "jobs": .array(jobs.map { job in
             var row: [String: JSONValue] = ["id": JSONValue(job.id), "name": .string(job.name), "workflow": .string(job.workflow),
                                             "state": .string(job.state), "startedAt": .string(job.startedAt),
                                             "completedAt": .string(job.completedAt)]
@@ -185,9 +195,18 @@ public nonisolated struct GitHubJobFailure: Equatable, Sendable {
     @concurrent static func read(repository: String, job: Int) async -> GitHubJobFailure? {
         guard job > 0, repository.split(separator: "/").count == 2 else { return nil }
         let detail = await AgentPaneGitPullRequest.pageRead(["api", "repos/\(repository)/actions/jobs/\(job)"])
-        let log = await AgentPaneGitPullRequest.pageRead(["api", "repos/\(repository)/actions/jobs/\(job)/logs"])
+        var log = await AgentPaneGitPullRequest.pageRead(logArguments(repository: repository, job: job, tail: true))
+        if log == nil { log = await AgentPaneGitPullRequest.pageRead(logArguments(repository: repository, job: job, tail: false)) }
         guard detail != nil || log != nil else { return nil }
         return GitHubJobFailure(step: detail.flatMap(failingStep), excerpt: log.map { excerpt(of: $0) } ?? "")
+    }
+
+    /// The log read. `tail`: only its end, a Range for the last ``maximumLog`` bytes, which rides gh's
+    /// redirect to the log's storage; a store that refuses it gets the whole log once, and
+    /// ``excerpt(of:)`` keeps the end either way.
+    static func logArguments(repository: String, job: Int, tail: Bool) -> [String] {
+        let logs = "repos/\(repository)/actions/jobs/\(job)/logs"
+        return tail ? ["api", "-H", "Range: bytes=-\(maximumLog)", logs] : ["api", logs]
     }
 
     /// The first step whose conclusion is a failure, in a `GET actions/jobs/:id` answer.

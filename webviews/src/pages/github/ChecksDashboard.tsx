@@ -84,6 +84,7 @@ export function ChecksDashboard({
           {t("github.checks.rerunStarted")}
         </p>
       )}
+      {checks.truncated && <p className="gh-muted gh-ci-note">{t("github.checks.more")}</p>}
       {summary.total === 0 ? (
         <p className="gh-muted">{t("github.checks.none")}</p>
       ) : (
@@ -221,6 +222,9 @@ function Row({
               />
             ))}
           </span>
+        )}
+        {row.state === "failed" && row.jobs.some((job) => job.onBase) && (
+          <span className="gh-muted gh-row-note">{strings.t("github.checks.onBase")}</span>
         )}
         {time && <span className="gh-ci-time">{time}</span>}
       </div>

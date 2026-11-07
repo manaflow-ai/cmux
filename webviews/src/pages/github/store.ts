@@ -61,7 +61,8 @@ export class GitHubStore {
   private timer: ReturnType<typeof setTimeout> | undefined;
   /** The checks' own timer, armed only while a job runs or waits and the page is shown. */
   private checksTimer: ReturnType<typeof setTimeout> | undefined;
-  private checksAsking = false;
+  /** The generation whose checks ask is in flight: a new pull request's ask never waits on the old one's. */
+  private checksAsking: number | undefined;
   /** The newest patch ask per file. */
   private patchAsks = new Map<string, number>();
   /** Bumped by every new target, so an answer for the one before is dropped. */
@@ -127,17 +128,17 @@ export class GitHubStore {
   async loadChecks(): Promise<void> {
     clearTimeout(this.checksTimer);
     const target = this.snapshot.target;
-    if (!target || !this.client || this.checksAsking) return;
     const generation = this.generation;
+    if (!target || !this.client || this.checksAsking === generation) return;
     const asked = this.snapshot.details?.headCommit;
-    this.checksAsking = true;
+    this.checksAsking = generation;
     let reply: { checks?: DashboardChecks | null; reading?: boolean } | undefined;
     try {
       reply = await this.client.call(GitHubOps.checks, { url: target.url, ...(asked ? { head: asked } : {}) });
     } catch {
       reply = undefined;
     } finally {
-      this.checksAsking = false;
+      if (this.checksAsking === generation) this.checksAsking = undefined;
     }
     if (generation !== this.generation) return;
     const answered = reply?.checks && Array.isArray(reply.checks.jobs) ? reply.checks : undefined;

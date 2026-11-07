@@ -2,7 +2,7 @@
 // a matrix's shards (`health (0)` … `health (7)`) one row with a pip each; rows in the order a
 // person acts on them (failing, running, queued, then passed folded to one line); the tally, the
 // share done, and an ETA from how long each job took at the base branch's tip.
-import type { DashboardJob } from "./types";
+import type { DashboardChecks, DashboardJob } from "./types";
 
 export type JobState = DashboardJob["state"];
 
@@ -111,6 +111,41 @@ export function duration(seconds: number, locale?: string): string {
   if (hours) return `${unit(hours, "hour")} ${unit(minutes, "minute")}`;
   if (minutes) return `${unit(minutes, "minute")} ${unit(whole % 60, "second")}`;
   return unit(whole, "second");
+}
+
+/** One check of the pull request's rollup (the card's `checkList`). */
+export interface RollupCheck {
+  readonly name: string;
+  readonly state: string;
+  readonly url?: string;
+  readonly onBase?: boolean;
+}
+
+/** `checks` with what only the rollup knows: a failed job that also fails on the base branch is
+ * marked (by name), and when the host's read was cut short, the rollup's failing and pending
+ * checks it lacks are added, so a failure past the read's window still shows. */
+export function withRollup(checks: DashboardChecks, rollup: readonly RollupCheck[]): DashboardChecks {
+  const onBase = new Set(rollup.filter((check) => check.onBase).map((check) => check.name));
+  const jobs = checks.jobs.map((job) =>
+    job.state === "failed" && onBase.has(job.name) ? { ...job, onBase: true } : job,
+  );
+  if (checks.truncated) {
+    const names = new Set(jobs.map((job) => job.name));
+    for (const check of rollup) {
+      if (names.has(check.name) || (check.state !== "failed" && check.state !== "pending")) continue;
+      jobs.push({
+        id: 0,
+        name: check.name,
+        workflow: "",
+        state: check.state === "failed" ? "failed" : "running",
+        startedAt: "",
+        completedAt: "",
+        ...(check.url ? { url: check.url } : {}),
+        ...(check.state === "failed" && check.onBase ? { onBase: true } : {}),
+      });
+    }
+  }
+  return { ...checks, jobs };
 }
 
 /** The Actions runs with a failed job: what Re-run failed reruns. */

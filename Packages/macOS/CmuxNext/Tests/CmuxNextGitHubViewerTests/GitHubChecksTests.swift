@@ -27,16 +27,16 @@ struct GitHubChecksTests {
         {"data": {"repository": {"pullRequest": {"headRefOid": "abc",
           "commits": {"nodes": [{"commit": {
             "checkSuites": {"nodes": [
-              {"workflowRun": {"databaseId": 11, "workflow": {"name": "ci"}}, "checkRuns": {"nodes": [
+              {"workflowRun": {"databaseId": 11, "workflow": {"databaseId": 501, "name": "ci"}}, "checkRuns": {"nodes": [
                 {"databaseId": 1, "name": "health (0)", "status": "COMPLETED", "conclusion": "SUCCESS", "startedAt": "2026-11-07T08:00:00Z", "completedAt": "2026-11-07T08:02:00Z", "detailsUrl": "https://github.com/x/1"},
                 {"databaseId": 2, "name": "health (1)", "status": "IN_PROGRESS", "conclusion": null, "startedAt": "2026-11-07T08:00:00Z", "completedAt": null},
                 {"databaseId": 3, "name": "test", "status": "COMPLETED", "conclusion": "FAILURE", "startedAt": "2026-11-07T08:00:00Z", "completedAt": "2026-11-07T08:05:00Z"},
                 {"databaseId": 4, "name": "journey", "status": "QUEUED", "conclusion": null, "startedAt": null, "completedAt": null}]}},
-              {"workflowRun": {"databaseId": 10, "workflow": {"name": "ci"}}, "checkRuns": {"nodes": [
+              {"workflowRun": {"databaseId": 10, "workflow": {"databaseId": 501, "name": "ci"}}, "checkRuns": {"nodes": [
                 {"databaseId": 5, "name": "test", "status": "COMPLETED", "conclusion": "FAILURE", "startedAt": "2026-11-07T07:00:00Z", "completedAt": "2026-11-07T07:05:00Z"}]}}]},
             "status": {"contexts": [{"context": "risk evidence", "state": "SUCCESS", "targetUrl": null, "createdAt": "2026-11-07T08:00:00Z"}]}}}]},
           "baseRef": {"target": {"checkSuites": {"nodes": [
-            {"workflowRun": {"workflow": {"name": "ci"}}, "checkRuns": {"nodes": [
+            {"workflowRun": {"workflow": {"databaseId": 501, "name": "ci"}}, "checkRuns": {"nodes": [
               {"name": "health (1)", "conclusion": "SUCCESS", "startedAt": "2026-11-07T06:00:00Z", "completedAt": "2026-11-07T06:03:00Z"}]}}]}}}
         }}}}
         """#
@@ -55,15 +55,59 @@ struct GitHubChecksTests {
         #expect(GitHubChecks(head: "", jobs: [checks.jobs[0]]).freshness == .seconds(300))
     }
 
-    /// One commit's suites, each `(run, event, check runs)`, as `checks.read`'s GraphQL answers them.
+    /// One suite: Actions run `run` of workflow `workflow` (named "ci"), or another app's check runs (nil).
+    nonisolated private static func suite(_ run: Int, _ event: String, workflow: Int? = 501, _ checks: String) -> String {
+        let flow = workflow.map { #"{"databaseId": \#(run), "event": "\#(event)", "workflow": {"databaseId": \#($0), "name": "ci"}}"# }
+        return #"{"workflowRun": \#(flow ?? "null"), "checkRuns": {"nodes": [\#(checks)]}}"#
+    }
+
+    /// One commit's suites, each `(run, event, check runs)` of workflow 501, as `checks.read`'s GraphQL answers them.
     nonisolated private static func suites(head: String = "abc", _ suites: [(Int, String, String)]) -> Data {
-        let nodes = suites.map { run, event, checks in
-            #"{"workflowRun": {"databaseId": \#(run), "event": "\#(event)", "workflow": {"name": "ci"}}, "checkRuns": {"nodes": [\#(checks)]}}"#
-        }
-        return Data(#"""
+        commit(head: head, suites.map { suite($0.0, $0.1, $0.2) })
+    }
+
+    /// A commit's answer with these suites; `more`: GitHub has more suites than were read.
+    nonisolated private static func commit(head: String = "abc", more: Bool = false, _ suites: [String]) -> Data {
+        Data(#"""
             {"data": {"repository": {"pullRequest": {"headRefOid": "\#(head)", "commits": {"nodes": [{"commit": {
-              "checkSuites": {"nodes": [\#(nodes.joined(separator: ","))]}, "status": null}}]}, "baseRef": null}}}}
+              "checkSuites": {"pageInfo": {"hasNextPage": \#(more)}, "nodes": [\#(suites.joined(separator: ","))]}, "status": null}}]}, "baseRef": null}}}}
             """#.utf8)
+    }
+
+    nonisolated private static func check(_ id: Int, _ name: String, _ conclusion: String) -> String {
+        #"{"databaseId": \#(id), "name": "\#(name)", "status": "COMPLETED", "conclusion": "\#(conclusion)", "startedAt": "2026-11-07T08:00:00Z", "completedAt": "2026-11-07T08:05:00Z"}"#
+    }
+
+    @Test func onlyReRunsOfOneWorkflowAreMerged() throws {
+        let checks = try #require(GitHubChecks.parse(Self.commit([
+            // Two workflows both named "ci" (ids 501 and 502): separate executions.
+            Self.suite(21, "push", workflow: 501, Self.check(1, "test", "FAILURE")),
+            Self.suite(22, "push", workflow: 502, Self.check(2, "test", "SUCCESS")),
+            // Another app's check runs: no workflow, never merged with each other or with a workflow's.
+            Self.suite(0, "", workflow: nil, Self.check(3, "scan", "FAILURE")),
+            Self.suite(0, "", workflow: nil, Self.check(4, "scan", "SUCCESS")),
+            // Workflow 501 pushed again: its newer run replaces the older one's "build", not "test".
+            Self.suite(23, "push", workflow: 501, Self.check(5, "build", "SUCCESS")),
+            Self.suite(24, "push", workflow: 501, Self.check(6, "build", "FAILURE")),
+        ])))
+        #expect(checks.jobs.map(\.id) == [1, 2, 3, 4, 6])
+        #expect(checks.jobs.map(\.state) == ["failed", "passed", "failed", "passed", "failed"])
+        #expect(!checks.truncated)
+    }
+
+    @Test func aCutShortReadIsNeverSettled() throws {
+        let done = Self.check(1, "test", "SUCCESS")
+        let whole = try #require(GitHubChecks.parse(Self.commit([Self.suite(21, "push", done)])))
+        #expect(whole.settled)
+        // More suites than one read takes: a failure may be past the window, so never settled.
+        let cut = try #require(GitHubChecks.parse(Self.commit(more: true, [Self.suite(21, "push", done)])))
+        #expect(cut.truncated)
+        #expect(!cut.settled)
+        #expect(cut.json["truncated"] == JSONValue.bool(true))
+        // A suite with more check runs than one read takes is cut short too.
+        let runs = #"{"workflowRun": {"databaseId": 21, "event": "push", "workflow": {"databaseId": 501, "name": "ci"}}, "checkRuns": {"pageInfo": {"hasNextPage": true}, "nodes": [\#(done)]}}"#
+        let cutRuns = try #require(GitHubChecks.parse(Self.commit([runs])))
+        #expect(cutRuns.truncated)
     }
 
     @Test func aPushRunAndAPullRequestRunAreSeparateRows() throws {
@@ -133,6 +177,9 @@ struct GitHubChecksTests {
         #expect(!excerpt.contains("Post job cleanup"))
         let job = #"{"steps": [{"name": "Set up", "conclusion": "success"}, {"name": "Run tests", "conclusion": "failure"}]}"#
         #expect(GitHubJobFailure.failingStep(Data(job.utf8)) == "Run tests")
+        // The log is read from its end only, not downloaded whole.
+        #expect(GitHubJobFailure.logArguments(repository: "o/r", job: 3, tail: true)
+            == ["api", "-H", "Range: bytes=-\(GitHubJobFailure.maximumLog)", "repos/o/r/actions/jobs/3/logs"])
     }
 
     private func provider(_ calls: Calls, checks: GitHubChecksCache) -> GitHubPageProvider {
@@ -180,6 +227,39 @@ struct GitHubChecksTests {
         let moved = try await provider.call("cmux.github.checks.read", params: ["url": url, "head": "def"], context: Self.page)
         #expect(moved["checks"] == JSONValue.null)
         #expect(calls.reads == 2)
+    }
+
+    @Test func aFailureReadThatFoundNothingIsTriedAgainLaterNotKeptEmpty() async throws {
+        final class Tries: @unchecked Sendable { // crash-allow: test state touched only on the main actor
+            var calls = 0
+        }
+        func counted(_ tries: Tries) -> GitHubChecksCache {
+            GitHubChecksCache(reader: { _ in GitHubChecks.parse(Data(Self.answer.utf8)) }, failureReader: { _, _ in
+                let call = await MainActor.run { tries.calls += 1; return tries.calls }
+                return call == 1 ? nil : GitHubJobFailure(step: "Run tests", excerpt: "boom")
+            })
+        }
+        // Within the wait after a miss: no new failure read, and no empty failure shown as found.
+        let waiting = Tries(), slow = counted(waiting)
+        _ = await slow.answer(Self.link)
+        await slow.settle()
+        slow.expire(Self.link)
+        _ = await slow.answer(Self.link)
+        await slow.settle()
+        #expect(waiting.calls == 1)
+        let shown = await slow.answer(Self.link).checks?.jobs.first { $0.state == "failed" }
+        #expect(shown?.failure == nil)
+        // Past the wait, the next checks read tries again, and what it finds is kept.
+        let retried = Tries(), fast = counted(retried)
+        fast.failureRetry = .zero
+        _ = await fast.answer(Self.link)
+        await fast.settle()
+        fast.expire(Self.link)
+        _ = await fast.answer(Self.link)
+        await fast.settle()
+        #expect(retried.calls == 2)
+        let found = await fast.answer(Self.link).checks?.jobs.first { $0.state == "failed" }
+        #expect(found?.failure?.excerpt == "boom")
     }
 
     @Test func reRunFailedTakesOnlyShownFailedRunsAndAClick() async throws {
