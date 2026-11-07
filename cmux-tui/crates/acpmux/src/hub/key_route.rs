@@ -173,16 +173,18 @@ impl Hub {
         rest: &str,
         exact: bool,
     ) -> Result<Option<String>, RpcError> {
-        let mut found: Vec<(Option<crate::name_match::Step>, Candidate)> = Vec::new();
+        use crate::name_match::Step;
+        // The whole name's steps first, then a sub-session's short name by the same steps
+        // (`short_step`): an exact short name beats a sibling's in another case, and the loose
+        // short steps apply only when no short name matches exactly (review of #36919, F1).
+        let mut found: Vec<(Option<(bool, Step)>, Candidate)> = Vec::new();
         let mut take = |host: &str, name: &str, id: &str, route: String, closed: bool| {
             let at = if name == rest || id.starts_with(rest) {
-                Some(crate::name_match::Step::Exact)
+                Some((false, Step::Exact))
             } else {
-                // A sub-session's short name, any case or separators, comes last (`short_step`).
-                crate::name_match::step(name, rest).or_else(|| {
-                    crate::name_match::short_step(name, rest)
-                        .map(|_| crate::name_match::Step::Separators)
-                })
+                crate::name_match::step(name, rest)
+                    .map(|at| (false, at))
+                    .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
             };
             if at.is_some() {
                 found.push((
@@ -227,7 +229,7 @@ impl Hub {
                 _ => None,
             });
         };
-        if exact && first == crate::name_match::Step::Exact {
+        if exact && first == (false, Step::Exact) {
             return Ok(None);
         }
         let tier: Vec<Candidate> =
