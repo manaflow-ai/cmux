@@ -6,6 +6,8 @@ use std::process::{Command, Stdio};
 
 use zeroize::Zeroizing;
 
+use super::files::Expect;
+
 /// The largest login the app sends: 12 000 bytes.
 pub const MAX_LOGIN_BYTES: usize = 12_000;
 
@@ -159,36 +161,18 @@ pub fn install(home: &Path, login: HarnessLogin, value: &[u8]) -> Result<(), Log
     match login {
         HarnessLogin::Claude => {
             let token = std::str::from_utf8(value).map_err(|_| LoginRefusal::InvalidCredential)?;
-            let settings_path = home.join(".claude/settings.json");
-            let mut settings = read_json_object(&settings_path)?;
-            if settings.contains_key("apiKeyHelper") {
-                return Err(LoginRefusal::Conflict);
+            // `settings.json` is the person's file too: the token is merged
+            // into what was read, and the write goes ahead only while the
+            // file is still that. An edit in between is merged once more;
+            // a second one refuses the login.
+            for _ in 0..2 {
+                match install_claude(home, token, &marker) {
+                    Err(Install::Changed) => continue,
+                    Err(Install::Refused(refusal)) => return Err(refusal),
+                    Ok(()) => return Ok(()),
+                }
             }
-            let env = settings
-                .entry("env")
-                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-            let env = env.as_object_mut().ok_or(LoginRefusal::Conflict)?;
-            if CONFLICTS.iter().any(|key| env.get(*key).is_some_and(is_truthy)) {
-                return Err(LoginRefusal::Conflict);
-            }
-            env.insert("CLAUDE_CODE_OAUTH_TOKEN".into(), token.into());
-            let settings =
-                Zeroizing::new(serde_json::to_vec(&settings).map_err(|_| LoginRefusal::Write)?);
-            let credentials = Zeroizing::new(
-                serde_json::to_vec(
-                    &serde_json::json!({ "claudeAiOauth": { "accessToken": token } }),
-                )
-                .map_err(|_| LoginRefusal::Write)?,
-            );
-            let credentials_path = home.join(".claude/.credentials.json");
-            write(
-                home,
-                &[
-                    (settings_path.as_path(), settings.as_slice()),
-                    (credentials_path.as_path(), credentials.as_slice()),
-                    (marker.as_path(), b"own\n".as_slice()),
-                ],
-            )
+            Err(LoginRefusal::Conflict)
         }
         HarnessLogin::Codex => {
             check_codex_config(&home.join(".codex/config.toml"))?;
@@ -198,15 +182,80 @@ pub fn install(home: &Path, login: HarnessLogin, value: &[u8]) -> Result<(), Log
             let auth_path = home.join(".codex/auth.json");
             write(
                 home,
-                &[(auth_path.as_path(), auth.as_slice()), (marker.as_path(), b"own\n".as_slice())],
+                &[
+                    (auth_path.as_path(), auth.as_slice(), Expect::Anything),
+                    (marker.as_path(), b"own\n".as_slice(), Expect::Anything),
+                ],
             )
+            .map_err(Install::refusal)
         }
     }
 }
 
+/// Why one write of a login didn't go ahead.
+enum Install {
+    /// A file it merged into changed before the commit.
+    Changed,
+    Refused(LoginRefusal),
+}
+
+impl Install {
+    fn refusal(self) -> LoginRefusal {
+        match self {
+            Self::Changed => LoginRefusal::Conflict,
+            Self::Refused(refusal) => refusal,
+        }
+    }
+}
+
+impl From<LoginRefusal> for Install {
+    fn from(refusal: LoginRefusal) -> Self {
+        Self::Refused(refusal)
+    }
+}
+
+fn install_claude(home: &Path, token: &str, marker: &Path) -> Result<(), Install> {
+    let settings_path = home.join(".claude/settings.json");
+    let (live, mut settings) = read_json_object(&settings_path)?;
+    if settings.contains_key("apiKeyHelper") {
+        return Err(LoginRefusal::Conflict.into());
+    }
+    let env =
+        settings.entry("env").or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    let env = env.as_object_mut().ok_or(LoginRefusal::Conflict)?;
+    if CONFLICTS.iter().any(|key| env.get(*key).is_some_and(is_truthy)) {
+        return Err(LoginRefusal::Conflict.into());
+    }
+    env.insert("CLAUDE_CODE_OAUTH_TOKEN".into(), token.into());
+    let settings = Zeroizing::new(serde_json::to_vec(&settings).map_err(|_| LoginRefusal::Write)?);
+    let credentials = Zeroizing::new(
+        serde_json::to_vec(&serde_json::json!({ "claudeAiOauth": { "accessToken": token } }))
+            .map_err(|_| LoginRefusal::Write)?,
+    );
+    let credentials_path = home.join(".claude/.credentials.json");
+    write(
+        home,
+        &[
+            (
+                settings_path.as_path(),
+                settings.as_slice(),
+                Expect::Exactly(live.as_deref().map(Vec::as_slice)),
+            ),
+            (credentials_path.as_path(), credentials.as_slice(), Expect::Anything),
+            (marker, b"own\n".as_slice(), Expect::Anything),
+        ],
+    )
+}
+
 /// All of them or none, only to paths [`HarnessLogin::paths`] lists.
-fn write(home: &Path, writes: &[(&Path, &[u8])]) -> Result<(), LoginRefusal> {
-    super::files::write_all_allowed(home, writes).map_err(|_| LoginRefusal::Write)
+fn write(home: &Path, writes: &[(&Path, &[u8], Expect<'_>)]) -> Result<(), Install> {
+    super::files::write_all_allowed(home, writes).map_err(|error| {
+        if super::files::is_changed(&error) {
+            Install::Changed
+        } else {
+            Install::Refused(LoginRefusal::Write)
+        }
+    })
 }
 
 fn is_truthy(value: &serde_json::Value) -> bool {
@@ -220,22 +269,24 @@ fn is_truthy(value: &serde_json::Value) -> bool {
     }
 }
 
-/// `path` as a JSON object; an empty one when there is no file. A symlink,
-/// or a file that isn't a JSON object, is refused (never overwritten).
-fn read_json_object(
-    path: &Path,
-) -> Result<serde_json::Map<String, serde_json::Value>, LoginRefusal> {
+/// The bytes read (`None`: no file) and the JSON object in them.
+type JsonObject = (Option<Zeroizing<Vec<u8>>>, serde_json::Map<String, serde_json::Value>);
+
+/// `path`'s bytes and the JSON object in them; an empty object when there is
+/// no file. A symlink, or a file that isn't a JSON object, is refused (never
+/// overwritten).
+fn read_json_object(path: &Path) -> Result<JsonObject, LoginRefusal> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if !metadata.file_type().is_file() => return Err(LoginRefusal::Conflict),
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(serde_json::Map::new());
+            return Ok((None, serde_json::Map::new()));
         }
         Err(_) => return Err(LoginRefusal::Write),
     }
     let bytes = Zeroizing::new(std::fs::read(path).map_err(|_| LoginRefusal::Write)?);
     match serde_json::from_slice(&bytes) {
-        Ok(serde_json::Value::Object(map)) => Ok(map),
+        Ok(serde_json::Value::Object(map)) => Ok((Some(bytes), map)),
         _ => Err(LoginRefusal::Conflict),
     }
 }

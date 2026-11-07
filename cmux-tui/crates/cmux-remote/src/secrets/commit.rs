@@ -10,18 +10,29 @@
 //! descriptor, so a reader sees the old file or the new one and no path is
 //! resolved twice. Before the first rename each live file is hard-linked
 //! aside in its own folder, which is what a rollback renames back.
+//!
+//! A write may name the live bytes it was computed from ([`Expect`]): when
+//! the live file differs once everything is staged, nothing is replaced and
+//! the error is [`super::files::is_changed`]. The caller serializes its own requests; this
+//! only catches an edit from outside them.
 
 use std::ffi::{CString, OsStr};
-use std::io::{self, Write as _};
+use std::io::{self, Read as _, Write as _};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path};
+
+use super::files::{Changed, Expect, Planned};
 
 #[cfg(test)]
 thread_local! {
     /// Tests only: fail the step with this index (each staged write and
     /// each rename is one step, in order).
     pub(super) static FAIL_AT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    /// Tests only: run after every file is staged and before the live files
+    /// are compared, as an outside edit would.
+    pub(super) static BEFORE_COMMIT: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// One file staged next to its target.
@@ -35,19 +46,45 @@ struct Staged {
     placed: bool,
 }
 
-/// Replace each `home/relative` with its bytes, all or none (see the module
-/// doc).
-pub fn replace_all(home: &Path, writes: &[(&Path, &[u8])]) -> io::Result<()> {
-    let mut step = 0_usize;
+/// Replace each planned file, all or none (see the module doc).
+pub fn replace_all(home: &Path, writes: &[Planned<'_>]) -> io::Result<()> {
+    replace_all_with(home, writes, true)
+}
+
+/// [`replace_all`] for the daemon's own state: no test fault applies.
+pub fn replace_state(home: &Path, relative: &Path, bytes: &[u8]) -> io::Result<()> {
+    replace_all_with(home, &[Planned { relative, bytes, expect: Expect::Anything }], false)
+}
+
+fn replace_all_with(home: &Path, writes: &[Planned<'_>], faults: bool) -> io::Result<()> {
+    let mut step = faults.then_some(0_usize);
     let mut staged = Vec::with_capacity(writes.len());
-    for (relative, bytes) in writes {
-        match fault(&mut step).and_then(|()| stage(home, relative, bytes)) {
+    for write in writes {
+        match fault(&mut step).and_then(|()| stage(home, write.relative, write.bytes)) {
             Ok(file) => staged.push(file),
             Err(error) => {
                 discard(&staged);
                 return Err(error);
             }
         }
+    }
+    #[cfg(test)]
+    if faults {
+        BEFORE_COMMIT.with(|hook| hook.borrow_mut().as_mut().map(|hook| hook()));
+    }
+    let unchanged = staged.iter().zip(writes).try_for_each(|(file, write)| match write.expect {
+        Expect::Anything => Ok(()),
+        Expect::Exactly(expected) => {
+            if live_bytes(file)?.as_deref().map(Vec::as_slice) == expected {
+                Ok(())
+            } else {
+                Err(io::Error::other(Changed))
+            }
+        }
+    });
+    if let Err(error) = unchanged {
+        discard(&staged);
+        return Err(error);
     }
     if let Err(error) = staged.iter_mut().try_for_each(keep_backup) {
         discard(&staged);
@@ -80,9 +117,13 @@ pub fn replace_all(home: &Path, writes: &[(&Path, &[u8])]) -> io::Result<()> {
     Ok(())
 }
 
-fn fault(step: &mut usize) -> io::Result<()> {
-    let index = *step;
-    *step += 1;
+fn fault(step: &mut Option<usize>) -> io::Result<()> {
+    let Some(index) = step.as_mut().map(|step| {
+        *step += 1;
+        *step - 1
+    }) else {
+        return Ok(());
+    };
     #[cfg(test)]
     if FAIL_AT.with(std::cell::Cell::get) == Some(index) {
         return Err(io::Error::other("injected failure"));
@@ -180,6 +221,27 @@ fn stage(home: &Path, relative: &Path, bytes: &[u8]) -> io::Result<Staged> {
         return Err(error);
     }
     Ok(staged)
+}
+
+/// The live file's bytes, or `None` when there is none. A symlink in its
+/// place counts as changed.
+fn live_bytes(file: &Staged) -> io::Result<Option<zeroize::Zeroizing<Vec<u8>>>> {
+    let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    // SAFETY: `file_name` is NUL-terminated and relative to the open folder.
+    let fd = unsafe { libc::openat(file.directory.as_raw_fd(), file.file_name.as_ptr(), flags) };
+    if fd < 0 {
+        let error = io::Error::last_os_error();
+        return match error.kind() {
+            io::ErrorKind::NotFound => Ok(None),
+            _ if error.raw_os_error() == Some(libc::ELOOP) => Err(io::Error::other(Changed)),
+            _ => Err(error),
+        };
+    }
+    // SAFETY: `fd` was just opened and is owned by nobody else.
+    let mut live = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+    let mut bytes = zeroize::Zeroizing::new(Vec::new());
+    live.read_to_end(&mut bytes)?;
+    Ok(Some(bytes))
 }
 
 /// Hard-link the live file (if any) aside, so a rollback can put it back.

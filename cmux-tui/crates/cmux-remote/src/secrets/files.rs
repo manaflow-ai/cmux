@@ -197,32 +197,67 @@ pub fn allowed_paths(home: &Path) -> Vec<PathBuf> {
     paths
 }
 
-/// Replace each path with its bytes, all or none, mode 0600 (see
+/// What the live file must still be for a write to go ahead.
+#[derive(Clone, Copy)]
+pub enum Expect<'a> {
+    /// Replace whatever is there.
+    Anything,
+    /// Replace only these bytes (`None`: only when there is no file).
+    Exactly(Option<&'a [u8]>),
+}
+
+/// One file to write: `home/relative` gets `bytes`.
+#[derive(Clone, Copy)]
+pub struct Planned<'a> {
+    pub relative: &'a Path,
+    pub bytes: &'a [u8],
+    pub expect: Expect<'a>,
+}
+
+/// The error of a write whose [`Expect`] no longer held.
+#[derive(Debug)]
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(super) struct Changed;
+
+impl std::fmt::Display for Changed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("the live file changed")
+    }
+}
+
+impl std::error::Error for Changed {}
+
+/// Whether `error` says a live file changed since the caller read it.
+pub fn is_changed(error: &io::Error) -> bool {
+    error.get_ref().is_some_and(|inner| inner.is::<Changed>())
+}
+
+/// Replace each `(path, bytes, expect)`, all or none, mode 0600 (see
 /// [`super::commit`]), only when every path is one [`allowed_paths`] lists.
-pub fn write_all_allowed(home: &Path, writes: &[(&Path, &[u8])]) -> io::Result<()> {
+pub fn write_all_allowed(home: &Path, writes: &[(&Path, &[u8], Expect<'_>)]) -> io::Result<()> {
     let allowed = allowed_paths(home);
-    let mut relative = Vec::with_capacity(writes.len());
-    for (path, bytes) in writes {
+    let mut planned = Vec::with_capacity(writes.len());
+    for (path, bytes, expect) in writes {
         if !allowed.iter().any(|allowed| allowed == path) {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1"));
         }
-        let path = path.strip_prefix(home).map_err(|_| {
+        let relative = path.strip_prefix(home).map_err(|_| {
             io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1")
         })?;
-        relative.push((path, *bytes));
+        planned.push(Planned { relative, bytes, expect: *expect });
     }
-    replace_all(home, &relative)
+    replace_all(home, &planned)
 }
 
-/// [`write_all_allowed`] for one file.
+/// [`write_all_allowed`] for one file, whatever is there now.
 pub fn write_allowed(home: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
-    write_all_allowed(home, &[(path, bytes)])
+    write_all_allowed(home, &[(path, bytes, Expect::Anything)])
 }
 
 #[cfg(unix)]
 use super::commit::replace_all;
 
 #[cfg(not(unix))]
-fn replace_all(_: &Path, _: &[(&Path, &[u8])]) -> io::Result<()> {
+fn replace_all(_: &Path, _: &[Planned<'_>]) -> io::Result<()> {
     Err(io::Error::new(io::ErrorKind::Unsupported, "secrets-v1 writes need Unix"))
 }
