@@ -10,6 +10,7 @@ import CmuxNextChiefMemory
 import CmuxNextChiefPetWiring
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextPages

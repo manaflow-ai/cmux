@@ -30,10 +30,10 @@ public struct HomeSwitchKeys: Sendable, Equatable {
     }
 
     /// The card's lines in order: a label and its keys; keys nothing runs are left out.
-    var lines: [(label: String, keys: String)] {
-        [(HomeStrings.switchKeysTabs, tabByNumber), (HomeStrings.switchKeysWorkspaces, workspaceByNumber),
-         (HomeStrings.switchKeysNextTab, nextPreviousTab), (HomeStrings.switchKeysNextWorkspace, nextPreviousWorkspace),
-         (HomeStrings.switchKeysFocus, focusBackForward)]
+    package var lines: [(label: String, keys: String)] {
+        [(HomeModelStrings.switchKeysTabs, tabByNumber), (HomeModelStrings.switchKeysWorkspaces, workspaceByNumber),
+         (HomeModelStrings.switchKeysNextTab, nextPreviousTab), (HomeModelStrings.switchKeysNextWorkspace, nextPreviousWorkspace),
+         (HomeModelStrings.switchKeysFocus, focusBackForward)]
             .compactMap { line in line.1.map { (line.0, $0) } }
     }
 }

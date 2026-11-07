@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 extension HomeTunables {
     /// The Home transcript header's top-right panel toggles (Memory, Right Sidebar; Leo
