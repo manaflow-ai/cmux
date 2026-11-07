@@ -40,8 +40,6 @@ POOL_READ = re.compile(r"fromJSON\(\s*vars\.RUNNER_POOLS\s*\)\.([A-Za-z0-9_]+)")
 
 # workflow file -> (why it is not on a pool yet, its jobs that still name only literals)
 PINNED: dict[str, tuple[str, set[str]]] = {
-    'nightly-next-cua-signed-host.yml': ('pick holds the owned-pool routing App key: the fork-routing secret rule forbids a variable-movable runner',
-     {'pick'}),
     'fast-checks.yml': ('the hosted admission picker is a light read-only job; checks use its live fleet output',
      {'admit'}),
     'auto-resume-nightly-notarization.yml': ('nightly signing and notarization: an ephemeral label the signing rule checks literally',
