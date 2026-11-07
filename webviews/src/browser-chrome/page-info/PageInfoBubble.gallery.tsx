@@ -113,6 +113,24 @@ export default componentEntry<Props>({
       props: { model: insecure },
       note: "Plain http, a changed permission waiting for a reload.",
     },
+    "main-long-host": {
+      props: {
+        model: {
+          ...secure,
+          site: { ...secure.site, displayName: "trusted.example.com.account-verification.attacker.test" },
+        },
+      },
+      note: "A long host cuts its start: the real domain, attacker.test, stays visible.",
+    },
+    "security-long-host": {
+      props: {
+        model: {
+          ...secure,
+          page: { type: "security" },
+          site: { ...secure.site, displayName: "trusted.example.com.account-verification.attacker.test" },
+        },
+      },
+    },
     "security-secure": { props: { model: { ...secure, page: { type: "security" } } } },
     "security-certificate-error": {
       props: { model: certificateError },

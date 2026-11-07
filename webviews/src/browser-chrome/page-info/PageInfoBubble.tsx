@@ -18,6 +18,7 @@ import {
   isOn,
   permissionIcon,
   resettableCount,
+  splitSiteName,
   type PageInfoCommand,
   type PageInfoConnection,
   type PageInfoModel,
@@ -129,8 +130,8 @@ function Header({
   strings,
   send,
 }: {
-  title: string;
-  subtitle?: string;
+  title: ReactNode;
+  subtitle?: ReactNode;
   back: boolean;
   strings: Strings;
   send: (command: PageInfoCommand) => void;
@@ -162,6 +163,20 @@ function Header({
         <Icon name="action.close" size={14} row />
       </button>
     </div>
+  );
+}
+
+/**
+ * The site's name, cut in the middle when it is too long: the end (its registrable domain and
+ * port) always shows, so a long host cannot hide the real site behind a trusted-looking prefix.
+ */
+function SiteName({ name }: { name: string }) {
+  const [head, tail] = splitSiteName(name);
+  return (
+    <span className="pi-site-name" title={name}>
+      <span className="pi-site-name-head">{head}</span>
+      <span className="pi-site-name-tail">{tail}</span>
+    </span>
   );
 }
 
@@ -264,7 +279,7 @@ type PageProps = {
 function MainPage({ model, strings, send }: PageProps) {
   const { site } = model;
   const t = strings.t;
-  const header = <Header title={site.displayName} back={false} strings={strings} send={send} />;
+  const header = <Header title={<SiteName name={site.displayName} />} back={false} strings={strings} send={send} />;
   if (site.kind !== "web" || !site.connection) {
     return (
       <>
@@ -367,7 +382,13 @@ function SecurityPage({ model, strings, send }: PageProps) {
   const t = strings.t;
   const connection = site.connection;
   const header = (
-    <Header title={t("pageInfo.security.header")} subtitle={site.displayName} back strings={strings} send={send} />
+    <Header
+      title={t("pageInfo.security.header")}
+      subtitle={<SiteName name={site.displayName} />}
+      back
+      strings={strings}
+      send={send}
+    />
   );
   if (!connection) return header;
   const paragraphs = [details(strings, connection)];
@@ -431,7 +452,7 @@ function CookiesPage({ model, strings, send }: PageProps) {
     <>
       <Header
         title={t("pageInfo.cookies.header")}
-        subtitle={model.site.displayName}
+        subtitle={<SiteName name={model.site.displayName} />}
         back
         strings={strings}
         send={send}
@@ -474,7 +495,7 @@ function PermissionPage({ model, strings, send, kind }: PageProps & { kind: Site
   };
   return (
     <>
-      <Header title={name} subtitle={model.site.displayName} back strings={strings} send={send} />
+      <Header title={name} subtitle={<SiteName name={model.site.displayName} />} back strings={strings} send={send} />
       <Section>
         <Row
           id="pageInfo.permissionToggle"

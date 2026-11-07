@@ -79,6 +79,20 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A site name cuts its head, never its tail (the registrable domain). */
+.pi-site-name {
+  display: flex;
+  min-width: 0;
+}
+.pi-site-name-head {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pi-site-name-tail {
+  flex: none;
+  white-space: nowrap;
+}
 .pi-header-subtitle {
   overflow: hidden;
   color: var(--ds-color-muted);

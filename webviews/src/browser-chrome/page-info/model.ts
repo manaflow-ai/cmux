@@ -191,3 +191,22 @@ export function identityIcon(kind: PageInfoSiteKind): string {
       return "terminal";
   }
 }
+
+/**
+ * Splits a site name for middle truncation: the head may be cut, the tail always shows. A host
+ * keeps its registrable domain and port in the tail (the last two labels, or three when the
+ * second-level label is a short public one such as `co.uk`); any other name keeps its last 16
+ * characters.
+ */
+export function splitSiteName(name: string): [head: string, tail: string] {
+  const port = /:\d+$/.exec(name)?.[0] ?? "";
+  const host = port ? name.slice(0, -port.length) : name;
+  if (/^[^\s/]+\.[^\s/.]+$/.test(host)) {
+    const labels = host.split(".");
+    const keep = labels.length > 2 && labels[labels.length - 2].length <= 3 ? 3 : 2;
+    if (labels.length <= keep) return ["", name];
+    return [labels.slice(0, -keep).join(".") + ".", labels.slice(-keep).join(".") + port];
+  }
+  const cut = Math.max(0, name.length - 16);
+  return [name.slice(0, cut), name.slice(cut)];
+}
