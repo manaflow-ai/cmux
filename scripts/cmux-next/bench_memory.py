@@ -26,6 +26,14 @@ through `debug.cef_page_devtools`, a bench or DEV build), then the app settles a
 is sampled again as `purged-N` (one count per run, so `idle-N` is an unpurged app). The page keeps its DOM, scroll and state, as the
 "a page never reloads unless the person asks" design (#25791) requires.
 
+--release-hidden-chats MINUTES measures lossless discard of hidden agent chats (Leo, 2026-11-07:
+"if it really isn't being used after a while, can't things be more aggressive?"): the app runs with
+`agents.hiddenChats.discard` on and `agents.hiddenChats.discardAfterMinutes` MINUTES. After the
+count's `idle-N` sample it waits for the hidden chats to be released, samples `released-N` with the
+live Chromium page count, then shows the --restore-chats oldest workspaces one at a time and times
+each chat back on screen with the app's own chat-open trace (`debug.chat_open_trace`: first content,
+first kept image, longest empty run). One count per run, like --purge-hidden.
+
 Two ways to run (macOS only, a fleet or capture mini, never a laptop):
   attach  --socket PATH --app-pid PID: an app someone else launched, for
           example by `capture-host launch` into a capture slot (capture
@@ -37,7 +45,8 @@ Usage:
   bench_memory.py --app BUNDLE [--socket PATH --app-pid PID]
       [--workspaces 1,10,30] [--mix terminal+chat,terminal+browser,terminal]
       [--settle 30] [--measure 0] [--churn-minutes 0] [--sample-minutes 5]
-      [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--purge-hidden] [--out FILE.json]
+      [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--purge-hidden]
+      [--release-hidden-chats MINUTES [--restore-chats 10]] [--out FILE.json]
   bench_memory.py --app BUNDLE --tabs 1,10,20 [--urls local|real|URL,URL,...] [--settle 30]
 
 Prints a table per measurement (top processes by footprint, totals per
@@ -354,6 +363,47 @@ def purge_hidden_pages(app: App) -> dict:
         errors = [error for error in pool.map(notify, hidden) if error]
     return {"pages": len(pages), "hidden": len(hidden), "notified": len(hidden) - len(errors),
             "errors": errors[:5]}
+
+
+def cef_page_count(app: App) -> int | None:
+    """Live Chromium pages of cmux's own (`cmux-page://`), from `debug.cef_pages`."""
+    pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
+    if not isinstance(pages, list):
+        return None
+    return sum(1 for p in pages if str(p.get("origin", "")).startswith("cmux-page://"))
+
+
+def percentile(values: list[float], share: float) -> float | None:
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, int(share * len(ordered)))] if ordered else None
+
+
+def restore_chats(app: App, workspaces: list[str], count: int) -> dict:
+    """Shows each of `workspaces[:count]` (oldest first: the least recently seen, released first) and
+    times its chat back on screen with the app's chat-open trace."""
+    opens = []
+    for workspace in workspaces[:count]:
+        armed = app.call("debug.chat_open_trace", {"action": "arm"}, timeout=30)
+        if not isinstance(armed, dict) or armed.get("error"):
+            opens.append({"workspace": workspace, "error": f"arm: {armed}"})
+            continue
+        shown = app.action("goToWorkspace", focus=True, workspace=workspace)
+        trace = app.call("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000, "settle_ms": 300}, timeout=40) or {}
+        frames = trace.get("frames") or []
+        opens.append({
+            "workspace": workspace,
+            "error": shown.get("error") or trace.get("error"),
+            "timed_out": trace.get("timed_out"),
+            "first_content_ms": trace.get("first_content_ms"),
+            "first_image_ms": next((ms for ms, surface in frames if surface == "image"), None),
+            "longest_empty_ms": trace.get("longest_empty_ms"),
+        })
+    content = [o["first_content_ms"] for o in opens if isinstance(o.get("first_content_ms"), (int, float))]
+    empty = [o["longest_empty_ms"] for o in opens if isinstance(o.get("longest_empty_ms"), (int, float))]
+    return {"opens": opens, "n": len(content), "timed_out": sum(1 for o in opens if o.get("timed_out")),
+            "first_content_p50_ms": percentile(content, 0.5), "first_content_p95_ms": percentile(content, 0.95),
+            "longest_empty_p50_ms": percentile(empty, 0.5), "longest_empty_p95_ms": percentile(empty, 0.95),
+            "with_image": sum(1 for o in opens if o.get("first_image_ms") is not None)}
 
 
 def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats | None = None):
@@ -729,12 +779,16 @@ def main():
                              "its turns end, as a chat's do after its reply")
     parser.add_argument("--purge-hidden", action="store_true",
                         help="after each count, purge hidden pages' renderers (no reload) and sample again")
+    parser.add_argument("--release-hidden-chats", type=float, default=0, metavar="MINUTES",
+                        help="run with agents.hiddenChats.discard after MINUTES; sample released chats and time their restore")
+    parser.add_argument("--restore-chats", type=int, default=10,
+                        help="--release-hidden-chats: how many released chats to show again and time")
     parser.add_argument("--out")
     args = parser.parse_args()
-    if args.purge_hidden and len([n for n in args.workspaces.split(",") if n]) > 1:
+    if (args.purge_hidden or args.release_hidden_chats > 0) and len([n for n in args.workspaces.split(",") if n]) > 1:
         # A later count's idle sample would follow the earlier purge, not an unpurged app. Checked
         # before the launch, so a refused run leaves no app behind.
-        parser.error("--purge-hidden takes one --workspaces count; run each count on its own")
+        parser.error("--purge-hidden and --release-hidden-chats take one --workspaces count; run each count on its own")
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
     signal.signal(signal.SIGTERM, interrupted)
     if sys.platform != "darwin":
@@ -748,7 +802,11 @@ def main():
         socket_path, app_pid = args.socket, args.app_pid
     else:
         extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
-        launched, socket_path, scratch = launch(bundle, json.loads(args.config), extra)
+        config = json.loads(args.config)
+        if args.release_hidden_chats > 0:
+            config = merged(config, {"agents": {"hiddenChats": {"discard": True,
+                                                                "discardAfterMinutes": args.release_hidden_chats}}})
+        launched, socket_path, scratch = launch(bundle, config, extra)
         app_pid = launched
     app = App(bundle, socket_path)
     chats = None
@@ -793,6 +851,15 @@ def main():
                 purge = purge_hidden_pages(app)
                 print(f"== purge at {count}: {json.dumps(purge)}", flush=True)
                 settle_and_sample(f"purged-{count}")["purge"] = purge
+            if args.release_hidden_chats > 0:
+                before = cef_page_count(app)
+                # test script: the hidden chats come due after the setting's minutes (plus the planner's slack)
+                time.sleep(args.release_hidden_chats * 60 + 30)
+                result = settle_and_sample(f"released-{count}")
+                result["cef_pages"] = {"before": before, "after": cef_page_count(app)}
+                print(f"== released at {count}: cmux pages {json.dumps(result['cef_pages'])}", flush=True)
+                report["restore"] = restore_chats(app, opened, args.restore_chats)
+                print(f"== restore: {json.dumps({k: v for k, v in report['restore'].items() if k != 'opens'})}", flush=True)
         if args.churn_minutes > 0:
             end = time.monotonic() + args.churn_minutes * 60
             next_sample = time.monotonic() + args.sample_minutes * 60
