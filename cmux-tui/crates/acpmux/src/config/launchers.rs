@@ -178,5 +178,7 @@ fn native_install(bin: &str) -> Option<String> {
         return None;
     }
     let candidate = dirs::home_dir()?.join(".local/bin").join(bin);
-    candidate.is_file().then(|| candidate.to_string_lossy().into_owned())
+    // A stale or non-executable file there is no installed CLI (as `harness install` checks).
+    crate::harness_install::is_executable(&candidate)
+        .then(|| candidate.to_string_lossy().into_owned())
 }
