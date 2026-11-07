@@ -15,6 +15,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { SCREEN_RECORDING_POSTER_JPEG } from "../src/gallery/fixtures/videoPoster";
 import { galleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -61,6 +62,7 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
     await gallery?.close();
   });
 
+  const POSTER = `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`;
   const port = (server: typeof pane) => (server!.httpServer!.address() as { port: number }).port;
 
   /// Reads the last sent row every frame from now for `ms`: its height, the box of the first element
@@ -161,14 +163,23 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
       ).toBeLessThan(3);
   };
 
-  /// The agent pane's dev entry with its in-page mock agent.
-  const openPane = async (page: Page) => {
-    await page.addInitScript(() => {
+  /// The agent pane's dev entry with its in-page mock agent; the host answers `answers`' methods.
+  const openPane = async (page: Page, answers: Record<string, unknown> = {}) => {
+    await page.addInitScript((answers) => {
       Object.assign(window, {
-        webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
+        webkit: {
+          messageHandlers: {
+            agentSession: {
+              postMessage: async ({ method }: { method: string }) => ({
+                ok: true,
+                value: answers[method.replace(/^cmux\.agent\./, "")] ?? null,
+              }),
+            },
+          },
+        },
         cmuxAcpmuxActions: { ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true }) },
       });
-    });
+    }, answers);
     await page.goto(`http://127.0.0.1:${port(pane)}/`);
     await page.locator('.acpmux-composer-prompt [contenteditable="true"]').waitFor();
   };
@@ -289,6 +300,117 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
         return hits / (data.length / 4);
       }, shot.toString("base64"));
       expect(blue, "the preview's first frame shows where its chip was").toBeGreaterThan(0.8);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a screenshot that names its source moves with its badge", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    try {
+      await openPane(page, {
+        "chat.attach.source": { sources: [{ name: "Screenshot", bundleId: "com.apple.screenshot.launcher" }] },
+        "attachment.sourceIcon": {
+          src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        },
+      });
+      await pasteScreenshot(page);
+      await page.locator(".acpmux-composer .acpmux-source-badge").waitFor();
+      // Each new transform animation is held at its start: the frame drawn right after Enter.
+      await page.evaluate(() => {
+        const animate = Element.prototype.animate;
+        Element.prototype.animate = function (...args: Parameters<typeof animate>) {
+          const animation = animate.apply(this, args);
+          animation.pause();
+          return animation;
+        };
+      });
+      await page.keyboard.press("Enter");
+      const ghost = page.locator("[data-send-morph-ghost]");
+      await ghost.waitFor();
+      expect(await ghost.locator(".acpmux-source-badge").count(), "the moving copy wears the source badge").toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a screen recording pasted into the pane's composer: its tile moves with its poster, never a blank square", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    try {
+      // The host reads the pasted recording (chat.attach.dropped, video.info), as the app does.
+      await page.addInitScript((poster) => {
+        Object.assign(window, {
+          webkit: {
+            messageHandlers: {
+              agentSession: {
+                postMessage: async ({
+                  method,
+                  params,
+                }: {
+                  method: string;
+                  params?: { offset?: number; data?: string };
+                }) => {
+                  const name = method.replace(/^cmux\.agent\./, "");
+                  ((window as unknown as { __hostCalls: string[] }).__hostCalls ??= []).push(name);
+                  if (name === "chat.attach.dropped")
+                    return {
+                      ok: true,
+                      value: { items: [{ path: "/Users/you/Desktop/Recording.mov", folder: false }] },
+                    };
+                  // A pasted file is uploaded to where the chat runs (cloudUploads.ts).
+                  if (name === "chat.upload.begin")
+                    return { ok: true, value: { token: "t", size: 3, chunkSize: 65_536 } };
+                  if (name === "chat.upload.chunk") return { ok: true, value: { offset: (params?.offset ?? 0) + 3 } };
+                  if (name === "chat.upload.finish")
+                    return { ok: true, value: { path: "/Users/you/Desktop/Recording.mov" } };
+                  if (name === "video.info")
+                    return {
+                      ok: true,
+                      value: {
+                        durationMs: 12_400,
+                        width: 1_920,
+                        height: 1_080,
+                        poster,
+                        frames: [{ atMs: 0, data: poster.slice("data:image/jpeg;base64,".length) }],
+                      },
+                    };
+                  return { ok: true, value: null };
+                },
+              },
+            },
+          },
+          cmuxAcpmuxActions: { ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true }) },
+          // acpmux's echo comes after the move: the tile is drawn from what the pane sent.
+          cmuxAcpmuxMockSlowMethod: "session/prompt",
+          cmuxAcpmuxMockSlowMs: 2_500,
+        });
+      }, POSTER);
+      await page.goto(`http://127.0.0.1:${port(pane)}/`);
+      const prompt = page.locator('.acpmux-composer-prompt [contenteditable="true"]');
+      await prompt.waitFor();
+      await prompt.click();
+      await prompt.evaluate((target) => {
+        const data = new DataTransfer();
+        data.items.add(new File([new Uint8Array([0, 1, 2])], "Recording.mov", { type: "video/quicktime" }));
+        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      });
+      const tile = page.locator(".acpmux-composer .acpmux-attachment-video");
+      await page.waitForFunction(() => {
+        const image = document.querySelector<HTMLImageElement>(".acpmux-composer .acpmux-attachment-video img");
+        return !!image && image.complete && image.naturalWidth > 0;
+      });
+      await page.keyboard.type(" why does it flicker");
+      const chip = await tile.first().evaluate((element) => {
+        const { left, top, width, height } = element.getBoundingClientRect();
+        return { left, top, width, height };
+      });
+      // Past acpmux's echo (2.5 s): the tile it draws is the one already on screen.
+      await watchSentRow(page, ".cv-user__video", 3_500);
+      await page.keyboard.press("Enter");
+      const frames = await sentFrames(page);
+      expectOneMove(frames, chip, "pasted recording");
+      for (const frame of frames)
+        expect(frame.loaded, `the tile draws its poster, not a blank square, at ${frame.at} ms`).toBe(true);
     } finally {
       await page.close();
     }
