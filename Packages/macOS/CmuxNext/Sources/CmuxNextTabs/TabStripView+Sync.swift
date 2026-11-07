@@ -127,6 +127,8 @@ extension TabStripView {
         let ids = Set(ordered.map(\.id))
         let adding = ordered.contains { cells[$0.id] == nil }
         let removing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) }
+        // A tab that moved to another pane is shown there: it leaves here with no close (`departures`).
+        let closing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) && !model.departures.contains($0) }
         // A pane's last tab never shrinks out: its pane (or its workspace) closes as one (close cases B, C, D).
         let closesLastTab = removing && ordered.isEmpty
         let structureAnimates = (!adding || Motion.tabs.animates(.newTab)) && !closesLastTab
@@ -143,7 +145,7 @@ extension TabStripView {
         // A cell handed to its successor stays on the strip as that successor.
         let successor = Dictionary(handed.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
         for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) && !handed.values.contains(id) {
-            if cellsAnimate {
+            if cellsAnimate, !model.departures.contains(id) {
                 // Chrome: it shrinks to the close width with its left edge pinned to the previous
                 // tab's right edge (`relayout` pins x), no fade; it goes when the tween ends.
                 dying.insert(id)
@@ -154,7 +156,6 @@ extension TabStripView {
                 removeTab(id)
             }
         }
-
         var added: Set<TabID> = []
         for item in ordered {
             if let cell = cells[item.id] {
@@ -175,6 +176,8 @@ extension TabStripView {
             }
         }
         added.formUnion(syncChips(ordered, animated: animated))
+        // A departure ends when its tab left the model (shown or not: a torn-out tab has no cell).
+        if !model.departures.isEmpty { model.departures.formIntersection(modelOrdered.map(\.id)) }
         if hasSynced, !added.isEmpty {
             // An insert ends closing mode (Chrome).
             closingModeWidth = nil
@@ -201,7 +204,7 @@ extension TabStripView {
         newTabMenuButton.isHidden = !model.showsNewTabButton || !showsNewTabMenuButton
 
         relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding,
-                 token: cellsAnimate && removing && !adding ? .tabClose : nil)
+                 token: cellsAnimate && closing && !adding ? .tabClose : nil)
 
         let selected = model.selectedID
         if let selected, selected != lastSelectedID || added.contains(selected) {
