@@ -45,6 +45,9 @@ export function useDiffComments({
   // same prompt id (acpmux answers a repeated id with its first delivery) while its comments are
   // listed unchanged; one added or edited since waits for the press after.
   const pendingSends = useRef(new Map<string, SendBatch>());
+  // The draft save on its way, by draft and message: pressing Comment again on the same text reuses
+  // its opid, so the host stores the comment once.
+  const draftSave = useRef<{ draft: unknown; message: string; opid: string } | null>(null);
   // Another repository: its Send starts idle.
   useEffect(() => setSendState("idle"), [repoRoot]);
   const onLoaded = useCallback(
@@ -79,9 +82,13 @@ export function useDiffComments({
       message,
     };
     const record = { ...input, submissionText: commentSubmissionText(input, item.fileDiff) };
+    const prior = draftSave.current;
+    const opid =
+      prior?.draft === draft && prior.message === message ? prior.opid : `diff-comment-${crypto.randomUUID()}`;
+    draftSave.current = { draft, message, opid };
     const save =
       bridgeAvailable && repoRoot != null
-        ? bridgeSaveComment(repoRoot, record)
+        ? bridgeSaveComment(repoRoot, record, opid)
         : Promise.resolve(localCommentRecord(record));
     save
       .then((saved) => {

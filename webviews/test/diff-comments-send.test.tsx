@@ -233,3 +233,49 @@ test("a comment edited while its send is on the way stays, with its edit", async
     (window as unknown as { webkit: unknown }).webkit = savedWebkit;
   }
 });
+
+test("pressing Comment twice on the same draft saves it under one opid", async () => {
+  const { installPageDiffComments } = await import("../src/comments/bridge");
+  const { createRoot } = await import("react-dom/client");
+  const { useDiffComments } = await import("../src/diff-viewer/useDiffComments");
+  const { initialAppState } = await import("../src/diff-viewer/state");
+  const opids: Array<string | undefined> = [];
+  installPageDiffComments({
+    call: (_op: string, _body: unknown, options?: { opid?: string }) => {
+      opids.push(options?.opid);
+      return new Promise(() => {});
+    },
+  } as never);
+  const savedWebkit = (window as unknown as { webkit: unknown }).webkit;
+  (window as unknown as { webkit: unknown }).webkit = undefined;
+  try {
+    type Hook = ReturnType<typeof useDiffComments>;
+    const draft = { itemId: "a.ts", side: "additions" as const, startLine: 1, endLine: 1 };
+    const state = { current: { ...initialAppState({ payload: {} } as never, "ready" as never), draft } };
+    const item = { id: "a.ts", fileDiff: { name: "a.ts", hunks: [] } } as never;
+    let hook!: Hook;
+    function Probe() {
+      hook = useDiffComments({
+        bridgeAvailable: true,
+        canSend: true,
+        dispatch: (() => {}) as never,
+        latestState: state as never,
+        repoRoot: "/repo",
+      });
+      return null;
+    }
+    const probe = createRoot(document.createElement("div"));
+    act(() => probe.render(<Probe />));
+    act(() => hook.saveDraft(item, "Use 5"));
+    act(() => hook.saveDraft(item, "Use 5"));
+    act(() => hook.saveDraft(item, "Use 6"));
+    expect(opids).toHaveLength(3);
+    expect(opids[0]).toBeString();
+    expect(opids[1]).toBe(opids[0]);
+    expect(opids[2]).not.toBe(opids[0]);
+    act(() => probe.unmount());
+  } finally {
+    installPageDiffComments(null);
+    (window as unknown as { webkit: unknown }).webkit = savedWebkit;
+  }
+});

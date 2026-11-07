@@ -83,8 +83,17 @@ export async function listComments(repoRoot: string): Promise<DiffCommentRecord[
   return Array.isArray(value?.comments) ? value.comments : [];
 }
 
-export async function saveComment(repoRoot: string, comment: DiffCommentSaveInput): Promise<DiffCommentRecord> {
-  const value = await callDiffComments<{ comment?: DiffCommentRecord }>("comments.save", { repoRoot, comment });
+/** `opid` names the save's intent: the host stores a repeat of it (a double click, a retry) once. */
+export async function saveComment(
+  repoRoot: string,
+  comment: DiffCommentSaveInput,
+  opid?: string,
+): Promise<DiffCommentRecord> {
+  const value = await callDiffComments<{ comment?: DiffCommentRecord }>(
+    "comments.save",
+    { repoRoot, comment },
+    opid === undefined ? {} : { opid },
+  );
   if (value?.comment == null) {
     throw new DiffCommentsBridgeError("Diff comments save returned no comment.");
   }
