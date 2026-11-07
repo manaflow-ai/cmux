@@ -240,6 +240,16 @@ impl Http for PosterHttp {
         self.0.request_with_deadline(url, body, bearer, deadline)
     }
 
+    fn request_with_headers(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &cmux_server::cloud_http::RequestDeadline,
+    ) -> Result<cmux_server::cloud_http::Response, String> {
+        self.0.request_with_deadline_headers(url, body, bearer, deadline)
+    }
+
     fn reset(&self) {
         self.0.reset();
     }
@@ -992,6 +1002,9 @@ impl Worker {
         }
         self.noise_key_wait = None;
         let changes = cmux_server::cloud_http::network_changes();
+        // The bind writes carrier.json; the keyset refresher's write waits.
+        let carrier_lock = self.keyset.carrier_lock();
+        let carrier_held = carrier_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let result = bind_machine(
             &mut self.store,
             &http,
@@ -1001,6 +1014,7 @@ impl Worker {
             noise_key.as_deref(),
             wall_ms(),
         );
+        drop(carrier_held);
         log(&format!("bind: {}", result.describe()));
         match result {
             BindResult::Bound(bound) => {

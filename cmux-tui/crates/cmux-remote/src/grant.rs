@@ -259,19 +259,37 @@ impl GrantConfig {
     }
 }
 
-/// How often an unknown kid may re-read the grant config.
-pub const GRANT_CONFIG_RELOAD_INTERVAL: Duration = Duration::from_secs(30);
+/// What identifies one version of the grant config file: its mtime, size
+/// and inode. The host writes it by rename, so a new keyset is a new stamp.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Stamp {
+    modified: Option<std::time::SystemTime>,
+    len: u64,
+    inode: u64,
+}
+
+fn stamp(path: &Path) -> Option<Stamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    #[cfg(unix)]
+    let inode = std::os::unix::fs::MetadataExt::ino(&meta);
+    #[cfg(not(unix))]
+    let inode = 0;
+    Some(Stamp { modified: meta.modified().ok(), len: meta.len(), inode })
+}
 
 /// The daemon's grant verifier over its [`GrantConfig`] file. A grant
-/// signed by a kid the held keyset lacks re-reads the file (at most every
-/// [`GRANT_CONFIG_RELOAD_INTERVAL`]) and installs its keyset when the
-/// issuer, machine and team are unchanged, then checks the grant again.
-/// Spent grants stay spent across a reload.
+/// signed by a kid the held keyset lacks re-reads the file when it changed
+/// since the last read (its [`Stamp`]), and installs its keyset when the
+/// issuer, machine and team are unchanged, then checks the grant again. An
+/// unchanged file is never read again, and a file rewritten right after a
+/// refused grant is read at the next one: no time throttle stands between
+/// a rotation and its first grant. Spent grants stay spent across a reload.
 pub struct FileGrantVerifier {
     path: PathBuf,
     config: GrantConfig,
     inner: CarrierGrantVerifier,
-    reloaded_at: Mutex<Option<Instant>>,
+    /// The stamp of the file as last read.
+    loaded: Mutex<Option<Stamp>>,
     /// Told the kid of a grant the held keyset and the file both lack, at
     /// most once per [`UNKNOWN_KID_REPORT_INTERVAL`]: the host fetches the
     /// keyset and rewrites the file.
@@ -311,6 +329,8 @@ impl std::fmt::Debug for FileGrantVerifier {
 impl FileGrantVerifier {
     pub fn load(path: impl Into<PathBuf>) -> Result<Self, String> {
         let path = path.into();
+        // The stamp before the read: a write in between is read again.
+        let loaded = stamp(&path);
         let config = read_config(&path)?;
         let inner = CarrierGrantVerifier::with_system_clock(
             config.issuer.clone(),
@@ -323,7 +343,7 @@ impl FileGrantVerifier {
             path,
             config,
             inner,
-            reloaded_at: Mutex::new(None),
+            loaded: Mutex::new(loaded),
             unknown_kid: None,
             reported_at: Mutex::new(None),
         })
@@ -352,14 +372,15 @@ impl FileGrantVerifier {
         &self.config
     }
 
-    /// Re-reads the file for a new keyset; `true` when one was installed.
+    /// Re-reads the file for a new keyset when it changed since the last
+    /// read; `true` when a keyset was installed.
     fn reload_keys(&self) -> bool {
-        let mut reloaded_at =
-            self.reloaded_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if reloaded_at.is_some_and(|at| at.elapsed() < GRANT_CONFIG_RELOAD_INTERVAL) {
+        let mut loaded = self.loaded.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let now = stamp(&self.path);
+        if now.is_none() || *loaded == now {
             return false;
         }
-        *reloaded_at = Some(Instant::now());
+        *loaded = now;
         let Ok(fresh) = read_config(&self.path) else { return false };
         let same_binding = fresh.issuer == self.config.issuer
             && fresh.machine == self.config.machine
@@ -501,6 +522,13 @@ mod tests {
             format!("{message}.{}", URL_SAFE_NO_PAD.encode(signature.as_ref()))
         }
 
+        /// Writes `file` the way the host does: a temp file, then a rename.
+        fn put(file: &std::path::Path, text: &str) {
+            let tmp = file.with_extension("tmp");
+            std::fs::write(&tmp, text).unwrap();
+            std::fs::rename(&tmp, file).unwrap();
+        }
+
         fn present<'a>(token: &'a str, noise_key: &'a [u8; 32]) -> GrantPresentation<'a> {
             GrantPresentation { token, noise_key, link_group: [1; 32] }
         }
@@ -512,7 +540,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let file = dir.path().join("carrier-grant.json");
             let (held, other) = (signer(), signer());
-            std::fs::write(&file, config("k1", &held, MACHINE)).unwrap();
+            put(&file, &config("k1", &held, MACHINE));
             let seen = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
             let sink = std::sync::Arc::clone(&seen);
             let verifier = FileGrantVerifier::load(&file).unwrap().with_unknown_kid_hook(Box::new(
@@ -535,7 +563,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let file = dir.path().join("carrier-grant.json");
             let key = signer();
-            std::fs::write(&file, config("k1", &key, MACHINE)).unwrap();
+            put(&file, &config("k1", &key, MACHINE));
             let verifier = FileGrantVerifier::load(&file).unwrap();
             let noise_key = [4_u8; 32];
             let unknown = grant_for("k1", &key, &noise_key, 7, &["not-a-service"]);
@@ -571,28 +599,38 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let file = dir.path().join("carrier-grant.json");
             let (old, new) = (signer(), signer());
-            std::fs::write(&file, config("k1", &old, MACHINE)).unwrap();
+            put(&file, &config("k1", &old, MACHINE));
             let verifier = FileGrantVerifier::load(&file).unwrap();
             let noise_key = [3_u8; 32];
             verifier.verify(present(&grant("k1", &old, &noise_key, 1), &noise_key)).unwrap();
 
             // A file for another machine is never taken.
-            std::fs::write(&file, config("k2", &new, "vm_00000000000000000002")).unwrap();
+            put(&file, &config("k2", &new, "vm_00000000000000000002"));
             let rotated = grant("k2", &new, &noise_key, 2);
             assert!(verifier.verify(present(&rotated, &noise_key)).is_err());
 
-            // A fresh daemon (its reload not yet spent) takes the rotation.
-            std::fs::write(&file, config("k1", &old, MACHINE)).unwrap();
-            let verifier = FileGrantVerifier::load(&file).unwrap();
-            std::fs::write(&file, config("k2", &new, MACHINE)).unwrap();
+            // The same machine's rotation is taken at its next grant.
+            put(&file, &config("k2", &new, MACHINE));
             let admission = verifier.verify(present(&rotated, &noise_key)).unwrap();
             assert!(is_grant_device_id(&admission.device_id));
-            // The reload is rate limited: a third kid waits for the interval.
-            let third = signer();
-            std::fs::write(&file, config("k3", &third, MACHINE)).unwrap();
-            assert!(
-                verifier.verify(present(&grant("k3", &third, &noise_key, 3), &noise_key)).is_err()
-            );
+        }
+
+        /// #37361 review F2: a grant refused before the rotated config is
+        /// written starts no throttle; the grant right after the write is
+        /// admitted.
+        #[test]
+        fn a_rotation_written_after_a_refusal_is_read_at_the_next_grant() {
+            let dir = tempfile::tempdir().unwrap();
+            let file = dir.path().join("carrier-grant.json");
+            let (old, new) = (signer(), signer());
+            put(&file, &config("k1", &old, MACHINE));
+            let verifier = FileGrantVerifier::load(&file).unwrap();
+            let noise_key = [6_u8; 32];
+            let early = grant("k2", &new, &noise_key, 20);
+            assert!(verifier.verify(present(&early, &noise_key)).is_err());
+            put(&file, &config("k2", &new, MACHINE));
+            let next = grant("k2", &new, &noise_key, 21);
+            assert!(verifier.verify(present(&next, &noise_key)).is_ok());
         }
     }
 }
