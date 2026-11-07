@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42393128256",
+  "recorded_at": "2026-11-07T16:55:36Z",
+  "reason": "cmux-tui 985cbb69626b changes the image's cmux-tui (pinned 438de23a97d2)",
+  "dry_run": false,
+  "cmux_tui": "985cbb69626bdcfe43f9641c631be1117a81a994",
+  "fixes": [
+    {
+      "sha": "985cbb69626bdcfe43f9641c631be1117a81a994",
+      "mergedAt": "2026-11-07T08:32:59-08:00",
+      "subject": "Cloud carrier: dial and serve start from the create's carrier answer (#37510)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T16:55:36Z",
+    "snapshot_id": "sh-5a4cc097525741a094b66176b19e554a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42393128256): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "76cd7b094586198a60011e8c80f1c6f71aecaf34",
+    "image": "cloud-native-auto-985cbb69-42393128256-1",
+    "revision": "ci-42393128256-1",
+    "at": "2026-11-07T16:55:36Z"
+  },
+  "rolled_back": false
+}
