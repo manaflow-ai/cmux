@@ -284,10 +284,13 @@ test("cloud.startChat's payload: Auto and the flag off send today's, a pick adds
     );
     return sent;
   };
-  const todayParams: Record<string, unknown> = { task: "Fix the build", cwd: "/Users/you/src/cmux", harness: "claude", key: "send-1" };
+  const todayParams: Record<string, unknown> = {
+    task: "Fix the build",
+    cwd: "/Users/you/src/cmux",
+    harness: "claude",
+    key: "send-1",
+  };
   const today: [string, Record<string, unknown>][] = [["cloud.startChat", todayParams]];
-    ["cloud.startChat", { task: "Fix the build", cwd: "/Users/you/src/cmux", harness: "claude", key: "send-1" }],
-  ];
   // The flag off: no chip, and the payload is today's.
   await mount({ flag: false, mode: "cloud" });
   expect(slot()).toBeNull();
