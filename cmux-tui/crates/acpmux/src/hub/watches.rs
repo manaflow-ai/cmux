@@ -255,7 +255,7 @@ fn commit(
                 "_meta": {"acpmux": {"promptId": id, "resend": true, "steer": true,
                     "watchId": w.id, "watchDone": resolved}}});
             saved.pending.insert(id.clone(), Delivery { id, target: w.to.clone(), request,
-                caller: w.caller.clone(), state: State::Queued, attempts: 0, never_sent: false, relay_post: None, error: None,
+                caller: w.caller.clone(), state: State::Queued, attempts: 0, never_sent: false, relay_post: None, open_on_peer: false, error: None,
                 accepted: None, created_at: now, updated_at: now });
         }
     })

@@ -259,6 +259,15 @@ pub(super) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
+    // A prompt to a peer whose journals are being given back their records waits for that: run
+    // first, it would take the seqs they need (`hub/peer_snapshot/restore.rs`).
+    if m == method::SESSION_PROMPT
+        && let Ok(key) = session_key(params)
+        && hub.resolve(key).is_err()
+        && let Some((peer, _, _)) = hub.resolve_remote(key)
+    {
+        hub.peer_snapshots.restores_done(&peer.name).await;
+    }
     let reply = forward_inner(hub, conn, m, params).await.transpose();
     // A message this daemon handed to a peer's session is a cross-host send (`xhost_audit.rs`).
     if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE) && matches!(reply, Some(Ok(_)))

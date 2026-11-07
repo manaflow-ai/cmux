@@ -152,6 +152,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ("_acpmux/peer_snapshot", Run(json!({"sessionId": "nopeer/x1"}))),
         ("_acpmux/place", Run(json!({}))),
         ("_acpmux/peer_snapshots_clear", Run(json!({}))),
+        (
+            "_acpmux/journal_restore",
+            Any(
+                json!({"sessionId": "$S", "createdAt": 0, "afterSeq": 0, "records": []}),
+                "a restore names the chat's createdAt, which no row here knows: refused as another generation",
+            ),
+        ),
         ("_acpmux/directories", Run(json!({"cwd": "$CWD"}))),
         ("_acpmux/models", Run(json!({}))),
         ("catalog.get", Run(json!({}))),
