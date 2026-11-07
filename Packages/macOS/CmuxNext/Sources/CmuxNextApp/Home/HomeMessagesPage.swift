@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHomeModel
 import CmuxNextPages
@@ -16,8 +17,12 @@ import CmuxNextWakeups
 /// the host-to-page calls the page serves (`home.messages.*`, `home.moveConversation`,
 /// `home.currentSelection`). A strip over its top edge drags the window, as the native list's
 /// header did.
+///
+/// It names its page to the focus model (``PageWebViewContainer``), so a Home pane tab or classic
+/// Home's top page that gets the keyboard gives it to Chromium (`InternalPageView.focusTarget`), and
+/// the page hands it on to its message box (pageCommands.ts `followPageFocus`).
 @MainActor
-final class HomeMessagesPage: NSView {
+final class HomeMessagesPage: NSView, PageWebViewContainer {
     /// The sheets the page draws (sheets/), by the name `home.messages.present` takes.
     enum Sheet: String {
         case newMessage, requests, groupInfo, newChief, invite, teamInvite, closeNewMessage
@@ -74,6 +79,9 @@ final class HomeMessagesPage: NSView {
     /// The conversation the page shows, as it last said (`cmux.home.messages.selected`).
     var shown: ConversationID? { host.shown }
 
+    /// The page the focus model gives the keyboard to (``PageWebView/shown(in:)``).
+    var shownPageView: PageWebView? { page }
+
     override var isFlipped: Bool { true }
 
     override func layout() {
@@ -115,25 +123,51 @@ final class HomeMessagesPage: NSView {
                 show(HomeDockSelection(conversation: id.rawValue), focus: true)
             }
         })
-        // The page opens the preferred Chief by itself while nothing of the person's shows, and
-        // follows it as it changes (HomeDefaultConversation.followUp); what the person opened stays.
+        // The page opens the preferred Chief by itself while nothing of the person's shows, on its
+        // first load as later (HomeDefaultConversation.afterShown), and follows it as it changes
+        // (HomeDefaultConversation.followUp); what the person opened, and New Message, stay.
         followed = nil
-        host.onShown = { [weak self] id in
+        host.onShown = { [weak self] id, composing in
             guard let self else { return }
-            if id == nil, let first = HomeDefaultConversation.defaultConversation(rows: visibleRows(home), home: home) {
+            let next = HomeDefaultConversation.afterShown(id, composing: composing, followed: followed, rows: visibleRows(home), home: home)
+            followed = next.followed
+            if let open = next.open { show(HomeDockSelection(conversation: open.rawValue)) }
+        }
+        // Nothing to open yet when the page first said it shows nothing (the store's rows not read
+        // yet): the first listed default opens once there is one.
+        // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
+        watches.append(Task { [weak self] in
+            for await _ in ObservationStream({ store.rows.map(\.id) }) {
+                guard let self, host.reported, host.shown == nil, !host.composing,
+                      let first = HomeDefaultConversation.defaultConversation(rows: visibleRows(home), home: home) else { continue }
                 followed = first.rawValue
                 show(HomeDockSelection(conversation: first.rawValue))
-            } else if id?.rawValue != followed {
-                followed = nil
             }
-        }
+        })
+        // The conversations deleted from the list: any page's Delete or Show Hidden Conversations
+        // (``HomeService/hiddenRevision``) reads this page's set again, and the page hears each change.
+        host.hidden = { [weak self] in self?.sidebar.hidden ?? [:] }
+        let source = sidebar
+        // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
+        watches.append(Task { [weak self] in
+            var last = home.hiddenRevision
+            for await revision in ObservationStream({ home.hiddenRevision }) {
+                guard self != nil, revision != last else { continue }
+                last = revision
+                source.reloadPins()
+            }
+        })
+        // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
+        watches.append(Task { [weak self] in
+            for await _ in ObservationStream({ source.hidden }) { self?.host.publishHidden() }
+        })
         // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
         watches.append(Task { [weak self] in
             var last = HomeDefaultConversation.chiefKey(home)
             for await key in ObservationStream({ HomeDefaultConversation.chiefKey(home) }) {
                 guard let self, key != last else { continue }
                 last = key
-                let next = HomeDefaultConversation.followUp(chief: key.chief, shown: shown, followed: followed, composing: false,
+                let next = HomeDefaultConversation.followUp(chief: key.chief, shown: shown, followed: followed, composing: host.composing,
                                                             rows: visibleRows(home), home: home)
                 followed = next.followed
                 if let open = next.open { show(HomeDockSelection(conversation: open.rawValue)) }
@@ -238,27 +272,18 @@ final class HomeMessagesPage: NSView {
     }
 }
 
-/// The list actions (Pin, Delete from List) change the owner's stores; the page's list hears it from them.
+/// The list actions (Pin, Delete from List) change the owner's stores; the page's list hears pins
+/// from them and the deleted conversations from this page's source (the `hidden` stream).
 extension HomeMessagesPage: HomeListPage {
-    func listPinsChanged() {}
-    func conversationLeft(_ id: ConversationID, next: ConversationID?) {}
-}
+    /// A pin or delete changed (maybe through another source over the same account): read them again.
+    func listPinsChanged() {
+        sidebar.reloadPins()
+    }
 
-/// A thin strip over the Messages page's top edge that moves the window, as the native list's
-/// header did (a web view never moves its window); a double-click zooms or minimizes per the
-/// person's system setting, as a title bar does.
-final class HomeWindowDragStrip: NSView {
-    static let height: CGFloat = 8
-
-    override var mouseDownCanMoveWindow: Bool { true }
-
-    override func mouseDown(with event: NSEvent) {
-        guard let window else { return super.mouseDown(with: event) }
-        if event.clickCount == 2 {
-            let action = UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick")
-            if action == "Minimize" { window.performMiniaturize(nil) } else if action != "None" { window.performZoom(nil) }
-            return
-        }
-        window.performDrag(with: event)
+    /// The page left `id` while it showed it (Delete Conversation from List): its neighbor shows, else the default.
+    func conversationLeft(_ id: ConversationID, next: ConversationID?) {
+        guard shown == id, let home = services?.home,
+              let replacement = HomeDefaultConversation.replacement(leaving: id, next: next, rows: visibleRows(home), home: home) else { return }
+        show(HomeDockSelection(conversation: replacement.rawValue))
     }
 }

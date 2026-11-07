@@ -216,3 +216,21 @@ export function unreadConversations(model: ListModel): string[] {
 export function holdsOneConversation(model: ListModel, extras: { note?: string; requests?: number }): boolean {
   return model.pinned.length + model.rows.length <= 1 && !extras.note && !extras.requests;
 }
+
+/** The conversations the list shows: each deleted one (Delete Conversation…, `hidden`: the newest
+ * seq it had then) stays off until a newer message, as the native list's `HomeSidebarSource.shows`.
+ * The same map when nothing is hidden, so the list model is not rebuilt. */
+export function visibleConversations(
+  conversations: ReadonlyMap<string, HomeConversation>,
+  hidden: ReadonlyMap<string, number>,
+): ReadonlyMap<string, HomeConversation> {
+  if (hidden.size === 0) return conversations;
+  let out: Map<string, HomeConversation> | undefined;
+  for (const [id, seq] of hidden) {
+    const conversation = conversations.get(id);
+    if (!conversation || conversation.lastSeq > seq) continue;
+    out ??= new Map(conversations);
+    out.delete(id);
+  }
+  return out ?? conversations;
+}

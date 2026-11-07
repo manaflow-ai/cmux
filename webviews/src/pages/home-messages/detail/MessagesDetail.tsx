@@ -289,7 +289,7 @@ function ConversationView(
     afterSend?(): void;
   },
 ) {
-  const { store, snapshot, me, host, nav, view, words, conversation, firstRun } = props;
+  const { store, snapshot, me, host, nav, words, conversation, firstRun } = props;
   if (!me) return null;
   const { look, colors } = props.appearance(conversation);
   const id = conversation.id;
@@ -322,7 +322,8 @@ function ConversationView(
         {...(props.dictation ? { dictation: props.dictation } : {})}
         initialDraft={nav.draft(id)}
         onDraftChange={(text) => nav.keepDraft(id, text)}
-        composerKey={String(view.draftEpoch)}
+        composerKey={String(nav.draftVersion(id))}
+        attachmentDrafts={nav.attachments}
         onSend={async (text, files) => {
           const sent = await store.send(text, undefined, undefined, files);
           if (sent) props.afterSend?.();

@@ -26,10 +26,10 @@ import type { Strings } from "../shared/i18n";
 import type { PageClient } from "../shared/pageClient";
 import { ConversationList, DRAFT_ROW } from "./list/ConversationList";
 import { clampWidth, COMPACT_BELOW, HEADER, WIDTH } from "./list/layout";
-import { holdsOneConversation, listModel } from "./list/model";
+import { holdsOneConversation, listModel, visibleConversations } from "./list/model";
 import { MessagesNav } from "./nav";
-import { usePageCommands } from "./pageCommands";
-import type { HostMenuItem, MessagesChrome, MessagesDetail, MessagesHost } from "./types";
+import { followPageFocus, usePageCommands } from "./pageCommands";
+import type { HiddenConversations, HostMenuItem, MessagesChrome, MessagesDetail, MessagesHost } from "./types";
 
 export interface MessagesAppProps {
   store: HomeChannelsStore;
@@ -48,6 +48,7 @@ export interface MessagesAppProps {
 }
 
 const WIDTH_KEY = "cmux.home.sidebarWidth";
+const NONE_HIDDEN: HiddenConversations = new Map();
 const COMPOSE_INSET = 12;
 
 export function MessagesApp({
@@ -68,6 +69,12 @@ export function MessagesApp({
   const { t, format, language } = strings;
   const [chrome, setChrome] = useState<MessagesChrome>({ windowControls: null });
   useEffect(() => messages.subscribeChrome(setChrome), [messages]);
+  // Deleted from the list (Delete Conversation…): off it until a newer message.
+  const [hidden, setHidden] = useState<HiddenConversations>(NONE_HIDDEN);
+  useEffect(() => messages.subscribeHidden(setHidden), [messages]);
+  const listed = useMemo(() => visibleConversations(snapshot.conversations, hidden), [snapshot.conversations, hidden]);
+  // The page getting the keyboard gives it to the message box (or New Message's To:).
+  useEffect(() => followPageFocus(window, document, nav), [nav]);
   const [query, setQuery] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [openedAt, setOpenedAt] = useState<number | undefined>();
@@ -91,7 +98,7 @@ export function MessagesApp({
   );
   const model = useMemo(
     () =>
-      listModel(snapshot.conversations, {
+      listModel(listed, {
         ...(me ? { me } : {}),
         query,
         unreadOnly,
@@ -100,7 +107,7 @@ export function MessagesApp({
         words,
         activity: snapshot.activity,
       }),
-    [snapshot.conversations, snapshot.activity, me, query, unreadOnly, now, language, words],
+    [listed, snapshot.activity, me, query, unreadOnly, now, language, words],
   );
 
   // The page's width, and the column's own (kept between opens).
@@ -171,7 +178,11 @@ export function MessagesApp({
     () => (shown ? { conversation: shown, ...(snapshot.highlight ? { message: snapshot.highlight } : {}) } : null),
     [shown, snapshot.highlight],
   );
-  usePageCommands(host, { store, nav, model }, selection);
+  usePageCommands(host, { store, nav, model }, selection, { composing, ready: !snapshot.loading });
+  // A reconnect's new store opens what showed last (nav.restorable).
+  useEffect(() => {
+    if (shown) nav.lastShown = shown;
+  }, [nav, shown]);
 
   // Compose at the chat's top-left, after the traffic lights when they lie over it.
   const lights = chrome.windowControls;

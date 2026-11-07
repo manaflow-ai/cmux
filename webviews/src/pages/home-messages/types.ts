@@ -52,7 +52,13 @@ export interface MessagesHost {
   menu(kind: "row" | "compose", conversation?: string): Promise<HostMenuItem[]>;
   perform(item: HostMenuItem): Promise<void>;
   subscribeChrome(listener: (chrome: MessagesChrome) => void): () => void;
+  /** The conversations deleted from the list (Delete Conversation…), each with its newest message's
+   * seq then: one stays off the list until a newer message. Sent on subscribe and on every change. */
+  subscribeHidden(listener: (hidden: HiddenConversations) => void): () => void;
 }
+
+/** Deleted conversations by id, with the newest seq each had when deleted. */
+export type HiddenConversations = ReadonlyMap<string, number>;
 
 /** What the shell's detail slot gets: the open conversation and everything to draw and change it.
  * The transcript (`transcript/`), the cards (`cards/`) and the sheets (`sheets/`) take these. */

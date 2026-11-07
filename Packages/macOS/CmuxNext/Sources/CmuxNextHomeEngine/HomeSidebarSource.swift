@@ -103,6 +103,9 @@ public final class HomeSidebarSource {
     /// This Mac's marks changed here (a Mark as Unread or Read of a row no owner lists): other
     /// sources over the same account read them again (``reloadMarks()``).
     @ObservationIgnored public var onMarksChanged: () -> Void = {}
+    /// This account's deleted conversations changed here (Delete Conversation…, Show Hidden
+    /// Conversations): other sources over the account read them again (``reloadPins()``).
+    @ObservationIgnored public var onHiddenChanged: () -> Void = {}
     #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG: conversations listed besides the store's (`debug.home.sidebar_fixture`).
     @ObservationIgnored public var debugRows: [InboxRow] = []
@@ -287,6 +290,7 @@ public final class HomeSidebarSource {
         hidden = store.hidden(account: account())
         hidden[id] = row.summary.lastSeq
         store.save(hidden: hidden, account: account())
+        onHiddenChanged()
         return true
     }
 
@@ -296,6 +300,7 @@ public final class HomeSidebarSource {
         let count = store.hidden(account: account()).count
         hidden = [:]
         store.save(hidden: [:], account: account())
+        onHiddenChanged()
         return count
     }
 
