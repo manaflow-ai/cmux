@@ -3290,12 +3290,13 @@ export class AcpmuxDirectClient {
   }
 
   /// The selected chat's tail as this page read it (its newest `KEPT_EVENTS` records and what they
-  /// need to draw), once its attach answered; undefined before, or for a replay.
-  private currentTail(): KeptTail | undefined {
+  /// need to draw, or every record with `whole`), once its attach answered; undefined before, or for
+  /// a replay.
+  private currentTail(whole = false): KeptTail | undefined {
     const sessionId = this.selectedSessionId;
     if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return undefined;
     if (this.attachedGeneration !== this.selectionGeneration) return undefined;
-    const events = this.events.slice(-KEPT_EVENTS);
+    const events = whole ? this.events : this.events.slice(-KEPT_EVENTS);
     // The kept page may start inside a turn whose prompt was in the history we just cut off.
     // Keep that prompt beside the page, as attach does: without it the first cached frame draws
     // the turn's work unfolded, then the identical attach folds it once the prompt comes back.
@@ -4358,8 +4359,10 @@ export class AcpmuxDirectClient {
       from !== undefined &&
       this.drawn.peer !== undefined;
     // What this page read of it, for a reopen while it is held (`select`): kept here only, never
-    // in the shared cache, which a purge cleared.
-    const tail = brief ? this.currentTail() : undefined;
+    // in the shared cache, which a purge cleared. Every row, older pages too: a tail cut at
+    // KEPT_EVENTS would take the rows before it off screen when the chat is listed again. Held only
+    // for that hold, and the rows are the ones the page holds already.
+    const tail = brief ? this.currentTail(true) : undefined;
     this.leftTail = from !== undefined && tail ? { sessionId: from, tail } : undefined;
     this.selectedSessionId = this.host.sessionMustExist || purging ? undefined : this.sessions[0]?.sessionId;
     if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
