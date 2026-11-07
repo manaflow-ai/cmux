@@ -166,7 +166,8 @@ html[data-cmux-page="machines"] body {
   gap: var(--ds-space-2);
   padding: var(--ds-space-4);
   border-radius: var(--ds-radius-control);
-  border: var(--cmux-hairline) solid var(--page-separator);
+  /* The glass rim is its edge: no border of its own over it. */
+  border: var(--cmux-hairline) solid transparent;
   color: var(--page-text);
 }
 /* The shared glass (ui-glass), never a solid fill; Reduce Transparency makes it solid. */
