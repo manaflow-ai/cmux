@@ -93,6 +93,7 @@ test("the line reads from the last output_end, joins the output, and stops at a 
 
 test("a host that cannot answer stops the reads after the first", async () => {
   let calls = 0;
+  const views: SetupView[] = [];
   const { clock, repeat } = manualClock();
   const stop = followWorktreeSetup(
     async () => {
@@ -100,10 +101,12 @@ test("a host that cannot answer stops the reads after the first", async () => {
       throw Object.assign(new Error("unknown"), { code: "unsupported" });
     },
     "/w/fix",
-    () => {},
+    (view) => views.push(view),
     repeat,
   );
   await flush();
+  // The line ends instead of spinning on what the create reply said.
+  expect(views.map((view) => view.run.state)).toEqual(["interrupted"]);
   expect(clock.every()).toBeNull();
   clock.tick();
   await flush();
