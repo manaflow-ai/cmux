@@ -301,4 +301,43 @@ requestAnimationFrame(() => {
     expect(await page.evaluate(() => (window as any).reports)).toEqual([]);
     await context.close();
   });
+
+  test("the page's other sheets are carried only as far as the copy uses them", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const page = await context.newPage();
+    await page.route("http://chat.test/a.html", (route) =>
+      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`) }),
+    );
+    await page.goto("http://chat.test/a.html");
+    await page.addScriptTag({ content: capture });
+    const styles = (await page.evaluate(() => {
+      // A chunk's viewer rules, faces for a font the chat uses and one it does not, and keyframes.
+      const chunk = document.createElement("style");
+      chunk.textContent = [
+        ".diff-viewer .hunk { color: red; }",
+        "#root .header, .markdown-only { color: blue; }",
+        ".composer:not(.hidden) textarea { border: 1px solid; }",
+        "a[href$='.pdf'] { color: green; }",
+        "@media (min-width: 1px) { .diff-viewer { margin: 1px; } .acpmux-row { margin: 2px; } }",
+        "@font-face { font-family: 'Used Face'; src: url(data:font/woff2;base64,AAAA); }",
+        "@font-face { font-family: 'Unused Face'; src: url(data:font/woff2;base64,BBBB); }",
+        ".header { font-family: 'Used Face'; animation: glow 1s; }",
+        "@keyframes glow { to { opacity: 1; } }",
+        "@keyframes never { to { opacity: 0; } }",
+      ].join("\n");
+      document.head.append(chunk);
+      return (globalThis as any).captureSnapshot(document, "theme-1").styles as string[];
+    })) as string[];
+    const text = styles.join("\n");
+    expect(text).not.toContain("diff-viewer");
+    expect(text).toContain(".markdown-only");
+    expect(text).toContain(".composer:not(.hidden) textarea");
+    expect(text).toContain(".pdf");
+    expect(text).toContain(".acpmux-row { margin: 2px; }");
+    expect(text).toContain("Used Face");
+    expect(text).not.toContain("Unused Face");
+    expect(text).toContain("@keyframes glow");
+    expect(text).not.toContain("@keyframes never");
+    await context.close();
+  });
 });

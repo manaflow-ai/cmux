@@ -11,6 +11,7 @@ import {
   SNAPSHOT_VERSION,
   type ChatSnapshot,
 } from "./shared";
+import { usedNames, usedRules, type UsedNames } from "./usedRules";
 
 /// The transcript's rows: absolutely placed, so leaving one out moves no other.
 const ROW_SELECTOR = ".acpmux-row";
@@ -71,15 +72,16 @@ function stripHandlers(root: Element): void {
 const THEME_STYLE_ID = "cmux-theme";
 
 /// The page's sheets beside its main one, in order: `<style>` elements (the person's theme.css,
-/// a chunk's rules) and the document's adopted sheets.
-function pageStyles(doc: Document): string[] {
-  const styles: string[] = [];
+/// a chunk's rules) and the document's adopted sheets, each cut to the rules the copy can use
+/// (usedRules.ts).
+function pageStyles(doc: Document, used: UsedNames, alsoNamed: string): string[] {
+  const sheets: CSSStyleSheet[] = [];
   for (const style of Array.from(doc.querySelectorAll("style"))) {
     if (style.id === PAGE_STYLE_ID || style.id === THEME_STYLE_ID || style.closest("#root")) continue;
-    if (style.textContent) styles.push(style.textContent);
+    if (style.sheet) sheets.push(style.sheet);
   }
-  for (const sheet of doc.adoptedStyleSheets ?? []) styles.push(sheetText(sheet));
-  return styles.filter((text) => text.length > 0);
+  sheets.push(...(doc.adoptedStyleSheets ?? []));
+  return sheets.map((sheet) => usedRules(sheet, used, alsoNamed)).filter((text) => text.length > 0);
 }
 
 /// Why the last ``captureSnapshot`` gave none (empty when it gave one), for the page's writes record
@@ -135,7 +137,10 @@ export function captureSnapshot(doc: Document, theme: string): ChatSnapshot | un
   stripHandlers(copy);
   const html = copy.outerHTML;
   const sheetTexts = Array.from(sheets.keys(), sheetText);
-  const styles = pageStyles(doc);
+  const root = attributesOf(doc.documentElement);
+  const body = attributesOf(doc.body);
+  const used = usedNames([copy, ...Array.from(copy.querySelectorAll("*")), doc.documentElement, doc.body]);
+  const styles = pageStyles(doc, used, `${html}\n${root.style ?? ""}\n${body.style ?? ""}`);
   const total = [html, ...sheetTexts, ...styles].reduce((sum, text) => sum + text.length, 0);
   missed = `too large: markup ${html.length}, shadow sheets ${sheetTexts.length} of ${sheetTexts.reduce((sum, text) => sum + text.length, 0)}, page sheets ${styles.length} of ${styles.reduce((sum, text) => sum + text.length, 0)} chars`;
   if (total > SNAPSHOT_MAX_CHARS) return undefined;
@@ -145,8 +150,8 @@ export function captureSnapshot(doc: Document, theme: string): ChatSnapshot | un
     html,
     width: view.innerWidth,
     height: view.innerHeight,
-    root: attributesOf(doc.documentElement),
-    body: attributesOf(doc.body),
+    root,
+    body,
     sheets: sheetTexts,
     styles,
     theme,
