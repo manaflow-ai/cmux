@@ -342,17 +342,9 @@ fn the_feed_page_reads_the_daemons_feed_view() {
         json!(["feed-view-changed", "feed-reports-changed"]),
         "{hello}"
     );
-    let view = feed.send(&read);
-    assert_eq!(view["ok"], true, "{view}");
-    let groups: Vec<&str> = view["result"]["groups"]
-        .as_array()
-        .unwrap_or_else(|| panic!("{view}"))
-        .iter()
-        .filter_map(|group| group["id"].as_str())
-        .collect();
-    assert_eq!(groups, ["needs_you", "today", "earlier"], "{view}");
-    assert_eq!(view["result"]["counts"]["badge"], 0, "{view}");
-    assert_eq!(view["result"]["github"]["enabled"], false, "{view}");
+    // A page relay reads the feed only when its process is the verified app (this test process
+    // never proves itself; feed_client_ops' unit test covers the app's own relay).
+    assert_eq!(refusal_reason(&feed.send(&read)), "app_process_only");
     let intent = v2("intent", "feed.intent", json!({"kind": "mark_all_read"}), Some("fd-1"));
     assert_eq!(refusal_reason(&feed.send(&intent)), "gesture_required");
     let post = v2(
@@ -362,17 +354,14 @@ fn the_feed_page_reads_the_daemons_feed_view() {
         Some("fd-2"),
     );
     assert_eq!(feed.send(&post)["ok"], false);
-    let unknown = feed.send(&v2("bad", "feed.view.read", json!({"layout": "grid"}), None));
-    assert_eq!(unknown["ok"], false, "{unknown}");
 
     // Another page reads no feed.
     let mut history = fixture.unix();
     history.send(&json!({"id": 1, "cmd": "client-hello", "role": "page_relay", "page": "history"}));
     assert_eq!(refusal_reason(&history.send(&read)), "page_not_allowed");
 
-    // A script on the socket reads the view; posting is the app's alone.
+    // A script on the socket (an agent in a pane) reads no feed and posts nothing.
     let mut script = fixture.unix();
-    assert_eq!(script.send(&read)["ok"], true);
-    let refused = script.send(&post);
-    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refusal_reason(&script.send(&read)), "app_process_only");
+    assert_eq!(script.send(&post)["ok"], false);
 }

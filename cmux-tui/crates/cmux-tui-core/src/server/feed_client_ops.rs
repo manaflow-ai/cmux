@@ -1,6 +1,7 @@
 //! The routed `feed` namespace (`feed-client-v1`,
 //! plans/cmux-next/feed-page.md section 2): the Feed page's and native
-//! callers' `feed.*` ops on the daemon's feed client (feed_client.rs). The
+//! callers' `feed.*` ops on the daemon's feed client (feed_client.rs). Only
+//! the app's own process reaches them (`origin_gate::app_process`). The
 //! page router has checked the origin (a mutation is origin `user`, with
 //! its idempotency key in `params`); the integration owner's writes and
 //! the presence also need the verified app connection itself, since only
@@ -74,6 +75,14 @@ pub(super) fn routed(mux: &Arc<Mux>, client: u64, operation: &str, params: Value
             ))
         }
     };
+    // Every feed op, reads too: only the app's own process (its main connection or its Feed
+    // page relay) reads the person's feed; an agent or script on the socket is refused.
+    if !super::origin_gate::app_process(mux, client) {
+        return Answer::Now(Err(crate::request_origin::forbidden(
+            "the feed is read only by the cmux app",
+            json!({"reason": "app_process_only"}),
+        )));
+    }
     let op = operation.to_owned();
     let now = |result: Result<Value, ResourceError>| Answer::Now(result);
     match operation {
@@ -312,5 +321,56 @@ impl Mux {
         if let Some(feed) = self.cloud_services().feed.get() {
             feed.shutdown();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use crate::SurfaceOptions;
+    use crate::server::origin_gate::{
+        app_process, set_peer_key_for_test, set_role_for_test, set_verified_app_for_test,
+    };
+    use crate::server::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink};
+
+    use super::Mux;
+
+    fn connection(mux: &Arc<Mux>, transport: ClientTransport, peer: &str) -> u64 {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound, control: None });
+        let client = mux.control_clients.register(transport, writer);
+        set_peer_key_for_test(mux, client, peer);
+        client
+    }
+
+    /// Review F1 on #37377: an agent or script on the socket reads no feed; the app's verified
+    /// main connection and a page relay of the same process do.
+    #[test]
+    fn only_the_apps_own_process_reads_the_feed() {
+        let mux = Mux::new_for_test("feed-app-process", SurfaceOptions::default());
+        let script = connection(&mux, ClientTransport::Unix, "pid:2");
+        assert!(!app_process(&mux, script), "a plain local connection");
+        let relay = connection(&mux, ClientTransport::Unix, "pid:1");
+        set_role_for_test(&mux, relay, "page_relay");
+        assert!(!app_process(&mux, relay), "a page relay with no verified app in its process");
+        let app = connection(&mux, ClientTransport::Unix, "pid:1");
+        set_role_for_test(&mux, app, "main");
+        assert!(!app_process(&mux, app), "a main connection that did not prove itself");
+        set_verified_app_for_test(&mux, app, true);
+        assert!(app_process(&mux, app), "the verified app");
+        assert!(app_process(&mux, relay), "the app's own page relay");
+        let other_relay = connection(&mux, ClientTransport::Unix, "pid:2");
+        set_role_for_test(&mux, other_relay, "page_relay");
+        assert!(!app_process(&mux, other_relay), "a page relay of another process");
+        let agent = connection(&mux, ClientTransport::Unix, "pid:1");
+        set_role_for_test(&mux, agent, "main");
+        set_verified_app_for_test(&mux, agent, true);
+        mux.bind_conversation_principal(agent, "agent:test".to_string()).unwrap();
+        assert!(!app_process(&mux, agent), "a connection bound to an agent");
+        let socket = connection(&mux, ClientTransport::WebSocket, "pid:1");
+        set_role_for_test(&mux, socket, "main");
+        set_verified_app_for_test(&mux, socket, true);
+        assert!(!app_process(&mux, socket), "not the local socket");
     }
 }

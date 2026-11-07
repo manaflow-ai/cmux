@@ -23,6 +23,10 @@ banners. They read feed state through the daemon ops below, never a Swift mirror
 
 ## 2. Daemon ops (`feed-client-v1`)
 
+Only the app's own process reaches these ops: its verified main connection (not bound to an agent) or
+a page relay of that same process. An agent or a script on the socket gets `origin.forbidden`
+(`app_process_only`) for reads too: the view holds the person's whole feed, Reports and GitHub results.
+
 The page calls `cmux.feed.<op>`; `DaemonPageRelay` forwards it to the daemon as `feed.<op>`. Native
 callers use the same ops. Times are Unix ms. Every mutation takes an idempotency key.
 
