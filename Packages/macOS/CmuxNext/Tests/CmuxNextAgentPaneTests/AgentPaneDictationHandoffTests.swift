@@ -172,4 +172,11 @@ import Testing
         claims.yield()
         #expect(stopped == 1)
     }
+
+    /// A chord the person set that does not parse is refused, never swapped for the app's default.
+    @Test func aBadChordIsRefusedNotReplaced() {
+        let posted = Posted()
+        #expect(handoff(posted: posted).handOff(setting(.chatgpt, shortcut: "ctrl+")) == .badShortcut)
+        #expect(posted.presses.isEmpty)
+    }
 }
