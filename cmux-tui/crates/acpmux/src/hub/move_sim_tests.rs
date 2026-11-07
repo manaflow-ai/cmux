@@ -794,6 +794,8 @@ impl World {
     }
 
     fn clock_ahead(&mut self, ms: u64) {
+        // As last seen before the retention runs at the new time.
+        self.look();
         crate::store::CLOCK_AHEAD_MS.with(|c| c.set(c.get() + ms));
         // Any change runs the retention.
         let anything = self.outbox.list(None, 1).0.first().map(|d| d.id.clone());
@@ -814,6 +816,7 @@ impl World {
         for _ in 0..40 {
             self.start_attempt();
             self.end_attempt();
+            self.look();
         }
         while !self.flights.is_empty() {
             self.end_attempt();
@@ -827,6 +830,7 @@ impl World {
         }
         let ends = HashMap::from([(MUX.to_owned(), (self.machine.generation, self.machine.end()))]);
         self.redeliver(&ends);
+        self.look();
     }
 
     /// The quiet end: three quiet rounds, then the clock past every open delivery's bound.
