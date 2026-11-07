@@ -41,7 +41,7 @@ import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
 import { hasAgentMark, knownMark, MonogramMark } from "../../shared/AgentMark";
-import { SubsessionContext, useMachineChats, useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { useMachineChats, useSenderChat, useSenderPlace } from "../subagents/subsessions";
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 import { copyTextResult } from "./clipboard";
 import { harnessLabel, runModel } from "../subagents/agentRuns";
@@ -98,7 +98,7 @@ export function senderHarness(listed: string | undefined, named: string | undefi
 /// its harness's mark, else the neutral agent glyph in its own stable tone.
 export function SenderMark({ message }: { message: IncomingMessage }) {
   const chief = useChiefFace(message.chief);
-  const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
+  const sender = useSenderChat(message.chief ? "" : (message.lookup ?? message.name), message.sessionId);
   const avatar = useAgentAvatar(sender.sessionId);
   const harness = senderHarness(sender.harness, message.harness);
   const picture = message.chief ? chief?.src : avatar;
@@ -173,7 +173,7 @@ export function SenderName({
   // A Chief's message names the Chief and draws its avatar (chiefFace.ts); its turn session is no
   // chat of the list, so no listed chat with its name stands in for it, and it is no chat to open.
   const chief = useChiefFace(message.chief);
-  const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
+  const sender = useSenderChat(message.chief ? "" : (message.lookup ?? message.name), message.sessionId);
   const name = (message.chief && chief?.name) || senderLabel(message.name, sender.host);
   // Read only (a guest): the sender's chat is not this reader's to open.
   const readOnly = useTranscriptReadOnly();
@@ -188,7 +188,6 @@ export function SenderName({
   // the session link either way, never a pill a click does nothing on (Leo, 2026-11-05: "i can't
   // click to go to these for some reason"). A Chief, a tool's notice, an app's persona or a batch
   // of senders is no one chat to ask for.
-  const subsessions = useContext(SubsessionContext);
   const asks =
     !listed &&
     !message.chief &&
@@ -196,9 +195,11 @@ export function SenderName({
     !toolNotice &&
     !message.app &&
     !inboxNames &&
-    message.name.trim() !== "" &&
+    (message.lookup ?? message.name).trim() !== "" &&
     sessionRefsResolve();
-  const query = asks ? message.name.trim() : undefined;
+  // acpmux's record of who sent it, never the line's text, which may carry a note for the reader
+  // ("(self-declared, unauthenticated)"): asked by that text, no chat ever matched (Leo, 2026-11-07).
+  const query = asks ? (message.lookup ?? message.name).trim() : undefined;
   const resolved = useSessionRef(query, false);
   useEffect(
     () => (query && resolved === undefined ? whenIdle(() => void resolveSessionRef(query)) : undefined),
@@ -208,11 +209,13 @@ export function SenderName({
   // The chat the name opens shows its hover card, as any reference to a chat does; the card opens it
   // as the name does, as a sender.
   const { trigger: hover, card } = useSessionHover(sessionId ?? "", onOpen);
+  // The tab opens on the click, never after a round trip: by the chat's id once acpmux named it,
+  // else by what the sender is asked for by, which the new tab resolves itself and, when no machine
+  // here has that chat, says so in place (direct.ts `resolveMissing`). Leo, 2026-11-07: "I expect to
+  // see, okay, my right pane is going to either gain a new tab or, like, split".
   const openAsked = () => {
     if (!query) return;
-    void resolveSessionRef(query).then((target) =>
-      target ? onOpen(target.sessionId) : subsessions?.senderMissing?.(query),
-    );
+    onOpen(resolved?.sessionId ?? query);
   };
   const from = inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
   const icon =

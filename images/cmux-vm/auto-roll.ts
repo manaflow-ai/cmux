@@ -39,6 +39,9 @@ export const AUTO_PREFIX = "cloud-native-auto-";
 export const KEEP_AUTO = 6;
 /** The Worker refuses a longer list and then disables every approved image (src/upstream/live-images.ts). */
 export const MAX_ENTRIES = 32;
+/** Cloudflare refuses a Worker text binding over 5.1 kB (code 10054), so the whole deploy fails (cmux-vm runs
+ * 42361417513 and 42361837374: staging's 26 entries were 6.0 kB). Bytes of the binding's value, the list's JSON. */
+export const MAX_BYTES = 5_120;
 export const SERVICES = {
   production: ["cloud-platform-production", "ci-product-smoke"],
   staging: ["cloud-platform-dev", "cloud-platform-staging"],
@@ -78,6 +81,9 @@ export function locate(text: string, env: Env): { start: number; end: number; im
 
 export function replaceList(text: string, env: Env, images: BootImage[]): string {
   validate(images, env);
+  // Only a write is held to the size cap: settle still reads a deployed commit's list from before a trim.
+  const bytes = Buffer.byteLength(JSON.stringify(images), "utf8");
+  if (bytes > MAX_BYTES) throw new Error(`env ${env} VM_BOOT_IMAGES: ${bytes} bytes, at most ${MAX_BYTES} (Cloudflare's text binding limit)`);
   const { start, end } = locate(text, env);
   return text.slice(0, start) + JSON.stringify(JSON.stringify(images)) + text.slice(end);
 }

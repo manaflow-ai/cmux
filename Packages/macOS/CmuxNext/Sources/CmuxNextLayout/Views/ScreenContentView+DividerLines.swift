@@ -1,8 +1,12 @@
 import AppKit
+import CmuxNextDesign
 
 extension ScreenContentView {
     /// Whether the handle of `kind` draws its line at rest: the style's line between panes, or, while
     /// panes are outlined (`borders`), a split's line beside a pane that draws no outline of its own.
+    /// A column edge draws the same line where it parts two columns, or a dock from the strip: every pane
+    /// edge shows the faint line the sidebar's edge shows (Leo, 2026-11-07). The strip's last column edge
+    /// parts nothing and draws none.
     /// An agent chat and a New Tab page share the window's glass without a pane outline
     /// (`PaneContentChrome.paneFramesContent`), so two of them side by side under `panes` had nothing
     /// between them (https://github.com/manaflow-ai/cmux/issues/37425).
@@ -10,6 +14,12 @@ extension ScreenContentView {
         let style = context.style
         if kind.usesRowSeparator { return style.showsRowSeparator }
         if case let .split(id) = kind, hiddenDividers.contains(id) { return false }
+        if case let .columnEdge(column) = kind {
+            // Where a split draws its line: the style's, or a theme's split divider color (`DividerHandleView`).
+            guard let edge = baseGeometry.columnEdges.first(where: { $0.column == column }),
+                  edge.dockEdge != nil || baseGeometry.columnOrder.last != column else { return false }
+            return style.showsDividerLine || performWithTheme { Palette.surfaceOverride(.splitDivider) != nil }
+        }
         if style.showsDividerLine { return true }
         guard style.drawsLines, style.showsPaneBorder, case let .split(id) = kind,
               let divider = baseGeometry.dividers.first(where: { $0.id == id }) else { return false }

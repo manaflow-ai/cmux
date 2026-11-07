@@ -132,6 +132,9 @@ export function scrub(text: string, secrets: string[] = []): string {
   return out;
 }
 
+/** A failed command's output for a step's detail: its start, where a CLI puts the error, and its end. */
+const headTail = (out: string): string => (out.length <= 600 ? out : `${out.slice(0, 300)} ... ${out.slice(-300)}`);
+
 export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<string, string> = {}): string {
   const failed = steps.filter((s) => s.status === "fail").length;
   const total = steps.reduce((n, s) => n + s.ms, 0);
@@ -1011,7 +1014,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (team) args.push("--team", team);
           const r = spawnSync(gatewayCmux, args, { encoding: "utf8", timeout: 600_000, env: { PATH: process.env.PATH ?? "", HOME: dir } });
           const out = scrub(`${r.stdout ?? ""}${r.stderr ?? ""}`, J.secrets);
-          if (r.status !== 0 || !out.includes("Path: gateway")) throw new Error(`exit ${r.status}: ${out.slice(-600)}`);
+          if (r.status !== 0 || !out.includes("Path: gateway")) throw new Error(`exit ${r.status}: ${headTail(out)}`);
           return { value: null, detail: out.trim().split("\n").filter((l) => l.startsWith("Path:") || l.startsWith("This machine")).join(" ").slice(0, 300) };
         } finally {
           rmSync(dir, { recursive: true, force: true });
@@ -1050,7 +1053,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (team) args.push("--team", team);
           const r = spawnSync(gatewayLocal, args, { encoding: "utf8", timeout: 600_000, env: { PATH: process.env.PATH ?? "", HOME: dir } });
           const out = scrub(`${r.stdout ?? ""}${r.stderr ?? ""}`, J.secrets);
-          if (r.status !== 0 || !out.includes("Path: gateway")) throw new Error(`exit ${r.status}: ${out.slice(-600)}`);
+          if (r.status !== 0 || !out.includes("Path: gateway")) throw new Error(`exit ${r.status}: ${headTail(out)}`);
           return { value: null, detail: out.trim().split("\n").filter((l) => l.startsWith("Path:") || l.startsWith("This machine")).join(" ").slice(0, 300) };
         } finally {
           rmSync(dir, { recursive: true, force: true });
@@ -1200,7 +1203,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: prompt.slice(0, 80) };
       });
       await J.step("reply", async () => {
-        const last = await awaitReply();
+        const last = await awaitReply().catch(async (e: Error) => {
+          if (!gwExec && !gatewayLocal) throw e;
+          // Through a gateway, what the chat machine's Codex had to reach the edge with: the model-plane files, the
+          // machine kind and Codex's auth choice, the provider its config names, and whether a login shell and the
+          // daemon carry the edge's base URL and key (the base URL as edge, other or unset; the key as set or not).
+          const probe = [
+            `ls /etc/cmux/model-plane.env "$HOME/.config/cmux/model-plane.env" /etc/profile.d/cmux-agents.sh 2>&1 | tr '\\n' ' '`,
+            `echo "kind=$(cat /etc/cmux/vm-kind 2>/dev/null) codex-auth=$(cat "$HOME/.config/cmux/agent-auth/codex" 2>/dev/null)"`,
+            `grep -nE '^(model_provider|profile) *=|^\\[model_providers' "$HOME/.codex/config.toml" 2>&1 | tr '\\n' ' '`,
+            `bash -lc 'case "\${OPENAI_BASE_URL-}" in https://coderouter.cmux.internal*) b=edge ;; "") b=unset ;; *) b=other ;; esac; echo "login-shell: base=$b key=\${OPENAI_API_KEY:+set}"' 2>&1 | tail -1`,
+            `for p in $(pgrep -u "$(id -u)" -f 'cmux-tui|acpmux' | head -3); do echo "pid $p: $(tr '\\0' '\\n' < /proc/$p/environ 2>/dev/null | grep -E '^OPENAI_(BASE_URL|API_KEY)=' | sed 's/=.*/=set/' | tr '\\n' ' ')"; done`,
+          ].join("; ");
+          const d = await exec(probe).catch(() => null);
+          throw new Error(`${e.message} (the chat machine: ${(d?.stdout ?? "unread").replace(/\n/g, "; ").slice(0, 900)})`);
+        });
         // The stub repeats the Bash output in its reply, so this also proves the tool ran and its output came back.
         if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) throw new Error(`the reply does not carry the stub's nonce ${nonce} and the tool output: ${last.slice(-200)}`);
         return { value: last, detail: last.slice(0, 280) };

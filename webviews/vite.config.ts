@@ -24,6 +24,7 @@ export default defineConfig({
   // The handoff schema is a published wire fixture; schema.test.ts verifies its exact bytes.
   ...cmuxCheckConfig({
     effectCleanupPlugin: fileURLToPath(new URL("./scripts/lint/effect-cleanup.mjs", import.meta.url)),
+    perfPlugin: fileURLToPath(new URL("./scripts/lint/perf-footguns.mjs", import.meta.url)),
     fmtIgnorePatterns: [
       "src/diff/generated/**",
       // A markdown test document: its exact syntax (*** rules, odd spacing) is what it tests.

@@ -361,6 +361,7 @@
         "CmuxNextVSCodeServer",
         "CmuxNextWakeups",
         "CmuxNextWebUpdates",
+        "CmuxNextWindowRules",
         "CmuxNextWorkspaceNaming",
         "CmuxNextWorkspaceRepair"
       ],
@@ -477,6 +478,7 @@
         "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport",
         "CmuxNextWebUpdates",
+        "CmuxNextWindowRules",
         "CmuxNextWorkspaceNaming",
         "CmuxNextWorkspaceRepair"
       ],
@@ -578,6 +580,7 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextPages",
         "CmuxNextRemoteFetch",
         "CmuxNextRemoteLayer",
         "CmuxNextWakeups"
@@ -1957,7 +1960,9 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextPages",
         "CmuxNextResources",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -2183,6 +2188,15 @@
         "CmuxNextSettings",
         "CmuxNextUpdater",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextWindowRules": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules",
+      "targets": [
+        "CCmuxAppFFI",
+        "CmuxNextDaemon"
       ],
       "packages": []
     },

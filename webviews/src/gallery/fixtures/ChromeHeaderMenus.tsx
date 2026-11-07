@@ -79,8 +79,9 @@ export const chromeDeveloperMenu: readonly ChromeMenuRow[] = [
   row("inspector", "ACP inspector", "developer"),
   row("revokeAccess", "Revoke Granted Access", "developer", { children: [row("grant", "Project folder", "folder")] }),
   row("instructions", "Edit AGENTS.md", "text"),
-  row("setAvatar", "Set Avatar…", "agent", { separatorBefore: true }),
-  row("removeAvatar", "Remove Avatar", "agent"),
+  row("setAvatar", "Set Chat Avatar…", "agent", { separatorBefore: true }),
+  row("removeAvatar", "Remove Chat Avatar", "agent"),
+  row("showInMini", "Show in Mini", "agent"),
 ];
 
 // Every action in the old top-level menu remains reachable, including state-dependent actions.
