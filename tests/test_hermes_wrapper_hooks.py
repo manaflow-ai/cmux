@@ -879,7 +879,7 @@ def test_tui_python_wrapper_skips_venv_for_other_python_version(failures: list[s
             )
 
 
-def run_tui_python_wrapper_under_frontend(marker: str) -> str:
+def run_tui_python_wrapper_under_frontend(marker: str, python_frontend: str | None = None) -> str:
     """Run the gateway as a frontend such as oh-my-hermes does (#36999).
 
     A Python launcher starts two shells, standing in for the frontend's Node
@@ -887,7 +887,9 @@ def run_tui_python_wrapper_under_frontend(marker: str) -> str:
     launcher pid the cmux `hermes` shim exports: "launcher" for the launcher's
     own pid, "unrelated" for a live process that is not an ancestor, "unset"
     for none. A `python3` first on PATH writes its own marker, so the result
-    tells the launcher from the wrapper's fallback.
+    tells the launcher from the wrapper's fallback. `python_frontend` adds a
+    frontend process run by that other interpreter between the shells; the
+    gateway writes "frontend-python" when it runs under that interpreter.
     """
     with tempfile.TemporaryDirectory(prefix="cmux-hermes-python-test-") as td:
         tmp = Path(td)
@@ -907,10 +909,14 @@ def run_tui_python_wrapper_under_frontend(marker: str) -> str:
         gateway = [
             str(SOURCE_TUI_PYTHON_WRAPPER),
             "-c",
-            "import sys; open(sys.argv[1], 'w').write('launcher')",
+            "import sys; open(sys.argv[1], 'w').write('launcher' if sys.prefix == sys.argv[2] else 'frontend-python')",
             str(output),
+            sys.prefix,
         ]
         frontend = ["/bin/sh", "-c", '"$0" "$@"; exit $?']
+        middle = list(frontend)
+        if python_frontend is not None:
+            middle = [python_frontend, "-c", "import subprocess, sys; sys.exit(subprocess.run(sys.argv[1:]).returncode)"]
         launcher = (
             "import os, subprocess, sys; "
             "env = dict(os.environ); "
@@ -919,7 +925,7 @@ def run_tui_python_wrapper_under_frontend(marker: str) -> str:
         )
         try:
             subprocess.run(
-                [sys.executable, "-c", launcher, *frontend, *frontend, *gateway],
+                [sys.executable, "-c", launcher, *frontend, *middle, *gateway],
                 env=env,
                 capture_output=True,
                 text=True,
@@ -948,6 +954,24 @@ def test_tui_python_wrapper_skips_non_python_launcher_ancestors(failures: list[s
             f"non-Python frontend, {label}: expected {expected}, got {selected}",
             failures,
         )
+
+    # A frontend run by a different Python sits between the launcher and the
+    # gateway. The marked launcher is Hermes's interpreter, not the nearer one.
+    other_python = "/usr/bin/python3"
+    other_prefix = None
+    if os.access(other_python, os.X_OK):
+        probe = subprocess.run([other_python, "-c", "import sys; print(sys.prefix)"], capture_output=True, text=True)
+        if probe.returncode == 0:
+            other_prefix = probe.stdout.strip()
+    if other_prefix and other_prefix != sys.prefix:
+        selected = run_tui_python_wrapper_under_frontend("launcher", python_frontend=other_python)
+        expect(
+            selected == "launcher",
+            f"Python frontend below the marked launcher: expected launcher, got {selected}",
+            failures,
+        )
+    else:
+        print("SKIP: Python frontend case needs a second interpreter at /usr/bin/python3")
 
 
 def test_tui_gateway_rejects_retired_cmux_python_wrapper(failures: list[str]) -> None:
