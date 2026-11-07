@@ -69,7 +69,7 @@ final class KeyboardPinTrace: NSObject {
         }
         let inHost = hit.map { $0 === host || $0.isDescendant(of: host) } ?? false
         let shift = String(format: "%.0f", shiftY)
-        if MobileMovingTapTargets.shared.claims(point, in: window) || (inHost && model.contains(point)) {
+        if MobileMovingTapTargets.app?.claims(point, in: window) == true || (inHost && model.contains(point)) {
             shared.record(tap: "\(label):hit(\(shift))")
         } else {
             var name = "none"

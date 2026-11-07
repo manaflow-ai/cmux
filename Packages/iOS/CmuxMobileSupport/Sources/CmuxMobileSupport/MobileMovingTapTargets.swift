@@ -12,7 +12,7 @@ public import UIKit
 /// end frame at once), so the key could not reverse a moving keyboard
 /// (KeyboardToggleInterruptUITests, 10 of 15 mid-animation presses).
 ///
-/// The app's `UIApplication.sendEvent(_:)` asks ``route(_:)`` first. A touch
+/// The app's `UIApplication` (``Routing``) asks ``route(_:)`` first in `sendEvent(_:)`. A touch
 /// that begins inside a registered target's drawn frame while its host is
 /// drawn away from its model position, and outside the target's model frame
 /// (where UIKit's own routing still reaches it), belongs to the target: its
@@ -20,7 +20,17 @@ public import UIKit
 /// control's tap would. Everything else goes on to UIKit untouched.
 @MainActor
 public final class MobileMovingTapTargets {
-    public static let shared = MobileMovingTapTargets()
+    /// The app's router: the one its `UIApplication` offers events to, `nil`
+    /// in a process whose application has none (tests, extensions).
+    public static var app: MobileMovingTapTargets? {
+        (UIApplication.shared as? Routing)?.movingTapTargets
+    }
+
+    /// An application that offers its events to ``route(_:)`` first.
+    @MainActor
+    public protocol Routing: AnyObject {
+        var movingTapTargets: MobileMovingTapTargets { get }
+    }
 
     private struct Target {
         weak var host: UIView?

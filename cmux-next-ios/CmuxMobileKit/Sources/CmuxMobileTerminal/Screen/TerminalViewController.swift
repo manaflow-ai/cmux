@@ -318,7 +318,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     isolated deinit {
-        MobileMovingTapTargets.shared.unregister(self)
+        MobileMovingTapTargets.app?.unregister(self)
         outputLink?.invalidate()
         followFallback?.invalidate()
         if outputPaused { model.session.setOutputPaused(false) }
@@ -379,7 +379,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // A tap on the keyboard key where it is drawn while the dock rides the
         // keyboard reverses the keyboard: UIKit alone sends it to whatever is at
         // the key's end position (the terminal, or the rising keyboard).
-        MobileMovingTapTargets.shared.register(
+        MobileMovingTapTargets.app?.register(
             self,
             host: keyBar.view,
             frame: { [weak model] in model?.keyboardKeyFrame },
