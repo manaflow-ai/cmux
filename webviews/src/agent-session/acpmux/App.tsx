@@ -15,6 +15,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
+import { ShareDialogHost } from "./share/ShareControl";
 import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { chatOnThisMac, chatPlace } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, thisMacName } from "./environments";
@@ -47,7 +48,7 @@ import {
   useSessionAuth,
   UNKNOWN_AUTH,
 } from "./sessionAuth";
-import { postNative } from "./native";
+import { hasNativeHost, postNative } from "./native";
 import { OpenAppCard, afterLatestFooter } from "./OpenAppCard";
 import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPorts";
 import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
@@ -66,7 +67,8 @@ import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
-import { ContextScreen, type ContextOverride } from "./context/ContextScreen";
+import { ContextScreen } from "./context/ContextScreen";
+import { contextAccess, contextSave } from "./context/contextAccess";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import {
   injectedNewTabContext,
@@ -241,7 +243,7 @@ import {
   withChatEnds,
   type SubagentScope,
 } from "./session-info/subagentScope";
-import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
+import { pendingToolCalls, waitingSubagents } from "./summary/subagentStatusListModel";
 import { SubagentTray } from "./subagents/SubagentTray";
 import { pullTabCounts, TrayPullTab, tuckTray } from "./subagents/TrayPullTab";
 import { agentProgressSource } from "./subagents/agentProgressSource";
@@ -252,14 +254,17 @@ import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTa
 import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
 import { settleTrayExit } from "./subagents/trayMotion";
 import { runRetry, type RetryTarget } from "./subagents/retryState";
-import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/WorkflowCard";
+import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
   finishedTrayItems,
+  type TrayItem,
+  trayItemKey,
   trayItems,
   useSubagentTray,
   withSubagentLines,
 } from "./subagents/runningTray";
+import { lingeringTrayItems, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { SelectionReplyChip, setQuoteReplySink } from "./conversation/SelectionReply";
 import { AgentTonesContext, agentTone, agentTones } from "./subagents/agentTones";
@@ -368,7 +373,15 @@ import {
   waitingAsks,
 } from "./conversation/turns";
 import { PendingAsks } from "./conversation/PendingAsks";
-import { bottomAsks, dismissAsk, dismissedAsks, shownAsks } from "./conversation/waitingAskStore";
+import {
+  answerState,
+  bottomAsks,
+  claimAnswer,
+  dismissAsk,
+  dismissedAsks,
+  setAnswerState,
+  shownAsks,
+} from "./conversation/waitingAskStore";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
@@ -417,13 +430,8 @@ import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
-import {
-  ChatHeaderTools,
-  HEADER_ACTIONS,
-  guardedChatMenu,
-  menuGroups,
-  type ChatMenuItem,
-} from "./header/ChatHeaderTools";
+import { ChatHeaderTools } from "./header/ChatHeaderTools";
+import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "./header/chatHeaderToolsModel";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
@@ -1067,7 +1075,9 @@ const NO_HAT_QUESTIONS: readonly HatQuestion[] = [];
 /// leaves the question waiting, and the reply still goes.
 function withdrawForTypedReply<T>(
   permission: AcpmuxPermission | undefined,
-  client: { markAnsweredInChat(permissionId: string): void } | undefined,
+  client:
+    | { markAnsweredInChat(permissionId: string): void; unmarkAnsweredInChat(permissionId: string): void }
+    | undefined,
   send: () => Promise<T>,
 ): Promise<T> {
   const question = permission?.question;
@@ -1075,8 +1085,26 @@ function withdrawForTypedReply<T>(
   if (!sent || !permission) return send();
   client?.markAnsweredInChat(permission.permissionId);
   return callNative("chat.permission", replyParams(sent))
-    .catch(() => undefined)
+    .catch(() => client?.unmarkAnsweredInChat(permission.permissionId))
     .then(send);
+}
+
+/// A tagged ask's answer from the hat, as its transcript card sends one (NextStepCard.tsx): it claims
+/// the answer and shares the card's state under the card's key, so the card and the hat never send it
+/// twice, and one already on its way from the card is not sent again.
+function answerNextStep(question: HatQuestion, label: string): Promise<unknown> {
+  const key = question.answerKey;
+  if (!key) return answerThrough(callNative)(label);
+  if (answerState(key).sending !== undefined) return Promise.resolve();
+  claimAnswer(key, label);
+  setAnswerState(key, { sending: label });
+  return answerThrough(callNative)(label).then(
+    () => setAnswerState(key, {}),
+    (error: unknown) => {
+      setAnswerState(key, { failed: true });
+      throw error;
+    },
+  );
 }
 
 /// What the hat's buttons do (question/HatQuestions.tsx). The chat's own question is answered as its
@@ -1089,7 +1117,7 @@ const hatActions = (focusComposer: () => void, reaches: (owner: string) => boole
     // refused rejects, so the band takes input again; one acpmux already took counts as sent.
     if (question.source === "nextStep")
       return question.sessionId && reaches(question.sessionId)
-        ? answerThrough(callNative)(answer.label)
+        ? answerNextStep(question, answer.label)
         : Promise.reject(new Error("unreachable"));
     const asked = question.question;
     const item = asked?.items[0];
@@ -1345,6 +1373,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// composer, not the New Tab page that would remount without it) until a chat starts here or the
   /// host hands the page another new chat.
   const [sandboxDraftMoved, setSandboxDraftMoved] = useState(false);
+  /// The Share dialog, opened by the chat menu's Share… (share/ShareControl.tsx).
+  const [shareOpen, setShareOpen] = useState(false);
   const [sandbox] = useState(
     () =>
       new SandboxTab(callNative, (text) => {
@@ -1591,6 +1621,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ),
     [clientSnapshot, switchView, catalog],
   );
+  // The dialog belongs to the chat it opened on: switching chats closes it.
+  const [shareChat, setShareChat] = useState(snapshot.sessionId);
+  if (shareChat !== snapshot.sessionId) {
+    setShareChat(snapshot.sessionId);
+    setShareOpen(false);
+  }
   // Updated by the client before React renders, so a late Trust save cannot replay into a new
   // route during that interval. The catalog generation changes only when the client changes.
   const trustRouteSnapshot = useRef(snapshot);
@@ -3032,6 +3068,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     for (const key of keys) openFold(key);
   });
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  // Jump to latest shows over the stage's foot (VirtualTranscript): the bottom toast deck stands above
+  // it while it does (toastLayer.css), so a toast never covers the button or takes its clicks. Written
+  // straight onto the pane's main element, never pane state: the button comes and goes as the reader
+  // scrolls, and a pane render per scroll would draw Session Info and the rest again.
+  const paneMain = useRef<HTMLDivElement | null>(null);
+  const jumpLatestShown = useRef(false);
+  const jumpLatestUnderInspector = useRef(false);
+  const markJumpLatest = useCallback(() => {
+    paneMain.current?.toggleAttribute("data-jump-latest", jumpLatestShown.current && !jumpLatestUnderInspector.current);
+  }, []);
+  const setJumpLatestShown = useCallback(
+    (shown: boolean) => {
+      jumpLatestShown.current = shown;
+      markJumpLatest();
+    },
+    [markJumpLatest],
+  );
+  const setPaneMain = useCallback(
+    (element: HTMLDivElement | null) => {
+      paneMain.current = element;
+      markJumpLatest();
+    },
+    [markJumpLatest],
+  );
   // The ··· menu's Text & Width popover (ChatDisplaySettings.tsx), anchored to the menu button.
   const [displayAnchor, setDisplayAnchor] = useState<HTMLElement | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -3044,6 +3104,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     inspectorOpenRef.current = false;
     setInspectorOpen(false);
   }, []);
+  useLayoutEffect(() => {
+    jumpLatestUnderInspector.current = inspectorOpen;
+    markJumpLatest();
+  }, [inspectorOpen, markJumpLatest]);
   useLayoutEffect(() => {
     if (inspectorOpen || !inspectorOpener.current) return;
     inspectorOpener.current.focus();
@@ -4795,8 +4859,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // A Usage row opens that chat, this Mac's or a peer's, beside this one or in the tab showing it.
     onOpenChat: openSenderChat,
     onCompact: compactChat,
-    // acpmux hands cmux's prompt text and its editing only to this Mac's app (server/requests/context.rs).
-    onViewPrompt: quick || snapshot.origin !== "local" || !snapshot.sessionId ? undefined : openContext,
+    // Only where the chat's daemon admits this connection to its context (context/contextAccess.ts).
+    onViewPrompt: quick || !contextAccess(snapshot) ? undefined : openContext,
     onShowUsage: refreshUsage,
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
@@ -4890,11 +4954,57 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runningCommandList is new on every snapshot; its key is not
     [subagentTray, trayAgents, commandsKey, childSessions, snapshot.isWorking],
   );
-  // What ended, behind the tray's bounded status cards; never in its count.
-  const trayFinished = useMemo(
-    () => (subagentTray ? finishedTrayItems(trayAgents, childSessions) : []),
-    [subagentTray, trayAgents, childSessions],
+  // What ended stays in the hat a while as done, failed or stopped, then goes (subagents/trayLinger.ts;
+  // Leo, 2026-11-07: "it's probably better to let them expire after a while. But the key point: after
+  // a while. Okay, they, like, disappear instantly"): the subagents and started chats that ended, and
+  // the background commands that ended (the registry's, with their exit and end, and the transcript's).
+  // Never in the header's running count. A new list only when what ended changes, never per token.
+  const endedCommandList = useMemo(
+    () =>
+      subagentTray
+        ? backgroundCommands(processRegistry.processes, transcriptTasks, processRegistry.listed).filter(
+            (command) => command.state !== "running",
+          )
+        : NO_COMMANDS,
+    [subagentTray, processRegistry, transcriptTasks],
   );
+  const endedCommandsKey = endedCommandList
+    .map((task) =>
+      [
+        task.id,
+        task.state,
+        task.command,
+        task.description ?? "",
+        task.startedAt ?? "",
+        task.endedAt ?? "",
+        task.toolCallId ?? "",
+        task.subagent ?? "",
+      ].join("\u0000"),
+    )
+    .join("\u0001");
+  const endedCommandItems = useMemo((): TrayItem[] => {
+    const byId = new Map(trayAgents.map((agent) => [agent.id, agent]));
+    return endedCommandList.map((command) => {
+      const owner = command.subagent === undefined ? undefined : byId.get(command.subagent);
+      return { kind: "command", id: command.id, command, ...(owner ? { owner } : {}) };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- endedCommandList is new on every snapshot; its key is not
+  }, [endedCommandsKey, trayAgents]);
+  const endedTray = useMemo(
+    () => (subagentTray ? [...endedCommandItems, ...finishedTrayItems(trayAgents, childSessions)] : []),
+    [subagentTray, endedCommandItems, trayAgents, childSessions],
+  );
+  const lingerLive = useMemo(() => trayList.map(trayItemKey), [trayList]);
+  const lingerEnded = useMemo(
+    () => endedTray.map((item) => ({ key: trayItemKey(item), endedAt: trayItemEnd(item) })),
+    [endedTray],
+  );
+  // The hat is open or under the pointer: nothing expires until it lets go (SubagentTray.tsx `onHold`).
+  const [hatHeld, setHatHeld] = useState(false);
+  // On the session's clock, as the ends are stamped (a peer's may run behind or ahead of this one).
+  const lingerClock = useMemo(() => ({ offsetMs: snapshot.clockOffsetMs ?? 0 }), [snapshot.clockOffsetMs]);
+  const lingering = useTrayLinger(shownSessionId, lingerLive, lingerEnded, hatHeld, lingerClock);
+  const trayFinished = useMemo(() => lingeringTrayItems(endedTray, lingering), [endedTray, lingering]);
   // The turn's generated output tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
   // Its output apart from what it read, when every call carried the split; held by its numbers, as
@@ -5261,6 +5371,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             planEarlier={hatEarlier}
             onTuck={trayPlacement === "tray" ? tuckTray : undefined}
             tuckSide={trayHandle}
+            onHold={setHatHeld}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
@@ -8643,6 +8754,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           if (outcome === "unavailable") ignoreFailure(copyText(markdown));
         }),
     );
+    const share: ChatMenuItem | undefined =
+      snapshot.sessionId && hasNativeHost()
+        ? { key: "share", label: t("share.menu"), icon: "action.share", onSelect: () => setShareOpen(true) }
+        : undefined;
     // Fork immediately; destination choices are a separate action and Option-click shortcut.
     const fork =
       forkable && lastForkSeq !== undefined ? forkMenuRows(lastForkSeq, () => turnActions.fork?.(lastForkSeq), t) : [];
@@ -8786,7 +8901,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ],
       [...opensBeside, ...fork],
       continueIn,
-      copy ? [copy] : [],
+      // Share… beside Copy (Leo, 2026-11-07: "put it in the dot dot dot area"): a started chat in the app.
+      [...(share ? [share] : []), ...(copy ? [copy] : [])],
       [
         {
           key: "moveRight",
@@ -9378,6 +9494,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                             working={snapshot.isWorking}
                                                             // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
                                                             jumpButton={!quick}
+                                                            onJumpShownChange={quick ? undefined : setJumpLatestShown}
                                                             needsYou={needsYou.pill}
                                                             focusComposer={() => composerHandle.current?.focus()}
                                                             // Quick Chat's panel stacks its composer below the transcript.
@@ -10635,16 +10752,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       </SubagentClockContext.Provider>
     </SubagentStopContext.Provider>
   );
+  const contextSaveFn = contextSave(snapshot, directClient.current, contextSessionId);
   const contextPage = (
     <ContextScreen
       load={loadContext}
-      {...(snapshot.origin === "local" && directClient.current && contextSessionId
-        ? {
-            save: (change: ContextOverride) =>
-              directClient.current?.setContextOverride(change, contextSessionId) ??
-              Promise.reject(new Error(translate("error.notOpen"))),
-          }
-        : {})}
+      {...(contextSaveFn ? { save: contextSaveFn } : {})}
       onClose={() => setContextOpen(false)}
     />
   );
@@ -10714,6 +10826,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // `:has()` over the pane: that would be checked again for every node a streamed chunk inserts
           // into the transcript, and restyle the composer each time.
           data-asks={hasBottomAsk ? "" : undefined}
+          // data-jump-latest: Jump to latest is up (hidden under the inspector), set by setJumpLatestShown.
+          ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
           {!harnessesOpen && showNewTab && !newTab.history && (
@@ -11006,6 +11120,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                       fallback={snapshot.presence}
                     />
+                    {/* No Share button here: Share… lives in the ••• menu (Leo, 2026-11-07: "would that
+                        defeat the minimalism? ... you'd want to put it in the dot dot dot area").
+                        This only hosts its dialog; the faces before it draw only when someone else
+                        is here. */}
+                    {snapshot.sessionId && !showNewTab && hasNativeHost() && (
+                      <ShareDialogHost
+                        key={snapshot.sessionId}
+                        sessionId={snapshot.sessionId}
+                        chat={chatName}
+                        open={shareOpen}
+                        onOpenChange={setShareOpen}
+                      />
+                    )}
                     {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
                     {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     <ChatHeaderTools

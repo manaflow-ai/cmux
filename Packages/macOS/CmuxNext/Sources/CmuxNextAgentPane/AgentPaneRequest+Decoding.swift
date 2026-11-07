@@ -415,6 +415,13 @@ extension AgentPaneRequest {
             if let session = params?["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 256 {
                 self = method == "agent.avatar" ? .agentAvatar(session) : method == "agent.avatar.set" ? .setAgentAvatar(session) : .removeAgentAvatar(session)
             } else { self = .unsupported(method) }
+        case "agent.mini":
+            self = .miniSubject
+        case "agent.mini.show":
+            // A session id is short; null (or absent) is the Chief.
+            if let session = params?["sessionId"] as? String {
+                self = !session.isEmpty && session.utf8.count <= 256 ? .showInMini(session) : .unsupported(method)
+            } else { self = .showInMini(nil) }
         case "chief.face":
             // A Chief's participant id (acpmux `fromChief`): `agent_` and a short token.
             if let chief = params?["chief"] as? String, chief.hasPrefix("agent_"), (7...64).contains(chief.utf8.count),

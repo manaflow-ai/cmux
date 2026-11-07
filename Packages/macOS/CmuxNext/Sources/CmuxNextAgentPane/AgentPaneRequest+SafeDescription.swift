@@ -68,6 +68,8 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .agentAvatar: "agentAvatar"
         case .setAgentAvatar: "setAgentAvatar"
         case .removeAgentAvatar: "removeAgentAvatar"
+        case .miniSubject: "miniSubject"
+        case .showInMini: "showInMini"
         case .chiefFace: "chiefFace"
         case .harnessSymbol: "harnessSymbol"
         case .nowPlaying: "nowPlaying"

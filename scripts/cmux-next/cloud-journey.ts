@@ -322,6 +322,9 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
   };
 }
 
+/** The carrier dials still running, so a cancelled journey stops them instead of leaving them to their deadline. */
+const carrierDials = new Set<ReturnType<typeof spawn>>();
+
 /**
  * `cmux carrier dial` (design/cloud-carrier.md): this device reaches the machine's session daemon over its relay slot,
  * with the person's credential, as the app will. It passes when the dial reports the carrier route and one identify
@@ -335,6 +338,8 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
   const env = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
   const args = ["carrier", "dial", "--machine", machine, "--deadline-ms", String(deadlineMs), ...(api.team ? ["--team", api.team] : [])];
   const child = spawn(cmux, args, { env, stdio: ["pipe", "pipe", "pipe"] });
+  carrierDials.add(child);
+  child.on("exit", () => carrierDials.delete(child));
   // A cmux that does not start, or a dial that exits before its stdin is written, fails this step, not the journey.
   let failed: Error | null = null;
   const failure = new Promise<never>((_, reject) => {
@@ -377,6 +382,8 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
       const line = await within(status === undefined ? "status line" : "ok route line", err());
       if (line === null) throw new Error(`carrier dial: ${status === undefined ? "ended with no status line" : "ended with no ok route line"}`);
       const attempt = /^cloud\.connect route=carrier .*outcome=(\S+) ms=(\d+)/.exec(line);
+      // The dial's status line comes first (cmux-tui spec/cli.md), so a route line before it is out of contract.
+      if (attempt && status === undefined) throw new Error(`carrier dial: a route line before the status line: ${short(line)}`);
       if (attempt) {
         if (attempt[1] === "ok") connectMs = Number(attempt[2]);
         else retries += 1;
@@ -933,6 +940,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   };
   // A job cancel or timeout sends SIGTERM, which skips `finally`: clean up, write results, exit.
   const onSignal = (signal: string) => {
+    for (const dial of carrierDials) dial.kill("SIGTERM");
     void cleanup().finally(() => {
       J.flush();
       writeProbe();

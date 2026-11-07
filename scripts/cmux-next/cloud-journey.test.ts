@@ -208,12 +208,20 @@ read -r line; echo '{"event":"pushed","conn":0}'; echo '{"id":1,"ok":true,"data"
   });
 
   test("a failed attempt the dial retries is counted, and the ok attempt's time is the connect time", async () => {
-    const { dir, bin } = fakeCmux(`echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=relay ms=3001' >&2
-echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+    const { dir, bin } = fakeCmux(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=relay ms=3001' >&2
 echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=640' >&2
 read -r line; echo '{"id":1,"ok":true,"data":{"app":"cmux-tui"}}'; cat >/dev/null`);
     const d = await carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000);
     expect({ connectMs: d.connectMs, retries: d.retries }).toEqual({ connectMs: 640, retries: 1 });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a route line before the status line is out of contract", async () => {
+    const { dir, bin } = fakeCmux(`echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&2
+echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+read -r line; echo '{"id":1,"ok":true,"data":{"app":"cmux-tui"}}'; cat >/dev/null`);
+    await expect(carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("a route line before the status line");
     rmSync(dir, { recursive: true, force: true });
   });
 
