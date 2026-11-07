@@ -207,4 +207,48 @@ const opened: string[] = [];
     </section>,
   );
 };
+// A subagent's command (Leo, 2026-11-07: "me clicking this, the entire box, it just feels like, okay, I
+// would be expanding this"): its title names the subagent, and a click anywhere on the line, the title
+// included, expands it; the way to the subagent is the detail's Open chat. `terminal` says whether the
+// host opens terminals; where it does not, the detail shows no Open in terminal
+// (`window.__showOwnedCommand`).
+(window as unknown as { __showOwnedCommand: (terminal: boolean) => void }).__showOwnedCommand = (terminal) => {
+  const now = Date.now();
+  const agents = [
+    { id: "owner", parent: null, name: "Reviewer", task: "Review the tray", state: "running", startedAt: now - 90_000 },
+  ];
+  view.render(
+    <section className="acpmux-shell" style={{ width: 720 }}>
+      <div className="acpmux-main">
+        <div className="acpmux-dock">
+          <SubagentTray
+            items={trayItems(
+              agents,
+              [
+                {
+                  id: "o/1",
+                  command: "bun test test/running-strip.test.ts",
+                  state: "running",
+                  processId: "o/1",
+                  toolCallId: "call-o",
+                  subagent: "owner",
+                  startedAt: now - 30_000,
+                },
+              ],
+              [],
+              true,
+            )}
+            working
+            waiting={new Set()}
+            onOpen={(id) => opened.push(`agent:${id}`)}
+            onOpenCommand={(entry) => opened.push(`command:${entry.id}`)}
+            canOpenTerminal={terminal}
+            stop={async () => {}}
+            stopProcess={async () => {}}
+          />
+        </div>
+      </div>
+    </section>,
+  );
+};
 document.documentElement.dataset.harnessReady = "1";
