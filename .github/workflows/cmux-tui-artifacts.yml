@@ -2263,7 +2263,7 @@ jobs:
             # The files are independent reads, each to its own name: 8 at once.
             # A name is read once: the legacy mux/ manifest also lists its
             # checksums file, and two reads of one name would race on the
-            # same file and its .partial. A string, not `local -A`: macOS
+            # same file and its .partial. A string, not an associative array: macOS
             # runners have Bash 3.2, which has no associative arrays.
             local seen=" "
             for name in $checksums $names; do
