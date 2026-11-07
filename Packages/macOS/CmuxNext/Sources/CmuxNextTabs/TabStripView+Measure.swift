@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 // Pane chrome measurement (`debug.pane_chrome`, tests).
 extension TabStripView {
