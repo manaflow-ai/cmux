@@ -113,35 +113,43 @@ export function shellWords(step: string): (Word | "|")[] {
   return out;
 }
 
-/// An output redirect (`2>/dev/null`, `>out.txt`, `2>&1`, `&>log`): `target` when its file is the
-/// next word. Input redirects and heredocs are part of what ran and stay.
-const REDIRECT = /^(?:\d*|&)(?:>>?|>&)(.*)$/;
-function redirect(word: Word): "self" | "target" | undefined {
-  if (/^["'`]/.test(word.raw)) return undefined;
-  const match = REDIRECT.exec(word.raw);
-  if (!match) return undefined;
-  return match[1] ? "self" : "target";
-}
+/// An output redirect (`2>/dev/null`, `>out.txt`, `2>&1`, `&>log`) and its target, when the target
+/// is the next word. Input redirects and heredocs are part of what ran and stay.
+const REDIRECT = /^(\d*|&)(>&|>>?)(.*)$/;
 
-/// A step's pipeline stages, each its words without output redirects.
-function stages(step: string): Word[][] {
-  const out: Word[][] = [[]];
-  let skipNext = false;
-  for (const word of shellWords(step)) {
+/// One pipeline stage: its words without redirects (what the table reads), the words a row shows
+/// (a write to a file stays: it changed something), and whether it writes a file.
+type Stage = { words: Word[]; shown: string[]; writes: boolean };
+
+/// A step's pipeline stages. Output to /dev/null and fd copies (`2>&1`) are plumbing and go; a write
+/// to a file (`> out.txt`, `>> log`) is what the step did and stays on the line.
+function stages(step: string): Stage[] {
+  const all = shellWords(step);
+  const out: Stage[] = [{ words: [], shown: [], writes: false }];
+  for (let i = 0; i < all.length; i += 1) {
+    const word = all[i]!;
     if (word === "|") {
-      out.push([]);
+      out.push({ words: [], shown: [], writes: false });
       continue;
     }
-    if (skipNext) {
-      skipNext = false;
+    const stage = out.at(-1)!;
+    const match = /^["'`]/.test(word.raw) ? null : REDIRECT.exec(word.raw);
+    if (!match) {
+      stage.words.push(word);
+      stage.shown.push(word.raw);
       continue;
     }
-    const kind = redirect(word);
-    if (kind === "target") skipNext = true;
-    if (kind) continue;
-    out.at(-1)!.push(word);
+    const next = all[i + 1];
+    const attached = match[3] !== "";
+    const target = attached ? match[3]! : next !== undefined && next !== "|" ? next.text : "";
+    const raw = attached || next === undefined || next === "|" ? word.raw : `${word.raw} ${next.raw}`;
+    if (!attached && next !== undefined && next !== "|") i += 1;
+    const plumbing = target === "/dev/null" || (match[2] === ">&" && /^(?:\d+|-)$/.test(target));
+    if (plumbing) continue;
+    stage.writes = true;
+    stage.shown.push(raw);
   }
-  return out.filter((stage) => stage.length > 0);
+  return out.filter((stage) => stage.words.length > 0);
 }
 
 /// A stage that only trims or reshapes what came before it: `| head -12`, `| cut -c1-220`, `| wc -l`,
@@ -161,13 +169,26 @@ const FILTERS = new Set([
   "less",
   "more",
 ]);
-function isFilter(stage: Word[]): boolean {
-  const name = baseName(stage[0]!.text);
+function isFilter(stage: Stage): boolean {
+  if (stage.writes) return false;
+  const words = stage.words;
+  const name = baseName(words[0]!.text);
+  if (name === "sort" && words.some((word) => /^-[A-Za-z]*o|^--output/.test(word.raw))) return false;
   if (FILTERS.has(name)) return true;
-  if (name === "cat") return stage.length === 1;
-  if (name === "grep" || name === "rg") return stage.some((word) => /^-[A-Za-z]*v[A-Za-z]*$/.test(word.raw));
+  if (name === "cat") return words.length === 1;
+  if (name === "grep" || name === "rg") return words.some((word) => /^-[A-Za-z]*v[A-Za-z]*$/.test(word.raw));
   return false;
 }
+
+/// A later stage that only reads what came before it, so the first stage's action is all the step
+/// did: a filter, or any grep. Anything else (`| xargs rm`, `| tee out`, `| sh`) may change things.
+function onlyReads(stage: Stage): boolean {
+  const name = baseName(stage.words[0]!.text);
+  return isFilter(stage) || (!stage.writes && ["grep", "rg", "egrep", "fgrep"].includes(name));
+}
+
+/// Code that runs inside a word (`$(…)`, backticks, `<(…)`): the table cannot say what it did.
+const RUNS_INSIDE = /\$\(|`|[<>]\(/;
 
 /// The step's main part and whether steps follow it: shortCommand's first step that is not setup
 /// (`cd x &&`, `export …`, `FOO=1`), its program by name.
@@ -183,7 +204,7 @@ export function cleanCommand(command: string): string {
   const { step, more } = mainStep(command);
   const parts = stages(step);
   while (parts.length > 1 && isFilter(parts.at(-1)!)) parts.pop();
-  const line = parts.map((stage) => stage.map((word) => word.raw).join(" ")).join(" | ") || step;
+  const line = parts.map((stage) => stage.shown.join(" ")).join(" | ") || step;
   return more ? `${line} …` : line;
 }
 
@@ -284,10 +305,20 @@ const GIT: Record<string, Rule> = {
       : { key: "command.git.commit" };
   },
   push: (args) => {
-    const { positional, has } = parse(args, ["-o", "--push-option", "--repo"]);
-    if (has("-d", "--delete")) return undefined;
+    // A push that deletes or rewrites says so (`:ref`, `--delete`, `+ref`, `--force`); one that
+    // touches more than one ref, or every ref (`--mirror`, `--all`, `--prune`), reads as its line.
+    const { positional, has } = parse(args, ["-o", "--push-option", "--repo", "--receive-pack", "--exec"]);
+    if (has("--mirror", "--all", "--tags", "--prune") || positional.length > 2) return undefined;
     const ref = positional[1];
-    const branch = ref?.slice(ref.lastIndexOf(":") + 1).replace(/^refs\/heads\//, "");
+    const branch = ref
+      ?.slice(ref.lastIndexOf(":") + 1)
+      .replace(/^\+/, "")
+      .replace(/^refs\/heads\//, "");
+    if (has("-d", "--delete") || ref?.startsWith(":"))
+      return branch ? { key: "command.git.deleteRemoteBranch", values: { branch } } : undefined;
+    const force = ref?.startsWith("+") || has("-f", "--force", "--force-with-lease", "--force-if-includes");
+    if (force)
+      return branch ? { key: "command.git.forcePushBranch", values: { branch } } : { key: "command.git.forcePush" };
     return branch ? { key: "command.git.pushBranch", values: { branch } } : { key: "command.git.push" };
   },
   checkout: (args) => switchTo(args, ["-b", "-B"]),
@@ -313,11 +344,16 @@ const GIT: Record<string, Rule> = {
   },
 };
 
+/// A path where a branch would be (`.`, `./src`, `*.ts`): checkout restores files from it.
+const PATHLIKE = /^(?:\.{1,2}(?:\/|$)|\/)|[*?[]/;
+
 function switchTo(args: string[], create: string[]): Act | undefined {
-  const { positional, value } = parse(args, create);
+  const { positional, value, has } = parse(args, create);
+  // A checkout or switch that throws away local changes reads as its line.
+  if (has("-f", "--force", "--discard-changes", "-m", "--merge", "--overwrite-ignore")) return undefined;
   const made = value(...create);
   if (made) return { key: "command.git.newBranch", values: { branch: made } };
-  if (args.includes("--") || positional.length !== 1) return undefined;
+  if (args.includes("--") || positional.length !== 1 || PATHLIKE.test(positional[0]!)) return undefined;
   return { key: "command.git.switch", values: { branch: positional[0]! } };
 }
 
@@ -354,7 +390,11 @@ const GH: Record<string, Record<string, Rule>> = {
     list: () => ({ key: "command.gh.prList" }),
     checks: (args) => target("command.gh.prChecks", "pr", ghTarget(args)),
     diff: (args) => target("command.gh.prDiff", "pr", ghTarget(args)),
-    merge: (args) => target("command.gh.prMerge", "pr", ghTarget(args)),
+    // A merge that also deletes the branch or overrides the rules reads as its line.
+    merge: (args) =>
+      args.some((arg) => ["-d", "--delete-branch", "--admin"].includes(arg))
+        ? undefined
+        : target("command.gh.prMerge", "pr", ghTarget(args)),
     create: () => ({ key: "command.gh.prCreate" }),
   },
   issue: {
@@ -551,6 +591,11 @@ const PROGRAMS: Record<string, Rule> = {
   gh: (args) => {
     const [group, sub, ...rest] = args;
     if (group === "api") {
+      // Only a read: another method, or a field (which makes it a POST), reads as its line.
+      const api = parse(args.slice(1), ["-X", "--method"]);
+      const method = api.value("-X", "--method");
+      if ((method && method.toUpperCase() !== "GET") || api.has("-f", "-F", "--field", "--raw-field", "--input"))
+        return undefined;
       const path = parse(args.slice(1), [
         ...GH_VALUES,
         "-X",
@@ -576,26 +621,32 @@ const PROGRAMS: Record<string, Rule> = {
   ls: (args) => listed(parse(args, ["-I", "--ignore", "-w", "--width"]).positional[0]),
   eza: (args) => listed(parse(args).positional[0]),
   tree: (args) => listed(parse(args, ["-L", "-I", "-P"]).positional[0]),
-  find: (args) => listed(args.find((arg) => !arg.startsWith("-"))),
+  // A find or fd that runs or deletes something reads as its line.
+  find: (args) =>
+    args.some((arg) => /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/.test(arg))
+      ? undefined
+      : listed(args.find((arg) => !arg.startsWith("-"))),
   fd: (args) =>
-    listed(
-      parse(args, [
-        "-e",
-        "--extension",
-        "-t",
-        "--type",
-        "-d",
-        "--max-depth",
-        "-E",
-        "--exclude",
-        "-x",
-        "--exec",
-        "-X",
-        "--exec-batch",
-        "-c",
-        "--color",
-      ]).positional[1],
-    ),
+    args.some((arg) => ["-x", "--exec", "-X", "--exec-batch"].includes(arg))
+      ? undefined
+      : listed(
+          parse(args, [
+            "-e",
+            "--extension",
+            "-t",
+            "--type",
+            "-d",
+            "--max-depth",
+            "-E",
+            "--exclude",
+            "-x",
+            "--exec",
+            "-X",
+            "--exec-batch",
+            "-c",
+            "--color",
+          ]).positional[1],
+        ),
   cat: (args) => readFiles(args),
   bat: (args) =>
     readFiles(args, ["-r", "--line-range", "-l", "--language", "--style", "--theme", "-H", "--highlight-line"]),
@@ -663,7 +714,8 @@ const PROGRAMS: Record<string, Rule> = {
   },
   "lane-gh": (args): Act | undefined => {
     const [sub, , third, ...rest] = args;
-    if (sub === "push" && third) return { key: "command.git.pushBranch", values: { branch: third } };
+    if (sub === "push" && third && !args.some((arg) => /^(?:-f|-d|--force.*|--delete)$/.test(arg)))
+      return { key: "command.git.pushBranch", values: { branch: third } };
     if (sub === "search" && (third || rest.length))
       return { key: "command.searchedGithub", values: { query: subject([third, ...rest].filter(Boolean).join(" ")) } };
     return undefined;
@@ -725,9 +777,13 @@ function unwrap(words: string[]): string[] {
 /// What a command did, from the table; undefined for anything it does not list.
 export function commandAction(command: string): CommandAction | undefined {
   const { step, more } = mainStep(command);
-  const first = stages(step)[0];
-  if (!first) return undefined;
-  const words = unwrap(first.map((word) => word.text));
+  // The first stage names the step only when nothing else in it changes anything: no write to a
+  // file, no code run inside a word, and only filters after it.
+  if (RUNS_INSIDE.test(step)) return undefined;
+  const parts = stages(step);
+  const first = parts[0];
+  if (!first || first.writes || !parts.slice(1).every(onlyReads)) return undefined;
+  const words = unwrap(first.words.map((word) => word.text));
   const [program, ...args] = words;
   if (!program) return undefined;
   const rule = PROGRAMS[baseName(program)];
@@ -766,10 +822,11 @@ export function commandSaid(t: Translate, tool: Tool, look: CommandLabelLook = c
   return description;
 }
 
-/// The line a command row draws when nothing names it, "Ran <line>": as typed for the `command`
-/// look, else without the plumbing after it.
-export function commandLine(command: string, look: CommandLabelLook = commandLook()): string {
-  return look === "command" ? shortCommand(command, ROW_WIDTH) : cleanCommand(command);
+/// The line a command row draws when nothing names it, "Ran <line>": a finished call's without the
+/// plumbing after it; as written (its setup left out, whitespace one space) for the `command` look,
+/// a running call and the live line, which name what is running (#36940).
+export function commandLine(command: string, look: CommandLabelLook = commandLook(), finished = true): string {
+  return look === "command" || !finished ? shortCommand(command, ROW_WIDTH) : cleanCommand(command);
 }
 
 /// A finished group of commands that all did one kind of thing: "Searched memory twice", "Read 3
