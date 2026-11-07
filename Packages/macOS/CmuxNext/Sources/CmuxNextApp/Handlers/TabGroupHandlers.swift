@@ -15,11 +15,11 @@ enum TabGroupHandlers {
 
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         let gate = ctx.needs(DaemonCapability.tabGroups.rawValue)
-        func bind(_ id: ActionID, _ invoke: @escaping @MainActor (ActionInvocation) -> Void) {
-            registry.bind(id, unavailable: gate, invoke: invoke)
-        }
+        func bind(_ id: ActionID, _ invoke: @escaping @MainActor (ActionInvocation) -> Void) { registry.bind(id, unavailable: gate, invoke: invoke) }
         bindMembership(bind, ctx)
         ActionTargetVisibility.hide("tabGroup.removeTab", in: registry) { run in run.target.flatMap { $0.kind == .tab ? ctx.targetTab($0.id, run) : nil }.map { $0.0.tabGroup == nil } ?? false }
+        // Add Tab to Group… asks for a group: with no other group to join it says why, never an empty list to pick from.
+        ctx.setTargetReason("tabGroup.addTab") { run in run["group"] != nil ? nil : ctx.daemonTab(run).flatMap { TabGroupWrites.joinRefusal(for: $0.tab, in: ctx.services.daemon(for: $0.pane).store) } }
         bindAppearance(bind, ctx)
         bindLifecycle(bind, ctx)
         TabGroupHandlers.bindMoves(bind, ctx)
