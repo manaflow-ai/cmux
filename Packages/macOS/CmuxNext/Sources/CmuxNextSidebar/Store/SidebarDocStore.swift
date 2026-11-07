@@ -115,6 +115,9 @@ public final class SidebarDocStore {
     /// Those the daemon answered, by key, with the revision that holds each: a load at that revision or later holds
     /// the change, though the mirror may replay it without dropping it (an undo's put over the same record).
     @ObservationIgnored var answeredChief: [String: UInt64] = [:]
+    /// The changes the daemon answered whose echo has not come: a load asked for after the answer holds each, and the
+    /// mirror stops replaying it there (an echo sent to a closed connection never comes).
+    @ObservationIgnored var answeredKeys: Set<String> = []
 
     /// The records of the document while the sidebar draws it; nil on the older path.
     public var activeRecords: SidebarDocRecords? { isActive && shown != nil ? records : nil }
@@ -171,7 +174,7 @@ public final class SidebarDocStore {
         loading = true
         // The load answers the changes unanswered before it was asked for (a later one asks for another load), and holds
         // the changes answered before it was asked for: a change answered while it is on the way may not be in it.
-        let answering = unanswered, held = pendingRecords.replied
+        let answering = unanswered, held = pendingRecords.replied.union(answeredKeys)
         // task-owner: one sidebar.get; settles the load
         Task { [weak self] in
             defer {
@@ -206,6 +209,7 @@ public final class SidebarDocStore {
             // The document holds the changes answered before the load was asked for (or never will), and the mirror
             // no longer replays those it dropped: their rows draw it.
             for key in done.union(held) { self.pendingRecords.remove(key) }
+            self.answeredKeys.subtract(held)
             self.unanswered.subtract(answering)
             self.records = records
             self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
@@ -232,7 +236,9 @@ public final class SidebarDocStore {
         // The launch snapshot's document is not the chain a batch extends: batches wait for the first load.
         guard isActive, !isProvisional else { return }
         // The mirror drops the pending intent with the batch's key in every case: so do its record writes.
-        let settled = !pendingRecords.isEmpty && SidebarDocWire.Batch.key(of: data).map { pendingRecords.remove($0) } == true
+        let key = SidebarDocWire.Batch.key(of: data)
+        if let key { answeredKeys.remove(key) }
+        let settled = !pendingRecords.isEmpty && key.map { pendingRecords.remove($0) } == true
         // The reducer judges the revision chain: a skipped one refetches. While a Chief change waits, the mirror also
         // names the intents the batch settled or dropped.
         let outcome: SidebarMirror.BatchOutcome
@@ -456,6 +462,7 @@ public final class SidebarDocStore {
                     if asked > 1 { self.settleByLoad(key) }
                     self.foldRefusals[key] = nil
                     self.pendingRecords.noteReplied(key)
+                    if reply.hasInverse { self.answeredKeys.insert(key) }
                     if reply.hasInverse, let revision = reply.revision, self.pendingChief.contains(where: { $0.key == key }) {
                         self.answeredChief[key] = revision
                     }
