@@ -117,7 +117,7 @@ import {
   useAttachmentIntake,
   useSendWhenAttached,
   useSendWhenOriginals,
-} from "./composer/attachmentIntake";
+} from "./composer/attachmentIntakeModel";
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
