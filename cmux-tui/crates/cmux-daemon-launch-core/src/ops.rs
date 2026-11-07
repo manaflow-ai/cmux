@@ -582,5 +582,8 @@ fn unhex_any(text: &str) -> Option<Vec<u8>> {
     if !text.len().is_multiple_of(2) {
         return None;
     }
-    (0..text.len()).step_by(2).map(|i| u8::from_str_radix(text.get(i..i + 2)?, 16).ok()).collect()
+    text.as_bytes()
+        .chunks_exact(2)
+        .map(|pair| std::str::from_utf8(pair).ok().and_then(|hex| u8::from_str_radix(hex, 16).ok()))
+        .collect()
 }

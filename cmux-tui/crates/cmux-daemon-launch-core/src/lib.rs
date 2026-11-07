@@ -64,9 +64,9 @@ pub(crate) fn last_component(path: &str) -> &str {
 /// reads it (`/a/b` is `/a`, `/a` is `/`, `a` is empty).
 pub(crate) fn parent_path(path: &str) -> String {
     let trimmed = path.trim_end_matches('/');
-    match trimmed.rfind('/') {
-        Some(0) => "/".to_string(),
-        Some(index) => trimmed[..index].to_string(),
+    match trimmed.rsplit_once('/') {
+        Some(("", _)) => "/".to_string(),
+        Some((parent, _)) => parent.to_string(),
         None if path.starts_with('/') => "/".to_string(),
         None => String::new(),
     }

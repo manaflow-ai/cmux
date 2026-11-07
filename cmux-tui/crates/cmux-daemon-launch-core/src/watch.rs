@@ -121,7 +121,7 @@ impl Watch {
         }
         match ensure {
             EnsureKind::Stuck if enabled => {
-                self.streak += 1;
+                self.streak = self.streak.saturating_add(1);
                 let mut effects = Effects { evaluate: true, ..Effects::default() };
                 if self.streak == 1 {
                     self.streak_id = self.streak_id.wrapping_add(1);
@@ -170,7 +170,7 @@ impl Watch {
         }
         self.replacing = Some(self.streak_id);
         self.replaced_owners.insert(self.owner);
-        self.replaces += 1;
+        self.replaces = self.replaces.saturating_add(1);
         Some(Start { streak: self.streak_id, owner: self.owner })
     }
 

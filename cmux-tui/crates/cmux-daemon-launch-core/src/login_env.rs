@@ -52,9 +52,10 @@ pub fn capture_plan(shell: Option<&str>, base: &Env, user_shell: Option<&str>) -
 /// `=` is skipped.
 pub fn parse(output: &[u8]) -> Option<Env> {
     let marker = format!("\n{MARKER}\n");
-    let start = find(output, marker.as_bytes())? + marker.len();
+    let start = find(output, marker.as_bytes())?.checked_add(marker.len())?;
+    let (_, entries) = output.split_at_checked(start)?;
     let mut env = Env::new();
-    for entry in output[start..].split(|b| *b == 0).filter(|e| !e.is_empty()) {
+    for entry in entries.split(|b| *b == 0).filter(|e| !e.is_empty()) {
         let Ok(text) = std::str::from_utf8(entry) else { continue };
         let Some((key, value)) = text.split_once('=') else { continue };
         env.insert(key.into(), value.into());
