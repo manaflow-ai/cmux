@@ -376,8 +376,9 @@ async fn the_mcp_server_lists_its_tools_with_no_worker() {
         .collect();
     let init = &replies[&1]["result"];
     assert_eq!(init["serverInfo"]["name"], "cmux-computer-use");
-    assert_eq!(init["instructions"], cmux_computer_use::tools::INSTRUCTIONS);
-    assert_eq!(replies[&2]["result"], cmux_computer_use::tools::mcp_list());
+    // The client is Codex, which has its own Computer Use: cmux's comes second.
+    assert_eq!(init["instructions"], super::super::mcp::DEFER_INSTRUCTIONS);
+    assert_eq!(replies[&2]["result"], super::super::mcp::tools_list(true));
     assert_eq!(replies[&4]["result"]["isError"], true);
     assert_eq!(caller.label(), "codex", "the agent's name for the person's cards");
 }

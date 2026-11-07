@@ -51,14 +51,48 @@ pub async fn run() -> Result<()> {
     serve(caller, tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout()).await
 }
 
+/// Whether the client is an agent with its own Computer Use that people
+/// usually prefer (Codex: Codex Computer Use). Then cmux Computer Use is the
+/// second choice, used only when the person asks for it.
+pub fn defers_to_own_computer_use(params: &Value) -> bool {
+    params
+        .pointer("/clientInfo/name")
+        .and_then(Value::as_str)
+        .is_some_and(|name| name.to_ascii_lowercase().contains("codex"))
+}
+
+/// What an agent that has its own Computer Use is told.
+pub const DEFER_INSTRUCTIONS: &str = "You have your own Computer Use (Codex Computer Use); use it for anything on this computer's screen. These cmux-computer-use tools are a second option: use them only when the person asks for cmux Computer Use (or names these tools), never by default. When the person does ask, work in the background as cmux Computer Use does: list_windows, then screenshot or get_ui_tree a window, then act on element ids or screenshot pixels.";
+
+/// The prefix of each tool's description for such an agent.
+const DEFER_PREFIX: &str =
+    "cmux Computer Use: only when the person asks for it; otherwise use your own Computer Use. ";
+
 /// The `initialize` result.
 pub fn initialize(params: &Value) -> Value {
+    let instructions =
+        if defers_to_own_computer_use(params) { DEFER_INSTRUCTIONS } else { tools::INSTRUCTIONS };
     json!({
         "protocolVersion": crate::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": false}},
         "serverInfo": {"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")},
-        "instructions": tools::INSTRUCTIONS,
+        "instructions": instructions,
     })
+}
+
+/// The `tools/list` result, each description marked second choice for an
+/// agent with its own Computer Use.
+pub fn tools_list(defer: bool) -> Value {
+    let mut list = tools::mcp_list();
+    if defer && let Some(items) = list.get_mut("tools").and_then(Value::as_array_mut) {
+        for tool in items {
+            if let Some(description) = tool.get("description").and_then(Value::as_str) {
+                let marked = format!("{DEFER_PREFIX}{description}");
+                tool["description"] = Value::String(marked);
+            }
+        }
+    }
+    list
 }
 
 /// Serves MCP on `input`/`output` until `input` closes, then ends the
@@ -81,6 +115,7 @@ where
     });
     let mut calls = tokio::task::JoinSet::new();
     let mut lines = input.lines();
+    let mut defer = false;
     while let Some(line) = lines.next_line().await? {
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         let Some(id) = message.get("id").cloned() else { continue }; // a notification
@@ -94,10 +129,11 @@ where
                 {
                     caller.set_label(name);
                 }
+                defer = defers_to_own_computer_use(&params);
                 initialize(&params)
             }
             "ping" => json!({}),
-            "tools/list" => tools::mcp_list(),
+            "tools/list" => tools_list(defer),
             "tools/call" if !known_tool(&params) => unknown_tool(&params),
             "tools/call" => {
                 let (tx, caller) = (tx.clone(), caller.clone());
@@ -152,4 +188,29 @@ pub fn call<D: Daemon>(caller: &Caller<D>, params: &Value) -> Value {
     let name = params["name"].as_str().unwrap_or_default();
     let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
     caller.call(name, &arguments, &super::client::new_call_id()).to_mcp()
+}
+
+#[cfg(test)]
+mod defer_tests {
+    use super::*;
+
+    #[test]
+    fn codex_is_told_its_own_computer_use_comes_first() {
+        let codex = json!({"clientInfo": {"name": "codex-mcp-client", "version": "1"}});
+        assert!(defers_to_own_computer_use(&codex));
+        assert_eq!(initialize(&codex)["instructions"], DEFER_INSTRUCTIONS);
+        let listed = tools_list(true);
+        for tool in listed["tools"].as_array().unwrap() {
+            assert!(tool["description"].as_str().unwrap().starts_with(DEFER_PREFIX));
+        }
+        let claude = json!({"clientInfo": {"name": "claude-code", "version": "2"}});
+        assert!(!defers_to_own_computer_use(&claude));
+        assert_eq!(initialize(&claude)["instructions"], tools::INSTRUCTIONS);
+        assert!(
+            !tools_list(false)["tools"][0]["description"]
+                .as_str()
+                .unwrap()
+                .starts_with(DEFER_PREFIX)
+        );
+    }
 }
