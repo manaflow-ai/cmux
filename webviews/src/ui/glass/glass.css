@@ -301,12 +301,15 @@
        draws nothing until the App has drawn that glass, so it never shows as a clear box first, and
        then draws only its content: no tint, blur, rim or shadow of its own, as on a native popover.
        A surface the App does not draw (data-host-glass-drawn="0": past the deadline, an older App)
-       keeps the page's glass above. --host-glass-fill and --host-glass-edge are the gallery's knobs
-       (HostGlass.gallery.tsx); the shipped look is none of either. */
+       keeps the page's glass above, as does one over the composer (data-glass-keeps-underlay,
+       seeThroughBlur.ts): no filter may blur the composer, so its underlay hides it there.
+       --host-glass-fill and --host-glass-edge are the gallery's knobs (HostGlass.gallery.tsx); the
+       shipped look is none of either. */
     :root[data-host-glass-on] [data-host-glass]:not([data-host-glass-drawn]) {
       filter: opacity(0);
     }
-    :root[data-host-glass-on][data-cmux-see-through] [data-host-glass][data-host-glass-drawn="1"].ui-glass.ui-glass {
+    :root[data-host-glass-on][data-cmux-see-through]
+      [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay]).ui-glass.ui-glass {
       background: var(--host-glass-fill, transparent);
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
