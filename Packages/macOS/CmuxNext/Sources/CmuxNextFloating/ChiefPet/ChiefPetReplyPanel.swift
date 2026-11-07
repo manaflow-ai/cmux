@@ -79,7 +79,9 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         field.maximumNumberOfLines = 1
         field.delegate = self
         latestLabel.font = .systemFont(ofSize: TypeScale.body)
-        latestLabel.lineBreakMode = .byTruncatingTail
+        // Wrapped, the last line that fits ends in an ellipsis: unfolded, more lines show.
+        latestLabel.wraps = true
+        latestLabel.truncatesLastVisibleLine = true
         latestLabel.maximumNumberOfLines = Self.foldedLines
         latestLabel.isSelectable = false
         latestLabel.isHidden = true

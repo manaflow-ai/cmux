@@ -82,10 +82,10 @@ public final class ChiefPetMini {
         return ChiefPetHome(chat: chat, title: title, latest: AgentTurnStateStore.shared.lastMessage(session: chat.session))
     }
 
-    /// The name `acpmux send` takes for `chat`: a peer's as `HOST/NAME` (its lane's name), this Mac's by its id.
+    /// The key `acpmux send` takes for `chat`: its stable id, a peer's as `HOST/ID` (a name can repeat on a peer).
     func sendName(_ chat: ChiefPetSubject.Chat) -> String {
-        guard let lane = lanes.lane(chat.session), lane.peer != nil else { return chat.session }
-        return lane.name
+        guard let peer = lanes.lane(chat.session)?.peer, !chat.session.contains("/") else { return chat.session }
+        return peer + "/" + chat.session
     }
 
     /// The reply box's message to `chat`, as the person's own `acpmux send` (queued behind a running

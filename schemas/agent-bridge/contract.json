@@ -8,6 +8,8 @@
     "agent.avatar": "agent.avatar",
     "agent.avatar.remove": "agent.avatar.remove",
     "agent.avatar.set": "agent.avatar.set",
+    "agent.mini": "agent.mini",
+    "agent.mini.show": "agent.mini.show",
     "app.action": "app.action",
     "attachment.sourceIcon": "attachment.sourceIcon",
     "browser.list": "browser.list",
