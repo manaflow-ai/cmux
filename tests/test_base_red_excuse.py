@@ -3818,7 +3818,8 @@ class WsCheckGitHub:
         # Paths each diff changes: the PR's (main...HEAD) and the base's from the merge-base to OLDER (a fix).
         self.pr_files, self.fix_files, self.fix_status = ["tools/guards.py"], ["tools/test_lane_place.py"], "ahead"
 
-    def verdict(self, sha, run_id, red, *, state="failure", steps=77, description=None, at="2026-11-05T04:44:24Z"):
+    def verdict(self, sha, run_id, red, *, state="failure", steps=77, description=None, at="2026-11-05T04:44:24Z",
+                seconds=""):
         """SHA's ws-check: STATE, run RUN_ID, its red steps RED ({step: [printed lines]})."""
         failed = list(red)
         self.statuses[sha] = [{"context": "ws-check", "state": state, "updated_at": at,
@@ -3836,7 +3837,7 @@ class WsCheckGitHub:
                  "skipped 0, gh calls 0)"]
         for step, printed in red.items():
             lines += [f"##[group]{step}", *printed, "##[endgroup]",
-                      f"ws-check step FAILED: {step} (exit 1, ran 4, skipped 0, gh calls 0)"]
+                      f"ws-check step FAILED: {step} (exit 1, ran 4, skipped 0, gh calls 0{seconds})"]
         lines.append("WS_CHECK_RESULT=" + json.dumps({"failed": failed, "head": sha, "ok": not failed, "steps": steps,
                                                        "suites": 9, "tests_ran": 400, "tests_skipped": 0}))
         self.logs[run_id * 10 + 1] = "\n".join(f"2026-11-05T04:39:27.9954759Z {line}" for line in lines)
@@ -3905,6 +3906,13 @@ class WsCheckPerTest(unittest.TestCase):
                       f"main {self.gh.TIP[:12]} too", audit)
         # Named as a check, the same.
         self.assertEqual(self.judge(checks=["ws-check"]), audit)
+
+    def test_a_step_line_with_its_seconds_is_read(self):
+        # leo-workspace#3746 (2026-11-07) ends each step line with its time, "(exit 1, ..., gh calls 0, 62.1 s)";
+        # read as "names no exit code", no ws-check red could be excused (leo-workspace#3745).
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()}, seconds=", 62.1 s")
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()}, seconds=", 0.4 s")
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
 
     def test_a_test_failing_on_main_too_is_excused_by_name(self):
         red = {self.RELAY: self.relay_lint(), self.DEPLOY: self.ws_deploy("test_units_that_never_let_go")}

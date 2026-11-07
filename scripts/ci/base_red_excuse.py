@@ -2365,7 +2365,8 @@ UNITTEST_SUMMARY = re.compile(r"^FAILED \(([^)]*)\)$")
 # complete unittest summary would otherwise hide behind a failure the base shares (cmux#36219 F1).
 WS_CHECK_CRASH = re.compile(r"Segmentation fault|core dumped|Fatal Python error|\bKilled\b|\bAborted\b|"
                             r"MemoryError|died on signal|unexpected signal")
-WS_CHECK_STEP_EXIT = re.compile(r" \(exit (-?\d+), ran \d+, skipped \d+, gh calls \d+\)$")
+# tools/ws_check_run.py's step line; since leo-workspace#3746 it also ends with the step's time (", 62.1 s").
+WS_CHECK_STEP_EXIT = re.compile(r" \(exit (-?\d+), ran \d+, skipped \d+, gh calls \d+(?:, [\d.]+ s)?\)$")
 # The checkout root a ws-check run's paths start with: fast-checks.yml's workspace, or ws-check-heads.yml's clone.
 WS_CHECK_ROOT = re.compile(r"(?:/[\w.-]+)*/_work/(?:cmuxterm-hq/cmuxterm-hq|_temp/lw)/")
 
