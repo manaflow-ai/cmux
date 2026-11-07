@@ -31,6 +31,8 @@ fn hub() -> Arc<Hub> {
         "harnesses": {"fake": {"argv": ["python3", FAKE]}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
+        // A peer's start may use this folder (`remote.cwd_outside_roots` otherwise).
+        "webRoots": [std::env::temp_dir()],
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
