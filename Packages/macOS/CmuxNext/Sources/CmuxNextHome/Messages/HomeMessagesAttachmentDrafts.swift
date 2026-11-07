@@ -4,7 +4,9 @@ import Foundation
 
 /// The Messages page's staged attachments across launches (`cmux.home.messages.attachments.*`),
 /// in HomeStore's draft cache beside the text drafts, as the native composer kept them:
-/// - the page's own: the parts it uploaded, kept as its JSON (``HomeStore/setUploadedDraftAttachments(_:for:)``);
+/// - the page's own: each part it uploaded, kept by its hash with its position
+///   (``HomeStore/setUploadedDraftAttachment(_:hash:for:)``): a page adds or removes one part, so two
+///   pages showing one conversation never overwrite each other's;
 /// - the native composer's (``HomeStore/draftAttachments(for:)``, files in the blob cache): handed
 ///   to the page once, with their bytes, for it to upload into its tray. The page names the ones
 ///   it took when it saves, and only those leave HomeStore, so none is lost on the way.
@@ -25,9 +27,10 @@ public struct HomeMessagesAttachmentDrafts {
     public func load() async -> JSONValue {
         var own: [String: JSONValue] = [:]
         for id in store.uploadedDraftAttachmentConversations {
-            guard let text = store.uploadedDraftAttachments(for: id), let parts = try? JSONValue.parse(Data(text.utf8)),
-                  case .array = parts else { continue }
-            own[id.rawValue] = parts
+            let entries = store.uploadedDraftAttachments(for: id).values.compactMap { try? JSONValue.parse(Data($0.utf8)) }
+            let parts = entries.sorted { ($0.value(at: ["at"])?.doubleValue ?? 0) < ($1.value(at: ["at"])?.doubleValue ?? 0) }
+                .compactMap { $0.value(at: ["part"]) }
+            if !parts.isEmpty { own[id.rawValue] = .array(parts) }
         }
         var legacy: [String: JSONValue] = [:]
         var total = 0
@@ -44,14 +47,27 @@ public struct HomeMessagesAttachmentDrafts {
         return .object(["attachments": .object(own), "legacy": .object(legacy)])
     }
 
-    /// Keeps `parts` (the page's uploaded parts, in order; empty clears them) as `id`'s, and lets
-    /// go of the native drafts the page took (`migrated`: their hashes).
-    public func save(_ parts: [JSONValue], migrated: Set<String>, for id: ConversationID) {
-        store.setUploadedDraftAttachments(parts.isEmpty ? nil : JSONValue.array(parts).compactText, for: id)
+    /// Keeps one uploaded part (`at`: its place in the tray) as `id`'s, by its hash.
+    public func put(_ part: JSONValue, at: Double, for id: ConversationID) throws {
+        guard let hash = part.value(at: ["hash"])?.stringValue, !hash.isEmpty else { throw Refusal.noHash }
+        store.setUploadedDraftAttachment(JSONValue.object(["part": part, "at": .number(at)]).compactText, hash: hash, for: id)
+    }
+
+    /// Lets go of one uploaded part (sent, or removed from the tray).
+    public func remove(_ hash: String, for id: ConversationID) {
+        store.setUploadedDraftAttachment(nil, hash: hash, for: id)
+    }
+
+    /// Lets go of the native drafts the page took (`migrated`: their hashes).
+    public func release(_ migrated: Set<String>, for id: ConversationID) {
         guard !migrated.isEmpty else { return }
         let kept = store.draftAttachments(for: id)
         let left = kept.filter { !migrated.contains($0.ref.hash) }
         if left.count != kept.count { store.setDraftAttachments(left, for: id) }
+    }
+
+    public enum Refusal: Error {
+        case noHash
     }
 
     @concurrent nonisolated static func read(_ url: URL) async -> Data? {

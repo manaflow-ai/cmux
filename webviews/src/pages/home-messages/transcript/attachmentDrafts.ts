@@ -5,12 +5,14 @@
 // with the page's view state (nav.ts), not in the component.
 //
 // The finished files are also kept by the app (`keeper`: HomeStore's draft cache, beside the text
-// drafts, host.ts), so a relaunch or a web update's reload finds them in their trays again. The
-// files the native composer staged come over once (`legacy`): the page uploads them into their
+// drafts, host.ts), so a relaunch or a web update's reload finds them in their trays again. Each
+// file is its own entry, by its hash: a file that finished is put, a file that left the tray (sent,
+// removed) is removed, so two pages showing one conversation never write over each other's trays.
+// The files the native composer staged come over once (`legacy`): the page uploads them into their
 // trays and then tells the keeper which it took, so the app lets go of only those.
 //
 // Cost: one tray per conversation that has files; a change copies only that tray, and the keeper
-// hears only when a tray's finished files change (not on upload progress).
+// hears one call per file that finished or left (not on upload progress).
 import type { PendingAttachment } from "../../home-channels/AttachmentViews";
 import type { UploadProgress } from "../../home-channels/attachmentService";
 import type { HomeAttachment } from "../../home-channels/types";
@@ -37,12 +39,15 @@ export interface KeptAttachments {
   legacy: Record<string, LegacyAttachment[]>;
 }
 
-/** Where the staged files are kept across launches (the app's HomeStore, host.ts). */
+/** Where the staged files are kept across launches (the app's HomeStore, host.ts), one file each. */
 export interface AttachmentKeeper {
   load(): Promise<KeptAttachments>;
-  /** Keeps `parts` as `conversation`'s finished files (none clears them) and lets go of the
-   * native composer's files the page took (`migrated`: their hashes). */
-  save(conversation: string, parts: readonly HomeAttachment[], migrated: readonly string[]): void;
+  /** Keeps one finished file as `conversation`'s (`at`: its place in the tray, ascending). */
+  put(conversation: string, part: HomeAttachment, at: number): void;
+  /** Lets go of one of `conversation`'s files (sent, or removed from the tray). */
+  remove(conversation: string, hash: string): void;
+  /** Lets go of the native composer's files the page took (their hashes). */
+  release(conversation: string, migrated: readonly string[]): void;
 }
 
 /** One upload to a conversation (the owner's service), for the native composer's files. */
@@ -61,8 +66,12 @@ export class AttachmentDrafts {
   private hold: AttachmentHold = null;
   /** Nothing is saved until the kept files are read (a save then would drop them). */
   private loaded: boolean;
-  /** What the keeper last heard per conversation (hashes and migrated), to skip a same save. */
-  private readonly saved = new Map<string, string>();
+  /** The finished files the keeper holds per conversation (their hashes). */
+  private readonly saved = new Map<string, Set<string>>();
+  /** The native composer's files the keeper already let go of, per conversation. */
+  private readonly releasedSent = new Map<string, Set<string>>();
+  /** The place the next kept file takes in its tray. */
+  private at = Date.now();
   /** The native composer's files, until they are uploaded (`migrate`). */
   private legacy: Record<string, LegacyAttachment[]> | undefined;
   private upload: { run: ConversationUpload; failed: string } | undefined;
@@ -82,6 +91,7 @@ export class AttachmentDrafts {
     const kept = await this.keeper.load().catch((): KeptAttachments => ({ attachments: {}, legacy: {} }));
     this.loaded = true;
     for (const [conversation, parts] of Object.entries(kept.attachments)) {
+      this.saved.set(conversation, new Set(parts.map((part) => part.hash)));
       const tray = this.files(conversation);
       const back = parts
         .filter((part) => !tray.some((item) => item.part?.hash === part.hash))
@@ -233,24 +243,44 @@ export class AttachmentDrafts {
     this.hold = uploading ? "home.uploading" : unkept && this.trays.size ? "home.attachments" : null;
     if (this.loaded && this.keeper) {
       const changed =
-        conversation !== undefined ? [conversation] : [...new Set([...this.trays.keys(), ...this.released.keys()])];
+        conversation !== undefined
+          ? [conversation]
+          : [...new Set([...this.trays.keys(), ...this.saved.keys(), ...this.released.keys()])];
       for (const id of changed) this.save(id);
     }
     for (const listener of this.listeners) listener();
   }
 
   private save(conversation: string): void {
+    const keeper = this.keeper;
+    if (!keeper) return;
     const tray = this.files(conversation);
     for (const item of tray) {
       const hash = this.legacyOf.get(item.id);
       if (hash && item.part) this.release(conversation, hash);
     }
-    const parts = tray.flatMap((item) => (item.part ? [item.part] : []));
-    const migrated = [...(this.released.get(conversation) ?? [])];
-    const key = JSON.stringify([parts.map((part) => part.hash), migrated]);
-    if ((this.saved.get(conversation) ?? JSON.stringify([[], []])) === key) return;
-    this.saved.set(conversation, key);
-    this.keeper?.save(conversation, parts, migrated);
+    const saved = this.saved.get(conversation) ?? new Set<string>();
+    const now = new Set<string>();
+    for (const item of tray) {
+      if (!item.part) continue;
+      now.add(item.part.hash);
+      if (saved.has(item.part.hash)) continue;
+      saved.add(item.part.hash);
+      keeper.put(conversation, item.part, this.at++);
+    }
+    for (const hash of saved) {
+      if (now.has(hash)) continue;
+      saved.delete(hash);
+      keeper.remove(conversation, hash);
+    }
+    if (saved.size) this.saved.set(conversation, saved);
+    else this.saved.delete(conversation);
+    const sent = this.releasedSent.get(conversation) ?? new Set<string>();
+    const migrated = [...(this.released.get(conversation) ?? [])].filter((hash) => !sent.has(hash));
+    if (!migrated.length) return;
+    for (const hash of migrated) sent.add(hash);
+    this.releasedSent.set(conversation, sent);
+    keeper.release(conversation, migrated);
   }
 }
 

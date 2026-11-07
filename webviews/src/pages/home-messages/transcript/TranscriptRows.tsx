@@ -39,6 +39,8 @@ export interface RowActions {
   /** A tapback on a part: `value` is its emoji, `tapback` its name (sent again: taken back). */
   onReact?(message: HomeMessage, partIndex: number, value: string, tapback: string): void;
   onCopy?(text: string): void;
+  /** Reply… (the native menu's): the message's thread opens, and a send there answers it. */
+  onReply?(message: HomeMessage): void;
   links?: RowLinks;
 }
 
@@ -89,7 +91,9 @@ export const TranscriptRowView = memo(function TranscriptRowView({
     case "label":
       return (
         <div className={`mt-label ${row.outgoing ? "out" : "in"} ${row.label}`} style={style}>
-          {t(row.label === "edited" ? "label.edited" : "label.notDelivered")}
+          {t(
+            row.label === "edited" ? "label.edited" : row.label === "notKept" ? "label.notKept" : "label.notDelivered",
+          )}
         </div>
       );
     case "unsent":
@@ -161,11 +165,18 @@ function BubbleRow({
       onSelect: () => actions.onDiscard?.(pendingKey),
     });
   }
+  if (committed && actions.onReply)
+    items.push({
+      id: "reply",
+      label: t("menu.replyEllipsis"),
+      separatorBefore: items.length > 0,
+      onSelect: () => actions.onReply?.(message),
+    });
   if (text)
     items.push({
       id: "copy",
       label: t("menu.copy"),
-      separatorBefore: items.length > 0,
+      separatorBefore: items.length > 0 && items.at(-1)?.id !== "reply",
       onSelect: () => actions.onCopy?.(text),
     });
   if (committed && actions.onReact)

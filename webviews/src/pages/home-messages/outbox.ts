@@ -1,29 +1,39 @@
 // The Messages page's unsent sends, kept by the app across launches (`cmux.home.messages.outbox.*`,
 // HomeMessagesOutbox.swift), as the native composer's durable outbox: the composer clears its
 // draft the moment a send shows as pending, so a send the owner never took would be lost with the
-// page. Every change of the page's pending rows is saved per conversation; a new page shows the
-// kept ones again as not sent, with Retry (each keeps its idempotency key, so none goes twice).
+// page. Each send is kept as its own entry, by its idempotency key: a new or changed row is put, a
+// row gone (delivered, discarded) is removed, so two pages showing one conversation never write
+// over each other's sends. A new page shows the kept ones again as not sent, with Retry (each keeps
+// its idempotency key, so none goes twice). A send the app refuses (past its size cap) says so on
+// its row ("Not Saved"), never a silent drop.
 //
-// Cost: one save per conversation whose rows changed (a send, its delivery, a failure, a discard),
-// none on typing; the rows are small (text and the owner's parts, never file bytes).
+// Cost: one put per send whose row changed (a send, its delivery, a failure) and one remove per
+// send that left, none on typing; the rows are small (text and the owner's parts, never file bytes).
 import { PendingCarry, type PendingSend } from "../home-channels/store";
 import type { PageClient } from "../shared/pageClient";
 
 export const OutboxOps = {
   load: "cmux.home.messages.outbox.load",
-  save: "cmux.home.messages.outbox.save",
+  put: "cmux.home.messages.outbox.put",
+  remove: "cmux.home.messages.outbox.remove",
 } as const;
 
-/** Where the unsent sends are kept (the app's HomeStore). */
+/** The host's code for a send larger than it keeps (HomeMessagesKept.tooLargeCode). */
+export const OUTBOX_TOO_LARGE = "cmux.home.outbox.too_large";
+
+/** Where the unsent sends are kept (the app's HomeStore), one send per entry. */
 export interface OutboxKeeper {
   load(): Promise<PendingSend[]>;
-  save(conversation: string, pending: readonly PendingSend[]): void;
+  /** Keeps one send (adds or replaces it by its key); resolves false when the app refused it. */
+  put(send: PendingSend): Promise<boolean>;
+  /** Lets go of one send. */
+  remove(conversation: string, key: string): void;
 }
 
 export class KeptPendingCarry extends PendingCarry {
-  /** What the keeper last heard per conversation. */
-  private readonly saved = new Map<string, string>();
-  /** Nothing is saved before the kept rows are read (a save then would drop them). */
+  /** What the keeper last heard per send key (the row's text). */
+  private readonly saved = new Map<string, { conversation: string; text: string }>();
+  /** Nothing is saved before the kept rows are read (a remove then could drop another page's). */
   private loaded = false;
 
   constructor(private readonly keeper: OutboxKeeper) {
@@ -33,7 +43,8 @@ export class KeptPendingCarry extends PendingCarry {
   /** Reads the kept sends (once, as the page starts) and shows them as not sent. */
   async load(): Promise<void> {
     const kept = await this.keeper.load().catch((): PendingSend[] => []);
-    for (const entry of kept) this.saved.set(entry.conversation, "");
+    for (const entry of kept)
+      this.saved.set(entry.key, { conversation: entry.conversation, text: keptText({ ...entry, failed: true }) });
     this.loaded = true;
     this.restore(kept);
     this.changed(this.entries);
@@ -41,21 +52,33 @@ export class KeptPendingCarry extends PendingCarry {
 
   protected override changed(entries: readonly PendingSend[]): void {
     if (!this.loaded) return;
-    const byConversation = new Map<string, PendingSend[]>();
+    const now = new Set<string>();
     for (const entry of entries) {
-      const list = byConversation.get(entry.conversation) ?? [];
-      list.push(entry);
-      byConversation.set(entry.conversation, list);
+      now.add(entry.key);
+      const text = keptText(entry);
+      if (this.saved.get(entry.key)?.text === text) continue;
+      this.saved.set(entry.key, { conversation: entry.conversation, text });
+      void this.keeper.put(entry).then((kept) => this.mark(entry.key, !kept));
     }
-    for (const conversation of new Set([...this.saved.keys(), ...byConversation.keys()])) {
-      const rows = byConversation.get(conversation) ?? [];
-      const text = JSON.stringify(rows);
-      if (this.saved.get(conversation) === text) continue;
-      if (rows.length) this.saved.set(conversation, text);
-      else this.saved.delete(conversation);
-      this.keeper.save(conversation, rows);
+    for (const [key, { conversation }] of this.saved) {
+      if (now.has(key)) continue;
+      this.saved.delete(key);
+      this.keeper.remove(conversation, key);
     }
   }
+
+  /** A send the app refused (or kept after all) says so on its row. */
+  private mark(key: string, unkept: boolean): void {
+    const entry = this.entries.find((item) => item.key === key);
+    if (!entry || !!entry.unkept === unkept) return;
+    this.replace(this.entries.map((item) => (item.key === key ? { ...item, unkept: unkept || undefined } : item)));
+  }
+}
+
+/** The row as kept: its own fields, without the page's own marks. */
+function keptText(entry: PendingSend): string {
+  const { unkept: _unkept, ...row } = entry;
+  return JSON.stringify(row);
 }
 
 /** The unsent sends kept by the app across launches. */
@@ -65,9 +88,16 @@ export function pageOutboxKeeper(client: PageClient): OutboxKeeper {
       const answer = await client.call<unknown>(OutboxOps.load, {}).catch(() => undefined);
       return parseOutbox(answer);
     },
-    save(conversation, pending) {
-      // An older host without the op keeps nothing; the page's rows still hold them.
-      void client.call(OutboxOps.save, { conversation, pending }).catch(() => undefined);
+    async put(send) {
+      const { unkept: _unkept, ...row } = send;
+      // Any refusal (past the size cap, OUTBOX_TOO_LARGE, or a malformed row) says so on the row.
+      return client.call(OutboxOps.put, { conversation: send.conversation, send: row }).then(
+        () => true,
+        () => false,
+      );
+    },
+    remove(conversation, key) {
+      void client.call(OutboxOps.remove, { conversation, key }).catch(() => undefined);
     },
   };
 }

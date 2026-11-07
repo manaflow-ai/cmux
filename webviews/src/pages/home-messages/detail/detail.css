@@ -26,3 +26,9 @@
   justify-content: flex-end;
   height: 100%;
 }
+
+/* The open thread's bar under the header: Back to the conversation. */
+.hm-thread-bar {
+  display: flex;
+  justify-content: flex-start;
+}

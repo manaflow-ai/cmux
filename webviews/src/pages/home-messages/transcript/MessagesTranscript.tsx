@@ -80,6 +80,10 @@ export interface MessagesTranscriptProps extends TranscriptData {
   onDiscard?(key: string): void;
   onReact?(message: HomeMessage, partIndex: number, value: string, tapback: string): void;
   onCopy?(text: string): void;
+  /** Reply… on a message (its thread opens, the reply answering it); absent: no Reply. */
+  onReply?(message: HomeMessage): void;
+  /** The composer's placeholder (a thread's says Reply). */
+  composerPlaceholder?: string;
   /** The clock for day labels (the gallery's); default: now. */
   now?: number;
   /** A message a link or the host opened at: it scrolls into view, marked. */
@@ -181,9 +185,10 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       onDiscard: props.onDiscard,
       onReact: props.onReact,
       onCopy: props.onCopy ?? ((text) => void navigator.clipboard?.writeText(text)),
+      ...(props.onReply ? { onReply: props.onReply } : {}),
       ...(links ? { links } : {}),
     }),
-    [props.onRetry, props.onDiscard, props.onReact, props.onCopy, links],
+    [props.onRetry, props.onDiscard, props.onReact, props.onCopy, props.onReply, links],
   );
   useImperativeHandle(props.ref, () => ({
     focusComposer: () => {
@@ -357,6 +362,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           initialText={props.initialDraft}
           onDraftChange={props.onDraftChange}
           {...(props.attachmentDrafts ? { drafts: props.attachmentDrafts } : {})}
+          {...(props.composerPlaceholder ? { placeholder: props.composerPlaceholder } : {})}
           key={`${conversation.id}:${props.composerKey ?? ""}`}
         />
       </section>

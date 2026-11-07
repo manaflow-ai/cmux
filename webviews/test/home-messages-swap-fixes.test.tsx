@@ -320,39 +320,66 @@ function part(hash: string, name = `${hash}.txt`): HomeAttachment {
   return { type: "attachment", hash, name, mimeType: "text/plain", byteCount: 5 };
 }
 
-test("round 3 F3: finished files are kept by the app and come back in their trays on a new page", async () => {
-  const kept: Record<string, HomeAttachment[]> = {};
-  const saves: { conversation: string; migrated: readonly string[] }[] = [];
+/** The app's book of staged files (HomeMessagesAttachmentDrafts.swift): one entry per file hash,
+ * shared by every page, as HomeStore keeps it. */
+function attachmentBook(legacy: KeptAttachments["legacy"] = {}) {
+  const book: Record<string, Record<string, { part: HomeAttachment; at: number }>> = {};
+  const released: { conversation: string; migrated: readonly string[] }[] = [];
+  let calls = 0;
   const keeper = {
-    load: async () => ({ attachments: structuredClone(kept), legacy: {} }),
-    save: (conversation: string, parts: readonly HomeAttachment[], migrated: readonly string[]) => {
-      saves.push({ conversation, migrated });
-      if (parts.length) kept[conversation] = [...parts];
-      else delete kept[conversation];
+    load: async () => ({
+      attachments: Object.fromEntries(
+        Object.entries(book).map(([conversation, entries]) => [
+          conversation,
+          Object.values(entries)
+            .sort((a, b) => a.at - b.at)
+            .map((entry) => structuredClone(entry.part)),
+        ]),
+      ),
+      legacy,
+    }),
+    put: (conversation: string, part: HomeAttachment, at: number) => {
+      calls += 1;
+      (book[conversation] ??= {})[part.hash] = { part: structuredClone(part), at };
     },
+    remove: (conversation: string, hash: string) => {
+      calls += 1;
+      delete book[conversation]?.[hash];
+      if (book[conversation] && !Object.keys(book[conversation]).length) delete book[conversation];
+    },
+    release: (conversation: string, migrated: readonly string[]) => void released.push({ conversation, migrated }),
   };
+  const hashes = () =>
+    Object.fromEntries(
+      Object.entries(book).map(([conversation, entries]) => [conversation, Object.keys(entries).sort()]),
+    );
+  return { keeper, hashes, released, calls: () => calls };
+}
+
+test("round 3 F3: finished files are kept by the app and come back in their trays on a new page", async () => {
+  const { keeper, hashes, calls } = attachmentBook();
   const drafts = new AttachmentDrafts(keeper);
   await drafts.load();
   let finish: ((part: HomeAttachment) => void) | undefined;
   const upload = () => new Promise<HomeAttachment>((resolve) => (finish = resolve));
   drafts.add("a", new File(["notes"], "notes.txt"), upload, "failed");
   expect(drafts.holdReason()).toBe("home.uploading");
-  expect(kept).toEqual({});
+  expect(hashes()).toEqual({});
   finish!(part("h1", "notes.txt"));
   await settle();
-  expect(kept).toEqual({ a: [part("h1", "notes.txt")] });
+  expect(hashes()).toEqual({ a: ["h1"] });
   // Kept by the app: a reload no longer has to wait for it.
   expect(drafts.holdReason()).toBeNull();
-  const progressSaves = saves.length;
+  const progressCalls = calls();
   drafts.patch("a", drafts.files("a")[0]!.id, { thumb: "data:," });
-  expect(saves.length).toBe(progressSaves);
+  expect(calls()).toBe(progressCalls);
 
   // A relaunch: the new page's tray has the finished file, ready to send.
   const next = new AttachmentDrafts(keeper);
   await next.load();
   expect(next.files("a").map((item) => [item.file.name, item.part?.hash])).toEqual([["notes.txt", "h1"]]);
   next.remove("a", next.files("a")[0]!.id);
-  expect(kept).toEqual({});
+  expect(hashes()).toEqual({});
   expect(
     parseKeptAttachments({ attachments: { a: [part("h1"), { type: "text" }] }, legacy: { b: [{ hash: 1 }] } }),
   ).toEqual({
@@ -362,15 +389,9 @@ test("round 3 F3: finished files are kept by the app and come back in their tray
 });
 
 test("round 3 F3: the native composer's files are uploaded into their trays, and the app lets go of each taken", async () => {
-  const saves: { conversation: string; parts: string[]; migrated: readonly string[] }[] = [];
-  const keeper = {
-    load: async () => ({
-      attachments: {},
-      legacy: { b: [{ hash: "legacy1", name: "old.txt", mimeType: "text/plain", data: btoa("notes") }] },
-    }),
-    save: (conversation: string, parts: readonly HomeAttachment[], migrated: readonly string[]) =>
-      void saves.push({ conversation, parts: parts.map((p) => p.hash), migrated }),
-  };
+  const { keeper, hashes, released } = attachmentBook({
+    b: [{ hash: "legacy1", name: "old.txt", mimeType: "text/plain", data: btoa("notes") }],
+  });
   const drafts = new AttachmentDrafts(keeper);
   await drafts.load();
   // Nothing uploads before the store can.
@@ -383,7 +404,8 @@ test("round 3 F3: the native composer's files are uploaded into their trays, and
   await settle();
   expect(uploaded).toEqual([{ conversation: "b", name: "old.txt", text: "notes" }]);
   expect(drafts.files("b").map((item) => item.part?.hash)).toEqual(["h2"]);
-  expect(saves.at(-1)).toEqual({ conversation: "b", parts: ["h2"], migrated: ["legacy1"] });
+  expect(hashes()).toEqual({ b: ["h2"] });
+  expect(released).toEqual([{ conversation: "b", migrated: ["legacy1"] }]);
   // A second store's service uploads nothing again.
   drafts.uploadLegacy(async () => part("h3"), "failed");
   await settle();
@@ -432,6 +454,7 @@ test("round 3 F6: a tapback goes to its part, with its kind", async () => {
 const { hostPrepareFile, mayCarryLocation } = await import("../src/pages/home-messages/transcript/prepareAttachment");
 const { KeptPendingCarry, parseOutbox } = await import("../src/pages/home-messages/outbox");
 type PendingSend = import("../src/pages/home-channels/store").PendingSend;
+type KeptAttachments = import("../src/pages/home-messages/transcript/attachmentDrafts").KeptAttachments;
 
 test("round 4 F1: a photo uploads the bytes the app prepared, location removed", async () => {
   const container = installDom();
@@ -502,19 +525,42 @@ function sendRow(key: string, conversation = "a"): PendingSend {
   return { key, conversation, text: `hello ${key}`, createdAt: 1, failed: false };
 }
 
-test("round 4 F2: an unsent send is kept by the app and shows again, not sent, on a new page", async () => {
-  const kept: Record<string, PendingSend[]> = {};
+/** The app's outbox (HomeMessagesOutbox.swift): one entry per send key, shared by every page; a
+ * send past `cap` characters is refused, as the host refuses one past its byte cap. */
+function outboxBook(cap = Number.MAX_SAFE_INTEGER) {
+  const kept: Record<string, Record<string, PendingSend>> = {};
   const keeper = {
-    load: async () => parseOutbox({ pending: structuredClone(kept) }),
-    save: (conversation: string, pending: readonly PendingSend[]) => {
-      if (pending.length) kept[conversation] = [...pending];
-      else delete kept[conversation];
+    load: async () =>
+      parseOutbox({
+        pending: Object.fromEntries(
+          Object.entries(kept).map(([conversation, rows]) => [
+            conversation,
+            Object.values(rows)
+              .sort((a, b) => a.createdAt - b.createdAt)
+              .map((row) => structuredClone(row)),
+          ]),
+        ),
+      }),
+    put: async (send: PendingSend) => {
+      if (JSON.stringify(send).length > cap) return false;
+      (kept[send.conversation] ??= {})[send.key] = structuredClone(send);
+      return true;
+    },
+    remove: (conversation: string, key: string) => {
+      delete kept[conversation]?.[key];
+      if (kept[conversation] && !Object.keys(kept[conversation]).length) delete kept[conversation];
     },
   };
+  return { keeper, kept };
+}
+
+test("round 4 F2: an unsent send is kept by the app and shows again, not sent, on a new page", async () => {
+  const { keeper, kept } = outboxBook();
   const carry = new KeptPendingCarry(keeper);
   await carry.load();
   carry.entries = [sendRow("k1")];
-  expect(kept.a?.map((entry) => entry.key)).toEqual(["k1"]);
+  await settle();
+  expect(Object.keys(kept.a ?? {})).toEqual(["k1"]);
 
   // A relaunch: the new page's store shows it as not sent, with its key.
   const next = new KeptPendingCarry(keeper);
@@ -560,4 +606,187 @@ test("round 4 F3: the Messages page reads only what its transcript shows", async
   await channels.reloadInbox();
   await channels.select("dm");
   expect(channelReads).toHaveLength(1);
+});
+
+// Review round 5 (BLOCK at 5611d7b2).
+const { transcriptRows } = await import("../src/pages/home-messages/transcript/rows");
+
+test("round 5 F1: one page's delivered send never drops another page's failed one", async () => {
+  const { keeper, kept } = outboxBook();
+  const pageA = new KeptPendingCarry(keeper);
+  const pageB = new KeptPendingCarry(keeper);
+  await pageA.load();
+  await pageB.load();
+  pageA.entries = [{ ...sendRow("k1"), failed: true }];
+  pageB.entries = [sendRow("k2")];
+  await settle();
+  expect(Object.keys(kept.a ?? {}).sort()).toEqual(["k1", "k2"]);
+  // B's send is delivered: B lets go of its own send only.
+  pageB.entries = [];
+  await settle();
+  expect(Object.keys(kept.a ?? {})).toEqual(["k1"]);
+  // A relaunch still finds A's failed send, with Retry.
+  const next = new KeptPendingCarry(keeper);
+  await next.load();
+  expect(next.entries.map((entry) => [entry.key, entry.failed])).toEqual([["k1", true]]);
+});
+
+test("round 5 F1: one page's tray never writes over another page's", async () => {
+  const { keeper, hashes } = attachmentBook();
+  const pageA = new AttachmentDrafts(keeper);
+  const pageB = new AttachmentDrafts(keeper);
+  await pageA.load();
+  await pageB.load();
+  pageA.add("a", new File(["notes"], "a.txt"), async () => part("hA", "a.txt"), "failed");
+  pageB.add("a", new File(["plan"], "b.txt"), async () => part("hB", "b.txt"), "failed");
+  await settle();
+  expect(hashes()).toEqual({ a: ["hA", "hB"] });
+  // B sends its file: only that one leaves the app's book.
+  pageB.take("a", [pageB.files("a")[0]!.part!]);
+  expect(hashes()).toEqual({ a: ["hA"] });
+  const next = new AttachmentDrafts(keeper);
+  await next.load();
+  expect(next.files("a").map((item) => item.part?.hash)).toEqual(["hA"]);
+});
+
+test("round 5 F3: a Chief archived on this Mac stays off the list, whatever comes in its conversation", () => {
+  const conversations = new Map([
+    ["chief", conversation("chief", { lastSeq: 900 })],
+    ["dm", conversation("dm", { lastSeq: 3 })],
+  ]);
+  const hidden = parseHidden({ hidden: { dm: 1 }, archived: ["chief"] });
+  expect([...visibleConversations(conversations, hidden).keys()]).toEqual(["dm"]);
+  // Without the archived set (so the test fails for its own reason) the Chief comes back.
+  expect([...visibleConversations(conversations, parseHidden({ hidden: { dm: 1 } })).keys()]).toEqual(["chief", "dm"]);
+});
+
+test("round 5 F4: a send too large to keep says so on its row, never a silent drop", async () => {
+  const { keeper, kept } = outboxBook(200);
+  const carry = new KeptPendingCarry(keeper);
+  await carry.load();
+  const big = { ...sendRow("big"), text: "x".repeat(500) };
+  carry.entries = [sendRow("k1"), big];
+  await settle();
+  expect(Object.keys(kept.a ?? {})).toEqual(["k1"]);
+  expect(carry.entries.map((entry) => [entry.key, !!entry.unkept])).toEqual([
+    ["k1", false],
+    ["big", true],
+  ]);
+  const rows = transcriptRows(
+    { me: "me", conversation: conversation("a"), messages: [], pending: carry.entries },
+    Date.now(),
+  );
+  const labels = rows.flatMap((row) => (row.kind === "label" ? [[row.key, row.label]] : []));
+  expect(labels).toEqual([["unkept:pending:big", "notKept"]]);
+  expect(strings.t("label.notKept")).toBe("Not Saved: Too Large to Keep");
+});
+
+const { MessagesDetail } = await import("../src/pages/home-messages/detail/MessagesDetail");
+const { noMessagesHost } = await import("../src/pages/home-messages/host");
+const { useSyncExternalStore } = await import("react");
+
+function threadClient(sends: unknown[]) {
+  const people = [
+    { id: "me", kind: "human", name: "Me", chief: false },
+    { id: "ada", kind: "human", name: "Ada", chief: false },
+  ];
+  const dm = conversation("dm", { participants: people as never, lastSeq: 2 });
+  const at = Date.now() - 60_000;
+  const root = {
+    id: "m1",
+    conversation: "dm",
+    seq: 1,
+    author: "ada",
+    createdAt: at,
+    parts: [{ type: "text", text: "root text" }],
+    reactions: [],
+  };
+  const reply = {
+    ...root,
+    id: "m2",
+    seq: 2,
+    createdAt: at + 1000,
+    parts: [{ type: "text", text: "a reply" }],
+    threadRoot: "m1",
+    replyTo: { message: "m1" },
+  };
+  return {
+    call: async (op: string, params: unknown) => {
+      if (op === HomeOps.send) sends.push(params);
+      if (op === HomeOps.inbox) return { me: people[0], conversations: [dm], rev: 1 };
+      if (op === HomeOps.page) return { conversation: dm, messages: [root, reply], hasOlder: false };
+      if (op === HomeOps.thread)
+        return { root, replies: [reply], hasMore: false, thread: { root: "m1", replyCount: 1, authors: ["ada"] } };
+      return {};
+    },
+    subscribe: async () => () => {},
+    handle: () => () => {},
+  };
+}
+
+function Detail({
+  store,
+  nav,
+}: {
+  store: InstanceType<typeof HomeChannelsStore>;
+  nav: InstanceType<typeof MessagesNav>;
+}) {
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const open = snapshot.selected ? snapshot.conversations.get(snapshot.selected) : undefined;
+  return (
+    <MessagesDetail
+      store={store}
+      snapshot={snapshot}
+      conversation={open}
+      me={snapshot.me}
+      strings={strings}
+      host={null}
+      messages={noMessagesHost}
+      chrome={{ windowControls: null }}
+      nav={nav}
+    />
+  );
+}
+
+test("round 5 F2: Reply… opens the message's thread, and a send there carries its thread and reply target", async () => {
+  const container = installDom();
+  const sends: Record<string, unknown>[] = [];
+  const store = new HomeChannelsStore(threadClient(sends) as never);
+  await store.reloadInbox();
+  await store.select("dm");
+  const nav = new MessagesNav();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<Detail store={store} nav={nav} />);
+  });
+  await settle();
+  const bubble = (text: string) =>
+    [...container.querySelectorAll<HTMLElement>(".mt-text")].find((element) => element.textContent === text);
+  const rightClick = (element: Element) =>
+    act(async () => {
+      element.dispatchEvent(
+        new dom!.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }),
+      );
+    });
+  const item = (label: string) =>
+    [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((entry) => entry.textContent === label);
+  expect(bubble("a reply")).toBeDefined();
+  await rightClick(bubble("a reply")!);
+  await act(async () => item(strings.t("menu.replyEllipsis"))!.click());
+  await settle();
+  // The thread shows over the conversation, with Back.
+  expect(store.getSnapshot().thread).toBe("m1");
+  expect(container.querySelector(".hm-thread-bar")?.textContent).toBe(strings.t("thread.back"));
+  expect(bubble("root text")).toBeDefined();
+  // A send there goes in the thread, answering the reply it came from.
+  await act(async () => nav.replaceDraft("dm", "in the thread"));
+  await settle();
+  const send = container.querySelector<HTMLButtonElement>(`button[aria-label="${strings.t("home.compose.send")}"]`)!;
+  await act(async () => send.click());
+  await settle();
+  expect(sends).toMatchObject([{ conversation: "dm", text: "in the thread", threadRoot: "m1", replyTo: "m2" }]);
+  // Back closes the thread.
+  await act(async () => container.querySelector<HTMLElement>(".hm-thread-bar button")!.click());
+  await settle();
+  expect(store.getSnapshot().thread).toBeUndefined();
 });

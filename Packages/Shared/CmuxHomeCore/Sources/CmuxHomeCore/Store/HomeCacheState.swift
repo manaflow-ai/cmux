@@ -13,8 +13,8 @@ struct HomeCacheState: Sendable {
     var sends: [HomeCachedSend] = []
     var drafts: [ConversationID: String] = [:]
     var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]] = [:]
-    var uploadedDraftAttachments: [ConversationID: String] = [:]
-    var pendingWebSends: [ConversationID: String] = [:]
+    var uploadedDraftAttachments: [ConversationID: [String: String]] = [:]
+    var pendingWebSends: [ConversationID: [String: String]] = [:]
     var scroll: [ConversationID: HomeScrollAnchor] = [:]
 
     init() {}

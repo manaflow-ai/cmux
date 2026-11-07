@@ -27,25 +27,25 @@ extension HomeStore {
     /// The conversations with attachments a web composer staged after uploading them.
     public var uploadedDraftAttachmentConversations: [ConversationID] { Array(viewCache.uploadedDraftAttachments.keys) }
 
-    /// A web composer's uploaded attachments in `id`'s compose field, as its JSON text.
-    public func uploadedDraftAttachments(for id: ConversationID) -> String? { viewCache.uploadedDraftAttachments[id] }
+    /// A web composer's uploaded attachments in `id`'s compose field: each part's JSON text by its hash.
+    public func uploadedDraftAttachments(for id: ConversationID) -> [String: String] { viewCache.uploadedDraftAttachments[id] ?? [:] }
 
-    /// Keeps a web composer's uploaded attachments (its JSON text: the blobs are the owner's
-    /// already, so no file here); nil or empty clears them.
-    public func setUploadedDraftAttachments(_ json: String?, for id: ConversationID) {
-        viewCache.setUploadedDraftAttachments(json, for: id)
+    /// Keeps one uploaded attachment (its JSON text: the blob is the owner's already, so no file
+    /// here) by its hash; nil removes only that one. Two pages never overwrite each other's.
+    public func setUploadedDraftAttachment(_ json: String?, hash: String, for id: ConversationID) {
+        viewCache.setUploadedDraftAttachment(json, hash: hash, for: id)
     }
 
     /// The conversations with sends a web composer made that the owner has not shown yet.
     public var pendingWebSendConversations: [ConversationID] { Array(viewCache.pendingWebSends.keys) }
 
-    /// A web composer's unsent sends in `id`, as its JSON text.
-    public func pendingWebSends(for id: ConversationID) -> String? { viewCache.pendingWebSends[id] }
+    /// A web composer's unsent sends in `id`: each send's JSON text by its key.
+    public func pendingWebSends(for id: ConversationID) -> [String: String] { viewCache.pendingWebSends[id] ?? [:] }
 
-    /// Keeps a web composer's unsent sends (its JSON text, so a relaunch shows them again); nil or
-    /// empty clears them.
-    public func setPendingWebSends(_ json: String?, for id: ConversationID) {
-        viewCache.setPendingWebSends(json, for: id)
+    /// Keeps one unsent send (its JSON text, so a relaunch shows it again) by its key; nil removes
+    /// only that one. Two pages never overwrite each other's.
+    public func setPendingWebSend(_ json: String?, key: String, for id: ConversationID) {
+        viewCache.setPendingWebSend(json, key: key, for: id)
     }
 
     /// The conversations whose compose field kept attachments (prepared here, their files in the blob cache).

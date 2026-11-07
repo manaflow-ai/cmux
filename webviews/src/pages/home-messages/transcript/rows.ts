@@ -86,7 +86,7 @@ export type TranscriptRow =
       /** A running reply, still growing. */
       streaming?: boolean;
     })
-  | (RowBase & { kind: "label"; outgoing: boolean; label: "edited" | "notDelivered" })
+  | (RowBase & { kind: "label"; outgoing: boolean; label: "edited" | "notDelivered" | "notKept" })
   | (RowBase & { kind: "unsent"; outgoing: boolean })
   | (RowBase & { kind: "receipt"; receipt: "read" | "delivered"; at?: number })
   | (RowBase & { kind: "typing"; participants: readonly string[] });
@@ -207,9 +207,12 @@ interface RowInputs {
   threadPrev?: string;
   threadSelf?: string;
   threadNext?: string;
+  /** My pending send the app refused to keep (too large): it says so, as it would be lost on quit. */
+  unkept?: boolean;
 }
 
 const INPUT_KEYS = [
+  "unkept",
   "prev",
   "next",
   "above",
@@ -231,6 +234,9 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
   const group = conversation.kind === "group";
   const messages = orderedMessages(data, now);
   const failed = new Set((data.pending ?? []).filter((entry) => entry.failed).map((entry) => entry.key));
+  const unkept = new Set(
+    (data.pending ?? []).filter((entry) => entry.unkept).map((entry) => `${PENDING_PREFIX}${entry.key}`),
+  );
   const readers = readersOf(data.readCursors, me);
   const deliveries = new Map<string, Delivery>();
   for (const message of messages) {
@@ -274,6 +280,7 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
       threadPrev: thread(prev),
       threadSelf: thread(message),
       threadNext: thread(next),
+      unkept: unkept.has(message.id) || undefined,
     };
     const kept = cache?.get(message, inputs);
     if (kept) {
@@ -350,6 +357,7 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
       if (message.editedAt) own.push({ kind: "label", key: `edited:${message.id}`, gap: 1, outgoing, label: "edited" });
       if (delivery?.state === "failed")
         own.push({ kind: "label", key: `failed:${message.id}`, gap: 1, outgoing, label: "notDelivered" });
+      if (inputs.unkept) own.push({ kind: "label", key: `unkept:${message.id}`, gap: 1, outgoing, label: "notKept" });
       if (receipt) own.push({ kind: "receipt", key: `receipt:${message.id}`, gap: 0, ...receipt });
     }
     cache?.set(message, inputs, own);

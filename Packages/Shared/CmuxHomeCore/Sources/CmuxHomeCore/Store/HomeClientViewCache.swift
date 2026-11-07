@@ -26,8 +26,8 @@ final class HomeClientViewCache {
 
     private(set) var drafts: [ConversationID: String] = [:]
     private(set) var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]] = [:]
-    private(set) var uploadedDraftAttachments: [ConversationID: String] = [:]
-    private(set) var pendingWebSends: [ConversationID: String] = [:]
+    private(set) var uploadedDraftAttachments: [ConversationID: [String: String]] = [:]
+    private(set) var pendingWebSends: [ConversationID: [String: String]] = [:]
     private(set) var scrollAnchors: [ConversationID: HomeScrollAnchor] = [:]
     private var pendingWrite: Task<Void, Never>?
     /// The newest state handed to the cache actor (``writeNow()``), awaited by ``flush()``.
@@ -66,20 +66,26 @@ final class HomeClientViewCache {
         scheduleWrite()
     }
 
-    /// Keeps a web composer's unsent sends (its JSON text); nil or empty clears them.
-    func setPendingWebSends(_ json: String?, for id: ConversationID) {
-        let value = json?.isEmpty == false ? json : nil
-        guard pendingWebSends[id] != value else { return }
-        pendingWebSends[id] = value
+    /// Keeps one entry of a web composer's per-conversation book (an unsent send by its key, a
+    /// staged part by its hash); nil or empty removes only that entry, never the others.
+    func setPendingWebSend(_ json: String?, key: String, for id: ConversationID) {
+        guard Self.set(&pendingWebSends, json, key: key, for: id) else { return }
         scheduleWrite()
     }
 
-    /// Keeps a web composer's uploaded attachments (its JSON text); nil or empty clears them.
-    func setUploadedDraftAttachments(_ json: String?, for id: ConversationID) {
-        let value = json?.isEmpty == false ? json : nil
-        guard uploadedDraftAttachments[id] != value else { return }
-        uploadedDraftAttachments[id] = value
+    func setUploadedDraftAttachment(_ json: String?, hash: String, for id: ConversationID) {
+        guard Self.set(&uploadedDraftAttachments, json, key: hash, for: id) else { return }
         scheduleWrite()
+    }
+
+    /// True when it changed the book.
+    private static func set(_ book: inout [ConversationID: [String: String]], _ json: String?, key: String, for id: ConversationID) -> Bool {
+        let value = json?.isEmpty == false ? json : nil
+        guard book[id]?[key] != value else { return false }
+        var entries = book[id] ?? [:]
+        entries[key] = value
+        book[id] = entries.isEmpty ? nil : entries
+        return true
     }
 
     /// Where the reader is; nil when at the bottom.

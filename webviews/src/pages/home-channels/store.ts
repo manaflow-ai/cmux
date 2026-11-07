@@ -79,6 +79,8 @@ export interface PendingSend {
   replyTo?: string;
   createdAt: number;
   failed: boolean;
+  /** The app refused to keep it across a quit (too large): the row says so. */
+  unkept?: boolean;
 }
 
 /** Pending sends that outlive one store: the page makes a new store on every reconnect, and a
@@ -106,14 +108,19 @@ export class PendingCarry {
     this.showing = store;
   }
 
+  /** Changes the entries from outside a store (a durable carry's refusal) and shows them. */
+  protected replace(entries: readonly PendingSend[]): void {
+    this.entries = entries;
+    this.showing?.(this.list);
+  }
+
   /** Sends kept from before (a relaunch) go ahead of these, not sent, with Retry: their
    * idempotency keys came with them, so a retry never sends one twice. */
   restore(kept: readonly PendingSend[]): void {
     const known = new Set(this.list.map((entry) => entry.key));
     const back = kept.filter((entry) => !known.has(entry.key)).map((entry) => ({ ...entry, failed: true }));
     if (back.length === 0) return;
-    this.entries = [...back, ...this.list];
-    this.showing?.(this.list);
+    this.replace([...back, ...this.list]);
   }
 }
 

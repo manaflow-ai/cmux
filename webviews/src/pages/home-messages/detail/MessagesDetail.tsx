@@ -7,9 +7,10 @@
 import { hostPrepareFile, type PrepareFile } from "../transcript/prepareAttachment";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Icon } from "../../../agent-session/acpmux/icons/Icon";
-import { parseConversationLink } from "../../home-channels/model";
+import { mergeMessages, parseConversationLink, threadMessages, threadOf } from "../../home-channels/model";
 import type { HomeChannelsStore, HomeSnapshot } from "../../home-channels/store";
-import type { HomeConversation, HomeParticipant } from "../../home-channels/types";
+import type { HomeAttachment, HomeConversation, HomeMessage, HomeParticipant } from "../../home-channels/types";
+import { Button } from "../../../ui/Button";
 import { createStrings, type Strings } from "../../shared/i18n";
 import { pageError, type PageClient } from "../../shared/pageClient";
 import { FirstRunPanel } from "../cards/firstRun/FirstRunPanel";
@@ -315,6 +316,9 @@ function ConversationView(
   },
 ) {
   const { store, snapshot, me, host, nav, words, conversation, firstRun } = props;
+  // Reply… on a message (the native transcript's): its thread opens over the conversation, and a
+  // send there answers that message (the root's own thread when it is the root).
+  const [replying, setReplying] = useState<{ root: string; parent: string }>();
   if (!me) return null;
   const { look, colors } = props.appearance(conversation);
   const id = conversation.id;
@@ -323,6 +327,28 @@ function ConversationView(
   const firstRunShown = conversation.kind === "chief" && conversation.lastSeq === 0 && snapshot.messages.length === 0;
   const chief = conversation.participants.find((person) => person.id !== me.id && person.chief);
   const intro = firstRun.introKind ? chiefIntroText(firstRun.introKind, words.cards) : undefined;
+  const onReply = (message: HomeMessage) => {
+    const root = threadOf(message) ?? message.id;
+    setReplying({ root, parent: message.id });
+    void store.openThread(root);
+  };
+  const root = snapshot.thread;
+  if (root) {
+    const parent = replying?.root === root && replying.parent !== root ? replying.parent : undefined;
+    return (
+      <ThreadView
+        {...props}
+        me={me}
+        root={root}
+        onReply={onReply}
+        onSend={(text, files) => store.send(text, root, parent, files)}
+        onClose={() => {
+          setReplying(undefined);
+          void store.openThread(undefined);
+        }}
+      />
+    );
+  }
   return (
     <>
       <MessagesTranscript
@@ -360,6 +386,7 @@ function ConversationView(
         onRetry={(key) => store.retry(key)}
         onDiscard={(key) => store.discard(key)}
         onReact={(message, partIndex, value, tapback) => void store.react(message, value, { partIndex, tapback })}
+        onReply={onReply}
         {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
         links={props.links}
         {...(firstRunShown
@@ -385,6 +412,86 @@ function ConversationView(
           : {})}
       />
     </>
+  );
+}
+
+/** The open thread over its conversation (the native transcript's thread view): the root and every
+ * reply loaded so far (the owner's thread pages with the window's newer copies), my sends in it,
+ * Back to the conversation, and the message box, whose sends go in the thread. A permalink to a reply
+ * opens here too (the store opens its thread and marks it). */
+function ThreadView(
+  props: ConversationViewProps & {
+    conversation: HomeConversation;
+    me: HomeParticipant;
+    root: string;
+    onReply(message: HomeMessage): void;
+    onSend(text: string, files?: readonly HomeAttachment[]): Promise<boolean>;
+    onClose(): void;
+  },
+) {
+  const { store, snapshot, words, conversation, root } = props;
+  const view = snapshot.threadView;
+  const messages = useMemo(() => {
+    const source = view
+      ? mergeMessages(
+          view.messages,
+          snapshot.messages.filter((message) => !view.hasMore || message.seq <= (view.messages.at(-1)?.seq ?? 0)),
+          Number.MAX_SAFE_INTEGER,
+        )
+      : snapshot.messages;
+    const { root: first, replies } = threadMessages(source, root);
+    return first ? [first, ...replies] : replies;
+  }, [view, snapshot.messages, root]);
+  const pending = useMemo(
+    () => snapshot.pending.filter((entry) => entry.threadRoot === root),
+    [snapshot.pending, root],
+  );
+  // Every reply page loads, one after another (a thread is read whole, as the native view did).
+  useEffect(() => {
+    if (view?.hasMore && !view.loading) store.loadMoreReplies();
+  }, [store, view]);
+  const { look, colors } = props.appearance(conversation);
+  return (
+    <MessagesTranscript
+      key={`thread:${root}`}
+      ref={props.transcript}
+      strings={words.transcript}
+      me={props.me.id}
+      conversation={conversation}
+      messages={messages}
+      pending={pending}
+      typing={snapshot.typing}
+      viewing={snapshot.viewing}
+      hasOlder={false}
+      loadingOlder={false}
+      connection={snapshot.connection}
+      look={look}
+      colors={colors}
+      pinned={
+        <div className="hm-thread-bar">
+          <Button variant="ghost" size="sm" onClick={props.onClose}>
+            {words.transcript.t("thread.back")}
+          </Button>
+        </div>
+      }
+      {...(store.attachments && takesFiles(snapshot, conversation) ? { attachments: store.attachments } : {})}
+      {...(props.dictation ? { dictation: props.dictation } : {})}
+      {...(props.prepareFile ? { prepareFile: props.prepareFile } : {})}
+      // One message box, as the native one: the conversation's draft and files go on into the thread.
+      initialDraft={props.nav.draft(conversation.id)}
+      onDraftChange={(text) => props.nav.keepDraft(conversation.id, text)}
+      attachmentDrafts={props.nav.attachments}
+      composerKey={`thread:${root}:${props.nav.draftVersion(conversation.id)}`}
+      composerPlaceholder={words.transcript.t("compose.placeholder.reply")}
+      onSend={props.onSend}
+      onLoadOlder={() => {}}
+      onRetry={(key) => store.retry(key)}
+      onDiscard={(key) => store.discard(key)}
+      onReact={(message, partIndex, value, tapback) => void store.react(message, value, { partIndex, tapback })}
+      onReply={props.onReply}
+      {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
+      links={props.links}
+    />
   );
 }
 

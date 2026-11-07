@@ -53,9 +53,8 @@ final class HomeMessagesHostProvider: PageProvider {
     var shown: ConversationID? { page.conversation }
     /// The page's report changed what it shows (its first report too).
     var onShown: (@MainActor (ConversationID?, Bool) -> Void)?
-    /// The conversations deleted from the page's list (``HomeSidebarSource/hidden``).
-    var hidden: @MainActor () -> [ConversationID: Seq] = { [:] }
-    private var hiddenListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
+    /// The `hidden` stream: the deleted conversations and the archived Chiefs' ones.
+    let hidden = HomeMessagesHiddenFeed()
     private var previewProvider: HomeLinkPreviewProvider?
     private var keeping: HomeMessagesKept?
     /// The first run of an empty Chief chat (``HomeMessagesFirstRunProvider``): it follows ``shown``.
@@ -190,9 +189,8 @@ final class HomeMessagesHostProvider: PageProvider {
                 if appearanceListeners.isEmpty { appearanceWatch?.cancel(); appearanceWatch = nil }
             }
         case HomeMessagesPageRoute.prefix + "hidden":
-            hiddenListeners[key] = onEvent
-            onEvent(Self.json(hidden: hidden()))
-            return PageSubscription { [weak self] in self?.hiddenListeners[key] = nil }
+            hidden.subscribe(key, onEvent)
+            return PageSubscription { [weak self] in self?.hidden.unsubscribe(key) }
         case HomeMessagesPageRoute.prefix + "headerPanels":
             panelListeners[key] = onEvent
             onEvent(panels())
@@ -239,17 +237,6 @@ final class HomeMessagesHostProvider: PageProvider {
     }
 
     // MARK: Streams
-
-    /// The deleted conversations changed: the page's list reads them again.
-    func publishHidden() {
-        guard !hiddenListeners.isEmpty else { return }
-        let value = Self.json(hidden: hidden())
-        for listener in hiddenListeners.values { listener(value) }
-    }
-
-    static func json(hidden: [ConversationID: Seq]) -> JSONValue {
-        .object(["hidden": .object(hidden.reduce(into: [String: JSONValue]()) { $0[$1.key.rawValue] = .number(Double($1.value)) })])
-    }
 
     private func appearance() -> JSONValue {
         guard let home = services?.home else { return .null }

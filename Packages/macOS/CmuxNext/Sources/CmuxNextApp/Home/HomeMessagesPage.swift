@@ -146,7 +146,8 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
         })
         // The conversations deleted from the list: any page's Delete or Show Hidden Conversations
         // (``HomeService/hiddenRevision``) reads this page's set again, and the page hears each change.
-        host.hidden = { [weak self] in self?.sidebar.hidden ?? [:] }
+        host.hidden.hidden = { [weak self] in self?.sidebar.hidden ?? [:] }
+        host.hidden.archived = { HomeArchivedChiefs(home.directory.archivedChiefs, me: home.homeStore.me?.id).hiddenConversations(store.rows) }
         let source = sidebar
         // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
         watches.append(Task { [weak self] in
@@ -159,7 +160,7 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
         })
         // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
         watches.append(Task { [weak self] in
-            for await _ in ObservationStream({ source.hidden }) { self?.host.publishHidden() }
+            for await _ in ObservationStream({ (source.hidden, home.directory.archivedChiefs, store.rows.map(\.id)) }) { self?.host.hidden.publish() }
         })
         // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
         watches.append(Task { [weak self] in

@@ -61,6 +61,8 @@ export interface MessageComposerProps {
   /** Where the files are kept per conversation (the page's); absent: this composer's own, which
    * end with it. */
   drafts?: AttachmentDrafts;
+  /** The field's placeholder (a thread's composer says Reply); default: the conversation's. */
+  placeholder?: string;
   ref?: Ref<MessageComposerHandle>;
 }
 
@@ -78,9 +80,11 @@ export function MessageComposer({
   initialText = "",
   onDraftChange,
   drafts: kept,
+  placeholder,
   ref,
 }: MessageComposerProps) {
   const { t } = strings;
+  const prompt = placeholder ?? t("compose.placeholder");
   const [value, setValue] = useState(initialText);
   // The page's drafts when it keeps them, else this composer's own (their uploads end with it).
   const [own] = useState(() => (kept ? undefined : new AttachmentDrafts()));
@@ -246,8 +250,8 @@ export function MessageComposer({
               else if (event.key === "ArrowDown" && recall("newer")) event.preventDefault();
             }}
             onSubmit={(markdown, { cmd }) => (cmd ? undefined : submit(markdown))}
-            placeholder={t("compose.placeholder")}
-            attributes={{ "aria-label": t("compose.placeholder") }}
+            placeholder={prompt}
+            attributes={{ "aria-label": prompt }}
             features={{ multiline: true }}
             className="mt-field-editor"
           />

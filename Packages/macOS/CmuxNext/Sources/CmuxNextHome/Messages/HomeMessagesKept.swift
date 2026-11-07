@@ -5,14 +5,16 @@ public import CmuxNextSettings
 /// What the Messages page keeps in HomeStore across launches, as the native composer kept it, and
 /// its files' preparation (the App's `HomeMessagesHostProvider` routes these ops here):
 /// - `drafts.load {}` -> `{drafts}`; `drafts.save {conversation, text}`: the composer drafts;
-/// - `attachments.load|save`: the staged files (``HomeMessagesAttachmentDrafts``);
+/// - `attachments.load|put|remove|release`: the staged files, one part each (``HomeMessagesAttachmentDrafts``);
 /// - `attachments.prepare.*`: a photo's or video's bytes before they upload (``HomeAttachmentPreparer``);
-/// - `outbox.load|save`: the unsent sends (``HomeMessagesOutbox``).
+/// - `outbox.load|put|remove`: the unsent sends, one send each (``HomeMessagesOutbox``).
 @MainActor
 public final class HomeMessagesKept {
     /// The longest draft kept (a paste of a log stays a draft; a runaway page cannot fill the cache).
     public static let maxDraftLength = 200_000
     static let preparePrefix = "attachments.prepare."
+    /// A send too large to keep (``HomeMessagesOutbox/maxEntryBytes``): the page says it is not kept.
+    public static let tooLargeCode = "cmux.home.outbox.too_large"
 
     private let store: HomeStore
     private let preparer: HomeAttachmentPreparer
@@ -41,17 +43,31 @@ public final class HomeMessagesKept {
             }
         case "attachments.load":
             return await HomeMessagesAttachmentDrafts(store: store).load()
-        case "attachments.save":
+        case "attachments.put":
+            let id = try Self.conversation(fields)
+            do { try HomeMessagesAttachmentDrafts(store: store).put(fields["part"] ?? .null, at: fields["at"]?.doubleValue ?? 0, for: id) } catch {
+                throw PageError.invalidParams("part must name its hash")
+            }
+            return .null
+        case "attachments.remove":
+            HomeMessagesAttachmentDrafts(store: store).remove(fields["hash"]?.stringValue ?? "", for: try Self.conversation(fields))
+            return .null
+        case "attachments.release":
             let migrated = Set((fields["migrated"]?.arrayValue ?? []).compactMap(\.stringValue))
-            HomeMessagesAttachmentDrafts(store: store).save(fields["parts"]?.arrayValue ?? [], migrated: migrated, for: try Self.conversation(fields))
+            HomeMessagesAttachmentDrafts(store: store).release(migrated, for: try Self.conversation(fields))
             return .null
         case "outbox.load":
             return HomeMessagesOutbox(store: store).load()
-        case "outbox.save":
+        case "outbox.put":
             let id = try Self.conversation(fields)
-            do { try HomeMessagesOutbox(store: store).save(fields["pending"]?.arrayValue ?? [], for: id) } catch {
-                throw PageError.invalidParams("more unsent sends than the outbox keeps")
+            do { try HomeMessagesOutbox(store: store).put(fields["send"] ?? .null, for: id) } catch HomeMessagesOutbox.Refusal.tooLarge {
+                throw PageError(code: Self.tooLargeCode, message: "the send is larger than the outbox keeps")
+            } catch {
+                throw PageError.invalidParams("send must carry its key")
             }
+            return .null
+        case "outbox.remove":
+            HomeMessagesOutbox(store: store).remove(fields["key"]?.stringValue ?? "", for: try Self.conversation(fields))
             return .null
         default:
             return nil

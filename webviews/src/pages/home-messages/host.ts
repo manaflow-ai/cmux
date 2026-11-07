@@ -14,8 +14,9 @@
 // - `drafts.load {}` -> `{drafts: {[conversation]: text}}` and `drafts.save {conversation, text}`:
 //   the composer drafts, kept in HomeStore's draft cache across launches (nav.ts `DraftKeeper`);
 // - `attachments.load {}` -> `{attachments: {[conversation]: [part]}, legacy: {[conversation]:
-//   [{hash, name, mimeType, data}]}}` and `attachments.save {conversation, parts, migrated}`: the
-//   staged files, kept the same way (attachmentDrafts.ts `AttachmentKeeper`).
+//   [{hash, name, mimeType, data}]}}`, `attachments.put {conversation, part, at}`, `attachments.remove
+//   {conversation, hash}` and `attachments.release {conversation, migrated}`: the staged files, kept
+//   the same way, one file per entry (attachmentDrafts.ts `AttachmentKeeper`).
 // In a browser (no host) there are no host items and no lights.
 import type { PageClient } from "../shared/pageClient";
 import type { HomeAttachment } from "../home-channels/types";
@@ -31,7 +32,9 @@ export const MessagesOps = {
   loadDrafts: "cmux.home.messages.drafts.load",
   saveDraft: "cmux.home.messages.drafts.save",
   loadAttachments: "cmux.home.messages.attachments.load",
-  saveAttachments: "cmux.home.messages.attachments.save",
+  putAttachment: "cmux.home.messages.attachments.put",
+  removeAttachment: "cmux.home.messages.attachments.remove",
+  releaseAttachments: "cmux.home.messages.attachments.release",
 } as const;
 
 /** The staged files kept by the app across launches. */
@@ -41,9 +44,15 @@ export function pageAttachmentKeeper(client: PageClient): AttachmentKeeper {
       const answer = await client.call<unknown>(MessagesOps.loadAttachments, {}).catch(() => undefined);
       return parseKeptAttachments(answer);
     },
-    save(conversation, parts, migrated) {
-      // An older host without the op keeps nothing; the page's own trays still hold them.
-      void client.call(MessagesOps.saveAttachments, { conversation, parts, migrated }).catch(() => undefined);
+    // A refusal keeps nothing; the page's own trays still hold the files.
+    put(conversation, part, at) {
+      void client.call(MessagesOps.putAttachment, { conversation, part, at }).catch(() => undefined);
+    },
+    remove(conversation, hash) {
+      void client.call(MessagesOps.removeAttachment, { conversation, hash }).catch(() => undefined);
+    },
+    release(conversation, migrated) {
+      void client.call(MessagesOps.releaseAttachments, { conversation, migrated }).catch(() => undefined);
     },
   };
 }
@@ -117,13 +126,20 @@ export function parseDrafts(value: unknown): Record<string, string> {
   return out;
 }
 
-/** The hidden set the host sent: whole seqs by conversation; anything else reads as none. */
+/** A conversation of a Chief archived on this Mac: hidden until it is unarchived (no message lists it). */
+export const ARCHIVED_SEQ = Number.MAX_SAFE_INTEGER;
+
+/** The hidden set the host sent: whole seqs by conversation, and the archived Chiefs' conversations
+ * (`archived`, hidden whatever comes); anything else reads as none. */
 export function parseHidden(value: unknown): HiddenConversations {
   const hidden = (value as { hidden?: unknown } | null | undefined)?.hidden;
+  const archived = (value as { archived?: unknown } | null | undefined)?.archived;
   const out = new Map<string, number>();
+  if (Array.isArray(archived)) for (const id of archived) if (typeof id === "string" && id) out.set(id, ARCHIVED_SEQ);
   if (!hidden || typeof hidden !== "object" || Array.isArray(hidden)) return out;
   for (const [conversation, seq] of Object.entries(hidden as Record<string, unknown>)) {
-    if (typeof seq === "number" && Number.isFinite(seq) && seq >= 0) out.set(conversation, seq);
+    if (typeof seq === "number" && Number.isFinite(seq) && seq >= 0)
+      out.set(conversation, Math.max(seq, out.get(conversation) ?? 0));
   }
   return out;
 }

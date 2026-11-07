@@ -279,7 +279,8 @@
   text-align: right;
 }
 
-.mt-label.notDelivered {
+.mt-label.notDelivered,
+.mt-label.notKept {
   color: var(--mt-danger);
 }
 
