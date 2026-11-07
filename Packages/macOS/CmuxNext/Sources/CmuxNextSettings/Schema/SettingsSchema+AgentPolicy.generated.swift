@@ -146,6 +146,8 @@ extension SettingsSchema {
         "agentPane.needsYou.enabled",
         // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.
         "agentPane.newChatsIn",
+        // The default `cmux chat` target (`cmux config set on cloud`): where the CLI starts a chat when neither --on nor CMUX_ON names one; the person may ask an agent to set it.
+        "chat.on",
         "updates.notify", "updates.showWhatsNew",
         // Feature tips: a display the person can turn on again.
         "updates.showFeatureTips",
@@ -266,6 +268,8 @@ extension SettingsSchema {
         "browser.toolbar.media", "browser.toolbar.profile", "browser.toolbar.menu", "browser.omnibox.color",
         "browser.omnibox.popupColor", "browser.omnibox.popupHoverColor", "layout.stripMargin",
         "layout.columnWidthPresets", "window.trafficLightClearance", "sidebar.workspaceIcons",
+        // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
+        "browser.openPullRequestsInGitHubPage",
     ]
 
     /// True when an agent may change `descriptor`, false when it may not, nil

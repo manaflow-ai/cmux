@@ -23,6 +23,7 @@ import { toolResult } from "./toolResult";
 import { withoutLinks } from "./webSourceList";
 import { stripsEnvelopeImages } from "../toolImages";
 import { foldFind } from "../../../find/fold";
+import { clearAdaptiveFind, paintAdaptiveFind, type FindColors } from "../../../ui/findPaint";
 
 export { foldFind };
 
@@ -45,6 +46,14 @@ export type FindMatchesResult = {
 /** The highlight names conversation.css styles. */
 export const FIND_HIGHLIGHT = "acpmux-find";
 export const FIND_ACTIVE_HIGHLIGHT = "acpmux-find-active";
+/// The theme's find highlight (conversation.css's fallback rules), fit to the surface under each
+/// match: a prompt's bubble, a card, a command's output, the transcript (ui/findPaint.ts; Leo
+/// 2026-11-07: "the inner highlight, I feel like needs to be a bit more, like distinguishable").
+const CHAT_FIND_COLORS: FindColors = {
+  match: "color-mix(in srgb, var(--agent-highlight, #f5c542) 40%, transparent)",
+  current: "var(--agent-highlight, #f5c542)",
+  currentInk: "var(--agent-highlight-text, #1d1d1f)",
+};
 /// Dispatched on the pane's shell when Find in Chat's bar opens (ChatFindBar.tsx): where the chat has
 /// no room for the bar beside Session Info, the panel steps aside (session-info/SessionInfo.tsx
 /// findBarCramped) instead of covering it.
@@ -399,6 +408,7 @@ export function clearFindHighlights() {
   const highlights = registry();
   highlights?.delete(FIND_HIGHLIGHT);
   highlights?.delete(FIND_ACTIVE_HIGHLIGHT);
+  clearAdaptiveFind(FIND_HIGHLIGHT);
 }
 
 /**
@@ -483,5 +493,6 @@ export function paintFindHighlights(
   highlights.set(FIND_HIGHLIGHT, new Highlight(...all.filter((range) => range !== current)));
   if (current) highlights.set(FIND_ACTIVE_HIGHLIGHT, new Highlight(current));
   else highlights.delete(FIND_ACTIVE_HIGHLIGHT);
+  paintAdaptiveFind(root.ownerDocument, FIND_HIGHLIGHT, CHAT_FIND_COLORS, all, current ? [current] : []);
   return current;
 }
