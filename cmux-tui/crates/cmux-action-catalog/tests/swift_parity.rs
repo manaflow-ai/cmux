@@ -159,6 +159,8 @@ fn translations_equal_the_string_catalogs() {
         }
     }
     assert!(checked > 1000, "only {checked} translations checked");
+    let declared = cmux_action_catalog::strings::declared_locales();
+    assert_eq!(declared, cmux_action_catalog::LOCALES, "strings.json's locales");
 }
 
 #[test]

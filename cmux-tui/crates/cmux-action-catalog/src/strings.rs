@@ -1,35 +1,72 @@
-//! Translations of the catalog's text, by string-table key, in every language the app ships.
-
-mod data;
-
-pub use data::LOCALES;
-use data::STRINGS;
+//! Translations of the catalog's text, by string table and key, in every language the app
+//! ships. The data is `strings.json` in this crate (table, then key, then language): edit
+//! it there. A language a string lacks shows the English.
 
 use crate::Text;
+use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
+/// The app's languages, English first. [`lookup`] takes an index into this list.
+pub const LOCALES: &[&str] = &[
+    "en", "ja", "ar", "bs", "da", "de", "es", "fr", "it", "km", "ko", "nb", "pl", "pt-BR", "ru",
+    "th", "tr", "uk", "vi", "zh-Hans", "zh-Hant",
+];
+
+const SOURCE: &str = include_str!("../strings.json");
+
+/// One string: its value in each of [`LOCALES`], empty where it is not translated.
+type Values = Vec<String>;
+
+fn strings_table() -> &'static HashMap<(String, String), Values> {
+    static TABLE: OnceLock<HashMap<(String, String), Values>> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        let root: Value = serde_json::from_str(SOURCE).expect("strings.json is valid JSON");
+        let mut map = HashMap::new();
+        for (table, keys) in root["strings"].as_object().into_iter().flatten() {
+            for (key, values) in keys.as_object().into_iter().flatten() {
+                let row = LOCALES
+                    .iter()
+                    .map(|locale| values[*locale].as_str().unwrap_or("").to_owned())
+                    .collect();
+                map.insert((table.clone(), key.clone()), row);
+            }
+        }
+        map
+    })
+}
+
+/// The languages `strings.json` declares (its `locales`), for the test that keeps them
+/// equal to [`LOCALES`].
+pub fn declared_locales() -> Vec<String> {
+    let root: Value = serde_json::from_str(SOURCE).expect("strings.json is valid JSON");
+    root["locales"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|v| v.as_str().map(str::to_owned))
+        .collect()
+}
 
 /// The index of `locale` in [`LOCALES`]: an exact match (`pt-BR`, `zh-Hant`), else its
 /// language (`ja-JP` -> `ja`, `zh-Hans-CN` -> `zh-Hans`), else English.
 pub fn locale_index(locale: &str) -> usize {
     let normalized = locale.replace('_', "-");
-    if let Some(index) = LOCALES.iter().position(|known| known.eq_ignore_ascii_case(&normalized)) {
-        return index;
-    }
     let mut parts: Vec<&str> = normalized.split('-').collect();
-    while parts.len() > 1 {
-        parts.pop();
+    while !parts.is_empty() {
         let prefix = parts.join("-");
         if let Some(index) = LOCALES.iter().position(|known| known.eq_ignore_ascii_case(&prefix)) {
             return index;
         }
+        parts.pop();
     }
     0
 }
 
 /// The translation of `table`/`key` in the language at `index`, if the table has one.
 pub fn lookup(table: &str, key: &str, index: usize) -> Option<&'static str> {
-    let found = STRINGS.binary_search_by(|(t, k, _)| (*t, *k).cmp(&(table, key))).ok()?;
-    let value = STRINGS[found].2.get(index).copied()?;
-    (!value.is_empty()).then_some(value)
+    let value = strings_table().get(&(table.to_owned(), key.to_owned()))?.get(index)?;
+    (!value.is_empty()).then_some(value.as_str())
 }
 
 /// `text` in the language at `index`, falling back to English, with its argument filled in.
@@ -55,8 +92,9 @@ fn fill(format: &str, arg: &str) -> String {
     format.to_owned()
 }
 
-/// Every key the catalog files translations under, with its English (the parity test checks
-/// each against the app's string catalogs).
-pub fn entries() -> impl Iterator<Item = (&'static str, &'static str, &'static [&'static str])> {
-    STRINGS.iter().map(|(table, key, values)| (*table, *key, values.as_slice()))
+/// Every string, as (table, key, its value in each of [`LOCALES`]).
+pub fn entries() -> impl Iterator<Item = (&'static str, &'static str, &'static [String])> {
+    strings_table()
+        .iter()
+        .map(|((table, key), values)| (table.as_str(), key.as_str(), values.as_slice()))
 }

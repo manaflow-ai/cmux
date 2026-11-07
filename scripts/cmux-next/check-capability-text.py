@@ -48,9 +48,6 @@ ALLOWED = [
     ("cmux-tui/crates/cmux-tui-core/src/release.rs", '"update the cmux app (cmux > Check for Updates)"'),
     ("cmux-tui/crates/cmux-tui-core/src/release.rs", 'PYPI_UPDATE: &str = "uv tool upgrade cmux";'),
     ("cmux-tui/crates/cmux-tui-core/src/release.rs", '"update cmux: `{NPM_UPDATE}` (npm), `{PYPI_UPDATE}` (PyPI), or Check for Updates in the cmux app"'),
-    # An action title, not an error text: "cmux Remote: Refresh Permissions" in Japanese
-    # (権限を更新 refreshes the permissions, it does not update cmux).
-    ("cmux-tui/crates/cmux-action-catalog/src/strings/data.rs", '"cmux Remote: 権限を更新"'),
 ]
 
 
