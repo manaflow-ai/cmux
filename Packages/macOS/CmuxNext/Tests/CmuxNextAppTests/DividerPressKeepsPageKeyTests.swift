@@ -83,8 +83,8 @@ struct DividerPressKeepsPageKeyTests {
         rig.probe.settle()
 
         #expect(rig.keyRequests() == 0, "the divider press asked to make the shell window key \(rig.keyRequests())x: the page loses the key")
-        #expect(rig.probe.window.firstResponder === responder, "the press moved the first responder: \(String(describing: responder)) -> "
-            + "\(String(describing: rig.probe.window.firstResponder))")
+        let responderAfter = String(describing: rig.probe.window.firstResponder)
+        #expect(rig.probe.window.firstResponder === responder, "the press moved the first responder: \(String(describing: responder)) -> \(responderAfter)")
         #expect(laid <= Self.pressLayouts, "the press's turn laid out \(laid) views: [\(Counts.text(pressTurn))]")
         #expect(handle.frame.midX - lineBefore > 30, "the drag moved the divider \(handle.frame.midX - lineBefore) pt of 60")
     }
