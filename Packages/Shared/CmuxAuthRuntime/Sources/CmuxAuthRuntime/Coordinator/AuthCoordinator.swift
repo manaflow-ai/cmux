@@ -81,6 +81,7 @@ public final class AuthCoordinator {
     private let isOnline: @Sendable () async -> Bool
     /// Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
     let isTokenStorageAvailable: @Sendable () async -> Bool
+    let readStoredTokens: (@Sendable () async -> AuthStoredTokenRead)?
     private let onSessionWillTransition: @MainActor @Sendable () -> Void
     private let onSignedIn: @Sendable () async -> Void
     let log = AuthDebugLog()
@@ -216,6 +217,7 @@ public final class AuthCoordinator {
     ///   - isOnline: Connectivity probe; sign-in flows fail fast when offline.
     ///     Defaults to always-online so tests need not supply it.
     ///   - isTokenStorageAvailable: Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
+    ///   - readStoredTokens: Reads stored credentials and their availability together. Supply this for storage whose availability can change between calls.
     ///   - onSessionWillTransition: Synchronous hook invoked before the
     ///     coordinator advances to a different auth-session generation.
     ///   - onSignedIn: Hook run after a successful sign-in / session restore, for
@@ -235,6 +237,7 @@ public final class AuthCoordinator {
         clock: any Clock<Duration> = ContinuousClock(),
         isOnline: @escaping @Sendable () async -> Bool = { true },
         isTokenStorageAvailable: @escaping @Sendable () async -> Bool = { true },
+        readStoredTokens: (@Sendable () async -> AuthStoredTokenRead)? = nil,
         onSessionWillTransition: @escaping @MainActor @Sendable () -> Void = {},
         onSignedIn: @escaping @Sendable () async -> Void = {},
         rateLimitTelemetry: StackRateLimitTelemetry = .shared
@@ -251,6 +254,7 @@ public final class AuthCoordinator {
         self.clock = clock
         self.isOnline = isOnline
         self.isTokenStorageAvailable = isTokenStorageAvailable
+        self.readStoredTokens = readStoredTokens
         self.onSessionWillTransition = onSessionWillTransition
         self.onSignedIn = onSignedIn
         self.selectedTeamID = teamSelection.selectedTeamID

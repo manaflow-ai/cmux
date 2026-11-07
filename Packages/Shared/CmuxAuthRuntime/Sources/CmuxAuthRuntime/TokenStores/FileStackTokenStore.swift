@@ -40,6 +40,15 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
         loadIfNeeded().refreshToken
     }
 
+    /// Reads both credentials from one file snapshot.
+    /// - Returns: The file's credentials as a definitive read.
+    public func readStoredTokens() -> AuthStoredTokenRead {
+        let snapshot = loadIfNeeded()
+        return AuthStoredTokenRead(
+            accessToken: snapshot.accessToken, refreshToken: snapshot.refreshToken, isAvailable: true
+        )
+    }
+
     public func setTokens(accessToken: String?, refreshToken: String?) async {
         log.log("file.setTokens: hasAccess=\(accessToken?.isEmpty == false) hasRefresh=\(refreshToken?.isEmpty == false)")
         var snapshot = loadIfNeeded()

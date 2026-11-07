@@ -148,6 +148,10 @@ struct MacAuthComposition {
             anchor: anchor,
             config: config,
             launch: launch,
+            // A Keychain read that fails (rather than finding nothing) must not
+            // read as signed out, e.g. on the first launch after an update.
+            isTokenStorageAvailable: { await tokenStore.isTokenStorageAvailable() },
+            readStoredTokens: { await tokenStore.readStoredTokens() },
             onSessionWillTransition: {
                 browserAppSessionSignInRelay.sessionWillTransition()
             },
