@@ -11,6 +11,9 @@
   margin-inline-end: 0;
 }
 .acpmux-machine-link {
+  /* The env strip's live dot (composerLocation.css --acpmux-env-live-size) and its gap to the words. */
+  --acpmux-machine-link-dot: 6px;
+  --acpmux-machine-link-gap: 6px;
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
@@ -26,9 +29,9 @@
 .acpmux-machine-link-mark {
   position: relative;
   flex: none;
-  margin-inline-end: 6px;
-  width: 6px;
-  height: 6px;
+  margin-inline-end: var(--acpmux-machine-link-gap);
+  width: var(--acpmux-machine-link-dot);
+  height: var(--acpmux-machine-link-dot);
 }
 .acpmux-machine-link-dot {
   position: absolute;
@@ -78,13 +81,13 @@
 .acpmux-machine-link-words {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--acpmux-machine-link-gap);
   min-width: 0;
   overflow: hidden;
 }
 .acpmux-machine-link-said {
   display: inline-flex;
-  gap: 6px;
+  gap: var(--acpmux-machine-link-gap);
   min-width: 0;
   overflow: hidden;
 }
@@ -103,7 +106,7 @@
 .acpmux-machine-link-reconnect {
   flex: none;
   margin: 0;
-  padding: 2px 6px;
+  padding: 0 var(--acpmux-machine-link-gap);
   border: 0;
   border-radius: var(--ds-radius-control, 6px);
   background: none;

@@ -63,7 +63,7 @@ const states = { connected, connecting, reconnecting, offline } as const;
 const looks: MachineLinkLook[] = ["named", "words", "dot"];
 const variants: Record<string, { note: string; props: Props }> = {
   before: {
-    note: "Before: 40 s into a dropped link, the only change is the model chip's \"Unavailable\", which reads as the model.",
+    note: 'Before: 40 s into a dropped link, the only change is the model chip\'s "Unavailable", which reads as the model.',
     props: { link: null, before: true },
   },
   local: { note: "A chat on this Mac: no link, the row as before.", props: { link: null } },
@@ -74,7 +74,10 @@ for (const look of looks)
       note: `${look === "named" ? "Shipped" : "Alternate"} look \`${look}\`, ${state}.`,
       props: { link, look },
     };
-variants["named-paused"] = { note: "A Cloud machine the app keeps, paused: the app's own word.", props: { link: paused } };
+variants["named-paused"] = {
+  note: "A Cloud machine the app keeps, paused: the app's own word.",
+  props: { link: paused },
+};
 variants["named-long-name"] = {
   note: "A long machine name cuts at its end; the state and Reconnect stay whole.",
   props: { link: longName },
