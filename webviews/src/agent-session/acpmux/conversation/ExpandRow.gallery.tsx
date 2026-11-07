@@ -99,10 +99,11 @@ const SEARCH: SearchResult = {
   truncated: false,
 };
 
-// Longer than the thirty lines a sent prompt shows before it folds (promptCollapse.ts).
+// A few lines past the thirty a sent prompt shows before it folds (promptCollapse.ts), each short
+// enough not to wrap, so it folds and, open, still fits the stage.
 const PROMPT = Array.from(
-  { length: 40 },
-  (_, index) => `Line ${index + 1}: keep the transcript's cards one surface, and let the whole bottom row toggle.`,
+  { length: 33 },
+  (_, index) => `Line ${index + 1}: one surface, and a bottom row that toggles.`,
 ).join("\n");
 
 function Stage({ block }: Props) {
