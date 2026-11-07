@@ -64,7 +64,11 @@ const comment = (id: string, filePath: string, line: number): Comment => ({
 
 test("the prompt lists every comment once, by file then line", async () => {
   const { commentsPromptText } = await import("../src/comments/format");
-  const text = commentsPromptText([comment("b", "src/b.ts", 3), comment("a2", "src/a.ts", 9), comment("a1", "src/a.ts", 2)]);
+  const text = commentsPromptText([
+    comment("b", "src/b.ts", 3),
+    comment("a2", "src/a.ts", 9),
+    comment("a1", "src/a.ts", 2),
+  ]);
   expect(text).toBe(
     [
       "Review comment on src/a.ts line 2 (new version):\n\nfix a1",
@@ -79,7 +83,9 @@ test("a refused send keeps the comments; a sent one clears only what it sent", a
   const { useDiffComments } = await import("../src/diff-viewer/useDiffComments");
   const { initialAppState } = await import("../src/diff-viewer/state");
   type Hook = ReturnType<typeof useDiffComments>;
-  const state = { current: { ...initialAppState({ payload: {} } as never, "ready" as never), comments: [] as Comment[] } };
+  const state = {
+    current: { ...initialAppState({ payload: {} } as never, "ready" as never), comments: [] as Comment[] },
+  };
   state.current.comments = [comment("c1", "a.ts", 1), comment("c2", "b.ts", 4)];
   const dispatched: Array<{ type: string; ids?: readonly string[] }> = [];
   let hook!: Hook;
@@ -126,7 +132,11 @@ test("a retry of the same comments sends the same prompt id, so the chat gets th
   const sends: Array<{ ids: unknown; opid?: string }> = [];
   let clearFails = true;
   installPageDiffComments({
-    call: async (_op: string, body: { method: string; params: Record<string, unknown> }, options?: { opid?: string }) => {
+    call: async (
+      _op: string,
+      body: { method: string; params: Record<string, unknown> },
+      options?: { opid?: string },
+    ) => {
       sends.push({ ids: body.params.ids, opid: options?.opid });
       // The chat took the prompt, but the host could not clear the comments.
       if (clearFails) throw Object.assign(new Error("store busy"), { code: "operation.failed" });
@@ -137,7 +147,9 @@ test("a retry of the same comments sends the same prompt id, so the chat gets th
   (window as unknown as { webkit: unknown }).webkit = undefined;
   try {
     type Hook = ReturnType<typeof useDiffComments>;
-    const state = { current: { ...initialAppState({ payload: {} } as never, "ready" as never), comments: [] as Comment[] } };
+    const state = {
+      current: { ...initialAppState({ payload: {} } as never, "ready" as never), comments: [] as Comment[] },
+    };
     state.current.comments = [comment("c1", "a.ts", 1)];
     let hook!: Hook;
     function Probe() {
@@ -154,12 +166,15 @@ test("a retry of the same comments sends the same prompt id, so the chat gets th
     act(() => probe.render(<Probe />));
     await act(async () => hook.send());
     expect(hook.sendState).toBe("failed");
+    // A comment added before the retry does not change the batch the chat may already have.
+    state.current.comments = [...state.current.comments, comment("c2", "b.ts", 2)];
     clearFails = false;
     await act(async () => hook.send());
     expect(hook.sendState).toBe("idle");
     expect(sends.length).toBe(2);
     expect(sends[0]!.opid).toBeDefined();
     expect(sends[1]!.opid).toBe(sends[0]!.opid);
+    expect(sends[1]!.ids).toEqual(["c1"]);
     act(() => probe.unmount());
   } finally {
     installPageDiffComments(null);

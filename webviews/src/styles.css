@@ -1325,7 +1325,7 @@ body[data-loading="true"] #status::before {
   justify-content: space-between;
   gap: 8px;
   min-height: 30px;
-  padding: 0 6px 0 10px;
+  padding: 0 10px;
   color: var(--cmux-diff-text-muted);
   font-size: var(--cmux-diff-ui-font-size);
 }
@@ -1334,7 +1334,7 @@ body[data-loading="true"] #status::before {
 #comments-send {
   display: inline-grid;
   flex: 0 0 auto;
-  height: 22px;
+  height: 24px;
   padding: 0 8px;
   font-size: var(--cmux-diff-ui-font-size);
   white-space: nowrap;
@@ -1347,7 +1347,7 @@ body[data-loading="true"] #status::before {
   visibility: hidden;
 }
 #comments-send-error {
-  padding: 0 10px 6px;
+  padding: 0 12px 8px;
   color: var(--cmux-diff-deletion-fg);
   font-size: var(--cmux-diff-ui-font-size);
 }

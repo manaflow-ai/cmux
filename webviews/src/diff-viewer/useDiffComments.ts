@@ -1,7 +1,7 @@
 // Owns the diff viewer's review comments: saving, deleting and submitting them through the host
 // bridge or locally.
 import type { SelectedLineRange } from "@pierre/diffs";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { lineTextFor, type CommentFileDiff } from "../comments/anchor";
 import {
   deleteComment as bridgeDeleteComment,
@@ -37,10 +37,16 @@ export function useDiffComments({
 }) {
   const activeRepoRoot = useSyncedRef(repoRoot);
   const [sendState, setSendState] = useState<CommentsSendState>("idle");
-  // The prompt id of the last send that did not finish, with the comments it named: a retry of the
-  // same comments sends the same id, so a prompt the chat took before the host failed to clear it
-  // is delivered once (acpmux answers a repeated id with its first delivery) and the clear runs again.
-  const pendingSend = useRef<{ key: string; opid: string } | null>(null);
+  // The last send that did not finish, as sent: the chat may have taken it before the host failed
+  // to clear its comments, so the next Send sends that same batch under the same prompt id (acpmux
+  // answers a repeated id with its first delivery) while all its comments are still listed; one
+  // added or edited since waits for the press after.
+  const pendingSend = useRef<{ repoRoot: string; ids: string[]; text: string; opid: string } | null>(null);
+  // Another repository: its Send starts idle, and the last one's unfinished batch is not its own.
+  useEffect(() => {
+    pendingSend.current = null;
+    setSendState("idle");
+  }, [repoRoot]);
   const onLoaded = useCallback(
     (comments: DiffCommentRecord[]) => dispatch({ type: "replace-comments", comments }),
     [dispatch],
@@ -126,11 +132,19 @@ export function useDiffComments({
       return;
     }
     const targetRepoRoot = repoRoot;
-    const ids = comments.map((comment) => comment.id);
-    const text = commentsPromptText(comments);
-    const key = `${targetRepoRoot}\n${ids.join("\n")}\n${text}`;
-    const opid = pendingSend.current?.key === key ? pendingSend.current.opid : `diff-comments-${crypto.randomUUID()}`;
-    pendingSend.current = { key, opid };
+    const listed = new Set(comments.map((comment) => comment.id));
+    const pending = pendingSend.current;
+    const batch =
+      pending != null && pending.repoRoot === targetRepoRoot && pending.ids.every((id) => listed.has(id))
+        ? pending
+        : {
+            repoRoot: targetRepoRoot,
+            ids: comments.map((comment) => comment.id),
+            text: commentsPromptText(comments),
+            opid: `diff-comments-${crypto.randomUUID()}`,
+          };
+    pendingSend.current = batch;
+    const { ids, text, opid } = batch;
     setSendState("sending");
     bridgeSendComments(targetRepoRoot, ids, text, opid)
       .then(() => {

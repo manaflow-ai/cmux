@@ -73,8 +73,12 @@ pub(super) fn dispatch(
             let ids = ids(&request.fields)?;
             mutate(mux, &store, request, root, |file, _| Ok(delete(file, &ids)))
         }
-        // crash-allow: dispatched only for the operations `handles` names
-        other => unreachable!("diff_comments does not handle {other:?}"),
+        // Dispatched only for the operations `handles` names; any other is refused, never a panic.
+        _ => Err(ResourceError::operation_failed(
+            operation,
+            "unsupported",
+            json!({"message": "diff_comments does not handle this operation"}),
+        )),
     }
 }
 

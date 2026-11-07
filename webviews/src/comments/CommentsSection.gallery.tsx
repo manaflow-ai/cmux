@@ -42,12 +42,17 @@ function CommentsSendStage({ design = "header", count = 2, state = "idle" }: Pro
   const labels = resolveCommentLabels(undefined);
   const list = entries(count);
   return (
-    <aside
-      style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", width: 300 }}
-    >
+    <aside style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", width: 300 }}>
       <div style={{ flex: "1 1 auto" }} />
       {design === "header" ? (
-        <CommentsSidebarSection entries={list} hasDraft={false} labels={labels} onSelect={() => {}} onSend={() => {}} sendState={state} />
+        <CommentsSidebarSection
+          entries={list}
+          hasDraft={false}
+          labels={labels}
+          onSelect={() => {}}
+          onSend={() => {}}
+          sendState={state}
+        />
       ) : (
         <AlternativeSection design={design} list={list} labels={labels} state={state} />
       )}
@@ -73,7 +78,11 @@ function AlternativeSection({
       <div id="comments-header">
         <span id="comments-title">{`${labels.comments} (${list.length})`}</span>
         {design === "link" ? (
-          <button type="button" className="comment-button" style={{ padding: "0 4px", color: "var(--cmux-diff-accent)" }}>
+          <button
+            type="button"
+            className="comment-button"
+            style={{ padding: "0 4px", color: "var(--cmux-diff-accent)" }}
+          >
             {label}
           </button>
         ) : null}
@@ -89,7 +98,7 @@ function AlternativeSection({
         ))}
       </div>
       {design === "footer" ? (
-        <div style={{ padding: "4px 6px 8px" }}>
+        <div style={{ padding: "4px 8px 8px" }}>
           <button type="button" className="comment-button comment-button-primary" style={{ width: "100%" }}>
             {label}
           </button>
