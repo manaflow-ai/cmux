@@ -178,8 +178,9 @@ struct FocusPass {
 }
 
 impl FocusPass {
-    /// Walks the app's focus, activity and launch records in time order.
-    fn run(records: &[&Record]) -> Self {
+    /// Walks the app's focus, activity and launch records in time order. The span still open at
+    /// the last record ends at `to_ms`, the report's cutoff (under the same idle cap).
+    fn run(records: &[&Record], to_ms: u64) -> Self {
         let mut pass = Self::default();
         let mut current: Option<(Surface, Option<Id>)> = None;
         let mut since: Option<u64> = None;
@@ -226,6 +227,9 @@ impl FocusPass {
                 _ => {}
             }
         }
+        if let Some(since) = since {
+            pass.close(&current, Some(since), to_ms.max(since));
+        }
         pass
     }
 
@@ -247,7 +251,7 @@ pub fn build(records: &[Record], from_ms: u64, to_ms: u64) -> Report {
     }
 
     let app: Vec<&Record> = records.iter().filter(|r| r.src == Source::App).collect();
-    let focus = FocusPass::run(&app);
+    let focus = FocusPass::run(&app, to_ms);
     let total_ms: u64 = focus.surface_ms.values().sum();
     report.surface_time = focus
         .surface_ms
@@ -712,6 +716,20 @@ mod tests {
             vec![focus(0, Surface::Terminal, "t"), focus(10 * IDLE_CAP_MS, Surface::Chat, "a")];
         let report = build(&records, 0, 10 * IDLE_CAP_MS);
         assert_eq!(report.surface_time[0].seconds, IDLE_CAP_MS as f64 / 1000.0);
+    }
+
+    /// A visit still open at the cutoff counts up to it (Codex review F4 of 7cdcdba8): reporting
+    /// while staying in one tab showed no time for it.
+    #[test]
+    fn the_open_span_counts_up_to_the_cutoff() {
+        let records = vec![focus(0, Surface::Terminal, "t"), focus(60_000, Surface::Chat, "a")];
+        let report = build(&records, 0, 180_000);
+        let chat = report.surface_time.iter().find(|s| s.surface == Surface::Chat).expect("chat");
+        assert_eq!(chat.seconds, 120.0);
+
+        let report = build(&records, 0, 60_000 + 10 * IDLE_CAP_MS);
+        let chat = report.surface_time.iter().find(|s| s.surface == Surface::Chat).expect("chat");
+        assert_eq!(chat.seconds, IDLE_CAP_MS as f64 / 1000.0);
     }
 
     #[test]

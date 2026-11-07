@@ -246,6 +246,36 @@ import Testing
         #expect(log.all.isEmpty)
     }
 
+    /// A daemon that does not answer holds one batch, never one per 64 events (Codex review F5 of
+    /// 7cdcdba8): what is staged meanwhile waits under the capacity and goes in one batch after it.
+    @Test func oneBatchIsOnItsWayAtATime() async {
+        let log = PortLog()
+        let holding = PortLog()
+        holding.calls.withLock { $0 = ["hold"] }
+        let inFlight = Mutex(0)
+        let most = Mutex(0)
+        let queue = UsageEventQueue { events in
+            let now = inFlight.withLock { $0 += 1; return $0 }
+            most.withLock { $0 = max($0, now) }
+            while !holding.all.isEmpty { await Task.yield() }
+            inFlight.withLock { $0 -= 1 }
+            log.calls.withLock { $0.append(events) }
+        }
+        let threshold = UsageEventQueue.flushThreshold
+        for index in 0..<(threshold * 5) {
+            queue.stage([UsageRecord(at: Int64(index), event: .active(on: true))])
+            if index % threshold == 0 { await Task.yield() }
+        }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(most.withLock { $0 } == 1)
+        #expect(queue.count <= UsageEventQueue.capacity)
+        holding.calls.withLock { $0 = [] }
+        for _ in 0..<100 where queue.count > 0 || log.all.count < 2 { await Task.yield() }
+        #expect(most.withLock { $0 } == 1)
+        #expect(queue.count == 0)
+        #expect(log.all.count == 2)
+    }
+
     @Test func aFlushSendsOneArrayAndAFailedOneIsKeptForTheNext() async throws {
         let log = PortLog()
         let refusing = PortLog()

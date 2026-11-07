@@ -6,8 +6,8 @@ import os
 /// (the main actor's focus changes, the action reporter's task), so recording an event starts no
 /// task and awaits nothing; the sends run on this actor. A batch goes to the daemon when
 /// ``flushThreshold`` events wait, and on ``flush()`` (the app resigning active, quitting). No
-/// timers. At most ``capacity`` events wait (the oldest go first), so a daemon that does not
-/// answer never grows it.
+/// timers. One send is on its way at a time; what is staged meanwhile waits, at most ``capacity``
+/// events (the oldest go first), so a daemon that does not answer never grows it.
 ///
 /// ```swift
 /// let queue = UsageEventQueue { events in try await send(UsageRecordRequest(source: "app-nightly", events: events)) }
@@ -32,6 +32,19 @@ actor UsageEventQueue {
         var nextAutoFlush = UsageEventQueue.flushThreshold
         /// A send was started for the count reached and has not taken the records yet.
         var flushQueued = false
+        /// A batch is on its way to the daemon.
+        var sending = false
+        /// A ``flush()`` came while a batch was on its way: what waits goes right after it.
+        var flushAgain = false
+
+        /// The records of the next send, or nil when there are none or one is on its way.
+        mutating func take() -> [UsageRecord]? {
+            guard isOn, !sending, !records.isEmpty else { return nil }
+            sending = true
+            flushAgain = false
+            defer { records.removeAll(keepingCapacity: true) }
+            return records
+        }
 
         mutating func keep(_ more: [UsageRecord], atFront: Bool = false) {
             records = atFront ? more + records : records + more
@@ -65,24 +78,35 @@ actor UsageEventQueue {
         Task { await self.flush() }
     }
 
-    /// Sends what waits as one batch. A failed send keeps it for the next flush.
+    /// Sends what waits as one batch. A failed send keeps it for the next flush. While a batch is on
+    /// its way this sends nothing itself: the batch's answer sends what waits next.
     func flush() async {
-        let batch = waiting.withLock { waiting -> [UsageRecord] in
+        var next = waiting.withLock { waiting -> [UsageRecord]? in
+            // While a batch is on its way, the auto flush stays queued: its answer clears it.
+            if waiting.sending {
+                waiting.flushAgain = true
+                return nil
+            }
             waiting.flushQueued = false
-            guard waiting.isOn else { return [] }
-            defer { waiting.records.removeAll(keepingCapacity: true) }
-            return waiting.records
+            return waiting.take()
         }
-        guard !batch.isEmpty else { return }
-        do {
-            try await send(try UsageRecord.batch(batch))
-            waiting.withLock { $0.nextAutoFlush = Self.flushThreshold }
-        } catch {
-            logger.error("usage-record not sent: \(String(describing: error), privacy: .public)")
-            waiting.withLock { waiting in
-                guard waiting.isOn else { return }
-                waiting.keep(batch, atFront: true)
-                waiting.nextAutoFlush = min(waiting.records.count, Self.capacity - Self.flushThreshold) + Self.flushThreshold
+        while let batch = next {
+            do {
+                try await send(try UsageRecord.batch(batch))
+                waiting.withLock { $0.nextAutoFlush = Self.flushThreshold }
+            } catch {
+                logger.error("usage-record not sent: \(String(describing: error), privacy: .public)")
+                waiting.withLock { waiting in
+                    guard waiting.isOn else { return }
+                    waiting.keep(batch, atFront: true)
+                    waiting.nextAutoFlush = min(waiting.records.count, Self.capacity - Self.flushThreshold) + Self.flushThreshold
+                }
+            }
+            next = waiting.withLock { waiting -> [UsageRecord]? in
+                waiting.sending = false
+                waiting.flushQueued = false
+                guard waiting.flushAgain || waiting.records.count >= waiting.nextAutoFlush else { return nil }
+                return waiting.take()
             }
         }
     }
