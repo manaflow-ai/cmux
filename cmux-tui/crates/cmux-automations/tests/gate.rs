@@ -215,9 +215,9 @@ fn event_text_is_quoted_data_whose_fence_it_cannot_close() {
 fn bursts_of_lines_are_one_event_after_the_debounce() {
     let store = store("debounce");
     let a = store.create(spec("w", watch(), "true", Gate::default()), T0).unwrap();
-    let mut w = Watches::new(store.clone());
+    let mut w = Watches::new(store);
     // No real command here: the watcher's start fails quietly or runs; lines come from the seam.
-    w.reconcile(&[a.clone()], i64::MAX / 4);
+    w.reconcile(std::slice::from_ref(&a), i64::MAX / 4);
     let ms = 1_000_000_000i64;
     w.add_line(&a.id, "panic: one", ms);
     w.add_line(&a.id, "  at main.rs:3", ms + 1_000);
@@ -254,8 +254,8 @@ fn a_real_watch_command_turns_its_lines_into_an_event_and_stops_with_the_runner(
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
             as i64
     };
-    let mut w = Watches::new(store.clone());
-    w.reconcile(&[a.clone()], now_ms());
+    let mut w = Watches::new(store);
+    w.reconcile(std::slice::from_ref(&a), now_ms());
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut events = Vec::new();
     while events.is_empty() && Instant::now() < deadline {
