@@ -51,6 +51,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .cloudSignInCancel: "cloudSignInCancel"
         case .cloudReservation: "cloudReservation"
         case .cloudRepickChat: "cloudRepickChat"
+        case .cloudAnswerStart: "cloudAnswerStart"
         case .sandboxState: "sandboxState"
         case .cloudHandoffTurn: "cloudHandoffTurn"
         case .chooseFolder: "chooseFolder"
