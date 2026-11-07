@@ -111,11 +111,29 @@ import Testing
         return MenuLayout(rows: laid, width: menuWidth, shortcutColumnX: shortcutColumnX, overlaps: overlaps, height: height)
     }
 
+    /// Fixed inks for the offscreen render: the dynamic secondary and tertiary label colors drew
+    /// nothing through `cacheDisplay` (the first gallery lost every disabled row, shortcut and caption).
+    struct Inks {
+        var primary, disabled, shortcut, caption, separator, fill, backdrop: NSColor
+        init(dark: Bool) {
+            let ink = NSColor(white: dark ? 1 : 0, alpha: 1)
+            primary = ink.withAlphaComponent(0.88)
+            disabled = ink.withAlphaComponent(0.32)
+            shortcut = ink.withAlphaComponent(0.45)
+            caption = ink.withAlphaComponent(0.6)
+            separator = ink.withAlphaComponent(0.14)
+            fill = dark ? NSColor(white: 0.2, alpha: 1) : NSColor(white: 0.97, alpha: 1)
+            backdrop = dark ? NSColor(white: 0.1, alpha: 1) : NSColor(white: 0.9, alpha: 1)
+        }
+    }
+
     /// Draws a layout as a menu.
     final class MenuView: NSView {
         let layout: MenuLayout
-        init(_ layout: MenuLayout) {
+        let inks: Inks
+        init(_ layout: MenuLayout, inks: Inks) {
             self.layout = layout
+            self.inks = inks
             super.init(frame: NSRect(x: 0, y: 0, width: layout.width, height: layout.height))
         }
 
@@ -128,13 +146,13 @@ import Testing
             var y: CGFloat = 5
             for laid in layout.rows {
                 guard let laid else {
-                    NSColor.separatorColor.setFill()
+                    inks.separator.setFill()
                     NSRect(x: 10, y: y + 5, width: layout.width - 20, height: 1).fill()
                     y += ContextMenuReasonShortcutGalleryTests.separatorHeight
                     continue
                 }
                 let enabled = laid.row.reason == nil
-                let ink: NSColor = enabled ? .labelColor : .tertiaryLabelColor
+                let ink = enabled ? inks.primary : inks.disabled
                 if let image = NSImage(systemSymbolName: laid.row.symbol, accessibilityDescription: nil)?
                     .withSymbolConfiguration(.init(pointSize: title.pointSize, weight: .regular).applying(.init(hierarchicalColor: ink))) {
                     image.draw(in: NSRect(x: ContextMenuReasonShortcutGalleryTests.inset, y: y + 3, width: 16, height: 16))
@@ -145,7 +163,7 @@ import Testing
                         - ContextMenuReasonShortcutGalleryTests.width(laid.row.shortcut, title)
                     let shortcutY = y + 2 + (laid.lines.isEmpty ? 0 : ContextMenuReasonShortcutGalleryTests.reasonLine * 0.5)
                     (laid.row.shortcut as NSString).draw(at: NSPoint(x: x, y: shortcutY),
-                                                         withAttributes: [.font: title, .foregroundColor: NSColor.tertiaryLabelColor])
+                                                         withAttributes: [.font: title, .foregroundColor: inks.shortcut])
                 }
                 var lineY = y + ContextMenuReasonShortcutGalleryTests.rowHeight - 3
                 for line in laid.lines {
@@ -159,17 +177,17 @@ import Testing
 
     static func panel(_ variant: Variant, appearance: NSAppearance) -> NSView {
         let shown = menuLayout(variant)
-        let box = NSVisualEffectView(frame: NSRect(origin: .zero, size: CGSize(width: shown.width, height: shown.height)))
-        box.material = .menu
-        box.state = .active
+        let inks = Inks(dark: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+        let box = NSView(frame: NSRect(origin: .zero, size: CGSize(width: shown.width, height: shown.height)))
         box.wantsLayer = true
         box.layer?.cornerRadius = 8
-        box.addSubview(MenuView(shown))
+        box.layer?.backgroundColor = inks.fill.cgColor
+        box.addSubview(MenuView(shown, inks: inks))
         box.widthAnchor.constraint(equalToConstant: shown.width).isActive = true
         box.heightAnchor.constraint(equalToConstant: shown.height).isActive = true
         let caption = NSTextField(wrappingLabelWithString: label(variant))
         caption.font = NSFont.menuFont(ofSize: NSFont.smallSystemFontSize)
-        caption.textColor = .secondaryLabelColor
+        caption.textColor = inks.caption
         caption.preferredMaxLayoutWidth = max(shown.width, 320)
         let outer = NSStackView(views: [box, caption])
         outer.orientation = .vertical
@@ -177,6 +195,8 @@ import Testing
         outer.spacing = 8
         outer.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         outer.appearance = appearance
+        outer.wantsLayer = true
+        outer.layer?.backgroundColor = inks.backdrop.cgColor
         outer.frame = NSRect(origin: .zero, size: outer.fittingSize)
         outer.layoutSubtreeIfNeeded()
         return outer

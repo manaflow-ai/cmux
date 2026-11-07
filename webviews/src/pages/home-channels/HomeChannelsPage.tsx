@@ -816,7 +816,14 @@ export function HomeChannelsPage({
                 conversations={conversations}
                 me={me}
               />
-              {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
+              {palette && (
+                <Palette
+                  items={paletteItems}
+                  rank={store.rankPalette}
+                  strings={strings}
+                  onClose={() => setPalette(false)}
+                />
+              )}
             </div>
           </div>
         </PicturesContext.Provider>
