@@ -450,7 +450,12 @@ async fn folder_browsing_is_for_the_owner_and_a_peer_sees_only_its_roots() {
     ] {
         let mut c = Client::authed(&hub, origin, auth);
         let r = c.call("_acpmux/browse", params).await;
-        assert_eq!(r["error"]["code"], json!(-32601), "{origin:?} {auth:?}: {r}");
+        // A read-only device is turned away by the read-only gate first (`read_only`).
+        let code = r["error"]["code"].as_i64();
+        assert!(
+            r.get("result").is_none() && matches!(code, Some(-32601 | -32003)),
+            "{origin:?} {auth:?}: {r}"
+        );
     }
     let mut local = Client::new(&hub, Origin::LocalApp);
     let r = local.call("_acpmux/browse", json!({"peer": "nopeer"})).await;
