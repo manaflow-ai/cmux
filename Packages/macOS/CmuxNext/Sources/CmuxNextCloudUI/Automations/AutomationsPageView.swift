@@ -114,6 +114,7 @@ public struct AutomationsPageView: View {
                     }
                 }
             }
+            .thinScrollers()
         }
     }
 

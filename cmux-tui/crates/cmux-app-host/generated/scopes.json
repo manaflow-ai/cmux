@@ -2115,6 +2115,7 @@
     "ownership.transfer",
     "pairing_request.list",
     "pairing_request.resolve",
+    "palette.rank",
     "pane.close",
     "participants.remove",
     "request.cancel",
