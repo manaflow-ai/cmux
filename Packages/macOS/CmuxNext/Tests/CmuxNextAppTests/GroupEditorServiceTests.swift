@@ -150,6 +150,39 @@ import Testing
         #expect(first?["id"]?.stringValue == "", "a reload after the close drew the closed editor again")
     }
 
+    /// Review of #37299 at efa6302 (F1): the page scales its controls by the Interface Size (`Typography.userScale`,
+    /// its `--cmux-interface-scale`), so the card widens with it and the swatch row and icon button stay whole.
+    @Test func theCardWidensWithTheInterfaceSize() {
+        let design = DesignSettings.shared
+        let saved = design.overrides[.chromeFontSize]
+        defer { design.setOverride(.chromeFontSize, saved) }
+        design.setOverride(.chromeFontSize, nil)
+        let base = SidebarGroupEditor.width
+        design.setOverride(.chromeFontSize, 16)
+        let scale = Typography.userScale
+        #expect(scale > 1, "the test's chrome font size did not enlarge the interface")
+        #expect(abs(SidebarGroupEditor.width - base * scale) <= 0.5,
+                "the card stayed \(SidebarGroupEditor.width) wide for controls scaled \(scale)x")
+    }
+
+    /// Review of #37299 at efa6302 (F2): the editor takes the keys as it opens, before the page has painted, so a name
+    /// typed right after Rename Group goes into its field, not into the list or terminal under it.
+    @Test func theEditorTakesTheKeysAsItOpens() async throws {
+        try #require(await GUIAnimationTestSupport.animatesHere(), "requires an awake fleet display; a skip is not regression evidence")
+        let service = GroupEditorService()
+        let parent = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        parent.makeKeyAndOrderFront(nil)
+        defer { parent.closeAfterTest() }
+        service.present(Self.group, items: Self.items, anchor: PopupAnchor(rect: CGRect(x: 240, y: 650, width: 100, height: 30), edge: .leading),
+                        parent: parent, themeAnchor: parent.contentView ?? NSView(), ordersFront: true, events: Self.events(Record()))
+        let panel = try #require(service.panel)
+        defer { panel.closeAfterTest() }
+        #expect(service.open?.shown == false, "the page has not answered yet")
+        #expect(panel.isKeyWindow, "keys typed before the page painted went to the window under the editor")
+        service.dismiss()
+    }
+
     /// Review of #37299 at 44de463 (F1): the page zooms with `app.uiScale`, so its CSS pixels are not points; the card
     /// is the page's height and the editor's width at that zoom, so nothing under the swatches is cut off.
     @Test func theCardFollowsThePageZoom() throws {
