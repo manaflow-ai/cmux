@@ -260,6 +260,7 @@ function Checks({ read, t }: { read: LinkedPullRequest | undefined; t: Translate
       // this pull request's to fix (the merge rules say so too).
       data-on-base={onBase > 0 && onBase >= failing ? "all" : undefined}
       // Focusable only when it has names to show, so a keyboard reaches the same list a pointer does.
+      // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the check names' tooltip is keyboard-focusable without an action
       tabIndex={failingNames.length + runningNames.length > 0 ? 0 : undefined}
     >
       <span className="acpmux-pr-card__sr">{sentence}</span>

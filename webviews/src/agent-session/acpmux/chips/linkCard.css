@@ -78,7 +78,7 @@
 .acpmux-pr-card__decision[data-review=approved]{color:var(--agent-status-success)}
 .acpmux-pr-card__decision[data-review=changes_requested]{color:var(--agent-status-failure)}
 /* A label in its colour (GitHub's, else a tone its name picks): a tint, a stronger edge, and the colour mixed into the text, so a pale or a dark label reads on either theme. risk:high without a colour takes the failure ink. */
-.acpmux-pr-card__label{--label:var(--agent-muted);padding:0 6px;border:var(--cmux-hairline) solid color-mix(in srgb,var(--label) 55%,transparent);border-radius:999px;background:color-mix(in srgb,var(--label) 18%,transparent);color:color-mix(in oklab,var(--label) 55%,var(--agent-text));font-size:var(--text-caption);font-weight:600;line-height:16px;letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-pr-card__label{--label:var(--agent-muted);padding:0 6px;border:var(--cmux-hairline) solid color-mix(in srgb,var(--label) 55%,transparent);border-radius:4px;background:color-mix(in srgb,var(--label) 18%,transparent);color:color-mix(in oklab,var(--label) 55%,var(--agent-text));font-size:var(--text-caption);font-weight:600;line-height:16px;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-pr-card__label[data-tone="0"]{--label:var(--agent-ansi-1,var(--agent-muted))}
 .acpmux-pr-card__label[data-tone="1"]{--label:var(--agent-ansi-2,var(--agent-muted))}
 .acpmux-pr-card__label[data-tone="2"]{--label:var(--agent-ansi-3,var(--agent-muted))}
