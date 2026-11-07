@@ -14,6 +14,7 @@ import { LiveBook } from "./live";
 import { readPresentation } from "./presentation";
 import { RunBook } from "./runs";
 import { HomeSheets } from "./sheets";
+import { fixtureRank, type PaletteRankReply, type PaletteRankRequest } from "./paletteRank";
 import { ChiefWorkStore } from "./ChiefWorkStore";
 import {
   HomeOps,
@@ -406,6 +407,12 @@ export class HomeChannelsStore {
     this.stops = [];
     this.starting = undefined;
   }
+
+  /** Ranks the Cmd-K palette's rows (`cmux.home.paletteRank`); offline, the fixture ranker. */
+  readonly rankPalette = (request: PaletteRankRequest): Promise<PaletteRankReply> =>
+    this.client
+      ? this.client.call<PaletteRankReply>(HomeOps.paletteRank, request)
+      : Promise.resolve(fixtureRank(request));
 
   async reloadInbox(): Promise<void> {
     if (!this.client) return;

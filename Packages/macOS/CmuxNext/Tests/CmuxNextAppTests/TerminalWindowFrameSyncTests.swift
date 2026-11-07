@@ -251,10 +251,11 @@ struct TerminalWindowFrameSyncTests {
     /// a size drawn ahead is with Ghostty. The size drawn ahead goes to Ghostty's render only:
     /// - (a) in every committed turn, the grid the view gives its PTY owner is the grid its committed layer bounds fit;
     /// - (b) every grid the PTY gets is a grid that a committed turn showed;
-    /// - (c) two grids are at least 25 ms apart (Ghostty.app's `min_ms`) before the landing (the landing flushes);
-    /// - (d) after the shown grid changes, the PTY gets a grid within 25 ms (plus 2 refreshes and a slack for the runner);
+    /// - (c) two grids are never in one refresh (less than half a refresh apart) before the landing (the landing flushes);
+    /// - (d) after the shown grid changes, the PTY gets a grid within 3 refreshes (the window's refresh, 2 more, RESIZE P0 6:
+    ///   not 25 ms) and a slack for the runner;
     /// - (e) the last grid is the grid the pane rests at.
-    @Test func aHeldKeyResizeGivesThePTYOnlyGridsThePaneShowedAtMostEvery25ms() async throws {
+    @Test func aHeldKeyResizeGivesThePTYOnlyGridsThePaneShowedAtMostOncePerRefresh() async throws {
         let screen = try await Screen(announcesGrids: true)
         defer { screen.close() }
         let recorder = TurnRecorder(screen)
@@ -270,9 +271,7 @@ struct TerminalWindowFrameSyncTests {
         try #require(motion.moved && motion.steps >= 10, "the held key did not spring (moved \(motion.moved), \(motion.steps) frames)")
         let landingMs = try #require(motion.stepMs.last)
         let refresh = Self.refreshMs(of: screen.window)
-        let interval = TerminalGridReportCoalescer.defaultInterval.components
-        let window = Double(interval.seconds) * 1000 + Double(interval.attoseconds) / 1e15
-        let liveness = window + 2 * refresh + Self.runnerSlackMs
+        let liveness = 3 * refresh + Self.runnerSlackMs
 
         var unshownView: [String] = [], unshownPTY: [String] = [], close: [String] = [], late: [String] = [], ends: [String] = []
         for (index, owner) in owners.enumerated() {
@@ -291,7 +290,7 @@ struct TerminalWindowFrameSyncTests {
                 unshownPTY.append("\(name) +\(Self.text(report.ms)) ms: \(Self.text(report.grid)), never shown")
             }
             // (c)
-            for (previous, next) in zip(reports, reports.dropFirst()) where next.ms < landingMs && next.ms - previous.ms < window - 1 {
+            for (previous, next) in zip(reports, reports.dropFirst()) where next.ms < landingMs && next.ms - previous.ms < refresh / 2 {
                 close.append("\(name): \(Self.text(previous.grid)) at +\(Self.text(previous.ms)) ms, \(Self.text(next.grid)) at +\(Self.text(next.ms)) ms")
             }
             // (d): the turns and the reports in time order; a change starts when a turn shows a grid the PTY has not got.
@@ -325,7 +324,7 @@ struct TerminalWindowFrameSyncTests {
         #expect(unshownView.isEmpty,
                 "\(unshownView.count) committed turns gave the PTY owner a grid the pane did not show (a size drawn ahead reached geometry): \(unshownView.prefix(6))")
         #expect(unshownPTY.isEmpty, "the PTY got grids no committed turn showed: \(unshownPTY.prefix(6))")
-        #expect(close.isEmpty, "the PTY got two grids less than 25 ms apart before the landing: \(close.prefix(6))")
+        #expect(close.isEmpty, "the PTY got two grids in one refresh before the landing: \(close.prefix(6))")
         #expect(late.isEmpty, "the PTY got a changed grid more than \(Self.text(liveness)) ms after the pane showed it: \(late.prefix(6))")
         #expect(ends.isEmpty, "\(ends)")
     }

@@ -2005,6 +2005,146 @@ class StaleBasePass(unittest.TestCase):
             self.judge()
 
 
+WEB_SHARD = "web / Web tests (1/4)"
+PUSHED_BASE_SHA = "e" * 40
+
+
+class WebShardBaseGitHub(FakeGitHub):
+    """cmux#37667 (2026-11-07): the head's ci.yml run 10 (workflow 7) failed 'web / Web tests (1/4)'. ci.yml runs on
+    pull requests only; its one feat-cmux-next run, 20, is an old dispatch at BASE_SHA, behind the PR's merge-base
+    NEW_BASE_SHA. On base pushes the same ci-web.yml runs from cmux-next-web.yml: its run 40 at PUSHED_BASE_SHA, after
+    the merge-base, has its own verdict for the shard."""
+
+    def __init__(self, name=WEB_SHARD):
+        super().__init__()
+        self.jobs[1]["name"] = self.jobs[2]["name"] = name
+        self.jobs[2]["conclusion"] = "success"
+        self.jobs[4] = dict(failed_job(4, 40, PUSHED_BASE_SHA, name))
+        self.logs[4] = self.logs[2]
+        self.base_runs = [{"id": 20, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                           "status": "completed", "conclusion": "success", "head_sha": BASE_SHA,
+                           "created_at": "2026-10-06T10:00:00Z"}]
+        self.pushed_runs = [{"id": 41, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                             "conclusion": "cancelled", "head_sha": PUSHED_BASE_SHA,
+                             "created_at": "2026-11-07T10:30:00Z"},
+                            {"id": 40, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                             "conclusion": "failure", "head_sha": PUSHED_BASE_SHA,
+                             "created_at": "2026-11-07T10:00:00Z"},
+                            {"id": 42, "event": "pull_request", "head_branch": "feat-cmux-next",
+                             "status": "completed", "conclusion": "success", "head_sha": PUSHED_BASE_SHA,
+                             "created_at": "2026-11-07T11:00:00Z"}]
+
+    def json(self, route, *, paginate=False):
+        self.routes.append(route)
+        if f"/compare/feat-cmux-next...{HEAD}" in route:
+            return {"merge_base_commit": {"sha": NEW_BASE_SHA}, "files": []}
+        if f"/compare/{NEW_BASE_SHA}...{BASE_SHA}" in route:
+            return {"status": "behind"}
+        if f"/compare/{NEW_BASE_SHA}...{PUSHED_BASE_SHA}" in route:
+            return {"status": "ahead"}
+        if "/actions/workflows/cmux-next-web.yml/runs?" in route:
+            assert "branch=feat-cmux-next" in route and "status=" not in route, route
+            return {"workflow_runs": copy.deepcopy(self.pushed_runs)}
+        if route.endswith("/actions/runs/10"):
+            return {"id": 10, "workflow_id": 7, "name": "CI", "path": ".github/workflows/ci.yml"}
+        self.routes.pop()
+        return super().json(route, paginate=paginate)
+
+
+class WebShardBaseVerdict(unittest.TestCase):
+    """A ci.yml web shard is judged against the base runs of cmux-next-web.yml (BASE_WORKFLOW_FOR) when ci.yml has no
+    feat-cmux-next verdict at or after the PR's merge-base."""
+
+    def judge(self, gh):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
+
+    def test_a_web_shard_red_on_the_pushed_base_after_the_merge_base_is_a_base_red(self):
+        text = self.judge(WebShardBaseGitHub())
+        self.assertIn(f"excused '{WEB_SHARD}'", text)
+        self.assertIn("run 40", text)
+
+    def test_a_web_shard_green_on_the_pushed_base_is_the_prs_own_red(self):
+        gh = WebShardBaseGitHub()
+        gh.jobs[4].update(conclusion="success",
+                          steps=[{"name": TEST_STEP, "status": "completed", "conclusion": "success"}])
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 40"):
+            self.judge(gh)
+
+    def test_a_pushed_base_verdict_before_the_merge_base_does_not_decide(self):
+        # cmux-next web's red tested a commit behind the merge-base too: the stale ci.yml pass still refuses.
+        gh = WebShardBaseGitHub()
+        json = gh.json
+
+        def answer(route, *, paginate=False):
+            if f"/compare/{NEW_BASE_SHA}...{PUSHED_BASE_SHA}" in route:
+                return {"status": "behind"}
+            return json(route, paginate=paginate)
+
+        gh.json = answer
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict at or after this PR's merge-base yet: "
+                                    "the newest, a pass in run 20"):
+            self.judge(gh)
+
+    def test_a_pull_request_run_of_the_base_caller_is_never_base_evidence(self):
+        gh = WebShardBaseGitHub()
+        gh.pushed_runs = [run for run in gh.pushed_runs if run["event"] == "pull_request"]
+        gh.jobs[4]["run_id"] = 42
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict at or after this PR's merge-base"):
+            self.judge(gh)
+
+    def test_a_ci_yml_job_outside_the_web_caller_reads_only_ci_yml(self):
+        gh = WebShardBaseGitHub(name=SWIFT)
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict at or after this PR's merge-base yet"):
+            self.judge(gh)
+        self.assertFalse([route for route in gh.routes if "cmux-next-web.yml" in route], gh.routes)
+
+    def test_a_pr_into_main_never_reads_cmux_next_web(self):
+        # cmux-next web runs on pushes to feat-cmux-next only; a dispatch of it on `main` is no evidence for main.
+        gh = WebShardBaseGitHub()
+        json = gh.json
+
+        def answer(route, *, paginate=False):
+            route = route.replace("branch=main", "branch=feat-cmux-next").replace("/compare/main...",
+                                                                               "/compare/feat-cmux-next...")
+            return json(route, paginate=paginate)
+
+        gh.json = answer
+        with self.assertRaisesRegex(excuse.Refused, "no main verdict at or after this PR's merge-base yet"):
+            excuse.judge(REPO, "main", HEAD, [10], gh)
+        self.assertFalse([route for route in gh.routes if "cmux-next-web.yml" in route], gh.routes)
+
+    def test_a_run_with_no_workflow_path_reads_only_its_own_workflow(self):
+        gh = WebShardBaseGitHub()
+        json = gh.json
+
+        def answer(route, *, paginate=False):
+            if route.endswith("/actions/runs/10"):
+                return {"id": 10, "workflow_id": 7}
+            return json(route, paginate=paginate)
+
+        gh.json = answer
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict at or after this PR's merge-base yet"):
+            self.judge(gh)
+
+    def test_each_base_caller_runs_the_same_called_job_on_base_pushes(self):
+        yaml = excuse.yaml_module()
+        self.assertTrue(excuse.BASE_WORKFLOW_FOR)
+        for (branch, pr_file, job_id), base_file in excuse.BASE_WORKFLOW_FOR.items():
+            pr = yaml.safe_load((excuse.WORKFLOWS / pr_file).read_text())
+            pushed = yaml.safe_load((excuse.WORKFLOWS / base_file).read_text())
+            pr_job, pushed_job = pr["jobs"][job_id], pushed["jobs"][job_id]
+            # The same reusable workflow, so the same job names under the same '<id> / ' prefix.
+            self.assertTrue(str(pr_job.get("uses", "")).startswith("./.github/workflows/"), pr_job)
+            self.assertEqual(pr_job["uses"], pushed_job.get("uses"))
+            for where, job in ((pr_file, pr_job), (base_file, pushed_job)):
+                self.assertEqual(excuse._check_matcher(job_id, job, where), {"exact": [], "prefixes": [f"{job_id} / "]})
+            # The base caller runs on pushes to the base; the PR caller does not (else its own runs would be read).
+            pushes = (pushed.get(True, pushed.get("on")) or {}).get("push") or {}
+            self.assertIn(branch, pushes.get("branches") or [])
+            pr_pushes = (pr.get(True, pr.get("on")) or {}).get("push") or {}
+            self.assertNotIn(branch, pr_pushes.get("branches") or [] if isinstance(pr_pushes, dict) else [])
+
+
 class RollupsFromNeeds(unittest.TestCase):
     """The rollups (ci-status, Guard status) and the jobs under them come from the workflows' `needs:`."""
 
@@ -4006,8 +4146,12 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             self.case = case
 
         def blob(self, repo, ref, path):
-            self.case.assertEqual((repo, ref, path), (REPO, HEAD, excuse.FFI_PIN_MANIFEST))
-            return self.case.manifest
+            self.case.assertEqual((repo, ref), (REPO, HEAD))
+            self.case.assertIn(path, (excuse.FFI_PIN_MANIFEST, excuse.FFI_PIN_FILE))
+            text = self.case.pin_file if path == excuse.FFI_PIN_FILE else self.case.manifest
+            if text is None:
+                raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
+            return text
 
         def json(self, route, *, paginate=False):
             if f"/compare/feat-cmux-next...{self.case.pinned}" in route:
@@ -4046,6 +4190,17 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pinned, self.source = sha, sha
         self.manifest = ("// The FFI pin (scripts/cmux-next/check-app-ffi-pin.sh): https://example.com/x\n"
                          + self.target(sha, repo))
+        self.pin_file = None  # the template form: the head has no app-ffi-pin.json
+
+    # cmux#37645's form: app-ffi-pin.json, and Package.swift holding only its loader block (app_ffi_pin.loader).
+    JSON_MANIFEST = ("// swift-tools-version: 6.2\n\nimport Foundation\nimport PackageDescription\n\n"
+                     "// CmuxNextCloud -> CCmuxAppFFI (Stack auth)\n" + excuse.app_ffi_pin.loader(CHECKSUM)
+                     + "    targets: [\n        appFFI,\n    ] + [appFFI]\n")
+
+    def json_pin_at_head(self, sha, checksum=CHECKSUM, manifest=None):
+        self.pinned, self.source = sha, sha
+        self.pin_file = excuse.app_ffi_pin.render_pin_file(sha, checksum)
+        self.manifest = self.JSON_MANIFEST if manifest is None else manifest
 
     def release_file(self, repo, tag, name):
         self.releases.append(tag)
@@ -4141,6 +4296,53 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files("Packages/macOS/CmuxNext/Package.swift")
         self.compiled()
         self.assertIn("pins cmux-app-ffi-1f63d516", self.judge()[0])
+
+    def test_a_json_pin_on_the_base_that_compiled_is_excused(self):
+        # cmux#37645 moves the pin to app-ffi-pin.json; this classifier runs from the base, so it reads that form
+        # before the PR lands. Changing the pin file moves the pin, so only the published base pin rule can excuse it.
+        self.json_pin_at_head(self.STEP_B_PIN)
+        self.pr_files(excuse.FFI_PIN_FILE, excuse.FFI_PIN_MANIFEST, "scripts/ci/app_ffi_pin.py")
+        self.compiled()
+        self.assertEqual(self.judge(), [
+            f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
+            f"source\"), and #37292 pins cmux-app-ffi-{self.STEP_B_PIN}, a published release built from 1f63d516ecfc, "
+            f"which is on feat-cmux-next, and the cmux-next/compile status compiled {HEAD} against that pin and passed"])
+        self.pr_files(excuse.FFI_PIN_FILE)
+        self.assertIn("pins cmux-app-ffi-1f63d516", self.judge()[0])
+
+    def test_a_json_pin_off_its_rules_is_refused(self):
+        line = f"// app-ffi-pin-checksum: {self.CHECKSUM}\n"
+        loader = excuse.app_ffi_pin.LOADER
+        for pin_file, manifest, why in (
+                (excuse.app_ffi_pin.render_pin_file(self.STEP_B_PIN, self.CHECKSUM).replace(", ", ",  "), None,
+                 "is not in its one format"),
+                (excuse.app_ffi_pin.render_pin_file(self.STEP_B_PIN, self.CHECKSUM).replace("manaflow-ai/", "x/"),
+                 None, "url is not"),
+                (None, self.JSON_MANIFEST.replace(line, f"// app-ffi-pin-checksum: {'4' * 64}\n"),
+                 "is not Packages/macOS/CmuxNext/app-ffi-pin.json's checksum"),
+                (None, self.JSON_MANIFEST.replace(line, ""), "lines, not one"),
+                (None, self.JSON_MANIFEST.replace(loader, loader.replace("url: appFFIPin.url,", "url: appFFIPin.checksum,")),
+                 "does not hold the one fixed"),
+                (None, self.JSON_MANIFEST + self.target(self.STEP_B_PIN), "has 'releases/download/'"),
+                (None, self.JSON_MANIFEST + "enum Foundation { }\n", "names a pin loader symbol outside the loader")):
+            with self.subTest(why=why):
+                self.setUp()
+                self.json_pin_at_head(self.STEP_B_PIN, manifest=manifest)
+                if pin_file is not None:
+                    self.pin_file = pin_file
+                self.pr_files(excuse.FFI_PIN_FILE)
+                self.compiled()
+                with self.assertRaisesRegex(excuse.Refused, why):
+                    self.judge()
+                self.assertEqual(self.releases, [])
+
+    def test_a_template_manifest_beside_a_pin_file_is_refused(self):
+        # A head with app-ffi-pin.json is read in the JSON form only: its Package.swift's own pin does not count.
+        self.json_pin_at_head(self.STEP_B_PIN, manifest=self.manifest)
+        self.pr_files(excuse.FFI_PIN_FILE)
+        self.compiled()
+        with self.assertRaisesRegex(excuse.Refused, "has 'releases/download/'|lines, not one"):
+            self.judge()
 
     def test_swift_alone_against_the_base_pin_that_compiled_is_excused(self):
         self.pr_files(self.STEP_B[1])

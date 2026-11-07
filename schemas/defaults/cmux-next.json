@@ -454,6 +454,7 @@
     "setting.browser.urlsToAlwaysOpenExternally": [],
     "setting.browser.verificationAutofill.enabled": false,
     "setting.browser.wakeTabsOnHover": false,
+    "setting.chat.on": "",
     "setting.chief.autoRouteSubagents": false,
     "setting.chief.permissionMode": "bypassPermissions",
     "setting.chief.reactionClassifier.harness": "",

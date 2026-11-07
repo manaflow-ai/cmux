@@ -229,16 +229,20 @@ export function NoticeDeck({
 
   // Natural heights, read once per change of the cards or of the deck's width.
   useLayoutEffect(() => {
-    const measured = new Map<string, number>();
+    // Every card at its natural height first, then every read, then every restore: one layout for
+    // the deck, not one per card.
+    const open: [string, HTMLElement][] = [];
     for (const card of shown) {
       if (card.phase === "leaving") continue;
       const element = elements.current.get(card.entry.spec.id);
-      if (!element) continue;
-      element.style.setProperty("--ui-notice-deck-card-h", "auto");
-      // offsetHeight: the layout height, which the card's scale leaves alone.
-      measured.set(card.entry.spec.id, (element.firstElementChild as HTMLElement | null)?.offsetHeight ?? 0);
-      element.style.removeProperty("--ui-notice-deck-card-h");
+      if (element) open.push([card.entry.spec.id, element]);
     }
+    for (const [, element] of open) element.style.setProperty("--ui-notice-deck-card-h", "auto");
+    // offsetHeight: the layout height, which the card's scale leaves alone.
+    const measured = new Map<string, number>(
+      open.map(([id, element]) => [id, (element.firstElementChild as HTMLElement | null)?.offsetHeight ?? 0]),
+    );
+    for (const [, element] of open) element.style.removeProperty("--ui-notice-deck-card-h");
     setHeights((current) => {
       if (current.size === measured.size && [...measured].every(([id, height]) => current.get(id) === height))
         return current;
@@ -259,21 +263,26 @@ export function NoticeDeck({
   useLayoutEffect(() => {
     const arriving = shown.filter((card) => card.phase === "from" || card.phase === "fly");
     if (arriving.length === 0) return;
+    // Every place is read before any start is written, then the starts are drawn together: one
+    // layout for the deck, not one per card.
+    const starts: { element: HTMLElement; from?: DOMRect; to?: DOMRect }[] = [];
     for (const card of arriving) {
       const id = card.entry.spec.id;
       const element = elements.current.get(id);
       const from = flights?.get(id);
       flights?.delete(id);
       if (!element) continue;
-      if (card.phase === "fly" && from) {
-        const to = element.getBoundingClientRect();
-        element.style.setProperty("--ui-notice-fly-x", `${from.left - to.left}px`);
-        element.style.setProperty("--ui-notice-fly-y", `${from.top - to.top}px`);
-        // It lands on the drag's spring, as a toast let go in its own deck does.
-        element.dataset.settling = "";
-      }
-      void getComputedStyle(element).transform;
+      const flying = card.phase === "fly" && from;
+      starts.push(flying ? { element, from, to: element.getBoundingClientRect() } : { element });
     }
+    for (const { element, from, to } of starts) {
+      if (!from || !to) continue;
+      element.style.setProperty("--ui-notice-fly-x", `${from.left - to.left}px`);
+      element.style.setProperty("--ui-notice-fly-y", `${from.top - to.top}px`);
+      // It lands on the drag's spring, as a toast let go in its own deck does.
+      element.dataset.settling = "";
+    }
+    for (const { element } of starts) void getComputedStyle(element).transform;
     setCards((current) =>
       current.map((card) => (card.phase === "from" || card.phase === "fly" ? { ...card, phase: "shown" } : card)),
     );

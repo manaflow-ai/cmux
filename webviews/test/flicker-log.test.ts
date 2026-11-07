@@ -143,17 +143,17 @@ test("a change's frame is counted, frames with no change are not", () => {
   const { watch, frame, at, summaries } = drivenWatch();
   at(0);
   watch.arm();
-  frame(5); // runs from the change: no frame's length
-  frame(13.3); // drew the change
+  frame(5); // draws the change (the time up to it runs from the change: no frame's length)
+  frame(13.3); // the interval after the frame that drew it: counted
   frame(21.6); // nothing changed since the frame before last
   frame(30);
   at(32);
   watch.arm(); // a change between frames
-  frame(38.3);
-  frame(60); // this frame drew it, 21.7 ms late: a missed 120 Hz frame
+  frame(38.3); // draws it: the interval up to this frame came before the change, so it is not counted
+  frame(60); // the frame after it 21.7 ms late: a missed 120 Hz frame
   frame(68.3);
   for (let time = 80; time <= 1_100; time += 8.3) frame(time);
-  expect(summaries).toEqual([{ n: 3, p50: 8.3, p95: 21.7, max: 21.7, miss120: 1, miss60: 0, over50: 0, ms: 55 }]);
+  expect(summaries).toEqual([{ n: 2, p50: 21.7, p95: 21.7, max: 21.7, miss120: 1, miss60: 0, over50: 0, ms: 55 }]);
 });
 
 test("a streaming page gets one summary a second, and none once it is still", () => {
@@ -173,4 +173,22 @@ test("a streaming page gets one summary a second, and none once it is still", ()
   while (pending()) frame((time += 8));
   expect(summaries).toHaveLength(3);
   expect(summaries[2]!.miss120).toBe(0);
+});
+
+test("a change counts one interval, however many changes one frame draws", () => {
+  const { watch, frame, at, summaries } = drivenWatch();
+  at(0);
+  watch.arm();
+  frame(8); // from the change: not a frame
+  frame(16); // the interval after the frame that drew the first change
+  at(18);
+  watch.arm();
+  at(20);
+  watch.arm(); // two changes before one frame
+  frame(24); // the interval before this frame came before them
+  frame(40); // this interval follows the frame that drew both: counted once
+  frame(48);
+  for (let time = 56; time <= 1_100; time += 8) frame(time);
+  expect(summaries.map((stats) => stats.n)).toEqual([2]);
+  expect(summaries[0]!.max).toBe(16);
 });
