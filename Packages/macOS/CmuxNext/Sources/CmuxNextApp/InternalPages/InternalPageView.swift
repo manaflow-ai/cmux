@@ -15,7 +15,7 @@ protocol InternalPageFocusing: NSView {
 /// that looks for the page (`content as? PageWebView`) finds it with or without
 /// a bar. The pane focuses `focusTarget` when the tab gets the keyboard; a
 /// click inside the page moves the responder within it as usual.
-final class InternalPageView: NSView {
+final class InternalPageView: TitleRowHostView {
     let key: String
     let page: InternalPageID
     let content: NSView
@@ -104,3 +104,6 @@ final class InternalPageView: NSView {
 }
 
 extension InternalPageView: ToolbarEdgeHosting {}
+
+/// A two-finger swipe over the page (PageSwipeForwarder) runs `navigate` too.
+extension InternalPageView: PageHistoryHosting {}

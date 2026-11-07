@@ -5,8 +5,8 @@ import Foundation
 import os
 import Testing
 
-/// The first-run Agents step: it comes before import and computer use, lists only installed
-/// agent CLIs with acpmux's sign-in state, and its Sign In is Settings' own gesture (the
+/// The first-run Agents step: it comes before import and computer use, lists the installed
+/// agent CLIs with acpmux's sign-in state and offers Install for a missing Claude Code or Codex, and its Sign In is Settings' own gesture (the
 /// agent's `acpmux harness login` typed into a terminal tab). Continue and Skip both leave.
 @MainActor @Suite(.serialized) struct OnboardingAgentsStepTests {
     @MainActor final class Terminal {
@@ -95,17 +95,89 @@ import Testing
     }
 
     /// A check that answered with no row for a harness did not find it: an answer, even an empty
-    /// one, is not "no health".
-    @Test func aHealthAnswerWithoutAHarnessLeavesItOut() async {
+    /// one, is not "no health". One cmux can install (Claude Code, Codex) is listed as not
+    /// installed, for the step's Install; any other stays out.
+    @Test func aHealthAnswerWithoutAHarnessListsItOnlyWhenCmuxCanInstallIt() async {
         let (harnesses, _) = await make(health: """
         {"harnesses":[{"id":"codex","path":"/opt/homebrew/bin/codex","version":"0.50.0","auth":"signedIn"}]}
         """)
         let rows = await harnesses.agentSignIns(recheck: false)
-        #expect(rows.map(\.id) == ["codex"])
-        #expect(rows.map(\.auth) == [.signedIn])
+        #expect(rows.map(\.id) == ["claude", "codex"])
+        #expect(rows.map(\.installed) == [false, true])
+        #expect(rows.map(\.offersSignIn) == [false, false], "no Sign In for a CLI that is not here")
+        #expect(rows[0].installPage?.host == "docs.anthropic.com")
 
         let (none, _) = await make(health: #"{"harnesses":[]}"#)
-        #expect(await none.agentSignIns(recheck: false).isEmpty, "the check found no agent CLI")
+        let found = await none.agentSignIns(recheck: false)
+        #expect(found.filter(\.installed).isEmpty, "the check found no agent CLI")
+        #expect(found.map(\.id) == ["claude", "codex"], "both are offered to install")
+    }
+
+    /// acpmux lists no row for a CLI it neither has configured nor found: a missing Claude Code or
+    /// Codex is still offered to install.
+    @Test func aCliAcpmuxListsNoRowForIsStillOfferedToInstall() async {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cn-onboarding-norow-\(UUID().uuidString)")
+        let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
+                                            socketPath: directory.appending(path: "a.sock").path, daemonArguments: [], childEnvironment: [:])
+        let harnesses = SettingsHarnesses(environment: { environment },
+            fetch: { _ in [.init(id: "claude", kind: "claude-stdio", source: "path")] },
+            fetchHealth: { _, _ in Data(#"{"harnesses":[{"id":"claude","path":"/opt/homebrew/bin/claude","auth":"signedIn"}]}"#.utf8) },
+            openTerminal: { _ in true },
+            accountsCall: { _, _, _ in throw AcpmuxRPCError(code: -32601, message: "method not found") })
+        let rows = await harnesses.agentSignIns(recheck: false)
+        #expect(rows.map(\.id) == ["claude", "codex"])
+        #expect(rows.map(\.installed) == [true, false])
+    }
+
+    /// With no answer from the agents service (no acpmux, or a daemon that did not list), nothing
+    /// says Claude Code or Codex is missing: the step offers no Install, which would only fail.
+    @Test func noListAnswerOffersNoInstall() async {
+        let health = Health(#"{"harnesses":[]}"#)
+        health.listed = false
+        let (unreachable, _) = await make(health: health)
+        #expect(await unreachable.agentSignIns(recheck: false).isEmpty)
+
+        let unavailable = SettingsHarnesses(environment: { nil }, fetch: { _ in [] }, fetchHealth: { _, _ in Data() },
+                                            openTerminal: { _ in true },
+                                            accountsCall: { _, _, _ in throw AcpmuxRPCError(code: -32601, message: "method not found") })
+        #expect(await unavailable.agentSignIns(recheck: false).isEmpty)
+    }
+
+    /// A read that found Claude Code missing, then a refresh whose list failed: the service is not
+    /// answering now, so the old answer offers no Install.
+    @Test func aFailedListAfterAMissingAgentOffersNoInstall() async {
+        let health = Health(#"{"harnesses":[{"id":"codex","path":"/opt/homebrew/bin/codex","auth":"signedIn"}]}"#)
+        let (harnesses, _) = await make(health: health)
+        #expect(await harnesses.agentSignIns(recheck: false).contains { !$0.installed })
+        health.listed = false
+        #expect(await !harnesses.agentSignIns(recheck: false).contains { !$0.installed })
+    }
+
+    /// Install runs `acpmux harness install ID --json` and answers acpmux's error message.
+    @Test func installRunsTheHarnessInstallAndAnswersItsError() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cn-onboarding-install-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let script = directory.appending(path: "acpmux")
+        let argv = directory.appending(path: "argv")
+        try """
+        #!/bin/sh
+        echo "$@" > '\(argv.path)'
+        [ "$4" = codex ] && exit 0
+        echo '{"error":{"message":"Claude Code did not install: offline. Install it from https://docs.anthropic.com/en/docs/claude-code/setup"}}' >&2
+        exit 1
+        """.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let environment = AcpmuxEnvironment(executable: script, home: directory, socketPath: directory.appending(path: "a.sock").path,
+                                            daemonArguments: [], childEnvironment: [:])
+        let harnesses = SettingsHarnesses(environment: { environment }, fetch: { _ in [] }, fetchHealth: { _, _ in Data() },
+                                          openTerminal: { _ in true },
+                                          accountsCall: { _, _, _ in throw AcpmuxRPCError(code: -32601, message: "method not found") })
+        #expect(await harnesses.installAgent("codex") == nil)
+        #expect(try String(contentsOf: argv, encoding: .utf8) == "--json harness install codex\n")
+        let failure = await harnesses.installAgent("claude")
+        #expect(failure?.hasPrefix("Claude Code did not install: offline.") == true, "\(failure ?? "nil")")
+        #expect(await harnesses.installAgent("gemini") != nil, "only Claude Code and Codex install")
     }
 
     /// A recheck with no answer shows sign-in as not checked, never the last check's states; a
@@ -131,7 +203,8 @@ import Testing
     @Test func aRecheckWithNoHarnessListForgetsTheLastHealth() async {
         let health = Health(#"{"harnesses":[{"id":"codex","path":"/opt/homebrew/bin/codex","auth":"signedIn"}]}"#)
         let (harnesses, _) = await make(health: health)
-        #expect(await harnesses.agentSignIns(recheck: false).map(\.auth) == [.signedIn])
+        // Claude Code, not found, is listed ahead as not installed, for Install.
+        #expect(await harnesses.agentSignIns(recheck: false).filter(\.installed).map(\.auth) == [.signedIn])
         health.listed = false
         _ = await harnesses.agentSignIns(recheck: true)
         #expect(harnesses.health.isEmpty)
@@ -167,7 +240,7 @@ import Testing
                 return Data(#"{"loggedIn":true,"subscriptionType":"max"}"#.utf8)
             })
         let rows = await harnesses.agentSignIns(recheck: true)
-        #expect(rows.map(\.auth) == [.signedIn])
+        #expect(rows.filter(\.installed).map(\.auth) == [.signedIn])
         #expect(asked.withLock { $0 } == 0, "onboarding ran claude auth status")
     }
 
@@ -206,6 +279,46 @@ import Testing
         #expect(services.reads == [false])
         model.next()
         #expect(completed == true)
+    }
+
+    private static let missingClaude = [
+        OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown, installed: false),
+        OnboardingAgent(id: "codex", name: "Codex", brand: "openai", auth: .signedIn),
+    ]
+
+    /// Leo (2026-11-06): offer, never auto-install. A missing agent is offered, not installed; its
+    /// Install runs the installer and then goes straight to its Sign In.
+    @Test func aMissingAgentIsOfferedAndItsInstallGoesStraightToSignIn() async {
+        let (model, services) = model(Self.missingClaude)
+        model.stepDidAppear()
+        await Self.until { model.agents.loaded }
+        #expect(model.agents.agents.map(\.id) == ["codex"])
+        #expect(model.agents.installable.map(\.id) == ["claude"])
+        #expect(services.installsRun.isEmpty, "nothing installs until Install is pressed")
+        model.agents.install("codex")
+        #expect(services.installsRun.isEmpty, "an installed agent has no Install")
+        model.agents.install("claude")
+        #expect(model.agents.installs["claude"] == .installing)
+        model.agents.install("claude")
+        #expect(services.installsRun.count <= 1, "a second press while one runs starts nothing")
+        await Self.until { services.signIns == ["claude"] }
+        #expect(services.installsRun == ["claude"])
+        #expect(model.agents.installs["claude"] == nil)
+        #expect(model.agents.installable.isEmpty)
+        #expect(model.agents.agents.map(\.id) == ["claude", "codex"])
+        #expect(model.agents.signingIn == "claude")
+    }
+
+    @Test func aFailedInstallStaysBesideItsButton() async {
+        let (model, services) = model(Self.missingClaude)
+        services.installFails = "Claude Code did not install: offline. Install it from https://docs.anthropic.com/en/docs/claude-code/setup"
+        model.stepDidAppear()
+        await Self.until { model.agents.loaded }
+        model.agents.install("claude")
+        await Self.until { model.agents.installs["claude"] != .installing }
+        #expect(model.agents.installs["claude"] == .failed(services.installFails!))
+        #expect(model.agents.installable.map(\.id) == ["claude"])
+        #expect(services.signIns.isEmpty)
     }
 
     @Test func skipEndsTheStepWithoutSigningIn() {
@@ -281,6 +394,46 @@ import Testing
         let (none, noneShown) = presenter()
         await none.showAgentsAtFirstRun(isFirstRun: true, source: MockAgentSignInSource(), defaults: try defaults())
         await none.showAgentsAtFirstRun(isFirstRun: true, source: nil, defaults: try defaults())
-        #expect(noneShown().isEmpty, "no agent CLI found: nothing opens")
+        let missing = MockAgentSignInSource(agents: [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude",
+                                                                     auth: .unknown, installed: false)])
+        await none.showAgentsAtFirstRun(isFirstRun: true, source: missing, defaults: try defaults())
+        #expect(noneShown().isEmpty, "no agent CLI found (only ones to install): nothing opens")
+    }
+
+    /// One step at a time: the first-run step after Agents (Bring your history) waits until the
+    /// Agents window closed; with no tool window open it goes at once.
+    @Test func theNextFirstRunStepWaitsForTheAgentsWindowToClose() async throws {
+        @MainActor final class Order { var steps: [String] = [] }
+        // No agent CLI: nothing opens, history follows at once.
+        let none = Order()
+        let empty = OnboardingWindowPresenter(makeModel: { step in OnboardingModel(services: MockOnboardingServices(), step: step) },
+                                              activeLook: nil, present: { _ in })
+        await empty.showFirstRunSteps(isFirstRun: true, source: MockAgentSignInSource(), defaults: try #require(UserDefaults(suiteName: "cmux-no-agents-\(UUID().uuidString)"))) {
+            none.steps.append("history")
+        }
+        #expect(none.steps == ["history"])
+
+        let suite = "cmux-agents-then-history-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let presenter = OnboardingWindowPresenter(makeModel: { step in OnboardingModel(services: MockOnboardingServices(), step: step) },
+                                                  activeLook: nil, present: { _ in })
+
+        let order = Order()
+        let steps = Task { @MainActor in
+            await presenter.showFirstRunSteps(isFirstRun: true, source: MockAgentSignInSource(agents: Self.listed), defaults: defaults) {
+                order.steps.append("history")
+            }
+        }
+        await Self.until { presenter.controller != nil }
+        order.steps.append("agents")
+        for _ in 0..<20 { await Task.yield() }
+        #expect(presenter.controller?.model.step == .agents)
+        #expect(order.steps == ["agents"], "history waits while the Agents window shows")
+
+        presenter.controller?.close()
+        await steps.value
+        #expect(order.steps == ["agents", "history"])
+        #expect(presenter.controller == nil)
     }
 }

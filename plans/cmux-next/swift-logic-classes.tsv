@@ -1483,6 +1483,7 @@ CmuxNextApp	func	pageJSON	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNex
 CmuxNextApp	class	CloudPageService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudPageService.swift	from extension InternalPageID:6: Internal page registration
 CmuxNextApp	extension	InternalPageID	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudPageService.swift	Internal page registration
 CmuxNextApp	enum	CloudPresenter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudPresenter.swift	Cloud results as toasts and dialogs (AppKit presentation)
+CmuxNextCloud	struct	CloudCLICall	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/CloudCLICall.swift	process glue: one stdin-JSON cmux cloud subcommand; the automation relay's envelope
 CmuxNextCloud	class	CloudRefuseRedirects	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/CloudListFreshness.swift	from extension CloudService:12: Cloud client op (machine list/create, GitHub app, person key); V-12 says daemon sync actor owns (moved to CmuxNextCloud (count unchanged: LOGIC))
 CmuxNextApp	extension	CloudPresenter	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudService+AppServer.swift	from extension CloudService:12: Cloud client op (machine list/create, GitHub app, person key); V-12 says daemon sync actor owns
 CmuxNextApp	extension	CloudService	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudService+AppServer.swift	Cloud client op (machine list/create, GitHub app, person key); V-12 says daemon sync actor owns
@@ -3821,7 +3822,6 @@ CmuxNextBrowser	enum	BrowserSecurityState	0	LOGIC	100	0	Packages/macOS/CmuxNext/
 CmuxNextBrowser	struct	BrowserTabState	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/BrowserTabState.swift	from enum BrowserLoadPhase:4: tab load phase / state value (BrowserTabState): url, title, progress, error, history flags
 CmuxNextBrowser	enum	BrowserNavigationEvent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/BrowserTabStateMachine.swift	navigation event reducer BrowserTabStateMachine: started/committed/failed/progress rules
 CmuxNextBrowser	struct	BrowserTabStateMachine	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/BrowserTabStateMachine.swift	from enum BrowserNavigationEvent:5: navigation event reducer BrowserTabStateMachine: started/committed/failed/progress rules
-CmuxNextBrowser	struct	NavigationTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/NavigationTunables.swift	debug settings store of back/forward gesture toggles
 CmuxNextBrowser	enum	PageBackground	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/PageBackground.swift	platform glue
 CmuxNextBrowser	struct	BrowserProfileBook	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/Profiles/BrowserProfileBook.swift	browser profile book: profiles, per-workspace defaults, create/rename/delete rules
 CmuxNextBrowser	actor	BrowserProfileBookFile	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/Profiles/BrowserProfileBookFile.swift	profile book JSON file persistence off main thread
@@ -4779,9 +4779,6 @@ CmuxNextCloud	class	CloudSignedOutCreationContinuation	0	LOGIC	100	0	Packages/ma
 CmuxNextCloud	enum	CloudTeamInviteAnswer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudTeamInviteAnswer.swift	invite result enum for dialog switch
 CmuxNextCloud	struct	CloudTeamSeatFacts	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudTeamSeatFacts.swift	copy of team plan seat facts for invite dialog
 CmuxNextCloud	struct	DogfoodCredentials	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/DogfoodCredentials.swift	dev-only dogfood credentials from files/env for tagged builds
-CmuxNextCloud	struct	CloudAutomationRefusal	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Automations/CloudAutomationRefusal.swift	automation relay refusal codes
-CmuxNextCloud	enum	CloudAutomationRelayError	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Automations/CloudAutomationRelay.swift	from struct CloudAutomationRelay:18: relay of automation ops from page to cloud with hand op allowlists
-CmuxNextCloud	struct	CloudAutomationRelay	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Automations/CloudAutomationRelay.swift	relay of automation ops from page to cloud with hand op allowlists
 CmuxNextCloud	enum	CloudTaskKind	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Autosize/CloudAutosize.swift	task kind rule: test/build words in chat text pick machine size
 CmuxNextCloud	struct	CloudAutosizeRequest	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Autosize/CloudAutosize.swift	from enum CloudTaskKind:6: task kind rule: test/build words in chat text pick machine size
 CmuxNextCloud	struct	CloudSizePick	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Autosize/CloudAutosize.swift	from enum CloudTaskKind:6: task kind rule: test/build words in chat text pick machine size
@@ -4809,21 +4806,17 @@ CmuxNextCloud	struct	CloudCodexLoginPrompt	0	MIRROR	0	100	Packages/macOS/CmuxNex
 CmuxNextCloud	class	CloudRefreshGate	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/CloudRefreshGate.swift	from class CloudRefreshGate:6: refresh coalescing gate batches
 CmuxNextCloud	extension	CloudConfiguration	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration+Previews.swift	preview ingress default per environment
 CmuxNextCloud	struct	CloudConfiguration	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift	cloud configuration: backend choice, owner API base URL per environment
-CmuxNextCloud	class	HandApprovalWire	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandApprovalWire.swift	from class HandApprovalWire:10: hand approval SSE wire with reconnect backoff
-CmuxNextCloud	enum	HandApprovalOutcome	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandModels.swift	from enum HandLevel:5: hand permission levels and raise/lower rule
-CmuxNextCloud	enum	HandIDs	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandModels.swift	from enum HandLevel:5: hand permission levels and raise/lower rule
-CmuxNextCloud	enum	HandLevel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandModels.swift	hand permission levels and raise/lower rule
-CmuxNextCloud	enum	HandProfile	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandModels.swift	from enum HandLevel:5: hand permission levels and raise/lower rule
-CmuxNextCloud	enum	HandProofText	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandModels.swift	from enum HandLevel:5: hand permission levels and raise/lower rule
-CmuxNextCloud	struct	HandApproval	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandModels.swift	from enum HandLevel:5: hand permission levels and raise/lower rule
-CmuxNextCloud	struct	HandSummary	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandModels.swift	from enum HandLevel:5: hand permission levels and raise/lower rule
+CmuxNextCloud	enum	HandApprovalOutcome	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandModels.swift	mirror of the hands engine's answers (rules in cmux_cloud_wire::hands)
+CmuxNextCloud	enum	HandLevel	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandModels.swift	mirror of the hands engine's answers (rules in cmux_cloud_wire::hands)
+CmuxNextCloud	enum	HandProfile	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandModels.swift	mirror of the hands engine's answers (rules in cmux_cloud_wire::hands)
+CmuxNextCloud	struct	HandApproval	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandModels.swift	mirror of the hands engine's answers (rules in cmux_cloud_wire::hands)
+CmuxNextCloud	struct	HandSummary	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandModels.swift	mirror of the hands engine's answers (rules in cmux_cloud_wire::hands)
 CmuxNextCloud	class	HandPresencePrompt	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandPresenceKey.swift	from enum HandPresenceError:8: Secure Enclave presence proof for level raise
 CmuxNextCloud	enum	HandPresenceError	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandPresenceKey.swift	Secure Enclave presence proof for level raise
 CmuxNextCloud	enum	HandPresenceKey	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandPresenceKey.swift	from enum HandPresenceError:8: Secure Enclave presence proof for level raise
 CmuxNextCloud	struct	HandPresenceKeyStore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandPresenceKey.swift	from enum HandPresenceError:8: Secure Enclave presence proof for level raise
-CmuxNextCloud	struct	HandsAPIClient	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandsAPIClient.swift	hands API client: path checks, no-cache/no-redirect policy
-CmuxNextCloud	extension	HandsService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandsService+Debug.swift	debug socket command glue for hands
-CmuxNextCloud	class	HandsService	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandsService.swift	from class HandsService:16: hands service: list, level change, approvals, state
+CmuxNextCloud	class	HandsService	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandsService.swift	observed hands state fed by the hands engine; install-key and Secure Enclave signing glue
+CmuxNextCloud	class	HandsEngine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandsEngine.swift	process glue of cmux cloud hands (JSON lines over stdin/stdout)
 CmuxNextCloud	extension	CloudAuth	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/CloudAccessToken.swift	from struct CloudAccessToken:11: install-key minted access token with team claim and expiry
 CmuxNextCloud	extension	MacInstallIdentity	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/CloudAccessToken.swift	from struct CloudAccessToken:11: install-key minted access token with team claim and expiry
 CmuxNextCloud	struct	CloudAccessToken	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/CloudAccessToken.swift	install-key minted access token with team claim and expiry
@@ -5313,7 +5306,6 @@ CmuxNextControl	extension	ControlMethod	0	PLATFORM	0	0	Packages/macOS/CmuxNext/S
 CmuxNextControl	extension	ControlMethod	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlMethod+AuthToken.swift	from struct AuthTokenGrant:7: Auth token grant/refusal handling for control method
 CmuxNextControl	struct	AuthTokenGrant	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlMethod+AuthToken.swift	Auth token grant/refusal handling for control method
 CmuxNextControl	struct	AuthTokenRefusal	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlMethod+AuthToken.swift	from struct AuthTokenGrant:7: Auth token grant/refusal handling for control method
-CmuxNextControl	extension	ControlMethod	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlMethod+VMAgentKey.swift	VM agent key request passthrough
 CmuxNextControl	enum	ControlReply	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlMethod.swift	from struct ControlMethod:23: Control method table: lanes, bodies, deadline policy
 CmuxNextControl	struct	ControlCall	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlMethod.swift	from struct ControlMethod:23: Control method table: lanes, bodies, deadline policy
 CmuxNextControl	struct	ControlMethod	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlMethod.swift	Control method table: lanes, bodies, deadline policy
@@ -8779,7 +8771,6 @@ CmuxNextNowPlaying	class	SystemNowPlaying	0	PLATFORM	0	0	Packages/macOS/CmuxNext
 CmuxNextNowPlaying	struct	SystemNowPlayingFeed	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying/SystemNowPlayingFeed.swift	parse of adapter payload into now-playing state
 CmuxNextNowPlaying	struct	SystemNowPlayingReport	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying/SystemNowPlayingFeed.swift	from struct SystemNowPlayingFeed:9: parse of adapter payload into now-playing state
 CmuxNextOnboarding	struct	AgentProject	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/AgentProject.swift	Agent project model
-CmuxNextOnboarding	struct	BrowserImportTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/BrowserImportTunables.swift	Browser import debug tunables
 CmuxNextOnboarding	enum	ComputerUsePermissionPane	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/ComputerUsePermissionPane.swift	TCC permission seam types
 CmuxNextOnboarding	protocol	ComputerUsePermissionSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/ComputerUsePermissionSource.swift	from protocol ComputerUsePermissionSource:8: TCC permission seam types
 CmuxNextOnboarding	struct	ComputerUsePermissions	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/ComputerUsePermissions.swift	TCC permission seam types

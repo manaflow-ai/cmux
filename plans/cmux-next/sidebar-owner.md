@@ -1,5 +1,31 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-06: an incognito window's mark in the sidebar's titlebar row is an icon of the row when the chip does not
+  fit. User report (https://github.com/manaflow-ai/cmux/issues/37351), verbatim: "looks not fully set up: glasses glyph
+  in a grey pill, off-size and misaligned with other toolbar icons". A sidebar narrower than the "Incognito" chip
+  showed the glyph alone in a caption-height gray pill stretched to the leftover width. Now: with room, the chip
+  (unchanged, as Swift live mode's mark); with less, a square of `SidebarStyle.toolbarButtonSize` on the + button's
+  frame line, the glyph centered at `Metrics.smallIconSize` in secondary ink, no fill, the same tooltip
+  (`IncognitoBadgeView`, now in CmuxNextDesign; `SidebarView.titlebarAccessoryFrame`). The sidebar's minimum width
+  keeps room for that square, so the mark never drops out. Reference: cmux-design-references
+  `apps/cmux/live/tabs-top-right-terminal-browser-buttons.png` (top-row icons are bare glyphs in secondary ink).
+  Regression: `IncognitoBadgeTitlebarRowTests`.
+- 2026-11-06: the workspace hover card stands on the shared hover card glass, and a tab row with no detail line is
+  one row tall. Leo, verbatim: "it's got, like, a bit too much just default space, maybe, and you got all these empty
+  things" and "it quite clearly seems like when you hover on the left, there's no glass." The card's default material
+  is `.glass` (the frosted 0.55 window-background veil stays a gallery variant); a two-line tab row with no detail (a
+  shell "~" in "~") takes `tabRowHeight`, not `tabRowHeightTwoLines`, so no empty band sits above and below it; the
+  card's stack spaces on the shared `HoverCardStyle` (CmuxNextDesign) that the tab strip's, group and link cards use.
+  Gallery: `AAWorkspaceHoverCardVariantsGalleryTests` V1 (chosen), V2 (frosted), V2b (uniform two-line rows). Regression:
+  `WorkspaceHoverCardUnifiedStyleTests`.
+- 2026-11-06: Swift live mode's "Live mode" mark sits on the footer line right after the profile avatar (`space2`
+  from it, on its line), and the spaces dots and the Update Available button start after it. Leo, verbatim: "but why
+  are you putting live mode like that instead of in a more nice place say just to the left of the rightmost top icons?
+  or at the bottom just to the right of the profile circle in the sidebar?" It sat last in the titlebar's leading row
+  and crowded back, forward and +. While the sidebar is hidden the top row shows it, as the incognito badge; with no
+  room before Search it steps out of the line. Placements compared: design/live-mode-badge-gallery.html (the top-right
+  icons belong to one pane's tab strip, so a window mark there would move with every split). Regression:
+  `SidebarProfileChipTests.theLiveModeBadgeFollowsTheAvatar`.
 - 2026-11-05: every sidebar group draws a visible background, glass or solid. Lawrence, verbatim: "invariant: groups
   must always have a visible bg color, groups should support both glassy and solid bgs too". New setting
   `sidebar.groupHeader.background`: Automatic (default: cmux's own group look, Leo's glass, or solid when Debug `sidebar.groupGlass` is solid), Glass,

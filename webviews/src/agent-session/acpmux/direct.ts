@@ -27,6 +27,7 @@ import type {
   AcpmuxContextBreakdown,
   AcpmuxPlanEntry,
   AcpmuxRow,
+  AcpmuxSessionStart,
   AcpmuxSnapshot,
   MissingSessionReason,
   PromptImage,
@@ -102,7 +103,13 @@ import { acpmuxPerf } from "./perf";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
-import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
+import {
+  cliHost,
+  incomingPrompt,
+  recordedAgentText,
+  type IncomingContext,
+  type IncomingMessage,
+} from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
 import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
@@ -122,7 +129,7 @@ import { promptSurfaceMeta } from "./surfaces/promptSurface";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, fullAccessTicket, rememberFullAccess, startModeChanged } from "./startMode";
 import { harnessModeName, highestMode } from "./harnessModes";
-import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
+import { insertRunChange, type RunChange, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
 import { BACKGROUND_TURN, backgroundTurnRecord, backgroundTurnRowId } from "./conversation/backgroundTurns";
@@ -364,8 +371,12 @@ const SESSION_INFO_KIND = "session_info_update";
 /// `suggestion` a string, or null to take it back. Never a transcript row. It comes on the attach's
 /// "transcript" event stream, live only: pages leave it out (hub/paging.rs `matches_live`, #33085).
 const SUGGESTION_KIND = "prompt_suggestion";
-/// The chat's one session start row (conversation/SessionStartNote.tsx).
+/// A line where the chat's model or route changed (conversation/SessionStartNote.tsx): its id is
+/// this and the init line's seq.
 const SESSION_START_ROW = "session-start";
+/// A Claude model id without its `[1m]` window, to compare the chat's own model with the one its
+/// init line names.
+const baseModel = (model: string | undefined) => model?.replace(/\[1m\]$/i, "");
 /// A record that opens a turn: older pages split before one, so each holds whole turns. A steer
 /// joins the running turn, so it opens none.
 /// A read of the chat's prompt index (`DirectAcpmuxClient.readPromptIndex`): its rows once it
@@ -1924,7 +1935,12 @@ export class AcpmuxDirectClient {
   private sessionEntriesOf?: { sessions: Session[]; entries: AcpmuxSessionEntry[] };
   /// The snapshot summary's `usageStats`, kept while acpmux's numbers are the same (sameUsageStats).
   private summaryUsage?: SessionUsageStats;
-  private publishedSummaryOf?: { summary: unknown; usage: unknown; value: AcpmuxSnapshot["summary"] };
+  private publishedSummaryOf?: {
+    summary: unknown;
+    usage: unknown;
+    start: AcpmuxSessionStart | undefined;
+    value: AcpmuxSnapshot["summary"];
+  };
   /// The usage read in flight (refreshUsage).
   private usageRead?: Promise<void>;
   private selectedSessionId?: string;
@@ -2149,6 +2165,14 @@ export class AcpmuxDirectClient {
   private stoppedTurnId?: string;
   /// A fork's `forked` boundary event: its copied history ends there (cx-ncc.61's versions).
   private forkedAtSeq: number | undefined;
+  /// Where the chat's init lines change its model or route (sessionStart.ts `insertRunChange`).
+  private runChanges: RunChange[] = [];
+  /// The newest init line by seq: what the chat runs on now (version and folder included), which
+  /// Session Info and /status show. Kept apart from `runChanges`, whose points keep the facts of
+  /// where a run started.
+  private latestStart?: { seq: number; start: AcpmuxSessionStart };
+  /// The ids of the transcript lines `drawRunChanges` drew.
+  private runChangeRows = new Set<string>();
   /// Session replay (replay/ReplayScreen.tsx): the recorded events are folded only through this seq.
   private replayThrough?: number;
   /// A `fed` client its page let go of (`dispose`).
@@ -3056,6 +3080,9 @@ export class AcpmuxDirectClient {
     // A held prompt's text read for the chat before is not this one's (`fetchHeldText`).
     this.heldTextReads.clear();
     this.forkedAtSeq = undefined;
+    this.runChanges = [];
+    this.runChangeRows.clear();
+    this.latestStart = undefined;
     for (const id of this.failedPrompts.keys()) this.clearedBySwitch.add(id);
     for (const id of this.clearedBySwitch) {
       if (this.clearedBySwitch.size <= 256) break;
@@ -5666,6 +5693,10 @@ export class AcpmuxDirectClient {
     const inFlight = new Set(this.optimisticPromptRows.values());
     // Those rows keep their place in the order.
     this.rows.retain((row) => row.failed === true || inFlight.has(row.id));
+    // Found again as the held init lines are reduced: a seek back keeps no later model or version.
+    this.runChanges = [];
+    this.runChangeRows.clear();
+    this.latestStart = undefined;
     this.waitingSteers = [];
     this.interrupting = undefined;
     this.awaiting = undefined;
@@ -6484,24 +6515,16 @@ export class AcpmuxDirectClient {
     // An update that carries only the breakdown has nothing more to draw.
     if (breakdown && update.title === undefined && Object.keys(update._meta ?? {}).every((key) => key === "acpmux"))
       return;
-    // Claude Code names its version and model on every turn's init line: one row, where the
-    // session first said so, that a later line with other facts (a restart on a new version, a
-    // model switch) updates in place.
+    // Claude Code names its version and model on every turn's init line. Session Info keeps the
+    // latest; the transcript draws a line only where a turn's model or route is new: changed from
+    // the turn before, or, on the first, not the chat's own model.
     const start =
       update?.sessionUpdate === SESSION_INFO_KIND
         ? sessionStartOf(update, { harness: this.summary?.harness, cwd: this.summary?.cwd })
         : undefined;
     if (start) {
-      const existing = this.rows.get(SESSION_START_ROW);
-      if (sameSessionStart(existing?.sessionStart, start)) return;
-      this.rows.set(SESSION_START_ROW, {
-        id: SESSION_START_ROW,
-        version: (existing?.version ?? 0) + 1,
-        at: existing?.at ?? event.at,
-        seq: existing?.seq ?? event.seq,
-        kind: "sessionStart",
-        sessionStart: start,
-      });
+      if (!this.latestStart || event.seq >= this.latestStart.seq) this.latestStart = { seq: event.seq, start };
+      if (insertRunChange(this.runChanges, { seq: event.seq, at: event.at, start })) this.drawRunChanges();
       return;
     }
     if (event.dir === "mux") {
@@ -6788,6 +6811,7 @@ export class AcpmuxDirectClient {
           ...(sentByChief(msg) ? { from: "chief" as const } : {}),
           ...(!untyped && promptAuthor(msg) ? { author: promptAuthor(msg) } : {}),
           ...(!untyped && cliHost(msg.client) ? { viaCli: cliHost(msg.client) } : {}),
+          ...(!untyped && recordedAgentText(msg.agentText) ? { agentText: recordedAgentText(msg.agentText) } : {}),
           ...(received ? { received } : {}),
           ...(steer ? { steer } : {}),
           ...(continues ? { continues } : {}),
@@ -7509,6 +7533,30 @@ export class AcpmuxDirectClient {
     return entries;
   }
 
+  /// The transcript's lines for `runChanges`: every change after the first, and the first only when
+  /// its model is not the chat's own. O(changes), which is the chat's model and route switches.
+  private drawRunChanges(): void {
+    const drawn = new Set<string>();
+    const own = text(this.summary?.model);
+    this.runChanges.forEach((change, index) => {
+      if (index === 0 && !(own?.startsWith("claude-") && baseModel(own) !== baseModel(change.start.model))) return;
+      const id = `${SESSION_START_ROW}-${change.seq}`;
+      drawn.add(id);
+      const existing = this.rows.get(id);
+      if (existing?.sessionStart === change.start) return;
+      this.rows.set(id, {
+        id,
+        version: (existing?.version ?? 0) + 1,
+        at: change.at,
+        seq: change.seq,
+        kind: "sessionStart",
+        sessionStart: change.start,
+      });
+    });
+    for (const id of this.runChangeRows) if (!drawn.has(id)) this.rows.delete(id);
+    this.runChangeRows = drawn;
+  }
+
   /// The snapshot's `summary`: the same object while the chat's summary and usage are the same
   /// objects (every change assigns a new one; `effort` and `limits` are read from the summary), so
   /// the pane compares it by identity. A streamed chunk changes neither (HOT PATH AUDIT area F,
@@ -7519,7 +7567,8 @@ export class AcpmuxDirectClient {
     limits: ReturnType<typeof subsessionLimits>,
   ): AcpmuxSnapshot["summary"] {
     const kept = this.publishedSummaryOf;
-    if (kept && kept.summary === summary && kept.usage === this.usage) return kept.value;
+    const start = this.latestStart?.start;
+    if (kept && kept.summary === summary && kept.usage === this.usage && kept.start === start) return kept.value;
     const value: AcpmuxSnapshot["summary"] = summary
       ? {
           sessionId: summary.sessionId,
@@ -7554,6 +7603,8 @@ export class AcpmuxDirectClient {
           ...(summary.usageLimitsApply === false ? { usageLimitsApply: false } : {}),
           // acpmux reports `model: null` for a harness with no model (one known only from its config).
           model: text(summary.model),
+          // What Claude Code's last init line said it runs on (version, model id, route, folder).
+          ...(start ? { sessionStart: start } : {}),
           effort: effort?.currentValue,
           // `audio` only while the picked model hears it (takesAudio).
           promptCapabilities: summary.agentCapabilities?.promptCapabilities && {
@@ -7574,7 +7625,7 @@ export class AcpmuxDirectClient {
           toolsMutable: summary.toolsMutable === true,
         }
       : undefined;
-    this.publishedSummaryOf = { summary, usage: this.usage, value };
+    this.publishedSummaryOf = { summary, usage: this.usage, start, value };
     return value;
   }
 
@@ -10883,7 +10934,9 @@ export class AcpmuxDirectClient {
       live.progressRow !== undefined ? live.progressSuperseded : this.progressRow !== undefined;
     Object.assign(this, live, { forkedAtSeq, messageRows, progressRow, progressSuperseded });
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
-    for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);
+    // A model change line the page moved back (`drawRunChanges` dropped it) stays gone.
+    for (const [id, row] of held)
+      if (!this.rows.has(id) && (row.kind !== "sessionStart" || this.runChangeRows.has(id))) this.rows.set(id, row);
     // A held page can start at a prompt sent now whose cancel only this page holds: its row,
     // drawn before, goes on with that turn now, so the turn never reads as stopped.
     for (const event of this.events) {

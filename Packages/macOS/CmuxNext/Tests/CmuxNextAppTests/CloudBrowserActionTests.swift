@@ -191,6 +191,22 @@ struct CloudBrowserActionTests {
         #expect(fields["reason"] == nil)
     }
 
+    /// A port's link is the platform's preview share link (`/v1/cloud/machines/{id}/previews/{port}/links`),
+    /// never classic `/api/vm/{id}/open-port`, which knows no Worker machine id: with no platform preview
+    /// origin there is no link, and nothing is asked.
+    @Test func aMachineLinkWithAPortNeverAsksTheClassicAPI() async throws {
+        let f = Self.fixture()
+        try #require(f.services.cloud.previewAPI == nil, "this test runs with no platform preview origin")
+        let invoke = try #require(f.services.registry.action(for: "cloudMachineLink")?.invoke)
+        let run = f.services.registry.capturingRun { invoke(Self.invocation(f.session, ["port": .int(3000)])) }
+        let task = try #require(run.results.first, "machine-link tracked no result")
+        guard case .failure(let failure) = await task.value else {
+            Issue.record("machine-link made a link with no preview API")
+            return
+        }
+        #expect(failure.message == CloudPortStrings.noLink(CloudPortNames(f.session, port: 3000)))
+    }
+
     @Test func aMachineLinkWithoutAPortAnswersTheMachinesTarget() async throws {
         let f = Self.fixture()
         let invoke = try #require(f.services.registry.action(for: "cloudMachineLink")?.invoke)

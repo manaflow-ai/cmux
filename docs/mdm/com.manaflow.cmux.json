@@ -2004,11 +2004,28 @@
       "title" : "Fill Codes from Verification Emails",
       "type" : "boolean"
     },
+    "browser.wakeTabsOnHover" : {
+      "default" : false,
+      "description" : "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory.",
+      "title" : "Wake Tabs on Hover",
+      "type" : "boolean"
+    },
     "chief.autoRouteSubagents" : {
       "default" : false,
       "description" : "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
       "title" : "Route Subagents to the Best Agent",
       "type" : "boolean"
+    },
+    "chief.permissionMode" : {
+      "default" : "bypassPermissions",
+      "description" : "How the Chief's own turns handle permissions. Bypass runs every command without asking. Auto lets a safety check decide each command. Manual refuses each change that would need approval. Applies from the next turn.",
+      "enum" : [
+        "bypassPermissions",
+        "auto",
+        "default"
+      ],
+      "title" : "Chief Permission Mode",
+      "type" : "string"
     },
     "chief.reactionClassifier.harness" : {
       "default" : "",
@@ -2835,7 +2852,7 @@
       "type" : "string"
     },
     "home.chiefDock.openBeside" : {
-      "default" : true,
+      "default" : false,
       "description" : "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.",
       "title" : "Keep Chief Docked When Opening Workspaces",
       "type" : "boolean"
@@ -4949,6 +4966,17 @@
       "title" : "Native New Tab Page",
       "type" : "boolean"
     },
+    "tabs.newTabButtonPosition" : {
+      "default" : "end",
+      "description" : "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T).",
+      "enum" : [
+        "afterCurrent",
+        "end",
+        "start"
+      ],
+      "title" : "New Tab Position (+ Button)",
+      "type" : "string"
+    },
     "tabs.newTabNowPlaying" : {
       "default" : false,
       "description" : "A player for what is playing, on the New Tab page.",
@@ -4957,13 +4985,13 @@
     },
     "tabs.newTabPosition" : {
       "default" : "afterCurrent",
-      "description" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
+      "description" : "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
       "enum" : [
         "afterCurrent",
         "end",
         "start"
       ],
-      "title" : "New Tab Position",
+      "title" : "New Tab Position (Cmd-T)",
       "type" : "string"
     },
     "tabs.newTabTemplate" : {
@@ -5088,7 +5116,7 @@
         "hover",
         "always"
       ],
-      "title" : "New Tab Button",
+      "title" : "+ Button Visibility",
       "type" : "string"
     },
     "tabs.swapCmdTAndCmdN" : {
