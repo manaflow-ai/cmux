@@ -108,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 environment.terminalEnvironment["CMUX_PLATFORM_ORIGIN"] = selection.platformOrigin.absoluteString
                 daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                     terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
-                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: SidebarMirror.isLinked)
+                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
                 finishLaunching(); await firstFrame.opened(); await refresh()
             } catch {
                 guard !Task.isCancelled else { return }
@@ -122,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                     terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
-                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: SidebarMirror.isLinked)
+                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
                 finishLaunching()
             }
             cloudBootstrap = nil

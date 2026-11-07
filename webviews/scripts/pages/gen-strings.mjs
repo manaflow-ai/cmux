@@ -258,6 +258,25 @@ export const PAGES = {
     out: "webviews/src/pages/home-channels/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
   },
+  // The Messages transcript and composer (home-messages/transcript): the Swift transcript's keys, so
+  // their translations carry over. The parts it reuses from Channels read Channels' table beside it.
+  "home-messages-transcript": {
+    out: "webviews/src/pages/home-messages/transcript/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/home-messages/transcript/Localizable.xcstrings" }],
+  },
+  // The docked Home's Messages page (cmux-page://cmux.home-messages/): its own table next to it (the
+  // native list's `home.*` and `sidebar.*` keys), and the Channels page's connect strings for the
+  // daemon gate it shares.
+  "home-messages": {
+    out: "webviews/src/pages/home-messages/generated/strings.json",
+    catalogs: [
+      { file: "webviews/src/pages/home-messages/Localizable.xcstrings" },
+      {
+        file: "webviews/src/pages/home-channels/Localizable.xcstrings",
+        keys: (all) => all.filter((key) => key.startsWith("connect.")),
+      },
+    ],
+  },
   // The agent pane's rows the channels Home reuses for agent runs (tool calls, shell blocks,
   // diffs, Markdown): only their keys, installed as the pane's table (agent-session/acpmux/i18n.ts).
   "home-channels-pane": {

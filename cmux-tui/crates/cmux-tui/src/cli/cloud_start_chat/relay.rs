@@ -175,6 +175,12 @@ pub(super) fn relay_chat(
         "follow_up": follow_ups(&machine_id, session),
         "sent": true,
     });
+    // The app's stage times (cmuxterm-hq#7415), those it reported.
+    for key in RELAY_STAGES {
+        if !at(&relayed, key).is_null() {
+            answer.set(key, at(&relayed, key).clone());
+        }
+    }
     if at(&relayed, "ended").as_bool() != Some(true) {
         // Still running after the app's answer: the link path waits on the session (a new one, so no turn before).
         return Relayed::Answered(wait_turn(
@@ -226,6 +232,10 @@ pub(super) fn typed_error(relayed: &Value) -> Value {
     }
     Value::Object(typed)
 }
+
+/// The relay answer's stage times the CLI answer passes on: link and login, then the relay's own events, then the platform's.
+const RELAY_STAGES: [&str; 5] =
+    ["link_login_ms", "queued_ms", "sent_ms", "started_ms", "platform_stages_ms"];
 
 /// The app's `cloud relay-chat` refusals about the machine's harness login (refused, missing, declined, failed,
 /// pending): nothing was sent, and nothing else is.

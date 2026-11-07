@@ -47,8 +47,8 @@ extension CloudHandlers {
             result("new cloud workspace", context) {
                 // Made in the window it was asked from, like a local New Workspace; a CLI or agent
                 // run without focus leaves every window's view as it is.
+                // Placed as any new workspace (`workspaces.newPlacement`), in no group of its machine's (Leo 2026-11-06).
                 let id = await context.services.windows.createWorkspace(on: session.daemon, into: window?.id)
-                RemoteGroupHandlers.mark(session: session.daemon.store.registryID, doc: context.services.sidebarDoc) // one group per Cloud machine
                 guard let id else { throw ActionFailure(message: CloudStrings.notConnected) }
                 if invocation.allowsViewChange { show(id, context) }
                 return machineFields(session.machineID, ["workspace_id": .string(id)])
@@ -394,7 +394,7 @@ extension CloudHandlers {
                 try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, capCard: capCard, askedBy: askedBy,
                                                request: creation.request, proceed: { try proceed(creation) })
             },
-            open: { session in defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID, doc: context.services.sidebarDoc) }; return try await firstWorkspace(on: session, context) },
+            open: { session in try await firstWorkspace(on: session, context) },
             show: { id, creation in
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
                 cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")
@@ -575,7 +575,6 @@ extension CloudHandlers {
                                    currentUserID: cloud.auth.user?.id, currentTeamID: cloud.auth.teamID)
         }).start(in: window, existing: nil) { session in
             try checkScope(session)
-            defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID, doc: services.sidebarDoc) } // one group per Cloud machine
             let name = session.machine.title
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudMoveStrings.notConnected(name)) }
             var cwd: String?
