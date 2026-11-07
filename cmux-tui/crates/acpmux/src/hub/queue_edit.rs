@@ -351,7 +351,12 @@ impl Hub {
                 tracing::info!(session = %session.id, prompt = %prompt_id, dropped, refused, "a queue edit dropped display parts of blocks it did not keep or that no longer fit them");
             }
             let size = super::queue_admission::content_bytes(&blocks, display_parts.as_ref());
-            let digest = super::digest::inbox_digest::is_digest(q.run.provenance.as_ref());
+            // A digest's or a subagent retry's rewrite is no one sender's message: the editor's
+            // own, as before. A retry's provenance is its control state, which a restart reads to
+            // drop an old daemon's unsent retries (`subagent_retry.rs`); kept, the person's
+            // rewritten prompt would go with them.
+            let owned = super::digest::inbox_digest::is_digest(q.run.provenance.as_ref())
+                || super::subagent_retry::is_retry(q.run.provenance.as_ref());
             q.run = Arc::new(PromptRun {
                 size: size.into(),
                 blocks,
@@ -362,8 +367,7 @@ impl Hub {
                 // The person rewrote it: it keeps who sent it, and says who edited it beside
                 // that (`prompt_provenance::edited_by`), never becoming the editor's own words. Its
                 // ask (`class`) and a continuation's goal mark were the sender's words' and go.
-                // A digest's rewrite is no one sender's message: the editor's own, as before.
-                provenance: q.run.provenance.clone().filter(|_| !digest).map(|mut p| {
+                provenance: q.run.provenance.clone().filter(|_| !owned).map(|mut p| {
                     if let Some(fields) = p.as_object_mut() {
                         fields.remove("goalMark");
                     }
