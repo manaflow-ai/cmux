@@ -47,6 +47,24 @@ fn err_json(out: Result<Value, CloudError>) -> Value {
 }
 
 #[test]
+fn create_options_reach_backend_and_preserve_its_capability_refusal() {
+    let mut s = server();
+    let args = json!({"name":"custom", "size":{"cpu":2,"memory_mb":4096,"disk_mb":16384},
+        "size_name":"medium", "idle_seconds":0,
+        "bootstrap":{"kind":"shell","contents_base64":"ZWNobyBvaw==","repo":null},
+        "machine_config_base64":"e30="});
+    s.control_plane_mut().answer("cloud.machine.create", args.clone(), Some("capabilities-key"),
+        json!({"error":{"code":"validation.invalid","message":"Bootstrap is unavailable on this backend",
+            "retryable":false,"details":{"capability":"create.bootstrap"}}}));
+    let error =
+        err_json(s.handle(&mutation("cloud.machine.create", args.clone(), "capabilities-key")));
+    assert_eq!(s.control_plane().calls.last().unwrap().params, args);
+    assert_eq!(error["message"], "Bootstrap is unavailable on this backend");
+    assert_eq!(error["upstream_code"], "validation.invalid");
+    assert_eq!(s.projection().len(), 0, "a refused option never creates a machine");
+}
+
+#[test]
 fn list_pages_follow_the_cursor() {
     let mut s = server();
     let first = s.handle(&Request::new("cloud.machine.list", json!({ "limit": 2 })));
@@ -158,6 +176,40 @@ fn a_delete_retry_after_the_delete_answers_deleted() {
     let other = mutation("cloud.machine.delete", json!({ "machine": vm(2) }), "key-delete-2");
     assert_eq!(s.handle(&other), Ok(json!({ "deleted": true })), "tombstone, new key");
     assert!(s.projection().get(&vm(2)).is_none());
+}
+
+/// At the plan's cap the backend pauses the person's idle machine, then
+/// creates (leo-workspace design/cloud.md, "At the machine cap"): the answer
+/// keeps `made_room` for the app's notice, and a refusal keeps `details.busy`
+/// for its card.
+#[test]
+fn a_create_at_the_cap_keeps_made_room_and_the_busy_list() {
+    // The vectors' create answers the machine; the test answers below add the room and the refusal.
+    let args =
+        json!({ "name": "new box", "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 16384 } });
+    let made =
+        server().handle(&mutation("cloud.machine.create", args.clone(), "key-create-1")).unwrap();
+    let mut paused = made["machine"].clone();
+    paused["id"] = json!(vm(2));
+    paused["status"] = json!("paused");
+    let mut answer = made.clone();
+    answer["made_room"] = json!({ "machine": paused });
+
+    let mut s = server();
+    s.control_plane_mut().answer("cloud.machine.create", args.clone(), Some("key-room"), answer);
+    let out = s.handle(&mutation("cloud.machine.create", args.clone(), "key-room")).unwrap();
+    assert_eq!(out["machine"]["id"], made["machine"]["id"]);
+    assert_eq!(out["made_room"]["machine"]["id"], vm(2), "{out}");
+    assert_eq!(out["made_room"]["machine"]["status"], "paused");
+    assert!(s.projection().get(&vm(2)).is_some(), "the paused machine goes into the projection");
+
+    let busy = json!([{ "machine": vm(3), "name": "busy box", "last_active_at": 1_000 }]);
+    let error = json!({ "error": { "code": "cloud.quota.exceeded", "message": "at the cap",
+        "retryable": false, "details": { "resource": "active", "limit": 5, "used": 5, "busy": busy } } });
+    s.control_plane_mut().answer("cloud.machine.create", args.clone(), Some("key-busy"), error);
+    let refused = err_json(s.handle(&mutation("cloud.machine.create", args, "key-busy")));
+    assert_eq!(refused["code"], "cmux.cloud.quota_exceeded", "{refused}");
+    assert_eq!(refused["details"]["busy"], busy);
 }
 
 #[test]

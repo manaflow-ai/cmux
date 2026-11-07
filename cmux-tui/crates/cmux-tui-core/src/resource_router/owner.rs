@@ -26,6 +26,8 @@ pub(super) enum OperationOwner {
     OpenUrl,
     /// `stash.*` (state/stash_router.rs).
     Stash,
+    /// `conductor_import.*` (state/conductor_import_router.rs).
+    ConductorImport,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -167,6 +169,9 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::StashRestore
         | ResourceOperation::StashDelete
         | ResourceOperation::StashImport => OperationOwner::Stash,
+        ResourceOperation::ConductorImportPlan | ResourceOperation::ConductorImportRecord => {
+            OperationOwner::ConductorImport
+        }
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet
@@ -330,6 +335,46 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ConversationTyping
         | ResourceOperation::ConversationDraft
         | ResourceOperation::ConversationEvents
+        | ResourceOperation::CloudVmResize
+        | ResourceOperation::CloudVmSnapshot
+        | ResourceOperation::CloudVmSnapshots
+        | ResourceOperation::CloudVmDeleteSnapshot
+        | ResourceOperation::CloudVmRestore
+        | ResourceOperation::CloudVmFork
+        | ResourceOperation::CloudVmScpEndpoint
+        | ResourceOperation::CloudVmTunnelEnroll
+        | ResourceOperation::CloudVmTunnelRevoke
+        | ResourceOperation::CloudVmTunnelAttach
+        | ResourceOperation::CloudVmTunnelDetach
+        | ResourceOperation::CloudVmTunnelRotateKey
+        | ResourceOperation::CloudVmFirewallList
+        | ResourceOperation::CloudVmFirewallGet
+        | ResourceOperation::CloudVmFirewallCreate
+        | ResourceOperation::CloudVmFirewallDelete
+        | ResourceOperation::CloudVmNetworks
+        | ResourceOperation::CloudVmDomains
+        | ResourceOperation::CloudVmPublications
+        | ResourceOperation::CloudVmProvisionApi
+        | ResourceOperation::CloudVmPublicationApiKeys
+        | ResourceOperation::CloudVmRevokePublicationApiKey
+        | ResourceOperation::CloudRunsCreate
+        | ResourceOperation::CloudRunsStart
+        | ResourceOperation::CloudRunsWait
+        | ResourceOperation::CloudRunsCancel
+        | ResourceOperation::CloudRunsSandbox
+        | ResourceOperation::CloudOwnerAcpmuxPersonHolds
+        | ResourceOperation::CloudOwnerAcpmuxKeyedStart
+        | ResourceOperation::CloudOwnerForkRun
+        | ResourceOperation::CloudOwnerHandoffWait
+        | ResourceOperation::CloudOwnerHandoffs
+        | ResourceOperation::CloudOwnerHandoffOpen
+        | ResourceOperation::CloudOwnerHandoffBeginTurn
+        | ResourceOperation::CloudOwnerHarnessLoginCopy
+        | ResourceOperation::CloudOwnerGithubApp
+        | ResourceOperation::CloudPreviewsRefresh
+        | ResourceOperation::CloudPreviewsCreateLink
+        | ResourceOperation::CloudPreviewsRevokeLink
+        | ResourceOperation::CloudMachineIo
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
         ResourceOperation::SettingsSchema
         | ResourceOperation::SettingsList

@@ -72,6 +72,7 @@
     case CMUX_SHIM_PAGE_RESOURCE:
     case CMUX_SHIM_PAGE_DRAG_ENTER:
     case CMUX_SHIM_FILE_DIALOG:
+    case CMUX_SHIM_STATUS_MESSAGE:
       return true;
   }
   return false;
@@ -515,6 +516,8 @@ class Client : public CefClient,
     // A page opened by a page is past a new tab's first paint: Chromium's
     // white default (PageBackground; cmux also sets it on adoption).
     settings.background_color = 0xFFFFFFFF;
+    // A popup's tab draws its hovered link in cmux too (cmux_shim_create_window).
+    settings.chrome_status_bubble = STATE_DISABLED;
     RememberPopup(browser->GetIdentifier(), popup_id, target_url.ToString(), disposition, user_gesture, features);
     Emit(CMUX_SHIM_POPUP, browser->GetIdentifier(), 0, disposition, user_gesture ? 1 : 0, target_url.ToString());
     return false;
@@ -575,6 +578,13 @@ class Client : public CefClient,
 
   void OnFaviconURLChange(CefRefPtr<CefBrowser> browser, const std::vector<CefString>& urls) override {
     Emit(CMUX_SHIM_FAVICON, browser->GetIdentifier(), 0, 0, 0, urls.empty() ? "" : urls.front().ToString());
+  }
+
+  // The hovered link (or a page's status text); "" when the pointer left it.
+  // Chrome's own bubble is off (chrome_status_bubble), so cmux draws this in
+  // the page area of the tab's pane.
+  void OnStatusMessage(CefRefPtr<CefBrowser> browser, const CefString& value) override {
+    Emit(CMUX_SHIM_STATUS_MESSAGE, browser->GetIdentifier(), 0, 0, 0, value.ToString());
   }
 
   void OnFullscreenModeChange(CefRefPtr<CefBrowser> browser, bool fullscreen) override {

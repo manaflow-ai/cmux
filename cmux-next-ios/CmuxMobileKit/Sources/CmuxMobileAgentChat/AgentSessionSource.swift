@@ -44,6 +44,9 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case update(ACPSessionUpdate)
     /// `user_message` (or the replayed prompt of a historical turn).
     case userMessage(text: String, promptId: String, turnId: String, attachments: [AgentAttachment], at: Date)
+    /// The turn's prompt is another agent's message (its `_meta.provenance`, or the lane-gh
+    /// broker's label): the transcript draws its card, not the person's bubble.
+    case promptFrom(turnId: String, incoming: AgentIncoming)
     case queued(text: String, promptId: String, position: Int)
     case dequeued(promptId: String)
     /// A waiting prompt's text changed (`queue_updated`, Edit queued prompt).
@@ -57,6 +60,10 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// The record seq of a turn's `turn_result`: the turn a fork through it keeps
     /// (`acp.session.fork {throughSeq}`, the Mac's Edit and Resend of an earlier prompt).
     case turnSeq(turnId: String, seq: Int)
+    /// The record seq of a turn's prompt (`user_message`): what a bookmark on it marks.
+    case promptSeq(turnId: String, seq: Int)
+    /// The chat's bookmarks and pins changed (acpmux's `bookmarks` record): every marked seq.
+    case bookmarks([Int])
     /// acpmux held the waiting prompts (`queue_paused`: a failed turn, or a person's Stop of
     /// agent messages) or let them go (`queue_resumed`). `reason`: the record's (`stop`), if any.
     case queuePaused(Bool, reason: String?)
@@ -128,8 +135,8 @@ public enum AgentClientIntent: Hashable, Sendable {
     case resumeQueue
 }
 
-public struct AgentAttachment: Hashable, Sendable, Identifiable {
-    public enum Kind: Hashable, Sendable { case image, file }
+public struct AgentAttachment: Hashable, Sendable, Codable, Identifiable {
+    public enum Kind: Hashable, Sendable, Codable { case image, file }
 
     public var id: String
     public var kind: Kind
@@ -232,6 +239,29 @@ public protocol AgentSessionSource: AnyObject {
     /// The chat reached the oldest turn it shows: read the page before it, delivered as
     /// ``AgentSessionEvent/earlierPage(_:hasEarlier:)``. Sources that hold the whole history do nothing.
     func loadEarlierHistory()
+
+    // Chat polish parity (the Mac's copy rows, Session Info, bookmarks, permissions, Event
+    // Inspector and Replay Conversation). Sources without one throw `AgentFeatureUnavailable`.
+
+    /// The chat's identity and status as the Mac's acpmux reports it (`_acpmux/info`).
+    func sessionDetails() async throws -> AgentSessionDetails
+    /// The record seqs the chat's bookmarks and pins mark (`_acpmux/bookmark_get`).
+    func bookmarks() async throws -> [Int]
+    /// Marks or unmarks one prompt (`user_message`) or answer (`turn_result`) record
+    /// (`_acpmux/bookmark_set`); returns every mark after the change.
+    func setBookmark(seq: Int, bookmarked: Bool) async throws -> [Int]
+    /// Whether the chat holds a lasting Allow for This Chat (`_acpmux/permission_groups`).
+    func chatPermissions() async throws -> AgentChatPermissions
+    /// Revoke Chat Permission (`_acpmux/permission_chat_revoke`).
+    func revokeChatPermission() async throws
+    /// Refresh Permissions: reads the open asks again from the Mac.
+    func refreshPermissions()
+    /// The raw records this phone received for the chat (the Event Inspector), when kept.
+    var eventJournal: AgentEventJournal? { get }
+    /// The chat's recorded transcript, for Replay Conversation.
+    func replayRecording() async throws -> AgentReplayRecording
+    /// A chat that only shows (a replay): no marks, no retries.
+    var isReadOnly: Bool { get }
 }
 
 extension AgentSessionSource {

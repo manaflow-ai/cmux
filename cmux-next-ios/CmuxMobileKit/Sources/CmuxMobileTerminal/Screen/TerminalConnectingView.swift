@@ -77,7 +77,10 @@ public struct TerminalConnectingView: View {
                     if state.showsProgress { ProgressView().controlSize(.small) }
                     Text(verbatim: label)
                     if let retry, !state.isAttached {
-                        RetryButton(action: retry)
+                        // Inside the glass pill: a text action after a dot, like the
+                        // connection banner, never a second capsule (it read as a circle).
+                        Text(verbatim: "·").accessibilityHidden(true)
+                        RetryButton(style: .inline, action: retry)
                             .accessibilityIdentifier("terminal.retry")
                     }
                 }

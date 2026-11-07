@@ -5,7 +5,7 @@ import { lazy, Suspense, useMemo, type ReactNode } from "react";
 import { translate, type Translate } from "../i18n";
 import { isDiagram } from "./codeShape";
 import { highlightsCode } from "./highlightLimits";
-import { PlainCode } from "./StreamingCode";
+import { PlainCode, PlainCodeLines } from "./StreamingCode";
 
 /// Header label shown for a fence language: its name, which no language translates.
 // l10n-allow: programming language names
@@ -39,11 +39,34 @@ export type CodeBlockProps = {
   lang?: string;
   /** Header label; defaults to the language's display name. */
   label?: string;
+  /** Stable identity and source revision for an artifact in a streaming assistant row. */
+  artifactIdentity?: string;
+  artifactRevision?: number;
 };
 
 /// Loads the highlighted card; the page starts it once it has painted (App.tsx).
 export const loadHighlightedCode = () => import("./HighlightedCode");
 const HighlightedCode = lazy(() => loadHighlightedCode().then((module) => ({ default: module.HighlightedCode })));
+const HighlightedLines = lazy(() =>
+  import("./HighlightedLines").then((module) => ({ default: module.HighlightedLines })),
+);
+
+/// A file's bare lines (a read's peek, FileResultCard.tsx), highlighted by `path`'s language in the
+/// same chunk as the fenced card; plain while it loads and past the highlight limits.
+export function CodeLines({ code, path }: { code: string; path: string }) {
+  const plain = (
+    <div className="cv-filepeek__lines">
+      <PlainCodeLines code={code} />
+    </div>
+  );
+  return highlightsCode(code) ? (
+    <Suspense fallback={plain}>
+      <HighlightedLines code={code} path={path} />
+    </Suspense>
+  ) : (
+    plain
+  );
+}
 
 /**
  * Fenced code card. A fence over the highlight limits (highlightLimits.ts) and an unlabeled
@@ -53,7 +76,16 @@ const HighlightedCode = lazy(() => loadHighlightedCode().then((module) => ({ def
 export function CodeBlock(props: CodeBlockProps) {
   const lang = props.lang ?? "text";
   const diagram = useMemo(() => isDiagram(props.code, lang), [props.code, lang]);
-  const plain = <PlainCode code={props.code} lang={lang} actions={props.actions} />;
+  const plain = (
+    <PlainCode
+      code={props.code}
+      lang={lang}
+      label={props.label}
+      actions={props.actions}
+      artifactIdentity={props.artifactIdentity}
+      artifactRevision={props.artifactRevision}
+    />
+  );
   return highlightsCode(props.code) && !diagram ? (
     <Suspense fallback={plain}>
       <HighlightedCode {...props} />

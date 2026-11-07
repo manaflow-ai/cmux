@@ -15,6 +15,8 @@ final class RegistryPaletteRows {
         var subtitle: String?
         var accessory: String?
         var symbol: String?
+        /// Whether an on/off command is on now (`ActionTargetTitles.setPaletteState`); nil for any other row.
+        var isOn: Bool?
         var keycaps: [String]?
         var keywords: [String]
         var isEnabled: Bool
@@ -33,6 +35,7 @@ final class RegistryPaletteRows {
     /// earlier open runs with this open's captured targets, overrides and shortcut editor.
     final class RunContext {
         var targets: (any PaletteTargetSource)?
+        var targetCreators: [ActionTargetKind: PaletteTargetCreator] = [:]
         var capturedTargets: [ActionTargetRef] = []
         var argumentPreview: PaletteArgumentPreview?
         var argumentSwatches: PaletteArgumentSwatches?
@@ -42,6 +45,7 @@ final class RegistryPaletteRows {
         /// The state `provider` runs its rows with, for the open that reads its rows now.
         func update(from provider: RegistryPaletteProvider) {
             targets = provider.targets
+            targetCreators = provider.targetCreators
             capturedTargets = provider.capturedTargets
             argumentPreview = provider.argumentPreview
             argumentSwatches = provider.argumentSwatches

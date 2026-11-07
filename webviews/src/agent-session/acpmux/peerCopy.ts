@@ -60,7 +60,7 @@ export function peerCopyTail(reply: unknown, sessionId: string): { tail: KeptTai
   const whole = r.hasMore === false && events.length === listed.length;
   const tail: KeptTail = {
     events,
-    summary,
+    summary: { ...summary, peer, createdAt: r.generation, stale: r.stale === true },
     turnOpener: undefined,
     historyExhausted: whole,
     queue: [],
@@ -77,6 +77,7 @@ export function peerCopyTail(reply: unknown, sessionId: string): { tail: KeptTai
     lastSeq: Math.max(number(r.lastSeq) ?? 0, ...events.map((e) => e.seq)),
     offline: false,
   };
+  tail.peerCopy = copy;
   return { tail, copy };
 }
 

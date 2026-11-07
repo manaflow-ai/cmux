@@ -45,10 +45,29 @@ export default agentPaneEntry({
     after: {
       note: "After: the Mac's copy draws at once, marked as possibly out of date until the machine is back.",
       snapshot: offline({ peer: PEER, capturedAt: GALLERY_NOW - 39 * 60_000, offline: true }),
+      play: async (ctx) => {
+        // The banner waits out the resume threshold (afterDelay.ts) before it shows.
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-peer-copy-slot[data-shown]"), { capMs: 4_000 });
+      },
+    },
+    "cold-long-chat-connecting": {
+      note: "A cold page has read its bounded disk tail while the remote handshake is still pending.",
+      snapshot: {
+        ...offline({ peer: PEER, capturedAt: GALLERY_NOW - 60_000, offline: false }),
+        rows: Array.from({ length: 40 }, (_, i) => [
+          user(`Inspect upload batch ${i + 1}.`, 120 - i * 2),
+          assistant(`Batch ${i + 1} completed. The completion event includes every uploaded byte.`, 119 - i * 2),
+        ]).flat(),
+        canLoadOlder: true,
+      },
     },
     "after-no-time": {
       note: "A copy that names no time.",
       snapshot: offline({ peer: PEER, offline: true }),
+      play: async (ctx) => {
+        // The banner waits out the resume threshold (afterDelay.ts) before it shows.
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-peer-copy-slot[data-shown]"), { capMs: 4_000 });
+      },
     },
   },
 });

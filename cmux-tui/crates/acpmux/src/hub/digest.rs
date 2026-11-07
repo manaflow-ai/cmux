@@ -93,6 +93,7 @@ pub(super) fn agent_sender(provenance: Option<&Value>, declared: Option<&str>) -
         Some(
             "agent_message"
                 | "session_message"
+                | crate::prompt_provenance::NOTICE_KIND
                 | "task_result"
                 | super::subsessions::PROVENANCE_KIND
                 | super::lane_reports::KIND
@@ -348,7 +349,9 @@ impl Hub {
                     && q.run.trust_gate == head.trust_gate
                     && q.run.cloud_mobile == head.cloud_mobile
                     && !super::subsession_guard::is_family_prompt(q.run.provenance.as_ref())
-                    && !inbox_digest::is_digest(q.run.provenance.as_ref());
+                    && !inbox_digest::is_digest(q.run.provenance.as_ref())
+                    // A goal's continuation runs alone, checked against its goal (`goal_tools.rs`).
+                    && !super::goal_tools::is_continuation(q.run.provenance.as_ref());
                 let size = blocks_bytes(&q.run.blocks);
                 if !joins || bytes + size > DIGEST_MAX_BYTES {
                     break;

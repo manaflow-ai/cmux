@@ -100,7 +100,8 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
       "cmux-tui/bindings/cpp/src/raw/generated/*", "cmux-tui/bindings/go/raw/generated_*.go",
       "cmux-tui/bindings/typescript/src/raw/generated/*", "cmux-tui/bindings/rust/src/generated/*",
       "cmux-tui/bindings/zig/src/raw/generated/*", "cmux-tui/bindings/java/src/com/cmux/raw/*"),
-     SDK_INPUTS, "cmux-tui/bindings/codegen/generate.py and sync-resource-api.py"),
+     SDK_INPUTS, "python3 cmux-tui/bindings/codegen/generate.py --write and "
+     "python3 cmux-tui/bindings/rust/scripts/sync-resource-api.py (the autofix)"),
     (("clients/ts/cloud/src/generated.ts", "cmux-tui/crates/cmux-cloud-wire/src/generated/*"),
      r"backend/catalog/cloud-operations\.json$|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)$",
      "backend/packages/protocol/scripts/export-client.ts"),

@@ -77,6 +77,22 @@ public final class InMemoryFeedSource: FeedPostingSource {
         publish([item], tx: nil)
     }
 
+    /// The poster withdraws its open items with `dedupeKey`: they close as cancelled by the poster.
+    public func withdraw(dedupeKey: String) {
+        let now = Date()
+        let open = items.values.filter { $0.dedupeKey == dedupeKey && $0.state == .open }.sorted { $0.id < $1.id }
+        guard !open.isEmpty else { return }
+        publish(open.map { item in
+            var item = item
+            item.state = .cancelled
+            item.cancel = FeedCancelRecord(reason: .poster, by: item.poster.label, at: now)
+            item.closedAt = now
+            item.readAt = item.readAt ?? now
+            item.updatedAt = now
+            return item
+        }, tx: nil)
+    }
+
     private func commit(_ intent: FeedIntent) {
         guard let sink else { return }
         if rejectKeys.contains(intent.key) {

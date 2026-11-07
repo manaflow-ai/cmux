@@ -34,8 +34,10 @@ WORKFLOW = ROOT / ".github" / "workflows" / "nightly-sign.yml"
 NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 TOOL = ROOT / "scripts" / "ci" / "nightly_sign_admit.py"
 sys.path.insert(0, str(TOOL.parent))
+sys.path.insert(0, str(ROOT / "tests"))
 
 import nightly_sign_admit  # noqa: E402
+from nightly_workflow_text import nightly_text  # noqa: E402
 
 SHADOW_GATE = "vars.NIGHTLY_SIGN == 'shadow' && ("
 CHECKOUT = re.compile(r"^actions/checkout@[0-9a-f]{40}$")
@@ -190,8 +192,10 @@ def check_prepare_job(jobs: dict, job: str) -> None:
 
 
 def check_nightly_producer() -> None:
-    text = NIGHTLY.read_text(encoding="utf-8")
-    check("NIGHTLY_SIGN" not in text, "nightly.yml must not read vars.NIGHTLY_SIGN while nightly-sign.yml is in shadow mode")
+    text = nightly_text()
+    # A whole word: CI_NIGHTLY_SIGN_RUNNER (the nightly-next signing runner label) is another variable.
+    check(re.search(r"\bNIGHTLY_SIGN\b", text) is None,
+          "nightly.yml must not read vars.NIGHTLY_SIGN while nightly-sign.yml is in shadow mode")
     # The preparation runs as a primary job and a fallback job with the same steps.
     jobs = yaml.safe_load(text)["jobs"]
     for job in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):

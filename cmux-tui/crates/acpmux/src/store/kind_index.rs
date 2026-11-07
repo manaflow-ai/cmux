@@ -37,6 +37,7 @@ pub const INDEXED_KINDS: &[&str] = &[
     "transfer_out",
     "transfer_aborted",
     "imported",
+    "transferred_in",
     "dequeued",
     "queue_removed",
     "user_message",
@@ -64,6 +65,7 @@ pub const INDEXED_KINDS: &[&str] = &[
     // A log load's restored inbox (`hub/inbox.rs` `restore_inbox`).
     "inbox",
     "inbox_noticed",
+    "inbox_returned",
     "inbox_answered",
     "inbox_read",
     "inbox_removed",
@@ -109,14 +111,14 @@ fn kinds() -> u64 {
     fnv(INDEXED_KINDS.iter().flat_map(|k| k.bytes().chain([b'\n'])))
 }
 
-fn fnv(bytes: impl Iterator<Item = u8>) -> u64 {
+pub(super) fn fnv(bytes: impl Iterator<Item = u8>) -> u64 {
     bytes.fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
 }
 
 /// What a copy is of: the segment file (its device, inode and birth time) and its length now.
 pub(super) struct Stamp {
-    id: (u64, u64, u64),
-    len: u64,
+    pub(super) id: (u64, u64, u64),
+    pub(super) len: u64,
 }
 
 impl Stamp {

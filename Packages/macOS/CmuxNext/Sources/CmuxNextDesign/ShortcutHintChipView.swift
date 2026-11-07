@@ -115,9 +115,8 @@ public final class ShortcutHintChipView: NSView {
                 glass.isHidden = false
                 glass.frame = bounds
                 glass.cornerRadius = radius
-                // The theme tint at 1.5 times its alpha: see-through, yet the 10 pt text keeps its contrast over bright content.
-                let tint = Palette.glassTint
-                glass.tintColor = tint.withAlphaComponent(min(tint.alphaComponent * 1.5, 1))
+                // The chip glass level (the theme tint at 1.5 times its alpha): see-through, yet the 10 pt text keeps its contrast over bright content.
+                glass.tintColor = GlassLevel.chip.tint(Palette.glassTint)
                 fill.isHidden = true
                 layer?.shadowOpacity = 0
                 layer?.shadowPath = nil
@@ -126,7 +125,7 @@ public final class ShortcutHintChipView: NSView {
     }
 
     private func makeGlass() -> GlassPanelView {
-        let glass = GlassPanelView(style: .regular)
+        let glass = GlassPanelView(style: .regular) // glass-level-allow: the chip level's own glass, tinted with GlassLevel.chip below
         glass.translatesAutoresizingMaskIntoConstraints = true
         addSubview(glass, positioned: .below, relativeTo: label)
         self.glass = glass

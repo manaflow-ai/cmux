@@ -15,6 +15,11 @@ export function setNativeHost(next: NativeHost | undefined): void {
   nativeHost = next;
 }
 
+/// Whether this page can reach the app, including an injected host in tests.
+export function hasNativeHost(): boolean {
+  return !!(nativeHost || pageHostClient() || globalThis.window?.webkit?.messageHandlers?.agentSession);
+}
+
 /// Posts `method` to the native host. Rejects with a `NativeError` carrying the host's message and
 /// error fields when it refuses, and when the page runs outside the app.
 export function postNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {

@@ -42,8 +42,10 @@ function rowIcon(entry: ComposerPlusEntry, planning: boolean): React.ReactNode {
   if (entry.id === "add.files") return <PaperclipIcon />;
   if (entry.id === "add.mention") return <AtIcon />;
   if (entry.id === "add.commands") return <SlashIcon />;
+  // icon-scale-allow: the composer's own 18 glyph set (design/grid.md)
   if (entry.id === "files.search") return <SearchIcon size={18} />;
   if (entry.id.startsWith("add.mode.")) return planning ? <BuildIcon /> : <PlanIcon />;
+  // icon-scale-allow: the composer's own 18 glyph set (design/grid.md)
   return <Icon name={entry.icon} size={18} />;
 }
 
@@ -122,8 +124,6 @@ export function ComposerPlusMenu({
       className={className ? `acpmux-composer-plus ${className}` : "acpmux-composer-plus"}
       button={<PlusIcon />}
       align="start"
-      returnFocus={false}
-      overBackdrop
       sections={sections}
       {...(onOpen ? { onOpen } : {})}
     />

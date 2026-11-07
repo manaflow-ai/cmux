@@ -21,7 +21,7 @@ extension DebugHome {
     static func page(services: AppServices) -> CmuxNextSettings.JSONValue {
         let home = services.home
         let store = home.homeStore
-        let view = services.windows.active?.topPages.views[.home] as? TopHomePageView
+        let view = HomeDockTab.view(services)?.messages ?? services.windows.active?.topPages.views[.home] as? TopHomePageView // as the fixture finds it
         let lines: [CmuxNextSettings.JSONValue] = (view?.lines ?? []).map { line in
             switch line {
             case .header(let kind): return .object(["header": .string(String(describing: kind))])

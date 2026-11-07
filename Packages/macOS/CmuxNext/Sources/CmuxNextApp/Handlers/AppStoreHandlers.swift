@@ -109,7 +109,7 @@ enum AppStoreHandlers {
         case .done: nil
         case .declined: ActionWorkFailure(RefusalStrings.text("refusal.app.declined", "Nothing changed: the request was declined on the confirmation card."))
         case .unknownApp: ActionWorkFailure(RefusalStrings.text("refusal.app.notListed", "No app with that id in the App Store."))
-        case .refused(let code, let message): ActionWorkFailure("\(code): \(message)")
+        case .refused(let code, let message): ActionWorkFailure(log: "\(code): \(message)")
         }
     }
 

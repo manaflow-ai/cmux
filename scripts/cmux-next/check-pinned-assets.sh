@@ -22,7 +22,8 @@ changed_pins=()
 while IFS= read -r relative; do
   [[ -n "$relative" ]] && changed_pins[${#changed_pins[@]}]="$relative"
 done < <(
-  git -C "$ROOT" diff --no-renames --name-only --diff-filter=AM "$BASE" HEAD -- ':(glob)**/*.pin.json'
+  git -C "$ROOT" diff --no-renames --name-only --diff-filter=AM "$BASE" HEAD -- ':(glob)**/*.pin.json' \
+    scripts/cmux-next/cef-manifest.json
 )
 
 if ((${#changed_pins[@]} == 0)); then
@@ -38,10 +39,24 @@ verify_pin() {
       CMUX_NEXT_RB_HOST_CACHE_DIR="$CACHE_ROOT/remote-browser-host" \
         "$SCRIPT_DIR/ensure-remote-browser-host.sh" >/dev/null
       ;;
-    scripts/cmux-next/cua-driver-sdk.pin.json|scripts/cmux-next/cua-helper-dev.pin.json)
+    scripts/cmux-next/cua-driver-sdk.pin.json|scripts/cmux-next/cua-helper-dev.pin.json|scripts/cmux-next/cmux-remote-dev.pin.json)
       echo "Checking $relative in the controller/R2 store"
       CMUX_CUA_ASSET_CACHE_DIR="$CACHE_ROOT/cua" \
         "$SCRIPT_DIR/ensure-cua-pinned-asset.sh" "$ROOT/$relative" >/dev/null
+      ;;
+    scripts/cmux-next/cef-manifest.json)
+      # R2 only: the fleet's hosts read CEF from the retained bucket, and a
+      # GitHub release or a lane's controller upload must not make a pin whose
+      # R2 object is missing look published (cmux#31594 pinned cmux.41 with no
+      # R2 object, and every fleet capture of it failed).
+      local arch
+      for arch in arm64 x86_64; do
+        [[ "$arch" == x86_64 ]] && ! grep -q '"x86_64"' "$ROOT/$relative" && continue
+        echo "Checking $relative ($arch) in R2"
+        CMUX_CEF_MANIFEST="$ROOT/$relative" CMUX_CEF_CACHE_DIR="$CACHE_ROOT/cef" \
+          CMUX_CEF_NO_STORE=1 CMUX_CEF_NO_GITHUB=1 \
+          "$SCRIPT_DIR/ensure-cef.sh" --arch "$arch" >/dev/null
+      done
       ;;
     *)
       echo "error: no pinned-asset verifier is registered for $relative" >&2

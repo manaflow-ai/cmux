@@ -32,6 +32,10 @@ export type ChatUnavailable =
   | { reason: "deleted"; machine?: string }
   /// Not listed here and never seen here, with every machine connected.
   | { reason: "notFound" }
+  /// The tab's id is no chat's id here, and more than one listed chat goes by it (their name or
+  /// their harness's own session id): the pane cannot tell which one the tab meant, so it says the
+  /// session no longer exists rather than wait for a machine forever (Leo, 2026-11-05).
+  | { reason: "gone" }
   /// The chat's machine is still connecting: the chat may be there once it does (loading). The pane
   /// shows nothing for it.
   | { reason: "connecting"; machine?: string }
@@ -83,15 +87,20 @@ function stillConnecting(status: PeerStatus): boolean {
  * peer), when the pane knows it. `waitedMs` is how long the pane has been without the chat:
  * a machine still connecting past `CONNECTING_GRACE_MS` is offline. `seenListed`: the pane saw the
  * chat listed and it left the list (`leftListWhileShown`), so with every machine connected it was
- * deleted; one never seen here is only not found.
+ * deleted; one never seen here is only not found. `ambiguousName`: the id is no chat's here but
+ * names more than one listed chat, so the session no longer exists (`gone`) whatever the machines.
  */
 export function chatUnavailable(input: {
   peer?: string;
   peers: Record<string, PeerStatus>;
   waitedMs: number;
   seenListed?: boolean;
+  /// More than one listed chat goes by the tab's id (`chatNamedBy` in direct.ts).
+  ambiguousName?: boolean;
 }): ChatUnavailable {
-  const { peer, peers, waitedMs, seenListed = false } = input;
+  const { peer, peers, waitedMs, seenListed = false, ambiguousName = false } = input;
+  // The id names chats that are here, only not one of them: no machine coming back changes that.
+  if (ambiguousName) return { reason: "gone" };
   const grace = waitedMs < CONNECTING_GRACE_MS;
   if (peer !== undefined) {
     // The chat's own machine: once acpmux has its chats, the chat is gone from it; one acpmux no

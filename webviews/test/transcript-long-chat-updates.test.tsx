@@ -4,10 +4,10 @@
 // that row's drawn height, and turns shaped as a fresh look at the same rows shapes them.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { isLineRow, isStatusRow, type AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { gridMark, isLineRow, isStatusRow, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { type TurnView, turnView, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
-import { rowMark, transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
+import { transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -105,8 +105,8 @@ const finishedTurn = (index: number) => [
 const shownById = new Map<string, AcpmuxRow>();
 
 /// The mounted rows, top to bottom: each must sit below the row above it by that one's drawn height
-/// plus the one stack gap the pair takes (transcriptGrid.ts transcriptGap: turn 32 next to a prompt,
-/// block 24 otherwise). On the layout grid a row keeps no gap of its own; the gap belongs to the
+/// plus the one stack gap the pair takes (transcriptGrid.ts transcriptGap: turn 32 next to a prompt, run
+/// 16 between a step row and prose, block 24 otherwise). On the layout grid a row keeps no gap of its own; the gap belongs to the
 /// stack (leo-workspace design/grid.md Rule 5, "A gap belongs to its container", and 5.5 Vertical
 /// rhythm; #27580). `off` is how far a row sits from there. Two consecutive one-line rows keep their
 /// own pitch (#29965), not a block gap; this fixture has no such pair, and the check says so rather
@@ -133,6 +133,11 @@ function placement() {
         pair: [rows[index - 1]!.id, rows[index]!.id],
         oneLine: false,
       });
+  // Each row's mark as the layout reads it (model.ts gridMark): a closed "Worked for" is a step row
+  // on the activity rhythm (#34607), so the prose under it is a run gap away, not a block gap.
+  const shownAt = (index: number) => (index >= 0 ? shownById.get(rows[index]!.id) : undefined);
+  const markAt = (index: number) =>
+    gridMark(shownAt(index)!, rows[index - 1]?.index === rows[index]!.index - 1 ? shownAt(index - 1) : undefined);
   const pairs = rows.slice(1).flatMap((next, index) =>
     next.index === rows[index]!.index + 1
       ? [
@@ -143,7 +148,7 @@ function placement() {
                 (next.top -
                   rows[index]!.top -
                   drawnHeight(rows[index]!.id) -
-                  transcriptGap(rowMark(shownById.get(rows[index]!.id)!), rowMark(shownById.get(next.id)!))) *
+                  transcriptGap(markAt(index), markAt(index + 1))) *
                   100,
               ) / 100,
           },

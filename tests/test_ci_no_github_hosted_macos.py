@@ -35,6 +35,9 @@ RUNNERS = ROOT / ".github/runners.json"
 HOSTED_MACOS = re.compile(r"(?<![A-Za-z0-9_.-])macos-(?:latest|[0-9]+)(?:-(?:intel|large|xlarge|arm64))?(?![A-Za-z0-9_.-])")
 # The fork branch: only a repository owner other than manaflow-ai reaches it.
 FORK_BRANCH = re.compile(r"github\.repository_owner != 'manaflow-ai' && ('[A-Za-z0-9._-]+'|matrix\.hosted_runner)")
+# A cmux-ci worker label (`cmux-ci run ... --label macos-27`) names the macOS version an owned fleet worker
+# runs; it is an argument to the fleet client, never a runs-on, so no GitHub-hosted image can serve it.
+CMUX_CI_LABEL = re.compile(r"--label[ =]['\"]?macos-[0-9A-Za-z.-]+")
 # Script test fixtures and unit tests describe hosted jobs they must recognise; they route nothing.
 SCRIPT_SKIP_PARTS = {"tests", "fixtures", "__pycache__", "node_modules"}
 SCRIPT_SUFFIXES = {".py", ".sh", ".rb", ".js", ".mjs", ".ts", ".json", ".yml", ".yaml"}
@@ -67,7 +70,7 @@ def workflow_hits(root: Path) -> list[str]:
                 content = strip_comment(line)
                 if not content:
                     continue
-                if HOSTED_MACOS.search(FORK_BRANCH.sub("", content)):
+                if HOSTED_MACOS.search(CMUX_CI_LABEL.sub("", FORK_BRANCH.sub("", content))):
                     hits.append(f"{path.relative_to(root)}:{number}:{line}")
     return hits
 
@@ -127,6 +130,12 @@ class NoGitHubHostedMacos(unittest.TestCase):
                      "    # runs on hosted macos-26 only in a fork", "      matrix.hosted_runner"):
             with self.subTest(line=line):
                 self.assertFalse(HOSTED_MACOS.search(FORK_BRANCH.sub("", strip_comment(line))))
+        # A cmux-ci worker label routes to the owned fleet; a runs-on beside it on the same line still counts.
+        for line in ('              --label macos-27 --label ram48 --key "$KEY" \\',
+                     '              --label measure --label=macos-26 --label cmux'):
+            with self.subTest(line=line):
+                self.assertFalse(HOSTED_MACOS.search(CMUX_CI_LABEL.sub("", FORK_BRANCH.sub("", strip_comment(line)))))
+        self.assertTrue(HOSTED_MACOS.search(CMUX_CI_LABEL.sub("", "    runs-on: macos-26 # --label macos-27")))
         # A matrix row is read like any other line: `runs-on: ${{ matrix.hosted_runner }}` would reach it.
         self.assertTrue(HOSTED_MACOS.search(FORK_BRANCH.sub("", strip_comment("          hosted_runner: macos-15"))))
 

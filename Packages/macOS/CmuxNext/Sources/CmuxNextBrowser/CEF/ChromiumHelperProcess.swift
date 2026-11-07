@@ -51,6 +51,12 @@ public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
         return out
     }
 
+    /// ``list(parent:)`` off the main actor (it reads every child's argv).
+    @concurrent
+    public static func listOffMain() async -> [ChromiumHelperProcess] {
+        list()
+    }
+
     /// The kind of a helper from its argv; nil for a process that is not a
     /// Chromium helper (or whose argv is not readable yet).
     public static func classify(_ arguments: [String]) -> Kind? {

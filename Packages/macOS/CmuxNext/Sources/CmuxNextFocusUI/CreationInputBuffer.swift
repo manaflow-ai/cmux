@@ -1,5 +1,4 @@
 public import AppKit
-import os
 
 /// The keys of one window's pending creations or awaited surface, in typing order.
 @MainActor
@@ -24,6 +23,8 @@ public final class CreationInputBuffer {
     private var earlyTabs: [Int: String] = [:]
     /// Pending creations' provisional tabs, by ticket.
     private var tabs: [Int: String] = [:]
+    /// Every tab a creation of this hold shows, replied or not, for the hold's lifetime (``keepsKeysFromLeftPage``).
+    private var madeTabs: Set<String> = []
     /// Creations that make a new workspace with its terminal (`open(…, newWorkspace: true)`), by ticket, until they
     /// fail. The keys typed for one are that terminal's: they never go to anything else (an agent's message box).
     private var workspaceTickets: Set<Int> = []
@@ -33,6 +34,20 @@ public final class CreationInputBuffer {
     private var movedOnFrom: Set<Int> = []
     /// The new workspaces whose create failed: over, they hold nothing of the person's (``personLeftEveryCreation``).
     private var failedWorkspaces: Set<Int> = []
+    /// New workspaces past the reply bound (``replyWaitLimit``) the person moved on from (or asked for over no terminal,
+    /// ``pressLanes``): their keys are counted and logged, never typed into anything (dogfood v2.2.3, m12).
+    private var strandedWorkspaces: Set<Int> = []
+    /// The terminal the person typed into when they asked for each new workspace, and the count of their focus choices then,
+    /// by ticket: at the reply bound its keys go there only if the count did not change (#35275).
+    private var pressLanes: [Int: (lane: HeldLane, personMoves: UInt64)] = [:]
+    /// The tickets whose keys the reply bound gave their press-time terminal: typed into it, never run again (key window).
+    private var pressDelivered: Set<Int> = []
+    /// Keys typed for a new workspace's terminal that no terminal could take: counted, never typed.
+    public private(set) var untypedTerminalKeys = 0
+    /// The longest the newest creation's reply keeps the keys (``replyWaitBound``; the coordinator's setting).
+    public var replyWaitLimit: Duration = replyWaitBound
+    /// Called when a bound ends this hold: ``Bound/limit`` (``expire(after:)``) or ``Bound/reply`` (``replyWaitLimit``).
+    public var onBound: (@MainActor (CreationInputBuffer, Bound) -> Void)?
     /// The focus generation (the person's newest intent) the newest creation of this hold was asked under.
     public private(set) var newestGeneration: UInt64?
     private var nextID = 0
@@ -40,6 +55,12 @@ public final class CreationInputBuffer {
     public let began: ContinuousClock.Instant
     /// When the last pending creation got its reply: the hold's limit counts from here.
     private var repliedAt: ContinuousClock.Instant?
+    /// When the last pending creation got its reply (``holds(_:limit:expiring:closes:replyLimit:)``).
+    var lastReplyAt: ContinuousClock.Instant? { repliedAt }
+    /// When the newest creation of this hold began: the reply bound (``replyWaitBound``) counts from here.
+    private var newestOpenedAt: ContinuousClock.Instant?
+    /// The newest creation's ticket (never a close's read, ``openClose(closing:machine:takesEveryKey:)``: it has its own deadline).
+    private(set) var newestCreation = 0
 
     public init(began: ContinuousClock.Instant) { self.began = began }
 
@@ -59,14 +80,23 @@ public final class CreationInputBuffer {
     /// `newWorkspace`: the creation makes a new workspace with its terminal; the keys typed for it wait until the window
     /// shows that workspace with its terminal, also after the person left it (``shownWorkspaceToWaitFor``,
     /// ``leftWorkspaceWithKeys``), and are dropped when it fails or has not shown by the hold's limit
-    /// (``resolve(_:awaitsFocus:workspace:)``, ``dropKeys(ofWorkspacesOtherThan:)``).
-    public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newWorkspace: Bool = false) -> Ticket {
+    /// (``resolve(_:awaitsFocus:workspace:)``, ``dropKeys(ofWorkspacesOtherThan:)``); at the reply bound they go into the
+    /// press terminal if the person did not move, else nowhere (``endReplyWait(personMoves:shows:)``, cmux-ad m12).
+    /// `at`: when the creation began (tests pass an earlier time).
+    /// `pressTerminal`, `personMoves`: a new workspace's: the terminal that had the keyboard at the press, and the count of
+    /// the person's focus choices then (``FocusState/personMoveSeq``, ``pressLanes``).
+    public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newWorkspace: Bool = false,
+                     pressTerminal: HeldLane? = nil, personMoves: UInt64 = 0, at start: ContinuousClock.Instant = .now) -> Ticket {
         nextID += 1
+        (newestCreation, newestOpenedAt) = (nextID, start)
+        if newWorkspace, let pressTerminal { pressLanes[nextID] = (pressTerminal, personMoves) }
+        armReplyBound()
         pending[nextID] = generation
         newestGeneration = generation
         if newWorkspace { workspaceTickets.insert(nextID) }
         if let earlyTab { earlyTabs[nextID] = earlyTab }
         if let tab { tabs[nextID] = tab; laneTabs[nextID] = tab; laneMachines[nextID] = machine }
+        if let tab { madeTabs.insert(tab) }
         return Ticket(id: nextID, owner: ObjectIdentifier(self))
     }
 
@@ -87,7 +117,7 @@ public final class CreationInputBuffer {
         events.removeAll { $0.creation.map(ids.contains) ?? false }
         // Nothing waits any more: a key with no terminal of its own (no lane, or a lane with no tab) goes with the close,
         // never into whatever has the focus; a key carried for another terminal stays, to go to it at the hold's end.
-        if pending.isEmpty, awaited.isEmpty { events.removeAll { $0.creation.flatMap { laneTabs[$0] } == nil && !isOpenClose($0.creation) } }
+        if pending.isEmpty, awaited.isEmpty { events.removeAll { $0.creation.flatMap { laneTabs[$0] } == nil && !isOpenClose($0.creation) && !isStranded($0.creation) } }
         return true
     }
 
@@ -103,7 +133,9 @@ public final class CreationInputBuffer {
     /// `takesEveryKey`: the close took its tabs out of the strip while it reads (the focus moved to a neighbour the
     /// person did not pick): every key typed in the window until it answers is the close's, whatever has the focus.
     public func openClose(closing: [String], machine: String?, takesEveryKey: Bool = false) -> Ticket {
+        let creation = (newestCreation, newestOpenedAt) // the read keeps a pending creation's reply bound (review of #35275)
         let ticket = open(generation: 0)
+        (newestCreation, newestOpenedAt) = creation
         closingTabs[ticket.id] = closing
         laneMachines[ticket.id] = machine
         if takesEveryKey { everyKeyCloses.insert(ticket.id) }
@@ -155,12 +187,6 @@ public final class CreationInputBuffer {
         resolve(ticket, awaitsFocus: false)
     }
 
-    /// A close whose question asks the person (``parkClose(_:)``); nil `ticket`: it holds no keys.
-    public struct ParkedClose {
-        public let ticket: Ticket?
-        public init(ticket: Ticket?) { self.ticket = ticket }
-    }
-
     /// Whether a creation of this hold still waits for its reply and shows `tab`.
     public func isCreating(tab: String) -> Bool { tabs.contains { $0.value == tab && pending[$0.key] != nil } }
 
@@ -194,7 +220,7 @@ public final class CreationInputBuffer {
             workspaceTickets.remove(ticket.id)
             failedWorkspaces.insert(ticket.id) // released at once: it keeps no later key waiting (review of #32148)
             let before = events.count
-            events.removeAll { $0.creation == ticket.id }
+            events.removeAll { $0.creation == ticket.id } // never run into what has the focus (PersonTerminalKeyboardClaimTests)
             Self.logDropped(before - events.count, why: "its create failed")
         }
     }
@@ -227,6 +253,14 @@ public final class CreationInputBuffer {
 
     /// Whether a creation of this hold, asked under the person's newest intent `generation`, keeps the window's keyboard.
     public func ownsKeyboard(generation: UInt64) -> Bool { holdsCreation && newestGeneration == generation }
+
+    /// Whether the page the person left keeps no keys (P0 INVERSE-KEY): the focus is on its way to another tab
+    /// (`awaitsOtherTab`) and a creation of this hold, asked under their newest intent `generation`, owns the keyboard.
+    /// The focused tab `focusedTab` is never one this hold makes, before or after its reply (a new browser tab's own
+    /// page takes the keys).
+    public func keepsKeysFromLeftPage(awaitsOtherTab: Bool, generation: UInt64, focusedTab: String?) -> Bool {
+        awaitsOtherTab && ownsKeyboard(generation: generation) && focusedTab.map { !madeTabs.contains($0) } != false
+    }
 
     /// The person acted after asking for this hold's new workspaces (a click, even on the view that already had the focus,
     /// which moves no focus generation; one of their actions): the keys typed from now on are no longer those workspaces'
@@ -277,12 +311,7 @@ public final class CreationInputBuffer {
         return true
     }
 
-    /// Held keys of a new workspace's terminal that never run: the log says how many and why.
-    private static func logDropped(_ count: Int, why: String) {
-        guard count > 0 else { return }
-        Logger(subsystem: "com.cmuxterm.app.next", category: "focus.creation-hold")
-            .notice("\(count, privacy: .public) key(s) typed for a new workspace's terminal dropped: \(why, privacy: .public)")
-    }
+    private func isStranded(_ id: Int?) -> Bool { id.map(strandedWorkspaces.contains) ?? false }
 
     public func awaits(_ generation: UInt64) -> Bool { awaited.contains(generation) }
 
@@ -338,44 +367,56 @@ public final class CreationInputBuffer {
         awaitSurface(of: HeldLane(tab: content.tab, machine: machine))
     }
 
+    /// Whether the newest creation of this hold waited `bound` or longer for its reply: its keys go on (cmux-ad m12).
+    public func waitedPastReplyBound(_ bound: Duration? = nil) -> Bool {
+        awaitsCreationReply && ContinuousClock.now - (newestOpenedAt ?? began) >= (bound ?? replyWaitLimit)
+    }
+
+    /// A creation (never a close's read, which has its own deadline) waits for its reply.
+    var awaitsCreationReply: Bool { pending.keys.contains { closingTabs[$0] == nil } }
+
+    /// The newest creation's reply keeps the keys at most ``replyWaitLimit``: then ``onBound`` with ``Bound/reply``.
+    private func armReplyBound() {
+        let (opened, bound) = (newestCreation, replyWaitLimit)
+        // task-owner: one-shot bound on this hold's reply wait; a hold that ended or opened a newer creation makes it a no-op.
+        // Detached: the held keys run again in a turn of their own, never under the opening run's task locals (review of #35874); high: the person's held keys wait for it.
+        Task.detached(priority: .high) { [weak self] in
+            try? await Task.sleep(for: bound) // wakeup-allow: one-shot bound on a key hold whose creation's reply never comes
+            await self?.replyBoundPassed(opened: opened)
+        }
+    }
+
+    /// The reply bound passed: no creation waits for its reply any more. A new workspace's keys go into the terminal the
+    /// person typed into at the press (``pressLanes``) only if the person made no focus choice since (`personMoves`, the
+    /// focus machine's ``FocusState/personMoveSeq``, is the count of the press; no script's move counts) and the window still
+    /// shows that terminal (`shows`: the selected tab of its pane in the shown workspace). Else they are counted and logged,
+    /// never typed (lead on #35275). Another creation's keys run as typed in what has the keyboard; a close keeps its lane.
+    public func endReplyWait(personMoves: UInt64?, shows: (String) -> Bool) {
+        let waiting = Set(pending.keys).subtracting(closingTabs.keys)
+        for id in waiting {
+            (pending[id], tabs[id], earlyTabs[id]) = (nil, nil, nil)
+            if !workspaceTickets.contains(id) {
+                (laneTabs[id], laneMachines[id]) = (nil, nil) // run as typed in what has the keyboard (its provisional view)
+            } else if let press = pressLanes[id], press.personMoves == personMoves, shows(press.lane.tab) {
+                (laneTabs[id], laneMachines[id]) = (press.lane.tab, press.lane.machine) // the person did not move: the press terminal
+                pressDelivered.insert(id)
+            } else {
+                strandedWorkspaces.insert(id) // the person moved on, or no terminal: never typed into anything
+            }
+        }
+        workspaceTickets.subtract(waiting)
+        if !waiting.isEmpty, pending.isEmpty { repliedAt = ContinuousClock.now }
+    }
+
+    /// Whether `ticket` is one of this hold's.
+    public func owns(_ ticket: Ticket) -> Bool { ticket.owner == ObjectIdentifier(self) }
+
     /// The terminal lane `id` delivers to; nil for no lane.
     private func heldLane(_ id: Int?) -> HeldLane? { id.flatMap { id in laneTabs[id].map { HeldLane(tab: $0, machine: laneMachines[id]) } } }
 
-    public func take() -> [NSEvent] {
+    public func take() -> [NSEvent] { // stranded keys go only into a terminal (``take(focused:keeping:isShortcut:)``)
         defer { events.removeAll() }
-        return events.map(\.event)
-    }
-
-    /// The terminal a lane's keys are for: its tab, and the machine it is on when that was known.
-    public struct HeldLane: Hashable, Sendable {
-        public let tab: String
-        public let machine: String?
-        public init(tab: String, machine: String?) { self.tab = tab; self.machine = machine }
-    }
-
-    /// Held keys at the hold's end, in typing order (``take(focused:)``).
-    public enum HeldKey {
-        /// Keys of a lane whose terminal is not the focused one, in order, typed as one run (one daemon send when its
-        /// view is gone, so no key passes another): that terminal's own key encoding, never the focused terminal (a held
-        /// Ctrl-C must not stop another process). Chords that are no app shortcut (Ctrl-C, Ctrl-U) stay in the run.
-        case type([NSEvent], lane: HeldLane)
-        /// An app shortcut (Cmd-D, Ctrl-`, Ctrl-Tab) typed for a lane whose terminal is not the focused one: it runs with
-        /// that terminal's tab as its target, as a key press there.
-        case command(NSEvent, lane: HeldLane)
-        /// A key that runs again as typed: the focused lane's (`lane`), or a key typed for no creation (nil).
-        case run(NSEvent, lane: HeldLane?)
-
-        /// Each key with the terminal it was typed for, in order (to hold them again, ``prepend(_:issuer:)``).
-        public var keys: [(event: NSEvent, lane: HeldLane?)] {
-            switch self {
-            case .type(let events, let lane): events.map { ($0, lane) }
-            case .command(let event, let lane): [(event, lane)]
-            case .run(let event, let lane): [(event, lane)]
-            }
-        }
-
-        /// The terminal the first key was typed for.
-        public var lane: HeldLane? { keys.first?.lane }
+        return events.filter { !isStranded($0.creation) }.map(\.event)
     }
 
     /// Takes the keys of lane `lane` only, in typing order, to run again as typed (its early view has the keyboard);
@@ -391,7 +432,8 @@ public final class CreationInputBuffer {
     public func take(focused: String?, keeping kept: Int? = nil, isShortcut: (NSEvent, String) -> Bool) -> [HeldKey] {
         var keys: [HeldKey] = []
         for (event, id) in events where kept == nil || id != kept {
-            guard let lane = heldLane(id), lane.tab != focused else {
+            if isStranded(id) { untypedTerminalKeys += 1; continue } // the person moved on, or no terminal: counted, never typed
+            guard let lane = heldLane(id), lane.tab != focused || id.map(pressDelivered.contains) == true else { // a run goes to the KEY window
                 keys.append(.run(event, lane: heldLane(id)))
                 continue
             }
@@ -405,36 +447,5 @@ public final class CreationInputBuffer {
         }
         events.removeAll { kept == nil || $0.creation != kept }
         return keys
-    }
-
-    /// Calls `expired` after `limit` unless a creation of this hold still waits for its reply then
-    /// (its reply arms the bound again: the coordinator calls this from `resolve`).
-    public func expire(after limit: Duration, _ expired: @escaping @MainActor (CreationInputBuffer) -> Void) {
-        // task-owner: one-shot bound on this hold; a hold that ended first makes it a no-op
-        Task { @MainActor [weak self] in
-            // wakeup-allow: one-shot bound on a key hold, so a hold whose terminal never shows ends
-            try? await Task.sleep(for: limit)
-            guard let self, !hasPendingCreation else { return }
-            expired(self)
-        }
-    }
-
-    /// Whether this hold keeps `event`.
-    ///
-    /// - A close key (`closes`: its binding is a close action, Cmd-W) never waits: it acts at once on
-    ///   what it closes, a pending creation included (TabLifecycle cancels it). Held, it ran later
-    ///   with the other held keys and closed the next tab, then the window (macOS 15 tester,
-    ///   2026-10-19: Cmd-D then Cmd-W from Settings).
-    /// - A creation waiting for its reply keeps every other key.
-    /// - After the reply the hold ends `limit` later (`expiring`), even when the focus it asked for
-    ///   never lands (a split from a page tab shows a New Tab page, not a terminal).
-    /// - A hold that only waits for a selected terminal's surface ends `limit` after it began, and
-    ///   lets a chord through while it holds nothing (held Ctrl-Tab makes no surface for a tab it passed).
-    public func holds(_ event: NSEvent, limit: Duration, expiring: Bool, closes: Bool = false) -> Bool {
-        if closes { return false }
-        guard !hasPendingCreation else { return true }
-        if expiring, ContinuousClock.now - (repliedAt ?? began) >= limit { return false }
-        if holdsCreation { return true }
-        return !(isEmpty && !event.modifierFlags.intersection([.command, .control]).isEmpty)
     }
 }

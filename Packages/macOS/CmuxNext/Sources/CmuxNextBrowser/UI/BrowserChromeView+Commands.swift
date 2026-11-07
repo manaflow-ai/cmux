@@ -3,12 +3,16 @@ import AppKit
 // Chrome commands (key equivalents the chrome handles itself) and the
 // trailing toolbar buttons' share of the width-driven toolbar collapse.
 extension BrowserChromeView {
+    /// The find pill on the current tab, made on first use (#32909); `shownFindBar` while it shows.
+    var findBar: FindBarView { pageBars.findBar(on: tab) }
+    var shownFindBar: FindBarView? { pageBars.findBarIfMade.flatMap { $0.isHidden ? nil : $0 } }
+
     public func perform(_ command: BrowserChromeCommand) {
         switch command {
         case .focusAddressBar: addressBar.focus()
         case .findInPage: showFindBar()
-        case .findNext: findBar.isHidden ? showFindBar() : findBar.findNext()
-        case .findPrevious: findBar.isHidden ? showFindBar() : findBar.findPrevious()
+        case .findNext: if let shown = shownFindBar { shown.findNext() } else { showFindBar() }
+        case .findPrevious: if let shown = shownFindBar { shown.findPrevious() } else { showFindBar() }
         case .reload: tab.reload()
         case .stop: tab.stop()
         case .goBack: tab.goBack()

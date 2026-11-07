@@ -156,6 +156,16 @@ export interface UpstreamClientService {
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network">; readonly network: VmNetworkAllowed<C> },
   ) => Effect.Effect<"updated" | "missing" | "ambiguous", UpstreamError>;
+  /** Whether a rule whose source is exactly this VM allows the public Internet on every port. */
+  readonly readVmPublicEgress: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network"> },
+  ) => Effect.Effect<boolean, UpstreamError>;
+  /** Adds that rule unless one is there; never removes or widens another rule. */
+  readonly allowVmPublicEgress: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network"> },
+  ) => Effect.Effect<void, UpstreamError>;
   readonly getVm: <C, R>(
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> },

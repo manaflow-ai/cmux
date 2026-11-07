@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+import CmuxNextIcons
 
 /// A pinned action's button (`tabs.toolbarButtons`): its symbol, its title and key in the tooltip.
 public struct PaneToolbarItem: Equatable, Sendable {
@@ -72,6 +73,8 @@ public final class PaneToolbarView: NSView {
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
     public private(set) lazy var reveal = HoverReveal(region: self, tracksPointer: false)
     private var corner: NSTrackingArea?
+    /// The layout screen whose one tracking area tells the corner the pointer (``PanePointerRegion``); nil: its own area.
+    private weak var cornerArea: (any PanePointerArea)?
     private var restObservation: Task<Void, Never>?
     private weak var cornerHost: NSView?
 
@@ -163,6 +166,15 @@ public final class PaneToolbarView: NSView {
         }
     }
 
+    /// A cmux pack icon name the web side sends where no SF Symbol fits (the Session Info toggle's
+    /// two-row `view.list.short`, Leo 2026-11-04: "make our session info button 2 rows too"); nil
+    /// leaves an SF Symbol name to TitlebarBandButton, so the other tools keep their symbols.
+    private static func packGlyph(_ name: String, _ side: CGFloat) -> NSImage? {
+        guard NSImage(systemSymbolName: name, accessibilityDescription: nil) == nil else { return nil }
+        let icon = IconName(name)
+        return IconPack.bundled.drawing(for: icon) == nil ? nil : NSImage.icon(icon, size: side)
+    }
+
     private func setNativeButtons(_ items: [PaneTabRowTool]) {
         nativeButtons.forEach { reveal.remove($0); $0.removeFromSuperview() }
         nativeMoreTool = items.first(where: { $0.id == "chat-menu" })
@@ -174,6 +186,7 @@ public final class PaneToolbarView: NSView {
         nativeItems = buttonItems
         nativeButtons = buttonItems.enumerated().map { index, item in
             let button = TitlebarBandButton(symbol: item.symbol, text: item.text)
+            button.customImage = Self.packGlyph
             button.tag = index
             button.setAccessibilityLabel(item.label)
             button.setAccessibilityIdentifier("cmux.pane.native-toolbar.\(item.id)")
@@ -348,7 +361,7 @@ public final class PaneToolbarView: NSView {
         let allButtons = buttons + nativeButtons
         let count = max(shownCount, reservedCount)
         guard count > 0 else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
-        let inset = Self.edgeInset(height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2))
+        let inset = Self.trailingGap
         let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
         let reservedWidth = CGFloat(max(0, count - allButtons.count)) * TitlebarBandButton.side
         let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
@@ -372,10 +385,10 @@ public final class PaneToolbarView: NSView {
         // Creation actions remain in the + menu. Fold their buttons away together when the
         // pane caps this toolbar's width, keeping pins in their trailing slots. Pins that also
         // cannot fit return to the more menu instead of overlapping the remaining controls.
-        let requiredWidth = y + widths.reduce(0, +) + CGFloat(max(0, allButtons.count - 1)) * gap
+        let requiredWidth = Self.trailingGap + widths.reduce(0, +) + CGFloat(max(0, allButtons.count - 1)) * gap
             + CGFloat(trailingSlot) * (side + gap)
         let creationFits = requiredWidth <= bounds.width
-        var cursor = bounds.width - y - CGFloat(trailingSlot) * (side + gap)
+        var cursor = bounds.width - Self.trailingGap - CGFloat(trailingSlot) * (side + gap)
         for index in allButtons.indices.reversed() {
             let button = allButtons[index]
             let available = max(0, cursor)
@@ -396,9 +409,13 @@ public final class PaneToolbarView: NSView {
     /// opacity, so the glyph and its hit target stay aligned throughout the fade.
     func moreFrame() -> NSRect {
         let side = TitlebarBandButton.side
-        let inset = Self.edgeInset(height: bounds.height)
-        return NSRect(x: max(0, bounds.width - inset - side), y: inset, width: side, height: side)
+        return NSRect(x: max(0, bounds.width - Self.trailingGap - side), y: Self.edgeInset(height: bounds.height),
+                      width: side, height: side)
     }
+
+    /// The last button's gap to the trailing edge: its center on the pane's trailing control column,
+    /// above the browser toolbar's ⋮ (`Metrics.paneTrailingControlCenter`, Lawrence msg 19627).
+    static var trailingGap: CGFloat { max(0, Metrics.paneTrailingControlCenter - TitlebarBandButton.side / 2) }
 
     /// The buttons' gap above them in a bar `height` tall, which is also the "…" button's gap to
     /// the trailing edge, so it rests evenly in the pane's corner as the first tab does.
@@ -458,6 +475,19 @@ public final class PaneToolbarView: NSView {
         let rect = strip.map { $0.frame.union(frame) } ?? frame
         // Any control that shows (Search Tabs with a chat selected has no "…") brightens on hover.
         let live = superview != nil && window != nil && (hasMore || !buttons.isEmpty || !nativeButtons.isEmpty) && !isHiddenOrHasHiddenAncestor
+        // In a pane the screen's one area serves the corner by its geometry: no own area, which a resize moved with the
+        // strip in every layout pass (RESIZE MAIN BUDGET, PaneMotionPointerAreasTests).
+        let serving = live ? enclosingPanePointerArea : nil
+        if serving !== cornerArea {
+            cornerArea?.removePointerRegion(self)
+            cornerArea = serving
+            serving?.addPointerRegion(self)
+        }
+        if serving != nil {
+            if let corner { cornerHost?.removeTrackingArea(corner) }
+            (corner, cornerHost) = (nil, nil)
+            return
+        }
         if live, let corner, corner.rect == rect, cornerHost === superview { return }
         if let corner { cornerHost?.removeTrackingArea(corner) }
         corner = nil
@@ -518,4 +548,14 @@ extension PaneToolbarView: TitlebarPressDeciding {
         let onButton = ((buttons + nativeButtons).map { $0 as NSView } + [moreButton]).contains { !$0.isHidden && $0.frame.contains(point) }
         return !onButton && WindowTitlebar.isInTopRow(self) ? .movesWindow : .staysPut
     }
+}
+
+/// In a pane the layout screen's one tracking area tells the toolbar's corner (its strip and itself, in its host's
+/// coordinates) where the pointer is.
+extension PaneToolbarView: PanePointerRegion {
+    public var panePointerRegion: (view: NSView, rect: CGRect)? {
+        superview.map { ($0, strip.map { $0.frame.union(frame) } ?? frame) }
+    }
+
+    public func panePointerInside(_ inside: Bool) { reveal.setPointerInside(inside) }
 }

@@ -28,12 +28,13 @@
   line-height: 1.3;
   letter-spacing: var(--text-body--letter-spacing);
 }
-/* Plain glass keeps the card's look from before the lens, the composer's surface as every sidebar
-   card's (CardSurfaceView in Swift, Leo 2026-10-13): the text at 13% over the wallpaper (this page
-   is transparent) and no blur, under the plain rim. Reduce Transparency still makes it opaque
-   (glass.css's surface): the same selector again, later, so it outranks the plain fill. */
+/* Plain glass: the theme's surface at the card veil's share and no blur, under the plain rim, as the
+   sidebar draws it natively (CardSurfaceView.takesThemeTint: the theme's glass tint at the card
+   veil's 42%). It was the text at 13%, a gray over any theme (Leo 2026-11-02: "why is the update
+   thing unthemed"). Reduce Transparency still makes it opaque (glass.css's surface): the same
+   selector again, later, so it outranks the plain fill. */
 :root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card {
-  --glass-tint: color-mix(in srgb, var(--page-text) 13%, transparent);
+  --glass-tint: color-mix(in srgb, var(--glass-surface) 42%, transparent);
   --glass-backdrop: none;
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -231,6 +232,15 @@
   cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* No change list (2026-11-03, "stretched out wasted space"): as wide as its lines, up to the menu
+   width, and the link with the text instead of at the far edge under a rule. */
+.wn-pop.wn-pop-brief { width: max-content; max-width: 340px; padding: 8px 12px; }
+.wn-pop-brief .wn-pop-head { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.wn-pop-brief .wn-pop-title { min-width: 0; }
+.wn-pop-brief > .wn-pop-all { display: block; margin: 4px 0 0; }
+.wn-pop-brief .wn-pop-from .wn-pop-all { margin: 0; }
+.wn-pop-brief .wn-pop-head .wn-pop-all { flex: none; margin: 0; }
+.wn-pop-brief .wn-pop-more { margin-top: var(--ds-space-1); }
 .wn-pop-all:hover { text-decoration: underline; text-underline-offset: 3px; }
 :is(.wn-card-close, .wn-card-primary, .wn-pop-all, .wn-pop-media):focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 @media (prefers-reduced-transparency: reduce) {

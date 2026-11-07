@@ -29,6 +29,8 @@ pub(super) struct SteerSent {
     /// The line it leaves on the summary as the turn it starts (`prompt_line.rs`).
     pub(super) line: String,
     pub(super) control: Control,
+    /// Returning this agent message unread needs the live harness to confirm withdrawal.
+    pub(super) needs_withdrawal: bool,
     /// What a continuation of the turn it starts needs (`auto_resume.rs`).
     pub(super) continues: Continues,
 }
@@ -274,6 +276,7 @@ impl Hub {
         begin: Option<(String, Carried)>,
         continues: Continues,
     ) {
+        self.resume_before_turn();
         {
             let mut running = session.turn.lock().unwrap_or_else(|e| e.into_inner());
             if running.is_some() {
@@ -700,6 +703,7 @@ mod tests {
             text: "steer".into(),
             line: "steer".into(),
             control: Control::Local,
+            needs_withdrawal: false,
             continues: Continues { reports, ..Continues::default() },
         };
         {

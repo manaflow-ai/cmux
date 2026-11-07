@@ -25,6 +25,10 @@
 //!   presents it instead of the dashboard token, so acpmux knows which phone it is and
 //!   that phone's Full-access setting can cover it (`services.rs`). Never logged.
 //!
+//! - `{"type":"needs_you","items":[{"id","title","body","kind","source","url","created_at_ms"}]}`:
+//!   the open requests of the app's own Feed (held PRs, sign-ins, consent cards), the whole set
+//!   each time it changes. hostd serves them to phones and pushes each once (`needs_you.rs`).
+//!
 //! End of stdin means the app is gone: the process exits.
 //!
 //! stdout carries one JSON event per line for the app (logs go to stderr);
@@ -294,6 +298,10 @@ pub enum Inbound {
         session_id: String,
         allowed: bool,
     },
+    /// The open requests of the app's own Feed, the whole set (`needs_you.rs`).
+    NeedsYou {
+        items: Vec<crate::needs_you::Request>,
+    },
     /// The app's Cloud links for `need_cloud_links` `request`. `paid` (absent from an
     /// older app: false) says the account pays for cmux Cloud; `desktops` (absent: false) that
     /// the person lets phones view their Cloud machine's screen (`phone.cloudDesktop`).
@@ -375,6 +383,10 @@ pub enum Event {
         /// signature (the app checks and burns it; hostd only forwards it). Absent without one.
         #[serde(skip_serializing_if = "Option::is_none")]
         pair_token: Option<String>,
+        /// What asks: `phone` (omitted, as before) or a machine (`mac`, `linux`), which the
+        /// app approves with grants (docs/multi-machine-sessions.md).
+        #[serde(skip_serializing_if = "is_phone")]
+        kind: crate::peer::PeerKind,
     },
     /// A paired phone signed out and asks the Mac to forget it.
     Unpaired {
@@ -538,6 +550,7 @@ pub fn spawn_stdin_reader() -> Supplied {
                         }
                     }
                 }
+                Some(Inbound::NeedsYou { items }) => crate::needs_you::set(items),
                 Some(Inbound::CloudLinks { request, paid, desktops, links }) => {
                     resolve_cloud_links(request, paid, desktops, links);
                 }
@@ -581,6 +594,10 @@ pub fn path_name(path: cmux_mobile_link::dial::LinkPath) -> &'static str {
         cmux_mobile_link::dial::LinkPath::TurnTls => "turn-tls",
         cmux_mobile_link::dial::LinkPath::NoPath => "none",
     }
+}
+
+fn is_phone(kind: &crate::peer::PeerKind) -> bool {
+    *kind == crate::peer::PeerKind::Phone
 }
 
 #[cfg(test)]
@@ -680,7 +697,8 @@ mod tests {
                 devices: vec![crate::pairing::TrustedDevice {
                     id: "p".into(),
                     identity_key: "04".into(),
-                    approval_key: "04".into()
+                    approval_key: "04".into(),
+                    ..Default::default()
                 }],
                 denied: vec![crate::pairing::DeniedDevice { id: "q".into(), identity_key: "04".into() }],
             }))
@@ -714,6 +732,22 @@ mod tests {
                     owner: true,
                     status: "unknown".into(),
                     ran: false,
+                }]
+            })
+        );
+        assert_eq!(
+            Inbound::parse(
+                r#"{"type":"needs_you","items":[{"id":"fi_a","title":"Held","url":"https://x"}]}"#
+            ),
+            Some(Inbound::NeedsYou {
+                items: vec![crate::needs_you::Request {
+                    id: "fi_a".into(),
+                    title: "Held".into(),
+                    body: String::new(),
+                    kind: String::new(),
+                    source: String::new(),
+                    url: Some("https://x".into()),
+                    created_at_ms: 0,
                 }]
             })
         );
@@ -791,6 +825,7 @@ mod tests {
             approval_key: "04".into(),
             registered_at_ms,
             pair_token,
+            kind: crate::peer::PeerKind::Phone,
         };
         let request = |registered_at_ms| request_with(registered_at_ms, None);
         assert_eq!(

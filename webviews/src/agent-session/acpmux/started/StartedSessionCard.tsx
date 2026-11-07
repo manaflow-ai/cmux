@@ -14,6 +14,7 @@ import { type SessionMention, type StartedSession, hasStatusLine, sessionStatus 
 import { SessionStatusLine } from "./SessionStatusLine";
 import { useSessionHover } from "./SessionHoverCard";
 import "./startedSessions.css";
+import { openSessionAttributes } from "../conversation/menuParts";
 
 /// The chats started in one turn, oldest first, as one card.
 export function StartedSessionCards({
@@ -42,6 +43,7 @@ export function StartedSessionCard({ child, onOpen }: { child: StartedSession; o
       type="button"
       className="acpmux-started-row"
       data-state={child.state}
+      {...openSessionAttributes(child.sessionId)}
       onClick={() => onOpen(child.sessionId)}
     >
       {/* Its harness's mark, else the chat icon in its own stable tone, as Session Info's child chat
@@ -94,6 +96,7 @@ export function StartedSessionChip({
         type="button"
         className="acpmux-started-chip"
         data-state={mention.state}
+        {...openSessionAttributes(mention.sessionId)}
         onClick={() => onOpen(mention.sessionId)}
       >
         {text}

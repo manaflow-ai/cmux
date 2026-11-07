@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { canonicalJson, type RowReader, type StoredRow } from "@cmux/ownership"
-import type { Automation, Body, Run, RunState } from "@cmux/protocol"
+import type { Automation, Body, MovedAutomation, Run, RunState } from "@cmux/protocol"
 import type { RunRecord, SchedulerState } from "./scheduler.ts"
 
 /**
@@ -21,7 +21,19 @@ export const TABLE_AUTOMATION = "automation"
 export const TABLE_RUN = "run"
 export const TABLE_BODY = "body"
 export const TABLE_FINISHED = "finished"
-export const SCHEDULER_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_AUTOMATION, TABLE_RUN, TABLE_BODY, TABLE_FINISHED]
+/** `moved/<automation id>`: the tombstone of an automation that teleported away (MovedAutomation). */
+export const TABLE_MOVED = "moved"
+/** `audit/<n>`: the automation audit log (scheduler-audit.ts). */
+export const TABLE_AUDIT_LOG = "audit"
+export const SCHEDULER_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_AUTOMATION, TABLE_RUN, TABLE_BODY, TABLE_FINISHED, TABLE_MOVED, TABLE_AUDIT_LOG]
+
+/** Tombstones are listed for this long after the move, then pruned. */
+export const MOVED_RETENTION_MS = 30 * 24 * 3600_000
+
+export const movedOf = (rows: RowReader | undefined, id: string): MovedAutomation | undefined => rows?.get<MovedAutomation>(TABLE_MOVED, id)?.row
+
+/** Every tombstone, oldest move first (at most MAX_AUTOMATIONS a month in practice). */
+export const allMoved = (rows: RowReader | undefined): Array<MovedAutomation> => allOrdered<MovedAutomation>(rows, TABLE_MOVED).map((r) => r.row)
 
 export type AutomationRow = Omit<Automation, "body"> & { readonly body_hash: string }
 export type RunRow = Omit<RunRecord, "body"> & { readonly body_hash: string }

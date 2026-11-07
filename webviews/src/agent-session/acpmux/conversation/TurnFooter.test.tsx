@@ -140,6 +140,89 @@ test("the chat's last turn that ended on work has a row of its own, 8 under the 
   expect(isEmptyFooter(later.find((row) => row.kind === "turnSummary")!)).toBe(true);
 });
 
+test("the retry hint only marks a completed edit with a known non-empty patch", () => {
+  const prompt = { id: "p", version: 1, at: 0, kind: "user", text: "Update the file" } as AcpmuxRow;
+  const summary = { id: "s", version: 1, at: 3, kind: "turnSummary", status: "completed" } as AcpmuxRow;
+  const edit = (
+    status: string,
+    oldText?: string,
+    newText = "after",
+    fragment?: true,
+    canonical?: string,
+    path = "/repo/file.ts",
+  ): AcpmuxRow => ({
+    id: `edit-${status}-${oldText ?? "unknown"}`,
+    version: 1,
+    at: 2,
+    kind: "activity",
+    items: [
+      {
+        kind: "tool",
+        text: "",
+        tool: {
+          id: "tool",
+          title: "Edit file.ts",
+          kind: "edit",
+          status,
+          diffs: [
+            {
+              path,
+              ...(oldText === undefined ? {} : { oldText }),
+              newText,
+              ...(fragment && { fragment }),
+              ...(canonical && { canonical }),
+            },
+          ],
+        },
+      },
+    ],
+  });
+  const changed = turnView([prompt, edit("completed", "before"), summary], new Set(), { now: 10_000 }).find(
+    (row) => row.kind === "turnSummary",
+  );
+  expect(changed?.changedFiles).toBe(true);
+
+  for (const row of [
+    turnView([prompt, edit("completed", "same", "same"), summary], new Set()).find(
+      (item) => item.kind === "turnSummary",
+    ),
+    turnView([prompt, edit("failed", "before"), summary], new Set()).find((item) => item.kind === "turnSummary"),
+    turnView([prompt, edit("pending", "before"), summary], new Set()).find((item) => item.kind === "turnSummary"),
+    turnView([prompt, edit("completed", undefined, "new file"), summary], new Set()).find(
+      (item) => item.kind === "turnSummary",
+    ),
+    turnView(
+      [prompt, edit("completed", "before", "after"), edit("completed", "after", "before"), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [prompt, edit("completed", "before", "after"), edit("completed", undefined, "before"), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [prompt, edit("completed", undefined, "after"), edit("completed", "after", "before"), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [prompt, edit("completed", "before", "after"), edit("completed", "after", "before", true), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [
+        prompt,
+        edit("completed", "before", "after", undefined, undefined, "file.ts"),
+        edit("completed", "after", "before", undefined, "/repo/file.ts", "file.ts"),
+        summary,
+      ],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView([prompt, edit("completed", undefined, "partial", true), summary], new Set()).find(
+      (item) => item.kind === "turnSummary",
+    ),
+  ])
+    expect(row?.changedFiles).toBeUndefined();
+});
+
 test("a work-only last turn that said nothing has nothing to copy and stays empty", () => {
   expect(isEmptyFooter(footer({ retryable: true }))).toBe(true);
   expect(isEmptyFooter(footer({ retryable: true, turnCopy: [{ text: "I'll check." }] }))).toBe(false);

@@ -54,7 +54,7 @@ extension WorkspaceRowView {
     /// Lawrence 2026-10-20: every row's dot and spinner share one line; msg 11914: whatever else the
     /// row shows (a count, the keycap, the hover close and more) sits left of it,
     /// so a selected row's dot does not move. Never on the leading icon.
-    func layoutStatusColumnMark(cy: CGFloat, rowWidth: CGFloat, markReplacesStatus: Bool) -> (view: NSView, trailing: CGFloat)? {
+    func layoutColumnMark(cy: CGFloat, rowWidth: CGFloat, markReplacesStatus: Bool) -> (view: NSView, trailing: CGFloat)? {
         let columns = SidebarStyle.columns(rowWidth: rowWidth)
         let column = columns.trailingCenter()
         let view: NSView
@@ -79,12 +79,8 @@ extension WorkspaceRowView {
         } else if badge.state == .dot {
             // The legacy unread style shares Search's center too. Reserve the column before
             // laying out counts or other marks, so none can occupy the dot's slot at rest.
-            badge.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: cy, side: SidebarStyle.unreadDotSize)
+            badge.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: cy, side: SidebarStyle.statusDotSize)
             view = badge
-        } else if !machineMark.isHidden {
-            // A row with no status: the machine mark takes the column, in a status mark's box, as the triangle does.
-            machineMark.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
-            view = machineMark
         } else {
             return nil
         }

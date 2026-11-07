@@ -93,8 +93,8 @@ enum BookmarkControl {
         if let key, let entry = services.cache.existingBrowser(key) {
             object["tab"] = .string(key)
             object["profile"] = .string(services.bookmarks.profile(ofTab: key))
-            object["star"] = .string(String(describing: entry.chrome.addressBar.bookmarkStarState))
-            object["bar_attached"] = .bool(entry.chrome.accessoryView != nil)
+            object["star"] = .string(String(describing: entry.state.bookmarkStar))
+            object["bar_attached"] = .bool(entry.state.accessory != nil)
             if let bar = services.bookmarks.bar(ofTab: key) {
                 object["bar_visible"] = .array(bar.visibleTitles.map(JSONValue.string))
                 object["bar_overflow"] = .array(bar.overflowTitles.map(JSONValue.string))

@@ -130,7 +130,7 @@ test("while it reads, the button shows Stop and keeps its row shown; a second pr
     expect(label(reading)).toBe("Stop reading");
     // A stop glyph, not the speaker; its row stays shown without the pointer on it (conversation.css).
     expect(reading.dataset.reading).toBe("true");
-    expect(reading.querySelector("[data-glyph='stop']")).not.toBeNull();
+    expect(reading.querySelector("[data-icon='media.stop.circle']")).not.toBeNull();
     const before = cancels;
     await act(async () => reading.click());
     expect(cancels).toBeGreaterThan(before);

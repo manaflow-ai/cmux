@@ -76,6 +76,29 @@ public struct LinkPairing: Sendable {
         }
     }
 
+    /// When the phone asks the Mac again by itself after `auth` refused it on a live link.
+    ///
+    /// A refusal used to stand until the person tapped Retry, and the Mac only asks while a phone
+    /// asks: a refusal from a Mac that was not ready (its paired list not loaded yet, its identity
+    /// key read from the wrong store, a prompt nobody answered) left the phone dark until the Mac
+    /// app restarted (2026-11-03). Every attempt still proves both keys; a retry trusts nothing the
+    /// first one did not. Nil: wait for the person (they refused this phone on the Mac).
+    public static func retryDelay(after code: String, attempt: Int) -> Duration? {
+        switch code {
+        // The person refused this phone on the Mac.
+        case "denied": return nil
+        // This host proved another identity than the one pinned, or answered for another Mac, or
+        // the exchange itself was malformed: asking again on the same link cannot change that, and
+        // the warning stays up. A new link (foreground, network change, Retry) pairs from the start.
+        case "mac_identity_changed", "bad_mac_proof", "wrong_mac", "bad_request", "unpaired": return nil
+        // The Mac asks about one phone a few times per 10 minutes; asking sooner is refused again.
+        case "rate_limited": return .seconds(60)
+        default:
+            let backoff = [1, 2, 4, 8, 15]
+            return .seconds(attempt < backoff.count ? backoff[max(attempt, 0)] : 30)
+        }
+    }
+
     /// What pairing found.
     public enum Outcome: Equatable, Sendable {
         /// Paired: this Mac's device id, for approvals.

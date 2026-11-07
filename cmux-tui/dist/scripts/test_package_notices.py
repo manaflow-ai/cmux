@@ -30,7 +30,7 @@ class ComposeTest(unittest.TestCase):
         self.assertIn((pn.NOTICES / "texts/musl-1.2.5/COPYRIGHT").read_text(), text)
         self.assertIn("rustc 1.95.0", text)
         self.assertIn("COPYRIGHT-library.html", text)
-        self.assertIn("Zig 0.16.0", text)
+        self.assertIn(f"Zig {self.inputs.toolchains.zig_for('ghostty-next').version}", text)
         self.assertIn("Copyright (c) Zig contributors", text)
         for name in ("highway", "wuffs", "uucode", "simdutf"):
             self.assertIn(name, text)
@@ -79,7 +79,7 @@ class ComposeTest(unittest.TestCase):
         self.assertIn("Version 3.1, 31 March 2009", text)
         self.assertIn("musl as a whole is licensed under the following standard MIT license", text)
         self.assertIn("rustc 1.95.0", text)
-        self.assertIn("Zig 0.16.0", text)
+        self.assertIn(f"Zig {self.inputs.toolchains.zig_for('ghostty-next').version}", text)
         for name in ("highway", "wuffs", "uucode", "simdutf"):
             self.assertIn(name, text)
         self.assertNotIn("musl libc 1.2.5", text)  # no musl libc on Windows, only musl-derived math
@@ -196,9 +196,9 @@ class DarwinBinaryTest(unittest.TestCase):
 
     def test_the_review_records_the_real_package_evidence(self) -> None:
         darwin = self.inputs.data["darwin"]
-        self.assertEqual(darwin["zig"], "0.16.0")
-        self.assertIn("37295065948", darwin["review"]["artifact"])
-        self.assertEqual(sorted(darwin["compiler_rt_modules"]), ["floattidf", "floatuntidf", "powiXf2", "ssp", "udivmod"])
+        self.assertEqual(darwin["zig"], self.inputs.toolchains.zig_for("ghostty-next").version)
+        self.assertIn("41861545663", darwin["review"]["artifact"])
+        self.assertEqual(sorted(darwin["compiler_rt_modules"]), ["float_from_int", "powiXf2", "ssp", "udivmod"])
 
     def test_a_binary_without_zig_code_passes(self) -> None:
         self.assertEqual(self.problems([("_main", True), ("_pow", False)]), [])
@@ -236,10 +236,16 @@ class DarwinBinaryTest(unittest.TestCase):
 
     def test_a_new_zig_needs_a_new_review(self) -> None:
         inputs = pn.load_inputs()
-        inputs.data = copy.deepcopy(inputs.data)
-        inputs.data["darwin"]["zig"] = "0.15.2"
-        problems = pn.data_problems(inputs)
-        self.assertTrue(any("darwin" in p and "0.16.0" in p for p in problems), problems)
+        shipped = inputs.toolchains.zig_for("ghostty-next").version
+        # Another reviewed Zig (one CI may install, whose LICENSE is bundled) is not
+        # the Zig libghostty-vt builds with, so its Darwin review does not count.
+        others = [z.version for z in inputs.toolchains.zig if z.version != shipped]
+        for version in [*others, "0.15.2"]:
+            with self.subTest(version=version):
+                inputs.data = copy.deepcopy(inputs.data)
+                inputs.data["darwin"]["zig"] = version
+                problems = pn.data_problems(inputs)
+                self.assertTrue(any("darwin" in p and shipped in p for p in problems), problems)
 
 
 class PublishProvenanceTest(unittest.TestCase):

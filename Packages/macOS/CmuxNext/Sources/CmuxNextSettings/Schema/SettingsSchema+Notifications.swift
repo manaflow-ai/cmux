@@ -135,6 +135,15 @@ nonisolated enum NotificationSettingsSchema {
                 kind: .toggle, default: .bool(defaults.feedMirror.agentPermissionPrompts),
                 keywords: ["cloud", "iphone", "push", "approve", "allow"]
             ),
+            // Chief Home's pinned Needs you card: opt-in, the Feed always lists the requests (Leo 2026-11-03).
+            SettingDescriptor(
+                HomeNeedsYouSetting.configPath, section: .notifications, group: feed,
+                title: SettingsText.keyed("settings.feed.needsYouInChief", "Pin Needs You in Chief"),
+                help: SettingsText.keyed("settings.feed.needsYouInChief.help",
+                                        "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them."),
+                kind: .toggle, default: .bool(HomeNeedsYouSetting.fallback),
+                keywords: ["chief", "home", "needs you", "requests", "permissions", "approve", "pinned"]
+            ),
             SettingDescriptor(
                 ["notifications", "attention", "style"], section: .notifications, group: ring,
                 title: SettingsText.keyed("settings.attention.style", "Style"),

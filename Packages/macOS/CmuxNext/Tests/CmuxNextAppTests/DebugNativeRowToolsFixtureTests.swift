@@ -5,12 +5,15 @@ import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 import XCTest
 
 /// Capture fixtures decode real page payloads and use a removable overlay, never a page-store tab.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct DebugNativeRowToolsFixtureTests {
+    private let fixture = DebugNativeRowToolsFixture(overlay: DebugNativeRowToolsFixtureView.self)
+
     private func window() -> (NSWindow, NSView) {
         _ = NSApplication.shared
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 500))
@@ -50,9 +53,9 @@ struct DebugNativeRowToolsFixtureTests {
         defer { window.close() }
         let original = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
         content.addSubview(original)
-        _ = DebugNativeRowToolsFixture.run([:], in: window)
+        _ = fixture.run([:], in: window)
         #expect(content.subviews.contains { $0 is DebugNativeRowToolsFixtureView })
-        let result = DebugNativeRowToolsFixture.run(["tools": .array([.object(["id": .string("invalid")])])], in: window)
+        let result = fixture.run(["tools": .array([.object(["id": .string("invalid")])])], in: window)
         #expect(result.objectValue?["error"]?.stringValue == "unsupported pane.tabRowTools.set: invalid tools")
         #expect(content.subviews.contains(original))
         #expect(!content.subviews.contains { $0 is DebugNativeRowToolsFixtureView })
@@ -67,14 +70,14 @@ struct DebugNativeRowToolsFixtureTests {
         let responder = window.firstResponder
         let tunable = ChromeTunables.nativeRowTools.value
         let override = TunableStore.shared.override(ChromeTunables.nativeRowTools.key)
-        let result = DebugNativeRowToolsFixture.run([:], in: window)
+        let result = fixture.run([:], in: window)
         #expect(result.objectValue?["ok"]?.boolValue == true)
         #expect(content.subviews.contains(original))
         #expect(content.subviews.contains { $0 is DebugNativeRowToolsFixtureView })
-        let updated = DebugNativeRowToolsFixture.run(["width": .number(140)], in: window)
+        let updated = fixture.run(["width": .number(140)], in: window)
         #expect(updated.objectValue?["ok"]?.boolValue == true)
         #expect(content.subviews.filter { $0 is DebugNativeRowToolsFixtureView }.count == 1)
-        let dismissed = DebugNativeRowToolsFixture.run(["dismiss": .bool(true)], in: window)
+        let dismissed = fixture.run(["dismiss": .bool(true)], in: window)
         #expect(dismissed.objectValue?["ok"]?.boolValue == true)
         #expect(content.subviews.count == before.count)
         #expect(zip(content.subviews, before).allSatisfy { pair in pair.0 === pair.1 })

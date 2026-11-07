@@ -9,8 +9,10 @@ public nonisolated enum ComputerUseDriver: String, Sendable, Hashable, CaseItera
 /// `computerUse.*` in cmux.json. `enabled` (off by default) lets cmux start
 /// the Developer ID signed cmux Computer Use helper, so agents can see and
 /// use other apps. Off, no helper starts and macOS asks for nothing.
-/// `driver` ("legacy" by default) picks the helper: "upstream" starts the
-/// helper v2 (a DEV build embeds a dev helper, com.cmuxterm.cua.dev).
+/// `driver` ("upstream" by default) picks the helper: "upstream" runs the
+/// helper v2 engine in cmux Remote (docs/cmux-remote.md), or the app's own helper v2
+/// without it; a build with neither runs the legacy helper. "legacy" keeps the
+/// cmux-cua 0.8.12 helper.
 /// `livePreview` (on by default) shows a small live view of the app an agent
 /// drives at the top right of that agent's chat.
 public nonisolated struct ComputerUseSettings: Sendable, Equatable {
@@ -18,7 +20,9 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     public static let driverPath = ["computerUse", "driver"]
     public static let livePreviewPath = ["computerUse", "livePreview"]
     public var enabled = false
-    public var driver: ComputerUseDriver = .legacy
+    public var driver: ComputerUseDriver = .upstream
+    /// Whether cmux.json names the driver (the person chose it), not the default.
+    public var driverIsSet = false
     public var livePreview = true
 
     public init() {}
@@ -27,7 +31,10 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["computerUse"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("enabled") { settings.enabled = value }
-        if let value = reader.choice("driver", ComputerUseDriver.self) { settings.driver = value }
+        if let value = reader.choice("driver", ComputerUseDriver.self) {
+            settings.driver = value
+            settings.driverIsSet = true
+        }
         if let value = reader.bool("livePreview") { settings.livePreview = value }
         diagnostics = reader.diagnostics
         return settings

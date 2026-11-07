@@ -275,7 +275,7 @@ final class WindowOverlayLayer {
         }
         guard rects != interactiveRects || shapesChanged else { return }
         interactiveRects = rects
-        requestPageUpdate()
+        requestPageUpdate(geometryOnly: !shapesChanged) // no clip shape changed: only moved pages work geometry out
     }
 
     // MARK: Placement and order
@@ -389,7 +389,7 @@ final class WindowOverlayLayer {
     /// changed since the fork last read it re-applies them (`CEFHostView`
     /// posts the fork's geometry notification; the others have nothing new).
     /// `force`: every page re-applies, changed or not (a page window moved by another app).
-    private func requestPageUpdate(force: Bool = false) {
+    private func requestPageUpdate(force: Bool = false, geometryOnly: Bool = false) {
         // Pages move their child windows on this: after the layout pass.
         guard layoutDepth == 0 else {
             pageUpdateAfterLayout = true
@@ -397,7 +397,7 @@ final class WindowOverlayLayer {
             return
         }
         NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window,
-                                        userInfo: force ? [browserPagesForceUpdateKey: true] : nil)
+                                        userInfo: force ? [browserPagesForceUpdateKey: true] : geometryOnly ? [browserPagesGeometryOnlyKey: true] : nil)
     }
 
     // MARK: Diagnostics

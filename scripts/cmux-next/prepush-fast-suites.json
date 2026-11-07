@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "suites": [
+    {"source": "webviews/src/ui/harnessPlacement.ts", "test": "webviews/src/ui/harnessPlacement.test.ts"},
+    {"source": "webviews/src/agent-session/acpmux/goal.ts", "test": "webviews/src/agent-session/acpmux/goal.test.ts"},
+    {"source": "webviews/src/agent-session/acpmux/stopTurnAction.ts", "test": "webviews/src/agent-session/acpmux/stopTurnAction.test.ts"},
+    {"source": "webviews/src/agent-session/acpmux/sendScrollSetting.ts", "test": "webviews/src/agent-session/acpmux/sendScrollSetting.test.ts"},
+    {"source": "webviews/src/agent-session/acpmux/conversation/scrollCoordinates.ts", "test": "webviews/src/agent-session/acpmux/conversation/scrollCoordinates.test.ts"},
+    {"source": "webviews/src/agent-session/acpmux/conversation/runningLineMotion.ts", "test": "webviews/src/agent-session/acpmux/conversation/runningLineMotion.test.ts"}
+  ]
+}

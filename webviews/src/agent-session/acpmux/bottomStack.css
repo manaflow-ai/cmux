@@ -12,6 +12,14 @@
    --acpmux-transcript-min under the header; in a pane shorter still, the dock and the queue give up
    their height, down to one row, and scroll inside it. Elsewhere (a new chat's hero, a handoff
    review, the diff, Session Info) the stack is in the pane's flow under the stage. */
+/* The app's toasts rest over the pane's foot: the host gives their band as --cmux-toast-room
+   (toastRoom.ts), and the shell keeps the stage and this stack above it, so no toast covers the
+   composer, a queued prompt or the transcript (Leo 2026-11-06). The transcript stays at its newest
+   row through the height change (VirtualTranscript keeps the bottom pinned on a resize). */
+.acpmux-shell {
+  box-sizing: border-box;
+  padding-bottom: var(--cmux-toast-room, 0px);
+}
 /* The stage holds the header (44px, styles.css) over the transcript. */
 .acpmux-main > .acpmux-stage {
   min-height: calc(44px + var(--acpmux-transcript-min, 96px));
@@ -73,6 +81,11 @@
 .acpmux-dock {
   --acpmux-stack-gap: 0px;
   --acpmux-stack-radius: 10px;
+  /* The composer's 8px narrow outset (composerLocation.css, under 298px of content width), for the
+     other parts on the card's edges: the recap card (summary.css) and the host's line (styles.css)
+     take --cv-inset and --cv-inset-end less this, as the running tray does above. The percentage
+     resolves where it is used, against the part's own width. */
+  --acpmux-stack-outset: clamp(0px, calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000), 8px);
 }
 :root[data-bottom-stack="cards"] .acpmux-dock {
   --acpmux-stack-gap: var(--ds-space-1, 4px);

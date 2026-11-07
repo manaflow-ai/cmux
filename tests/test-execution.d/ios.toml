@@ -1,0 +1,82 @@
+# Python test execution registry: tests/test_ios_*.py. Keep entries sorted by path;
+# scripts/ci/test_execution_registry.py says how the registry is split and read.
+
+[[test]]
+path = "tests/test_ios_appstore_lane_identity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_appstore_upload_marker.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_chief_benchmark_route.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_ffi_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_internal_builder.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_internal_notes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_internal_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_screenshot_capture_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_selected_test_execution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_sim_runtime.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_testflight_archive_log.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_testflight_assignment_after_upload.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_testflight_external_distribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_testflight_main_push_filter.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_testflight_notes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_testflight_pro_distribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_upload_array_expansion.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_upload_batching.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_upload_lean_checkout.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_workflow_dispatch_ref.py"
+lane = "linux-guard"

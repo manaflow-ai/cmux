@@ -132,6 +132,137 @@
         }
       }
     },
+    "quit.choicesExplained": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Sessions Running leaves your terminals and agents running. End Sessions stops them and keeps your tabs and splits; End Everything also closes the workspaces."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُبقي «إبقاء الجلسات قيد التشغيل» الطرفيات والوكلاء قيد التشغيل. يوقفها «إنهاء الجلسات» ويُبقي علامات التبويب والتقسيمات؛ ويغلق «إنهاء كل شيء» مساحات العمل أيضًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostavi sesije pokrenute ostavlja vaše terminale i agente da rade. Završi sesije ih zaustavlja i zadržava kartice i podjele; Završi sve zatvara i radne prostore."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lad sessionerne køre holder dine terminaler og agenter kørende. Afslut sessioner stopper dem og beholder faner og opdelinger; Afslut alt lukker også arbejdsområderne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungen weiterlaufen lassen lässt deine Terminals und Agenten laufen. Sitzungen beenden stoppt sie und behält Tabs und Teilungen; Alles beenden schließt auch die Workspaces."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener sesiones activas deja tus terminales y agentes en marcha. Finalizar sesiones los detiene y conserva tus pestañas y divisiones; Finalizar todo también cierra los espacios de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder les sessions actives laisse vos terminaux et agents en marche. Terminer les sessions les arrête et garde vos onglets et divisions ; Tout terminer ferme aussi les espaces de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni sessioni attive lascia in esecuzione terminali e agenti. Termina le sessioni li ferma e mantiene schede e divisioni; Termina tutto chiude anche gli spazi di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「セッションを実行したままにする」はターミナルとエージェントを実行したままにします。「セッションを終了」はそれらを止め、タブと分割は残します。「すべて終了」はワークスペースも閉じます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទុកវគ្គឱ្យដំណើរការ ទុកស្ថានីយ និងភ្នាក់ងាររបស់អ្នកឱ្យដំណើរការ។ បញ្ចប់វគ្គ បញ្ឈប់ពួកវា ហើយរក្សាផ្ទាំង និងការបំបែក។ បញ្ចប់ទាំងអស់ បិទកន្លែងធ្វើការផងដែរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 계속 실행은 터미널과 에이전트를 계속 실행합니다. 세션 끝내기는 이를 멈추고 탭과 분할은 유지하며, 모두 끝내기는 작업 공간도 닫습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La øktene kjøre lar terminalene og agentene dine fortsette. Avslutt økter stopper dem og beholder faner og delinger; Avslutt alt lukker også arbeidsområdene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozostaw sesje uruchomione zostawia terminale i agentów działające. Zamknij sesje zatrzymuje je i zachowuje karty i podziały; Zamknij wszystko zamyka też przestrzenie robocze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter sessões em execução deixa seus terminais e agentes rodando. Encerrar sessões os interrompe e mantém suas abas e divisões; Encerrar tudo também fecha os espaços de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Оставить сеансы работать» оставляет терминалы и агентов запущенными. «Завершить сеансы» останавливает их, сохраняя вкладки и разделения; «Завершить всё» также закрывает рабочие пространства."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้เซสชันทำงานต่อ จะปล่อยให้เทอร์มินัลและเอเจนต์ทำงานต่อ จบเซสชัน จะหยุดการทำงานแต่คงแท็บและการแบ่งไว้ ส่วนจบทั้งหมด จะปิดพื้นที่ทำงานด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturumları Çalışır Bırak, terminallerinizi ve ajanlarınızı çalışır durumda bırakır. Oturumları sonlandır onları durdurur, sekmeleri ve bölmeleri korur; Her şeyi sonlandır çalışma alanlarını da kapatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Залишити сеанси працювати» залишає термінали й агентів запущеними. «Завершити сеанси» зупиняє їх і зберігає вкладки та поділи; «Завершити все» також закриває робочі простори."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ phiên chạy để terminal và agent tiếp tục chạy. Kết thúc phiên sẽ dừng chúng nhưng giữ các tab và phần chia; Kết thúc tất cả cũng đóng các không gian làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“保持会话运行”会让终端和代理继续运行。“结束会话”会停止它们，但保留标签页和分屏；“全部结束”还会关闭工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「保持工作階段執行」會讓終端機和代理繼續執行。「終止工作階段」會停止它們，但保留分頁和分割；「全部終止」也會關閉工作區。"
+          }
+        }
+      }
+    },
     "quit.dontAskAgain": {
       "extractionState": "manual",
       "localizations": {
@@ -2296,127 +2427,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux is already shutting down, so agents may still be running. Retry waits for the shutdown to finish."
+            "value": "Agents are still shutting down. Retry waits for them to finish."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يجري إيقاف acpmux بالفعل، لذا قد تظل الوكلاء قيد التشغيل. تنتظر إعادة المحاولة انتهاء الإيقاف."
+            "value": "لا يزال الوكلاء قيد الإيقاف. تنتظر إعادة المحاولة حتى ينتهوا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux se već gasi, pa agenti možda još rade. Ponovni pokušaj čeka da se gašenje završi."
+            "value": "Agenti se još gase. Ponovni pokušaj čeka da završe."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux lukker allerede ned, så agenter kører måske stadig. Prøv igen venter på, at nedlukningen er færdig."
+            "value": "Agenterne lukker stadig ned. Prøv igen venter, til de er færdige."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux wird bereits beendet, daher laufen Agenten möglicherweise noch. „Erneut versuchen“ wartet, bis das Beenden abgeschlossen ist."
+            "value": "Agenten werden noch beendet. Erneut versuchen wartet, bis sie fertig sind."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux ya se está cerrando, así que es posible que los agentes sigan en ejecución. Reintentar espera a que termine el cierre."
+            "value": "Los agentes aún se están cerrando. Reintentar espera a que terminen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux est déjà en cours d’arrêt, des agents peuvent donc encore fonctionner. Réessayer attend la fin de l’arrêt."
+            "value": "Les agents sont encore en cours d’arrêt. Réessayer attend qu’ils aient terminé."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux si sta già arrestando, quindi alcuni agenti potrebbero essere ancora in esecuzione. Riprova attende la fine dell’arresto."
+            "value": "Gli agenti si stanno ancora chiudendo. Riprova attende che finiscano."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux はすでに終了処理中のため、エージェントがまだ動作している可能性があります。再試行すると終了処理の完了を待ちます。"
+            "value": "エージェントはまだ終了処理中です。再試行すると完了するまで待ちます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux កំពុងបិទរួចហើយ ដូច្នេះភ្នាក់ងារអាចនៅតែដំណើរការ។ ការព្យាយាមម្ដងទៀតរង់ចាំការបិទបញ្ចប់។"
+            "value": "ភ្នាក់ងារនៅតែកំពុងបិទ។ ការព្យាយាមម្តងទៀតនឹងរង់ចាំឱ្យពួកវាបញ្ចប់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux가 이미 종료 중이므로 에이전트가 아직 실행 중일 수 있습니다. 다시 시도는 종료가 끝날 때까지 기다립니다."
+            "value": "에이전트가 아직 종료 중입니다. 다시 시도하면 종료가 끝날 때까지 기다립니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux avsluttes allerede, så agenter kan fortsatt kjøre. Prøv igjen venter til avslutningen er ferdig."
+            "value": "Agentene avslutter fortsatt. Prøv igjen venter til de er ferdige."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux już się zamyka, więc agenci mogą nadal działać. Ponów czeka na zakończenie zamykania."
+            "value": "Agenci wciąż się zamykają. Ponów czeka, aż skończą."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O acpmux já está sendo encerrado, então os agentes podem continuar em execução. Tentar novamente espera o encerramento terminar."
+            "value": "Os agentes ainda estão sendo encerrados. Tentar de novo espera até que terminem."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux уже завершает работу, поэтому агенты могут ещё работать. Повтор дождётся окончания завершения."
+            "value": "Агенты ещё завершают работу. Повтор дождётся, пока они закончат."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux กำลังปิดอยู่แล้ว เอเจนต์จึงอาจยังทำงานอยู่ การลองอีกครั้งจะรอให้การปิดเสร็จสิ้น"
+            "value": "เอเจนต์ยังปิดตัวไม่เสร็จ ลองอีกครั้งจะรอจนกว่าจะเสร็จ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux zaten kapanıyor, bu nedenle ajanlar hâlâ çalışıyor olabilir. Yeniden Dene kapanmanın bitmesini bekler."
+            "value": "Ajanlar hâlâ kapanıyor. Yeniden Dene, bitmelerini bekler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux уже завершує роботу, тому агенти можуть ще працювати. Повторна спроба дочекається завершення."
+            "value": "Агенти ще завершують роботу. Повтор зачекає, доки вони закінчать."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux đang tắt, nên các tác tử có thể vẫn đang chạy. Thử lại sẽ chờ quá trình tắt hoàn tất."
+            "value": "Các tác tử vẫn đang tắt. Thử lại sẽ đợi đến khi chúng xong."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 已在关闭，因此代理可能仍在运行。重试会等待关闭完成。"
+            "value": "代理仍在关闭。重试会等待它们完成。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 已在關閉，因此代理可能仍在執行。重試會等待關閉完成。"
+            "value": "代理仍在關閉。重試會等待它們完成。"
           }
         }
       }

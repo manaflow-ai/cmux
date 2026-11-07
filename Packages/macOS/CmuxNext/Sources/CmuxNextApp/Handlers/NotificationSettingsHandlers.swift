@@ -45,6 +45,7 @@ enum NotificationSettingsHandlers {
             notifications.preferences.desktop = next
             context.writeSetting("toggle banners", ["notifications", "desktop"], .string(next.rawValue))
         })
+        ActionTargetTitles.setPaletteState("notifications.toggleBanners", in: registry) { notifications.preferences.desktop != .never }
         for mode in NotificationDismissal.allCases {
             registry.bind(ActionID(rawValue: "notifications.dismissal.\(mode.rawValue)"), run: { _ in
                 notifications.preferences.dismissal = mode

@@ -68,6 +68,10 @@ pub(crate) trait Remote {
     /// Run one of acpmux's fixed scripts on the host; `stdin` is fed to it
     /// (data never goes into the script text).
     fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut>;
+    /// Enrollment's reach check. Only an explicit Add may record a previously unknown key.
+    fn first_contact(&self, _accept_new_host_key: bool) -> Result<RemoteOut> {
+        self.exec("true", None)
+    }
     /// Copy a local file to `remote` (a plain `~/` or absolute path).
     fn push(&self, local: &Path, remote: &str) -> Result<()>;
     /// Start one of acpmux's fixed scripts on the host and leave it running,
@@ -95,22 +99,11 @@ impl Remote for SshRemote<'_> {
     }
 
     fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut> {
-        let mut child = Command::new("ssh")
-            .args(ssh_argv(self.0, script)?)
-            .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .with_context(|| format!("ssh {}", self.0))?;
-        if let (Some(bytes), Some(mut pipe)) = (stdin, child.stdin.take()) {
-            pipe.write_all(bytes).with_context(|| format!("ssh {}: stdin", self.0))?;
-        }
-        let out = child.wait_with_output().with_context(|| format!("ssh {}", self.0))?;
-        Ok(RemoteOut {
-            ok: out.status.success(),
-            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
-        })
+        self.exec_argv(ssh_argv(self.0, script)?, stdin)
+    }
+
+    fn first_contact(&self, accept_new_host_key: bool) -> Result<RemoteOut> {
+        self.exec_argv(first_contact_argv(self.0, accept_new_host_key)?, None)
     }
 
     fn spawn(&self, script: &str) -> Result<Child> {
@@ -143,6 +136,37 @@ impl Remote for SshRemote<'_> {
         }
         Ok(())
     }
+}
+
+impl SshRemote<'_> {
+    fn exec_argv(&self, argv: Vec<String>, stdin: Option<&[u8]>) -> Result<RemoteOut> {
+        let mut child = Command::new("ssh")
+            .args(argv)
+            .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("ssh {}", self.0))?;
+        if let (Some(bytes), Some(mut pipe)) = (stdin, child.stdin.take()) {
+            pipe.write_all(bytes).with_context(|| format!("ssh {}: stdin", self.0))?;
+        }
+        let out = child.wait_with_output().with_context(|| format!("ssh {}", self.0))?;
+        Ok(RemoteOut {
+            ok: out.status.success(),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        })
+    }
+}
+
+fn first_contact_argv(host: &str, accept_new_host_key: bool) -> Result<Vec<String>> {
+    let mut argv = Vec::new();
+    if accept_new_host_key {
+        // OpenSSH records only an unknown key; a mismatch or revoked key still fails closed.
+        argv.extend(["-o", "StrictHostKeyChecking=accept-new"].map(str::to_owned));
+    }
+    argv.extend(ssh_argv(host, "true")?);
+    Ok(argv)
 }
 
 /// A failed push, with scp's own words (ssh's, when the connection failed or dropped): the
@@ -371,7 +395,7 @@ const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";
 
-const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+pub(crate) const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>com.acpmux.daemon</string>
@@ -470,7 +494,7 @@ const LAUNCHD_START_GRACE: std::time::Duration = std::time::Duration::from_secs(
 /// acpmux's own start over ssh puts it then (`daemon/login_placement.rs`,
 /// `NoGuiLogin`), and launchd is not asked to stop or start anything. An
 /// in-place start says so on stdout ([`IN_PLACE`]).
-fn launchd_reload(json: bool) -> String {
+pub(crate) fn launchd_reload(json: bool) -> String {
     let detached = restart_detached(json);
     format!(
         r#"acpmux_uid=$(id -u); acpmux_job=gui/$acpmux_uid/com.acpmux.daemon; acpmux_plist=~/Library/LaunchAgents/com.acpmux.daemon.plist
@@ -483,7 +507,7 @@ if ! acpmux_why=$(launchctl bootstrap gui/$acpmux_uid "$acpmux_pd/probe.plist" 2
 launchctl bootout gui/$acpmux_uid/com.acpmux.probe >/dev/null 2>&1; rm -rf "$acpmux_pd"
 acpmux_dis=$(launchctl print-disabled gui/$acpmux_uid 2>&1) || acpmux_refuse launchdRefused "launchd did not say whether com.acpmux.daemon is disabled in gui/$acpmux_uid ($acpmux_dis)"
 case "$acpmux_dis" in *'"com.acpmux.daemon" => disabled'*|*'"com.acpmux.daemon" => true'*) acpmux_refuse launchdRefused "launchd has com.acpmux.daemon disabled in gui/$acpmux_uid (launchctl enable $acpmux_job turns it on)";; esac
-if ! acpmux_why=$(plutil -lint "$acpmux_plist" 2>&1); then acpmux_refuse launchdRefused "launchd cannot start the daemon from $acpmux_plist ($acpmux_why; acpmux host setup writes it again)"; fi
+if ! acpmux_why=$(plutil -lint "$acpmux_plist" 2>&1); then acpmux_refuse launchdRefused "launchd cannot start the daemon from $acpmux_plist ($acpmux_why; acpmux machine setup writes it again)"; fi
 acpmux_old=$(launchctl print "$acpmux_job" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)
 acpmux_p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -n 1)
 if [ -n "$acpmux_p" ] && [ "$acpmux_p" != "$acpmux_old" ]; then {SHUTDOWN_KEEPING_AGENTS}
@@ -513,7 +537,9 @@ const IN_PLACE: &str = "ACPMUX_IN_PLACE=";
 /// minutes until someone started it by hand. A start that loses a handover
 /// because another daemon still owns `daemon.lock` exits with status 75;
 /// `RestartPreventExitStatus` makes that a clean handover instead of a
-/// restart loop. The delay grows from
+/// restart loop. `--take-over` makes the unit's daemon ask a daemon a client
+/// started in this home (one that serves the unit's socket) to hand over, and a
+/// refusal then exits 1, which the unit retries. The delay grows from
 /// `RestartSec=3` to `RestartMaxDelaySec=60` over `RestartSteps=5`
 /// (systemd 254+; Ubuntu 24.04 has 255). An older systemd logs "Unknown key
 /// name ... ignoring" once per load and restarts every 3 s. A daemon that
@@ -522,7 +548,7 @@ const IN_PLACE: &str = "ACPMUX_IN_PLACE=";
 /// shutdown` restarts it too (`systemctl --user stop acpmux.service` stops
 /// it). `host update` rewrites a unit an older acpmux wrote
 /// ([`OLD_SYSTEMD_UNITS`]) to this text.
-const SYSTEMD_UNIT: &str = "[Unit]
+pub(crate) const SYSTEMD_UNIT: &str = "[Unit]
 Description=acpmux daemon
 After=default.target
 StartLimitIntervalSec=0
@@ -530,7 +556,7 @@ StartLimitIntervalSec=0
 [Service]
 Type=simple
 Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=%h/.local/bin/acpmux daemon run
+ExecStart=%h/.local/bin/acpmux daemon run --take-over
 WorkingDirectory=%h
 Restart=always
 RestartPreventExitStatus=75
@@ -548,7 +574,7 @@ WantedBy=default.target
 /// replaces one of them with [`SYSTEMD_UNIT`] ([`unit_refresh`]). A unit
 /// with any other text was written or edited by someone else and is left
 /// as it is.
-const OLD_SYSTEMD_UNITS: [&str; 2] = [
+pub(crate) const OLD_SYSTEMD_UNITS: [&str; 3] = [
     // #22899 (2026-10-21): gave up after 5 failed starts in 60 s.
     "[Unit]
 Description=acpmux daemon
@@ -583,6 +609,29 @@ Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/
 ExecStart=%h/.local/bin/acpmux daemon run
 WorkingDirectory=%h
 Restart=always
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+",
+    // #24232 guard without the take-over: a client-started daemon that won the lock in
+    // the seconds before the unit's restart left the unit failed (2026-11-03).
+    "[Unit]
+Description=acpmux daemon
+After=default.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/acpmux daemon run
+WorkingDirectory=%h
+Restart=always
+RestartPreventExitStatus=75
 RestartSec=3
 RestartSteps=5
 RestartMaxDelaySec=60
@@ -924,6 +973,24 @@ fn getrandom_fill(buf: &mut [u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_contact_only_accepts_new_keys_when_requested() {
+        let normal = ssh_argv("user@box", "true").unwrap();
+        assert_eq!(first_contact_argv("user@box", false).unwrap(), normal);
+        let opted_in = first_contact_argv("user@box", true).unwrap();
+        assert_eq!(&opted_in[..2], ["-o", "StrictHostKeyChecking=accept-new"]);
+        assert_eq!(&opted_in[2..], normal);
+        assert!(first_contact_argv("-oProxyCommand=bad", true).is_err());
+        // A later command or copy keeps the user's policy, even after an opted-in reach.
+        assert_eq!(ssh_argv("user@box", "true").unwrap(), normal);
+        assert!(
+            !scp_push_argv("user@box", "local", "remote")
+                .unwrap()
+                .iter()
+                .any(|arg| arg.contains("StrictHostKeyChecking"))
+        );
+    }
 
     /// What the remote login shell does with ssh's command string: runs it with `-c`.
     fn as_login_shell(shell: &str, argv: &[String]) -> Option<String> {

@@ -51,12 +51,12 @@ final class CrashRecoveryService {
         }
     }
 
-    /// Writes a report for each Chromium failure from now on.
-    func observe(_ log: BrowserCrashLog) {
+    /// Writes a report for each Chromium failure from now on; the ones a person saw also go to Sentry, deduplicated.
+    func observe(_ engine: CEFEngine, reporter: CrashReporter) {
         guard crashLog == nil else { return }
-        crashLog = log
-        let writer = writer
-        crashObserver = log.addObserver { record in writer.writeInBackground(record) }
+        crashLog = engine.crashLog
+        engine.onEngineFailure = { [failures = BrowserFailureReporter(reporter: reporter)] in _ = failures.note($0) }
+        crashObserver = engine.crashLog.addObserver { [writer = writer] record in writer.writeInBackground(record) }
     }
 
     /// Records what this run is doing on every action run (`CrashContextRecorder`), for the next

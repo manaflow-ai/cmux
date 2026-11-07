@@ -1,5 +1,5 @@
 import { AgentProgressStore } from "./agentProgressSource";
-import type { AcpmuxRow } from "../model";
+import type { AcpmuxBackgroundReaction, AcpmuxRow } from "../model";
 import { textFromContent } from "../direct";
 import {
   markPullRequestActivityVersion,
@@ -28,6 +28,14 @@ export const SUBAGENTS = "subagents";
 /// One subagent, from the model acpmux records in each update's `_meta.acpmux`
 /// (cmux-tui/crates/acpmux/src/subagents.rs): native ACP subagent sessions and Codex's
 /// collaboration calls alike.
+/// Whether a subagent stopped while it waits on background work of its own: Claude Code said so
+/// when its task ended (acpmux's interim cause, direct.ts `attachReaction`), and no final report
+/// has come since. It still counts as live work: the tray lists it, and its "Subagent finished"
+/// line waits for the report (Leo, 2026-11-03, on the tray's lines: "Tray only, richer").
+export function awaitsOwnWork(agent: Pick<Subagent, "state" | "reaction">): boolean {
+  return agent.reaction?.interim === true && (agent.state === "running" || agent.state === "completed");
+}
+
 export type Subagent = {
   id: string;
   /// The subagent that spawned it, or null for the session's own.
@@ -67,6 +75,9 @@ export type Subagent = {
   progressVersion?: number;
   /// The harness runs it in the background: it outlives its turn's stop.
   background?: boolean;
+  /// The chat's reaction to its end, when acpmux weighed it (direct.ts `attachReaction`): its done
+  /// line marks a result the person has not seen, and its tooltip carries the reply.
+  reaction?: AcpmuxBackgroundReaction;
   /// What it was asked, as the harness got it (Claude's Agent `prompt`): Restart sends it again.
   prompt?: string;
   /// Why a stopped (`cancelled`) one stopped, when this pane knows (``SubagentStops``); none
@@ -106,6 +117,11 @@ export type Subagent = {
   retriedOut?: RetryState;
   /// Why it failed, as acpmux recorded it (`error`): its end line says it.
   error?: string;
+  /// When it last did anything (a line of its own, a call, new tokens) while none of its calls is
+  /// open; none while one is. A running one quiet past ``IDLE_AFTER_MS`` has stopped and waits on
+  /// work of its own in the background, and reads Idle, not Running (summary/SubagentStatusList.tsx
+  /// ``subagentStatus``). Leo, 2026-11-02, on rows running for two hours: "but what's going on with these?"
+  quietSince?: number;
 };
 
 /// Why a subagent was stopped: the person stopped it (Stop on the turn, or on the subagent), or a
@@ -260,6 +276,8 @@ export class SubagentFold {
   /// Each subagent's calls whose ACP kind is `execute` (`agent\u0000call`): a shell call's title is its command.
   private readonly shellCalls = new Set<string>();
   private readonly calls = new Set<string>();
+  /// Each subagent's calls still open (`agent\u0000call`): one with any open is not quiet (``quietSince``).
+  private readonly openCalls = new Set<string>();
   /// Plumbing calls each subagent made (hiddenTools.ts): they and their results set no action.
   private readonly hiddenCalls = new Set<string>();
   /// The subagents a tool call started (Claude's Agent call, which its turn waits on): only these
@@ -325,6 +343,8 @@ export class SubagentFold {
     // out of the parent transcript; retain that work for its own view without inventing a
     // lifecycle row. Later progress/spawn metadata supplies the child's identity as usual.
     if (tag !== undefined && !this.isChat(tag) && !owner) {
+      // Its calls still open count once its identity arrives (``noteActivity``).
+      if (call && (kind === "tool_call" || kind === "tool_call_update")) this.noteCall(tag, call, kind, update.status);
       const spawnCall = call !== undefined && this.spawnCalls.has(call);
       if (kind !== "subagent_spawned" && kind !== "subagent_state_update" && !spawnCall)
         this.record(tag, { event, update });
@@ -363,6 +383,8 @@ export class SubagentFold {
       const spawnCall = typeof update?.toolCallId === "string" && this.spawnCalls.has(update.toolCallId);
       if (kind !== "subagent_spawned" && kind !== "subagent_state_update" && !spawnCall)
         this.record(owner.id, { event, update });
+      if (tool && call) this.noteCall(owner.id, call, update.sessionUpdate, update.status);
+      this.noteActivity(owner, event.at);
       this.touch(owner);
       return true;
     }
@@ -381,6 +403,16 @@ export class SubagentFold {
       return true;
     }
     return events.length > 0;
+  }
+
+  /// Puts the chat's reaction on the subagent call `call` started (its Agent call, or a shell call
+  /// that runs one). Whether there is one.
+  react(call: string, reaction: AcpmuxBackgroundReaction): boolean {
+    const agent = this.agents.get(call) ?? this.agents.get(this.spawnedBy.get(call) ?? this.runs.get(call) ?? "");
+    if (!agent) return false;
+    agent.reaction = reaction;
+    this.touch(agent);
+    return true;
   }
 
   /// Whether shell call `call` started an agent, which draws as that agent and not as the call.
@@ -861,8 +893,18 @@ export class SubagentFold {
       markTranscriptSummaryVersion(drawn.rows, revisions.summary);
       views[id] = drawn.rows;
     }
+    // The same record while every view is the same array, so a snapshot that changes no subagent
+    // compares equal by identity (HOT PATH AUDIT area F, row W1).
+    const kept = this.publishedViews;
+    if (kept) {
+      const ids = Object.keys(views);
+      if (ids.length === Object.keys(kept).length && ids.every((id) => kept[id] === views[id])) return kept;
+    }
+    this.publishedViews = views;
     return views;
   }
+
+  private publishedViews: Record<string, AcpmuxRow[]> | undefined;
 
   private record(id: string, entry: ChildEntry): void {
     const entries = this.own.get(id) ?? [];
@@ -1009,7 +1051,9 @@ export class SubagentFold {
         typeof change.parent === "string" && !this.isChat(change.parent) && this.canParent(change.id, change.parent)
           ? change.parent
           : null;
-      const name = text(change.name) ?? text(change.task) ?? change.id;
+      // Named by its name or task; a subagent met first through its progress (its spawn older than
+      // the window read) by its prompt's first line, and by its id only when nothing names it.
+      const name = text(change.name) ?? text(change.task) ?? promptTitle(text(change.prompt)) ?? change.id;
       agent = {
         id: change.id,
         parent,
@@ -1021,6 +1065,7 @@ export class SubagentFold {
         startedAt: event.at,
       };
       this.agents.set(agent.id, agent);
+      this.noteActivity(agent, event.at);
       this.startedSeq.set(agent.id, event.seq);
       if (spawn) this.turn.add(agent.id);
       if (typeof change.toolCallId === "string") this.called.add(agent.id);
@@ -1034,7 +1079,10 @@ export class SubagentFold {
       if (authoritative || change.__rootRepair) this.moveAgent(agent, change.parent, event);
       // A subagent first seen without a name (history paged in after its spawn) takes its task once
       // a record carries one, as a spawn's own record does.
-      agent.name = text(change.name) ?? (agent.name === agent.id ? text(change.task) : undefined) ?? agent.name;
+      agent.name =
+        text(change.name) ??
+        (agent.name === agent.id ? (text(change.task) ?? promptTitle(text(change.prompt))) : undefined) ??
+        agent.name;
       agent.task = text(change.task) ?? agent.task;
       agent.kind = text(change.kind) ?? agent.kind;
       agent.prompt = text(change.prompt) ?? agent.prompt;
@@ -1045,8 +1093,14 @@ export class SubagentFold {
       agent.action = action;
       delete agent.actionShell;
     }
+    // The agentId a SendMessage names it by, which acpmux puts on its progress, so a
+    // "Sent to" row names it when its Agent call's result is on a page not loaded.
+    agent.agentId ??= text(change.agentId);
+    const before = [agent.tokens, agent.toolUses];
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;
+    // New tokens or tool uses are work: a progress report that only repeats them is not.
+    if (spawn || agent.tokens !== before[0] || agent.toolUses !== before[1]) this.noteActivity(agent, event.at);
     // Optional orchestration fields may be removed explicitly when a resumed harness no longer
     // reports them. Keep omitted fields unchanged, but do not leave stale values after `null`.
     for (const key of ["model", "effort", "lastMessage"] as const) {
@@ -1145,6 +1199,27 @@ export class SubagentFold {
       }
     }
     if (changed) this.touch(agent);
+  }
+
+  /// Call `call` of subagent `id` opened or, at a terminal status, closed.
+  /// An update that says no status leaves a call as it was, unless it is the call's start.
+  private noteCall(id: string, call: string, kind: unknown, status: unknown): void {
+    const key = `${id}\u0000${call}`;
+    if (isTerminal(status)) this.openCalls.delete(key);
+    else if (kind === "tool_call" || status !== undefined) this.openCalls.add(key);
+  }
+
+  /// `agent` did something at `at`: it is quiet from then, unless one of its calls is open.
+  private noteActivity(agent: Subagent, at: number): void {
+    const prefix = `${agent.id}\u0000`;
+    let open = false;
+    for (const key of this.openCalls)
+      if (key.startsWith(prefix)) {
+        open = true;
+        break;
+      }
+    if (open) delete agent.quietSince;
+    else agent.quietSince = Math.max(at, agent.quietSince ?? 0);
   }
 
   private touch(agent: Subagent): void {

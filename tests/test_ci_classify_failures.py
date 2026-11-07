@@ -405,6 +405,55 @@ class RerunDecisionTests(unittest.TestCase):
                                       "triggering_actor": {"login": "teamleaderleo"}})
         self.assertTrue(rerun)
 
+    # cmux#33162's run 41698414997 attempt 1 (2026-11-03): react-apps-base-check (3), job 126154996598, lost its
+    # runner, and its gate react-apps-check failed for it. As a job of its own the gate read unknown and nothing was
+    # re-run; as a gate the lost runner is the run's one failure.
+    LOST = "The self-hosted runner lost communication with the server. Verify the machine is running and has a " \
+           "healthy network connection."
+
+    def lost_report(self, attempt: int = 1, real: str = "") -> dict:
+        report = self.report([], attempt=attempt)
+        jobs = [job(126154996598, "web / react-apps-base-check (3)"), job(2, "web / react-apps-check")]
+        texts = {126154996598: ("", [self.LOST]), 2: ("##[error]Process completed with exit code 1.\n", [])}
+        if real:
+            jobs.append(job(3, "web / react-apps-check (1)"))
+            texts[3] = (real, [])
+        report["jobs"] = cf.classify_jobs(jobs, texts)
+        return report
+
+    def test_a_lost_runner_is_rerun_once(self) -> None:
+        report = self.lost_report()
+        self.assertEqual([(j["name"], j["signature"]) for j in report["jobs"]],
+                         [("web / react-apps-base-check (3)", "runner-lost")])
+        rerun, line = cf.rerun_decision(report, self.LATEST)
+        self.assertTrue(rerun, line)
+        self.assertIn("attempt 2", line)
+        # Already re-run (by this bot or a person): not asked twice for the same attempt.
+        rerun, line = cf.rerun_decision(report, {"run_attempt": 2, "status": "in_progress"})
+        self.assertFalse(rerun)
+        self.assertIn("re-run already", line)
+
+    def test_a_second_lost_runner_is_reported_not_looped(self) -> None:
+        rerun, line = cf.rerun_decision(self.lost_report(attempt=2),
+                                        {"run_attempt": 2, "status": "completed",
+                                         "triggering_actor": {"login": cf.BOT}})
+        self.assertFalse(rerun)
+        self.assertIn("lost its runner again on the automatic re-run (attempt 2); reported", line)
+        # A person's re-run that loses its runner gets its one automatic re-run.
+        rerun, _ = cf.rerun_decision(self.lost_report(attempt=2),
+                                     {"run_attempt": 2, "status": "completed",
+                                      "triggering_actor": {"login": "teamleaderleo"}})
+        self.assertTrue(rerun)
+
+    def test_a_real_test_failure_beside_a_lost_runner_is_still_a_red(self) -> None:
+        report = self.lost_report(real="##[group]Run bun test\n##[endgroup]\n(fail) a > b [1.00ms]\n"
+                                        "##[error]Process completed with exit code 1.\n")
+        verdicts = {j["name"]: j["verdict"] for j in report["jobs"]}
+        self.assertEqual(verdicts["web / react-apps-check (1)"], cf.CODE)
+        rerun, line = cf.rerun_decision(report, self.LATEST)
+        self.assertFalse(rerun)
+        self.assertIn("`web / react-apps-check (1)` is not a machine failure", line)
+
     def test_a_cancelled_run_is_reported_not_rerun(self) -> None:
         # owned_pool_rescue cancels a stuck run before its own full re-run.
         self.assertFalse(cf.rerun_decision(self.report([cf.MACHINE], conclusion="cancelled"), self.LATEST)[0])
