@@ -46,8 +46,9 @@ public final class SidebarFaceBatch {
     /// takes buffers of its own.
     var inUse = false
 
-    public init(home: String = NSHomeDirectory()) {
-        self.home = Array(home.utf8)
+    /// `home`: the folder local rows shorten to `~` (nil: this Mac's home).
+    public init(home: String? = nil) {
+        self.home = Array((home ?? NSHomeDirectory()).utf8)
         homeRange = CmuxSidebarFaceRange(offset: 0, len: UInt32(clamping: self.home.count))
     }
 
