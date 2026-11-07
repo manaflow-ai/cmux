@@ -101,7 +101,11 @@ export function sendMorphRef(key: string | undefined): (element: HTMLElement | n
     // The chip does not fade or slide in: it moves, at full ink, so its row's entrance (its fade,
     // its 4px rise, the thumbnail's own fade) ends at once around it, before the slot is read.
     if (style === "move") finishEntrances(element);
-    const to = element.getBoundingClientRect();
+    // A sent image that names its source wears the badge on a box around it (UserBubble.tsx
+    // `.cv-user__sourced`, the thumbnail's own size): that box moves, so the badge goes with it.
+    const sourced = element.parentElement?.closest(".cv-user__sourced, .cv-user__bubble");
+    const moved = sourced?.matches(".cv-user__sourced") ? (sourced as HTMLElement) : element;
+    const to = moved.getBoundingClientRect();
     const transform = morphAt(from, to, style, 0);
     if (!transform) return;
     const doc = element.ownerDocument;
@@ -115,7 +119,7 @@ export function sendMorphRef(key: string | undefined): (element: HTMLElement | n
     ghost.className = "cv-user__inline-image";
     ghost.setAttribute("aria-hidden", "true");
     ghost.setAttribute("data-send-morph-ghost", "");
-    const copy = element.cloneNode(true) as HTMLElement;
+    const copy = moved.cloneNode(true) as HTMLElement;
     copy.removeAttribute("id");
     copy.classList.remove("cv-enter");
     ghost.appendChild(copy);
@@ -134,8 +138,8 @@ export function sendMorphRef(key: string | undefined): (element: HTMLElement | n
       transform,
     });
     layer.appendChild(ghost);
-    const held = element.style.visibility;
-    element.style.visibility = "hidden";
+    const held = moved.style.visibility;
+    moved.style.visibility = "hidden";
     // The move's clock and easing (the host's ease-out token); each frame reads where the slot is
     // then, so a transcript that scrolls or glides to the new prompt is followed, not overshot.
     const clock = ghost.animate([], {
@@ -146,16 +150,16 @@ export function sendMorphRef(key: string | undefined): (element: HTMLElement | n
     const land = () => {
       view.cancelAnimationFrame(frame);
       ghost.remove();
-      element.style.visibility = held;
+      moved.style.visibility = held;
     };
     // Stops when the preview leaves the page, the clock is cancelled (land), or once the copy has
     // drawn one frame at the slot after the clock ended: the preview then shows where the copy was.
     let ended = false;
     const step = () => {
-      if (!element.isConnected || ended) return land();
+      if (!moved.isConnected || ended) return land();
       ended = clock.playState === "finished";
       const progress = ended ? 1 : (clock.effect?.getComputedTiming().progress ?? 1);
-      const now = morphAt(from, element.getBoundingClientRect(), style, progress);
+      const now = morphAt(from, moved.getBoundingClientRect(), style, progress);
       if (now) ghost.style.transform = now;
       frame = view.requestAnimationFrame(step);
     };
