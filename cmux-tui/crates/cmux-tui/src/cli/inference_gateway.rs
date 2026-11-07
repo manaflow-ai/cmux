@@ -259,7 +259,10 @@ fn run(options: Options) -> i32 {
 }
 
 /// The backend's token for one connect, from the configured source.
-async fn backend_token(source: &TokenSource, team: Option<&str>) -> Result<String, String> {
+pub(super) async fn backend_token(
+    source: &TokenSource,
+    team: Option<&str>,
+) -> Result<String, String> {
     let raw = match source {
         TokenSource::Env => std::env::var("CMUX_CLOUD_ACCESS_TOKEN").unwrap_or_default(),
         TokenSource::File(path) => tokio::fs::read_to_string(path)
