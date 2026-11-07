@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { AUTO_PREFIX, KEEP_AUTO } from "../../images/cmux-vm/auto-roll";
+import { AUTO_PREFIX, KEEP_AUTO, rolledImage } from "../../images/cmux-vm/auto-roll";
 
 // Cloudflare refuses a Worker text binding over 5.1 kB (error 10054), and a refused upload fails the whole cmux-vm deploy.
 // On 2026-11-07 the image roll's auto entries took staging's list to 6.0 kB, and every staging deploy failed from then on.
@@ -20,10 +20,12 @@ describe("cmux-vm VM_BOOT_IMAGES stays under Cloudflare's text binding limit", (
   test("with the roll's full KEEP_AUTO auto entries, each list still fits", () => {
     for (const { line, entries } of lists) {
       const hand = entries.filter((e) => !e.id.startsWith(AUTO_PREFIX));
-      // The largest auto entry a roll writes for this list (or the largest entry here), repeated KEEP_AUTO times with
-      // the longest id a roll names: cloud-native-auto-<8 hex>-<11-digit run>-<attempt>.
-      const sample = entries.find((e) => e.id.startsWith(AUTO_PREFIX)) ?? entries[entries.length - 1];
-      const auto = Array.from({ length: KEEP_AUTO }, (_, i) => ({ ...sample, id: `${AUTO_PREFIX}ffffffff-99999999999-${i + 1}` }));
+      // KEEP_AUTO of the largest entries a roll can write: the longest run id and attempt rolledImage accepts, and the
+      // revision ci-<run>-<attempt> the roll passes it.
+      const auto = Array.from({ length: KEEP_AUTO }, (_, i) => {
+        const run = `${i + 1}`.padStart(20, "9");
+        return rolledImage({ snapshot_id: `sh-${"f".repeat(32)}`, lock_sha256: "", run: 0 }, `ci-${run}-9999`, "f".repeat(40), run, "9999");
+      });
       const bytes = new TextEncoder().encode(JSON.stringify([...hand, ...auto])).length;
       expect({ line, bytes, fits: bytes <= TEXT_BINDING_LIMIT_BYTES }).toEqual({ line, bytes, fits: true });
     }
