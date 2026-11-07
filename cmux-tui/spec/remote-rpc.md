@@ -18,9 +18,11 @@ The server accepts it with:
 {"type":"opened","service":"workspace-rpc"}
 ```
 
-It may instead return `{"type":"rejected","code":"...","message":"..."}`. A rejected stream never receives `opened`. The implemented service names are `mux-control`, `workspace-rpc`, `process-stream`, `tcp-tunnel`, and `computer-use`.
+It may instead return `{"type":"rejected","code":"...","message":"..."}`. A rejected stream never receives `opened`. The implemented service names are `mux-control`, `workspace-rpc`, `process-stream`, `tcp-tunnel`, `computer-use`, and `local-socket`.
 
 After service opening, each `workspace-rpc` or `process-stream` JSON message is prefixed by one unsigned 32-bit big-endian byte length. A message may contain at most 16 MiB of JSON. A `tcp-tunnel` stream carries raw bytes after its open response.
+
+A `local-socket` stream carries raw bytes to a Unix socket on the daemon's host, named by the open's `path` metadata. The daemon opens it only when all of these hold: the session holds `local-socket` (only a carrier grant with `vmk: "owner"` gives it; the daemon drops the name from a grant's `svc`, and no device or legacy authority has it), the daemon was started with an allowlist (`--remote-local-socket PATH`, repeatable), and `path` equals one entry byte for byte. Otherwise it rejects with `permission-denied` (not the owner's session, or a path off the allowlist) or `unavailable` (no allowlist, or the socket did not answer). Cloud machines allow exactly `/run/cmux-rd/desktop.sock`, the desktop's `cmux.rd/1` host.
 
 A client normally keeps four `workspace-rpc` streams open:
 
