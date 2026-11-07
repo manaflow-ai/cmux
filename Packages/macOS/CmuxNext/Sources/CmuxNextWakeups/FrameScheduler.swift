@@ -98,10 +98,17 @@ public final class FrameScheduler: NSObject {
     /// keeps the others of its class from ticking (round-robin).
     private var budgetedOrder: [ObjectIdentifier] = []
     private var link: (any FrameLink)? {
-        didSet { noteRunning() }
+        didSet {
+            Self.app.keptLinks[ObjectIdentifier(self)] = link.map { KeptLink(scheduler: self, link: $0) }
+            noteRunning()
+        }
     }
-    /// The screen a screen scheduler's link was made for: a paused link resumes only on the same main screen.
-    private weak var linkScreen: NSScreen?
+    /// Every scheduler's link (only ``app``'s), so the link of a scheduler freed without ``invalidate()`` is
+    /// invalidated by the next sweep (``sweepFreedLinks()``): the run loop retains a link until it is invalidated,
+    /// and a paused link never ticks to see its scheduler gone.
+    private var keptLinks: [ObjectIdentifier: KeptLink] = [:]
+    /// The display a screen scheduler's link was made for: a paused link resumes only on the same main display.
+    private var linkDisplay: CGDirectDisplayID?
     /// What ``onRunningChange`` last said.
     private var reportedRunning = false
     /// Told when the display link starts and stops ticking (the ``MainWorkScheduler``: its link's ticks own
@@ -219,12 +226,29 @@ public final class FrameScheduler: NSObject {
 
     /// Pauses the link while idle (no frame callbacks) and keeps it: the next client resumes it on the
     /// display's next refresh, with no new link in its turn. The link's target is a weak ``LinkTarget``,
-    /// so a kept link does not keep the scheduler alive.
+    /// so a kept link does not keep the scheduler alive. A window out of sight drops its link instead: it
+    /// gets no animation frames, and a window is ordered out before it can be freed without a close.
     func pause() {
-        setLink(paused: true)
+        if isOutOfSight {
+            link?.invalidate()
+            link = nil
+        } else {
+            setLink(paused: true)
+        }
         (lastTimestamp, lastTarget) = (nil, nil)
         stall.cancel()
         stalls = 0
+        Self.sweepFreedLinks()
+    }
+
+    /// Invalidates the links of schedulers that were freed without ``invalidate()``.
+    static func sweepFreedLinks() {
+        let freed = app.keptLinks.filter { $0.value.scheduler == nil }
+        guard !freed.isEmpty else { return }
+        for (key, entry) in freed {
+            entry.link.invalidate()
+            app.keptLinks[key] = nil
+        }
     }
 
     /// Drops the link and every client (the window closed); each client's `dropped` runs once the scheduler is idle
@@ -250,12 +274,18 @@ public final class FrameScheduler: NSObject {
     /// link follows its window across screens.
     private func dropLinkOfAnotherScreen() {
         guard isScreenHost, makeLinkOverride == nil, let link, link.isPaused,
-              linkScreen == nil || linkScreen !== (NSScreen.main ?? NSScreen.screens.first) else { return }
+              linkDisplay != Self.displayID(of: NSScreen.main ?? NSScreen.screens.first) else { return }
         link.invalidate()
         self.link = nil
     }
 
+    private static func displayID(of screen: NSScreen?) -> CGDirectDisplayID? {
+        (screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+    }
+
     private func makeLink() -> (any FrameLink)? {
+        // A freed scheduler's identifier can come back with this one: its link is invalidated before this one's entry.
+        Self.sweepFreedLinks()
         let made: (any FrameLink)?
         if let makeLinkOverride {
             made = makeLinkOverride(self)
@@ -270,7 +300,7 @@ public final class FrameScheduler: NSObject {
             let display = screen.displayLink(target: LinkTarget(self), selector: #selector(LinkTarget.tick(_:)))
             display.preferredFrameRateRange = Self.motionRange
             display.add(to: .main, forMode: .common)
-            linkScreen = screen
+            linkDisplay = Self.displayID(of: screen)
             made = display
         } else {
             made = nil
@@ -388,6 +418,11 @@ public final class FrameScheduler: NSObject {
 
     private struct WeakScheduler {
         weak var value: FrameScheduler?
+    }
+
+    private struct KeptLink {
+        weak var scheduler: FrameScheduler?
+        let link: any FrameLink
     }
 }
 
