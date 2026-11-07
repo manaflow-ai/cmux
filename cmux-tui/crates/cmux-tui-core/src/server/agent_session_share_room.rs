@@ -1197,8 +1197,9 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 Ok(guest) => {
                     let mut answer = json!({"v": 1, "t": "redeemed", "request_id": request_id,
                         "guest_id": guest.get("guest_id")});
-                    // An invitee's role, so a view invitee's page has no composer; nothing else
-                    // about the account reaches the room. A link guest's answer has no role.
+                    // An invitee's role, or a link guest's when its share names one, so a view
+                    // guest's page has no composer; nothing else about the account reaches the
+                    // room. A link guest of a share without a role has none.
                     if let Some(role) = guest.get("role") {
                         answer["role"] = role.clone();
                     }
