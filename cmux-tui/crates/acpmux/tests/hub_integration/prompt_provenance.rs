@@ -210,10 +210,10 @@ async fn a_local_prompt_records_its_provenance_on_its_user_message() {
 async fn an_unnamed_web_prompt_is_the_persons_only_from_a_paired_device() {
     // A paired device prompts only a session in an asking mode (`remote.mode_not_asking`).
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
-        "webAskingModes": {"codex": ["normal"]},
+        "webAskingModes": {"fake": ["normal"]},
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
