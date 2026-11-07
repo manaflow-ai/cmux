@@ -1,0 +1,527 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42341789257",
+  "recorded_at": "2026-11-07T05:28:13Z",
+  "reason": "cmux-tui 61ba2e76ebec changes the image's cmux-tui (pinned f1c3afd06664)",
+  "dry_run": true,
+  "cmux_tui": "61ba2e76ebecc382e51d2580105b3627d2d181d5",
+  "fixes": [
+    {
+      "sha": "61ba2e76ebecc382e51d2580105b3627d2d181d5",
+      "mergedAt": "2026-11-06T20:57:41-08:00",
+      "subject": "cmux-daemon-launch-core: the app's daemon launch rules in Rust, linked in cmux-app-ffi (step A; no Swift change) (#37337)"
+    },
+    {
+      "sha": "431e458e9e61d699ae744c548dcfed919480905e",
+      "mergedAt": "2026-11-06T20:55:33-08:00",
+      "subject": "Sidebar: a new workspace goes right below the selected one, never the sidebar's end (#37161)"
+    },
+    {
+      "sha": "ee8724ea2d3135f76d8eaedec2cdf5e13d0e496c",
+      "mergedAt": "2026-11-06T20:51:23-08:00",
+      "subject": "cmux-cloud-handlers: the Cloud action handlers' rules in Rust, over the app FFI (step A) (#37343)"
+    },
+    {
+      "sha": "88a98b16b6b0a6ebe55b1832901be13945ae828e",
+      "mergedAt": "2026-11-07T04:35:04Z",
+      "subject": "chore(next): base autofix at c69bf7a822ab"
+    },
+    {
+      "sha": "c69bf7a822ab7857c0fb51ba17e6131ef05200fe",
+      "mergedAt": "2026-11-06T20:32:50-08:00",
+      "subject": "cmux chat --on TARGET: start a chat here, on a device, a Cloud VM or in Cloud; cmux cloud is now cmux vm (#37431)"
+    },
+    {
+      "sha": "e5d80f397611e2633ab52da21232819eb4cffa38",
+      "mergedAt": "2026-11-07T04:26:24Z",
+      "subject": "chore(next): base autofix at 3b767354437f"
+    },
+    {
+      "sha": "90de888d2db42e43a22fc76a6b6a41fb6c6ac280",
+      "mergedAt": "2026-11-07T04:24:19Z",
+      "subject": "cmux-layout-reducer: the sidebar bridge's decision rules in Rust (sidebar_bridge) over the app FFI, step A (#37381)"
+    },
+    {
+      "sha": "9f633dfa1478d15e4250f8ef43202f98f141b188",
+      "mergedAt": "2026-11-07T04:24:08Z",
+      "subject": "acpmux: a remote context viewer sees a memory file's name, not its local path (#37454)"
+    },
+    {
+      "sha": "bd2ffe2c7dbc775545934e02fa1ced512256d0b8",
+      "mergedAt": "2026-11-07T04:23:15Z",
+      "subject": "fix(cmux-tui): a keyed create-terminal projects only its own workspace (#37379)"
+    },
+    {
+      "sha": "4f6388b40da2e84bd7518485564a405780a2fa23",
+      "mergedAt": "2026-11-06T20:19:10-08:00",
+      "subject": "cloud_model_preview_url: a call with no path opens the root, as Swift's browserURL(path: \"/\") does (#37460)"
+    },
+    {
+      "sha": "aa17afdce48cb65112a77dbc3f80eaeda1e16ea0",
+      "mergedAt": "2026-11-06T20:09:35-08:00",
+      "subject": "cmux-cloud-machine: NEXT Cloud's machine record and its rules in Rust, over the app FFI (step A) (#37294)"
+    },
+    {
+      "sha": "1696a8ec8884aaea1aefa0ea05ac3a8095672366",
+      "mergedAt": "2026-11-06T20:08:28-08:00",
+      "subject": "cmux-cloud-config: Cloud sign-in, identity and configuration rules over the app FFI (step A) (#37348)"
+    },
+    {
+      "sha": "78bcee2ef753677ccb4562423e72811bb52d5cef",
+      "mergedAt": "2026-11-06T20:02:48-08:00",
+      "subject": "Chief: a permission mode for its own turns (bypass by default); acpmux allows naming the person's full-access start mode (#37419)"
+    },
+    {
+      "sha": "e49c9f911ffb47b013286b24800188dd8031db58",
+      "mergedAt": "2026-11-07T03:54:00Z",
+      "subject": "cmux-host: a bind or relay token the network change failed is retried at once, not after the 2 s backoff (#37444)"
+    },
+    {
+      "sha": "f6c83d8f779a369f99561695c517766acd779bcd",
+      "mergedAt": "2026-11-07T03:45:51Z",
+      "subject": "fix(tabs): close case A follow-ups: multi-tab close anchors, Motion.tabs gate, pinned divider slide, no echo work (#37401)"
+    },
+    {
+      "sha": "a40425896b56025e10de565792e3cccc0aecd882",
+      "mergedAt": "2026-11-06T19:41:01-08:00",
+      "subject": "auto_archive: a snooze's next check is never sooner than a minute (#37368)"
+    },
+    {
+      "sha": "76bfdafa15e97ac24e6e6f5a8a1082fe468ac7df",
+      "mergedAt": "2026-11-06T19:38:44-08:00",
+      "subject": "cmux-action-catalog: the Debug-build-only actions and argument values; two Italian titles match the app (#37441)"
+    },
+    {
+      "sha": "dada39d231dbf618d3c38c79f903656338474801",
+      "mergedAt": "2026-11-06T19:34:11-08:00",
+      "subject": "Cloud move rules in Rust: cmux-cloud-start-core moves, app FFI ops cloud_move_* (step A) (#37334)"
+    },
+    {
+      "sha": "75e2bb4362ec505e5efb1a7b7b60975fda777e3d",
+      "mergedAt": "2026-11-06T19:30:42-08:00",
+      "subject": "base red: a missing ; in cmux-cloud-tasks' follower fails clippy -D warnings (from #37291) (#37435)"
+    },
+    {
+      "sha": "93792b6cef639ab7c661b6fffdf2c76935c0a64d",
+      "mergedAt": "2026-11-06T19:25:35-08:00",
+      "subject": "base red: crash ratchet and clippy panic ratchet back under baseline (#37421)"
+    },
+    {
+      "sha": "8266f409a9cf05f9e63f2ac504480719b5fb1f3d",
+      "mergedAt": "2026-11-06T19:21:49-08:00",
+      "subject": "cloud hands: a restart fails the refreshes it ends; relaunch backoff resets on any list (#37422)"
+    },
+    {
+      "sha": "bd31f93eff9dc86fc1b1f57f26dc341cc4871fb9",
+      "mergedAt": "2026-11-07T02:54:29Z",
+      "subject": "chore(next): base autofix at aafb0b348c3d"
+    },
+    {
+      "sha": "aafb0b348c3d8696d759e5157f5672b1ca093362",
+      "mergedAt": "2026-11-06T18:51:34-08:00",
+      "subject": "cmux-sdk conversation_rules: refuse sizes and offsets past u64 (#37396)"
+    },
+    {
+      "sha": "2774e59d3501faf355abbc87d3e085ffca3b5507",
+      "mergedAt": "2026-11-06T18:50:21-08:00",
+      "subject": "cloud: Chief hands and the automation relay move to Rust; their Swift goes (#37285)"
+    },
+    {
+      "sha": "1f63d516ecfc798e40d2d031ebfcbb8eb1637e48",
+      "mergedAt": "2026-11-07T02:45:52Z",
+      "subject": "cmux-action-catalog: every NEXT action descriptor, title translation and default binding in Rust, over the app FFI (step A) (#37362)"
+    },
+    {
+      "sha": "b850f81c6c1d14e06203a8894efbaa74eae942a7",
+      "mergedAt": "2026-11-07T02:37:23Z",
+      "subject": "chore(next): base autofix at 1d894c58f0ae"
+    },
+    {
+      "sha": "1d894c58f0ae2adaaecaec7a0884c4481d8f472e",
+      "mergedAt": "2026-11-07T02:35:13Z",
+      "subject": "acpmux: harness discovery skips a PATH entry it could not run (#37395)"
+    },
+    {
+      "sha": "e8e4c23425e52469e8093500be77ed67a2d22c32",
+      "mergedAt": "2026-11-07T02:34:52Z",
+      "subject": "cmux-layout-reducer: auto-archive planner in Rust (auto_archive_plan), step A (#37292)"
+    },
+    {
+      "sha": "e3ab8ccc2e568fc9ee6b8c5e40c4f04ab6f522ed",
+      "mergedAt": "2026-11-07T02:33:04Z",
+      "subject": "chore(next): base autofix at 6db0dda10dd9"
+    },
+    {
+      "sha": "6db0dda10dd9866047ddc88557bc061eacd9af1e",
+      "mergedAt": "2026-11-06T18:30:52-08:00",
+      "subject": "Phone peer approvals: converge on a full peer, sign only a one-time allow, warn on an older acpmux (#37397)"
+    },
+    {
+      "sha": "531a409815d7fcd929de805c389695a44a1c7b97",
+      "mergedAt": "2026-11-07T02:27:52Z",
+      "subject": "chore(next): base autofix at ceb63b6fe584"
+    },
+    {
+      "sha": "ceb63b6fe5849cc3e7b2547fbc4bdea1607ac3af",
+      "mergedAt": "2026-11-07T02:25:40Z",
+      "subject": "fix(cmux link): a first dial to a running Cloud machine keeps trying for the handshake (#37235)"
+    },
+    {
+      "sha": "00b494777b54e01ec91c670636d8287d2e057a22",
+      "mergedAt": "2026-11-07T02:25:27Z",
+      "subject": "cmux-sdk: an origin claim rides on every request its handle's connection sends (#37399)"
+    },
+    {
+      "sha": "ed7f4299e41a7ddba871fdb13a802adcb7c7dfd4",
+      "mergedAt": "2026-11-07T02:25:14Z",
+      "subject": "Cloud bootstrap: the --repo parser and repo step in Rust (FFI ops first) (#37357)"
+    },
+    {
+      "sha": "33bdd368c684543db1f4aceeb58a7afd4c5ec6a4",
+      "mergedAt": "2026-11-07T02:24:40Z",
+      "subject": "Cloud: the cloud task follower's rules in Rust (cmux-cloud-tasks) over the app FFI (step A) (#37291)"
+    },
+    {
+      "sha": "8566a9ec24f8882be41a201d60048d6e1468bd2d",
+      "mergedAt": "2026-11-06T18:24:00-08:00",
+      "subject": "cmux NEXT: a link from Home's chat opens an even 50/50 split (#37391) (#37406)"
+    },
+    {
+      "sha": "5d7484ec1ac76c2e70e46281cbaf4433e30ccbfb",
+      "mergedAt": "2026-11-07T02:03:56Z",
+      "subject": "sidebar_edits: a group moves with its subgroups; idempotent edits report no change (#37322 review fixes) (#37387)"
+    },
+    {
+      "sha": "7ff0fba16894af4ecbf7e069a63825a08e7e9cac",
+      "mergedAt": "2026-11-06T17:52:31-08:00",
+      "subject": "cmux-sdk: generic call and subscribe; cmux chief talks through the SDK (#37363)"
+    },
+    {
+      "sha": "2e59ae26fe478f03909754e8b2b680a27c88e72b",
+      "mergedAt": "2026-11-07T01:51:40Z",
+      "subject": "chore(next): base autofix at f0c75924d289"
+    },
+    {
+      "sha": "f0c75924d289bf5d57e214d6e5cf3555b1fd513e",
+      "mergedAt": "2026-11-06T17:48:55-08:00",
+      "subject": "acpmux + iOS: let a paired phone allow a peer's prompt (#37313)"
+    },
+    {
+      "sha": "e826e41297ebf102f9750da40d2b0aafeccb73d0",
+      "mergedAt": "2026-11-07T01:45:43Z",
+      "subject": "cmux-sdk: the conversation client rules as pure helpers (#37373)"
+    },
+    {
+      "sha": "d115601ec5d9d5223b9c1820fd4f26e5d2b1f450",
+      "mergedAt": "2026-11-07T01:45:29Z",
+      "subject": "cmux-host: a Cloud request in flight when the machine's addresses change fails at once instead of hanging 20 s (#37367)"
+    },
+    {
+      "sha": "816e0ca9540d6fedb4d3620cfc50515755db9d72",
+      "mergedAt": "2026-11-07T01:45:17Z",
+      "subject": "Optimistic overlay rules in Rust: cmux-layout-reducer optimistic.rs over the app FFI, with golden vectors (step A) (#37331)"
+    },
+    {
+      "sha": "a9854e050f8be56c77558301b832857bfb96e1e3",
+      "mergedAt": "2026-11-06T17:27:16-08:00",
+      "subject": "fix(chief): run auto mode on Claude Code's local classifier (#37356)"
+    },
+    {
+      "sha": "beeb271447c0b22e7fd82624153590b6b4de970f",
+      "mergedAt": "2026-11-06T17:27:16-08:00",
+      "subject": "test(acpmux): built-in Chief Claude presets must judge auto mode locally (#37356)"
+    },
+    {
+      "sha": "07a86a5e0e02aace204c59b67f0a0d8abc87cb28",
+      "mergedAt": "2026-11-07T01:20:37Z",
+      "subject": "sidebar_doc: the sidebar's sections from one window's rows, and New Subgroup and remote-group plans, in Rust (step A) (#37324)"
+    },
+    {
+      "sha": "29e93f872662e4f04f2f07ecd5b4211c934b60bf",
+      "mergedAt": "2026-11-07T01:08:45Z",
+      "subject": "chore(next): base autofix at ed0d8cbcf3c7"
+    },
+    {
+      "sha": "ed0d8cbcf3c7d88e349fafb3924e252ce9d17fd6",
+      "mergedAt": "2026-11-07T01:04:35Z",
+      "subject": "Cloud bootstrap rules in Rust: machine bootstrap, machine.toml applier, create retry (FFI ops first) (#37318)"
+    },
+    {
+      "sha": "8e29d5e83104b47f016b425d8f7218b735b6b31d",
+      "mergedAt": "2026-11-06T16:56:56-08:00",
+      "subject": "acpmux harness install: a failure names the installer's last line from stderr or stdout, and discovery takes only an executable ~/.local/bin/claude (#37244 review follow-ups) (#37359)"
+    },
+    {
+      "sha": "56d952b82ec617fc0acc0a37f509f51864065702",
+      "mergedAt": "2026-11-07T00:42:15Z",
+      "subject": "cmux NEXT bookmarks: Netscape codec, search and ranker in Rust (cmux-bookmarks-ops); routed bookmarks ops for the React page (#37272)"
+    },
+    {
+      "sha": "76c49a46e7c0de1448877a3d363c19c012baef76",
+      "mergedAt": "2026-11-06T16:40:38-08:00",
+      "subject": "cmux-layout-reducer: sidebar tree edits in Rust (sidebar_edits) over the app FFI, step A (#37322)"
+    },
+    {
+      "sha": "dc8948ff933c3fef94f7de8bd8a4613542846ac9",
+      "mergedAt": "2026-11-07T00:31:45Z",
+      "subject": "chore(next): base autofix at 080dc70d6938"
+    },
+    {
+      "sha": "080dc70d6938fc1b169ef8bd343266197d2e65d4",
+      "mergedAt": "2026-11-06T16:29:22-08:00",
+      "subject": "cmux-host: the bind brings the relay carrier route, kept as carrier.json; the session host registers on it and respawns when it changes (#37199)"
+    },
+    {
+      "sha": "e577db0e438e4af217e8f1d58e9bd3d4aa5023d3",
+      "mergedAt": "2026-11-06T16:19:09-08:00",
+      "subject": "perf(sidebar): drop rules as a handle per drag, a move crosses into Rust with numbers only (step A; no Swift change) (#37261)"
+    },
+    {
+      "sha": "3b7c125ca05923e8323a8675afe0477d61a5d67a",
+      "mergedAt": "2026-11-07T00:09:16Z",
+      "subject": "fix(close): a docked pane's last-tab close stays under the pane that grows over it (strip/fixed coordinates in ClosingPanes) (#37341)"
+    },
+    {
+      "sha": "52af62616077c0a86d187740494075fa47a9ae93",
+      "mergedAt": "2026-11-06T16:02:19-08:00",
+      "subject": "acpmux: a refused sign-in end the fence stops frees its turn marker (#37336)"
+    },
+    {
+      "sha": "6f61f6558767e894ded2a8c8aeed94363b536092",
+      "mergedAt": "2026-11-06T15:56:06-08:00",
+      "subject": "acpmux: harness install claude|codex, on request only (#37244)"
+    },
+    {
+      "sha": "6b39b4c2ce1d6a301c106159c859d5b1d303eb62",
+      "mergedAt": "2026-11-06T23:49:48Z",
+      "subject": "chore(next): base autofix at 4c2026777f9b"
+    },
+    {
+      "sha": "4c2026777f9bb04be2e3e30c414548f45a5ebce3",
+      "mergedAt": "2026-11-06T23:46:45Z",
+      "subject": "Cloud start-chat: a stage trace with each step's ms, for the 3 s start (#37293)"
+    },
+    {
+      "sha": "b5dd97ff681901c7a7eeb0b6cc662b63486974d4",
+      "mergedAt": "2026-11-06T15:40:26-08:00",
+      "subject": "acpmux: a refused sign-in's end reads the agent generation before its turn marker (#37329)"
+    },
+    {
+      "sha": "4ede28faf9d7d463dde4c57aeb11633c48de7fdf",
+      "mergedAt": "2026-11-06T23:37:48Z",
+      "subject": "cloud start-chat --help: name new_machine in the answer (#37327)"
+    },
+    {
+      "sha": "a1741a1dea4d1589dbc4fadec4626129275d3796",
+      "mergedAt": "2026-11-06T23:37:35Z",
+      "subject": "git seed: the kept push helper is the one the repository's own remote took, not a submodule's or LFS's (#37325)"
+    },
+    {
+      "sha": "c767ef8c4bf0f4584c0a8bbb3f3bf3d4e7456afc",
+      "mergedAt": "2026-11-06T23:16:12Z",
+      "subject": "acpmux: a CLI waits for acpmux.service while it stops, never starts a daemon in its own cgroup (#37323)"
+    },
+    {
+      "sha": "9de07f3d50c6800c6c263ea073b3ca3f9868b40f",
+      "mergedAt": "2026-11-06T15:13:10-08:00",
+      "subject": "acpmux: a refused sign-in's end runs once per turn and only on the agent it was meant for (#37314)"
+    },
+    {
+      "sha": "e24332e1e0b4916ef744936d8a9598a75e5e70fd",
+      "mergedAt": "2026-11-06T15:06:46-08:00",
+      "subject": "Cloud: private repos cmux clones onto a machine push from it; cmux gitlab credential for GitLab (#37243)"
+    },
+    {
+      "sha": "9cb44abfca81900b137575693f5bb21a2fa5ed57",
+      "mergedAt": "2026-11-06T23:00:51Z",
+      "subject": "cmux-remote: carrier grant auth, checked by a verifier the daemon installs at start (default deny) (#37189)"
+    },
+    {
+      "sha": "286f2a59f478479636315d4b61a1f53240af2936",
+      "mergedAt": "2026-11-06T22:41:00Z",
+      "subject": "relay: park a Connect until the daemon registers, with a Parked frame (#37184)"
+    },
+    {
+      "sha": "f65774f070683584810b9a3dbce244a9ec7766ce",
+      "mergedAt": "2026-11-06T14:39:01-08:00",
+      "subject": "fix(cmux-host): the Cloud updater's flip looks at the connect hold too (#37280)"
+    },
+    {
+      "sha": "e9ea73a36c3daffd585ed9486a6b58d06da2fb57",
+      "mergedAt": "2026-11-06T22:18:44Z",
+      "subject": "Cloud carrier: an owner's grant reaches the desktop socket (local-socket service) (#37218)"
+    },
+    {
+      "sha": "e636e8018506adfdfac106b974c09d7a1ce127a4",
+      "mergedAt": "2026-11-06T22:04:32Z",
+      "subject": "chore(next): base autofix at dc053e167588"
+    },
+    {
+      "sha": "ce1f77acc6f1af13b05ebbf62df9314d97387c2f",
+      "mergedAt": "2026-11-06T13:59:28-08:00",
+      "subject": "acpmux: a Claude turn whose model API refuses the sign-in ends typed auth.signed_out at its third retry (#37236)"
+    },
+    {
+      "sha": "a10af0eff925eb566b80ec927a9eb1a346bbc83d",
+      "mergedAt": "2026-11-06T13:58:26-08:00",
+      "subject": "cloud start-chat: the answer says new_machine when this run made the machine (#37253)"
+    },
+    {
+      "sha": "32f78ca749e831afb51f9f90a57fa9bb220b4440",
+      "mergedAt": "2026-11-06T13:58:06-08:00",
+      "subject": "fix(cmux-host): the Cloud updater holds its restart while a new or resumed machine's first link comes up (#37256)"
+    },
+    {
+      "sha": "84fb596a8bd0aa5cd383a5f1d7e3ef9c327d55a1",
+      "mergedAt": "2026-11-06T21:54:27Z",
+      "subject": "acpmux: clear stale foreground calls; move work only after the steer is written (#37227)"
+    },
+    {
+      "sha": "812ea46314e65226e0cc14dd910d41ea1f0e1895",
+      "mergedAt": "2026-11-06T13:13:06-08:00",
+      "subject": "cmux-host: the relay ping is the exact frame the platform answers (#36968)"
+    },
+    {
+      "sha": "9ba67fab94f5c6e6946b8be207cf76921a176d6c",
+      "mergedAt": "2026-11-06T21:04:00Z",
+      "subject": "chore(next): base autofix at 6f6a42501d22"
+    },
+    {
+      "sha": "6f6a42501d2231a809d3a897530094c3cb9d7369",
+      "mergedAt": "2026-11-06T21:01:15Z",
+      "subject": "cloud start-chat: a machine cap names your machines and how to make room (#37198)"
+    },
+    {
+      "sha": "bc8d930cda8b8f822ed35dd05decc9f52e9a2278",
+      "mergedAt": "2026-11-06T20:29:33Z",
+      "subject": "deps(relay-do): pin undici 7.30.2 so npm audit passes (#37214)"
+    },
+    {
+      "sha": "e567ad50454a3bddb676313d22ba40f1a3901b09",
+      "mergedAt": "2026-11-06T12:15:39-08:00",
+      "subject": "acpmux: the person's message moves the long foreground call it waits behind (#37193)"
+    },
+    {
+      "sha": "9abe0824c4619a40832232dec830a406674d64f7",
+      "mergedAt": "2026-11-06T19:19:42Z",
+      "subject": "acpmux: sync kept records in the journal's idle time, not in the next ack's turn (#37174)"
+    },
+    {
+      "sha": "8d8fc7a06154b96aefd5bd8b2362d09e3ef0e708",
+      "mergedAt": "2026-11-06T19:08:48Z",
+      "subject": "fix(cmux link): a receiver whose policy names no peers reads it again in 2 s, backing off to the renewal (#37171)"
+    },
+    {
+      "sha": "a186694568df6a1ad8b5a32d0f4466cb33c03d7f",
+      "mergedAt": "2026-11-06T10:36:55-08:00",
+      "subject": "fix(cmux-wg): a dial waiting on a handshake resends its initiation every second (#37155)"
+    },
+    {
+      "sha": "31b06e65ba5cd002fed24ede53854200daf4c767",
+      "mergedAt": "2026-11-06T09:29:24-08:00",
+      "subject": "acpmux: an agent never inherits another harness's login (#35486)"
+    },
+    {
+      "sha": "f212919a6a69d1871a1ffedf77733b1f4d348a38",
+      "mergedAt": "2026-11-06T17:17:37Z",
+      "subject": "acpmux: answer a draft and a rename once written, not synced (kept class) (#37137)"
+    },
+    {
+      "sha": "c78d7bdeb3c8a1732dce3d20dbf4cce203b22870",
+      "mergedAt": "2026-11-06T17:00:36Z",
+      "subject": "Cloud: GitHub setup and port links on the Worker routes; delete classic share (no /api/vm) (#37041)"
+    },
+    {
+      "sha": "c2bf41a7b6f72be78391ad769d9f56ce97c44f65",
+      "mergedAt": "2026-11-06T15:33:26Z",
+      "subject": "acpmux: the event journal is always on (store.journal and its off path deleted) (#37118)"
+    },
+    {
+      "sha": "df968abfa3222ff749970b1c3b1061d39e3cf60e",
+      "mergedAt": "2026-11-06T06:30:48-08:00",
+      "subject": "cmux daemon restart: swap the running daemon for this build, keeping every terminal (#36313)"
+    },
+    {
+      "sha": "4cb218d201a3cefd367bd4d77a845cf6c901f0b4",
+      "mergedAt": "2026-11-06T06:13:52-08:00",
+      "subject": "acpmux: a retry's start ends at a Stop however it waits; a shutdown settles an unstarted turn atomically (#37112)"
+    },
+    {
+      "sha": "f95c9c0fa11733b31bed250254fe0c535092bc7c",
+      "mergedAt": "2026-11-06T13:50:43Z",
+      "subject": "acpmux, cmux-journal: the seal hands the store's home to the next open at once (#36973)"
+    },
+    {
+      "sha": "97aeb0c104557041427d71a3c0e785e88e4e9e28",
+      "mergedAt": "2026-11-06T13:42:21Z",
+      "subject": "acpmux: preserve authenticated sender provenance in inbox (#37028)"
+    },
+    {
+      "sha": "5df9b0f6bfd7a3621f45dbabe72c4ecf81c7d6ee",
+      "mergedAt": "2026-11-06T13:42:07Z",
+      "subject": "Swift live mode: restart into the live code build with your edits, and back into their optimized build (#36812)"
+    },
+    {
+      "sha": "f62e1628e1739768402fd66c68972f45ef057797",
+      "mergedAt": "2026-11-06T13:02:20Z",
+      "subject": "perf-flags: delete the CMUX_TUI_OWNER_KEEPERS switch (keepers rule has no off path) (#37106)"
+    },
+    {
+      "sha": "a1fba86c1ae90ee561e3ab3e8fef0d9eaf7a6425",
+      "mergedAt": "2026-11-06T04:55:26-08:00",
+      "subject": "acpmux: a Stop ends a retry's agent start; a shutdown as the last try misses settles the turn (#37098)"
+    },
+    {
+      "sha": "3334537b6e4b4cc6af427ca15dd1928654816120",
+      "mergedAt": "2026-11-06T04:49:24-08:00",
+      "subject": "fix(cmux-tui): ghostty-vt-sys builds with the pinned CMUX_ZIG before zig on PATH"
+    },
+    {
+      "sha": "29d3606a9ea68a2ac61db7f841e272c80c110fcd",
+      "mergedAt": "2026-11-06T04:49:24-08:00",
+      "subject": "test(cmux-tui): ghostty-vt-sys builds with the pinned CMUX_ZIG over an older zig on PATH (red)"
+    },
+    {
+      "sha": "b670735026c9fc8e8797bded56370d2064f58e16",
+      "mergedAt": "2026-11-06T12:42:26Z",
+      "subject": "fix(cmux-tui): staged_update builds only on unix, so the Windows check compiles (#37102)"
+    },
+    {
+      "sha": "64c09a5a8f1dd07999da5cc11d390dd214341b4a",
+      "mergedAt": "2026-11-06T12:41:33Z",
+      "subject": "acpmux: a silent Claude turn ends Claude Code's unbounded folder listing; a Ctrl-B wait that ends is logged (#36966)"
+    },
+    {
+      "sha": "29fcf95190b7288b5e21093f119cefd4e1309d30",
+      "mergedAt": "2026-11-06T04:39:02-08:00",
+      "subject": "acpmux: expose durable watches as acpmux watch and MCP watch tools (#36967)"
+    },
+    {
+      "sha": "cc4988016d205560ea2fe398507eccfc0d189167",
+      "mergedAt": "2026-11-06T04:15:49-08:00",
+      "subject": "fix(cmux-tui-core): clippy on the freeing and last-command code"
+    },
+    {
+      "sha": "7cd4ef3f7bb5f4e2795969f6b0819c5b81772635",
+      "mergedAt": "2026-11-06T04:15:49-08:00",
+      "subject": "chore(cmux-tui): api-compat surface for terminal-last-command-v1 (fleet step 1a75afd9f7d4)"
+    }
+  ],
+  "fixes_truncated": true,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T05:28:13Z",
+    "snapshot_id": "sh-92299f834a5246ea81ff892d8561697e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42341789257): 34 checks passed"
+  },
+  "promotion": {
+    "result": "dry-run",
+    "job": "success",
+    "commit": "a8ab02bce34cceb392423da9ac9338426cd6d82b",
+    "image": "cloud-native-auto-61ba2e76-42341789257-1",
+    "revision": "ci-42341789257-1",
+    "at": null
+  },
+  "rolled_back": false
+}
