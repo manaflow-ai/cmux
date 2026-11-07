@@ -40,6 +40,11 @@
 
 #define CMUX_SDK_ERR_PANIC -4
 
+/*
+ The request could not be sent: the connection is closed or failed.
+ */
+#define CMUX_SDK_ERR_IO -5
+
 #define CMUX_SDK_KIND_READ 0
 
 #define CMUX_SDK_KIND_MUTATION 1
@@ -166,6 +171,8 @@ int32_t cmux_sdk_next(const CmuxSdkStream *stream, uint32_t timeout_ms, CmuxSdkB
 /*
  Asks the daemon to end the stream; returns at once and may run while
  another thread waits in `cmux_sdk_next`, which then reports the end.
+ `CMUX_SDK_ERR_IO` when the cancel could not be sent (the stream's
+ connection is closed); a second cancel of the same stream is a no-op.
 
  # Safety
  `stream` is NULL or a live stream handle.
