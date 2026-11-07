@@ -524,9 +524,7 @@ export function PermissionCard({
           {denyOption && (
             <PermissionActionButton
               label={
-                plan
-                  ? t("permission.plan.keepPlanning")
-                  : t(external ? "permission.external.skip" : "permission.deny")
+                plan ? t("permission.plan.keepPlanning") : t(external ? "permission.external.skip" : "permission.deny")
               }
               shortcut={shortcuts ? denyShortcut : undefined}
               cardKey={shortcuts ? DENY_KEY : undefined}
