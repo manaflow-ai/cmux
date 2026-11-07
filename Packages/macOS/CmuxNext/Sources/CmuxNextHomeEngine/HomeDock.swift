@@ -2,6 +2,7 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextHome
+public import CmuxNextHomeModel
 public import Foundation
 import os
 

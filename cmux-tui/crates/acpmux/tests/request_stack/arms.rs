@@ -45,6 +45,8 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_REPORT, Run(json!({"briefId": "brief-t1", "summary": "done"}))),
         (method::MUX_TASK_NEW, Run(json!({"sessionId": "$S", "title": "t"}))),
         (method::MUX_TASKS, Run(json!({"all": true}))),
+        // A topic passes the query check for any caller; `peers: false` asks no peer (network).
+        (method::MUX_WHO_ELSE, Run(json!({"topic": "lso", "peers": false}))),
         (method::MUX_RESOLVE, Run(json!({"query": "$S"}))),
         (method::INITIALIZE, Run(json!({"protocolVersion": 1}))),
         (method::AUTHENTICATE, Run(json!({}))),
