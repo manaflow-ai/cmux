@@ -43,7 +43,7 @@ const ALT_OUTLINE_LABELS = `
 .acpmux-pr-card__glyph { background: transparent !important; }`;
 const ALT_KIND_COLUMNS = `
 .acpmux-pr-card__kindBar { display: none !important; }
-.acpmux-pr-card__breakdown { display: grid !important; grid-template-columns: repeat(3, max-content); column-gap: 14px; }
+.acpmux-pr-card__breakdown { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; }
 .acpmux-pr-card__checksName { display: none !important; }`;
 const withStyle =
   (css: string): Play =>

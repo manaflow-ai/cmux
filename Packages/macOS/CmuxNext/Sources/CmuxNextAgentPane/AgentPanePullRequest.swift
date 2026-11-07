@@ -153,6 +153,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// `gh pr view`. The probe compares it
     /// (``AgentChatPullRequestReader/probeQuery(_:)``); the card does not read it.
     public var rollupState: String
+    /// The base branch tip's rollup, the same way (``rollupState``), for the probe.
+    public var baseRollupState: String
     /// Its comments, review comments included (GraphQL `totalCommentsCount`); nil when the read
     /// did not say, as a `gh pr view` does not (Session Info's Changes shows it beside a bubble).
     public var comments: Int?
@@ -162,7 +164,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
                 additions: Int = 0, deletions: Int = 0, changedFiles: Int = 0, files: [ChangedFile] = [],
                 labels: [String] = [], baseRef: String = "", headRef: String = "", baseCommit: String = "",
                 headCommit: String = "", author: String = "", comments: Int? = nil, labelColors: [String: String] = [:],
-                authorAvatarURL: String = "", authorAvatar: String? = nil, rollupState: String = "") {
+                authorAvatarURL: String = "", authorAvatar: String? = nil, rollupState: String = "",
+                baseRollupState: String = "") {
         self.url = url
         self.number = number
         self.title = title
@@ -189,6 +192,7 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
         self.authorAvatarURL = authorAvatarURL
         self.authorAvatar = authorAvatar
         self.rollupState = rollupState
+        self.baseRollupState = baseRollupState
     }
 
     /// Nil unless `ghView` is gh's answer with an https url and a number.
@@ -222,7 +226,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
                   comments: (object["totalCommentsCount"] as? Int).map { max(0, $0) },
                   labelColors: Self.labelColors(object["labels"]),
                   authorAvatarURL: (author?["avatarUrl"] as? String).flatMap(AgentReplyAvatars.allowedURL)?.absoluteString ?? "",
-                  rollupState: (object["rollupState"] as? String)?.uppercased() ?? "")
+                  rollupState: (object["rollupState"] as? String)?.uppercased() ?? "",
+                  baseRollupState: (object["baseRollupState"] as? String)?.uppercased() ?? "")
     }
 
     /// gh's `files`, each with its own counts, at most ``maximumFiles``.

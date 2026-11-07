@@ -220,12 +220,37 @@ struct AgentReplyPullRequestsQuotaTests {
         #expect(query.contains("p0: repository(owner: \"o\", name: \"r\") { pullRequest(number: 1) { updatedAt state isDraft commits(last: 1)"))
         #expect(query.contains("p1: repository(owner: \"o\", name: \"r\") { pullRequest(number: 2) { updatedAt state isDraft } }"))
         #expect(query.contains(AgentChatPullRequestReader.rateLimitField))
-        #expect(query.contains("contexts") == false, "the probe reads the rollup's sum, never its checks")
+        // The rollup's sum and its counts by state, never the checks themselves.
+        #expect(query.contains("__typename") == false, "the probe reads the rollup's sum and counts, never its checks")
+        #expect(query.contains("checkRunCountsByState"))
+        #expect(query.contains("baseRef"), "an open one's base tip is asked too")
         #expect(query.filter { $0 == "{" }.count == query.filter { $0 == "}" }.count)
         #expect(AgentChatPullRequestReader.query([open]).contains(AgentChatPullRequestReader.rateLimitField))
     }
 
     // MARK: - The rate budget
+
+    /// Review of #37571 at 3548ad60: a probe that finds a change but leaves the budget under the
+    /// hard floor does not spend what is left on the full read; the link keeps its answer.
+    @Test func aProbeUnderTheHardFloorDoesNotFollowWithAFullRead() async {
+        let github = FakeGitHub([1: Pull(state: "OPEN")])
+        let time = FakeTime()
+        let calls = AgentChatPullRequestReader.Calls()
+        let cache = Self.cache(github, time, calls: calls)
+        let link = Self.url(1)
+        let resetAt = Date(timeIntervalSince1970: FakeTime.epoch + 3600).formatted(.iso8601)
+        cache.register([link])
+        await cache.idle()
+        #expect(calls.counts.reads == 1)
+        await github.change(1, updatedAt: "2026-11-07T00:10:00Z")
+        await github.limit(remaining: 50, resetAt: resetAt)
+        time.elapsed = .seconds(61)
+        _ = cache.answer(link)
+        await cache.idle()
+        #expect(calls.counts.probes == 1)
+        #expect(calls.counts.reads == 1, "no full read under the hard floor")
+        #expect(cache.answer(link, read: false).pullRequest != nil)
+    }
 
     /// Under the soft floor the cache stops prefetching and a card reads only its own link, once
     /// per its freshness; under the hard floor it reads nothing until the limit resets.
@@ -307,6 +332,9 @@ struct AgentReplyPullRequestsQuotaTests {
         let probe = AgentChatPullRequestReader.Probe(updatedAt: "2026-11-07T00:00:00Z", state: "open", rollupState: after)
         #expect(AgentReplyPullRequests.changed(held, probe))
         #expect(!AgentReplyPullRequests.changed(held, .init(updatedAt: held.updatedAt, state: "open", rollupState: before)))
+        // Base CI moved under an unchanged head (review of #37571 at 3548ad60): "already red on base" may change.
+        #expect(AgentReplyPullRequests.changed(held, .init(updatedAt: held.updatedAt, state: "open", rollupState: before,
+                                                           baseRollupState: "FAILURE CHECK_RUN:1|")))
     }
 
     // MARK: - Label colors

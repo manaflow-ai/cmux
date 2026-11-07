@@ -79,6 +79,10 @@ nonisolated extension AgentChatPullRequestReader {
         /// The head commit's rollup fingerprint (``rollupFingerprint(_:)``); empty when not asked or
         /// there are no checks.
         var rollupState: String
+        /// The base branch tip's rollup fingerprint, asked with the head's: base CI moves neither the
+        /// pull request's `updatedAt` nor its head rollup, but it changes which failures are
+        /// "already red on base" (review of #37571 at 3548ad60). Empty when not asked.
+        var baseRollupState: String = ""
     }
 
     /// A probe's answers, by URL: nil for a pull request GitHub answered null for; a URL the answer
@@ -118,7 +122,8 @@ nonisolated extension AgentChatPullRequestReader {
     /// A merged or closed one is not asked: its checks no longer change what the card says.
     static func probeQuery(_ targets: [(target: Target, checks: Bool)]) -> String {
         let aliases = targets.enumerated().map { index, entry in
-            let checks = entry.checks ? " commits(last: 1) { nodes { commit { statusCheckRollup { state \(rollupCounts) } } } }" : ""
+            let checks = entry.checks ? " commits(last: 1) { nodes { commit { statusCheckRollup { state \(rollupCounts) } } } }"
+                + " baseRef { target { ... on Commit { statusCheckRollup { state \(rollupCounts) } } } }" : ""
             return "p\(index): repository(owner: \"\(entry.target.owner)\", name: \"\(entry.target.name)\") "
                 + "{ pullRequest(number: \(entry.target.number)) { updatedAt state isDraft\(checks) } }"
         }
@@ -142,10 +147,12 @@ nonisolated extension AgentChatPullRequestReader {
                 continue
             }
             let state = (view["state"] as? String)?.lowercased() ?? "open"
+            let baseTarget = (view["baseRef"] as? [String: Any])?["target"] as? [String: Any]
             let commit = ((view["commits"] as? [String: Any])?["nodes"] as? [[String: Any]])?.last?["commit"] as? [String: Any]
             result[target.url] = .some(Probe(updatedAt: view["updatedAt"] as? String ?? "",
                                              state: state == "open" && view["isDraft"] as? Bool == true ? "draft" : state,
-                                             rollupState: rollupFingerprint(commit?["statusCheckRollup"] as? [String: Any])))
+                                             rollupState: rollupFingerprint(commit?["statusCheckRollup"] as? [String: Any]),
+                                             baseRollupState: rollupFingerprint(baseTarget?["statusCheckRollup"] as? [String: Any])))
         }
         return result
     }

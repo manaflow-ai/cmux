@@ -241,10 +241,17 @@ public final class AgentReplyPullRequests {
                 guard let self else { return }
                 fullReads += self.settle(toProbe, by: result, began: began)
             }
-            guard !fullReads.isEmpty, let began = self?.now.date() else { return }
+            guard !fullReads.isEmpty, let self else { return }
+            let began = self.now.date()
+            // The probe may have brought the budget under the floor: the changed links wait for it
+            // to refill, counted as tried, instead of spending what is left (review of #37571).
+            guard self.budget.allows(background: false, at: began) else {
+                self.absorb([:], for: fullReads, began: began)
+                return
+            }
             let batch = await reader.readBatch(urls: fullReads.map(\.absoluteString))
-            self?.note(batch.rate)
-            self?.absorb(batch.answers, for: fullReads, began: began)
+            self.note(batch.rate)
+            self.absorb(batch.answers, for: fullReads, began: began)
         }
         for url in urls { inflight[url] = task }
         return task
@@ -275,7 +282,8 @@ public final class AgentReplyPullRequests {
     /// pull request, another head rollup sum (a check finishing moves no `updatedAt`).
     static func changed(_ held: AgentPanePullRequest, _ probe: AgentChatPullRequestReader.Probe) -> Bool {
         if probe.updatedAt != held.updatedAt || probe.state != held.state { return true }
-        return ["open", "draft"].contains(held.state) && probe.rollupState != held.rollupState
+        return ["open", "draft"].contains(held.state)
+            && (probe.rollupState != held.rollupState || probe.baseRollupState != held.baseRollupState)
     }
 
     private func note(_ rate: AgentChatPullRequestReader.RateLimit?) {

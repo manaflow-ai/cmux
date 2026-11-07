@@ -159,7 +159,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             labels(first: \(AgentPanePullRequest.maximumLabels)) { nodes { name color } } \
             files(first: 100) { nodes { path additions deletions } } \
             commits(last: 1) { nodes { commit { statusCheckRollup { state \(Self.rollupCounts) \(contexts) } } } } \
-            baseRef { target { ... on Commit { statusCheckRollup { \(contexts) } } } }
+            baseRef { target { ... on Commit { statusCheckRollup { state \(Self.rollupCounts) \(contexts) } } } }
             """
         let aliases = targets.enumerated().map { index, target in
             "p\(index): repository(owner: \"\(target.owner)\", name: \"\(target.name)\") { pullRequest(number: \(target.number)) { ...f } }"
@@ -197,8 +197,11 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             // what "also red on base" means: the merge rules measure a base red there, not at this
             // pull request's merge base.
             let baseTarget = (view["baseRef"] as? [String: Any])?["target"] as? [String: Any]
-            let baseContexts = (baseTarget?["statusCheckRollup"] as? [String: Any])?["contexts"] as? [String: Any]
+            let baseRollup = baseTarget?["statusCheckRollup"] as? [String: Any]
+            let baseContexts = baseRollup?["contexts"] as? [String: Any]
             view["baseStatusCheckRollup"] = baseContexts?["nodes"] as? [[String: Any]] ?? []
+            // What "already red on base" was read from, which the probe compares too.
+            view["baseRollupState"] = Self.rollupFingerprint(baseRollup)
             view["baseRef"] = nil
             // GraphQL wraps a connection's rows in `nodes`; gh prints them as a plain array.
             for key in ["labels", "files"] {
