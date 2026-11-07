@@ -144,32 +144,11 @@ extension AppServices {
             let route = self.pages.storeKey(of: tab.id).flatMap { (self.pages.provider(.phone) as? PhonePageTab)?.route(for: $0) }
             return .some((route ?? tab.pageRoute).flatMap { PhoneDeviceID($0) })
         } : nil
-        let desktops = CloudDesktopSurfaceSources { [weak self] target in
-            guard let self else { throw CloudDesktopSurfaceSources.Failure.forbidden }
-            return try await self.phoneCloudDesktop(target)
-        }
+        // No Cloud desktop for the phone until it has a carrier route of its own (phoneCloudLinks says so).
         return MobileHostSurfaceClosures(start: { tab, onExit in
-            if CloudDesktopSurfaceSources.target(of: tab) != nil { return try await desktops.start(tab: tab, onExit: onExit) }
             guard let phoneTabs else { throw SimulatorSurfaceSources.Failure.notPhoneTab }
             return try await phoneTabs.start(tab: tab, onExit: onExit)
-        }, stop: { tab in
-            if CloudDesktopSurfaceSources.target(of: tab) != nil { await desktops.stop(tab: tab) } else { await phoneTabs?.stop(tab: tab) }
-        }, stopAll: { await desktops.stopAll(); await phoneTabs?.stopAll() }, streamsSimulators: phoneTabs != nil)
-    }
-
-    /// One Cloud desktop start for the phone: exactly one owned link of that machine and team (the
-    /// same check as hostd's), the same account after the hop, a running machine and a tunnel.
-    private func phoneCloudDesktop(_ target: CloudDesktopSurfaceSources.Target) async throws -> CloudDesktopSurfaceSources.Grant {
-        typealias Failure = CloudDesktopSurfaceSources.Failure
-        let account = (cloud.auth.user?.id, cloud.auth.teamID)
-        let matches = await phoneCloudLinks().links.filter { $0.machineID == target.machine && $0.teamID == target.team }
-        // `phone.cloudDesktop` (default off): the person lets phones view the machine's screen.
-        guard settings?.snapshot.sessions.phoneSeesCloudDesktop == true, account.0 != nil, matches.count == 1, let link = matches.first, link.owner, cloud.auth.isSignedIn,
-              cloud.auth.user?.id == account.0, cloud.auth.teamID == account.1,
-              let session = machines.session(link.machineID) else { throw Failure.forbidden }
-        guard session.machine.shownStatus == .running else { throw Failure.asleep }
-        // The desktop's only route was the app's WireGuard tunnel, which is gone.
-        throw Failure.unreachable
+        }, stop: { tab in await phoneTabs?.stop(tab: tab) }, stopAll: { await phoneTabs?.stopAll() }, streamsSimulators: phoneTabs != nil)
     }
 
     /// Forward the account's app-link Cloud machines to Rust hostd (asleep ones with no socket),
@@ -189,6 +168,7 @@ extension AppServices {
         }
         // An account transition during either actor hop invalidates the whole answer.
         guard cloud.auth.isSignedIn, cloud.auth.user?.id == user, cloud.auth.teamID == selectedTeam else { return MobileHostCloudLinks() }
-        return MobileHostCloudLinks(paid: machines.cloudLimits?.paysForCloud ?? false, desktops: settings?.snapshot.sessions.phoneSeesCloudDesktop == true, links: result)
+        // No desktops: a phone has no carrier route to a Cloud desktop yet, whatever `phone.cloudDesktop` says.
+        return MobileHostCloudLinks(paid: machines.cloudLimits?.paysForCloud ?? false, desktops: false, links: result)
     }
 }

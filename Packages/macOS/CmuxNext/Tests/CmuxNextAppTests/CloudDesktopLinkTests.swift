@@ -3,6 +3,7 @@ import CmuxNextBrowser
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 @testable import CmuxNextRemoteView
 @testable import CmuxNextRemoteViewSessions
 import CmuxNextSettings
@@ -60,16 +61,42 @@ import Testing
         transport.stop()
     }
 
-    @Test func openDesktopDefaultsAndGateFollowTheDesktopCapability() {
+    /// A classic machine that declares a desktop (once the noVNC page's) is refused with the Cloud error before
+    /// any workspace opens; so is any viewer but `rd`.
+    @Test func openDesktopOnAClassicMachineFailsUpFront() throws {
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-classic")
+        session.machine = CloudMachine(id: "vm-classic", status: .running, displayName: "Classic VM",
+                                       capabilities: CloudMachine.Capabilities(exec: true, desktop: true))
+        let context = AppActionContext(services: services)
+        #expect(throws: ActionFailure(message: CloudStrings.desktopUnavailable(session.machine.title))) {
+            try CloudHandlers.openDesktop(session, context)
+        }
+        #expect(throws: ActionFailure(message: CloudStrings.desktopUnavailable(session.machine.title))) {
+            try CloudHandlers.openDesktop(session, context, viewer: "web")
+        }
+    }
+
+    /// The phone is never offered a Cloud desktop: it has no carrier route to one yet.
+    @Test func thePhoneIsOfferedNoCloudDesktop() async {
+        let services = MachineIconTests.services()
+        #expect(await services.phoneCloudLinks().desktops == false)
+    }
+
+    /// Open Desktop has only the carrier viewer: a classic machine (no carrier route), or a cmux-next one
+    /// that serves no desktop, is refused up front instead of opening a blank tab.
+    @Test func openDesktopNeedsTheCarrierDesktop() {
         let desktop = CloudMachine(id: "vm-1", capabilities: CloudMachine.Capabilities(exec: true, desktop: true))
         let none = CloudMachine(id: "vm-2", capabilities: CloudMachine.Capabilities(exec: true))
         let undeclared = CloudMachine(id: "vm-3")
-        #expect(desktop.defaultDesktopViewer == "rd")
-        #expect(none.defaultDesktopViewer == "web")
-        #expect(undeclared.defaultDesktopViewer == "web", "a record with no capabilities keeps noVNC")
+        #expect(!desktop.opensCarrierDesktop(for: "u1"), "a classic machine has no carrier route")
+        #expect(!undeclared.opensCarrierDesktop(for: "u1"))
+        var next = desktop
+        next.provider = "cmux-next"
+        #expect(next.opensCarrierDesktop(for: "u1"))
         #expect(desktop.allows(.desktop))
         #expect(!none.allows(.desktop), "Open Desktop is refused and hidden")
-        #expect(undeclared.allows(.desktop), "an older record keeps its noVNC desktop")
+        #expect(undeclared.allows(.desktop))
         let platform = CloudMachine.Capabilities(names: ["exec", "desktop", "agent_session"])
         #expect(platform.desktop, "the app server's name list says desktop")
     }

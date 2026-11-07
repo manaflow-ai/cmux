@@ -387,17 +387,13 @@ extension String {
 }
 
 public extension CloudMachine {
-    /// Open Desktop's viewer when none is named: `rd` for a machine whose capabilities declare
-    /// `desktop` (its image carries the `cmux-rd` host on the agent display), `web` (noVNC) for
-    /// one that declares none (classic, which keeps its own desktop).
-    var defaultDesktopViewer: String { capabilities.desktop ? "rd" : "web" }
-
-    /// ``defaultDesktopViewer`` for the signed-in `user`. A cmux-next machine that serves its
-    /// desktop (``servesDesktop``) gives the `rd` stream to its creator alone (the link token's
-    /// mint refuses a teammate), so anyone else keeps the noVNC page, as before it served one.
-    func defaultDesktopViewer(for user: String?) -> String {
-        guard servesDesktop, declaredCapabilities?.desktop != true else { return defaultDesktopViewer }
-        guard let user, !user.isEmpty, createdBy == user else { return "web" }
-        return "rd"
+    /// Whether Open Desktop can show this machine for the signed-in `user`: only over the carrier's
+    /// `desktop` service (`cmux-rd`), so only a cmux-next machine that serves its desktop, and only to
+    /// its creator (the carrier refuses anyone else with `service_refused`). A classic machine has no
+    /// carrier route.
+    func opensCarrierDesktop(for user: String?) -> Bool {
+        guard provider == "cmux-next", capabilities.desktop else { return false }
+        guard let creator = createdBy, !creator.isEmpty else { return true }
+        return creator == user
     }
 }
