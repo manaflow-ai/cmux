@@ -77,8 +77,17 @@ pub fn public_key_fingerprint(public: &[u8; 32]) -> String {
 #[derive(Clone)]
 pub enum ClientAuthMode {
     Enrolled,
-    Invitation { id: String, secret: Zeroizing<[u8; 32]> },
+    Invitation {
+        id: String,
+        secret: Zeroizing<[u8; 32]>,
+    },
     Carrier,
+    /// A carrier grant: a short-lived token the platform signed for this
+    /// client's Noise key. It rides inside the encrypted handshake, and a
+    /// daemon with no grant verifier refuses it.
+    Grant {
+        token: Zeroizing<String>,
+    },
 }
 
 impl fmt::Debug for ClientAuthMode {
@@ -89,6 +98,7 @@ impl fmt::Debug for ClientAuthMode {
                 formatter.debug_struct("Invitation").field("id", id).finish_non_exhaustive()
             }
             Self::Carrier => formatter.write_str("Carrier"),
+            Self::Grant { .. } => formatter.debug_struct("Grant").finish_non_exhaustive(),
         }
     }
 }
@@ -185,10 +195,35 @@ impl InboundAuthEvidence {
     }
 }
 
+/// A carrier grant as the client presented it. Its `Debug` never shows it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct GrantToken(Zeroizing<String>);
+
+impl GrantToken {
+    pub fn new(token: impl Into<String>) -> Self {
+        Self(Zeroizing::new(token.into()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for GrantToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("GrantToken(..)")
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthRequest {
     pub mode: AuthKind,
     pub invitation_id: Option<String>,
+    /// The carrier grant, present only when `mode` is [`AuthKind::Grant`].
+    pub grant: Option<GrantToken>,
+    /// The client's connection attempt: every physical link of one attempt
+    /// may present the same grant.
+    pub connection_attempt: ConnectionAttemptId,
     pub device_public_key: [u8; 32],
     pub device_name: String,
     pub session: SessionId,
@@ -224,6 +259,17 @@ impl ServiceAuthority {
                 Service::ComputerUse,
             ]),
         }
+    }
+
+    /// Exactly `services`, each once, in the order given.
+    pub fn from_services(services: impl IntoIterator<Item = Service>) -> Self {
+        let mut unique = Vec::new();
+        for service in services {
+            if !unique.contains(&service) {
+                unique.push(service);
+            }
+        }
+        Self { services: unique.into_boxed_slice() }
     }
 
     /// Whether this grant may open the service.
@@ -298,6 +344,7 @@ pub enum AuthKind {
     Enrolled,
     Invitation,
     Carrier,
+    Grant,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -317,6 +364,10 @@ struct ClientPrelude {
 struct ClientHello {
     device_name: String,
     resume: BTreeMap<Lane, u64>,
+    /// The carrier grant. It travels in the third Noise message, encrypted
+    /// to the daemon's static key, never in the plaintext prelude.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    grant: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -425,6 +476,15 @@ pub async fn initiate_secure_link(
             (AuthKind::Invitation, Some(id.clone()), Some(&**secret))
         }
         ClientAuthMode::Carrier => (AuthKind::Carrier, None, None),
+        ClientAuthMode::Grant { .. } => (AuthKind::Grant, None, None),
+    };
+    // A grant opens a new session only; a resume (generation 1+) re-admits
+    // the same Noise key with no grant.
+    let grant = match &config.auth {
+        ClientAuthMode::Grant { token } if config.generation == 0 => {
+            Some(token.as_str().to_owned())
+        }
+        _ => None,
     };
     let prelude = ClientPrelude {
         name: HANDSHAKE_NAME.into(),
@@ -473,6 +533,7 @@ pub async fn initiate_secure_link(
         let hello = serde_json::to_vec(&ClientHello {
             device_name: config.device_name,
             resume: config.resume,
+            grant,
         })
         .map_err(CryptoError::Json)?;
         write_handshake(&*link, &mut handshake, &hello).await?;
@@ -543,7 +604,7 @@ pub(crate) async fn verify_secure_link(
                     CryptoError::Unauthorized("unknown or expired invitation".into())
                 })?)
             }
-            AuthKind::Enrolled | AuthKind::Carrier => None,
+            AuthKind::Enrolled | AuthKind::Carrier | AuthKind::Grant => None,
         };
 
     let params: NoiseParams =
@@ -570,6 +631,9 @@ pub(crate) async fn verify_secure_link(
         request: AuthRequest {
             mode: prelude.auth,
             invitation_id: prelude.invitation_id,
+            // A grant counts only under the grant mode; any other mode drops it.
+            grant: hello.grant.filter(|_| prelude.auth == AuthKind::Grant).map(GrantToken::new),
+            connection_attempt: prelude.connection_attempt,
             device_public_key: remote_static,
             device_name: hello.device_name,
             session: prelude.session,

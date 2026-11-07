@@ -235,8 +235,9 @@ export type AcpmuxAgentPair = {
 };
 
 /// What the chat's agent runs on, from its own start line (Claude Code's system/init, acpmux's
-/// `session_info_update._meta.claude`): drawn once, where the session started
-/// (conversation/SessionStartNote.tsx). `harness` and `cwd` are the chat's when the line came.
+/// `session_info_update._meta.claude`): the chat's summary keeps the latest, and a transcript line
+/// (conversation/SessionStartNote.tsx) marks a turn whose model or route is new. `harness` and `cwd`
+/// are the chat's when the line came.
 export type AcpmuxSessionStart = {
   agent: "claude";
   version: string;
@@ -496,6 +497,9 @@ export type AcpmuxRow = {
   /// The machine the person's own `acpmux send` ran on (acpmux records it on the client, as
   /// `acpmux-cli#…@big-red`): "via CLI on big-red" under their prompt.
   viaCli?: string;
+  /// Part of the person's typed text reads as another agent's output (acpmux `agentText`, a paste
+  /// from a client that marks none): the agent it names, if any. One quiet line under the prompt.
+  agentText?: { from?: string };
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
   /// A turn summary of the chat's last turn, which a failed turn's Retry asks acpmux to retry
@@ -543,8 +547,7 @@ export type AcpmuxRow = {
   /// A reply to the person (not a short note) shown inside an open "Worked for": settled, yet it
   /// keeps its own action row (hasReplyActions; conversation/turns.ts shapeTurn).
   foldedReply?: boolean;
-  /// A run of finished tool calls folded under one summary line (Debug toggle
-  /// `agentPane.debug.codexToolRuns`, on by default; conversation/turns.ts `codexRuns`,
+  /// A run of finished tool calls folded under one summary line (conversation/turns.ts `codexRuns`,
   /// conversation/toolRunSummary.ts).
   /// False keeps a run waiting for edit permission in tool rows without collapsing it.
   foldRun?: boolean;
@@ -565,9 +568,8 @@ export type AcpmuxRow = {
   /// On the `TURN_RETRY` row: how long the turn's finished retries took, which the live line's
   /// "Thinking" time leaves out (conversation/turns.ts `withRetry`).
   retriedMs?: number;
-  /// A running turn's status line drawn as the turn's last row (Debug Settings
-  /// `agentPane.debug.liveLineBelow`, conversation/turns.ts): no rule under it, and its clock
-  /// never stops while the turn runs.
+  /// A running turn's status line drawn as the turn's last row (conversation/turns.ts): no rule
+  /// under it, and its clock never stops while the turn runs.
   below?: boolean;
   /// The Codex-style live line (conversation/turns.ts `codexLiveTurn`, Thinking.tsx): the call in
   /// flight's start on this computer's clock, which its time counts from; whether `doing` is a raw
@@ -1034,6 +1036,9 @@ export type AcpmuxSnapshot = {
     /// autocompact cap, its subagents. Unset while the harness has no readable transcript.
     usageStats?: SessionUsageStats;
     host?: string;
+    /// What Claude Code's last init line said the chat runs on: its version, model id, route and
+    /// folder, for Session Info's Environment and the `/status` card.
+    sessionStart?: AcpmuxSessionStart;
     /// The machine acpmux runs the chat on (acpmux `machine`), for the `/status` card only:
     /// unlike `host` it is set for a local chat too.
     machine?: string;

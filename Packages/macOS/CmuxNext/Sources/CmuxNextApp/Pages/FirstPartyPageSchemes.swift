@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextCloudUI
 import CmuxNextPages
 import Foundation
 
@@ -52,8 +53,8 @@ enum FirstPartyPageSchemes {
     /// keeps a page that cannot on WebKit, with its reason).
     static let descriptors: [PageDescriptor] = [
         .agent, .history, .cloud, .apps, .settings, .keybindings, .diff, .markdown, .iconPicker, .passwords, .editor,
-        .chiefInspector, .debugSettings, .homeChannels, .homeChatColors,
-        .changelog, .coderouter, .files, .artifacts, .stats, .chiefUsage, .mobilePairing, .agentActivity, .importHistory, .github,
+        .chiefInspector, .debugSettings, .homeChannels, .homeMessages, .homeChatColors,
+        .changelog, .coderouter, .files, .artifacts, .stats, .chiefUsage, .mobilePairing, .agentActivity, .importHistory, .github, .cloudProgress,
     ]
 
     /// The accepted entries of `roots`, each with its page's own CSP.
