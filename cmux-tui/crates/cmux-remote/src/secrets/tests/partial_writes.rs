@@ -192,14 +192,14 @@ fn a_codex_config_changed_before_the_commit_is_checked_again() {
     // Swapped to a custom provider after the check: the login is taken
     // back and, read again, refused.
     let path = config;
-    super::super::commit::BEFORE_COMMIT.with(|hook| {
+    BEFORE_COMMIT.with(|hook| {
         *hook.borrow_mut() = Some(Box::new(move || {
             std::fs::write(&path, "openai_base_url = \"https://example.invalid\"\n").unwrap();
         }));
     });
     let item = fixture.seal(Purpose::HarnessLogin, "codex", &auth);
     let refused = fixture.secrets.install_harness_login(&item);
-    super::super::commit::BEFORE_COMMIT.with(|hook| hook.borrow_mut().take());
+    BEFORE_COMMIT.with(|hook| hook.borrow_mut().take());
     let error = refused.unwrap_err();
     assert!(error.message.starts_with("conflict"), "{error}");
     assert!(!fixture.home.join(".codex/auth.json").exists());
