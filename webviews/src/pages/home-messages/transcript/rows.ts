@@ -14,7 +14,8 @@
 // - Others typing show one typing bubble at the end; a participant whose reply is streaming shows
 //   that reply as its bubble instead.
 // - Gaps are Messages' measured ones (points, drawn as CSS pixels).
-import { PENDING_PREFIX, pendingMessages, threadOf } from "../../home-channels/model";
+import { PENDING_PREFIX, partShows, partText, pendingMessages, threadOf } from "../../home-channels/model";
+import { isApprovalCard } from "../cards/approval/approval";
 import type { HomeDraft } from "../../home-channels/drafts";
 import type { PendingSend } from "../../home-channels/store";
 import type { HomeConversation, HomeMessage, HomeParticipant, HomePart, HomeReaction } from "../../home-channels/types";
@@ -85,6 +86,8 @@ export type TranscriptRow =
       markdown: boolean;
       /** A running reply, still growing. */
       streaming?: boolean;
+      /** The part is a local Chief's permission card (Allow and Deny). */
+      approval?: boolean;
     })
   | (RowBase & { kind: "label"; outgoing: boolean; label: "edited" | "notDelivered" | "notKept" })
   | (RowBase & { kind: "unsent"; outgoing: boolean })
@@ -232,7 +235,11 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
   cache?.use(me, conversation);
   const people = new Map(conversation.participants.map((person) => [person.id, person]));
   const group = conversation.kind === "group";
-  const messages = orderedMessages(data, now);
+  // A message with nothing to read (a Chief turn's done marker: a work part with no preview) is no
+  // row (Swift `HomeMapping.message` marks it deleted); its seq still moves the read cursor.
+  const messages = orderedMessages(data, now).filter(
+    (message) => message.retracted || message.parts.length === 0 || message.parts.some(partShows),
+  );
   const failed = new Set((data.pending ?? []).filter((entry) => entry.failed).map((entry) => entry.key));
   const unkept = new Set(
     (data.pending ?? []).filter((entry) => entry.unkept).map((entry) => `${PENDING_PREFIX}${entry.key}`),
@@ -323,6 +330,7 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
       // Text parts are a bubble each; a run of attachments is one row of media.
       const chunks: { index: number; parts: HomePart[] }[] = [];
       message.parts.forEach((part, partIndex) => {
+        if (!partShows(part)) return;
         const open = chunks.at(-1);
         if (!isTextLike(part) && open && !isTextLike(open.parts[0]!)) open.parts.push(part);
         else chunks.push({ index: partIndex, parts: [part] });
@@ -337,6 +345,7 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
         // A tapback badge takes 27.5 over its part (a thread change above it is 5 less).
         if (reactions.length) partGap = (partGap >= 32 ? partGap - 5 : partGap) + 27.5;
         const final = chunkIndex === chunks.length - 1;
+        const head = chunk.parts[0]!;
         own.push({
           kind: "bubble",
           key: `part:${message.id}:${chunk.index}`,
@@ -352,6 +361,7 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
           reactions,
           markdown,
           streaming: message.id.startsWith(STREAM_PREFIX) || undefined,
+          approval: (head.type === "question" && isApprovalCard(head, message, conversation)) || undefined,
         });
       });
       if (message.editedAt) own.push({ kind: "label", key: `edited:${message.id}`, gap: 1, outgoing, label: "edited" });
@@ -399,9 +409,11 @@ export function estimateRow(row: TranscriptRow): number {
     case "bubble": {
       const part = row.parts[0];
       if (part?.type === "attachment") return row.gap + 160 * Math.min(row.parts.length, 2);
-      const text = part && "text" in part ? part.text : "";
+      if (part?.type === "link_preview") return row.gap + (part.image ? 220 : 56);
+      if (part?.type === "location") return row.gap + 56;
+      const text = part ? partText(part) : "";
       const lines = text.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 48)), 0);
-      return row.gap + 16 + 18 * Math.min(lines, 400);
+      return row.gap + 16 + 18 * Math.min(lines, 400) + (row.approval ? 36 : 0);
     }
   }
 }

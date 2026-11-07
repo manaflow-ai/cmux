@@ -12,7 +12,10 @@ import { Avatar } from "../../home-channels/Avatar";
 import { partText } from "../../home-channels/model";
 import type { HomeAttachment, HomeMessage, HomeParticipant } from "../../home-channels/types";
 import type { Strings } from "../../shared/i18n";
+import { ApprovalCard } from "../cards/approval/ApprovalCard";
+import type { ApprovalDecisions } from "../cards/approval/approval";
 import { HomeLinkChip } from "../cards/links/HomeLinkChip";
+import { LinkPreviewCard, LocationCard, locationCopyText, mentionedText } from "../cards/parts/PartCards";
 import type { LinkPreviewFetch } from "../cards/links/linkPreview";
 import { formatDay, formatTime } from "./format";
 import type { TranscriptRow } from "./rows";
@@ -45,6 +48,8 @@ export interface RowActions {
   /** Reply… (the native menu's): the message's thread opens, and a send there answers it. */
   onReply?(message: HomeMessage): void;
   links?: RowLinks;
+  /** A Chief's permission cards: their state and the app's decision (absent: no buttons). */
+  approvals?: ApprovalDecisions;
 }
 
 export interface TranscriptRowViewProps {
@@ -153,8 +158,9 @@ function BubbleRow({
 }) {
   const { t } = strings;
   const { message, outgoing, delivery } = row;
-  const media = row.parts[0]?.type === "attachment";
-  const text = media ? "" : row.parts.map(partText).join("\n");
+  const head = row.parts[0];
+  const media = head?.type === "attachment";
+  const text = bubbleCopyText(row);
   const pendingKey = message.id.startsWith(PENDING) ? message.id.slice(PENDING.length) : undefined;
   const failed = delivery?.state === "failed";
   const committed = !pendingKey && !row.streaming;
@@ -211,13 +217,37 @@ function BubbleRow({
       ))}
     </span>
   );
+  const card = cardOf(row, strings, actions);
+  if (card)
+    return bubbleRow(
+      row,
+      <div className={`mt-card${highlighted ? " highlighted" : ""}`} data-message={message.id}>
+        {reactions}
+        {card}
+      </div>,
+      items,
+      failed && pendingKey ? pendingKey : undefined,
+      actions,
+      t,
+    );
+  // Text with mentions shows as written, its mentions marked (their offsets index it): never Markdown.
+  const mentions = head?.type === "text" && head.mentions?.length ? head.mentions : undefined;
   const body: ReactNode = media ? (
     <MessageAttachments
       conversation={message.conversation}
       parts={row.parts as readonly HomeAttachment[]}
       strings={strings}
     />
-  ) : row.markdown ? (
+  ) : mentions ? (
+    <span className="mt-text">
+      {mentionedText(
+        text,
+        mentions,
+        () => undefined,
+        (piece) => (actions.links ? linkedText(piece, actions.links) : piece),
+      )}
+    </span>
+  ) : row.markdown && head?.type === "text" ? (
     <Markdown streaming={row.streaming}>{text}</Markdown>
   ) : (
     <span className="mt-text">{actions.links ? linkedText(text, actions.links) : text}</span>
@@ -241,9 +271,31 @@ function BubbleRow({
       {body}
     </div>
   );
+  return bubbleRow(row, bubble, items, failed && pendingKey ? pendingKey : undefined, actions, t);
+}
+
+/** What a bubble's Copy copies (Swift `HomeContentMenu.partItems`): its text; a link card its
+ * address, a place its name and coordinates; media and a permission card nothing. */
+export function bubbleCopyText(row: Extract<TranscriptRow, { kind: "bubble" }>): string {
+  const head = row.parts[0];
+  if (!head || head.type === "attachment" || row.approval) return "";
+  if (head.type === "link_preview") return head.url;
+  if (head.type === "location") return locationCopyText(head);
+  return row.parts.map(partText).join("\n");
+}
+
+/** A bubble (or a card) in its row: the avatar column, the right-click menu, a failed send's mark. */
+function bubbleRow(
+  row: Extract<TranscriptRow, { kind: "bubble" }>,
+  bubble: ReactNode,
+  items: ContextMenuItem[],
+  failedKey: string | undefined,
+  actions: RowActions,
+  t: Strings["t"],
+) {
   return (
     <div
-      className={`mt-bubble-row ${outgoing ? "out" : "in"}${row.indent ? " indent" : ""}`}
+      className={`mt-bubble-row ${row.outgoing ? "out" : "in"}${row.indent ? " indent" : ""}`}
       style={row.gap ? { paddingTop: row.gap } : undefined}
     >
       {row.indent && (
@@ -252,19 +304,44 @@ function BubbleRow({
         </span>
       )}
       {items.length ? <ContextMenu items={items}>{bubble}</ContextMenu> : bubble}
-      {failed && pendingKey && (
+      {failedKey && (
         <button
           type="button"
           className="mt-failed-mark"
           aria-label={t("home.menu.tryAgain")}
           title={t("label.notDelivered")}
-          onClick={() => actions.onRetry?.(pendingKey)}
+          onClick={() => actions.onRetry?.(failedKey)}
         >
           !
         </button>
       )}
     </div>
   );
+}
+
+/** A part drawn as a card instead of a text bubble: a permission card, a link preview, a place. */
+function cardOf(row: Extract<TranscriptRow, { kind: "bubble" }>, strings: Strings, actions: RowActions): ReactNode {
+  const head = row.parts[0];
+  if (head?.type === "question" && row.approval)
+    return (
+      <ApprovalCard
+        message={row.message}
+        partIndex={row.partIndex}
+        question={head}
+        strings={strings}
+        {...(actions.approvals ? { decisions: actions.approvals } : {})}
+      />
+    );
+  if (head?.type === "link_preview")
+    return (
+      <LinkPreviewCard
+        conversation={row.message.conversation}
+        part={head}
+        {...(actions.links ? { onOpen: actions.links.onOpen } : {})}
+      />
+    );
+  if (head?.type === "location") return <LocationCard part={head} />;
+  return undefined;
 }
 
 /** Links in people's text: http(s) and cmux app links, without the punctuation that ends a sentence. */

@@ -36,7 +36,7 @@ import MessagesLabHome
 /// - `chief.create {name, backend}`, `invite.send {email}`, `start {recipients, text}` -> `{outcome}`
 ///   (``HomeMessagesFirstSend``: a first send with no answer comes with its outbox row).
 /// - `teamInvite.seatImpact {}` -> `{impact}`; `teamInvite.send {email}` -> `{result}`.
-/// - `linkPreview {url, kind, details}` -> a preview (cards/links/linkPreview.ts).
+/// - `linkPreview {url, kind, details}` -> a preview (cards/links/linkPreview.ts); `approval.decide` (``HomeMessagesApprovals``).
 /// - `headerPanels.toggle {id}`: runs that panel's action as the person's own (a click only).
 /// Streams: `appearance` (the bubble look, each chat's colours, the composer's spell checking),
 /// `group.follow {conversation}` and `requests.follow` (Group Info and Requests while they show,
@@ -48,7 +48,7 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
     static let prefixes = ["selected", "drafts.", "attachments.", "outbox.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
-                           "linkPreview", "openLink", "headerPanels", "appearance"].map { HomeMessagesPageRoute.prefix + $0 }
+                           "linkPreview", "openLink", "headerPanels", "appearance", "approval."].map { HomeMessagesPageRoute.prefix + $0 }
 
     private weak var services: AppServices?
     /// What the page shows, as it last said (``HomeMessagesShown``: New Message keeps the conversation open before it).
@@ -84,7 +84,7 @@ final class HomeMessagesHostProvider: PageProvider {
         let home = services.home
         let fields = params.objectValue ?? [:]
         let name = op.hasPrefix(HomeMessagesPageRoute.prefix) ? String(op.dropFirst(HomeMessagesPageRoute.prefix.count)) : op
-        if let answer = try await kept(home).call(name, fields) { return answer }
+        if let answer = try await kept(home).call(name, fields, context: context) { return answer }
         switch name {
         case "selected":
             let id = fields["conversation"]?.stringValue.flatMap { Self.isID($0) ? ConversationID($0) : nil }
@@ -290,7 +290,7 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The drafts, staged files and unsent sends kept in HomeStore (``HomeMessagesKept``).
     private func kept(_ home: HomeService) -> HomeMessagesKept {
         if let keeping { return keeping }
-        let made = HomeMessagesKept(store: home.homeStore, keepLocation: { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false })
+        let made = HomeMessagesKept(store: home.homeStore, keepLocation: { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }, approvals: services.map { ChiefApprovalDecider(home: home.chief.home, app: QuitAgents.environment($0), work: $0.work, environment: ChiefHomeAcpmux.environment) })
         keeping = made
         return made
     }

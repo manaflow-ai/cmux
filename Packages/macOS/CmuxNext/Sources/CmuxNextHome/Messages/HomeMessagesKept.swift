@@ -1,4 +1,5 @@
 public import CmuxHomeCore
+public import CmuxHomeRender
 public import CmuxNextPages
 public import CmuxNextSettings
 import Foundation
@@ -9,7 +10,8 @@ import Foundation
 /// - `attachments.load|put|remove|release`: the staged files, one part each, and `attachments.write|read`
 ///   their bytes (``HomeMessagesAttachmentDrafts``);
 /// - `attachments.prepare.*`: a photo's or video's bytes before they upload (``HomeAttachmentPreparer``);
-/// - `outbox.load|put|remove`: the unsent sends, one send each (``HomeMessagesOutbox``).
+/// - `outbox.load|put|remove`: the unsent sends, one send each (``HomeMessagesOutbox``);
+/// - `approval.decide`: a Chief's permission card, on the person's click (``HomeMessagesApprovals``).
 @MainActor
 public final class HomeMessagesKept {
     /// The longest draft kept (a paste of a log stays a draft; a runaway page cannot fill the cache).
@@ -20,14 +22,20 @@ public final class HomeMessagesKept {
 
     private let store: HomeStore
     private let preparer: HomeAttachmentPreparer
+    private let approvals: HomeMessagesApprovals
 
-    public init(store: HomeStore, keepLocation: @escaping @MainActor () -> Bool) {
+    /// `approvals` answers acpmux for a permission card (the App's `ChiefApprovalDecider`; nil refuses each click).
+    public init(store: HomeStore, keepLocation: @escaping @MainActor () -> Bool, approvals: (any HomeApprovalDeciding)? = nil) {
         self.store = store
         preparer = HomeAttachmentPreparer(store: store, keepLocation: keepLocation)
+        self.approvals = HomeMessagesApprovals(store: store, decider: approvals)
     }
 
     /// Answers `name` (the op after `cmux.home.messages.`), or nil when it is not one of these.
-    public func call(_ name: String, _ fields: [String: JSONValue]) async throws -> JSONValue? {
+    public func call(_ name: String, _ fields: [String: JSONValue], context: PageCallContext? = nil) async throws -> JSONValue? {
+        if name == HomeMessagesApprovals.op {
+            return try await approvals.call(name, fields, context: context ?? PageCallContext(page: ""))
+        }
         switch name {
         case "drafts.load":
             let drafts = store.rows.reduce(into: [String: JSONValue]()) { out, row in

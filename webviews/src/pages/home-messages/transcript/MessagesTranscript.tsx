@@ -103,6 +103,8 @@ export interface MessagesTranscriptProps extends TranscriptData {
   composerKey?: string;
   /** Link chips in people's text: their previews and opening. Absent: plain text. */
   links?: RowLinks;
+  /** A Chief's permission cards: their state and the app's decision. Absent: cards without buttons. */
+  approvals?: RowActions["approvals"];
   ref?: Ref<MessagesTranscriptHandle>;
 }
 
@@ -198,6 +200,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       onCopy: props.onCopy ?? ((text) => void navigator.clipboard?.writeText(text)),
       ...(props.onReply ? { onReply: props.onReply } : {}),
       ...(links ? { links } : {}),
+      ...(props.approvals ? { approvals: props.approvals } : {}),
     }),
     [
       props.onRetry,
@@ -208,6 +211,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       props.onCopy,
       props.onReply,
       links,
+      props.approvals,
     ],
   );
   const fileDrop: FileDropTarget | undefined = attachments

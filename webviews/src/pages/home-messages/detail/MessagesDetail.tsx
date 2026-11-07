@@ -13,6 +13,7 @@ import type { HomeAttachment, HomeConversation, HomeMessage, HomeParticipant } f
 import { Button } from "../../../ui/Button";
 import { createStrings, type Strings } from "../../shared/i18n";
 import { pageError, type PageClient } from "../../shared/pageClient";
+import { APPROVAL_DECIDE_OP, ApprovalDecisions } from "../cards/approval/approval";
 import { FirstRunPanel } from "../cards/firstRun/FirstRunPanel";
 import { chiefIntroText, FIRST_RUN_OPS, starterPrompts } from "../cards/firstRun/firstRunModel";
 import { HEADER_PANELS, headerPanelItems } from "../cards/header/HeaderPanelBar";
@@ -98,6 +99,12 @@ export function MessagesDetail(props: MessagesDetailProps) {
       },
     }),
     [host, nav, store],
+  );
+
+  // A Chief's permission cards decide through the app, on the person's click only.
+  const approvals = useMemo(
+    () => (host ? new ApprovalDecisions((params) => host.call<unknown>(APPROVAL_DECIDE_OP, params)) : undefined),
+    [host],
   );
 
   // Message Requests: read at start, when the list changes size and after the sheet closes.
@@ -216,6 +223,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
     dictation,
     prepareFile,
     links,
+    approvals,
     transcript,
   };
 
@@ -341,6 +349,7 @@ interface ConversationViewProps {
   dictation?: DictationCall;
   prepareFile?: PrepareFile | undefined;
   links: RowLinks;
+  approvals: ApprovalDecisions | undefined;
   transcript: React.RefObject<MessagesTranscriptHandle | null>;
 }
 
@@ -430,6 +439,8 @@ function ConversationView(
         onReply={onReply}
         {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
         links={props.links}
+        {...(props.approvals ? { approvals: props.approvals } : {})}
+        {...(props.approvals ? { approvals: props.approvals } : {})}
         {...(firstRunShown
           ? {
               empty: (
@@ -535,6 +546,7 @@ function ThreadView(
       onReply={props.onReply}
       {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
       links={props.links}
+      {...(props.approvals ? { approvals: props.approvals } : {})}
     />
   );
 }
