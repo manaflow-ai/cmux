@@ -96,3 +96,19 @@ fn an_upload_plan_covers_a_large_file_exactly() {
     }
     assert_eq!(next, size);
 }
+
+#[test]
+fn sizes_and_offsets_past_u64_are_refused_not_wrapped() {
+    let max = u64::MAX;
+    let plan = call(
+        "upload_plan",
+        &json!({"attachment": {"byte_count": max, "poster": {"byte_count": 1}},
+                "needs": ["original", "poster"], "has_poster_file": true}),
+    )
+    .expect("a known rule");
+    assert_eq!(plan.unwrap_err().code(), "invalid");
+    let read = call("read_next", &json!({"offset": max, "received": 1})).expect("a known rule");
+    assert_eq!(read.unwrap_err().code(), "invalid");
+    let fits = call("read_next", &json!({"offset": max - 1, "received": 1})).expect("a known rule");
+    assert_eq!(fits.unwrap(), json!({"offset": max}));
+}

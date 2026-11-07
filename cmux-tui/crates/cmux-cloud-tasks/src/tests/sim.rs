@@ -113,12 +113,21 @@ impl Sim {
                 self.polls.remove(&id);
             }
             Effect::Answer { id, error } => {
-                self.answers.entry(id).or_default().push(error.map_or_else(|| Ok(answer.to_string()), Err));
+                self.answers
+                    .entry(id)
+                    .or_default()
+                    .push(error.map_or_else(|| Ok(answer.to_string()), Err));
             }
             Effect::Tell { record, outcome, replayed, card, mark_told } => {
                 let snapshot = if replayed { card } else { Some(answer.to_string()) };
                 let id = record.id.clone();
-                self.told.push(Told { record, outcome, replayed, snapshot, saved_then: self.saved.clone() });
+                self.told.push(Told {
+                    record,
+                    outcome,
+                    replayed,
+                    snapshot,
+                    saved_then: self.saved.clone(),
+                });
                 if mark_told {
                     self.event(Event::MarkTold { id });
                 }
@@ -152,9 +161,27 @@ impl Sim {
         let queue = self.script.entry(id.into()).or_default();
         let answer = if queue.len() > 1 { queue.pop_front() } else { queue.front().cloned() };
         let event = match &answer {
-            Some(Answer::Body(body)) => Event::Answer { id: id.into(), body: Some(body.clone()), status: None, failed: false, cancelled: false },
-            Some(Answer::Status(status)) => Event::Answer { id: id.into(), body: None, status: Some(*status), failed: true, cancelled: false },
-            None => Event::Answer { id: id.into(), body: None, status: Some(404), failed: true, cancelled: false },
+            Some(Answer::Body(body)) => Event::Answer {
+                id: id.into(),
+                body: Some(body.clone()),
+                status: None,
+                failed: false,
+                cancelled: false,
+            },
+            Some(Answer::Status(status)) => Event::Answer {
+                id: id.into(),
+                body: None,
+                status: Some(*status),
+                failed: true,
+                cancelled: false,
+            },
+            None => Event::Answer {
+                id: id.into(),
+                body: None,
+                status: Some(404),
+                failed: true,
+                cancelled: false,
+            },
         };
         let body = match answer {
             Some(Answer::Body(body)) => body,
@@ -210,7 +237,11 @@ impl Sim {
             }
             self.pass(&id);
         }
-        self.answers.get(&id).and_then(|answers| answers.get(before)).cloned().unwrap_or(Err(Failure::TimedOut { path }))
+        self.answers
+            .get(&id)
+            .and_then(|answers| answers.get(before))
+            .cloned()
+            .unwrap_or(Err(Failure::TimedOut { path }))
     }
 
     pub fn outcomes(&self) -> Vec<Outcome> {

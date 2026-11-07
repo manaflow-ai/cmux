@@ -953,6 +953,7 @@ mod rows_tests;
 #[cfg(test)]
 mod sidebar_face_tests;
 
+pub mod auto_archive;
 pub mod closing_panes;
 
 pub mod group_hover_summary;
@@ -961,6 +962,7 @@ pub mod optimistic;
 mod proofs;
 pub mod scroll;
 pub mod shown_resize;
+pub mod sidebar_bridge;
 pub mod sidebar_doc;
 pub mod sidebar_drag;
 pub mod sidebar_drop;

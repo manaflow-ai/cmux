@@ -7,8 +7,10 @@ use crate::model::Outcome;
 use crate::read;
 
 const RUNNING: &str = r#"{"run":{"id":"r1","status":"running"}}"#;
-const SUCCEEDED: &str = r#"{"run":{"id":"r1","status":"succeeded"},"receipt":{"status":"succeeded","exitCode":0}}"#;
-const CANCELLED: &str = r#"{"run":{"id":"r1","status":"cancelled"},"receipt":{"status":"cancelled"}}"#;
+const SUCCEEDED: &str =
+    r#"{"run":{"id":"r1","status":"succeeded"},"receipt":{"status":"succeeded","exitCode":0}}"#;
+const CANCELLED: &str =
+    r#"{"run":{"id":"r1","status":"cancelled"},"receipt":{"status":"cancelled"}}"#;
 
 fn timed_out(id: &str) -> Failure {
     Failure::TimedOut { path: format!("/api/runs/{id}") }
@@ -161,7 +163,10 @@ fn an_ended_runs_card_outlives_a_relaunch() {
     first.follow(run_record("r1", "u1")).unwrap();
     let relaunched = first.relaunch();
     let ended = relaunched.state.ended_run("r1").expect("kept");
-    assert_eq!((ended.record.key.as_str(), ended.record.task.as_str()), ("key-r1", "Fix the flaky test\nthen push"));
+    assert_eq!(
+        (ended.record.key.as_str(), ended.record.task.as_str()),
+        ("key-r1", "Fix the flaky test\nthen push")
+    );
     assert!(ended.outcome == Outcome::Succeeded && ended.told);
     assert_eq!(ended.card, read::card(SUCCEEDED));
     let receipt = serde_json::json!({"receipt": {"status": "succeeded", "exitCode": 0}});
@@ -186,7 +191,10 @@ fn a_relaunch_resumes_the_saved_runs_of_the_signed_in_user() {
     first.event(Event::Follow { record: run_record("r1", "u1") });
     first.run(1);
     first.stop();
-    assert_eq!(first.state.records.iter().map(|record| record.id.as_str()).collect::<Vec<_>>(), ["r1"]);
+    assert_eq!(
+        first.state.records.iter().map(|record| record.id.as_str()).collect::<Vec<_>>(),
+        ["r1"]
+    );
     let mut relaunched = first.relaunch();
     relaunched.script("r1", vec![body(SUCCEEDED)]);
     relaunched.account(None); // the session still loading keeps the saved Runs
@@ -235,10 +243,22 @@ fn a_run_unchanged_past_its_maximum_age_is_given_up() {
 fn a_poll_stopped_while_its_call_was_out_leaves_the_answer_to_the_next_launch() {
     let mut sim = Sim::launch(Kind::Runs, None);
     sim.event(Event::Follow { record: run_record("r1", "u1") });
-    let reply = sim.event(Event::Answer { id: "r1".into(), body: Some(SUCCEEDED.into()), status: None, failed: false, cancelled: true });
+    let reply = sim.event(Event::Answer {
+        id: "r1".into(),
+        body: Some(SUCCEEDED.into()),
+        status: None,
+        failed: false,
+        cancelled: true,
+    });
     assert!(reply.effects.is_empty());
     assert!(sim.state.knows("r1") && sim.state.ended.is_empty());
     // A 404 still drops it: the server no longer shows it.
-    sim.event(Event::Answer { id: "r1".into(), body: None, status: Some(404), failed: true, cancelled: true });
+    sim.event(Event::Answer {
+        id: "r1".into(),
+        body: None,
+        status: Some(404),
+        failed: true,
+        cancelled: true,
+    });
     assert!(!sim.state.knows("r1"));
 }

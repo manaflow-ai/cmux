@@ -48,5 +48,8 @@ fn an_incognito_runs_id_is_dropped_at_the_next_launchs_sign_in() {
     first.stop();
     let mut relaunched = first.relaunch();
     relaunched.account(Some("u"));
-    assert!(!relaunched.saved_text().contains("run_secret"), "an incognito Run's id outlived the launch that could follow it");
+    assert!(
+        !relaunched.saved_text().contains("run_secret"),
+        "an incognito Run's id outlived the launch that could follow it"
+    );
 }

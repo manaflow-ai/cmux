@@ -22,7 +22,8 @@ pub enum Read {
 }
 
 /// The Run API's statuses.
-const RUN_STATUSES: [&str; 6] = ["queued", "running", "cancelling", "succeeded", "failed", "cancelled"];
+const RUN_STATUSES: [&str; 6] =
+    ["queued", "running", "cancelling", "succeeded", "failed", "cancelled"];
 
 fn object(body: &str) -> Option<Map<String, Value>> {
     match serde_json::from_str::<Value>(body).ok()? {
@@ -35,7 +36,10 @@ fn object(body: &str) -> Option<Map<String, Value>> {
 pub(crate) fn integer(value: &Value) -> Option<i64> {
     value.as_i64().or_else(|| {
         // A whole number within f64's exact integers, so the cast loses nothing.
-        value.as_f64().filter(|number| number.fract() == 0.0 && number.abs() < 9.0e15).map(|number| number as i64)
+        value
+            .as_f64()
+            .filter(|number| number.fract() == 0.0 && number.abs() < 9.0e15)
+            .map(|number| number as i64)
     })
 }
 
@@ -44,19 +48,27 @@ pub(crate) fn integer(value: &Value) -> Option<i64> {
 /// status the Run API has not, is unreadable, never an end.
 pub fn run(body: &str) -> Read {
     let Some(snapshot) = object(body) else { return Read::Unreadable };
-    let status = snapshot.get("run").and_then(Value::as_object).and_then(|run| run.get("status")).and_then(Value::as_str);
+    let status = snapshot
+        .get("run")
+        .and_then(Value::as_object)
+        .and_then(|run| run.get("status"))
+        .and_then(Value::as_str);
     if !status.is_some_and(|status| RUN_STATUSES.contains(&status)) {
         return Read::Unreadable;
     }
     let receipt = match snapshot.get("receipt") {
-        None | Some(Value::Null) => return Read::Going { cursor: None, notice: None, running: false },
+        None | Some(Value::Null) => {
+            return Read::Going { cursor: None, notice: None, running: false };
+        }
         Some(Value::Object(receipt)) => receipt,
         Some(_) => return Read::Unreadable,
     };
     match receipt.get("status").and_then(Value::as_str) {
         Some("succeeded") => Read::Ended(Outcome::Succeeded),
         Some("cancelled") => Read::Ended(Outcome::Cancelled),
-        Some("failed") if receipt.get("timedOut") == Some(&Value::Bool(true)) => Read::Ended(Outcome::TimedOut),
+        Some("failed") if receipt.get("timedOut") == Some(&Value::Bool(true)) => {
+            Read::Ended(Outcome::TimedOut)
+        }
         Some("failed") => Read::Ended(Outcome::Failed),
         _ => Read::Unreadable,
     }
@@ -67,8 +79,13 @@ pub fn run(body: &str) -> Read {
 /// failed or cancel.
 pub fn handoff(body: &str) -> Read {
     let Some(object) = object(body) else { return Read::Unreadable };
-    let Some(handoff) = object.get("handoff").and_then(Value::as_object) else { return Read::Unreadable };
-    let status = handoff.get("status").and_then(Value::as_str).filter(|status| handoff::STATUSES.contains(status));
+    let Some(handoff) = object.get("handoff").and_then(Value::as_object) else {
+        return Read::Unreadable;
+    };
+    let status = handoff
+        .get("status")
+        .and_then(Value::as_str)
+        .filter(|status| handoff::STATUSES.contains(status));
     let (Some(status), Some(version)) = (status, handoff.get("version").and_then(integer)) else {
         return Read::Unreadable;
     };
@@ -78,7 +95,8 @@ pub fn handoff(body: &str) -> Read {
         return Read::Unreadable;
     }
     let notice = handoff::notice(status, turn);
-    let closed = state.map_or_else(|| handoff::TURN_ENDS.contains(&status), |state| state == "closed");
+    let closed =
+        state.map_or_else(|| handoff::TURN_ENDS.contains(&status), |state| state == "closed");
     if closed {
         Read::Closed(notice)
     } else {
@@ -103,10 +121,17 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut text = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let bits = chunk.iter().enumerate().fold(0u32, |bits, (index, byte)| bits | u32::from(*byte) << (16 - 8 * index));
+        let bits = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |bits, (index, byte)| bits | u32::from(*byte) << (16 - 8 * index));
         for index in 0..4 {
             if index <= chunk.len() {
-                text.push(ALPHABET.get((bits >> (18 - 6 * index) & 63) as usize).map_or('=', |c| char::from(*c)));
+                text.push(
+                    ALPHABET
+                        .get((bits >> (18 - 6 * index) & 63) as usize)
+                        .map_or('=', |c| char::from(*c)),
+                );
             } else {
                 text.push('=');
             }

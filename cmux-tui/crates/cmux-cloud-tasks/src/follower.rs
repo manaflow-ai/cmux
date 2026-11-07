@@ -43,7 +43,11 @@ impl Kind {
 
     /// Whether an end (a Run's `ended` read) is told.
     pub fn tells(self, outcome: Outcome) -> bool {
-        self == Kind::Runs && matches!(outcome, Outcome::Succeeded | Outcome::Failed | Outcome::TimedOut | Outcome::Cancelled)
+        self == Kind::Runs
+            && matches!(
+                outcome,
+                Outcome::Succeeded | Outcome::Failed | Outcome::TimedOut | Outcome::Cancelled
+            )
     }
 
     /// The path errors name.
@@ -241,7 +245,9 @@ impl Follower {
             Event::MarkTold { id } => self.mark_told(&id),
             Event::ForgetOld => self.prune(),
             Event::Poll { id, heard } => self.poll(&id, heard),
-            Event::Answer { id, body, status, failed, cancelled } => self.answer(&id, body, status, failed, cancelled),
+            Event::Answer { id, body, status, failed, cancelled } => {
+                self.answer(&id, body, status, failed, cancelled);
+            }
         }
     }
 
@@ -254,7 +260,11 @@ impl Follower {
         }
         let signed_out = user.is_none() && self.reply.state.user.is_some();
         self.state().user.clone_from(&user);
-        let dropped: Vec<String> = self.reply.state.records.iter()
+        let dropped: Vec<String> = self
+            .reply
+            .state
+            .records
+            .iter()
             .filter(|record| signed_out || user.as_ref().is_some_and(|user| &record.user != user))
             .map(|record| record.id.clone())
             .collect();
@@ -268,7 +278,8 @@ impl Follower {
             self.prune_incognito(&[], None);
         }
         self.tell_untold(&user);
-        let ids: Vec<String> = self.reply.state.records.iter().map(|record| record.id.clone()).collect();
+        let ids: Vec<String> =
+            self.reply.state.records.iter().map(|record| record.id.clone()).collect();
         for id in ids {
             self.effect(Effect::Start { id });
         }
@@ -336,9 +347,15 @@ impl Follower {
     /// `listed`: their task ended while the app was stopped, so nothing else would remove them (#31208).
     fn prune_incognito(&mut self, listed: &[String], owner: Option<&str>) {
         let state = &self.reply.state;
-        let gone: Vec<String> = state.incognito.iter()
+        let gone: Vec<String> = state
+            .incognito
+            .iter()
             .filter(|id| state.record(id).is_none() && !listed.contains(*id))
-            .filter(|id| owner.is_none_or(|owner| state.incognito_owners.get(*id).map_or(owner, String::as_str) == owner))
+            .filter(|id| {
+                owner.is_none_or(|owner| {
+                    state.incognito_owners.get(*id).map_or(owner, String::as_str) == owner
+                })
+            })
             .cloned()
             .collect();
         if gone.is_empty() {
@@ -372,7 +389,10 @@ impl Follower {
     }
 
     fn mark_told(&mut self, id: &str) {
-        let Some(ended) = self.state().ended.iter_mut().rev().find(|ended| ended.record.id == id) else { return };
+        let Some(ended) = self.state().ended.iter_mut().rev().find(|ended| ended.record.id == id)
+        else {
+            return;
+        };
         if ended.told {
             return;
         }
@@ -383,9 +403,22 @@ impl Follower {
     /// Tells the ends of `user`'s tasks that were saved but not told (the app quit or crashed
     /// between the two). Each is marked by its listener once its banner is handled.
     fn tell_untold(&mut self, user: &str) {
-        let untold: Vec<Ended> = self.reply.state.ended.iter().filter(|ended| !ended.told && ended.record.user == user).cloned().collect();
+        let untold: Vec<Ended> = self
+            .reply
+            .state
+            .ended
+            .iter()
+            .filter(|ended| !ended.told && ended.record.user == user)
+            .cloned()
+            .collect();
         for ended in untold {
-            self.effect(Effect::Tell { record: ended.record, outcome: ended.outcome, replayed: true, card: ended.card, mark_told: false });
+            self.effect(Effect::Tell {
+                record: ended.record,
+                outcome: ended.outcome,
+                replayed: true,
+                card: ended.card,
+                mark_told: false,
+            });
         }
     }
 
@@ -393,7 +426,11 @@ impl Follower {
     fn prune(&mut self) {
         let cutoff = self.now - KEPT_ENDED;
         let ended = &mut self.state().ended;
-        let old: Vec<String> = ended.iter().filter(|ended| ended.at < cutoff).map(|ended| ended.record.id.clone()).collect();
+        let old: Vec<String> = ended
+            .iter()
+            .filter(|ended| ended.at < cutoff)
+            .map(|ended| ended.record.id.clone())
+            .collect();
         if old.is_empty() {
             return;
         }
@@ -414,7 +451,11 @@ impl Follower {
     /// silent (`heard`); any other task after the maximum age since it changed.
     fn poll(&mut self, id: &str, heard: Time) {
         let Some(record) = self.reply.state.record(id) else { return };
-        let since = if record.running == Some(true) { heard } else { record.changed.unwrap_or(record.started) };
+        let since = if record.running == Some(true) {
+            heard
+        } else {
+            record.changed.unwrap_or(record.started)
+        };
         if self.now - since >= self.kind.maximum_age() {
             let error = self.timed_out(id);
             return self.drop_task(id, error);
@@ -422,7 +463,14 @@ impl Follower {
         self.reply.wait = Some(Wait { cursor: record.cursor, team: record.team.clone() });
     }
 
-    fn answer(&mut self, id: &str, body: Option<String>, status: Option<u16>, failed: bool, cancelled: bool) {
+    fn answer(
+        &mut self,
+        id: &str,
+        body: Option<String>,
+        status: Option<u16>,
+        failed: bool,
+        cancelled: bool,
+    ) {
         if failed && matches!(status, Some(403 | 404)) {
             // The server doesn't show this task to this account any more: nothing to wait for.
             self.forget_incognito(id);
@@ -463,17 +511,31 @@ impl Follower {
     fn end(&mut self, id: &str, outcome: Outcome, snapshot: &str, silent: bool) -> Next {
         let Some(record) = self.state().remove_record(id) else { return Next::Stop };
         let state = &self.reply.state;
-        let silent = silent || (state.cancelled.iter().any(|kept| kept == id) && outcome == Outcome::Cancelled) || !self.kind.tells(outcome);
+        let silent = silent
+            || (state.cancelled.iter().any(|kept| kept == id) && outcome == Outcome::Cancelled)
+            || !self.kind.tells(outcome);
         self.state().cancelled.retain(|kept| kept != id);
         self.forget_incognito(id);
-        let ended = Ended { record: record.clone(), outcome, card: read::card(snapshot), at: self.now, told: silent };
+        let ended = Ended {
+            record: record.clone(),
+            outcome,
+            card: read::card(snapshot),
+            at: self.now,
+            told: silent,
+        };
         self.state().ended.push(ended);
         self.prune();
         self.effect(Effect::Save);
         self.effect(Effect::ClearPoll { id: id.into() });
         self.effect(Effect::Answer { id: id.into(), error: None });
         if !silent {
-            self.effect(Effect::Tell { record, outcome, replayed: false, card: None, mark_told: true });
+            self.effect(Effect::Tell {
+                record,
+                outcome,
+                replayed: false,
+                card: None,
+                mark_told: true,
+            });
         }
         Next::Stop
     }
@@ -481,11 +543,19 @@ impl Follower {
     /// Task `id` goes on at `cursor` (none: where it was), its turn `running` or not (none: as it
     /// was); `notice` is told unless its key was. Saved after it is told: a crash in between tells
     /// it again at the next launch (its banner, of the same id, replaces the first), never loses it.
-    fn notice(&mut self, id: &str, notice: Option<&Notice>, cursor: Option<i64>, running: Option<bool>) {
+    fn notice(
+        &mut self,
+        id: &str,
+        notice: Option<&Notice>,
+        cursor: Option<i64>,
+        running: Option<bool>,
+    ) {
         let now = self.now;
         let Some(record) = self.state().record_mut(id) else { return };
         let moved = cursor.is_some() && cursor != record.cursor;
-        let fresh = notice.is_some_and(|notice| !record.told.as_ref().is_some_and(|told| told.contains(&notice.key)));
+        let fresh = notice.is_some_and(|notice| {
+            !record.told.as_ref().is_some_and(|told| told.contains(&notice.key))
+        });
         let ran = running.is_some_and(|running| running != record.running.unwrap_or(false));
         if !(moved || fresh || ran) {
             return;
@@ -511,7 +581,13 @@ impl Follower {
             _ => None,
         };
         if let Some((record, outcome)) = told {
-            self.effect(Effect::Tell { record, outcome, replayed: false, card: None, mark_told: false });
+            self.effect(Effect::Tell {
+                record,
+                outcome,
+                replayed: false,
+                card: None,
+                mark_told: false,
+            });
         }
         self.effect(Effect::Save);
     }

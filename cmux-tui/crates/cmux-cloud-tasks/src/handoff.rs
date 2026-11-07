@@ -48,15 +48,21 @@ pub fn millis(time: &serde_json::Value) -> Option<f64> {
 pub fn iso_millis(text: &str) -> Option<f64> {
     let (date, rest) = text.split_once('T')?;
     let mut date = date.split('-');
-    let (year, month, day) = (number(date.next()?, 4)?, number(date.next()?, 2)?, number(date.next()?, 2)?);
-    if date.next().is_some() || !(1..=12).contains(&month) || !(1..=days_in(year, month)).contains(&day) {
+    let (year, month, day) =
+        (number(date.next()?, 4)?, number(date.next()?, 2)?, number(date.next()?, 2)?);
+    if date.next().is_some()
+        || !(1..=12).contains(&month)
+        || !(1..=days_in(year, month)).contains(&day)
+    {
         return None;
     }
     let zone_at = rest.find(['Z', 'z', '+', '-'])?;
     let (time, zone) = rest.split_at(zone_at);
-    let (clock, fraction) = time.split_once('.').map_or((time, None), |(clock, fraction)| (clock, Some(fraction)));
+    let (clock, fraction) =
+        time.split_once('.').map_or((time, None), |(clock, fraction)| (clock, Some(fraction)));
     let mut clock = clock.split(':');
-    let (hour, minute, second) = (number(clock.next()?, 2)?, number(clock.next()?, 2)?, number(clock.next()?, 2)?);
+    let (hour, minute, second) =
+        (number(clock.next()?, 2)?, number(clock.next()?, 2)?, number(clock.next()?, 2)?);
     if clock.next().is_some() || hour > 23 || minute > 59 || second > 60 {
         return None;
     }
@@ -68,13 +74,16 @@ pub fn iso_millis(text: &str) -> Option<f64> {
         Some(_) => return None,
     };
     let offset = zone_offset(zone)?;
-    let seconds = days_from_civil(year, month, day) * 86_400 + hour * 3_600 + minute * 60 + second - offset;
+    let seconds =
+        days_from_civil(year, month, day) * 86_400 + hour * 3_600 + minute * 60 + second - offset;
     Some((seconds as f64 + fraction) * 1_000.0)
 }
 
 /// Exactly `width` ASCII digits.
 fn number(text: &str, width: usize) -> Option<i64> {
-    (text.len() == width && text.bytes().all(|byte| byte.is_ascii_digit())).then(|| text.parse().ok()).flatten()
+    (text.len() == width && text.bytes().all(|byte| byte.is_ascii_digit()))
+        .then(|| text.parse().ok())
+        .flatten()
 }
 
 /// `Z`, `±hh:mm` or `±hhmm`, as seconds east of UTC.
