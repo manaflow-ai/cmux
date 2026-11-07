@@ -82,16 +82,36 @@ fn locked_reply(message: &Value) -> Option<Value> {
 }
 
 /// `acpmux cua-lock-gate -- CMD ARGS`: runs CMD as the agent's MCP server, passing its stdio
-/// through line by line, and answers gated calls itself. Ends when either side closes: the
-/// process exits then, since a read of stdin cannot be cancelled and would hold it open.
+/// through line by line, and answers gated calls itself. Ends when either side closes.
 pub async fn run(args: &[String]) -> Result<()> {
     let args = args.strip_prefix(&["--".to_owned()]).unwrap_or(args);
     let (program, rest) =
         args.split_first().ok_or_else(|| anyhow!("{COMMAND}: no server command"))?;
     crate::parent_watch::exit_with_parent();
-    let stdin = BufReader::new(tokio::io::stdin());
-    run_with(program, rest, stdin, tokio::io::stdout(), crate::mac_lock::locked).await?;
-    std::process::exit(0)
+    let stdin = BufReader::new(stdin_feed());
+    run_with(program, rest, stdin, tokio::io::stdout(), crate::mac_lock::locked).await
+}
+
+/// This process's stdin, read on a thread of its own. Tokio's stdin reads on its blocking pool,
+/// and that read cannot be cancelled: once the helper is gone, the runtime would wait on it at
+/// the end until the agent wrote another line. A plain thread ends with the process.
+fn stdin_feed() -> tokio::io::DuplexStream {
+    let (mut feed, input) = tokio::io::duplex(1 << 16);
+    let handle = tokio::runtime::Handle::current();
+    std::thread::spawn(move || {
+        let mut stdin = std::io::stdin().lock();
+        let mut buf = [0u8; 8192];
+        loop {
+            let read = match std::io::Read::read(&mut stdin, &mut buf) {
+                Ok(0) | Err(_) => return, // the agent closed its side: `feed` drops, input ends
+                Ok(n) => buf.get(..n).unwrap_or_default(),
+            };
+            if handle.block_on(feed.write_all(read)).is_err() {
+                return; // the gate ended
+            }
+        }
+    });
+    input
 }
 
 /// [`run`] over the given agent side, with the screen lock read passed in.
