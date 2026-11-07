@@ -37,7 +37,7 @@ import { attachSources } from "./attachmentSources";
 import { SourceBadge, useSourceLabel, withSourceLabel } from "./SourceBadge";
 import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
-import { FADE_BAND_PX } from "../MarkdownField";
+import { FADE_BAND_PX } from "../markdownFieldModel";
 import { useScrollEdges } from "../summary/scrollEdges";
 import { isVideoAttachment, isVideoName, useVideoInfo, useVideoReading } from "./videoAttachments";
 import { useAttachedVideoPlayer, VideoAttachmentTile } from "./VideoAttachmentTile";

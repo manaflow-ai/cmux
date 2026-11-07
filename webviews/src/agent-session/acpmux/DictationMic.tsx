@@ -7,7 +7,7 @@
 // waveform, ↵, mic, as Claude's composer does.
 import React from "react";
 import { HideableChrome } from "../../ui/HideableChrome";
-import { useComposerChrome } from "./composerChrome";
+import { useComposerChrome } from "./composerChromeModel";
 import { isActive, type Dictation } from "./dictation";
 import { DictationButton } from "./DictationButton";
 import { DictationStrip } from "./DictationListening";
