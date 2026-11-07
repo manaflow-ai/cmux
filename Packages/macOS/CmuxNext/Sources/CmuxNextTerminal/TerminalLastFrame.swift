@@ -20,12 +20,22 @@ public final class TerminalLastFrame {
     public let showsOutput: Bool
 
     /// The frame `session` presents now; nil before its first draw.
-    public init?(of session: TerminalSession, showsOutput: Bool = true) {
+    public convenience init?(of session: TerminalSession, showsOutput: Bool = true) {
         guard let surface = session.surfaceView.presentedFrame else { return nil }
+        self.init(surface: surface, showsOutput: showsOutput)
+    }
+
+    /// `surface` as a kept frame (volatile from now on).
+    init(surface: IOSurface, showsOutput: Bool) {
         self.surface = surface
         self.showsOutput = showsOutput
+        bytes = UInt64(max(0, surface.allocationSize))
         surface.makeVolatile()
     }
+
+    /// The frame's memory: its drawable's allocation, the size of the pane it came from (``TerminalLastFrames``
+    /// counts these against its bound).
+    public let bytes: UInt64
 
     /// The frame for a new surface that shows it from now on (non-volatile for good); nil when the
     /// system purged it.

@@ -73,7 +73,7 @@ import Testing
         #expect(fresh.diagnostics.lastFrameHolds == 1, "the revealed terminal showed no last frame: an empty pane in the switch frame (\(frames.report))")
     }
 
-    /// Review of #32315: the store now keeps up to 152 frames, so a closed tab's frame must go with the tab, not
+    /// Review of #32315: the store now keeps frames within 1/32 of physical memory, so a closed tab's frame must go with the tab, not
     /// wait for later evictions to push it out.
     @Test func aClosedTabsLastFrameGoesWithIt() async throws {
         _ = NSApplication.shared
