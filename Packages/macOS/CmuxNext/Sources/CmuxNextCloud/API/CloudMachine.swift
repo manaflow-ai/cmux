@@ -182,6 +182,15 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     /// The cmux-next record's `desktop`: the machine serves its agent display over the link.
     public var servesDesktop = false
 
+    /// The crate's JSON names two fields as the classic record does.
+    enum CodingKeys: String, CodingKey {
+        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, team, address, size
+        case declaredCapabilities = "capabilities"
+        case pauseReason, idlePauseMinutes, idlePause, hourlyRateUsd, updatedAt, serverRevision, runningSince, sizePick
+        case lastChangeFailure = "error"
+        case pendingChange, pendingMutationID, failedMutationID, servesDesktop
+    }
+
     /// The status the app shows: a change sent from here, else the record's.
     public var shownStatus: Status { pendingChange ?? status }
 
