@@ -22,7 +22,7 @@
 // Measuring: each toast's natural height is read once per change of the toasts or of the deck's
 // width (a ResizeObserver on the deck, disconnected on unmount), never per frame. A drag writes
 // the card's offset straight to its style, so a pointer move renders nothing.
-import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   anchorPoint,
   createDrag,
@@ -157,6 +157,7 @@ export function NoticeDeck({
   edge = "bottom",
   drag,
   flights,
+  onHold,
 }: {
   entries: readonly NoticeEntry[];
   /** Spread whatever the pointer does. Otherwise it spreads while the pointer or focus is in it. */
@@ -168,6 +169,10 @@ export function NoticeDeck({
   drag?: DeckDrag;
   /** Shared by the stack's decks: a card dropped here from another deck flies in from there. */
   flights?: Flights;
+  /** Whether the pointer, focus or a drag is in this deck: the stack's time stops while any is.
+   *  The deck owns it because it may be drawn in another host (the top anchors), outside the
+   *  stack's own element. */
+  onHold?(held: boolean): void;
 }) {
   // Newest first: the front card is first in the DOM, so Tab reaches it first.
   const [cards, setCards] = useState<Card[]>(() =>
@@ -226,6 +231,13 @@ export function NoticeDeck({
     setHovered(element.matches(":hover"));
     setFocused(element.contains(document.activeElement));
   }, [entries]);
+
+  const holding = hovered || focused || held !== undefined;
+  useEffect(() => {
+    onHold?.(holding);
+  }, [holding, onHold]);
+  // Unmounted: it holds nothing.
+  useEffect(() => () => onHold?.(false), [onHold]);
 
   // Natural heights, read once per change of the cards or of the deck's width.
   useLayoutEffect(() => {
