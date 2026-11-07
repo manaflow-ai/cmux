@@ -83,10 +83,32 @@ extension ScreenContentView {
             guard placed != view.frame else { continue }
             ServerSpring.carry(view, from: placed, token: motion.token, begin: begin)
         }
+        // The layout's ticks run until the springs end (`LayoutRootView.advanceFrame`): Reduce Motion or the window going
+        // out of sight lands them there.
+        context.requestFrames()
     }
 }
 
 extension ScreenContentView {
+    /// A render-server slide still runs on a host or divider of this screen (its frames are already at rest).
+    var hasServerMotion: Bool {
+        serverMotion != nil || paneFrames.keys.contains { context.hosts[$0].map(ServerSpring.isCarrying) == true }
+            || dividerViews.values.contains(where: ServerSpring.isCarrying)
+    }
+
+    /// Lands a render-server slide now (Reduce Motion, the window or its screen out of sight, a parked workspace): its
+    /// springs go and every host, divider and ring shows its frame at rest, which is where the model already is.
+    func stopServerMotion() {
+        serverMotion = nil
+        for pane in paneFrames.keys {
+            guard let host = context.hosts[pane] else { continue }
+            host.serverMotion = nil
+            ServerSpring.stop(host)
+            ServerSpring.stop(host.chrome)
+        }
+        for view in dividerViews.values { ServerSpring.stop(view) }
+    }
+
     /// A new layout takes over (any `reconcile`: a close or another split mid-slide, a resize, Reduce Motion): the
     /// render-server springs still running go, and each frame they carried takes the place it shows now as its spring's
     /// value, so the new change springs (or snaps) from what is on screen. Left running, their offset would add to the
@@ -138,6 +160,11 @@ enum ServerSpring {
         let local = layer.convertTime(begin, from: nil)
         if position != .zero { add(spring(token, "position", from: NSValue(point: position), to: NSValue(point: .zero), travel: travel), to: layer, at: local, "position") }
         if size != .zero { add(spring(token, "bounds.size", from: NSValue(size: size), to: NSValue(size: .zero), travel: travel), to: layer, at: local, "size") }
+    }
+
+    /// Whether ``carry(_:from:token:begin:)``'s springs still run on `view`.
+    static func isCarrying(_ view: NSView) -> Bool {
+        view.layer?.animationKeys()?.contains { $0.hasPrefix("\(key).") } == true
     }
 
     /// Takes ``carry(_:from:token:begin:)``'s springs off `view` and returns the frame it showed with them (its

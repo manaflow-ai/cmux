@@ -182,6 +182,8 @@ final class ScreenContentView: NSView {
         defer { if resizeGesture == .landing { finishResizeGesture() } }
         defer { releaseClosing() }
         presentHeldSnap()
+        // A render-server slide lands with the rest: its frames are already at rest, so only its springs go.
+        stopServerMotion()
         guard hasMotion else { return }
         reconcileAndScroll()
     }

@@ -102,6 +102,22 @@ struct ChatSlideOnRenderServerTests {
         for divider in view.dividerViews.values { #expect(screen.springs(on: divider).isEmpty) }
     }
 
+    /// Reduce Motion turned on or the window out of sight mid-slide (`landMotion`) lands it: no spring is left to run
+    /// or to play again when the window shows (review F1 at a5b95568).
+    @Test func landingTheLayoutStopsARenderServerSlide() throws {
+        let screen = Screen(.leaf("chat"), holding: ["chat"])
+        defer { screen.window.closeAfterTest() }
+        screen.show(Self.opened)
+        let view = try #require(screen.screen)
+        #expect(view.hasServerMotion)
+        screen.root.landMotion()
+        #expect(!view.hasServerMotion)
+        for host in view.displayedHosts {
+            #expect(screen.springs(on: host).isEmpty && screen.springs(on: host.chrome).isEmpty)
+        }
+        for divider in view.dividerViews.values { #expect(screen.springs(on: divider).isEmpty) }
+    }
+
     /// Cmd-D in a pane that lays out live (a terminal) keeps the main-thread spring, which lays it out on every frame.
     @Test func aSplitOfAPaneThatDoesNotHoldItsContentStaysOnTheMainThread() throws {
         let screen = Screen(.leaf("chat"), holding: [])

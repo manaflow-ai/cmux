@@ -495,7 +495,7 @@ public final class LayoutRootView: NSView {
         let input = LayoutFrameInput(root: self)
         input.apply()
         for view in screenViews.values {
-            if view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
+            if view.hasMotion || view.hasServerMotion || view.resizeGesture == .landing { view.settleMotion() }
             view.settleCanvasCamera()
         }
         for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
@@ -532,6 +532,9 @@ public final class LayoutRootView: NSView {
             // Pan events that waited in the last frame show first, then the springs step.
             if view.displayFrameBegan() { panning = true }
             if view.step(dt, policy: policy) { moving = true }
+            // A render-server slide keeps the ticks (no work in them) so Reduce Motion or the window leaving sight lands
+            // it (`landMotion`), and what waits for a still layout waits for its end.
+            if view.hasServerMotion { moving = true }
             if view.stepCanvasCamera(dt, policy: policy) { moving = true }
         }
         input.presentWaiting()
