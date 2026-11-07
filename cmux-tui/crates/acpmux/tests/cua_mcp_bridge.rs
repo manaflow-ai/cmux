@@ -46,6 +46,11 @@ impl Drop for Dir {
     }
 }
 
+/// What a current helper lists in its admission reply (`ConsentGate`).
+const CAPABILITIES: [&str; 2] = ["machine-consent-gate-v1", "screen-lock-at-execution-v1"];
+/// A current helper's admission reply line.
+const HELLO: &str = "{\"ok\":true,\"protocol\":1,\"capabilities\":[\"machine-consent-gate-v1\",\"screen-lock-at-execution-v1\"]}\n";
+
 /// Writes endpoint.json with `mode` and starts a stand-in helper on `h.sock`
 /// that records the first line it gets and answers the MCP bridge.
 fn stand_in(dir: &Path, mode: u32) -> std::sync::mpsc::Receiver<String> {
@@ -66,7 +71,8 @@ fn stand_in(dir: &Path, mode: u32) -> std::sync::mpsc::Receiver<String> {
         let mut lines = BufReader::new(stream).lines();
         let Some(Ok(first)) = lines.next() else { return };
         let _ = tx.send(first);
-        writeln!(writer, "{}", json!({"ok": true, "protocol": 1})).unwrap();
+        writeln!(writer, "{}", json!({"ok": true, "protocol": 1, "capabilities": CAPABILITIES}))
+            .unwrap();
         while let Some(Ok(line)) = lines.next() {
             let request: Value = serde_json::from_str(&line).unwrap();
             if request["method"] == "machine/consent" {
@@ -330,7 +336,7 @@ async fn in_memory_target_scope_cannot_come_from_the_bridge_or_arguments() {
         server.read_line(&mut line).await.unwrap();
         let hello: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(hello, json!({"secret": SECRET}));
-        server.get_mut().write_all(b"{\"ok\":true,\"protocol\":1}\n").await.unwrap();
+        server.get_mut().write_all(HELLO.as_bytes()).await.unwrap();
         line.clear();
         server.read_line(&mut line).await.unwrap();
         let mut request: Value = serde_json::from_str(&line).unwrap();
@@ -374,7 +380,7 @@ async fn missing_failed_or_malformed_host_consent_never_forwards_a_tool() {
             let mut server = tokio::io::BufReader::new(server);
             let mut line = String::new();
             server.read_line(&mut line).await.unwrap();
-            server.get_mut().write_all(b"{\"ok\":true,\"protocol\":1}\n").await.unwrap();
+            server.get_mut().write_all(HELLO.as_bytes()).await.unwrap();
             line.clear();
             server.read_line(&mut line).await.unwrap();
             let request: Value = serde_json::from_str(&line).unwrap();
@@ -463,7 +469,7 @@ async fn a_call_whose_mac_locks_during_the_consent_wait_never_reaches_the_helper
             let mut server = tokio::io::BufReader::new(server);
             let mut line = String::new();
             server.read_line(&mut line).await.unwrap();
-            server.get_mut().write_all(b"{\"ok\":true,\"protocol\":1}\n").await.unwrap();
+            server.get_mut().write_all(HELLO.as_bytes()).await.unwrap();
             line.clear();
             server.read_line(&mut line).await.unwrap();
             let request: Value = serde_json::from_str(&line).unwrap();

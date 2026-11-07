@@ -390,7 +390,7 @@ import Testing
 
     @Test(.timeLimit(.minutes(1))) func theAdmissionReplyAdvertisesTheConsentGate() throws {
         let client = try Client(tools: UnavailableTools(reason: "test"), consent: UnavailableConsent())
-        #expect(client.admitted["capabilities"] as? [String] == [ConsentGate.capability])
+        #expect(client.admitted["capabilities"] as? [String] == [ConsentGate.capability, ConsentGate.lockCapability])
         #expect(ConsentGate.capability == "machine-consent-gate-v1")
     }
 
@@ -400,6 +400,7 @@ import Testing
         let client = try Client(tools: UnavailableTools(reason: "test"), consent: UnavailableConsent())
         let capabilities = client.admitted["capabilities"] as? [String] ?? []
         #expect(capabilities.contains("screen-lock-at-execution-v1"), "\(capabilities)")
+        #expect(ConsentGate.lockCapability == "screen-lock-at-execution-v1")
         #expect(capabilities.contains("machine-consent-gate-v1"), "\(capabilities)")
     }
 

@@ -102,7 +102,10 @@ Narrowing it to -34018 is a Swift change for its own PR.
   when the helper does. The lock is read again where a call runs, after every wait: the v2 bridge
   reads it after the helper connection and the consent answer, just before it sends the call, and
   the helper reads it in its consent gate (`ConsentGate.admit`), after the target check, the
-  takeover wait and the consent answer, with no await before the driver runs. The legacy
+  takeover wait and the consent answer, with no await before the driver runs. The helper says so in
+  its admission reply (`screen-lock-at-execution-v1`), and the bridge sends no call to a helper
+  that does not (a DEV build's prebuilt helper from before the check): each call gets
+  `cua_helper_outdated`. The legacy
   `cmux-cua` reads it in its tool registry after its last consent check, right before dispatch
   (`scripts/cmux-cua-lock-at-execution.patch`). Only the process that knows where a call runs says
   so in its `initialize` answer (`capabilities.experimental["cmux/lock-at-execution-v2"]`): the

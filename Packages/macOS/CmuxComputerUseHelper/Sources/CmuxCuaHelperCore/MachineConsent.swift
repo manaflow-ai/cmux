@@ -276,6 +276,9 @@ public final class ConsentGate: Sendable {
     /// Advertised in the socket's admission reply: every tool call passes
     /// the machine-consent gate at execution.
     public static let capability = "machine-consent-gate-v1"
+    /// Advertised in the socket's admission reply: `admit` reads the screen lock after its last
+    /// await, so no tool runs on a locked screen. acpmux sends no call to a helper without it.
+    public static let lockCapability = "screen-lock-at-execution-v1"
 
     public let authority: any MachineConsentAuthority
     /// Names of tools whose `tools/list` entry is read-only (observe); every

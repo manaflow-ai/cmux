@@ -156,7 +156,16 @@ pub fn read_endpoint(dir: &Path) -> Result<Endpoint> {
 pub struct Helper<S> {
     stream: BufReader<S>,
     next_id: u64,
+    /// Whether the admission reply listed [`LOCK_CAPABILITY`]: the helper reads the screen lock
+    /// right before a tool runs. A helper without it gets no call.
+    checks_lock: bool,
 }
+
+/// The admission capability of a helper that reads the screen lock after its last await before
+/// a tool runs (`ConsentGate.lockCapability`). A call can wait in the helper (on consent, on a
+/// takeover) after this bridge read the lock, so only such a helper is sent one; a DEV build's
+/// prebuilt helper from before the check is not (review of #37239, round 8).
+pub const LOCK_CAPABILITY: &str = "screen-lock-at-execution-v1";
 
 #[cfg(unix)]
 impl Helper<UnixStream> {
@@ -182,7 +191,7 @@ impl Helper<UnixStream> {
 impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
     /// Sends the secret and reads the helper's answer.
     pub async fn admit(stream: S, secret: &str) -> Result<Self> {
-        let mut helper = Helper { stream: BufReader::new(stream), next_id: 1 };
+        let mut helper = Helper { stream: BufReader::new(stream), next_id: 1, checks_lock: false };
         helper.send(&json!({ "secret": secret })).await?;
         let hello = helper.receive().await?;
         if hello["ok"] != json!(true) {
@@ -191,6 +200,9 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
                 hello["reason"].as_str().unwrap_or("no reason")
             );
         }
+        helper.checks_lock = hello["capabilities"]
+            .as_array()
+            .is_some_and(|capabilities| capabilities.iter().any(|c| c == LOCK_CAPABILITY));
         Ok(helper)
     }
 
@@ -205,6 +217,9 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         locked: impl Fn() -> bool,
     ) -> Result<Value> {
         if method == "tools/call" {
+            if !self.checks_lock {
+                bail!(crate::cua_lock_gate::HELPER_OUTDATED);
+            }
             // Only the admitted host can select the machine's consent authority.
             // Never consult this agent descendant's HOME, ACPMUX_HOME or socket env.
             let status = tokio::time::timeout(
@@ -396,6 +411,9 @@ where
                         Err((_, text)) if text == crate::mac_lock::MAC_LOCKED => {
                             crate::cua_lock_gate::locked_result()
                         }
+                        Err((_, text)) if text == crate::cua_lock_gate::HELPER_OUTDATED => {
+                            crate::cua_lock_gate::outdated_result()
+                        }
                         Err((_, text)) => {
                             json!({"content": [{"type":"text", "text":text}], "isError":true})
                         }
@@ -465,6 +483,9 @@ where
                 }
                 if e.to_string() == crate::mac_lock::MAC_LOCKED {
                     return Err((-32000, crate::mac_lock::MAC_LOCKED.to_owned()));
+                }
+                if e.to_string() == crate::cua_lock_gate::HELPER_OUTDATED {
+                    return Err((-32000, crate::cua_lock_gate::HELPER_OUTDATED.to_owned()));
                 }
                 *helper = None;
                 if attempt == 1 || !is_connection_error(&e) {

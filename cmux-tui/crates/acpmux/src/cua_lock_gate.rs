@@ -56,6 +56,11 @@ pub fn locked_result() -> Value {
     refused_result(MAC_LOCKED, MAC_LOCKED_TEXT)
 }
 
+/// The `tools/call` result a call gets when its helper does not read the lock at execution.
+pub fn outdated_result() -> Value {
+    refused_result(HELPER_OUTDATED, HELPER_OUTDATED_TEXT)
+}
+
 fn refused_result(reason: &str, text: &str) -> Value {
     json!({
         "content": [{"type": "text", "text": text}],

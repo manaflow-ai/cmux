@@ -13,7 +13,8 @@ private let socketLogger = Logger(subsystem: "com.cmuxterm.cua", category: "sock
 /// byte; a refused peer gets one
 /// line `{"ok":false,"error":"refused","reason":...}` and the connection closes.
 /// An admitted peer sends `{"secret":"<hex>"}` first and gets
-/// `{"ok":true,"protocol":N,"capabilities":["machine-consent-gate-v1"]}`, then requests:
+/// `{"ok":true,"protocol":N,"capabilities":["machine-consent-gate-v1","screen-lock-at-execution-v1"]}`,
+/// then requests:
 ///   {"id":N,"method":"tools/list"}
 ///   {"id":N,"method":"machine/consent"}
 ///   {"id":N,"method":"tools/call","name":"click","arguments":{...}}
@@ -184,7 +185,8 @@ public final class HelperSocketServer: Sendable {
 
     /// The reply to a peer that presented the secret.
     static let admittedReply = HelperWire.line(["ok": true, "protocol": HelperWire.protocolVersion,
-                                                "capabilities": [ConsentGate.capability]])
+                                                "capabilities": [ConsentGate.capability,
+                                                                 ConsentGate.lockCapability]])
 
     /// The connected peer's effective uid, from the kernel.
     static func peerUID(_ descriptor: Int32) -> uid_t? {
