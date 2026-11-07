@@ -108,8 +108,14 @@ import Testing
         #expect(pet.sprite.pose == .drag(.down))
         pet.sprite.drag(nil)
         #expect(pet.sprite.pose == .state && pet.sprite.shown?.state == .working)
-        // Reduce Motion: a drag never leans.
+        // Reduce Motion turning on mid-drag: the next redraw drops the lean.
+        pet.sprite.drag(.up)
+        #expect(pet.sprite.pose == .drag(.up))
         Motion.reduceMotionOverride = true
+        pet.animate(mochi, state: .idle, facingRight: true, moving: false)
+        #expect(pet.sprite.pose == .state)
+        pet.sprite.drag(nil)
+        // Reduce Motion: a drag never leans.
         pet.sprite.drag(.left)
         #expect(pet.sprite.pose == .state)
     }

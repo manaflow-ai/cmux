@@ -200,7 +200,8 @@ final class ChiefPetSpriteLayer {
         }
         let track = sprite.track(state, facingRight: right)
         let animate = moving && track.frames > 1
-        let wanted: Pose = if let dragging, sprite.track(.drag, toward: dragging, facingRight: right) != nil {
+        // A lean holds only while things may move: Reduce Motion turning on mid-drag (the controller redraws) drops it.
+        let wanted: Pose = if let dragging, Motion.home.animatesMovement, sprite.track(.drag, toward: dragging, facingRight: right) != nil {
             .drag(dragging)
         } else if animate, state == .thinking, sprite.has(.look) {
             .lookTour
