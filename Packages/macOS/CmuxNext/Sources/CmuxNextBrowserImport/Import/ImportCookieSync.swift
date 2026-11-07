@@ -42,6 +42,8 @@ public actor ImportCookieSync {
     private var latest: [String: CookieSyncReport] = [:]
     /// Sources whose changes are being imported now.
     private var importing: Set<String> = []
+    /// Browsers whose sync is stopping after a refused key (``stopBrowser(of:)``).
+    private var stopping: Set<ImportBrowser> = []
     /// Off (the setting, or browser import off): nothing is watched.
     public private(set) var isPaused = true
     /// What the sync did this launch (diagnostics and the PR's numbers).
@@ -172,7 +174,7 @@ public actor ImportCookieSync {
         } catch let error as CookieImportError {
             switch error {
             case .keychainDenied, .keyNotFound, .refused:
-                await stopBrowser(record.browser)
+                await stopBrowser(of: record)
             default:
                 log.error("cookie sync \(report.source, privacy: .public): import failed: \(String(describing: error), privacy: .public)")
             }
@@ -182,8 +184,13 @@ public actor ImportCookieSync {
         return false
     }
 
-    /// Every synced source of `browser` stops, and the person hears it once.
-    private func stopBrowser(_ browser: ImportBrowser) async {
+    /// Every synced source of `source`'s browser stops, and the person hears it once: another profile
+    /// of that browser refused while this one stops, or after it stopped, says nothing more.
+    private func stopBrowser(of source: ImportSourceRecord) async {
+        let browser = source.browser
+        guard stopping.insert(browser).inserted else { return }
+        defer { stopping.remove(browser) }
+        guard await store.cookieSyncedSources().contains(where: { $0.sourceKey == source.sourceKey }) else { return }
         for record in await store.cookieSyncedSources() where record.browser == browser {
             try? await store.stopCookieSync(sourceKey: record.sourceKey)
         }

@@ -158,6 +158,32 @@ import Testing
         #expect(said.lines.count == 1)
     }
 
+    /// Two synced profiles of one browser refused at once: the person still hears it once.
+    @Test func twoRefusedProfilesOfOneBrowserSayItOnce() async throws {
+        let fixture = try await Self.fixture(hosts: [".one.example"])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let work = fixture.root.appending(path: "Chrome/Profile 1", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: work.appending(path: "Network"), withIntermediateDirectories: true)
+        let workFile = work.appending(path: "Network/Cookies")
+        try Self.cookies(workFile, hosts: [".one.example"])
+        var second = ImportSourceRecord(browser: .chrome, profileDirectory: "Profile 1", displayName: "Google Chrome",
+                                        proposedProfileID: "p2", targetProfileID: "p2")
+        second.syncedCookieFile = workFile
+        try await fixture.store.save(ImportBatch(source: second, kinds: [.cookies]))
+        let said = Said()
+        let sync = ImportCookieSync(store: fixture.store, grants: nil, destination: Jar(), keys: Refusing(),
+                                    stateDirectory: fixture.root.appending(path: "state")) { said.add($0) }
+        await sync.setTiming(debounce: 100, minimumInterval: 0)
+        await sync.setPaused(false)
+        await Self.until { await sync.stats.scans >= 2 }
+        try Self.cookies(fixture.file, hosts: [".one.example", ".two.example"])
+        try Self.cookies(workFile, hosts: [".one.example", ".two.example"])
+        await Self.until { await fixture.store.cookieSyncedSources().isEmpty }
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(said.lines == [ImportBrowser.chrome.displayName])
+        #expect(await sync.watched.isEmpty)
+    }
+
     @Test func theProfileFolderIsTheCookieFilesOwn() {
         let record = ImportSourceRecord(browser: .chrome, profileDirectory: "Profile 1", displayName: "Google Chrome",
                                         proposedProfileID: "p", targetProfileID: "p", profileName: "Work")
