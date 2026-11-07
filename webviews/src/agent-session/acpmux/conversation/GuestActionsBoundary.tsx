@@ -23,7 +23,7 @@ import { ShellActionsContext } from "../shell/ShellRow";
 import { SignInContext } from "../signIn";
 import { SessionHoverContext } from "../started/SessionHoverCard";
 import { NO_MENTIONS, StartedMentionsContext } from "../started/StartedSessionCard";
-import { SubagentNavContext, SubagentPaneContext, SubagentStopContext } from "../subagents/SubagentGroup";
+import { SubagentNavContext, SubagentPaneContext, SubagentStopContext } from "../subagents/subagentGroupModel";
 import { SubsessionContext } from "../subagents/subsessions";
 import { AvatarContext } from "../../../pages/home-channels/avatars";
 
