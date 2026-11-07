@@ -49,6 +49,10 @@ export class StashStore {
   /** The `stash-changed` subscription, apart from `stops` so a reconnect can renew it. */
   private changes?: () => void;
   private subscribingChanges = false;
+  /** A reconnect came while a subscribe was pending: follow again once it settles. */
+  private refollowQueued = false;
+  /** Counts the owner link's returns; a subscribe from before the last one is for the lost link. */
+  private linkEpoch = 0;
   private changesUnsupported = false;
   /** Whether the notice is a failed read's, which the next good read clears. */
   private noticeIsRead = false;
@@ -119,6 +123,7 @@ export class StashStore {
     ++this.generation;
     this.starting = false;
     this.subscribingChanges = false;
+    this.refollowQueued = false;
     this.changesUnsupported = false;
     this.changes?.();
     this.changes = undefined;
@@ -131,18 +136,27 @@ export class StashStore {
   private async followChanges(alive: () => boolean): Promise<boolean> {
     if (!this.client) return false;
     if (this.changes || this.changesUnsupported) return true;
-    if (this.subscribingChanges) return false;
+    if (this.subscribingChanges) {
+      this.refollowQueued = true;
+      return false;
+    }
     this.subscribingChanges = true;
+    const epoch = this.linkEpoch;
     try {
       const stop = await this.client.subscribe(StashOps.changed, () => alive() && void this.reload());
       if (!alive()) {
         stop();
         return false;
       }
+      // The link went down and came back while this was pending: the queued follow asks again.
+      if (epoch !== this.linkEpoch) {
+        stop();
+        return false;
+      }
       this.changes = stop;
       return true;
     } catch (error) {
-      if (!alive()) return false;
+      if (!alive() || epoch !== this.linkEpoch) return false;
       // An owner without the change stream still answers reads.
       if (isPageError(error) && error.code === "cmux.protocol.unknown_op") {
         this.changesUnsupported = true;
@@ -151,8 +165,24 @@ export class StashStore {
       this.set({ connection: "disconnected", loading: false });
       return false;
     } finally {
-      if (alive()) this.subscribingChanges = false;
+      if (alive()) {
+        this.subscribingChanges = false;
+        // A reconnect that came while this was pending asked for a fresh stream; if this one
+        // failed (or belonged to the lost link), nothing else would ask again.
+        if (this.refollowQueued) {
+          this.refollowQueued = false;
+          queueMicrotask(() => this.refollow(alive));
+        }
+      }
     }
+  }
+
+  /** Follows the changes, then re-reads. */
+  private refollow(alive: () => boolean): void {
+    if (!alive()) return;
+    void (async () => {
+      if ((await this.followChanges(alive)) && alive()) await this.reload();
+    })();
   }
 
   /** Down shows the disconnected state; back up (or up with no change stream yet) follows the
@@ -165,14 +195,13 @@ export class StashStore {
     const wasDown = this.snapshot.connection === "disconnected";
     if (!wasDown && (this.changes || this.changesUnsupported || this.subscribingChanges || this.starting)) return;
     if (wasDown) {
+      this.linkEpoch += 1;
       // The old stream ended with the link; ask for a fresh one.
       this.changes?.();
       this.changes = undefined;
       this.set({ connection: "connecting" });
     }
-    void (async () => {
-      if ((await this.followChanges(alive)) && alive()) await this.reload();
-    })();
+    this.refollow(alive);
   }
 
   /** Reads the stashes again; a slower older reply never replaces a newer one. */

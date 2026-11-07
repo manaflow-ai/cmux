@@ -201,6 +201,31 @@ struct StashPageUndoTests {
         #expect(world.deleted.calls.isEmpty && world.deleted.restored.isEmpty)
     }
 
+    static func refusedAsPersonOnly(_ world: World, _ op: String, context: PageCallContext) async -> Bool {
+        do {
+            _ = try await world.provider.call(op, params: ["stash": "s1"], context: context)
+            return false
+        } catch let error as PageError {
+            return error.code == PageNativeOp.userOnlyCode
+        } catch {
+            return false
+        }
+    }
+
+    /// Page script cannot restore a stash on its own: a restore without the person's click is
+    /// refused, and one click restores once.
+    @Test func aRestoreWithoutAClickIsRefusedAndAClickRestoresOnce() async throws {
+        let world = Self.world()
+        let noClick = PageCallContext(page: "cmux.stash", userGesture: false, gestureEvent: nil)
+        #expect(await Self.refusedAsPersonOnly(world, "cmux.stash.restore", context: noClick))
+        let noEvent = PageCallContext(page: "cmux.stash", userGesture: true, gestureEvent: nil)
+        #expect(await Self.refusedAsPersonOnly(world, "cmux.stash.restore", context: noEvent))
+        #expect(world.deleted.restored.isEmpty, "a restore without a click restored")
+        _ = try await world.provider.call("cmux.stash.restore", params: ["stash": "s1"], context: Self.click(10))
+        #expect(await Self.refusedAsPersonOnly(world, "cmux.stash.restore", context: Self.click(10)))
+        #expect(world.deleted.restored.count == 1, "one click restored twice")
+    }
+
     /// Absent `members` is every member; a valid list is that list.
     @Test func absentMembersIsEveryMemberAndAListIsThatList() async throws {
         let world = Self.world()

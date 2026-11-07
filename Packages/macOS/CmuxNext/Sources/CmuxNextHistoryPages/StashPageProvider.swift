@@ -12,7 +12,7 @@ import Foundation
 /// stream go through the page relay. Two ops stay in the app, as native glue:
 ///
 /// - `cmux.stash.restore {stash, members?, new_workspace?}`: only the app knows the pane a page
-///   reopens in and shows what came back.
+///   reopens in and shows what came back. It runs only on the person's click, one per click.
 /// - `cmux.stash.delete {stash, members?}`: on the person's click, the page's members hide while
 ///   the app's Undo toast is up. Each delete spends its click: a second delete off the same
 ///   gesture is refused. The delete goes to the daemon only when the toast's time runs out;
@@ -28,7 +28,7 @@ public final class StashPageProvider: PageProvider {
     private let commitDelete: @MainActor (String, [String]?) async throws -> Void
     private let importEngine: @MainActor () -> String
     private let relay: any PageProvider
-    /// The gesture (its event's uptime) the last delete spent.
+    /// The gesture (its event's uptime) the last restore or delete spent.
     private var spentGesture: TimeInterval?
     /// The Undo toasts up now; the page's close keeps every one's stash.
     private var pending: [ObjectIdentifier: PendingUndo] = [:]
@@ -66,16 +66,14 @@ public final class StashPageProvider: PageProvider {
         case "cmux.stash.restore":
             let id = try Self.stashID(params)
             let members = try Self.members(params), newWorkspace = try Self.newWorkspace(params)
+            try spendGesture(context)
             try await requireKnown(id, members, context: context)
             try await run { try await self.restore(id, members, newWorkspace) }
             return ["restored": true]
         case "cmux.stash.delete":
             let id = try Self.stashID(params)
             let members = try Self.members(params)
-            guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
-                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-            }
-            spentGesture = event
+            try spendGesture(context)
             try await requireKnown(id, members, context: context)
             guard await undoToast(id: id, members: members), !Task.isCancelled else { return ["deleted": false] }
             try await run { try await self.commitDelete(id, members) }
@@ -87,6 +85,15 @@ public final class StashPageProvider: PageProvider {
         default:
             return try await relay.call(op, params: params, context: context)
         }
+    }
+
+    /// A restore or delete runs only on the person's own click, and each click runs one: page
+    /// script cannot restore or delete on its own, and a second call off the same gesture is refused.
+    private func spendGesture(_ context: PageCallContext) throws {
+        guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+        }
+        spentGesture = event
     }
 
     public func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,

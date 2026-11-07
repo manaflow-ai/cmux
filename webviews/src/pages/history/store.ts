@@ -59,6 +59,10 @@ export class HistoryStore {
   private unpage?: () => void;
   private starting = false;
   private subscribingChanges = false;
+  /** A reconnect came while a subscribe was pending: follow again once it settles. */
+  private refollowQueued = false;
+  /** Counts the owner link's returns; a subscribe from before the last one is for the lost link. */
+  private linkEpoch = 0;
   private changesUnsupported = false;
   private lifetime = 0;
 
@@ -169,6 +173,7 @@ export class HistoryStore {
     ++this.generation;
     this.starting = false;
     this.subscribingChanges = false;
+    this.refollowQueued = false;
     this.changesUnsupported = false;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
@@ -182,8 +187,12 @@ export class HistoryStore {
   private async followChanges(alive: () => boolean): Promise<boolean> {
     if (!this.client) return false;
     if (this.unsubscribe || this.changesUnsupported) return true;
-    if (this.subscribingChanges) return false;
+    if (this.subscribingChanges) {
+      this.refollowQueued = true;
+      return false;
+    }
     this.subscribingChanges = true;
+    const epoch = this.linkEpoch;
     try {
       const unsubscribe = await this.client.subscribe<HistoryChanged>(HistoryOps.changed, () => {
         if (alive()) void this.reload();
@@ -192,10 +201,15 @@ export class HistoryStore {
         unsubscribe();
         return false;
       }
+      // The link went down and came back while this was pending: the queued follow asks again.
+      if (epoch !== this.linkEpoch) {
+        unsubscribe();
+        return false;
+      }
       this.unsubscribe = unsubscribe;
       return true;
     } catch (error) {
-      if (!alive()) return false;
+      if (!alive() || epoch !== this.linkEpoch) return false;
       // Older owners without a change stream can still answer reads.
       if (isPageError(error) && error.code === "cmux.protocol.unknown_op") {
         this.changesUnsupported = true;
@@ -204,8 +218,24 @@ export class HistoryStore {
       this.set({ connection: "disconnected", loading: false, error: message(error) });
       return false;
     } finally {
-      if (alive()) this.subscribingChanges = false;
+      if (alive()) {
+        this.subscribingChanges = false;
+        // A reconnect that came while this was pending asked for a fresh stream; if this one
+        // failed (or belonged to the lost link), nothing else would ask again.
+        if (this.refollowQueued) {
+          this.refollowQueued = false;
+          queueMicrotask(() => this.refollow(alive));
+        }
+      }
     }
+  }
+
+  /** Follows the changes, then re-reads. */
+  private refollow(alive: () => boolean): void {
+    if (!alive()) return;
+    void (async () => {
+      if ((await this.followChanges(alive)) && alive()) await this.reload();
+    })();
   }
 
   /** The host reports the owner link: down shows the disconnected state; back up (or up with no
@@ -218,15 +248,14 @@ export class HistoryStore {
     const wasDown = this.snapshot.connection === "disconnected";
     if (!wasDown && (this.unsubscribe || this.changesUnsupported || this.subscribingChanges || this.starting)) return;
     if (wasDown) {
+      this.linkEpoch += 1;
       // The old stream ended with the link; ask for a fresh one. The lost link's error would show
       // again as a banner while the re-read is on its way.
       this.unsubscribe?.();
       this.unsubscribe = undefined;
       this.set({ connection: "connecting", error: undefined });
     }
-    void (async () => {
-      if ((await this.followChanges(alive)) && alive()) await this.reload();
-    })();
+    this.refollow(alive);
   }
 
   setText(text: string): void {
