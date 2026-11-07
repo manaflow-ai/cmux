@@ -419,8 +419,8 @@ struct AgentReplyPullRequestsQuotaTests {
         #expect(AgentReplyAvatars.dataURL(Self.png + Data(count: AgentReplyAvatars.maximumBytes)) == nil)
     }
 
-    /// The pull request's answer never waits for its author's avatar: it comes without one, and
-    /// a later answer has it once the image is in.
+    /// The pull request's answer never waits for its author's avatar: it comes without one, still
+    /// reading so an open card keeps asking, and a later answer has it once the image is in.
     @Test func theAvatarNeverDelaysTheAnswer() async throws {
         let (gate, open) = AsyncStream<Void>.makeStream()
         let avatars = AgentReplyAvatars(fetch: { _ in
@@ -429,18 +429,25 @@ struct AgentReplyPullRequestsQuotaTests {
         })
         let github = FakeGitHub([7: Pull(state: "OPEN", avatar: "https://avatars.githubusercontent.com/u/1?s=48&v=4")])
         let time = FakeTime()
-        let cache = Self.cache(github, time, avatars: avatars)
+        let calls = AgentChatPullRequestReader.Calls()
+        let cache = Self.cache(github, time, calls: calls, avatars: avatars)
         cache.register([Self.url(7)])
         await cache.idle()
-        // The image is still loading: the answer is whole, with no avatar, and nothing is read.
+        // The image is still loading: the answer is whole, with no avatar, and says it is still
+        // reading, so the card asks again rather than keeping the monogram.
         let first = cache.answer(Self.url(7))
         #expect(first.pullRequest?.title == "PR 7")
         #expect(first.pullRequest?.authorAvatar == nil)
-        #expect(first.reading == false)
+        #expect(first.reading)
+        let readsBefore = calls.counts.reads
+        _ = cache.answer(Self.url(7))
+        #expect(calls.counts.reads == readsBefore, "the avatar's wait reads nothing more from GitHub")
         #expect((first.pullRequest?.json.foundationObject as? [String: Any])?["authorAvatar"] == nil)
         open.yield()
         await avatars.loaded("octocat")
-        let later = try #require(cache.answer(Self.url(7)).pullRequest)
+        let settled = cache.answer(Self.url(7))
+        #expect(settled.reading == false)
+        let later = try #require(settled.pullRequest)
         #expect(later.authorAvatar == "data:image/png;base64," + Self.png.base64EncodedString())
         #expect((later.json.foundationObject as? [String: Any])?["authorAvatar"] as? String == later.authorAvatar)
         open.finish()
