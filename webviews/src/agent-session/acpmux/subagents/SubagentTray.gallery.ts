@@ -1001,6 +1001,8 @@ export default agentPaneEntry({
     "dispatched-lane": {
       note: 'Leo, 2026-11-03, on a lane a coordinator dispatched showing as a running line: "like why is this even in the "running" in the first place?" The tray lists only the chat\'s own work: its subagent\'s line, never the lane (started with sessions new, tagged mux.parent, no startedBy), which is its own chat in the sidebar.',
       play: async (ctx) => {
+        // One item heads the hat folded (Leo, 2026-11-07): its header opens it to the line.
+        await openTray(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
         const lines = ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line");
         if (lines.length !== 1) throw new Error(`one line, the chat's own subagent; got ${lines.length}`);
