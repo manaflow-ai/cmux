@@ -513,8 +513,15 @@ public final class TerminalSurfaceView: NSView {
         // reports its grid when its frame lands. The landing's release sized from such a size and sent its stale grid,
         // then the final grid again (review of #35470, F1).
         let stale = frameOwnership.inFlight.map { $0 != frameOwnership.wanted?.size } ?? false
+        // A key spring's grid goes when a frame of its size lands (``frameDidLand()``), never when a new size is asked
+        // (``requestWantedFrame()``): the bounds then are the last ones shown, whose grid already went, or, for a view
+        // that joined the spring (a tab switch mid-hold), the size it was made at, which its pane never showed. With the
+        // first grid of a refresh going at once (RESIZE P0 7), that size's grid reached the PTY (RESIZE P0 8, item 0:
+        // PaneContentPolicyTests sent 99x34, the 800x600 init frame, before the pane's 80x44). A drag waits for its shown
+        // size in ``TerminalGridReporter/drag(_:shownNow:)``.
+        let waitsForLanding = !forceReport && followsKeyHold && !isFollowingResizeGesture && frameOwnership.inFlight != nil
         let report = geometry.viewSized(desired, force: forceReport,
-                                        holding: stale || (!forceReport && isInPaneMotion && !live))
+                                        holding: stale || waitsForLanding || (!forceReport && isInPaneMotion && !live))
         // In the same main-thread turn as set_size: the frame of the new size draws at the next display pass, already
         // reflowed. A held or coalesced grid is reported later: the preview draws it meanwhile.
         updateReflowPreview(reporting: report != nil || geometry.held || gridReports.isWaiting)
