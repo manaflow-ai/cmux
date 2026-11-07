@@ -38,7 +38,18 @@ test("the page draws each part under its jump bar: theme, background, Chief, tex
   // The theme studio with its live preview, the Chief's look and the density tiles: the home cards.
   expect(part("theme").querySelector(".theme-preview, [data-theme-preview], svg")).not.toBeNull();
   expect(part("chief").querySelector('[data-card="chief-pet"]')).not.toBeNull();
-  expect(rowKeys(part("text"))).toContain("agentPane.display.transcriptView");
+  // Agents' whole Chat Text card, then the transcript view.
+  for (const key of [
+    "agentPane.display.font.ui",
+    "agentPane.display.font.preset",
+    "agentPane.display.font.size",
+    "agentPane.display.font.lineHeight",
+    "agentPane.display.code.family",
+    "agentPane.display.code.scale",
+    "agentPane.display.transcriptView",
+  ])
+    expect(rowKeys(part("text"))).toContain(key);
+  expect(part("text").querySelector('[data-more="appearance"]')).not.toBeNull();
   expect(rowKeys(part("sounds"))).toEqual([
     "notifications.sound",
     "notifications.sounds.volume",
@@ -65,15 +76,21 @@ test("every row it draws is the same row on its home page, and More in … opens
     const there = new Set(rowKeys(page.container));
     for (const key of keys) expect(there.has(key), `${key} on ${home}`).toBe(true);
   }
-  // Each part's More in … goes to its home category.
+  // Each part's More in … links go to the homes of what it draws, and every home has its link.
   for (const part of PERSONALIZATION_PARTS) {
     await act(async () => page.history.push("/settings/personalization"));
     await settle();
-    const more = page.container.querySelector<HTMLElement>(`[data-part="${part.id}"] [data-more]`)!;
-    expect(more.dataset.more).toBe(part.home);
-    await act(async () => more.click());
-    await settle();
-    expect(page.history.location.pathname).toBe(`/settings/${part.home}`);
+    const section = page.container.querySelector<HTMLElement>(`[data-part="${part.id}"]`)!;
+    const drawnHomes = new Set(rowKeys(section).map((key) => homes.get(key)!.category));
+    for (const home of drawnHomes) expect(part.homes, `${part.id} links ${home}`).toContain(home);
+    for (const home of part.homes) {
+      await act(async () => page.history.push("/settings/personalization"));
+      await settle();
+      const more = page.container.querySelector<HTMLElement>(`[data-part="${part.id}"] [data-more="${home}"]`)!;
+      await act(async () => more.click());
+      await settle();
+      expect(page.history.location.pathname).toBe(`/settings/${home}`);
+    }
   }
   page.unmount();
 });

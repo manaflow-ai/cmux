@@ -2225,3 +2225,8 @@ button.menu-disclosure {
 .personalization-more {
   color: var(--muted-text);
 }
+
+.personalization-more-links {
+  display: flex;
+  gap: 4px;
+}

@@ -7322,5 +7322,20 @@
         ]
       }
     }
+  },
+  "settingsPage.personalization.chief": {
+    "class": "brand",
+    "source": "Chief"
+  },
+  "settingsPage.personalization.theme": {
+    "source": "Theme",
+    "identityLocales": {
+      "de": {
+        "reason": "Theme is the standard German noun for an app's color theme.",
+        "values": [
+          "Theme"
+        ]
+      }
+    }
   }
 }

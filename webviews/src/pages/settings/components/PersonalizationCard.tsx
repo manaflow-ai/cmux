@@ -17,9 +17,9 @@ import { GroupList } from "./GroupList";
 import { BACKDROP_ROWS, Backdrops, useBackdropsShown } from "./HostCards";
 import { ACCENT_KEY, APP_THEME_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
 
-/** A part of the page: its jump-bar id, the category that is its home, the keys its card draws and
- * the schema rows drawn under it. */
-type Part = { id: PartID; home: string; cardKeys: readonly string[]; rows: readonly string[] };
+/** A part of the page: its jump-bar id, the categories that are the homes of what it draws (each
+ * gets a More in … link), the keys its cards draw and the schema rows drawn under them. */
+type Part = { id: PartID; homes: readonly string[]; cardKeys: readonly string[]; rows: readonly string[] };
 type PartID = "theme" | "background" | "chief" | "text" | "sounds";
 
 /** The background rows the picker draws while it shows; without art they are rows of their own. */
@@ -31,23 +31,27 @@ const BACKGROUND_ROWS = [
 ];
 
 export const PERSONALIZATION_PARTS: readonly Part[] = [
-  { id: "theme", home: "theme", cardKeys: [THEME_KEY, APP_THEME_KEY, ACCENT_KEY], rows: [] },
-  { id: "background", home: "appearance", cardKeys: [...BACKDROP_ROWS], rows: BACKGROUND_ROWS },
-  { id: "chief", home: "chief", cardKeys: [CHIEF_PET_ENABLED, CHIEF_PET_MASCOT], rows: [] },
+  { id: "theme", homes: ["theme"], cardKeys: [THEME_KEY, APP_THEME_KEY, ACCENT_KEY], rows: [] },
+  { id: "background", homes: ["appearance"], cardKeys: [...BACKDROP_ROWS], rows: BACKGROUND_ROWS },
+  { id: "chief", homes: ["chief"], cardKeys: [CHIEF_PET_ENABLED, CHIEF_PET_MASCOT], rows: [] },
   {
     id: "text",
-    home: "agents",
+    // The density tiles are Appearance's; the chat text rows (Agents' whole Chat Text card) are Agents'.
+    homes: ["appearance", "agents"],
     cardKeys: [...DENSITY_ROWS],
     rows: [
       "agentPane.display.font.ui",
       "agentPane.display.font.preset",
       "agentPane.display.font.size",
+      "agentPane.display.font.lineHeight",
+      "agentPane.display.code.family",
+      "agentPane.display.code.scale",
       "agentPane.display.transcriptView",
     ],
   },
   {
     id: "sounds",
-    home: "notifications",
+    homes: ["notifications"],
     cardKeys: [],
     rows: ["notifications.sound", "notifications.sounds.volume", "notifications.sounds.when"],
   },
@@ -148,15 +152,20 @@ export function PersonalizationCard({
             <h2 className="personalization-part-title" id={`personalization-${part.id}`}>
               {partTitle(part.id)}
             </h2>
-            <Button
-              type="button"
-              variant="ghost"
-              className="button personalization-more"
-              data-more={part.home}
-              onClick={() => router.history.push(sectionHref(part.home))}
-            >
-              {t("settingsPage.personalization.more", text(categoryById(part.home).title))}
-            </Button>
+            <span className="personalization-more-links">
+              {part.homes.map((home) => (
+                <Button
+                  key={home}
+                  type="button"
+                  variant="ghost"
+                  className="button personalization-more"
+                  data-more={home}
+                  onClick={() => router.history.push(sectionHref(home))}
+                >
+                  {t("settingsPage.personalization.more", text(categoryById(home).title))}
+                </Button>
+              ))}
+            </span>
           </header>
           {body(part)}
         </section>
