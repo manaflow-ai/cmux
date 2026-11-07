@@ -52,9 +52,13 @@ members = [
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
+    "crates/cmux-cloud-machine",
+    "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
+    "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
     "crates/cmux-cloud-client",
+    "crates/cmux-cloud-api",
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
     "crates/cmux-pty",
@@ -99,6 +103,7 @@ members = [
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-agent-pane-policy",
+    "crates/cmux-daemon-launch-core",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -107,6 +112,7 @@ members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
+    "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
     "crates/cmux-vault-egress",
     "crates/cmux-url-input",
@@ -142,9 +148,13 @@ default-members = [
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
+    "crates/cmux-cloud-machine",
+    "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
+    "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
     "crates/cmux-cloud-client",
+    "crates/cmux-cloud-api",
     "crates/cmux-pty",
     "crates/cmux-process",
     "crates/cmux-remote-protocol",
@@ -182,6 +192,7 @@ default-members = [
     "crates/cmux-mcp-connect",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
+    "crates/cmux-daemon-launch-core",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -190,6 +201,7 @@ default-members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
+    "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
@@ -241,9 +253,13 @@ cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
 cmux-bookmarks-ops = { path = "crates/cmux-bookmarks-ops" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
+cmux-cloud-machine = { path = "crates/cmux-cloud-machine" }
+cmux-cloud-tasks = { path = "crates/cmux-cloud-tasks" }
 cmux-cloud-config = { path = "crates/cmux-cloud-config" }
+cmux-cloud-handlers = { path = "crates/cmux-cloud-handlers" }
 cmux-window-rules = { path = "crates/cmux-window-rules" }
 cmux-cloud-client = { path = "crates/cmux-cloud-client" }
+cmux-cloud-api = { path = "crates/cmux-cloud-api" }
 cmux-cloud-environment = { path = "crates/cmux-cloud-environment" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
@@ -251,6 +267,7 @@ cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
+cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
 cmux-vault-egress = { path = "crates/cmux-vault-egress" }
 cmux-url-input = { path = "crates/cmux-url-input" }

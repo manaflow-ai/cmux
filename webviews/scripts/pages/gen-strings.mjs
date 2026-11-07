@@ -213,6 +213,12 @@ export const PAGES = {
     out: "webviews/src/pages/files/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/files/Localizable.xcstrings" }],
   },
+  // The Cloud progress page (cmux-page://cmux.cloud-progress/): a Cloud machine on its way to its terminal.
+  // Its table lives next to it; the words are the retired AppKit view's (Cloud.xcstrings `cloud.progress.`).
+  "cloud-progress": {
+    out: "webviews/src/pages/cloud-progress/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/cloud-progress/Localizable.xcstrings" }],
+  },
   // The Mobile Pairing page shares its table with its Swift provider (`mobilePairing.page.` keys).
   "mobile-pairing": {
     out: "webviews/src/pages/mobile-pairing/generated/strings.json",
@@ -220,6 +226,17 @@ export const PAGES = {
       {
         file: `${sources}/CmuxNextApp/Resources/MobilePairing.xcstrings`,
         keys: (all) => all.filter((key) => key.startsWith("mobilePairing.page.")),
+      },
+    ],
+  },
+  // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
+  // the section's `machines.` keys and the check steps its status mark names (`addMachine.step.`).
+  machines: {
+    out: "webviews/src/pages/machines/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("machines.") || key.startsWith("addMachine.step.")),
       },
     ],
   },

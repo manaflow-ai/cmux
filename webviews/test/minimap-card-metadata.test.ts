@@ -115,7 +115,7 @@ test("production turnView wrappers keep metadata without re-reading earlier tool
     activity,
     row({ id: "reply", kind: "assistant", at: 3, text: "Visible answer. ".repeat(40), streaming: true }),
   ];
-  const options = { working: true, liveRuns: true };
+  const options = { working: true };
   let shaped = turnView(raw, new Set(), options);
   const wrapper = shaped.find((item) => item.kind === "activity")!;
   expect(wrapper).toBeDefined();
@@ -159,7 +159,7 @@ test("a completed merged edit card cannot reuse a live run with the same derived
     streaming: true,
   });
   const source = [user, edit("A", 3, "a.ts"), edit("B", 5, "b.ts"), reply];
-  const live = turnView(source, new Set(), { working: true, liveRuns: true });
+  const live = turnView(source, new Set(), { working: true });
   const previous = minimapTurns(live, "collision");
   const ended = turnView(
     [
@@ -168,7 +168,6 @@ test("a completed merged edit card cannot reuse a live run with the same derived
       row({ id: "end", kind: "turnSummary", at: 4, status: "completed" }),
     ],
     new Set(),
-    { liveRuns: true },
   );
   const liveA = live.find((item) => item.id === "A")!;
   const endedA = ended.find((item) => item.id === "A")!;
