@@ -66,10 +66,7 @@ extension AppActionContext {
         return sidebar
     }
 
-    func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-    }
+    func copy(_ text: String) { registry.copyText(text) }
 
     /// Refuses at once when no app opens `url` (a LaunchServices database lookup); the open itself
     /// runs off the main thread (cx-050n).

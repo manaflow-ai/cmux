@@ -2010,6 +2010,12 @@
       "title" : "Wake Tabs on Hover",
       "type" : "boolean"
     },
+    "chat.on" : {
+      "default" : "",
+      "description" : "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here.",
+      "title" : "Default Chat Target",
+      "type" : "string"
+    },
     "chief.autoRouteSubagents" : {
       "default" : false,
       "description" : "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
