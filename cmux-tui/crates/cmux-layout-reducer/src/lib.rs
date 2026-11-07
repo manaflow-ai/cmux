@@ -956,6 +956,7 @@ mod sidebar_face_tests;
 pub mod closing_panes;
 
 pub mod group_hover_summary;
+pub mod optimistic;
 #[cfg(kani)]
 mod proofs;
 pub mod scroll;
