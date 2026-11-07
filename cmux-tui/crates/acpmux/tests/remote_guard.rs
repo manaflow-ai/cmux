@@ -394,6 +394,35 @@ async fn directory_listings_are_for_the_local_app_and_the_unix_socket() {
 }
 
 #[tokio::test]
+async fn folder_browsing_is_for_the_owner_and_a_peer_sees_only_its_roots() {
+    let d = dirs("browse");
+    let hub = hub();
+    let base = std::fs::canonicalize(&d.base).unwrap();
+    let p = json!({"path": base, "dirsOnly": true});
+    let mut web = Client::new(&hub, Origin::Web);
+    let r = web.call("_acpmux/browse", p.clone()).await;
+    assert_eq!(r["error"]["code"], json!(-32601), "no listing for the Web: {r}");
+    for origin in [Origin::Local, Origin::LocalApp, Origin::Peer] {
+        let mut c = Client::new(&hub, origin);
+        let r = c.call("_acpmux/browse", p.clone()).await;
+        assert!(r["result"]["entries"].is_array(), "{origin:?}: {r}");
+    }
+    // A peer is held to the folders it may start a chat in (this hub's webRoots: the temp dir).
+    let mut peer = Client::new(&hub, Origin::Peer);
+    let r = peer.call("_acpmux/browse", json!({"path": "/"})).await;
+    assert_eq!(r["error"]["data"]["reason"], "browse.outside_roots", "{r}");
+    let r = peer.call("_acpmux/browse", json!({})).await;
+    assert_eq!(r["result"]["path"], Value::Null, "with no path a peer lists its roots: {r}");
+    // Only this machine's own client may name a peer, one hop.
+    let r = peer.call("_acpmux/browse", json!({"peer": "x", "path": base})).await;
+    assert_eq!(r["error"]["data"]["reason"], "peer.forward_refused", "{r}");
+    let mut local = Client::new(&hub, Origin::LocalApp);
+    let r = local.call("_acpmux/browse", json!({"peer": "nopeer"})).await;
+    assert!(err(&r).contains("no peer"), "{r}");
+    let _ = std::fs::remove_dir_all(&d.base);
+}
+
+#[tokio::test]
 async fn web_modes_policies_and_rules_are_allow_lists() {
     let d = dirs("allow");
     let hub = hub();

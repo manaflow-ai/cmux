@@ -153,6 +153,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ("_acpmux/place", Run(json!({}))),
         ("_acpmux/peer_snapshots_clear", Run(json!({}))),
         ("_acpmux/directories", Run(json!({"cwd": "$CWD"}))),
+        ("_acpmux/browse", Run(json!({"path": "$CWD"}))),
         ("_acpmux/models", Run(json!({}))),
         ("catalog.get", Run(json!({}))),
         ("catalog.refresh", Run(json!({}))),

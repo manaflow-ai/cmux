@@ -1629,6 +1629,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/browse",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/route/list",
       "params": {
         "$ref": "#/types/RouteListParams"

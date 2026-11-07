@@ -420,6 +420,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PRESETS, Request),
         keyed::<params::ModelsParams>("_acpmux/models", Request),
         untyped("_acpmux/directories", Request),
+        untyped("_acpmux/browse", Request),
         keyed::<params::RouteListParams>(method::MUX_ROUTE_LIST, Request),
         untyped(method::MUX_ROUTE_SHOW, Request),
         untyped(method::MUX_ROUTE_ADD, Request),
