@@ -11456,34 +11456,43 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         {/* Under the side panel in its column, or the column itself (backgroundTasks.css). */}
         {backgroundPanel && !harnessesOpen && !showNewTab && (
           <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-            <BackgroundTasksPanel
-              groups={backgroundList}
-              views={snapshot.subagentViews}
-              look={experimentArm(backgroundTasksLook)}
-              expanded={backgroundPanel.expanded}
-              stopsAgents={stopSubagent !== undefined}
-              workflow={backgroundWorkflowReads}
-              onStop={(target) =>
-                target.kind === "agent"
-                  ? (stopSubagent?.(target.id) ?? Promise.reject(new Error()))
-                  : stopProcess(target.id)
-              }
-              onClearFinished={(ids) =>
-                setBackgroundPanel((panel) => panel && { ...panel, dismissed: new Set([...panel.dismissed, ...ids]) })
-              }
-              // Its own tab has the tab's own close and the whole tab already: no Expand or Close.
-              onExpand={
-                ownBackgroundPane
-                  ? undefined
-                  : () => setBackgroundPanel((panel) => panel && { ...panel, expanded: !panel.expanded })
-              }
-              onClose={ownBackgroundPane ? undefined : () => setBackgroundPanel(undefined)}
-              onOpenSession={openOfferChat}
-              onOpenCommand={(task) => {
-                const command = panelCommands.find((candidate) => candidate.id === task.id);
-                if (command) openTrayCommand(command);
-              }}
-            />
+            {/* A command is a card there, its output read as the composer hat's tail reads it. */}
+            <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+              <BackgroundTasksPanel
+                groups={backgroundList}
+                readsOutput={
+                  opensProcessTerminal(snapshot.summary) &&
+                  clientEpoch > 0 &&
+                  directClient.current !== undefined &&
+                  backgroundTaskOutput !== undefined
+                }
+                views={snapshot.subagentViews}
+                look={experimentArm(backgroundTasksLook)}
+                expanded={backgroundPanel.expanded}
+                stopsAgents={stopSubagent !== undefined}
+                workflow={backgroundWorkflowReads}
+                onStop={(target) =>
+                  target.kind === "agent"
+                    ? (stopSubagent?.(target.id) ?? Promise.reject(new Error()))
+                    : stopProcess(target.id)
+                }
+                onClearFinished={(ids) =>
+                  setBackgroundPanel((panel) => panel && { ...panel, dismissed: new Set([...panel.dismissed, ...ids]) })
+                }
+                // Its own tab has the tab's own close and the whole tab already: no Expand or Close.
+                onExpand={
+                  ownBackgroundPane
+                    ? undefined
+                    : () => setBackgroundPanel((panel) => panel && { ...panel, expanded: !panel.expanded })
+                }
+                onClose={ownBackgroundPane ? undefined : () => setBackgroundPanel(undefined)}
+                onOpenSession={openOfferChat}
+                onOpenCommand={(task) => {
+                  const command = panelCommands.find((candidate) => candidate.id === task.id);
+                  if (command) openTrayCommand(command);
+                }}
+              />
+            </BackgroundTaskOutputContext.Provider>
           </SubagentClockContext.Provider>
         )}
         {imageView && (
