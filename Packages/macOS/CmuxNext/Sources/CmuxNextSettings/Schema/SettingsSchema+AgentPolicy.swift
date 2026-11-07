@@ -67,6 +67,7 @@ extension SettingsSchema {
         "tabs.newTabTemplate",
         "tabs.nativeNewTabPage", // which New Tab page draws; a look switch, ends no work
         "tabs.newTabPosition",
+        "tabs.newTabButtonPosition", // where the + puts a tab; looks only, ends no work
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
         "tabs.nativeNewTabPage", // which New Tab page opens; ends no work
