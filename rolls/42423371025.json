@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42423371025",
+  "recorded_at": "2026-11-07T23:08:37Z",
+  "reason": "cmux-tui a936bfb0d78e changes the image's cmux-tui (pinned e0eae79cceca)",
+  "dry_run": false,
+  "cmux_tui": "a936bfb0d78e4870b5218e005fa0c711c73abc2a",
+  "fixes": [
+    {
+      "sha": "ec97861eec9506e880850c5e6894b18d04c66915",
+      "mergedAt": "2026-11-07T14:43:32-08:00",
+      "subject": "cmux NEXT machine update: no toast, a plain row line, background retry; acpmux re-asks after a dropped ssh link (#36960)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T23:08:37Z",
+    "snapshot_id": "sh-57e602c4efea438cadd754940b13eb93",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42423371025): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "892f7f5cb803d6525425ee11b65cb3f1f13b5998",
+    "image": "cloud-native-auto-a936bfb0-42423371025-1",
+    "revision": "ci-42423371025-1",
+    "at": "2026-11-07T23:08:37Z"
+  },
+  "rolled_back": false
+}
