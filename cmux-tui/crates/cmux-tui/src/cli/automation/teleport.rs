@@ -460,6 +460,8 @@ fn from_cloud(
         catch_up: spec_of.get("catch_up").and_then(Value::as_str).map(str::to_string),
         timeout_seconds: None,
         sharing: None,
+        // A Cloud automation has no condition or guardrails of this machine's kind.
+        gate: None,
         handoff: ImportHandoff {
             id: handoff_id.clone(),
             from: "cloud".into(),
