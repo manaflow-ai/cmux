@@ -64,6 +64,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/merge-pbxproj.py",
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
+            "scripts/merge-insertions.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -757,6 +758,87 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertNotEqual(clash.returncode, 0)
         self.assertIn("<<<<<<<", counts.read_text())
         self.assertIn('"decode": 5', counts.read_text())
+
+    def test_design_token_baseline_merges_count_by_count(self):
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        jsonl = self.repo / "webviews/scripts/design-tokens-baseline.jsonl"
+        jsonl.parent.mkdir(parents=True, exist_ok=True)
+        row = '{{"file":"{}","kind":"height","property":"height","values":{}}}\n'.format
+        jsonl.write_text(row("a.css", '{"8px":2,"9px":1}') + row("b.css", '{"4px":1}'))
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        jsonl.write_text(row("a.css", '{"8px":1,"9px":1}') + row("b.css", '{"4px":1}'))
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        jsonl.write_text(row("a.css", '{"8px":2}') + row("b.css", '{"4px":1}') + row("c.css", '{"6px":1}'))
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(jsonl.read_text(), row("a.css", '{"8px":1}') + row("b.css", '{"4px":1}')
+                         + row("c.css", '{"6px":1}'))
+
+    def test_insertions_both_sides_made_merge_and_changes_still_conflict(self):
+        """Two lanes that each append to the same list merge with both entries; a line both
+        changed, or a JSON result that no longer parses, stays a conflict."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        command = shlex.split(self.git("config", "--get", "merge.cmux-insertions-v1.driver").stdout.strip())
+        self.assertEqual(Path(command[2]).resolve(),
+                         (self.common_dir() / "cmux-merge-drivers/merge-insertions.py").resolve())
+        self.assertEqual(command[3:], ["%O", "%A", "%B", "%P", "%L"])
+        log = self.repo / "plans/cmux-next/sidebar-owner.md"
+        lib = self.repo / "cmux-tui/crates/demo/src/lib.rs"
+        surfaces = self.repo / ".github/design-surfaces.json"
+        for path in (log, lib, surfaces):
+            path.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("# Log\n\n- first\n")
+        lib.write_text("pub mod a;\n\nfn shared() {}\n")
+        surfaces.write_text('{\n "a": 1\n}\n')
+        self.commit_all("base")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "-b", "lane")
+        log.write_text("# Log\n\n- first\n- lane entry\n")
+        lib.write_text("pub mod a;\npub mod lane;\n\nfn shared() {}\n")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        log.write_text("# Log\n\n- first\n- main entry\n")
+        lib.write_text("pub mod a;\npub mod main;\n\nfn shared() {}\n")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(log.read_text(), "# Log\n\n- first\n- lane entry\n- main entry\n")
+        self.assertEqual(lib.read_text(), "pub mod a;\npub mod lane;\npub mod main;\n\nfn shared() {}\n")
+
+        # The same line changed two ways is still the author's conflict.
+        self.git("checkout", "--quiet", "-b", "other", base)
+        lib.write_text("pub mod a;\n\nfn shared() { other() }\n")
+        self.commit_all("other")
+        self.git("checkout", "--quiet", "-b", "another", base)
+        lib.write_text("pub mod a;\n\nfn shared() { another() }\n")
+        self.commit_all("another")
+        clash = self.git("merge", "--no-edit", "other", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertIn("<<<<<<<", lib.read_text())
+        self.git("merge", "--abort")
+
+        # Both sides inserting after the last key leaves JSON without a comma: a conflict, never a broken file.
+        self.git("checkout", "--quiet", "-b", "json-a", base)
+        surfaces.write_text('{\n "a": 1\n}\n "b": 2\n')
+        self.commit_all("json a")
+        self.git("checkout", "--quiet", "-b", "json-b", base)
+        surfaces.write_text('{\n "a": 1\n}\n "c": 3\n')
+        self.commit_all("json b")
+        clash = self.git("merge", "--no-edit", "json-a", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertIn("<<<<<<<", surfaces.read_text())
+        self.git("merge", "--abort")
 
     def test_repo_relative_python_is_rejected_without_execution(self):
         tools = self.repo / "tools"
