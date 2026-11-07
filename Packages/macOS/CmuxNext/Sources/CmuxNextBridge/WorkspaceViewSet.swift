@@ -1,29 +1,31 @@
-import CmuxNextDaemon
-import CmuxNextDesign
-import CoreGraphics
+public import CmuxNextDaemon
+public import CmuxNextDesign
+public import CoreGraphics
 
 /// The workspaces one window shows side by side (Debug Settings `sidebar.multiView`, Leo 2026-10-21 item D): a
 /// split tree whose leaves are workspaces. A sidebar row dropped on a pane edge of the shown workspace goes on
 /// that side of it (`placing`); a workspace that closes or leaves the window leaves the tree (`pruned`). Two
 /// leaves at least: one workspace alone is the single view, which `WindowState.viewSet` stores as nil.
-nonisolated indirect enum WorkspaceViewSet: Hashable, Sendable {
+public nonisolated indirect enum WorkspaceViewSet: Hashable, Sendable {
+    /// One workspace, by `WorkspaceModel.id`.
     case workspace(String)
     /// `stacked`: `first` above `second`; else `first` left of `second`. Each takes half.
     case split(stacked: Bool, first: WorkspaceViewSet, second: WorkspaceViewSet)
 
     /// The workspaces, left to right and top to bottom.
-    var ids: [String] {
+    public var ids: [String] {
         switch self {
         case let .workspace(id): [id]
         case let .split(_, first, second): first.ids + second.ids
         }
     }
 
-    func contains(_ id: String) -> Bool { ids.contains(id) }
+    /// Whether workspace `id` is one of the tree's leaves.
+    public func contains(_ id: String) -> Bool { ids.contains(id) }
 
     /// `id` on `edge`'s side of `target`, which keeps the other half; an `id` already shown moves there. Nil when
     /// `target` is not shown or is `id`.
-    func placing(_ id: String, beside target: String, edge: TabDropEdge) -> WorkspaceViewSet? {
+    public func placing(_ id: String, beside target: String, edge: TabDropEdge) -> WorkspaceViewSet? {
         guard id != target, contains(target), let rest = pruned(keeping: { $0 != id }) else { return nil }
         return rest.replacing(target) { old in
             let new = WorkspaceViewSet.workspace(id)
@@ -38,7 +40,7 @@ nonisolated indirect enum WorkspaceViewSet: Hashable, Sendable {
 
     /// The tree without the workspaces `keeping` refuses: a split left with one side becomes that side. Nil when
     /// none is left.
-    func pruned(keeping: (String) -> Bool) -> WorkspaceViewSet? {
+    public func pruned(keeping: (String) -> Bool) -> WorkspaceViewSet? {
         switch self {
         case let .workspace(id):
             return keeping(id) ? self : nil
@@ -61,7 +63,7 @@ nonisolated indirect enum WorkspaceViewSet: Hashable, Sendable {
     }
 
     /// Each workspace's part of `rect` (y down: `minY` is the top), halves split by `gap` points.
-    func frames(in rect: CGRect, gap: CGFloat) -> [(id: String, frame: CGRect)] {
+    public func frames(in rect: CGRect, gap: CGFloat) -> [(id: String, frame: CGRect)] {
         switch self {
         case let .workspace(id):
             return [(id, rect)]
@@ -77,7 +79,7 @@ nonisolated indirect enum WorkspaceViewSet: Hashable, Sendable {
     }
 
     /// The half of `rect` a workspace dropped on `edge` takes (y down), for the drag ghost's landing.
-    static func half(of rect: CGRect, at edge: TabDropEdge, yDown: Bool = true) -> CGRect {
+    public static func half(of rect: CGRect, at edge: TabDropEdge, yDown: Bool = true) -> CGRect {
         let (w, h) = (rect.width / 2, rect.height / 2)
         switch edge {
         case .left: return CGRect(x: rect.minX, y: rect.minY, width: w, height: rect.height)
@@ -90,7 +92,7 @@ nonisolated indirect enum WorkspaceViewSet: Hashable, Sendable {
 
 extension WorkspaceViewSet {
     /// The window record's shape (`WindowRecord.multiView`); nil for a tree with no workspace.
-    init?(record: WindowViewLayout) {
+    public init?(record: WindowViewLayout) {
         if let key = record.workspace {
             self = .workspace(key.rawValue)
             return
@@ -100,7 +102,8 @@ extension WorkspaceViewSet {
         self = .split(stacked: record.axis == WindowViewLayout.stacked, first: first, second: second)
     }
 
-    var record: WindowViewLayout {
+    /// The tree as the window record stores it (`WindowRecord.multiView`).
+    public var record: WindowViewLayout {
         switch self {
         case let .workspace(id): WindowViewLayout(workspace: WorkspaceKey(rawValue: id))
         case let .split(stacked, first, second):

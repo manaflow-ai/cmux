@@ -436,6 +436,8 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "device",
     "workflow",
     "remote-host",
+    "chat",
+    "vm",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -1128,12 +1130,12 @@ fn scan_globals(
     Ok((global, command))
 }
 
-/// `machine add|vault`'s value-less switches (`machine_join::own_switch`); none on Windows,
-/// where those verbs do not exist.
+/// `machine add|vault`'s value-less switches (`machine_join::own_switch`) and the chat
+/// commands' (`chat_start::own_switch`); none on Windows, where those verbs do not exist.
 fn own_switch(command: &[String], flag: &str) -> bool {
     #[cfg(unix)]
     {
-        machine_join::own_switch(command, flag)
+        machine_join::own_switch(command, flag) || chat_start::own_switch(command, flag)
     }
     #[cfg(not(unix))]
     {
@@ -1227,16 +1229,8 @@ fn print_scope_help(scope: Option<&str>, surface: Surface) {
             Cow::Owned(format!("{MACHINE_CATALOG_HELP}\n{}", surface::VM_POINTER))
         }
         (Some(scope), _) => scope_help(scope),
-        (None, Surface::Cmux) => {
-            let root = catalog.local_server.cmux_root_help;
-            // `vm` is the one noun that makes and runs VMs (CMUX-43: `cmux cloud` is `cmux vm`).
-            let cloud = if root.contains("SCOPES") {
-                "  vm            Cloud VMs: new, run, pause, resume, rm (`cmux vm --help`)\n"
-            } else {
-                "  vm            Cloud VM: new、run、pause、resume、rm (`cmux vm --help`)\n"
-            };
-            Cow::Owned(root.replacen("  room", &format!("{cloud}  room"), 1))
-        }
+        // The root help lists `vm` itself, with `cloud` as its old name, in each language.
+        (None, Surface::Cmux) => Cow::Borrowed(catalog.local_server.cmux_root_help),
         (None, Surface::CmuxTui) => Cow::Owned(root_help(&catalog.local_server)),
     };
     let mut stdout = io::stdout().lock();
