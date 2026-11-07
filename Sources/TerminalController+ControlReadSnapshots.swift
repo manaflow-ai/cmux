@@ -9,6 +9,9 @@ import Foundation
 /// actor; a mutation schedules one coalesced refresh on the next actor turn.
 extension TerminalController {
     func scheduleSocketReadSnapshotRefresh() {
+        // Invalidate even when a publication is already queued. Mutations and
+        // topology notifications must become visible before the next actor turn.
+        socketReadSnapshotStore.invalidate()
         guard socketReadSnapshotRefreshTask == nil else { return }
         socketReadSnapshotRefreshTask = Task { @MainActor [weak self] in
             await Task.yield()
@@ -29,6 +32,15 @@ extension TerminalController {
     func externalTopologyDidChange() {
         invalidateSocketHandleTopologyRefresh()
         scheduleSocketReadSnapshotRefresh()
+    }
+
+    nonisolated static func snapshotMaximumAgeNanoseconds(for method: String) -> UInt64? {
+        switch method {
+        case "surface.read_text": return 100_000_000
+        case "system.top": return 500_000_000
+        case "system.memory": return 2_000_000_000
+        default: return nil
+        }
     }
 
     private func publishSocketReadSnapshot() {
