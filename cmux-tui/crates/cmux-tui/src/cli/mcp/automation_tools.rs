@@ -379,6 +379,18 @@ mod tests {
                 "--max-runs=3"
             ]
         );
+        // 0 turns the default watch cap off, as on the CLI.
+        assert_eq!(
+            w(
+                "automation_create",
+                json!({"name": "C", "command": "true", "watch": "w", "max_runs": 0})
+            )
+            .unwrap()
+            .0
+            .last()
+            .map(String::as_str),
+            Some("--max-runs=0")
+        );
         assert_eq!(w("automation_list", json!({})).unwrap(), (vec!["list".to_string()], None));
         assert_eq!(
             w("automation_runs", json!({"automation": "Brief", "limit": 5})).unwrap().0,

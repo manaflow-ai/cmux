@@ -163,6 +163,33 @@ fn guardrails_one_live_run_then_cooldown_then_the_daily_cap() {
     ));
 }
 
+/// Starts nothing: every start fails.
+struct Broken;
+impl Executor for Broken {
+    fn start(&mut self, _job: &Job) -> Result<u32, String> {
+        Err("no shell".into())
+    }
+    fn is_alive(&self, _pid: u32) -> bool {
+        false
+    }
+}
+
+#[test]
+fn a_start_that_failed_does_not_count_toward_cooldown_or_cap() {
+    let store = store("start-failed");
+    let gate = Gate { cooldown_seconds: 600, max_runs_per_day: Some(1), ..Gate::default() };
+    let a = store.create(spec("broken", watch(), "true", gate), T0).unwrap();
+    let EventOutcome::Started(run) =
+        start_event(&store, &a.id, "e1", "1", T0, &mut Broken).unwrap()
+    else {
+        panic!("nothing holds the first event");
+    };
+    let r = store.run(&a.id, &run).unwrap().unwrap();
+    assert_eq!(r.state, RunState::Failed);
+    let history = store.runs(&a.id).unwrap();
+    assert_eq!(cmux_automations::verdict(&a.gate, &history, T0 + 1, &|_| false), Verdict::Go);
+}
+
 #[test]
 fn a_paused_watch_drops_its_events() {
     let store = store("paused");
