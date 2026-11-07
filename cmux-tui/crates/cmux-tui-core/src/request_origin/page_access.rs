@@ -126,7 +126,9 @@ const fn access(operation: Op) -> Access {
         | Op::ProjectSourceUpdate
         // Conductor's database and worktrees, read by the app's Import from Conductor.
         | Op::ConductorImportPlan
-        | Op::ConductorImportRecord => Access::Denied(Denied::FileSystem),
+        | Op::ConductorImportRecord
+        // A Cloud machine's files and commands (server/cloud_api.rs).
+        | Op::CloudMachineIo => Access::Denied(Denied::FileSystem),
         // A browser profile's visited pages: never a page's to read or delete.
         Op::HistoryEntriesList
         | Op::HistoryEntriesRemove
@@ -392,7 +394,48 @@ const fn access(operation: Op) -> Access {
         | Op::ConversationSend
         | Op::ConversationTyping
         | Op::ConversationDraft
-        | Op::ConversationEvents => Access::Denied(Denied::NotAllowed),
+        | Op::ConversationEvents
+        // The person's Cloud API calls, with credentials a page never holds (server/cloud_api.rs).
+        | Op::CloudVmResize
+        | Op::CloudVmSnapshot
+        | Op::CloudVmSnapshots
+        | Op::CloudVmDeleteSnapshot
+        | Op::CloudVmRestore
+        | Op::CloudVmFork
+        | Op::CloudVmScpEndpoint
+        | Op::CloudVmTunnelEnroll
+        | Op::CloudVmTunnelRevoke
+        | Op::CloudVmTunnelAttach
+        | Op::CloudVmTunnelDetach
+        | Op::CloudVmTunnelRotateKey
+        | Op::CloudVmFirewallList
+        | Op::CloudVmFirewallGet
+        | Op::CloudVmFirewallCreate
+        | Op::CloudVmFirewallDelete
+        | Op::CloudVmNetworks
+        | Op::CloudVmDomains
+        | Op::CloudVmPublications
+        | Op::CloudVmProvisionApi
+        | Op::CloudVmPublicationApiKeys
+        | Op::CloudVmRevokePublicationApiKey
+        | Op::CloudRunsCreate
+        | Op::CloudRunsStart
+        | Op::CloudRunsWait
+        | Op::CloudRunsCancel
+        | Op::CloudRunsSandbox
+        | Op::CloudOwnerAcpmuxPersonHolds
+        | Op::CloudOwnerAcpmuxKeyedStart
+        | Op::CloudOwnerForkRun
+        | Op::CloudOwnerHandoffWait
+        | Op::CloudOwnerHandoffs
+        | Op::CloudOwnerHandoffOpen
+        | Op::CloudOwnerHandoffBeginTurn
+        | Op::CloudOwnerHarnessLoginCopy
+        | Op::CloudOwnerGithubApp
+        | Op::CloudPreviewsRefresh
+        | Op::CloudPreviewsCreateLink
+        | Op::CloudPreviewsRevokeLink
+        => Access::Denied(Denied::NotAllowed),
     }
 }
 
