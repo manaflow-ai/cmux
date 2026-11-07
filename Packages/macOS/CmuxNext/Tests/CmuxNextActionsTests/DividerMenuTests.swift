@@ -57,7 +57,7 @@ import Testing
 
     @Test func theRowsAreScriptableAndSearchable() throws {
         for (id, cli) in [("divider.insertNew", "divider insert"), ("divider.hide", "divider hide"), ("divider.show", "divider show")] {
-            let descriptor = try #require(ActionCatalog.all.first { $0.id == ActionID(id) })
+            let descriptor = try #require(ActionCatalog.all.first { $0.id == ActionID(rawValue: id) })
             #expect(descriptor.cliName == cli)
             #expect(descriptor.surfaces.contains(.palette))
         }
