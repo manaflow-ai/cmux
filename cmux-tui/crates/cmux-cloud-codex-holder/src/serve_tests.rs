@@ -289,11 +289,11 @@ impl World {
     }
 
     /// The next holder, given what the last one knew.
-    async fn restarted(&self, replay: bool) -> Pipe {
+    async fn restarted(&self, replay: Option<Value>) -> Pipe {
         let mut pipe = Pipe::start(&self.files);
         pipe.send(self.config()).await;
-        if replay {
-            pipe.send(json!({"op": "restore", "scopes": [scope()], "live": ["vm_1"],
+        if let Some(live) = replay {
+            pipe.send(json!({"op": "restore", "scopes": [scope()], "live": live,
                 "current": scope(), "acpmux": self.acpmux}))
                 .await;
         }
@@ -307,7 +307,7 @@ impl World {
 async fn a_restarted_holder_given_the_replay_erases_on_sign_out() {
     let world = World::new();
     world.delivered_by_a_holder_that_ended().await;
-    let mut pipe = world.restarted(true).await;
+    let mut pipe = world.restarted(Some(json!(["vm_1"]))).await;
     pipe.send(json!({"op": "sign_out", "id": 2, "current": scope()})).await;
     assert_eq!(pipe.reply(2).await["ok"], true);
     assert!(!world.delivered(), "the sign-out erased the last holder's access");
@@ -318,7 +318,7 @@ async fn a_restarted_holder_given_the_replay_erases_on_sign_out() {
 async fn a_restarted_holder_given_the_replay_erases_on_a_team_switch() {
     let world = World::new();
     world.delivered_by_a_holder_that_ended().await;
-    let mut pipe = world.restarted(true).await;
+    let mut pipe = world.restarted(Some(json!(["vm_1"]))).await;
     pipe.send(
         json!({"op": "scope_changed", "id": 2, "current": {"user": "user-1", "team": "team-2"}}),
     )
@@ -333,9 +333,22 @@ async fn a_restarted_holder_given_the_replay_erases_on_a_team_switch() {
 async fn a_restarted_holder_without_the_replay_cannot_erase() {
     let world = World::new();
     world.delivered_by_a_holder_that_ended().await;
-    let mut pipe = world.restarted(false).await;
+    let mut pipe = world.restarted(None).await;
     pipe.send(json!({"op": "sign_out", "id": 2, "current": scope()})).await;
     assert_eq!(pipe.reply(2).await["ok"], true);
     assert!(world.delivered());
+    pipe.quit().await;
+}
+
+/// cmux#37306 review: a machine delivered after the last machine list is not in the replayed
+/// list; the holder still finds it in the delivery record and erases it on sign-out.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restarted_holder_erases_a_machine_delivered_after_the_last_list() {
+    let world = World::new();
+    world.delivered_by_a_holder_that_ended().await;
+    let mut pipe = world.restarted(Some(json!([]))).await;
+    pipe.send(json!({"op": "sign_out", "id": 2, "current": scope()})).await;
+    assert_eq!(pipe.reply(2).await["ok"], true);
+    assert!(!world.delivered(), "the record named it");
     pipe.quit().await;
 }

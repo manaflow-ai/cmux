@@ -254,11 +254,13 @@ impl Adapter {
 
     /// A holder started again while the app runs (the last one ended): the app replays what the
     /// last one knew, `scopes` it served and the `live` machines of the last list, under the
-    /// scope that one held as current. The current scope's recorded live machines are taken back
-    /// first (renewal goes on, and the next sign-out, switch or off switch erases them); every
-    /// other scope is registered so its end erases what its record holds. Bounded by
+    /// scope that one held as current. Every machine the current scope's delivery record holds is
+    /// a candidate too, so one delivered after that list is not missed; each is asked whether it
+    /// runs (never woken) and taken back first (renewal goes on, and the next sign-out, switch or
+    /// off switch erases it). Every other scope is registered so its end erases what its record
+    /// holds. Bounded by
     /// `CLEANUP_BOUND`; a pass still running then is cancelled and its machines stay recorded.
-    pub async fn restore(self: &Arc<Self>, scopes: Vec<Scope>, live: HashSet<String>) {
+    pub async fn restore(self: &Arc<Self>, scopes: Vec<Scope>, mut live: HashSet<String>) {
         let current = (self.current_scope)();
         {
             let mut state = self.st();
@@ -268,6 +270,7 @@ impl Adapter {
             state.scopes.extend(scopes.into_iter().filter(|s| Some(s) != current.as_ref()));
         }
         let Some(scope) = current else { return };
+        live.extend(Record::new(&self.home(&scope)).entries().into_keys());
         let cx = Cx::new();
         let (this, pass_cx) = (self.clone(), cx.clone());
         let pass = tokio::spawn(async move {
