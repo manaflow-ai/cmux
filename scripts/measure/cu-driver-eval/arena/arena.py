@@ -452,8 +452,14 @@ def start_daemon(arm: str, spec: dict, log_dir: Path) -> subprocess.Popen | None
     if not daemon:
         return None
     log = open(log_dir / f"daemon-{arm}.log", "ab")
-    env = {**os.environ, **daemon.get("env", {})}
-    proc = subprocess.Popen(daemon["argv"], stdin=subprocess.DEVNULL, stdout=log, stderr=log, env=env, start_new_session=True)
+    # A login session's basics and the arm's own variables, as cmux gives its helper: none of this runner's.
+    base = {k: os.environ[k] for k in ("HOME", "PATH", "TMPDIR", "USER", "LOGNAME", "LANG", "SHELL") if k in os.environ}
+    env = {**base, **daemon.get("env", {})}
+    argv = list(daemon["argv"])
+    # prepare.py wrote the argv and has exited: a helper that watches its owner watches this runner.
+    if "--owner-pid" in argv:
+        argv[argv.index("--owner-pid") + 1] = str(os.getpid())
+    proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, env=env, start_new_session=True)
     ready = daemon.get("ready_socket")
     deadline = time.monotonic() + 30
     while ready and time.monotonic() < deadline:
