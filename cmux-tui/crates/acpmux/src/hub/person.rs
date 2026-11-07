@@ -1145,7 +1145,16 @@ impl Hub {
                     // The full-access mode new chats start in, which the person chose for every
                     // chat, or Claude's own Auto under it (`start_mode.rs`); never for a Web or
                     // peer connection.
-                    if starts_modes && self.may_move_without_person(&s.meta(), mode).await {
+                    // Or the mode the session runs now, when that one asks at all (Claude Code's
+                    // Auto): a set that changes nothing widens nothing (cmux#37392: a Chief in
+                    // Auto under an `ask` start level was refused each turn). Never a full-access
+                    // mode: cmux's set would mark one the harness claimed as cmux's own
+                    // (`trust_wait.rs` `full_access_by_cmux`).
+                    let unchanged = crate::web_modes::mode_of(&s.meta()).as_deref() == Some(mode)
+                        && !super::start_mode::is_full_access(mode);
+                    if starts_modes
+                        && (unchanged || self.may_move_without_person(&s.meta(), mode).await)
+                    {
                         Ok(())
                     } else {
                         Err(mode_person_required(mode, None, false, starts_modes))
