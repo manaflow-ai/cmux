@@ -1761,6 +1761,8 @@ struct ShellFake {
     home: std::path::PathBuf,
     ran: Vec<Vec<String>>,
     shell: Vec<(Option<i32>, String)>,
+    /// `vm-1`'s `created_at` in `list-machines` (default: long ago, so its bootstrap would have started).
+    created_at: Value,
     clock: Instant,
     step: Duration,
     execs: usize,
@@ -1773,6 +1775,7 @@ impl ShellFake {
             home: home.to_owned(),
             ran: Vec::new(),
             shell: Vec::new(),
+            created_at: json!(OLD),
             clock: Instant::now(),
             step: Duration::from_secs(5),
             execs: 0,
@@ -1793,7 +1796,7 @@ impl Runner for ShellFake {
         self.ran.push(args.to_vec());
         self.clock += self.step;
         match args.get(1).map(String::as_str) {
-            Some("list-machines") => signed_in(),
+            Some("list-machines") => listed(self.created_at.clone()),
             Some("exec") => {
                 let command = args[5].replace("sleep 1", ":");
                 let out = std::process::Command::new("sh")
@@ -1912,12 +1915,11 @@ fn the_bootstrap_files_decide_whether_the_folder_is_ready() {
     }
 }
 
-/// No bootstrap and no folder (a typo in `--cwd`, or a machine whose bootstrap is still being put on
-/// it): a short fixed grace for a bootstrap to show up (30 s, or the time left when that is less), then
-/// a typed `cloud.folder_missing` (`no_such_folder`, exit 1, no bootstrap log), never a start and never
-/// a wait to the deadline.
+/// No bootstrap and no folder on a machine old enough that its bootstrap would have started (a typo in
+/// `--cwd`): a typed `cloud.folder_missing` (`no_such_folder`, exit 1, no bootstrap log) at the first
+/// check, never a start and never a wait to the deadline.
 #[test]
-fn no_bootstrap_and_no_folder_is_no_such_folder_after_a_short_grace() {
+fn no_bootstrap_and_no_folder_on_an_old_machine_is_no_such_folder() {
     for timeout in ["900", "20"] {
         let home = tempfile::tempdir().unwrap();
         let mut fake = ShellFake::new(home.path());
@@ -1936,6 +1938,7 @@ fn no_bootstrap_and_no_folder_is_no_such_folder_after_a_short_grace() {
         assert!(!error["message"].as_str().unwrap().contains("bootstrap.log"), "{error}");
         let spent = fake.clock.saturating_duration_since(began);
         assert!(spent <= Duration::from_secs(45), "{timeout}: {spent:?}");
+        assert_eq!(fake.ran.len(), 2, "missing at the first check: {:?}", fake.ran);
         assert!(no_start(&fake.ran), "{:?}", fake.ran);
         fake.assert_clean();
     }
@@ -2115,5 +2118,126 @@ fn an_answer_with_more_than_its_line_is_malformed_and_asked_again() {
         assert!(is_folder_check(&fake.ran[2], "/home/cmux/work/r"), "{extra:?}: {:?}", fake.ran);
         assert!(is_relay(&fake.ran[3]), "{extra:?}");
         assert_eq!(fake.ran.len(), 4, "{extra:?}");
+    }
+}
+
+/// `list-machines` with `vm-1` created at `created_at`.
+fn listed(created_at: Value) -> Ran {
+    ok(json!({"account": {"signed_in": true},
+              "machines": [{"machine_id": "vm-1", "title": "m", "created_at": created_at}]}))
+}
+
+const OLD: &str = "2020-01-01T00:00:00Z";
+
+/// `at` as the app writes `created_at` (`Date.formatted(.iso8601)`: `2026-11-07T01:23:45Z`).
+fn iso(at: std::time::SystemTime) -> String {
+    let secs = at.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let (days, rest) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        rest / 3600,
+        rest % 3600 / 60,
+        rest % 60
+    )
+}
+
+/// Review of #37248 at 4672e358: a young machine (its bootstrap may not have written its status yet:
+/// the app writes five files of up to 120 s each first) is waited on past any fixed grace, and starts
+/// once its bootstrap shows up and clones the folder.
+#[test]
+fn a_young_machine_whose_bootstrap_shows_up_late_is_waited_on() {
+    let home = tempfile::tempdir().unwrap();
+    let cwd = home.path().join("work/r");
+    let mut fake = ShellFake::new(home.path());
+    fake.created_at = json!(iso(std::time::SystemTime::now()));
+    let made = cwd.clone();
+    // About 90 s of checks with nothing there, then the bootstrap's status and its clone.
+    fake.after = Some((
+        13,
+        Box::new(move |home| {
+            std::fs::create_dir_all(&made).unwrap();
+            bootstrap(home, RUNNING, Some(CLONED));
+        }),
+    ));
+    let began = fake.clock;
+    let Outcome::Done(answer) = run(&mut fake, &repo_start(cwd.to_str().unwrap(), "900")) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "ok");
+    assert!(
+        fake.clock.saturating_duration_since(began) > Duration::from_secs(60),
+        "{:?}",
+        fake.ran
+    );
+    assert!(is_relay(fake.ran.last().unwrap()));
+    fake.assert_clean();
+}
+
+/// A machine whose age can't be read (no `created_at`, an unreadable one, not listed) counts as young:
+/// no bootstrap and no folder waits to the deadline and never reads as missing or starts.
+#[test]
+fn a_machine_of_unknown_age_is_waited_on_to_the_deadline() {
+    for created_at in [Value::Null, json!("yesterday"), json!(12)] {
+        let home = tempfile::tempdir().unwrap();
+        let mut fake = ShellFake::new(home.path());
+        fake.created_at = created_at.clone();
+        let cwd = home.path().join("work/r");
+        let Outcome::Failed { error, exit } =
+            run(&mut fake, &repo_start(cwd.to_str().unwrap(), "60"))
+        else {
+            panic!("{created_at}: {:?}", fake.ran)
+        };
+        assert_eq!(
+            (error["code"].as_str(), exit),
+            (Some("cloud.start_pending"), 75),
+            "{created_at}"
+        );
+        assert!(no_start(&fake.ran), "{created_at}");
+        fake.assert_clean();
+    }
+}
+
+/// Review of #37248 at 4672e358: with `--timeout`, the deadline is the only bound (the 10 minute cap is
+/// for a start with no deadline).
+#[test]
+fn a_timeout_over_ten_minutes_is_the_only_bound() {
+    let mut fake = Fake::new(vec![signed_in()]);
+    fake.answers.extend((0..400).map(|_| exec_out("busy\n")));
+    let began = fake.clock;
+    let Outcome::Failed { error, .. } = run(&mut fake, &repo_start("/home/cmux/work/r", "1200"))
+    else {
+        panic!("{:?}", fake.ran.len())
+    };
+    assert_eq!(error["code"], "cloud.start_pending", "{error}");
+    assert!(fake.clock.saturating_duration_since(began) >= Duration::from_secs(1200));
+}
+
+/// Review of #37248 at 4672e358: an answer that comes back past the deadline is out of time, never a
+/// start; a resume is never asked for past it.
+#[test]
+fn an_answer_past_the_deadline_is_out_of_time() {
+    // The list takes 5 s of the 9, the check the rest and more: its `ready` is late.
+    for (answer, never) in [
+        (exec_out("ready\n"), "relay-chat"),
+        (refused("vm_not_running", "paused"), "resume-machine"),
+    ] {
+        let mut fake = Fake::new(vec![signed_in(), answer.clone(), ok(json!({})), relay_ok()]);
+        let Outcome::Failed { error, exit } = run(&mut fake, &repo_start("/home/cmux/work/r", "9"))
+        else {
+            panic!("{answer:?}: {:?}", fake.ran)
+        };
+        assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75), "{answer:?}");
+        assert!(no_start(&fake.ran), "{answer:?}: {:?}", fake.ran);
+        assert!(fake.ran.iter().all(|args| args[1] != never), "{answer:?}: {:?}", fake.ran);
+        assert_eq!(fake.ran.len(), 2, "{answer:?}: {:?}", fake.ran);
     }
 }
