@@ -230,17 +230,14 @@ enum TabLifecycle {
         guard let invoked = ctx.daemonPane(invocation) else { return }
         let engine = plan.engine
         if openBrowserFromDock(ctx, invocation, pane: invoked, url: url, engine: engine, profile: profileRequest) { return }
-        // From the docked agent chat, a tab in the strip (ChatColumnPlacement)
-        // that opens what the chat works on, not the strip's selected tab. The
-        // chat header's Preview is placed beside the chat as an agent's is.
+        // From the docked agent chat, a tab in the strip (ChatColumnPlacement). The chat header's
+        // Preview is placed beside the chat as an agent's is.
         let pane: PaneModel
-        var context: PaneController?
         var docked = false
         if invocation.origin == .user, !invocation.besideCaller, let chat = ctx.services.paneController(for: invoked) {
             let respawn = chatRespawn(ctx, url: url, engine: engine, profile: profileRequest)
             if let target = ChatColumnPlacement.route(from: chat, respawn: respawn, services: ctx.services) {
                 pane = target.pane
-                if target !== chat { context = chat }
             } else {
                 // A lone chat docked and left the browser in its pane.
                 pane = invoked
@@ -312,12 +309,10 @@ enum TabLifecycle {
         // In its slot at once (NewTabSuccession), only once it opens in this pane.
         if then == nil { then = NewTabSlot.placing(slot, services: ctx.services, then: agentTab) }
         if let controller = ctx.services.paneController(for: opener) {
-            // No URL given: what the selected tab works on (#16620), the chat's from the chat dock.
-            if url == nil {
-                (context ?? controller).newBrowserTabFromSelectedTab(engine: engine, in: controller, placementOwner: homePlacement, then: then)
-            } else {
-                controller.newBrowserTab(url: url, engine: engine, background: background, placementOwner: homePlacement, then: then)
-            }
+            // No URL given: the New Tab page, always. New Browser Tab (Cmd-Shift-L) never reopens a page the selected tab
+            // worked on (an agent's dev server or pull request, a terminal's localhost): that read as an old tab coming back
+            // (Aziz 2026-11-06: "it opened an old tab instead of making a new browser tab").
+            controller.newBrowserTab(url: url, engine: engine, background: background, placementOwner: homePlacement, then: then)
             return
         }
         openOffscreen(ctx, pane: pane, url: url, engine: engine, profile: nil, then: agentTab)
@@ -480,9 +475,9 @@ extension TabLifecycle {
         }
     }
 
-    /// A browser uses the same serialized right-column open as a terminal. Preserve the chat's
-    /// working URL and the requested profile; while a split is being made, its upper pane keeps
-    /// showing its existing tab and the browser appears only after its move below lands.
+    /// A browser uses the same serialized right-column open as a terminal. Preserve the requested
+    /// profile; with no URL it is the New Tab page, as everywhere else. While a split is being made, its
+    /// upper pane keeps showing its existing tab and the browser appears only after its move below lands.
     static func openBrowserFromDock(_ ctx: AppActionContext, _ invocation: ActionInvocation, pane: PaneModel,
                                     url: URL?, engine: String?, profile: AgentBrowserProfile.Request) -> Bool {
         guard invocation.origin == .user, !invocation.besideCaller,
@@ -492,10 +487,6 @@ extension TabLifecycle {
             let background = placed != nil || invocation.opensInBackground
             switch profile {
             case .cascade:
-                if url == nil {
-                    chat.newBrowserTabFromSelectedTab(engine: engine, in: target, background: background, placementOwner: placed != nil, then: then)
-                    return true
-                }
                 return target.newBrowserTab(url: url, engine: engine, background: background, placementOwner: placed != nil, then: then)
             case .explicit(let id):
                 return target.newBrowserTab(url: url, engine: engine, background: background, profile: id, placementOwner: placed != nil, then: then)
