@@ -517,13 +517,33 @@ import Testing
         let windowId: UUID
         let manager: TabManager
         let workspace: Workspace
+        private let chiefEnabledKey = ChiefCatalogSection().enabled.userDefaultsKey
+        private let originalChiefEnabled: Any?
         var controller: RemoteTmuxController { appDelegate.remoteTmuxController }
 
         init() throws {
             appDelegate = try #require(AppDelegate.shared)
-            windowId = appDelegate.createMainWindow()
-            manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            workspace = try #require(manager.selectedWorkspace)
+            // App-host tests run with Chief on, which gives each new window a Home
+            // workspace that can't be closed. These cases need the mirror to become
+            // the window's last workspace, so they run with Chief off.
+            originalChiefEnabled = UserDefaults.standard.object(forKey: chiefEnabledKey)
+            ChiefSettings.setEnabled(false)
+            do {
+                windowId = appDelegate.createMainWindow()
+                manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+                workspace = try #require(manager.selectedWorkspace)
+            } catch {
+                Self.restoreChiefEnabled(originalChiefEnabled, key: chiefEnabledKey)
+                throw error
+            }
+        }
+
+        private static func restoreChiefEnabled(_ original: Any?, key: String) {
+            if let original {
+                UserDefaults.standard.set(original, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
         }
 
         func tearDown() {
@@ -531,6 +551,7 @@ import Testing
             // Clear any marker so it can't leak into another serialized test.
             controller.consumeKillSessionsOnWindowClose(windowId: windowId)
             closeWindow(windowId)
+            Self.restoreChiefEnabled(originalChiefEnabled, key: chiefEnabledKey)
         }
 
         func cacheConnection(host: RemoteTmuxHost, session: String) {
