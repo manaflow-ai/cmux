@@ -553,6 +553,11 @@ export type AcpmuxRow = {
   /// conversation/toolRunSummary.ts).
   /// False keeps a run waiting for edit permission in tool rows without collapsing it.
   foldRun?: boolean;
+  /// A folded run inside the open "Worked for" of a turn the person steered: its line starts open, so
+  /// opening Worked for shows all its work at once (conversation/turns.ts, turnFoldSteered.experiment.ts).
+  runOpen?: true;
+  /// A "Worked for" line that names the work it holds after its time (turnFoldSteered `header` arm).
+  workedRuns?: AcpmuxActivity[];
   /// A run of one-line rows carrying messages between agents, folded under one line
   /// (conversation/messageRuns.ts): what its line counts and the rows it folds.
   messageRun?: AcpmuxMessageRun;
@@ -1975,7 +1980,7 @@ function fallbackRowHeight(
     if (row.foldRun && row.items?.length) {
       const groups = toolGroups(row.items);
       if (groups.some(staysInSight)) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width));
-      if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
+      if (isFoldedRun(row.items) && !row.runOpen) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
     }
     const items = row.items ?? [];
     let steps = items.length
@@ -1988,7 +1993,10 @@ function fallbackRowHeight(
         if (group.type === "sendGroup" && group.items.length > 1)
           steps +=
             messageRowHeight(true) - group.items.reduce((height, item) => height + activityStepHeight(item, width), 0);
-    return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
+    // A run line open from the start (`runOpen`) draws its line (the run's summary, or its one group's)
+    // over its calls; a run of one call is that call's row alone.
+    const line = row.runOpen && items.filter((item) => item.tool).length > 1 ? toolRowHeight() : 0;
+    return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + line + steps);
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
   // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
