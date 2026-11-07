@@ -4,7 +4,7 @@
  * {"ok": true, "result": ...} or {"ok": false, "error": {"code", "message",
  * "details"?, "retryable"?, "idempotency_key"?}}, except cmux_sdk_next's
  * {"item": ...} | {"end": ...} | {"timed_out": true} | an error. Free every
- * *out with cmux_sdk_bytes_free. Return codes: 0 CMUX_SDK_OK (read *out), -1 a null
+ * *out with cmux_sdk_bytes_free. Return codes: 0 OK (read *out), -1 a null
  * pointer, -2 invalid input (not UTF-8, params not a JSON object, a kind
  * without its key), -4 a panic inside (caught); on any code but 0, *out is
  * empty. Every function may run on any thread.
