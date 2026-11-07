@@ -62,31 +62,34 @@ export function subagentPaneView(
   );
 }
 
-type OwnLogState = { key: string; log?: OwnLog; done: boolean };
+type OwnLogState = { key: string; log?: OwnLog; done: boolean; failed?: boolean };
 
 /// Subagent `id`'s own log while the pane needs it (`id` set: a subagent the chat's rows do not
-/// hold), read once per chat and subagent. `loading` until the read settles; a failed read settles
-/// empty, never as the chat.
+/// hold), read once per chat and subagent while `connected`. `loading` until a read succeeds or
+/// comes back empty. A failed read (no link yet, a dropped one) stays loading and reads again when
+/// the link is up again, never settles as empty or as the chat.
 export function useOwnLog(
   id: string | undefined,
   chat: OwnLogChat,
   read: ReadOwnLog,
+  connected = true,
 ): { log?: OwnLog; loading: boolean } {
   const key = id && chat.session ? `${chat.session}\u001f${id}` : undefined;
   const [state, setState] = useState<OwnLogState>();
+  const settled = state?.key === key && state?.done === true;
   useEffect(() => {
-    if (!key || !id) return;
+    if (!key || !id || !connected || settled) return;
     let live = true;
     setState((now) => (now?.key === key ? now : { key, done: false }));
     read(id).then(
       (records) => live && setState({ key, done: true, log: foldOwnLog(id, records, chat) }),
-      () => live && setState({ key, done: true }),
+      () => live && setState({ key, done: false, failed: true }),
     );
     return () => {
       live = false;
     };
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- one read per chat and subagent; `chat` and `read` are read then
-  }, [key]);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- one read per chat, subagent and link; `chat` and `read` are read then
+  }, [key, connected, settled]);
   if (!key) return { loading: false };
   const mine = state?.key === key ? state : undefined;
   return { log: mine?.log, loading: !mine?.done };

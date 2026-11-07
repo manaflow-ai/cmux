@@ -2332,6 +2332,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     subagentView && !workflowRequest && !subagentInChat ? subagentView : undefined,
     { session: shownSessionId, harness: snapshot.summary?.harness },
     readSubagentLog,
+    connected,
   );
   const childRows = useMemo(() => {
     if (workflowTranscript.rows) return workflowTranscript.rows;

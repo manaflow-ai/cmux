@@ -4411,8 +4411,9 @@ export class AcpmuxDirectClient {
 
   /// Subagent `subagent`'s own records of the selected chat, oldest first (acpmux `_acpmux/events
   /// {subagent}`): what a subagent's pane draws when the chat's loaded page no longer holds that
-  /// subagent (subagents/subagentOwnLog.ts). At most `SUBAGENT_LOG_PAGES` pages; a longer log keeps
-  /// its first ones, which hold the subagent's start.
+  /// subagent (subagents/subagentOwnLog.ts). At most `SUBAGENT_LOG_PAGES` pages from its start; a
+  /// longer log adds its newest page, which holds its end and last reply, so the fold never reads a
+  /// finished subagent as running.
   async readSubagentLog(subagent: string): Promise<EventRecord[]> {
     const sessionId = this.selectedSessionId;
     // l10n-allow: internal selection race; the subagent pane renders its own localized state.
@@ -4432,10 +4433,20 @@ export class AcpmuxDirectClient {
       if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
       const events = records(result?.events);
       found.push(...events);
-      if (result?.hasMore !== true || events.length === 0) break;
+      if (result?.hasMore !== true || events.length === 0) return found;
       after = Math.max(...events.map((event) => event.seq));
     }
-    return found;
+    const newest = await this.typed("_acpmux/events", {
+      sessionId,
+      subagent,
+      beforeSeq: Number.MAX_SAFE_INTEGER,
+      limit: KEPT_EVENTS,
+      maxBytes: OLDER_PAGE_BYTES,
+      kinds: ["transcript"],
+    });
+    // l10n-allow: internal selection race; the subagent pane renders its own localized state.
+    if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
+    return [...found, ...records(newest?.events).filter((event) => event.seq > after)];
   }
 
   /// Reads only this pane's selected chat; the native relay enforces the same scope.
