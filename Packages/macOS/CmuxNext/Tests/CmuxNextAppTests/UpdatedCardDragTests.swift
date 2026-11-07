@@ -159,6 +159,7 @@ struct UpdatedCardDragTests {
         island.onDrag?(SidebarCardDrag(offset: CGPoint(x: 6, y: -140), drop: .bottom))
         #expect(host.droppedAt == CGPoint(x: resting.minX + 6, y: resting.minY - 140))
         host.onHeightChange = relayout
+        relayout?()
         sidebar.layoutSubtreeIfNeeded()
         #expect(host.frame == resting)
         host.configure(nil)
