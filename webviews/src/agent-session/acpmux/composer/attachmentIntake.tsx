@@ -736,20 +736,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       originals.current.delete(id);
       return;
     }
-    const { localPaths, localChat } = live.current.options;
-    if (!localPaths && localChat !== true) {
+    // Only `localChat` says the agent runs on this Mac: `localPaths` is also given to a New Tab
+    // that may start the chat in the Cloud.
+    if (live.current.options.localChat !== true) {
       setOriginalFailures((now) => ({ ...now, [id]: failed }));
       return;
     }
     const kept = originalTries.current.get(id);
     kept?.stop();
     const tries = kept?.tries ?? 0;
-    // A failure shown while the chat was on another machine goes: here nothing is blocked by it.
-    setOriginalFailures((now) => {
-      if (!(id in now)) return now;
-      const { [id]: _, ...rest } = now;
-      return rest;
-    });
     // Counted before the try runs, so spent tries stay spent.
     originalTries.current.set(id, { tries: tries + 1, stop: () => {} });
     const stop = retryUploadLater(
@@ -892,7 +887,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     setAttachments,
     pending: shown,
     // A chat on this Mac shows none, also one carried in from a chat on another machine.
-    originalFailures: options.localPaths || options.localChat === true ? NO_FAILURES : originalFailures,
+    // Kept, not cleared: carried back to a chat on another machine, its Retry shows again.
+    originalFailures: options.localChat === true ? NO_FAILURES : originalFailures,
     originalUploads,
     loading,
     unsettled,

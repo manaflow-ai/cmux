@@ -301,6 +301,30 @@ test("a chat on this Mac shows no Retry over an image whose original was not sav
   expect(promptBlocks("", handle.current!.attachments).map((block) => block.type)).toEqual(["image", "image"]);
 });
 
+// Review (Astra) at 3e6f0649: `localPaths` is no proof the agent is local (a New Tab may start the
+// chat in the Cloud), and a failure carried into a chat on this Mac and back shows its Retry again.
+test("Retry stays for a chat not known to be local, and comes back when carried back from one", async () => {
+  const options = (scope: string, local: "chat" | "paths" | "none"): AttachmentIntakeOptions => ({
+    allowImages: true,
+    pasteTarget: () => undefined,
+    scope,
+    carries: () => true,
+    ...(local === "chat" ? { localChat: true } : {}),
+    ...(local === "paths" ? { localPaths: async () => undefined } : {}),
+    upload: async () => ({ error: "The disk is full." }),
+  });
+  const handle: { current: Intake | null } = { current: null };
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={options("newtab", "paths")} handle={handle} />));
+  await act(() => handle.current!.attach([png("shot.png")], true));
+  await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
+  expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
+  act(() => root!.render(<Harness options={options("local", "chat")} handle={handle} />));
+  expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
+  act(() => root!.render(<Harness options={options("cloud", "none")} handle={handle} />));
+  expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
+});
+
 // Review (Astra): Retry's upload stops once its chip leaves the strip, also after the chip moved
 // with the composer to another chat, and a chip out of the strip keeps no file for a Retry it
 // cannot show, also when it left with a switch to another chat.
