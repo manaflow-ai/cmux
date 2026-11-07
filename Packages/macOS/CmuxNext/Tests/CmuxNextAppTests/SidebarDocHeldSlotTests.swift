@@ -15,8 +15,9 @@ import Testing
 
     static func ref(_ id: String) -> SidebarDocWorkspaceRef { SidebarDocWorkspaceRef(sessionID: session, workspaceID: id) }
 
-    /// Machine section: loose `ws-1`, group `g` (members `members` in order), loose `ws-3`, `ws-4`.
-    static func projection(members: [String]) -> SidebarDocProjection {
+    /// Machine section: loose `ws-1`, group `g` (members `members` in order), loose `ws-3`, `ws-4`; less the loose
+    /// rows in `unplacing` (the document places them nowhere for a moment).
+    static func projection(members: [String], unplacing: Set<String> = []) -> SidebarDocProjection {
         var items: [String: SidebarDocItem] = [
             "itm_1": SidebarDocItem(id: "itm_1", section: machine, body: .workspace(ref("ws-1"))),
             "itm_g": SidebarDocItem(id: "itm_g", section: machine, body: .group(name: "Leads", color: nil, icon: nil, collapsed: true)),
@@ -35,6 +36,10 @@ import Testing
             SidebarDocRow(key: "itm_3", kind: "item", section: machine, item: "itm_3", ref: ref("ws-3")),
             SidebarDocRow(key: "itm_4", kind: "item", section: machine, item: "itm_4", ref: ref("ws-4")),
         ]
+        for id in unplacing {
+            items["itm_" + String(id.dropFirst(3))] = nil
+            rows.removeAll { $0.ref?.workspaceID == id }
+        }
         let records = SidebarDocRecords(sections: [machine: SidebarDocSection(id: machine, kind: .machine(session: session))], items: items)
         return SidebarDocProjection(rows: rows, records: records, revision: 1)
     }
@@ -88,5 +93,29 @@ import Testing
         docSections.newRowsPlace = { .below(Self.id("ws-1", in: store)) }
         let clicked = Self.layout(docSections.sections(Self.projection(members: Self.members), session: Self.session, workspaces: store.workspaces))
         #expect(clicked == first, "a click on ws-1 moved the new row: \(clicked), was \(first)")
+    }
+
+    /// The first row of the loose run under the group goes back under the group, not into the run above it.
+    @Test func aLooseRowKeepsItsOwnRun() {
+        let store = Self.store(["ws-1"] + Self.members + ["ws-3", "ws-4"])
+        let docSections = SidebarDocSections(document: { nil })
+        docSections.newRowsPlace = { .last }
+        let before = Self.layout(docSections.sections(Self.projection(members: Self.members), session: Self.session, workspaces: store.workspaces))
+        let during = Self.layout(docSections.sections(Self.projection(members: Self.members, unplacing: ["ws-3"]), session: Self.session,
+                                                      workspaces: store.workspaces))
+        #expect(during == before, "ws-3 unplaced lists as \(during), not \(before)")
+    }
+
+    /// A window of another room lists fewer rows; this room's rows keep their slots through its passes.
+    @Test func anotherRoomsPassKeepsThisRoomsSlots() {
+        let store = Self.store(["ws-1"] + Self.members + ["ws-3", "ws-4"])
+        let docSections = SidebarDocSections(document: { nil })
+        docSections.newRowsPlace = { .below(Self.id("ws-1", in: store)) }
+        let full = Self.projection(members: Self.members)
+        let before = Self.layout(docSections.sections(full, session: Self.session, workspaces: store.workspaces, room: "a"))
+        _ = docSections.sections(full, session: Self.session, workspaces: store.workspaces.filter { $0.resourceID?.rawValue == "ws-1" }, room: "b")
+        let placing = Self.members.filter { !["ws-merge", "ws-adopt-a"].contains($0) }
+        let during = Self.layout(docSections.sections(Self.projection(members: placing), session: Self.session, workspaces: store.workspaces, room: "a"))
+        #expect(during == before, "after room b's pass the rows list as \(during), not \(before)")
     }
 }
