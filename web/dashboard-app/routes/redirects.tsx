@@ -31,6 +31,19 @@ const irohRoute = createRoute({
   },
 });
 
+/**
+ * The classic Cloud page (Mac access and machines), deleted on cmux NEXT. Old
+ * links and Stripe checkout return URLs (`returnTo=/dashboard/cloud`) land on
+ * the dashboard home instead of a missing page.
+ */
+const cloudRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/dashboard/cloud",
+  beforeLoad: () => {
+    throw redirect({ to: "/dashboard", replace: true });
+  },
+});
+
 /** Legacy Hexclave account settings, addressed by URL hash. */
 const legacyTeamRoute = createRoute({
   getParentRoute: () => shellRoute,
@@ -40,4 +53,4 @@ const legacyTeamRoute = createRoute({
   },
 });
 
-export const redirectRoutes = [aiAccountsRoute, subrouterRoute, irohRoute, legacyTeamRoute] as const;
+export const redirectRoutes = [aiAccountsRoute, subrouterRoute, irohRoute, cloudRoute, legacyTeamRoute] as const;

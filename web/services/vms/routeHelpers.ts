@@ -1570,8 +1570,7 @@ function vmNetworkFullResponse(error: VmProviderOperationError): Response {
     message,
     reason: "Every address in this account's private network is assigned to a machine or an enrolled Mac.",
     action:
-      "Delete machines you no longer use with `cmux cloud kill-machine --target machine:<id> --confirm`, or revoke Macs you no longer use on the " +
-      "Cloud Mac access page at https://cmux.com/dashboard/cloud, then try again.",
+      "Delete machines you no longer use with `cmux cloud kill-machine --target machine:<id> --confirm`, then try again.",
     phase: vmPhaseForOperation(error.operation),
     retryable: false,
     displayTitle: "Private network full",
