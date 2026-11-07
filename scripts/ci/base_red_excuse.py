@@ -147,13 +147,15 @@ class GitHub(_evidence.GitHub):
         route = f"repos/{repo}/actions/jobs/{job['id']}/logs"
         # Request ANSI-capable output first; old gh versions reject the flag, while modern
         # versions reject coloured output without it. Either way, normalize bytes in Python.
+        # A log section can open with a byte-order mark before its timestamp, which hides that line from every
+        # reader that matches a stamp or a prefix (cmuxterm-hq run 42391652834's WS_CHECK_RESULT, 2026-11-07).
         try:
-            return self.run(["api", ESCAPE_FLAG, route])
+            return self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", "")
         except Refused as error:
             said = str(error)
             if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(said[len(REQUEST_FAILED):])):
                 raise
-        return self.run(["api", route])
+        return self.run(["api", route]).replace("\ufeff", "")
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = 100):
         # A run's job list carries every job's steps; see JOBS_PAGE.
@@ -782,7 +784,7 @@ def normalise_error(text: str) -> str:
 def lines_of(log: str) -> list[str]:
     """The text of each `job<TAB>step<TAB>stamp text` line of `gh run view --log`."""
     found = []
-    for line in log.splitlines():
+    for line in log.replace("\ufeff", "").splitlines():  # a log section can open with a BOM; strip() keeps it
         parts = line.split("\t", 2)
         # `gh run view --log` prefixes each line with job and step columns.
         # The job-log API does not; preserve tabs in raw command output.
