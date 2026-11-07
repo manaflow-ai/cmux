@@ -1,4 +1,6 @@
+import AppKit
 import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextWakeups
 import CoreGraphics
 import Foundation
@@ -6,11 +8,12 @@ import ImageIO
 import os
 import UniformTypeIdentifiers
 
-/// The composer's + > Attach Screenshot… and Attach Window… (cx-ncc.71, the Codex app's Attach):
-/// `composer.capture {mode: "screen" | "window"}`. After a click in the pane, macOS `screencapture`
-/// runs its own region pick (`-i`) or window pick (`-iW`), so the selection UI and the Screen
-/// Recording permission are the system's. It answers `{name, mimeType, data}` (base64) for the
-/// page to attach as an image, `{tooLarge: true, name}` for one that does not fit the page's cap,
+/// The composer's + > Attach Screenshot… and Attach Window… (cx-ncc.71, the Codex app's Attach) and
+/// the capture bar's screenshots: `composer.capture {mode: "screen" | "window" | "app" | "pane"}`.
+/// After a click in the pane, macOS `screencapture` runs its own region pick (`-i`) or window pick
+/// (`-iW`), so the selection UI and the Screen Recording permission are the system's; `app` takes
+/// the cmux window and `pane` the pane, with no grant (capture-bar-DESIGN.md). It answers
+/// `{name, mimeType, data}` (base64) for the page to attach as an image, `{tooLarge: true, name}` for one that does not fit the page's cap,
 /// `{cancelled: true}` when the person presses Esc, or the `capture.failed` error when
 /// `screencapture` could not start or ended with an error.
 enum AgentPaneCapture {
@@ -21,10 +24,15 @@ enum AgentPaneCapture {
     /// A Retina capture over the cap is scaled to this longest side first, then sent as JPEG.
     nonisolated static let maxSide = 2560
 
+    /// The modes `composer.capture` takes: macOS's own region and window picks, the cmux window
+    /// that hosts the pane, and the pane that was focused when the capture bar opened.
+    nonisolated static let modes: Set<String> = ["screen", "window", "app", "pane"]
+
     @MainActor static func reply(to mode: String?, in model: AgentPaneModel) async -> [String: Any] {
-        guard let mode, mode == "screen" || mode == "window" else { return AgentPaneModel.unsupported("composer.capture") }
+        guard let mode, modes.contains(mode) else { return AgentPaneModel.unsupported("composer.capture") }
         // The screen goes to the agent: only a click in the pane starts a capture.
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+        if mode == "app" || mode == "pane" { return await own(pane: mode == "pane") }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
         if case .failed(let reason) = await capture(window: mode == "window", to: file) {
             logger.error("composer.capture: screencapture failed: \(reason, privacy: .public)")
@@ -44,15 +52,46 @@ enum AgentPaneCapture {
     /// even a scaled copy is over the cap, `cancelled` for none (Esc).
     nonisolated static func answer(_ png: Data, taken: Date) -> [String: any Sendable] {
         guard !png.isEmpty else { return ["cancelled": true] }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
-        let stem = "Screenshot \(formatter.string(from: taken))"
+        let stem = "Screenshot \(stamp(taken))"
         guard let image = fit(png) else { return ["tooLarge": true, "name": "\(stem).png"] }
         let name = image.mimeType == "image/png" ? "\(stem).png" : "\(stem).jpg"
         // cmux took it: its chip wears cmux's icon (AttachmentSource).
         return ["name": name, "mimeType": image.mimeType, "data": image.data.base64EncodedString(),
                 "source": AttachmentSource.cmux.json]
+    }
+
+    /// When a capture was made, as macOS spells it in its own names ("2026-11-07 14.32.05").
+    nonisolated static func stamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
+        return formatter.string(from: date)
+    }
+
+    /// The cmux window that hosts the pane: the key window when the person's click or key reached
+    /// the pane (the gesture just spent), its parent when that is a Chromium page's child window.
+    @MainActor static func hostWindow() -> NSWindow? { NSApp.keyWindow.map { $0.parent ?? $0 } }
+
+    /// `app` (the host window, as `cmux window screenshot` takes it: no Screen Recording grant) or
+    /// `pane` (``AgentPaneCaptureBar/paneImage``), answered as a pick is.
+    @MainActor private static func own(pane: Bool) async -> [String: Any] {
+        let taken = Date()
+        let image: CGImage?
+        if pane {
+            image = await AgentPaneCaptureBar.paneImage?()
+        } else {
+            // perf-gate-ok: the person's own capture of the cmux window, once per click (composer.capture {mode: app}).
+            image = try? await hostWindow()?.screenshotImage()
+        }
+        guard let image else {
+            logger.error("composer.capture: no \(pane ? "pane" : "window", privacy: .public) image")
+            return AgentPaneReply.failure(code: "capture.failed", message: AgentPaneModel.captureFailedMessage)
+        }
+        let value = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { () -> [String: any Sendable]? in
+            Self.encode(image, as: .png).map { Self.answer($0, taken: taken) }
+        }.value
+        guard let value else { return AgentPaneReply.failure(code: "capture.failed", message: AgentPaneModel.captureFailedMessage) }
+        return AgentPaneReply.success(value)
     }
 
     /// What one pick produced.
