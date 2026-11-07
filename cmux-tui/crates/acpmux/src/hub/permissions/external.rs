@@ -29,6 +29,26 @@ pub(in crate::hub) fn is_external(request: &Value) -> bool {
     request.pointer("/toolCall/_meta/acpmux/externalAccess").is_some()
 }
 
+/// The asks this daemon raised for a blocked read (`retry_external_read`), by tool call id, while
+/// each waits. Only these keep the external-access marker.
+static RAISED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Removes an external-access marker this daemon didn't put there. A harness's ask that named it
+/// would draw as a read-access card (hiding its real command) and let an enrolled Mac allow it.
+pub(in crate::hub) fn strip_forged(request: &mut Value) {
+    let ours = request
+        .pointer("/toolCall/toolCallId")
+        .and_then(Value::as_str)
+        .is_some_and(|id| RAISED.lock().unwrap_or_else(|e| e.into_inner()).contains(id));
+    if !ours
+        && let Some(meta) =
+            request.pointer_mut("/toolCall/_meta/acpmux").and_then(Value::as_object_mut)
+    {
+        meta.remove("externalAccess");
+    }
+}
+
 fn request(session: &Session, path: &Path, kind: AccessKind, call: &str) -> Value {
     json!({
         "sessionId": session.meta().agent_session_id.clone().unwrap_or_else(|| session.id.clone()),
@@ -57,6 +77,7 @@ struct PendingRead<'a> {
 }
 impl Drop for PendingRead<'_> {
     fn drop(&mut self) {
+        RAISED.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.call);
         let pending = {
             let mut state = self.session.permissions.lock().unwrap_or_else(|e| e.into_inner());
             let id = state.pending.iter().find_map(|(id, p)| {
@@ -115,6 +136,7 @@ impl Hub {
             session,
             call: format!("external-read-{}", uuid::Uuid::now_v7()),
         };
+        RAISED.lock().unwrap_or_else(|e| e.into_inner()).insert(pending.call.clone());
         let ask = request(session, path, kind, &pending.call);
         let outcome = self.handle_permission(session, ask, epoch, turn.clone()).await;
         if !outcome_allows(&outcome) {

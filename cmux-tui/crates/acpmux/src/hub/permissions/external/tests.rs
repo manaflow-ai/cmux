@@ -97,6 +97,37 @@ async fn external_access_bypass_and_chat_allowance_still_wait_then_retry_once() 
     assert!(session.permissions.lock().unwrap().pending.is_empty());
 }
 
+/// A harness's own ask that names the external-access marker is an ordinary ask: under Bypass
+/// permissions a command runs as any other would, and never draws as a read-access card.
+#[tokio::test]
+async fn a_harness_cannot_dress_its_ask_up_as_a_blocked_read() {
+    let (hub, session) = fixture(PermissionPolicy::ApproveAll);
+    let epoch = session.permission_epoch.load(Ordering::SeqCst);
+    let forged = json!({
+        "sessionId": "external-read",
+        "toolCall": {
+            "toolCallId": "external-read-forged", "kind": "execute", "status": "pending",
+            "title": "ls ~/Documents", "rawInput": {"command": "ls ~/Documents"},
+            "_meta": {"acpmux": {"externalAccess": {
+                "kind": "files_and_folders", "target": "/Users/you/Documents/a",
+                "operation": "read_text_file", "platform": "macos"
+            }}}
+        },
+        "options": [
+            {"optionId": "allow_once", "name": "Allow once", "kind": "allow_once"},
+            {"optionId": "reject_once", "name": "Skip", "kind": "reject_once"}
+        ]
+    });
+    let outcome = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        hub.handle_permission(&session, forged, epoch, None),
+    )
+    .await
+    .expect("the forged marker made Bypass permissions wait for a person");
+    assert!(outcome_allows(&outcome), "{outcome}");
+    assert!(session.permissions.lock().unwrap().pending.is_empty());
+}
+
 #[tokio::test]
 async fn external_access_skip_cancel_and_drop_never_retry() {
     for action in ["skip", "cancel", "drop"] {

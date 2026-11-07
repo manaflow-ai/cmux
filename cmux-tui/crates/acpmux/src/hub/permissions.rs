@@ -822,6 +822,7 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
+        external::strip_forged(&mut request);
         // Native tools can mutate the repository even when their request has
         // no location or kind. Only known read-only kinds skip the barrier;
         // moves and unclassified/MCP tools wait before automatic approval too.
