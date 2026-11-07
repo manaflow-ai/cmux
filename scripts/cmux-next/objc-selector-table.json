@@ -578,23 +578,6 @@
    "27.0": true,
    "27.0.1": true
   },
-  "NSStackView call:viewDidHide/0": {
-   "27.0": true,
-   "27.0.1": true,
-   "26.5.2": true
-  },
-  "NSStackView call:viewDidMoveToWindow/0": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
-  "NSStackView call:viewDidUnhide/0": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
   "NSTableCellView call:layout/0": {
    "26.5.2": true,
    "26.7": true,
@@ -664,24 +647,6 @@
    "27.0": true,
    "26.5.2": true
   },
-  "NSTextField call:mouseDown/1": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
-  "NSTextField call:resetCursorRects/0": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
-  "NSTextField call:rightMouseDown/1": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
   "NSTextField call:textDidChange/1": {
    "27.0.1": true,
    "26.5.2": true
@@ -699,12 +664,6 @@
    "27.0.1": true
   },
   "NSTextField call:viewDidMoveToWindow/0": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
-  "NSTextField get:acceptsFirstResponder/0": {
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
@@ -742,31 +701,11 @@
    "27.0.1": true,
    "26.5.2": true
   },
-  "NSTextView call:copy/1": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
-  "NSTextView call:cut/1": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
   "NSTextView call:didChangeText/0": {
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
    "27.0.1": true
-  },
-  "NSTextView call:draggingEntered/1": {
-   "27.0.1": true,
-   "26.5.2": true
-  },
-  "NSTextView call:draggingUpdated/1": {
-   "27.0.1": true,
-   "26.5.2": true
   },
   "NSTextView call:keyDown/1": {
    "26.5.2": true,
@@ -774,65 +713,7 @@
    "27.0": true,
    "27.0.1": true
   },
-  "NSTextView call:mouseDown/1": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
-  "NSTextView call:paste/1": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
-  "NSTextView call:pasteAsPlainText/1": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
-  "NSTextView call:performDragOperation/1": {
-   "27.0.1": true,
-   "26.5.2": true
-  },
   "NSTextView call:resignFirstResponder/0": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
-  "NSTextView call:rightMouseDown/1": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
-  "NSTextView call:setMarkedText/3:selectedRange,replacementRange": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
-  "NSTextView call:setSelectedRanges/3:affinity,stillSelecting": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
-  "NSTextView call:shouldChangeText/2:replacementString": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
-  "NSTextView call:unmarkText/0": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
-  "NSTextView call:validateUserInterfaceItem/1": {
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
@@ -861,11 +742,6 @@
    "26.7": true,
    "27.0": true,
    "27.0.1": true
-  },
-  "NSView call:addCursorRect/2:cursor": {
-   "27.0": true,
-   "27.0.1": true,
-   "26.5.2": true
   },
   "NSView call:addSubview/3:positioned,relativeTo": {
    "26.5.2": true,
@@ -1324,6 +1200,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "WKWebView call:resignFirstResponder/0": {
+   "27.0.1": true
+  },
   "WKWebView call:rightMouseDown/1": {
    "26.5.2": true,
    "26.7": true,
@@ -1334,6 +1213,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "WKWebView get:acceptsFirstResponder/0": {
    "27.0.1": true
   },
   "WKWebView get:inputContext/0": {
