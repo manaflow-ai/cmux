@@ -127,6 +127,16 @@ await requireBrowserLane("thread-rail-pending-load.test.ts", async () => {
   }
   const settle = (page: Page) =>
     page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+  /// Sixty prompts overflow the rail's one height (#34666, #35986): it opens on the latest, and an
+  /// old prompt's tick is in view only once the reader browses its list there.
+  const browseStart = async (page: Page) => {
+    await page.locator(".acpmux-minimap__list").evaluate((list) => {
+      list.scrollTop = 0;
+      list.dispatchEvent(new Event("scroll"));
+    });
+    await page.waitForSelector('[data-tick="4"]');
+    await settle(page);
+  };
   const tickAt = (page: Page, index: number) =>
     page.evaluate((at) => {
       const rect = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!.getBoundingClientRect();
@@ -145,6 +155,7 @@ await requireBrowserLane("thread-rail-pending-load.test.ts", async () => {
     const page = await open();
     try {
       // Prompt 3's tick: the chat holds prompts 49 to 60, and the count names the rest.
+      await browseStart(page);
       const at = await tickAt(page, 2);
       await page.mouse.move(at.x, at.y);
       await page.waitForSelector(".acpmux-minimap__card");
@@ -168,6 +179,7 @@ await requireBrowserLane("thread-rail-pending-load.test.ts", async () => {
   test("clicking a far pending tick lands on its prompt in one read, and no tick moves", async () => {
     const page = await open();
     try {
+      await browseStart(page);
       const before = await tops(page);
       const at = await tickAt(page, 4);
       await page.mouse.click(at.x, at.y);
