@@ -120,8 +120,8 @@ struct GitHubChecksTests {
         let reply = try await provider.call("cmux.github.checks.rerun", params: ["url": url, "runs": .array([.number(11)])], context: Self.click)
         #expect(reply["rerun"]?.intValue == 1)
         #expect(calls.reruns == [11])
-        // The kept answer is stale now: the next ask reads again.
+        // The kept answer is stale now: the next ask starts a read (in the background, as the kept one draws).
         _ = try await provider.call("cmux.github.checks.read", params: ["url": url], context: Self.page)
-        #expect(calls.reads == 2)
+        #expect(checks.reads == 2)
     }
 }
