@@ -1078,7 +1078,8 @@ function aroundReplies(
     version: run.version * RUN_STATES + 3,
   });
   const flush = () => {
-    const work = stretch.filter((row) => !isEdit(row));
+    // A call that never got its input draws as nothing, as the open fold draws it (withoutDrafts).
+    const work = stretch.flatMap(withoutDrafts).filter((row) => !isEdit(row));
     stretch = [];
     if (arm === "runs") {
       shaped.push(...mergeShortNotes(work, keep, edits).filter(isRun).map(line));
