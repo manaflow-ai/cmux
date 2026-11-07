@@ -67,6 +67,12 @@ await requireBrowserLane("capture-bar-gallery-browser.test.ts", async () => {
       if (Math.abs(body.height - room.height) > 0.5)
         problems.push(`bar ${body.height} tall, its content ${room.height}`);
       if (body.right > window.innerWidth + 0.5) problems.push(`bar past the viewport (${body.right})`);
+      // The composer card under the bar keeps the height its content needs, inside the pane.
+      const card = document.querySelector<HTMLElement>("[data-stage-composer]")!;
+      const cardBox = card.getBoundingClientRect();
+      if (cardBox.bottom > window.innerHeight + 0.5) problems.push(`composer past the pane (${cardBox.bottom})`);
+      if (card.scrollHeight > card.clientHeight + 0.5)
+        problems.push(`composer squeezed to ${card.clientHeight} under ${card.scrollHeight}`);
       for (const control of document.querySelectorAll<HTMLElement>(".acpmux-capture button, .acpmux-capture label")) {
         const box = control.getBoundingClientRect();
         if (box.bottom > body.bottom + 0.5 || box.right > body.right + 0.5 || box.top < body.top - 0.5)

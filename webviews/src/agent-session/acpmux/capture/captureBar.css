@@ -19,9 +19,15 @@
     opacity var(--agent-motion-move, 180ms) var(--agent-ease-out);
 }
 /* The bar is what the person just asked for: in a short pane the stack's other parts give up their
-   height first (bottomStack.css orders them), never the bar, which would hide Stop. */
+   height first (bottomStack.css orders them), never the bar, which would hide Stop. The composer
+   card under it keeps its own height too: while the bar is up, the transcript gives the stack its
+   room, down to 32 px over the header, as it does for the quiet row (bottomStack.css). The dock is
+   the `:has()` subject, never the pane (agent-pane-stream-composer-still.test.ts). */
 .acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-capture:is([data-open], [data-leaving]) {
   flex-shrink: 0;
+}
+.acpmux-main[data-dock="float"] > .acpmux-dock:has(> .acpmux-capture:is([data-open], [data-leaving])) {
+  max-height: calc(100% - 44px - 32px);
 }
 .acpmux-capture:not([data-open]):not([data-leaving]) {
   height: 0;
