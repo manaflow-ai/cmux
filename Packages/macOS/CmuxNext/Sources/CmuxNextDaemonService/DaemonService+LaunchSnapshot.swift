@@ -157,6 +157,13 @@ extension DaemonService {
         await withCheckedContinuation { connectionWaiters.append($0) }
     }
 
+    /// The connection now, or once the first one is made (nil: startup gave up). Unlike
+    /// ``firstConnection()``, it returns at once when already connected.
+    public func connectionAfterFirst() async -> DaemonConnection? {
+        if connection == nil { await firstConnection() }
+        return connection
+    }
+
     func resumeConnectionWaiters() {
         let waiters = connectionWaiters
         connectionWaiters.removeAll()

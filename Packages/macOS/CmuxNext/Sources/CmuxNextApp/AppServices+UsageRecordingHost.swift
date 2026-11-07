@@ -12,10 +12,7 @@ extension AppServices: UsageRecordingHost {
     var usageSidebarHidden: Bool { windows.active?.state.sidebarHidden ?? true }
     var usageSidebarWidth: Double { Double(windows.active?.sidebar.model.width ?? 0) }
     var usageAppActive: Bool { appActiveSource() }
-    func usageConnection() async -> DaemonConnection? {
-        if daemon.connection == nil { await daemon.firstConnection() }
-        return daemon.connection
-    }
+    func usageConnection() async -> DaemonConnection? { await daemon.connectionAfterFirst() }
     func usageIsChat(_ id: String) -> Bool { agentTabs.isAgentTab(id) }
     func usageAsk(_ title: String, detail: String, yes: String, no: String) async -> Bool { await machineAsks.ask(title, detail: detail, symbol: "chart.bar.xaxis", yes: yes, no: no) }
     nonisolated func usageManagedDisables() -> Bool { ManagedPreferenceLocation.defaultReader().read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true }
