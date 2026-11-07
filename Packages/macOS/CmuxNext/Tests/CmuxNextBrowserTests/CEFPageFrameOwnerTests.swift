@@ -163,6 +163,68 @@ import Testing
         #expect(!hosting.inPaneDrag)
     }
 
+    /// Leo's case (2026-11-07): a close hands the keys to the page beside the closing pane, in the close's own turn, before
+    /// the spring's first frame. That page's window holds the keys, so it cannot leave the window for the motion
+    /// (`CEFLayerHosting.motionChanged`: ordering a key window out moves the keys, #24913), and it used to resize that
+    /// attached window in every frame, Chromium's frames at the new sizes coming after the pane had moved: the
+    /// shift-then-expand. Now the spring's start lays the page out once, at the size it rests at, and its pixels ride the
+    /// pane's top-left corner, clipped by the pane, through the whole spring: one motion, no resize of the key window after
+    /// the first frame, no key change, and the first responder and the focus ask stay where they were.
+    @Test func aFocusedPageBesideAClosingPaneRidesItsPaneAtItsRestSizeAndKeepsTheKeys() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        first.container.frame = NSRect(x: 200, y: 0, width: 600, height: 500)
+        window.contentView?.addSubview(first.container)
+        first.container.layoutSubtreeIfNeeded()
+        let page = host.hostView
+        let hosting = page.layerHosting
+        // The close gave this page the keys: its focus ask (the window being key reads the same, `CEFPaneHost`).
+        first.keepFocusAsk()
+        try #require(window.makeFirstResponder(page), "SETUP: the page's host view did not take the first responder")
+        try #require(hosting.holdsFocus() && !hosting.inResizeMotion, "SETUP: the page does not hold the keys, or is in a motion")
+        var keyChanges = 0
+        first.keyWindows = CEFKeyWindows(keyWindow: { window }, makeKey: { _ in keyChanges += 1 })
+
+        // The spring's start: the left neighbour closed, so the pane rests 200 pt wider, its leading edge 200 pt left.
+        first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: 200, height: 0))
+        #expect(hosting.inResizeMotion, "the focused page got no motion")
+        #expect(!hosting.isDetached, "the key page window left the window: the keys moved")
+        var sizes: [CGSize] = []
+        var off: [String] = []
+        for step in 1...12 {
+            let dx = CGFloat(step) * 200 / 12
+            first.container.frame = NSRect(x: 200 - dx, y: 0, width: 600 + dx, height: 500)
+            first.container.layoutSubtreeIfNeeded()
+            if sizes.last != page.frame.size { sizes.append(page.frame.size) }
+            // The top-left corner of the page on the pane's (not flipped: the top is maxY).
+            if page.frame.minX != 0 || page.frame.maxY != first.container.bounds.maxY { off.append("step \(step): \(page.frame)") }
+        }
+        #expect(sizes == [CGSize(width: 800, height: 500)],
+                "the key page window took \(sizes.count) sizes in the spring (Chromium lays out at each, after its pane): \(sizes)")
+        #expect(off.isEmpty, "the page's pixels left its pane's top-left corner: \(off.prefix(3))")
+        #expect(first.container.layer?.masksToBounds == true, "the page at its rest size is not clipped by its smaller pane")
+
+        // A second close mid-spring retargets it: the page lays out once more, at the new rest.
+        first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: 100, height: 0))
+        first.container.layoutSubtreeIfNeeded()
+        #expect(page.frame.size == CGSize(width: 900, height: 500), "a retarget did not lay the page out at its new rest")
+        first.container.frame = NSRect(x: 0, y: 0, width: 900, height: 500)
+        first.container.layoutSubtreeIfNeeded()
+
+        first.container.notifyPaneMotionSettled()
+        first.container.layoutSubtreeIfNeeded()
+        #expect(!hosting.inResizeMotion, "the spring's landing did not end the page's motion")
+        #expect(page.frame == first.container.bounds, "the page is not at its pane's page area after the landing")
+        #expect(first.container.heldPageSize == nil, "the page keeps a held size after the landing")
+        #expect(window.firstResponder === page, "the motion moved the first responder off the page")
+        #expect(first.pendingFocus && hosting.holdsFocus(), "the motion dropped the page's focus ask")
+        #expect(keyChanges == 0, "the motion changed the key window \(keyChanges) times")
+    }
+
     /// Every new page window is hosted in the window's layer tree (no switch): the page's pixels commit with its pane.
     @Test func aNewPageWindowIsHostedInTheWindowsLayers() throws {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
