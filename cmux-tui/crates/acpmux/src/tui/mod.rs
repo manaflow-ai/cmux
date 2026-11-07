@@ -135,6 +135,9 @@ pub struct App {
     pub(super) recovery_replayed: HashMap<String, usize>,
     /// Cursor that started the current lag recovery, for the terminal status.
     pub(super) recovery_start: HashMap<String, u64>,
+    /// Older transcript pages requested while the user scrolls to the top.
+    pub(super) history_in_flight: HashSet<String>,
+    pub(super) history_more: HashMap<String, bool>,
     pub input: Editor,
     pub input_images: Vec<PromptImage>,
     pub command: Editor,
@@ -531,6 +534,46 @@ impl App {
                 }
             }
         });
+    }
+
+    /// Asks for the page of records before the oldest one shown once the selected
+    /// transcript is scrolled to its top, one page at a time, until the log has no more.
+    pub(super) fn load_older_if_needed(&mut self) {
+        let Some(id) = self.selected_id() else { return };
+        let Some(v) = self.viewport.get(&id) else { return };
+        if v.offset != 0
+            || self.history_in_flight.contains(&id)
+            || self.history_more.get(&id) == Some(&false)
+        {
+            return;
+        }
+        let Some(before) = self.transcripts.get(&id).and_then(Transcript::oldest_seq) else {
+            return;
+        };
+        self.history_in_flight.insert(id.clone());
+        let client = self.client.clone();
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            match client
+                // A read of the log, not a second attach: the view is already subscribed.
+                .request(
+                    method::MUX_EVENTS,
+                    json!({"sessionId": id, "limit": 3000, "beforeSeq": before}),
+                )
+                .await
+            {
+                Ok(v) => {
+                    let events =
+                        v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let has_more = v.get("hasMore").and_then(Value::as_bool).unwrap_or(false);
+                    let _ = tx.send(AppMsg::Older { id, events, has_more });
+                }
+                Err(e) => {
+                    let _ = tx.send(AppMsg::OlderFailed { id, error: e.to_string() });
+                }
+            }
+        });
+        self.status = "loading earlier history…".into();
     }
 
     pub(super) fn refresh_sessions(&self) {
