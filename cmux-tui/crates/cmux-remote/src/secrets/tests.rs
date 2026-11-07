@@ -11,6 +11,7 @@ use super::{MachineSecrets, files};
 use crate::crypto::StaticIdentity;
 
 mod partial_writes;
+mod window;
 
 const MACHINE: &str = "vm-secrets-test";
 
@@ -24,6 +25,7 @@ struct Fixture {
     _dir: tempfile::TempDir,
     home: std::path::PathBuf,
     etc: std::path::PathBuf,
+    state: std::path::PathBuf,
     identity: StaticIdentity,
     logs: Arc<Mutex<Vec<String>>>,
     secrets: MachineSecrets,
@@ -33,6 +35,8 @@ fn fixture(declared: &[&str]) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let etc = dir.path().join("etc");
+    let state = dir.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
     std::fs::create_dir_all(home.join(".cmux/machine-config")).unwrap();
     std::fs::create_dir_all(&etc).unwrap();
     std::fs::write(
@@ -57,9 +61,15 @@ fn fixture(declared: &[&str]) -> Fixture {
     let identity = StaticIdentity::generate().unwrap();
     let logs = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&logs);
-    let secrets = MachineSecrets::new(&identity, MACHINE.to_owned(), home.clone(), etc.clone())
-        .with_log(Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())));
-    Fixture { _dir: dir, home, etc, identity, logs, secrets }
+    let secrets = MachineSecrets::new(
+        &identity,
+        MACHINE.to_owned(),
+        home.clone(),
+        etc.clone(),
+        state.clone(),
+    )
+    .with_log(Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())));
+    Fixture { _dir: dir, home, etc, state, identity, logs, secrets }
 }
 
 impl Fixture {
@@ -94,7 +104,8 @@ fn seal_and_open_round_trip() {
     assert!(seal::is_nonce(&item.nonce));
     assert_eq!(item.enc.decode().unwrap().len(), 32);
     let opened = seal::open(identity.private_key(), MACHINE, Purpose::Secret, &item).unwrap();
-    assert_eq!(opened.as_slice(), value.as_bytes());
+    assert_eq!(opened.value.as_slice(), value.as_bytes());
+    assert!(opened.issued_at.abs_diff(seal::unix_now()) <= 5);
     // The hpke crate derives the same public key as the Noise identity.
     assert_eq!(seal::public_key(identity.private_key()).unwrap(), identity.public_key());
 }
@@ -359,7 +370,9 @@ fn a_login_is_refused_off_an_owner_guest_or_next_to_a_custom_endpoint() {
     };
     let error = fixture.secrets.install_harness_login(&item).unwrap_err();
     assert!(error.message.starts_with("not-owner-guest"), "{error}");
+    assert!(!fixture.home.join(".claude").exists());
     std::fs::write(fixture.etc.join("vm-kind"), "owner\n").unwrap();
+    std::fs::create_dir_all(fixture.home.join(".claude")).unwrap();
     std::fs::write(
         fixture.home.join(".claude/settings.json"),
         r#"{"env":{"ANTHROPIC_BASE_URL":"https://example.invalid"}}"#,

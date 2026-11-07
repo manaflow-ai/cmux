@@ -416,7 +416,9 @@ pub enum WorkspaceRequest {
 /// One value sealed to a daemon's static X25519 key with HPKE (RFC 9180 base
 /// mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305). The
 /// `info` binds the machine id, the purpose, `name` and `nonce`; the AAD is
-/// `name`. Only the daemon holding the key can open it.
+/// `name`. The plaintext is the time it was sealed (Unix seconds, a
+/// big-endian u64) and then the value. Only the daemon holding the key can
+/// open it.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SealedSecret {
     pub name: String,

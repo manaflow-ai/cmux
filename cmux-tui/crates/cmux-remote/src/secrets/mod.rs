@@ -4,99 +4,56 @@
 //! The daemon opens it here, for its own machine id only, and writes it,
 //! mode 0600: secrets to `~/.config/cmux/machine-secrets.env`, harness logins
 //! where the harness reads them. A name outside the allowlist, a path outside
-//! [`files::allowed_paths`], an item that doesn't open and a replayed nonce
-//! are each refused. No value reaches a log line or an error.
+//! [`files::allowed_paths`], an item that doesn't open, one sealed more than
+//! [`WINDOW_SECS`] from now and a replayed nonce are each refused. No value reaches a log line or an error.
 
 #[cfg(unix)]
 mod commit;
 pub mod files;
 pub mod harness;
+mod replay;
 pub mod request;
 pub mod seal;
 #[cfg(all(test, unix))]
 mod tests;
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use cmux_remote_protocol::{RpcError, SealedSecret};
 use zeroize::Zeroizing;
 
 use crate::crypto::StaticIdentity;
 use harness::HarnessLogin;
+use replay::Replay;
+pub use replay::WINDOW_SECS;
 pub use seal::Purpose;
 
-/// How many opened nonces the daemon remembers (oldest dropped first).
-const SEEN_NONCES: usize = 4_096;
 /// The most items one replace may carry.
 const MAX_ITEMS: usize = 256;
 
+/// One `secrets-v1` request at a time in this process, from its replay
+/// check to its last write: two requests never interleave their writes, and
+/// one's rollback never undoes the other's files.
+static REQUESTS: Mutex<()> = Mutex::new(());
+
 /// Where `secrets-v1` log lines go: names and counts only, never a value.
 pub type LogSink = Arc<dyn Fn(&str) + Send + Sync>;
+/// The daemon's clock, in Unix seconds.
+pub type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
 pub struct MachineSecrets {
     private_key: Zeroizing<[u8; 32]>,
     machine_id: String,
     home: PathBuf,
     etc: PathBuf,
-    seen: Mutex<SeenNonces>,
+    state: PathBuf,
+    /// Loaded from `state` on the first request.
+    replay: Mutex<Option<Replay>>,
+    max_live: usize,
+    clock: Clock,
     log: LogSink,
-}
-
-#[derive(Default)]
-struct SeenNonces {
-    set: HashSet<String>,
-    order: VecDeque<String>,
-}
-
-impl SeenNonces {
-    fn contains(&self, nonce: &str) -> bool {
-        self.set.contains(nonce)
-    }
-
-    fn remove(&mut self, nonce: &str) {
-        if self.set.remove(nonce) {
-            self.order.retain(|seen| seen != nonce);
-        }
-    }
-
-    fn insert(&mut self, nonce: &str) {
-        if self.set.insert(nonce.to_owned()) {
-            self.order.push_back(nonce.to_owned());
-        }
-        while self.order.len() > SEEN_NONCES {
-            if let Some(oldest) = self.order.pop_front() {
-                self.set.remove(&oldest);
-            }
-        }
-    }
-}
-
-/// Nonces held for one request while it writes; released on drop unless
-/// [`Self::keep`] ran.
-struct Reservation<'a> {
-    seen: &'a Mutex<SeenNonces>,
-    nonces: Vec<String>,
-    kept: bool,
-}
-
-impl Reservation<'_> {
-    fn keep(mut self) {
-        self.kept = true;
-    }
-}
-
-impl Drop for Reservation<'_> {
-    fn drop(&mut self) {
-        if self.kept {
-            return;
-        }
-        let mut seen = self.seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        for nonce in &self.nonces {
-            seen.remove(nonce);
-        }
-    }
 }
 
 impl std::fmt::Debug for MachineSecrets {
@@ -110,26 +67,49 @@ impl std::fmt::Debug for MachineSecrets {
 }
 
 /// A refusal: a fixed code and the item's name, never a value. `not-ready`
-/// (a guest that hasn't bound yet) is the one a caller may retry.
+/// (a guest that hasn't bound yet) and `busy` (the replay window is full)
+/// are the ones a caller may retry.
 fn refused(code: &str, name: &str) -> RpcError {
     let mut error = RpcError::new("secret-refused", format!("{code}: {name}"));
-    error.retryable = code == "not-ready";
+    error.retryable = matches!(code, "not-ready" | "busy");
     error
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 impl MachineSecrets {
     /// The service for the daemon whose static identity is `identity`, on
-    /// the machine `machine_id`, writing under `home` and reading the guest's
-    /// policy from `etc` (`/etc/cmux`).
-    pub fn new(identity: &StaticIdentity, machine_id: String, home: PathBuf, etc: PathBuf) -> Self {
+    /// the machine `machine_id`, writing under `home`, reading the guest's
+    /// policy from `etc` (`/etc/cmux`) and keeping its taken nonces under
+    /// `state` (the daemon's state folder).
+    pub fn new(
+        identity: &StaticIdentity,
+        machine_id: String,
+        home: PathBuf,
+        etc: PathBuf,
+        state: PathBuf,
+    ) -> Self {
         Self {
             private_key: Zeroizing::new(*identity.private_key()),
             machine_id,
             home,
             etc,
-            seen: Mutex::new(SeenNonces::default()),
+            state,
+            replay: Mutex::new(None),
+            max_live: replay::MAX_LIVE,
+            clock: Arc::new(seal::unix_now),
             log: Arc::new(|line| eprintln!("{line}")),
         }
+    }
+
+    /// Tests: another clock, and another cap on the nonces one window holds.
+    #[cfg(test)]
+    fn with_clock(mut self, clock: Clock, max_live: usize) -> Self {
+        self.clock = clock;
+        self.max_live = max_live;
+        self
     }
 
     pub fn with_log(mut self, log: LogSink) -> Self {
@@ -145,36 +125,56 @@ impl MachineSecrets {
         (self.log)(line);
     }
 
-    /// Open `item` for `purpose`, refusing a malformed or already seen nonce.
-    /// The nonce is not recorded here: [`Self::reserve`] does that once a
-    /// whole request has opened.
-    fn open(&self, purpose: Purpose, item: &SealedSecret) -> Result<Zeroizing<Vec<u8>>, RpcError> {
+    /// Open `item` for `purpose` and check it against the replay window:
+    /// sealed within [`WINDOW_SECS`] of now, with a nonce not taken yet.
+    /// Nothing is taken here: [`Self::take`] does that once a whole request
+    /// has opened.
+    fn open(
+        &self,
+        replay: &Replay,
+        now: u64,
+        purpose: Purpose,
+        item: &SealedSecret,
+    ) -> Result<seal::Opened, RpcError> {
         if !seal::is_nonce(&item.nonce) {
             return Err(refused("bad-nonce", &item.name));
         }
-        if self.seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(&item.nonce)
-        {
-            return Err(refused("replay", &item.name));
-        }
-        seal::open(&self.private_key, &self.machine_id, purpose, item)
-            .map_err(|error| refused(error.code(), &item.name))
+        let opened = seal::open(&self.private_key, &self.machine_id, purpose, item)
+            .map_err(|error| refused(error.code(), &item.name))?;
+        replay
+            .check(&item.nonce, opened.issued_at, now)
+            .map_err(|refusal| refused(refusal.code(), &item.name))?;
+        Ok(opened)
     }
 
-    /// Reserve `items`' nonces, all or none: one already seen (a concurrent
-    /// request with the same item, or one that succeeded) refuses the whole
-    /// request. The nonces stay seen only once [`Reservation::keep`] says
-    /// the write succeeded; a failed write releases them, so the same sealed
-    /// request can be sent again.
-    fn reserve(&self, items: &[SealedSecret]) -> Result<Reservation<'_>, RpcError> {
-        let mut seen = self.seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(item) = items.iter().find(|item| seen.contains(&item.nonce)) {
-            return Err(refused("replay", &item.name));
+    /// Take `taken`'s nonces (saved before anything is written), run
+    /// `write`, and give them back when it fails, so the same sealed request
+    /// can be sent again. A second success is a replay.
+    fn take<T>(
+        replay: &mut Replay,
+        now: u64,
+        taken: &[(String, u64)],
+        refusal_name: &str,
+        write: impl FnOnce() -> Result<T, RpcError>,
+    ) -> Result<T, RpcError> {
+        replay.take(taken, now).map_err(|refusal| refused(refusal.code(), refusal_name))?;
+        let result = write();
+        if result.is_err() {
+            replay.release(taken);
         }
-        for item in items {
-            seen.insert(&item.nonce);
+        result
+    }
+
+    /// This process's one request at a time, and the replay window (loaded
+    /// on first use).
+    fn begin(&self) -> (MutexGuard<'static, ()>, MutexGuard<'_, Option<Replay>>, u64) {
+        let request = lock(&REQUESTS);
+        let now = (self.clock)();
+        let mut replay = lock(&self.replay);
+        if replay.is_none() {
+            *replay = Some(Replay::load(self.state.clone(), now, self.max_live));
         }
-        let nonces = items.iter().map(|item| item.nonce.clone()).collect();
-        Ok(Reservation { seen: &self.seen, nonces, kept: false })
+        (request, replay, now)
     }
 
     /// Replace `~/.config/cmux/machine-secrets.env` with exactly `items`:
@@ -192,10 +192,13 @@ impl MachineSecrets {
         if items.len() > MAX_ITEMS {
             return Err(refused("too-large", "machine-secrets.env"));
         }
+        let (_request, mut replay, now) = self.begin();
+        let replay = replay.as_mut().ok_or_else(|| refused("write", "machine-secrets.env"))?;
         let declared = self.declared_names();
         let mut names = HashSet::new();
         let mut nonces = HashSet::new();
         let mut values = Vec::with_capacity(items.len());
+        let mut taken = Vec::with_capacity(items.len());
         for item in items {
             if !files::is_secret_name(&item.name)
                 || !declared.as_ref().is_some_and(|declared| declared.contains(&item.name))
@@ -208,8 +211,9 @@ impl MachineSecrets {
             if !nonces.insert(item.nonce.as_str()) {
                 return Err(refused("replay", &item.name));
             }
-            let opened = self.open(Purpose::Secret, item)?;
-            let value = std::str::from_utf8(&opened)
+            let opened = self.open(replay, now, Purpose::Secret, item)?;
+            taken.push((item.nonce.clone(), opened.issued_at));
+            let value = std::str::from_utf8(&opened.value)
                 .ok()
                 .filter(|value| files::is_secret_value(value))
                 .map(|value| Zeroizing::new(value.to_owned()))
@@ -222,11 +226,11 @@ impl MachineSecrets {
         }
         let count =
             u32::try_from(values.len()).map_err(|_| refused("too-large", "machine-secrets.env"))?;
-        let reservation = self.reserve(items)?;
         let path = self.home.join(files::MACHINE_SECRETS_FILE);
-        files::write_allowed(&self.home, &path, rendered.as_bytes())
-            .map_err(|_| refused("write", "machine-secrets.env"))?;
-        reservation.keep();
+        Self::take(replay, now, &taken, "machine-secrets.env", || {
+            files::write_allowed(&self.home, &path, rendered.as_bytes())
+                .map_err(|_| refused("write", "machine-secrets.env"))
+        })?;
         Ok(count)
     }
 
@@ -253,14 +257,17 @@ impl MachineSecrets {
     fn install_inner(&self, item: &SealedSecret) -> Result<String, RpcError> {
         let login =
             HarnessLogin::from_name(&item.name).ok_or_else(|| refused("bad-name", &item.name))?;
-        let value = self.open(Purpose::HarnessLogin, item)?;
-        login.validate(&value).map_err(|error| refused(error.code(), &item.name))?;
+        let (_request, mut replay, now) = self.begin();
+        let replay = replay.as_mut().ok_or_else(|| refused("write", &item.name))?;
+        let opened = self.open(replay, now, Purpose::HarnessLogin, item)?;
+        login.validate(&opened.value).map_err(|error| refused(error.code(), &item.name))?;
         harness::check_guest(&self.etc, login)
             .map_err(|error| refused(error.code(), &item.name))?;
-        let reservation = self.reserve(std::slice::from_ref(item))?;
-        harness::install(&self.home, login, &value)
-            .map_err(|error| refused(error.code(), &item.name))?;
-        reservation.keep();
+        let taken = [(item.nonce.clone(), opened.issued_at)];
+        Self::take(replay, now, &taken, &item.name, || {
+            harness::install(&self.home, login, &opened.value)
+                .map_err(|error| refused(error.code(), &item.name))
+        })?;
         Ok(login.name().to_owned())
     }
 }

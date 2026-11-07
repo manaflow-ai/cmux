@@ -6,6 +6,10 @@
 //! the purpose, the item's name and its nonce; the AAD is the name. Only the
 //! daemon holding the private key can open an item, only for that machine,
 //! purpose and name.
+//!
+//! The sealed plaintext is the time the device sealed it (Unix seconds, a
+//! big-endian u64), then the value: the time is authenticated with the
+//! value, so the daemon can refuse an item sealed long ago.
 
 use cmux_remote_protocol::{ByteString, SealedSecret};
 use hpke::aead::ChaCha20Poly1305;
@@ -91,7 +95,21 @@ pub fn fresh_nonce() -> Result<String, SealError> {
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-/// Seal `value` for the daemon whose static public key is `recipient`.
+/// Seconds since the Unix epoch, now (0 before it).
+pub fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs())
+}
+
+/// An opened item: when the device sealed it, and the value.
+pub struct Opened {
+    pub issued_at: u64,
+    pub value: Zeroizing<Vec<u8>>,
+}
+
+/// Seal `value` for the daemon whose static public key is `recipient`,
+/// stamped with the time now.
 pub fn seal(
     recipient: &[u8; 32],
     machine_id: &str,
@@ -99,8 +117,20 @@ pub fn seal(
     name: &str,
     value: &[u8],
 ) -> Result<SealedSecret, SealError> {
+    seal_at(recipient, machine_id, purpose, name, value, unix_now())
+}
+
+/// [`seal`] stamped with `issued_at` (Unix seconds).
+pub fn seal_at(
+    recipient: &[u8; 32],
+    machine_id: &str,
+    purpose: Purpose,
+    name: &str,
+    value: &[u8],
+    issued_at: u64,
+) -> Result<SealedSecret, SealError> {
     let nonce = fresh_nonce()?;
-    seal_with_nonce(recipient, machine_id, purpose, name, &nonce, value)
+    seal_with_nonce(recipient, machine_id, purpose, name, &nonce, value, issued_at)
 }
 
 pub(crate) fn seal_with_nonce(
@@ -110,10 +140,14 @@ pub(crate) fn seal_with_nonce(
     name: &str,
     nonce: &str,
     value: &[u8],
+    issued_at: u64,
 ) -> Result<SealedSecret, SealError> {
     if !is_nonce(nonce) {
         return Err(SealError::BadNonce);
     }
+    let mut plaintext = Zeroizing::new(Vec::with_capacity(8 + value.len()));
+    plaintext.extend_from_slice(&issued_at.to_be_bytes());
+    plaintext.extend_from_slice(value);
     let recipient = <Kem as hpke::Kem>::PublicKey::from_bytes(recipient)
         .map_err(|_| SealError::BadEncapsulation)?;
     let info = info(machine_id, purpose, name, nonce);
@@ -122,7 +156,7 @@ pub(crate) fn seal_with_nonce(
             &OpModeS::Base,
             &recipient,
             &info,
-            value,
+            &plaintext,
             name.as_bytes(),
             &mut OsRandom,
         )
@@ -136,13 +170,13 @@ pub(crate) fn seal_with_nonce(
 }
 
 /// Open `item` with the daemon's static private key, for this machine and
-/// `purpose`. The plaintext is wiped when dropped.
+/// `purpose`. The value is wiped when dropped.
 pub fn open(
     private_key: &[u8; 32],
     machine_id: &str,
     purpose: Purpose,
     item: &SealedSecret,
-) -> Result<Zeroizing<Vec<u8>>, SealError> {
+) -> Result<Opened, SealError> {
     if !is_nonce(&item.nonce) {
         return Err(SealError::BadNonce);
     }
@@ -153,16 +187,21 @@ pub fn open(
     let private = <Kem as hpke::Kem>::PrivateKey::from_bytes(private_key)
         .map_err(|_| SealError::OpenFailed)?;
     let info = info(machine_id, purpose, &item.name, &item.nonce);
-    hpke::single_shot_open::<ChaCha20Poly1305, HkdfSha256, Kem>(
-        &OpModeR::Base,
-        &private,
-        &encapsulated,
-        &info,
-        &ciphertext,
-        item.name.as_bytes(),
-    )
-    .map(Zeroizing::new)
-    .map_err(|_| SealError::OpenFailed)
+    let plaintext = Zeroizing::new(
+        hpke::single_shot_open::<ChaCha20Poly1305, HkdfSha256, Kem>(
+            &OpModeR::Base,
+            &private,
+            &encapsulated,
+            &info,
+            &ciphertext,
+            item.name.as_bytes(),
+        )
+        .map_err(|_| SealError::OpenFailed)?,
+    );
+    let (stamp, value) = plaintext.split_at_checked(8).ok_or(SealError::OpenFailed)?;
+    let mut issued_at = [0_u8; 8];
+    issued_at.copy_from_slice(stamp);
+    Ok(Opened { issued_at: u64::from_be_bytes(issued_at), value: Zeroizing::new(value.to_vec()) })
 }
 
 /// The public key of a static private key, as the `hpke` crate derives it.
