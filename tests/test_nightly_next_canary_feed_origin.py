@@ -1,7 +1,7 @@
 """The nightly-next canary takes the newest build from the feed's own origin.
 
 Since #25656 the cmux NEXT feed's enclosures point at its R2 origin
-(files-next.cmux.com/nightly-next/next/), and the GitHub release copy follows
+(files-next.cmux.com/nightly-next/ since #36287), and the GitHub release copy follows
 later. The canary's pick refused every URL that was not a GitHub release
 asset, so from 2026-10-27 05:24Z every scheduled canary failed at "Read the
 feed". No build got a verdict and none moved from Dev (cmux-next-dev) to
@@ -18,7 +18,7 @@ import textwrap
 import unittest
 
 WORKFLOW = pathlib.Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-canary.yml"
-R2 = "https://files-next.cmux.com/nightly-next/next/"
+R2 = "https://files-next.cmux.com/nightly-next/"
 GITHUB = "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/"
 
 
