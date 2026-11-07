@@ -758,7 +758,7 @@ pub(crate) fn redeliver_open(
     }
     let (hub, peer) = (hub.clone(), peer.to_owned());
     tokio::spawn(async move {
-        let on_link = || hub.peer(&peer).is_some_and(|p| (p.generation, p.link_epoch()) == link);
+        let on_link = || hub.peer_on_link(&peer, link);
         let from = cursor(&hub).get(&peer).cloned();
         let one = |d: Delivery| {
             let (hub, peer, ends) = (hub.clone(), peer.clone(), &ends);
