@@ -172,8 +172,8 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         // the browser fills the pane (its band holds the strip's place).
         let shown = shownStripHeight
         toolbar?.view.isHidden = shown <= 0
-        let tools = toolbarWidth(shown: shown), room = bounds.width - tools, held = contentHost.isHolding, row = held ? nil : tabRowSharer // held: the row is the strip's (S1B)
-        let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0
+        let room = bounds.width - toolbarWidth(shown: shown, sharing: true), held = contentHost.isHolding, row = held ? nil : tabRowSharer // held: the row is the strip's (S1B)
+        let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0, tools = toolbarWidth(shown: shown, sharing: rowTools > 0)
         // The strip shows at every tab count (#34327); a chat alone in its pane hides its tab only with tabs.hideLoneChatTab on.
         stripView.isHidden = shown <= 0 || rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.hidesLoneTab
         if !isBandActive {
@@ -220,7 +220,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         }
         if !contentHost.isHolding { layoutParked() }
         layoutAgentTag()
-        if !held, hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, tabs: !stripView.isHidden, toolbar: toolbar?.view, in: self) } else if !held { toolbar?.view.paintTabRowHole(nil) }
+        if !held, hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: toolbarWidth(shown: shown, sharing: true), tabs: !stripView.isHidden, toolbar: toolbar?.view, in: self) } else if !held { toolbar?.view.paintTabRowHole(nil) }
         if contentHost.takeEndedHold() || hostChanged && !contentHost.isHolding { onResize?() }
     }
 
@@ -293,7 +293,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
 
     /// FRAME OWNER S1: a key resize holds only the content area; the strip lays out at the pane's rect in each frame. In a band, or
     /// beside a page whose tools are in the tab row (S1B: the page shown now, at this width; S5/S6), it holds whole.
-    var paneMotionHoldArea: PaneContentAreaView? { isBandActive || tabRowSharer?.drawsInTabRow(room: bounds.width - toolbarWidth(shown: shownStripHeight)) == true ? nil : contentHost }
+    var paneMotionHoldArea: PaneContentAreaView? { isBandActive || tabRowSharer?.drawsInTabRow(room: bounds.width - toolbarWidth(shown: shownStripHeight, sharing: true)) == true ? nil : contentHost }
     /// The page shown now that may share the tab row: in the content area, under a strip on top, not in a browser's band.
     private var tabRowSharer: PaneTabRowSharing? { barPosition == .top && !isBandActive && !hidesStrip && hostsContent && shownStripHeight > 0 ? content as? PaneTabRowSharing : nil }
 
