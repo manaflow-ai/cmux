@@ -22,7 +22,7 @@ public struct WorkspaceGap: Hashable, Sendable {
         let index: Int
         if let before, let found = members.firstIndex(of: before) { index = found }
         else if let after, let found = members.firstIndex(of: after) { index = found + 1 }
-        else if before == nil, after == nil { index = 0 }
+        else if before == nil, after == nil { index = 0 } // captured in an empty container, not a gap whose neighbor closed
         else { return nil } // Both neighbors disappeared; do not reuse their old numeric slot.
         return DropPosition(section: section, group: group, index: index)
     }
