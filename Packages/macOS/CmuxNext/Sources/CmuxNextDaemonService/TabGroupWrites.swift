@@ -59,12 +59,13 @@ public struct TabGroupWrites: Sendable {
     ///   - original: The tab it goes right after.
     ///   - pane: The pane both are in.
     ///   - daemon: `pane`'s own daemon.
-    /// - Returns: Nil when there is no group to join (`original` has none, or the daemon has no tab groups), else
-    ///   whether `tab` is in it (it was already, or the daemon took the join).
+    /// - Returns: Nil when there is no group to join beside `original` (it has none or left it, or the daemon has no tab
+    ///   groups), else whether `tab` is in it (it was already, or the daemon took the join).
     @MainActor public static func join(_ tab: TabModel, beside original: TabModel, in pane: PaneModel, daemon: DaemonService) async -> Bool? {
         guard let group = original.tabGroup, daemon.supports(DaemonCapability.tabGroups.rawValue) else { return nil }
-        guard tab.tabGroup != group,
-              let index = pane.tabs.filter({ $0 !== tab && $0.tabGroup == group }).firstIndex(where: { $0 === original }) else { return true }
+        guard tab.tabGroup != group else { return true }
+        // The original left the group or the pane: no slot beside it, so the caller places the tab as any new tab.
+        guard let index = pane.tabs.filter({ $0 !== tab && $0.tabGroup == group }).firstIndex(where: { $0 === original }) else { return nil }
         let writes = TabGroupWrites(pane: pane, daemon: daemon)
         return await daemon.runGroupCommand("add-tabs-to-group", intent: nil, writes.add([tab], to: group, index: index + 1))
     }

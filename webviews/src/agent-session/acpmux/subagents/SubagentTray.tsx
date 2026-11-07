@@ -159,6 +159,7 @@ export const SubagentTray = memo(function SubagentTray({
   onOpen,
   onOpenCommand,
   canReadTail = false,
+  canOpenTerminal = true,
   onOpenSession,
   onOpenPanel,
   stop,
@@ -187,6 +188,10 @@ export const SubagentTray = memo(function SubagentTray({
   onOpenCommand?: (command: BackgroundCommand) => void;
   /// A connected local process source is available for the expanded tail.
   canReadTail?: boolean;
+  /// The host opens a command's terminal (App.tsx `opensProcessTerminal`). Where it does not, the
+  /// expanded tail shows no Open in terminal: there it would only reveal the command's call, and the
+  /// tail already shows the command.
+  canOpenTerminal?: boolean;
   /// Opens a chat the agent started (App.tsx `openOfferChat`).
   onOpenSession?: (sessionId: string) => void;
   /// Opens the chat's Background tasks panel (App.tsx `openBackgroundPanel`): the header expands in
@@ -901,9 +906,6 @@ export const SubagentTray = memo(function SubagentTray({
               latestAt={latestPlacement}
               latestCode
               via={ownerParent ? subagentTaskLabel(t, ownerParent) : undefined}
-              nameLink={
-                item.owner ? { href: `#subagent:${item.owner.id}`, open: () => onOpen(item.owner!.id) } : undefined
-              }
               title={item.command.command}
               chevron
               icon={read.icon}
@@ -945,7 +947,11 @@ export const SubagentTray = memo(function SubagentTray({
               elapsed={commandElapsed}
               // The row expands in place, so its terminal (or, where none opens, its call: App.tsx
               // `openTrayCommand`) is this explicit button now, never the row's click.
-              onOpenTerminal={onOpenCommand && (() => onOpenCommand(item.command))}
+              onOpenTerminal={canOpenTerminal && onOpenCommand ? () => onOpenCommand(item.command) : undefined}
+              // A subagent's command: the whole line, its title included, expands it, and the way to the
+              // subagent is this explicit Open chat (Leo, 2026-11-07: "me clicking this, the entire box, it
+              // just feels like, okay, I would be expanding this").
+              onOpenOwner={item.owner && (() => onOpen(item.owner!.id))}
             />
           </TrayLineFold>
         </>
