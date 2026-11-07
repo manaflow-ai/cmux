@@ -17,6 +17,7 @@ import type { Artifact } from "../../conversation/artifactPreview";
 import type { TurnFile } from "../../diff";
 import type { SessionSummary, SummaryBackgroundTask, SummaryWakeup } from "../../summary/sessionSummary";
 import { useScheduledClock } from "../scheduled";
+import { connectorServers } from "../connectorServers";
 import { visibleChanges, type SessionInfoPullRequestStatus } from "../ChangesSection";
 import type { OutputArtifact, OutputLink } from "../OutputsSection";
 import { sessionInfoLists, type SessionInfoProcess } from "../processes";
@@ -397,7 +398,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
         : undefined,
       connectorsSection(
         {
-          servers: summary?.mcpServers ?? [],
+          servers: connectorServers(summary),
           onReconnect: reconnect,
           open: state.sections.connectors,
           reconnecting,

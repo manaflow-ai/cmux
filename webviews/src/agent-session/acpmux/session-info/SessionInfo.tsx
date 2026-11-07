@@ -78,6 +78,7 @@ import type { Artifact } from "../conversation/artifactPreview";
 import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./ChangesSection";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
+import { connectorServers, connectorsCount } from "./connectorServers";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { useIMessage, type IMessageView } from "./imessage";
 import { EnvironmentSection, type AccessGrant, type ProjectRowLook } from "./EnvironmentSection";
@@ -2071,7 +2072,8 @@ export function SessionInfo({
     () => (missing.size === 0 ? madeFiles : madeFiles.filter((output) => !missing.has(output.path))),
     [madeFiles, missing],
   );
-  const mcp = summary?.mcpServers ?? [];
+  const mcp = useMemo(() => connectorServers(summary), [summary]);
+  const mcpCount = connectorsCount(mcp);
   const reconnect = mcp.filter((server) => server.status === "failed").length;
   const runningTasks = commands.filter((command) => command.state === "running").length;
   // Subagents shows only for a chat that has subagents or started chats: one that never used them
@@ -2174,11 +2176,13 @@ export function SessionInfo({
             ? t("sessionInfo.connectors.reconnect", { count: reconnect })
             : mcp.length === 0 && imessage && imessage.data.status !== "connected"
               ? t("imessage.connect")
-              : t("rail.connected", {
-                  count:
-                    mcp.filter((server) => server.status === "connected").length +
-                    (mcp.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
-                }),
+              : "on" in mcpCount && !imessage
+                ? String(mcpCount.on)
+                : t("rail.connected", {
+                    count:
+                      ("connected" in mcpCount ? mcpCount.connected : 0) +
+                      (mcp.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
+                  }),
       )}
     >
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} imessage={imessage} />

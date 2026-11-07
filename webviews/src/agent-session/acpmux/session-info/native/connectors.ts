@@ -1,23 +1,24 @@
 // Session Info's Connectors, drawn by the App (ConnectorsSection.tsx): one row per MCP server the
 // chat's harness loaded with its state; a failed one has Reconnect where acpmux reconnects one.
-import type { AcpmuxSnapshot } from "../../model";
+import { connectorStateKey } from "../ConnectorsSection";
+import { connectorsCount, type ConnectorServer } from "../connectorServers";
 import type { Translate } from "../../i18n";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 import { imessageError, type IMessageView } from "../imessage";
 
-type McpServer = NonNullable<NonNullable<AcpmuxSnapshot["summary"]>["mcpServers"]>[number];
-
 export const CONNECTORS_SYMBOL = "puzzlepiece.extension";
 
-const TONES: Record<McpServer["status"], NativeInfoTone> = {
+const TONES: Record<ConnectorServer["status"], NativeInfoTone> = {
   failed: "failed",
   connected: "done",
   pending: "waiting",
+  on: "done",
+  off: "muted",
 };
 
 export type ConnectorsInput = {
-  /// `summary.mcpServers`.
-  servers: readonly McpServer[];
+  /// The chat's servers (connectorServers.ts).
+  servers: readonly ConnectorServer[];
   /// `_acpmux/mcp/reconnect` of the server by its name.
   onReconnect?: (server: string) => Promise<unknown>;
   /// The section is unfolded (`sections.connectors`).
@@ -35,6 +36,7 @@ export function connectorsSection(
   const { servers, onReconnect } = input;
   if (servers.length === 0 && !input.imessage) return undefined;
   const reconnect = servers.filter((server) => server.status === "failed").length;
+  const count = connectorsCount(servers);
   const rows = servers.map((server): NativeInfoRow => {
     const row: NativeInfoRow = {
       id: server.name,
@@ -63,13 +65,7 @@ export function connectorsSection(
     }
     return {
       ...row,
-      trailing: t(
-        server.status === "failed"
-          ? "sessionInfo.connectors.needsReconnect"
-          : server.status === "pending"
-            ? "rail.connectorPending"
-            : "composer.envConnected",
-      ),
+      trailing: t(connectorStateKey(server.status)),
     };
   });
   const imessage = input.imessage;
@@ -169,11 +165,13 @@ export function connectorsSection(
         ? t("sessionInfo.connectors.reconnect", { count: reconnect })
         : servers.length === 0 && imessage && imessage.data.status !== "connected"
           ? t("imessage.connect")
-          : t("rail.connected", {
-              count:
-                servers.filter((server) => server.status === "connected").length +
-                (servers.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
-            }),
+          : "on" in count && !imessage
+            ? String(count.on)
+            : t("rail.connected", {
+                count:
+                  ("connected" in count ? count.connected : 0) +
+                  (servers.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
+              }),
     open: input.open,
     foldable: true,
     reorderable: true,
