@@ -25,6 +25,7 @@ import type { AcpmuxSendCallPart, SendState } from "./acpmuxSends";
 import { messagePreview } from "./AgentMessageRow";
 import { messageDelivery } from "./agentMessages";
 import { FindReveal, foldFind, useFindReveal } from "./chatFind";
+import { plainText } from "./messageMenu";
 import { AlertCircle, Envelope, ChevronRight } from "./icons";
 import { AgentMessageBody } from "./AgentMessageBody";
 import { AgentTag } from "./AgentTag";
@@ -168,7 +169,9 @@ export function SentMessageLine({
     () => {
       setOpen(true);
       const needle = find?.toolId === undefined ? (find?.needle ?? "") : "";
-      if (!text || (needle && !foldFind(text).includes(needle))) setRawShown(true);
+      // The message's words as they draw, not its Markdown source: a link's address is in the
+      // source but not on screen, so a match there opens Raw, where Find can show it.
+      if (!text || (needle && !foldFind(plainText(text)).includes(needle))) setRawShown(true);
       setReveal((value) => value + 1);
     },
   );

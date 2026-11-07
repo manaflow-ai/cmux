@@ -171,6 +171,19 @@ test("Find opens the message to its words, not its Raw", async () => {
   expect(host.querySelector("[data-tool-id], .cv-shell")).toBeNull();
 });
 
+test("Find opens Raw for a match only in a link's address, which the message does not show", async () => {
+  // The message draws "report"; its Markdown source holds the address. Kept shut, Raw would hide
+  // the only place Find can show the match.
+  const linked: Tool = {
+    ...leoSend,
+    id: "toolu_linked_send",
+    command: "acpmux send build-box/acpmux-client-rust-2 'See [report](https://example.com/results).' 2>&1|tail -1",
+  };
+  const reveal = { rowId: "row-1", card: false, needle: "example.com/results", repaint: () => undefined };
+  await draw(<FindReveal.Provider value={reveal}>{sentLine(linked)}</FindReveal.Provider>);
+  expect(host.querySelector(".cv-received__more")!.getAttribute("aria-expanded")).toBe("true");
+});
+
 test("opened, Raw is the call's plain command row, with no Shell card", async () => {
   await draw(sentLine());
   act(() => host.querySelector<HTMLElement>(".cv-disclosure__toggle")!.click());
