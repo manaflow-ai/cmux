@@ -190,7 +190,7 @@ final class AgentTabStore {
     /// its Cloud machine (``CloudMachineShare/shareWithMe(_:cloud:)``).
     var shareMachineWithMe: (@MainActor (String) async -> AgentPaneMachineShare)?
     /// The Share dialog's op on tab `key`'s own chat (``AgentShareActions/pane(_:tab:host:)``).
-    var shareOp: (@MainActor (String, AgentPaneShareOp) async -> AgentPaneShareReply?)?
+    var shareOp: (@MainActor (String, AgentPaneShareOp, String?) async -> AgentPaneShareReply?)?
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
@@ -586,7 +586,7 @@ final class AgentTabStore {
             }
             return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)) ?? false
         }
-        model.onShareOp = { [weak self] op in guard let self else { return nil }; return await shareOp?(resolve(provisional), op) }
+        model.onShareOp = { [weak self] op, session in guard let self else { return nil }; return await shareOp?(resolve(provisional), op, session) }
         wireHeader(model, key: provisional)
         model.onBrowseProject = { [weak self] in
             guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return nil }

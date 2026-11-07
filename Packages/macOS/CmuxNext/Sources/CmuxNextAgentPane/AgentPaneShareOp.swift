@@ -70,12 +70,17 @@ extension AgentPaneModel {
     /// One Share dialog op on this pane's chat. A link or an invite needs the page host's
     /// authenticated click (`userGesture`) or the legacy bridge's gesture credit, so page script
     /// alone never widens who sees the chat.
-    func shareOp(_ op: AgentPaneShareOp, userGesture: Bool) async -> [String: Any] {
+    func shareOp(_ op: AgentPaneShareOp, session: String? = nil, userGesture: Bool) async -> [String: Any] {
         guard let onShareOp else { return Self.unsupported("share.op") }
+        // Bound to the chat the dialog opened on: a tab that shows another chat by now does nothing
+        // (checked before the gesture, so a refused op spends no click).
+        if let session, header?.showsChat(session) != true {
+            return AgentPaneReply.failure(code: "unavailable", message: "This chat is no longer shown.")
+        }
         if op.needsGesture, !(userGesture || transport.gestures.consume()) {
             return AgentPaneReply.failure(code: "gesture_required", message: Self.transportFailedMessage)
         }
-        switch await onShareOp(op) {
+        switch await onShareOp(op, session) {
         case .value(let value)?: return AgentPaneReply.success(value)
         case .refused(let code, let message)?: return AgentPaneReply.failure(code: code, message: message)
         // The app is closing this tab's page.

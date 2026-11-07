@@ -24,6 +24,16 @@ struct AgentSharePaneOpsTests {
         }
     }
 
+    @Test func aPinnedSessionTheTabNoLongerShowsIsRefused() async {
+        let fixture = AgentShareTests.fixture()
+        guard case .refused(let code, _) = await AgentShareActions.pane(.state, session: "another-chat", tab: fixture.chat.id,
+                                                                          host: fixture.services) else {
+            Issue.record("a moved chat answered")
+            return
+        }
+        #expect(code == "unavailable")
+    }
+
     @Test func aRevokeTakesOnlyAShareOfThisChat() {
         let shares = [
             AgentSessionShare(shareId: "mine", state: "active", session: Self.session, surface: 1),

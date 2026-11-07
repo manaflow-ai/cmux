@@ -380,7 +380,7 @@ extension AgentTabStore {
             }
             return await CloudMachineShare.shareWithMe(session, cloud: services.cloud)
         }
-        tabs.shareOp = { [weak services] key, op in guard let services else { return nil }; return await AgentShareActions.pane(op, tab: key, host: services) }
+        tabs.shareOp = { [weak services] key, op, session in guard let services else { return nil }; return await AgentShareActions.pane(op, session: session, tab: key, host: services) }
         tabs.remoteHost = { [weak services, weak tabs] key in
             guard let services, let tabs, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession else { return nil }
             let started = record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)

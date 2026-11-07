@@ -18,7 +18,10 @@ extension AgentShareActions {
 
     /// One dialog op on the chat tab `tab` shows. Refused `unavailable` when that tab no longer shows
     /// a started agent chat on this Mac.
-    public static func pane(_ op: AgentPaneShareOp, tab: String, host: any AgentShareHost) async -> AgentPaneShareReply {
+    /// `pinned`: the chat the dialog opened on, when the page named it; the tab must still show it,
+    /// and it is the daemon's session pin on create and invite (`share.chat_moved` past that).
+    public static func pane(_ op: AgentPaneShareOp, session pinned: String? = nil, tab: String,
+                            host: any AgentShareHost) async -> AgentPaneShareReply {
         // Manage links… opens Settings at its Shared links card, whatever the tab shows.
         if op == .manage {
             host.shareOpenSettings(route: sharedLinksRoute)
@@ -26,6 +29,9 @@ extension AgentShareActions {
         }
         guard let found = host.shareTab(id: tab), let session = AgentShareChat.session(of: found), host.shareIsOnThisMac(found) else {
             return .refused(code: "unavailable", message: paneUnavailable)
+        }
+        if let pinned, pinned != session {
+            return .refused(code: "unavailable", message: AgentShareStrings.reason("share.chat_moved") ?? paneUnavailable)
         }
         let chat = AgentShareChat(surface: found.surface.rawValue, session: session, connection: host.shareConnection(holding: found),
                                   isLocal: true, title: found.title)
