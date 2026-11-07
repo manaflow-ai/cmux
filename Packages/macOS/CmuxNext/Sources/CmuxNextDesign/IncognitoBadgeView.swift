@@ -59,13 +59,15 @@ public final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
         chip.edgeInsets = NSEdgeInsets(top: 2, left: Metrics.space2, bottom: 2, right: Metrics.space2)
         chip.translatesAutoresizingMaskIntoConstraints = false
         addSubview(chip)
-        // The trailing and bottom pins give way below the chip's size (999): narrower than the chip, the badge is
-        // the row's icon and the faded chip keeps its own layout instead of squeezing its word into the square.
-        // The fitting size still comes from them.
+        // The trailing and bottom pins give way before the chip's glyph and word resist compression (750): narrower
+        // than the chip, the badge is the row's icon and the faded chip keeps its own layout instead of squeezing
+        // its word into the square. Above the fitting-size compression (50), so the fitting size still comes from
+        // them.
+        let yields = NSLayoutConstraint.Priority(NSLayoutConstraint.Priority.defaultHigh.rawValue - 1)
         let trailing = chip.trailingAnchor.constraint(equalTo: trailingAnchor)
         let bottom = chip.bottomAnchor.constraint(equalTo: bottomAnchor)
-        trailing.priority = .init(999)
-        bottom.priority = .init(999)
+        trailing.priority = yields
+        bottom.priority = yields
         NSLayoutConstraint.activate([
             chip.leadingAnchor.constraint(equalTo: leadingAnchor),
             trailing,
