@@ -73,7 +73,7 @@ const command = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178
 };
 // The same command with its tail open as a host that reads output and opens terminals shows it
 // (`window.__showOpenCommand`): the command, then one line of its time, state and Open in terminal.
-(window as unknown as { __showOpenCommand: () => void }).__showOpenCommand = () => {
+(window as unknown as { __showOpenCommand: (width?: number) => void }).__showOpenCommand = (width = 720) => {
   const items = trayItems(
     [],
     [
@@ -90,7 +90,7 @@ const command = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178
     true,
   );
   view.render(
-    <section className="acpmux-shell" style={{ width: 720 }}>
+    <section className="acpmux-shell" style={{ width }}>
       <div className="acpmux-main">
         <div className="acpmux-dock">
           <SubagentTray

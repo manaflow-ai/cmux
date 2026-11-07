@@ -183,6 +183,34 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     });
   }
 
+  test("in a narrow tray an open command's actions wrap inside it, never clipped", async () => {
+    // Review of #37830 (F1): its one foot line could not wrap, so a narrow tray cut off Open in terminal.
+    const page = await browser!.newPage({ viewport: { width: 760, height: 400 } });
+    try {
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
+      await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+      await page.evaluate(() =>
+        (window as unknown as { __showOpenCommand: (width: number) => void }).__showOpenCommand(220),
+      );
+      await page.waitForSelector(".acpmux-running-tray");
+      await openRunningTray(page);
+      await page.click(".acpmux-running-tray .acpmux-agent-line__button");
+      await page.waitForSelector(".acpmux-running-tray__tail button");
+      const fit = await page.evaluate(() => {
+        const tail = document.querySelector<HTMLElement>(".acpmux-running-tray__tail")!.getBoundingClientRect();
+        const button = document
+          .querySelector<HTMLElement>(".acpmux-running-tray__tail button")!
+          .getBoundingClientRect();
+        return { tailRight: tail.right, buttonRight: button.right, buttonLeft: button.left, tailLeft: tail.left };
+      });
+      expect(fit.buttonLeft).toBeGreaterThanOrEqual(fit.tailLeft - 0.5);
+      expect(fit.buttonRight).toBeLessThanOrEqual(fit.tailRight + 0.5);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("an open command's time, state and Open in terminal share one line on the command's left edge", async () => {
     // Leo, 2026-11-07, on the open command's last line ("33s", "Running", "Open in terminal" each at
     // their own height): "also for the hat wow this is wildly misaligned at the bottom".
