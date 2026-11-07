@@ -36,7 +36,7 @@ export const SurfaceOps = {
   pointer: "cmux.changelog.surface.pointer",
   /** The Updated card's drag: `{x, y, anchor?}`, CSS px from its rest; `anchor` on its release. */
   cardDrag: "cmux.changelog.surface.card.drag",
-  /** Where the host rests the card: `{anchor, above, below}` (updatedCardDrag.ts CardPlace). */
+  /** Where the host rests the card: `{anchor, above, below, zoom}` (updatedCardDrag.ts CardPlace). */
   cardPlace: "cmux.changelog.surface.card.place",
 } as const;
 

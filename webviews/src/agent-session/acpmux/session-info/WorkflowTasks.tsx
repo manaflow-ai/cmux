@@ -22,7 +22,7 @@ import { formatDuration } from "../conversation/turns";
 import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 import { modelName, phaseAgents, tally, workflowDetailRequest, type Tally } from "../summary/foldWorkflows";
 import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "../summary/workflow";
 import {
