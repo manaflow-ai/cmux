@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 603,
+  "count": 606,
   "sections": [
     {
       "id": "general",
@@ -303,6 +303,27 @@
           "kind": "toggle",
           "default": true,
           "group": "Guidance and Skills"
+        },
+        {
+          "key": "agents.hiddenChats.discard",
+          "title": "Release Hidden Agent Chats",
+          "help": "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Hibernation"
+        },
+        {
+          "key": "agents.hiddenChats.discardAfterMinutes",
+          "title": "Release Hidden Chats After",
+          "help": "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner.",
+          "kind": "number",
+          "default": 15,
+          "group": "Hibernation",
+          "range": {
+            "min": 1,
+            "max": 1440,
+            "unit": "minutes"
+          }
         },
         {
           "key": "agents.modelRouter.model",
@@ -1171,6 +1192,14 @@
             "pluggedIn",
             "always"
           ]
+        },
+        {
+          "key": "sessions.keepAwakeWhenLocked",
+          "title": "Keep Agents Running While Locked",
+          "help": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Sessions"
         },
         {
           "key": "sessions.promptSuggestions",
