@@ -20,6 +20,8 @@
 // glide was on (a stall), long tasks over 50 ms (Chromium), and the transcript's React and layout time
 // per frame (acpmuxPerf).
 //   bun bench/wheel-tick-scaling.bench.ts [sizes=50,500,3000] [rounds=6] [engine=chromium|webkit] [mode=still|live]
+// CMUX_TICK_PROFILE=1 (Chromium) also records a CPU profile over each size's ticks and prints the
+// functions with the most self time (bench diagnostics; keep it off for timing comparisons).
 // Prints one line per size and PERF_ROW rows: wheel_tick.<engine>.<mode>.turns_<n>.work_ms (p50/p95) and
 // wheel_tick.<engine>.<mode>.scaling.work_p95_ratio (the largest size's p95 over the smallest's; 1 is flat).
 /// <reference types="bun" />
@@ -38,6 +40,7 @@ if (!SIZES.every((size) => Number.isInteger(size) && size > 0) || !Number.isInte
   throw new Error("usage: wheel-tick-scaling.bench.ts [sizes=50,500,3000] [rounds>=1] [engine=chromium|webkit]");
 if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error(`wheel-tick-scaling: unknown engine ${ENGINE}`);
 const BUDGET_120 = 1000 / 120;
+const PROFILE = process.env.CMUX_TICK_PROFILE === "1" && ENGINE === "chromium";
 const webviews = path.resolve(import.meta.dir, "..");
 
 type Summary = { p50: number; p95: number; max: number };
@@ -240,6 +243,33 @@ async function tickRun({
   };
 }
 
+type ProfileNode = {
+  id: number;
+  callFrame: { functionName: string; url: string; lineNumber: number };
+  children?: number[];
+};
+/// The 25 functions with the most self time in a CDP CPU profile, with each one's share.
+function printProfile(turns: number, profile: { nodes: ProfileNode[]; samples: number[]; timeDeltas: number[] }) {
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const self = new Map<string, number>();
+  let total = 0;
+  profile.samples.forEach((id, index) => {
+    const node = byId.get(id);
+    const ms = (profile.timeDeltas[index] ?? 0) / 1000;
+    if (!node) return;
+    const { functionName, url, lineNumber } = node.callFrame;
+    if (functionName === "(idle)" || functionName === "(program)") return;
+    const file = url.split("/").slice(-1)[0]?.split("?")[0] ?? "";
+    const key = `${functionName || "(anonymous)"} ${file}:${lineNumber + 1}`;
+    self.set(key, (self.get(key) ?? 0) + ms);
+    total += ms;
+  });
+  const top = [...self].sort((a, b) => b[1] - a[1]).slice(0, 25);
+  console.log(`wheel-tick-scaling profile turns=${turns} busy_ms=${Math.round(total)}`);
+  for (const [key, ms] of top)
+    console.log(`  ${(Math.round(ms * 10) / 10).toString().padStart(8)} ms ${((ms / total) * 100).toFixed(1).padStart(5)}%  ${key}`);
+}
+
 const vite = await createServer({
   configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
   server: { port: 0, host: "127.0.0.1", strictPort: false },
@@ -261,7 +291,14 @@ try {
     )) as { error?: string; session: string; rows: number; open_ms: number };
     if (seeded.error) throw new Error(`wheel-tick-scaling: seed ${turns}: ${seeded.error}`);
     await page.locator(".acpmux-scroll").hover();
+    const cdp = PROFILE ? await page.context().newCDPSession(page) : undefined;
+    if (cdp) {
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+      await cdp.send("Profiler.start");
+    }
     const run = await page.evaluate(tickRun, { rounds: ROUNDS, session: seeded.session, live: MODE === "live" });
+    if (cdp) printProfile(turns, (await cdp.send("Profiler.stop")).profile);
     await page.close();
     if ("error" in run) throw new Error(`wheel-tick-scaling: ${turns} turns: ${run.error}`);
     if (run.response_frames.p50 === 0 || run.frames < ROUNDS * 4)
