@@ -10,13 +10,13 @@ import Testing
 /// moved down leaves the line for its own centering, and a lower strip moved up onto the top row takes
 /// the line, with no resize; the pane's toolbar follows its strip both ways.
 @MainActor @Suite(.closesItsWindows, .serialized) struct TopRowMovementTests {
-    func with(_ body: () throws -> Void) rethrows {
+    // Comfortable by default: its strip's own centering and the top row's differ, so a stale layout shows.
+    func with(density: DensityPreset = .comfortable, _ body: () throws -> Void) rethrows {
         let design = DesignSettings.shared
         let before = (design.tabBarPosition, design.titlebar, design.densityTokens)
         design.tabBarPosition = .top
         design.titlebar = .minimal
-        // Comfortable: its strip's own centering and the lights' line differ by 2 pt, so a stale layout shows.
-        design.densityTokens = DensityPreset.comfortable.tokens
+        design.densityTokens = density.tokens
         defer { (design.tabBarPosition, design.titlebar, design.densityTokens) = before }
         try body()
     }
@@ -83,6 +83,34 @@ import Testing
             #expect(try pillTop(f) == centered(f), "moved down, the pill keeps the strip's own centering, not the line's offset")
             #expect(f.toolbar.moreButton.frame.minY == PaneToolbarView.edgeInset(height: f.toolbar.bounds.height))
             #expect(f.toolbar.moreButton.frame.minY != buttonOnLine)
+        }
+    }
+
+    /// #38054: a top-row pill keeps the gap above it (from the window's top edge, the row's top) equal
+    /// to the gap below it (to the strip's bottom, the divider under the row), at every density, with
+    /// the strip at the window's top or a few points under it (the card's top inset). Before, the pill
+    /// moved inside its strip toward the traffic lights' line: Compact had 4 pt above and 0 below,
+    /// Comfortable 1 above and 5 below.
+    @Test func aTopRowPillHasEqualGapsAboveAndBelow() throws {
+        for preset in [DensityPreset.ultraCompact, .compact, .cozy, .comfortable, .spacious] {
+            try with(density: preset) {
+                let f = fixture(topRow: true)
+                defer { f.window.closeAfterTest() }
+                var dropped: CGFloat = 0
+                // Never past the room the pill leaves: the card's top stops there (`PaneChromeMetrics.cardTop`).
+                for drop in [0, 1, 2, 4] as [CGFloat] where drop <= Metrics.tabStripHeight - Metrics.tabHeight {
+                    move(f, by: dropped - drop)
+                    dropped = drop
+                    try #require(WindowTitlebar.isInTopRow(f.strip))
+                    let pill = f.strip.convert(try #require(f.strip.firstTabPillFrame), to: nil)
+                    let strip = f.strip.convert(f.strip.bounds, to: nil)
+                    let above = f.container.bounds.maxY - pill.maxY, below = pill.minY - strip.minY
+                    let pixel = 1 / f.window.backingScaleFactor
+                    // Equal, or a device pixel apart where the room left is an odd number of pixels.
+                    #expect(abs(above - below) <= pixel + 0.001, "\(preset) strip \(f.container.bounds.maxY - strip.maxY) pt down: \(above) above, \(below) below")
+                    #expect(pill.maxY <= strip.maxY && pill.minY >= strip.minY, "\(preset): the pill stays inside its strip")
+                }
+            }
         }
     }
 
