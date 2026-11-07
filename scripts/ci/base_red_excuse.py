@@ -159,6 +159,17 @@ class GitHub(_evidence.GitHub):
             per_page = min(per_page, JOBS_PAGE)
         return super().json(route, paginate=paginate, per_page=per_page)
 
+    def dispatch(self, repo: str, workflow: str, ref: str) -> int | None:
+        """Start a workflow_dispatch run of WORKFLOW (a file name) on REF; its run id, or None when GitHub named none.
+        Refused when this host's gh may not dispatch (base_dispatch)."""
+        said = self.run(["api", "-X", "POST", f"repos/{repo}/actions/workflows/{workflow}/dispatches",
+                         "-f", f"ref={ref}", "-F", "return_run_details=true"])
+        try:
+            run = json.loads(said or "{}").get("workflow_run_id")
+        except (ValueError, AttributeError):
+            return None
+        return run if isinstance(run, int) else None
+
     def blob(self, repo: str, ref: str, path: str) -> str:
         """PATH's text in REPO at REF over GraphQL (`object(expression: "REF:PATH")`), never the contents API: an
         agent host's gh shim refuses `gh api repos/O/R/contents/...` as a source read that spends the shared REST
@@ -308,6 +319,18 @@ OTHER_REPO_ROLLUPS = {
 # checks each entry against the workflows. Its verdict is read only when the PR run's own workflow has none at or
 # after the merge-base.
 BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
+# A workflow no base push or schedule runs gets its base verdict from a dispatch on the base tip (2026-11-07).
+# nightly-next-cua-signed-host.yml runs on pull requests that touch it and on a schedule, but a schedule fires only
+# from the default branch, where the file was not yet registered, so feat-cmux-next never had a run of it: every red
+# 'signed host admission' (cmux#37855 at 960fd459, cmux#27704) was refused as having no base verdict, and no change to
+# that workflow could land. For a (base, workflow file) here, a missing or stale base verdict starts one dispatch of
+# the workflow on the base tip, unless one is still running or one started within BASE_DISPATCH_EVERY; the judge
+# then refuses, naming that run, and the next check after it completes compares against it as any base run. The run
+# list is the record, so every host shares one dedupe and nothing waits here. A host whose gh cannot dispatch (a lane
+# VM's broker) refuses with the reason; the next check from a host that can starts it. Keep this list to workflows
+# whose base verdict cannot come from a push: each dispatch is a Mac job.
+BASE_DISPATCH = frozenset({("feat-cmux-next", "nightly-next-cua-signed-host.yml")})
+BASE_DISPATCH_EVERY = timedelta(minutes=60)
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
@@ -415,6 +438,11 @@ def tested_sha(run: dict) -> str:
 ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 ERROR = re.compile(r"##\[error\]|\berror:")
 WARNING = re.compile(r"##\[warning\]|\bwarning:")
+# A job whose own script says its one red on a line of its own, not an annotation: that line is its error line.
+# scripts/ci/cua_signed_host_check.py ends a red run with `FAIL: <why>` and then only the runner's generic exit-code
+# annotation, so 'signed host admission' had no error line to compare, and its base red on cmux#37855 (the same
+# "signed app pid N never kept an accepted host connection" on base run 42383535506) could not be matched.
+JOB_ERROR = {"signed host admission": re.compile(r"^FAIL: ")}
 # Release-notary helpers report successful validations as `ok: ... (error: ...)`.
 # The parenthesized diagnostic is expected output, not a failed check; only
 # error annotations outside a successful `ok:` wrapper are evidence.
@@ -733,6 +761,7 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
         if n in skip or text.startswith(test_reds.TAP_MARKER):
             continue
         if ((ERROR.search(text)
+             or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(text))
              or (not tests and ("default" in job.get("name", "").lower()
                                 or "snapshot" in job.get("name", "").lower())
                  and SUMMARY_FAILURE.search(text)))
@@ -1721,6 +1750,8 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-rd-core/", "cmux-tui/crates/cmux-rd-engine/", "cmux-tui/crates/cmux-rd-ffi/",
                   "cmux-tui/crates/cmux-rd-proto/", "cmux-tui/crates/cmux-remote-browser/",
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/", "schemas/remote-tab/",
+                  # cmux-wg's smoltcp is the vendored copy ([patch.crates-io] in cmux-next-ios/rust)
+                  "cmux-tui/vendor/smoltcp/",
                   # cmux-mobile-host's tests read the Mac's lane policy to keep the two in step
                   "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift",
                   # the kit's Swift tests read the shared specs from the repository root at run time
@@ -2566,6 +2597,33 @@ def base_caller(repo: str, base: str, run: dict, name: str) -> str | None:
                  if branch == base and pr_file == file and name.startswith(f"{job_id} / ")), None)
 
 
+def base_dispatch(repo: str, base: str, run: dict, runs: list[dict], github, now: datetime | None = None) -> str | None:
+    """For RUN's workflow in BASE_DISPATCH: the state of its base dispatch, starting one when none is running and
+    none started within BASE_DISPATCH_EVERY (RUNS: its BASE runs, newest first, as list_base_runs read them). None for
+    any other workflow, base or repo."""
+    path = run.get("path") if isinstance(run, dict) else None
+    if repo != HOME_REPO or not isinstance(path, str) or not path.startswith(".github/workflows/"):
+        return None
+    file = path.removeprefix(".github/workflows/").split("@", 1)[0]
+    if (base, file) not in BASE_DISPATCH:
+        return None
+    dispatched = [found for found in runs if found.get("event") == "workflow_dispatch"]
+    if (pending := next((found for found in dispatched if found.get("status") != "completed"), None)) is not None:
+        return (f"its {base} dispatch run {pending['id']} is {pending.get('status')}; "
+                "re-check once it completes")
+    now = now or datetime.now().astimezone()
+    if dispatched and (started := created(dispatched[0])) is not None and now - started < BASE_DISPATCH_EVERY:
+        return (f"its newest {base} dispatch run {dispatched[0]['id']} gave no verdict for it; the next dispatch "
+                f"starts after {(started + BASE_DISPATCH_EVERY).strftime('%H:%MZ')}")
+    try:
+        started_run = github.dispatch(repo, file, base)
+    except Refused as why:
+        return (f"no {base} dispatch of {file} could start from this host ({str(why)[:200]}); a check from a host "
+                "whose gh may dispatch starts it")
+    named = f" run {started_run}" if started_run is not None else ""
+    return f"dispatched {file}{named} on the {base} tip for a base verdict; re-check once it completes"
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
           flake_state: dict | None = None) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not, or RateLimitedRead
@@ -2656,9 +2714,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     base_run is None or before_merge_base(repo, base, sha, pushed_run, github, merge_bases) is None):
                 base_run, base_job, verdicts = pushed_run, pushed_job, pushed
         if base_run is None:
+            dispatch = base_dispatch(repo, base, workflow_info, base_runs[workflow], github)
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
                           f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
-                          f"and its tip suite runs)")
+                          f"and its tip suite runs)" + (f": {dispatch}" if dispatch else ""))
         if name == GUARD_GROUP_JOB:
             audit.append(guard_group(repo, base, name, job, head_log, base_run, base_job, github))
             continue
@@ -2667,9 +2726,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 audit.append(fixed_on_base(repo, base, sha, name, head_log, base_run, github, job))
             except Refused as why:
                 if (stale := before_merge_base(repo, base, sha, base_run, github, merge_bases)) is not None:
+                    dispatch = base_dispatch(repo, base, workflow_info, base_runs[workflow], github)
                     raise Refused(f"'{name}' has no {base} verdict at or after this PR's merge-base yet: the newest, "
                                   f"a pass in run {base_run['id']}, {stale}; re-check once a {base} run at or after "
-                                  "the merge-base has a verdict for it") from None
+                                  "the merge-base has a verdict for it" + (f": {dispatch}" if dispatch else "")
+                                  ) from None
                 raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}), "
                               f"and not fixed on base: {why}; fix it on this head") from None
             continue
