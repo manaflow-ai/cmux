@@ -6,7 +6,7 @@ import CmuxNextWakeups
 /// Where a new tab the user opens goes (cx-d0d.58). Cmd-T follows
 /// `tabs.newTabPosition`: right after the selected tab by default
 /// (Lawrence 2026-10-20), else at the end or the start (after the pinned
-/// tabs); the strip's + at the end. New Tab After Current Tab, at Start, at End and the tab menu's
+/// tabs); the strip's + `tabs.newTabButtonPosition` (the end). New Tab After Current Tab, at Start, at End and the tab menu's
 /// New Tab to the Right name their place whatever the setting says. The
 /// tab is made where it always is (the end), then moves into its slot
 /// (`TabMoves.move`, optimistic) as soon as its pane lists it. A tab made in

@@ -3,21 +3,38 @@ import CmuxNextDesign
 
 /// The Tabs rows of the General section (its own type: the schema type's line budget is per type).
 nonisolated enum TabSettingsSchema {
-    /// `tabs.newTabPosition`: where Cmd-T puts the new tab (cx-d0d.58); the strip's + always appends.
+    /// `tabs.newTabPosition`: where Cmd-T puts the new tab (cx-d0d.58).
     static func newTabPosition(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(
             NewTabPosition.configPath, section: .general, group: group,
             title: SettingsText.keyed("settings.tabs.newTabPosition", "New Tab Position"),
             help: SettingsText.keyed("settings.tabs.newTabPosition.help",
-                                    "Where Cmd-T puts the new tab. The + button always puts it at the end, and New Tab to the Right in a tab's menu after that tab."),
-            kind: .choice([
-                SettingChoice(NewTabPosition.afterCurrent.rawValue, SettingsText.keyed("settings.choice.newTabPositionAfterCurrent", "After the Current Tab")),
-                SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
-                SettingChoice(NewTabPosition.start.rawValue, SettingsText.keyed("settings.choice.newTabPositionStart", "At the Start")),
-            ]),
+                                    "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab."),
+            kind: .choice(newTabPositionChoices),
             default: .string(NewTabPosition.fallback.rawValue),
             keywords: ["new tab", "cmd-t", "position", "order", "right", "end", "after", "start", "first", "beginning", "insert"]
         )
+    }
+
+    /// `tabs.newTabButtonPosition`: where the strip's + (and the vertical list's New Tab row) puts the new tab.
+    static func newTabButtonPosition(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            NewTabPosition.buttonConfigPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.newTabButtonPosition", "New Tab Button Position"),
+            help: SettingsText.keyed("settings.tabs.newTabButtonPosition.help",
+                                    "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position."),
+            kind: .choice(newTabPositionChoices),
+            default: .string(NewTabPosition.buttonFallback.rawValue),
+            keywords: ["new tab", "plus", "+", "button", "position", "order", "right", "end", "after", "start", "first", "last", "insert"]
+        )
+    }
+
+    private static var newTabPositionChoices: [SettingChoice] {
+        [
+            SettingChoice(NewTabPosition.afterCurrent.rawValue, SettingsText.keyed("settings.choice.newTabPositionAfterCurrent", "After the Current Tab")),
+            SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
+            SettingChoice(NewTabPosition.start.rawValue, SettingsText.keyed("settings.choice.newTabPositionStart", "At the Start")),
+        ]
     }
 
     /// `tabs.newTabTemplate`: which New Tab page template shows (the page's dots also set it).
