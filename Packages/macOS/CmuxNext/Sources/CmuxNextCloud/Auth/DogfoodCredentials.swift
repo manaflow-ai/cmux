@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Debug-only auto sign-in for tagged builds (parity with the old app's
 /// `DebugDogfoodCredentialResolver`). A tagged build has its own Keychain
@@ -39,9 +40,20 @@ struct DogfoodCredentials: Equatable {
         -> (credentials: DogfoodCredentials?, refusal: Refusal?) {
         let expected = environment["CMUX_DEV_AUTH_ACCOUNT"].flatMap { $0.isEmpty ? nil : $0 }
         if let explicit = environment["CMUX_AUTH_CREDENTIALS_FILE"], !explicit.isEmpty {
-            guard secure(explicit), let text = read(explicit) else { return (nil, nil) }
+            // Each way the file signs nobody in is logged (`auth`), so a launch left signed out says why; never a value.
+            guard secure(explicit) else {
+                fileLog.notice("credentials file sign-in off: the file is not a regular file of this user, 0600 or stricter")
+                return (nil, nil)
+            }
+            guard let text = read(explicit) else {
+                fileLog.notice("credentials file sign-in off: the file could not be read")
+                return (nil, nil)
+            }
             let values = parse(text)
-            guard let found = pair(values, prefix: "CMUX_DOGFOOD_STACK") ?? pair(values, prefix: "CMUX_UITEST_STACK") else { return (nil, nil) }
+            guard let found = pair(values, prefix: "CMUX_DOGFOOD_STACK") ?? pair(values, prefix: "CMUX_UITEST_STACK") else {
+                fileLog.notice("credentials file sign-in off: no CMUX_DOGFOOD_STACK_ or CMUX_UITEST_STACK_ email and password pair in it")
+                return (nil, nil)
+            }
             if let expected, found.email.lowercased() != expected.lowercased() {
                 return (nil, .accountMismatch(found: found.email, declared: expected))
             }
@@ -64,6 +76,8 @@ struct DogfoodCredentials: Equatable {
         }
         return (nil, first.map { .accountMismatch(found: $0.email, declared: declared) })
     }
+
+    private static let fileLog = Logger(subsystem: "com.cmuxterm.app.next", category: "auth")
 
     /// The machine owner's account (`~/.config/cmux/dev-account`, one email; not a secret).
     static func declaredAccount(home: String, read: (String) -> String?) -> String? {
