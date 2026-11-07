@@ -20,10 +20,9 @@ NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 # Publish jobs whose environment (release or release-next) holds CMUX_RELEASE_APP_ID/_KEY.
 APP_JOBS = {
     "recover-nightly-next-notarization": "read", "publish-nightly": "write", "keep-published-dsyms": "read",
-    "legacy-identity-target": "read", "sign-nightly-identity-legacy": "read",
-    "publish-nightly-identity-legacy": "write", "generate-nightly-deltas": "read",
+    "generate-nightly-deltas": "read",
     "republish-nightly-deltas": "write", "publish-release-notes": "read",
-    "publish-nightly-next-github": "write", "publish-nightly-next-github-names": "write",
+    "publish-nightly-next-github": "write",
 }
 APP_INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_app_token\.sh --install")
 BUDGET_INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
@@ -38,7 +37,9 @@ class WorkflowTests(unittest.TestCase):
     def test_publish_jobs_mint_the_app_token_and_install_before_the_budget_wait(self) -> None:
         for name, contents in APP_JOBS.items():
             job, steps = self.jobs[name], self.jobs[name]["steps"]
-            self.assertIn(job.get("environment"), ("release-next", "${{ needs.decide.outputs.environment }}"), name)
+            self.assertIn(job.get("environment"), ("release-next", "${{ needs.decide.outputs.environment }}",
+                                                   # Tail jobs: decide is in another run on nightly-next.
+                                                   "${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}"), name)
             mint = [i for i, s in enumerate(steps) if s.get("id") == "gh-app-token"]
             app = [i for i, s in enumerate(steps) if APP_INSTALL.search(str(s.get("run", "")))]
             budget = [i for i, s in enumerate(steps) if BUDGET_INSTALL.search(str(s.get("run", "")))]
@@ -60,8 +61,7 @@ class WorkflowTests(unittest.TestCase):
                     self.assertGreater(i, budget[0], (name, s.get("name")))
 
     def test_release_asset_uploads_take_the_app_token_first(self) -> None:
-        for name in ("publish-nightly", "republish-nightly-deltas", "publish-nightly-next-github",
-                     "publish-nightly-next-github-names"):
+        for name in ("publish-nightly", "republish-nightly-deltas", "publish-nightly-next-github"):
             for step in self.jobs[name]["steps"]:
                 if "publish-release-assets.py" in str(step.get("run", "")):
                     self.assertEqual(step["env"]["GH_APP_TOKEN"], "${{ steps.gh-app-token.outputs.token }}", step["name"])
@@ -90,12 +90,6 @@ class WorkflowTests(unittest.TestCase):
             else:  # the job's own checkout is the workflow commit
                 checkout = next(s for s in steps if "actions/checkout" in str(s.get("uses", "")))
                 self.assertIn(checkout.get("with", {}).get("ref", "${{ github.sha }}"), ("${{ github.sha }}",), name)
-
-    def test_legacy_target_runs_only_where_its_environment_admits(self) -> None:
-        job = self.jobs["legacy-identity-target"]
-        self.assertEqual(job["environment"], "release-next")
-        self.assertIn("github.ref == 'refs/heads/nightly-next'", job["if"])
-        self.assertIn("needs.decide.outputs.environment == 'release-next'", job["if"])
 
     def test_uploaders_run_from_the_workflow_commit(self) -> None:
         # A build checkout may predate GH_APP_TOKEN support; these jobs run the uploader from

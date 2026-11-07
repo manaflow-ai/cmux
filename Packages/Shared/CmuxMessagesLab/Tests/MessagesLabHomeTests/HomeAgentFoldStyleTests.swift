@@ -6,7 +6,7 @@ import Testing
 @testable import MessagesLabHome
 
 /// The Agent Messages Playground's header variants (user 2026-11-02, msg 19613: "i want playground in swift"):
-/// every style turns a fold, an opened fold, a notes row and a note into one drawn row that keeps its style,
+/// every style turns a fold, an opened fold and a note into one drawn row that keeps its style,
 /// is as tall as the style says and draws something, so switching the playground never leaves a blank or a
 /// mis-sized row. The provider is used directly (no registration), so the shipped look of other suites stays.
 @MainActor @Suite struct HomeAgentFoldStyleTests {
@@ -18,13 +18,9 @@ import Testing
         fold.latest = "Done: both rows now start at 12 pt."
         var open = fold
         open.kind = .fold(count: 4, peers: ["a959", "a931", "a940"], expanded: true)
-        var notes = HomeAgentMessageRow(group: group, kind: .notes(count: 2, peers: ["a933", "a936"], reason: .stopped(session: "Disconnected"),
-                                                                    expanded: false))
-        notes.peerStates = [.stopped, .stopped]
-        notes.latest = "stopped without a report: its session is Disconnected"
         let note = HomeAgentMessageRow(group: group, kind: .note(peer: "a933", reason: .stopped(session: "Disconnected"),
                                                                  text: "stopped without a report: its session is Disconnected"))
-        return [("fold", fold), ("open fold", open), ("notes", notes), ("note", note)]
+        return [("fold", fold), ("open fold", open), ("note", note)]
     }
 
     @Test(arguments: HomeAgentFoldStyle.allCases)
@@ -102,13 +98,13 @@ import Testing
         #expect(shape == .chip ? height < 40 : height >= 3 * HomeAgentPills.pillHeight(shape))
     }
 
-    @Test func theShippedProviderStillDrawsTheShippedLine() throws {
+    @Test func theShippedProviderDrawsTheShippedPills() throws {
         let part = try #require(HomeAgentFoldRowProvider().part(Self.rows()[0].1))
         guard case let .custom(custom) = part else { Issue.record("not a drawn row"); return }
         let payload = try #require(HomeAgentFoldRowProvider.payload(custom))
         #expect(payload.style == 0)
         #expect(HomeAgentFoldStyle.drawing(payload) == nil)
-        #expect(HomeAgentFoldRowProvider().measure(custom, maxWidth: 420).height == HomeAgentFoldRowProvider.height)
+        #expect(HomeAgentFoldRowProvider().measure(custom, maxWidth: 420).height == HomeAgentPills(payload, shape: .pill, width: 420).height)
     }
 }
 #endif

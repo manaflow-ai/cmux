@@ -24,14 +24,10 @@ const NOT_TAKEN = new Set(["unsupported", "native.invalid_request"]);
 const REFUSED = new Set(["io", ...NOT_TAKEN]);
 const CHUNK_BYTES = 512 * 1024;
 const LEGACY_FRAME_SAFE_BYTES = 24 * 1024 * 1024;
-
-/// How long one staging step (begin or one chunk) may wait for the host. The native finish keeps its
-/// own bounded idle/per-chunk deadline while streaming, so elapsed transfer time has no page cap.
-export const UPLOAD_STEP_DEADLINE_MS = 30_000;
 export const UPLOAD_TIMED_OUT = "The upload timed out: the app did not answer.";
 
 /// `call`, refused when the host does not answer within `ms`; null delegates its deadline to native.
-export function callWithin(call: Call, ms: number | null = UPLOAD_STEP_DEADLINE_MS, signal?: AbortSignal): Call {
+export function callWithin(call: Call, ms: number | null = null, signal?: AbortSignal): Call {
   return (method, params) =>
     new Promise((resolve, reject) => {
       let late = false;
@@ -172,7 +168,7 @@ export async function uploadToMachine(
     const unsubscribe = cancelled.subscribe?.(index, () => {
       if (cancelled(index)) controller.abort();
     });
-    const step = callWithin(host, UPLOAD_STEP_DEADLINE_MS, controller.signal);
+    const step = callWithin(host, null, controller.signal);
     const finishCall = callWithin(host, null, controller.signal);
     try {
       if (begin.size !== file.size || !Number.isSafeInteger(begin.chunkSize) || Number(begin.chunkSize) <= 0)

@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
-"""The nightly signer route leaves hosted Ubuntu on attempt 1 only when hosted was slow to start this run."""
+"""hosted_queue_wait.py on its own. No nightly job reads it any more: nightlies run only on our own Mac minis."""
 import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("hosted_queue_wait", ROOT / "scripts/ci/hosted_queue_wait.py")
 wait = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(wait)
-JOBS = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
 
 
 def job(name, runner, created, started):
@@ -46,32 +44,18 @@ class Decide(unittest.TestCase):
         with tempfile.NamedTemporaryFile("r+") as out, \
              mock.patch.object(wait, "read_jobs", side_effect=OSError("403")):
             self.assertEqual(wait.main({**HOSTED, "INHERITED_SLOW": "true", "GITHUB_OUTPUT": out.name}), 0)
-            self.assertEqual(out.read(), "hosted_slow=true\nhosted_wait_s=\n")
+            self.assertEqual(out.read(), "hosted_slow=true\nhosted_wait_s=\nslow_runner=\n")
+
+    def test_a_slow_start_names_the_light_jobs_blacksmith_size(self):
+        pools = '{"linux_4": "blacksmith-4vcpu-ubuntu-2404", "linux": "glaeda-linux"}'
+        self.assertEqual(wait.slow_runner({"RUNNER_POOLS": pools}, True), "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(wait.slow_runner({"RUNNER_POOLS": pools}, False), "")
+        # Only a Blacksmith Ubuntu label: never hosted, never a Mac, never an unreadable pool.
+        for pools in ('{"linux_4": "ubuntu-24.04"}', '{"linux_4": "blacksmith-6vcpu-macos-15"}', "not json", "[]", ""):
+            with self.subTest(pools=pools):
+                self.assertEqual(wait.slow_runner({"RUNNER_POOLS": pools}, True), "")
 
 
-class Wiring(unittest.TestCase):
-    def test_the_signers_take_the_re_run_route_when_hosted_was_slow(self):
-        route = ("(github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted_slow == 'true') "
-                 "&& 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04'")
-        for name in ("signer-app", "signer-dmg", "legacy-identity-target", "legacy-signer-app", "legacy-signer-dmg"):
-            with self.subTest(job=name):
-                self.assertIn(route, JOBS[name]["runs-on"])
-                self.assertIn("pick-nightly-sign-runner", JOBS[name]["needs"])
-        # cmux#34164: signer-build, before the pick, reads decide's answer (run 41683652930: 327 s on hosted).
-        self.assertIn("(github.run_attempt > 1 || needs.decide.outputs.hosted_slow == 'true') "
-                      "&& 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04'", JOBS["signer-build"]["runs-on"])
-        pick = JOBS["pick-nightly-sign-runner"]
-        self.assertIn("(github.run_attempt > 1 || needs.decide.outputs.hosted_slow == 'true') "
-                      "&& fromJSON(vars.RUNNER_POOLS).linux_4", pick["runs-on"])
-        self.assertEqual(pick["outputs"]["hosted_slow"],
-                         "${{ steps.hosted-wait.outputs.hosted_slow || needs.decide.outputs.hosted_slow }}")
-        self.assertEqual(JOBS["decide"]["outputs"]["hosted_slow"], "${{ steps.hosted-wait.outputs.hosted_slow }}")
-        for owner, name in (("decide", "decide"), ("pick-nightly-sign-runner", "pick-nightly-sign-runner")):
-            with self.subTest(step=owner):
-                step = next(s for s in JOBS[owner]["steps"] if s.get("id") == "hosted-wait")
-                self.assertEqual((step["continue-on-error"], step["timeout-minutes"]), (True, 1))
-                self.assertEqual(step["env"]["JOB_NAME"], name)
-                self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
 
 
 if __name__ == "__main__":

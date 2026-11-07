@@ -105,7 +105,7 @@ extension CEFRuntime {
     /// as when an extension removed a tab it had moved there).
     func popupWindowOpener() -> CEFTab? {
         if let tab = lastShownHost?.visibleTab { return tab }
-        let panes = hosts.values.filter { !$0.isPopupHost && $0.visibleTab != nil }
+        let panes = hosts.values.filter { !$0.holdsOwnTab && $0.visibleTab != nil }
         return (panes.first { $0.hostView.window != nil } ?? panes.first)?.visibleTab
     }
 

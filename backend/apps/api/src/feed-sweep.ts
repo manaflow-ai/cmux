@@ -77,7 +77,7 @@ export const sweepDeps = (env: Env): SweepDeps => ({
     if (mode === "shadow") return shadowRead("feed.users", () => listUsersPostgres(env, after, limit), () => listUsersMysql(env, after, limit), (ids) => ids)
     return listUsersPostgres(env, after, limit)
   },
-  feed: (name) => env.FEED_DO.get(env.FEED_DO.idFromName(name)) as unknown as SweepFeed,
+  feed: (name) => env.FEED_DO.get(env.FEED_DO.idFromName(name)),
   now: () => Date.now()
 })
 

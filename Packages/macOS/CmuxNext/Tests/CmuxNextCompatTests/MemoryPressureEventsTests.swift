@@ -23,6 +23,29 @@ import Testing
         withExtendedLifetime((events, registrations)) {}
     }
 
+    /// The kernel sends its pressure event to some processes only (the largest first), and never one for the
+    /// level a process starts under: on Nov 4 the app read `normal` for minutes while the kernel was at warning
+    /// and critical. ``MemoryPressureEvents/refresh()`` reads the level now and hands it to every subscriber.
+    @Test func refreshHandsTheLevelReadNowToEverySubscriber() {
+        let source = ManualMemoryPressureSource()
+        let events = MemoryPressureEvents(source: source)
+        let levels = Levels()
+        let registration = events.observe { levels.seen.append($0) }
+        source.level = .critical // the kernel's level; no event came
+        events.refresh()
+        #expect(levels.seen == [.critical])
+        source.level = nil // a source that cannot read the level hands nothing
+        events.refresh()
+        #expect(levels.seen == [.critical])
+        withExtendedLifetime((events, registration)) {}
+    }
+
+    /// The kernel's source reads the level from its injected reader (the sysctl in the app).
+    @Test func theKernelSourceReadsTheLevelNow() {
+        #expect(KernelMemoryPressureSource(read: { .warning }).currentLevel() == .warning)
+        #expect(KernelMemoryPressureLevel.level(kernel: 4) == .critical)
+    }
+
     @Test func aCancelledSubscriberGetsNoLaterEvent() {
         let source = ManualMemoryPressureSource()
         let events = MemoryPressureEvents(source: source)

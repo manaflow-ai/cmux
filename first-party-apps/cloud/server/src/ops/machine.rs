@@ -47,12 +47,25 @@ pub(super) fn run<C: ControlPlane>(
             Ok(json!(machine))
         }
         "cloud.machine.create" => {
-            let map = args::object(raw, &["name", "size", "image", "from_snapshot"])?;
+            // Optional create features are validated by the selected backend's
+            // capabilities. Preserve them across this relay, including on a
+            // backend that will return an explicit unsupported-option error.
+            const FIELDS: &[&str] = &[
+                "name",
+                "size",
+                "image",
+                "from_snapshot",
+                "size_name",
+                "idle_seconds",
+                "bootstrap",
+                "machine_config_base64",
+            ];
+            let map = args::object(raw, FIELDS)?;
             args::name(map, "name")?;
             args::size(map, "size")?;
             args::opt_id(map, "image")?;
             args::opt_id(map, "from_snapshot")?;
-            machine_mutation(ctx, name, trimmed(map, &["name", "size", "image", "from_snapshot"]))
+            machine_mutation(ctx, name, trimmed(map, FIELDS))
         }
         "cloud.machine.rename" => {
             let map = args::object(raw, &["machine", "name"])?;

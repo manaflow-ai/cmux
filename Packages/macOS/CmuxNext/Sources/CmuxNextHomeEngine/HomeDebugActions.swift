@@ -46,6 +46,12 @@ public struct HomeDebugActions {
                                           phase: invocation["phase"]?.intValue)
             return .done
         })
+        // Debug > Before/After Table Playground: seven live ways to show a Before|After table.
+        registry.bindEffect("home.compareTablePlayground", effect: { invocation in
+            HomeComparePlayground().show(variant: invocation["variant"]?.intValue, row: invocation["row"]?.intValue,
+                                         dark: invocation["dark"]?.boolValue)
+            return .done
+        })
         // Debug > Chief Teleport Playground: the location chip variants in every state, light and dark.
         registry.bindEffect("home.chiefTeleportPlayground", effect: { invocation in
             ChiefTeleportPlayground.show(state: invocation["state"]?.intValue)

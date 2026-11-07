@@ -177,7 +177,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
    */
   const settle = async (page: Page, names: string[], want: string[]) => {
     const pairs = names.map((name) => [name, chip(name)] as const);
-    await page.waitForFunction(
+    const settled = page.waitForFunction(
       ([pairs, want]) => {
         const open = pairs
           .filter(([, selector]) => {
@@ -253,6 +253,27 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
       [pairs, want] as const,
       { timeout: 5_000 },
     );
+    const failure = await settled.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    if (failure) {
+      // Unsettled: say which chips are open, where the keyboard is and which popups are mounted,
+      // which the timeout alone threw away, then fail as before.
+      const seen = await page.evaluate(() => {
+        const active = document.activeElement;
+        return {
+          focus: active?.closest("[aria-label]")?.getAttribute("aria-label") ?? active?.tagName,
+          popups: [...document.querySelectorAll<HTMLElement>(".ui-popup")].map((popup) => {
+            const state = popup.hasAttribute("data-ending-style") ? "ending" : "live";
+            return [popup.getAttribute("aria-label"), state, getComputedStyle(popup).pointerEvents].join(" ");
+          }),
+        };
+      });
+      const open = await expanded(page, names);
+      console.error(`settle: wanted [${want.join(", ")}], open [${open.join(", ")}]: ${JSON.stringify(seen)}`);
+      throw failure;
+    }
     return expanded(page, names);
   };
   /** Waits until the open menus have stopped moving, so a press lands where their rows rest. */

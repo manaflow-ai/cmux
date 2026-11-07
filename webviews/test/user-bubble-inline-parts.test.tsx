@@ -1,7 +1,8 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
 // A sent prompt whose attachments sat inline (`inlineParts`) draws them in its bubble in order,
-// as Messages does. These pin what the legacy bands already did right: a thumbnail keeps its
-// fixed-height crop (conversation.css), a pasted block is a chip that opens to its text
+// as Messages does. These pin what the legacy bands already did right: a thumbnail is the whole image
+// in its own shape, never a magnified crop (conversation.css; Leo, 2026-11-05: "I don't think we have
+// good enough looking previews for these"), a pasted block is a chip that opens to its text
 // (PromptText.tsx PasteChip), and an image's retained original (`companionOf`) is never drawn
 // again as a separate file.
 import { afterAll, expect, test } from "bun:test";
@@ -87,7 +88,7 @@ const render = async (
 };
 
 try {
-  test("an inline image keeps the sent thumbnail's fixed-height crop", async () => {
+  test("an inline image is the sent thumbnail: the whole image in its own shape", async () => {
     clearImageEntries();
     await render(
       prompt("inline-image", "look at this", [
@@ -98,15 +99,14 @@ try {
     );
     const img = host.querySelector<HTMLImageElement>("[data-inline-content] img")!;
     expect(img).not.toBeNull();
-    const style = dom.window.getComputedStyle(img);
-    // The same box as the image band above a legacy bubble: 120px tall, cropped to fill.
-    expect(style.height).toBe("120px");
-    expect(style.objectFit).toBe("cover");
+    // The same box as the image band above a legacy bubble: the image's own shape, so `cover` crops nothing.
+    const [width, height] = img.style.aspectRatio.split("/").map(Number);
+    expect(width! / height!).toBe(400 / 1600);
     const button = img.closest("button")!;
     expect(dom.window.getComputedStyle(button).cursor).toBe("zoom-in");
   });
 
-  test("an inline pasted block is a chip that opens to its text", async () => {
+  test("an inline pasted block is a card of its first lines that opens to its text", async () => {
     const pasted = "first pasted line\nsecond pasted line\nthird pasted line";
     await render(
       prompt("inline-paste", `before\n${pasted}\nafter`, [
@@ -117,9 +117,14 @@ try {
     );
     const chip = host.querySelector<HTMLButtonElement>("[data-inline-content] .cv-user__paste");
     expect(chip).not.toBeNull();
-    expect(host.querySelector("[data-inline-content] .cv-user__paste-text")).toBeNull();
+    // Closed, its lines are a preview outside Find; open, the same text is the paste, found.
+    const text = host.querySelector("[data-inline-content] .cv-user__paste-text");
+    expect(text?.closest("[data-find-skip]")).not.toBeNull();
+    expect(chip!.getAttribute("aria-expanded")).toBe("false");
     await act(async () => chip!.click());
+    expect(chip!.getAttribute("aria-expanded")).toBe("true");
     expect(host.querySelector("[data-inline-content] .cv-user__paste-text")?.textContent).toBe(pasted);
+    expect(host.querySelector("[data-inline-content] .cv-user__paste-text")?.closest("[data-find-skip]")).toBeNull();
   });
 
   test("an image's retained original is not drawn again as a file", async () => {

@@ -49,6 +49,8 @@ test("artifact frames select only the native pane endpoints", () => {
       ["cmux-agent://pane/index.html", "cmux-agent://render/artifact"],
       ["cmux-page://cmux.agent/", "cmux-page://cmux.agent/__artifact"],
       ["cmux-page://cmux.agent/index.html", "cmux-page://cmux.agent/__artifact"],
+      ["cmux-page://cmux.artifacts/", "cmux-page://cmux.agent/__artifact"],
+      ["cmux-page://cmux.artifacts.evil/", undefined],
       ["cmux-page://cmux.agent.evil/", undefined],
       ["cmux-page://cmux.agent:1234/", undefined],
       ["cmux-page://user@cmux.agent/", undefined],

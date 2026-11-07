@@ -50,7 +50,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
 const { HomeLists, age } = await import("../src/agent-session/acpmux/HomeLists");
-const { ageLabel } = await import("../src/agent-session/acpmux/NewTabPage");
+const { ageLabel } = await import("../src/agent-session/acpmux/newTabModel");
 const { session } = await import("../src/gallery/fixtures/acpmux");
 
 afterAll(() => {

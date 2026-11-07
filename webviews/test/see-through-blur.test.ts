@@ -303,7 +303,7 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
     });
     afterAll(async () => browser?.close());
 
-    test("the Summary's blocks lose their filter under summary.css's hide rule, even for a Find bar deep inside, and get it back", async () => {
+    test("the Summary's blocks lose their filter under summary.css's hide rule while Find is open, and get it back", async () => {
       const page = await open(browser);
       await page.evaluate(() => document.querySelector(".stage")!.classList.add("acpmux-stage"));
       await attach(page, { owner: "summary" });
@@ -312,17 +312,48 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
         "summary",
       );
       expect(await filter()).toContain("url(");
-      // Find opens inside the scroller: no change to the stage's own children.
+      // Find opens as the scroller's own child (VirtualTranscript.tsx), the scroller the stage's: no change
+      // to the stage's own children. The rule reads only that path, never the whole stage, so a streamed
+      // chunk does not re-check it (test/agent-pane-stream-composer-still.test.ts).
       await page.evaluate(() => {
+        document.querySelector(".chat")!.classList.add("acpmux-scroll");
         const find = document.createElement("div");
         find.className = "acpmux-find";
-        document.querySelector(".bars")!.append(find);
+        document.querySelector(".chat")!.append(find);
       });
       expect(await filter()).toBe("none");
       // Find closes: the blur is back at once, with no event the follow loop would see.
       await page.evaluate(() => document.querySelector(".acpmux-find")!.remove());
       expect(await filter()).toContain("url(");
       expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(5);
+      await page.close();
+    });
+
+    test("in an opaque page a hover card blurs only its own hole, never another surface's kept one", async () => {
+      // The Summary keeps its holes while Find hides it (summary.css's hide rule covers only a
+      // see-through page); a hover card over the same blocks must not switch them back on.
+      const page = await open(browser);
+      await page.evaluate(() => document.documentElement.removeAttribute("data-cmux-see-through"));
+      await attach(page, { owner: "summary" });
+      await page.evaluate(() => {
+        const target = window as unknown as {
+          attachSeeThroughBlur(
+            e: HTMLElement,
+            candidates?: (e: HTMLElement) => Iterable<Element>,
+            options?: { owner?: string },
+          ): () => void;
+        };
+        const card = document.createElement("aside");
+        card.style.cssText = "position:absolute;left:24px;top:40px;width:160px;height:100px;border-radius:12px";
+        document.querySelector(".stage")!.append(card);
+        target.attachSeeThroughBlur(card, () => document.querySelectorAll(".chat"), { owner: "hover-card" });
+      });
+      await settle(page);
+      expect(await page.evaluate(() => document.querySelector(".chat")!.getAttribute("data-glass-under"))).toBe(
+        "summary hover-card",
+      );
+      expect(await barContrast(page, MIDDLE, 48, 160)).toBeLessThan(5);
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeGreaterThan(40);
       await page.close();
     });
 

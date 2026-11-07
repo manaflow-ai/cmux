@@ -41,7 +41,7 @@ final class ScreenshotsPageTab: BrowserTab {
         state.phase = .finished
         self.state = state
         self.model = model
-        view = ScreenshotsView(model: model, cache: cache, workspace: workspace, files: files)
+        view = ScreenshotsView(model: model, cache: cache, workspace: workspace, files: files, appearance: FileGridAppearance(cornerRadius: Metrics.surfaceCornerRadius, nestedCornerRadius: Metrics.cornerRadius(nestedIn:inset:size:)))
         view.promptFonts = (Typography.bodyEmphasized, Typography.body)
         (view.primaryText, view.secondaryText) = (Palette.textPrimary, Palette.textSecondary)
     }

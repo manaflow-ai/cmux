@@ -13,6 +13,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -215,6 +216,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/merge-pbxproj.py",
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
+            "scripts/merge-insertions.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -983,6 +985,10 @@ let package = Package(
 )
 """
 
+    # A list of two entries, one per line under the checker's marker (check-package-dependency-lists.py).
+    TWO_DEPS = ('dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py\n'
+                '                "CmuxNextApp",\n                "CmuxNextKit",\n            ]')
+
     def test_push_that_adds_an_undeclared_local_import_is_refused_with_the_fix(self):
         # 2026-10-29: a63986a4 and e875485c each pushed a test import their target did not declare, and the CI step
         # "Package dependency lists sorted" was red on every pull request after them.
@@ -1004,7 +1010,7 @@ let package = Package(
         self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
 
         self.write(f"{PKG}/Package.swift",
-                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextKit", "CmuxNextApp"]'))
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', self.TWO_DEPS))
         self.commit("declare it")
         declared = self.push()
         self.assertEqual(declared.returncode, 0, declared.stdout + declared.stderr)
@@ -1032,7 +1038,7 @@ let package = Package(
         # Review of 6d8b96f: the gate's trees held only the changed files, so a manifest edit that dropped a
         # dependency an untouched source imports passed. A manifest change now brings the package's Swift sources.
         self.write(f"{PKG}/Package.swift",
-                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextKit", "CmuxNextApp"]'))
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', self.TWO_DEPS))
         self.write(f"{PKG}/Tests/CmuxNextKitTests/AppTests.swift", "import CmuxNextKit\n@testable import CmuxNextApp\n")
         self.commit("a test target that declares what it imports")
         self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
@@ -1315,7 +1321,7 @@ let package = Package(
         self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
         self.git("fetch", "--quiet", "origin")
         self.write(f"{PKG}/Package.swift",
-                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextApp", "CmuxNextKit"]'))
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', self.TWO_DEPS))
         self.write(f"{PKG}/Tests/CmuxNextKitTests/TryTests.swift", self.with_try("TryTests"))
         self.commit("a manifest edit and a test with try!")
 
@@ -1718,6 +1724,23 @@ let package = Package(
         self.assertNotEqual(result.returncode, 0, output)
         self.assertIn("has 2 process-scan line(s), baseline 1", output)
         self.assertEqual(self.remote_head(), before)
+
+    def test_a_direct_run_takes_a_row_added_for_sites_already_on_the_base(self):
+        # #37531: a base red's fix adds the row for process-scan sites already on the base and touches no source. The
+        # trees held only changed files, so the head read 0 sites against the new row and refused the fix.
+        self.write(self.SCAN, self.scan_source(1))
+        self.commit("base: a process-scan line with no row")
+        self.set_scan_row(1)
+        self.write("cmux-tui/crates/fixture/src/other.rs", "pub fn other() {}\n")  # the crate is in the trees
+        self.commit("adds its row")
+
+        result = subprocess.run(["python3", "-I", str(self.repo / GATE), "--repo", str(self.repo), "--base", "HEAD~1",
+                                 "--head", "HEAD", "--only", "scanners"],
+                                cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("now has 0 process-scan line(s)", output)
 
     def test_each_ratchet_baseline_shape_takes_only_lower_rows(self):
         spec = importlib.util.spec_from_file_location("prepush_gate_ratchet_rows", SOURCE / GATE)
@@ -2133,6 +2156,140 @@ class SwiftFormatCacheTests(unittest.TestCase):
             self.assertIn("Sources/A.swift:1:10", out)
             self.assertEqual(sorted(p.name for p in tools.iterdir()), [], "the lint left a cache file in the tools folder")
             self.assertFalse((tree / "default.cache").exists(), "the lint fell back to a default cache file")
+
+
+def _pinned_rustfmt_runs() -> bool:
+    """Whether the rustfmt that cmux-tui/rust-toolchain.toml pins runs here (never installed for a test)."""
+    try:
+        done = subprocess.run(["rustfmt", "--version"], cwd=SOURCE / "cmux-tui", capture_output=True, timeout=30,
+                              env={**os.environ, "RUSTUP_AUTO_INSTALL": "0"})
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return done.returncode == 0
+
+
+NEEDS_RUSTFMT = unittest.skipUnless(_pinned_rustfmt_runs(), "the pinned rustfmt is not installed here")
+RUST_UNFORMATTED = "pub fn hint(a: u32,b: u32)->u32{ a+b }\n"
+RUST_FORMATTED = "pub fn hint(a: u32, b: u32) -> u32 {\n    a + b\n}\n"
+
+
+class RustfmtLayerTests(unittest.TestCase):
+    """2026-11-05: three tip rust-fmt reds in an hour (#36358, #36524, #36260). Each PR's head left a cmux-tui file
+    unformatted, its warn-only CI rustfmt said so and passed, and it merged on compile before the tip fmt check.
+    The pre-push gate now judges each changed cmux-tui Rust file with the pinned rustfmt."""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_rf", SOURCE / GATE)
+        self.gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.gate)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tree = Path(self.tmp.name)
+        self.config = SOURCE / "cmux-tui" / "rustfmt.toml"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def judge(self, files: dict[str, str]) -> str:
+        for path, text in files.items():
+            (self.tree / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.tree / path).write_text(text)
+        return self.gate.rustfmt(SOURCE, self.config, self.tree, sorted(files))
+
+    @NEEDS_RUSTFMT
+    def test_an_unformatted_changed_file_is_a_finding(self):
+        out = self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        self.assertIn("cmux-tui/crates/x/src/hint.rs: not rustfmt-clean", out)
+
+    @NEEDS_RUSTFMT
+    def test_a_formatted_file_is_no_finding(self):
+        self.assertEqual(self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_FORMATTED}), "")
+
+    @NEEDS_RUSTFMT
+    def test_only_the_changed_file_is_judged_not_the_modules_it_names(self):
+        # lib.rs names `mod child;`; the unformatted child is not in the push, so it is not judged.
+        (self.tree / "cmux-tui/crates/x/src").mkdir(parents=True)
+        (self.tree / "cmux-tui/crates/x/src/child.rs").write_text(RUST_UNFORMATTED)
+        self.assertEqual(self.judge({"cmux-tui/crates/x/src/lib.rs": "mod child;\n"}), "")
+
+    @NEEDS_RUSTFMT
+    def test_a_crate_outside_the_cmux_tui_workspace_is_not_judged(self):
+        # cmux-rd-host: its own [workspace] (and edition 2021), outside `cargo fmt --all` in cmux-tui.
+        (self.tree / "cmux-tui/crates/own").mkdir(parents=True)
+        (self.tree / "cmux-tui/crates/own/Cargo.toml").write_text(
+            '[package]\nname = "own"\nedition = "2021"\n\n[workspace]\n')
+        self.assertEqual(self.judge({"cmux-tui/crates/own/src/lib.rs": RUST_UNFORMATTED}), "")
+
+    @NEEDS_RUSTFMT
+    def test_a_workspace_crate_is_still_judged(self):
+        (self.tree / "cmux-tui/crates/member").mkdir(parents=True)
+        (self.tree / "cmux-tui/crates/member/Cargo.toml").write_text(
+            '[package]\nname = "member"\nedition.workspace = true\n')
+        out = self.judge({"cmux-tui/crates/member/src/lib.rs": RUST_UNFORMATTED})
+        self.assertIn("cmux-tui/crates/member/src/lib.rs: not rustfmt-clean", out)
+
+    def test_no_rustfmt_warns_and_finds_nothing(self):
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = self.tmp.name  # no rustfmt and no rustup proxy on it
+        try:
+            out = self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+        self.assertEqual(out, "")
+
+
+class StopCleanlyTests(unittest.TestCase):
+    """The gate stops what it started with SIGTERM first, so a `git` under it clears `.git/index.lock`.
+
+    A `git` that refreshes a stale index holds that lock while it writes the index back, and removes it on
+    SIGTERM but not on SIGKILL (measured: 3 of 3 runs left it on SIGKILL, 0 of 3 on SIGTERM). The stale lock
+    then refuses the developer's next git command with no process alive to blame (live-apply-nightly, three
+    times on 2026-11-04). The stand-in below holds and clears a lock the way git does.
+    """
+
+    HOLDS_A_LOCK = ("#!/usr/bin/env python3\n"
+                    "import os, signal, sys, time\n"
+                    "lock = sys.argv[1]\n"
+                    "signal.signal(signal.SIGTERM, lambda *_: (os.remove(lock), sys.exit(143)))\n"
+                    "open(lock, 'w').close()\n"
+                    "open(sys.argv[2], 'w').close()\n"  # it has the lock now
+                    "time.sleep(300)\n")
+
+    def _holder(self, folder: Path) -> Path:
+        script = folder / "holds-a-lock.py"
+        script.write_text(self.HOLDS_A_LOCK)
+        script.chmod(0o755)
+        return script
+
+    def _wait_for(self, path: Path) -> None:
+        for _ in range(500):
+            if path.exists():
+                return
+            time.sleep(0.02)
+        self.fail(f"{path.name} never appeared")
+
+    def test_stopping_a_process_lets_it_clear_its_lock(self):
+        gate = load_gate_tools()
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            lock, held = folder / "index.lock", folder / "held"
+            process = subprocess.Popen([sys.executable, str(self._holder(folder)), str(lock), str(held)])
+            try:
+                self._wait_for(held)
+                gate.stop([process.pid])
+                process.wait(timeout=30)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+            self.assertFalse(lock.exists(), "the stopped process was killed outright and left its lock behind")
+
+    def test_a_timed_out_check_leaves_no_lock_behind(self):
+        gate = load_gate_tools()
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            lock, held = folder / "index.lock", folder / "held"
+            code, out = gate.run([sys.executable, str(self._holder(folder)), str(lock), str(held)], folder, timeout=2)
+            self.assertEqual(code, 124, out)
+            self.assertFalse(lock.exists(), "the timed-out check's process left its lock behind")
 
 
 if __name__ == "__main__":

@@ -66,6 +66,7 @@ impl ResourceOperation {
                 | Self::GitCheckpointGet
                 | Self::GitCheckpointList
                 | Self::GitBranches
+                | Self::DiffCommentsList
                 | Self::GitDiff
                 | Self::GitFilesList
                 | Self::GitFilesSearch
@@ -111,7 +112,21 @@ impl ResourceOperation {
                 | Self::SidebarGet
                 | Self::ProjectList
                 | Self::PaletteUsageGet
+                | Self::PaletteRank
                 | Self::StashList
+                | Self::ConductorImportPlan
+                | Self::CloudVmSnapshots
+                | Self::CloudVmFirewallList
+                | Self::CloudVmFirewallGet
+                | Self::CloudVmNetworks
+                | Self::CloudVmDomains
+                | Self::CloudVmPublications
+                | Self::CloudVmPublicationApiKeys
+                | Self::CloudRunsWait
+                | Self::CloudOwnerHandoffWait
+                | Self::CloudOwnerHandoffs
+                | Self::CloudOwnerHarnessLoginCopy
+                | Self::CloudOwnerGithubApp
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet

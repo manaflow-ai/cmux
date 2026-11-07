@@ -4,9 +4,10 @@ import CoreGraphics
 import CoreText
 import Foundation
 
-/// cmux: an agent-message fold or notes row as a small muted caption line, not a bubble (user
+/// cmux: an agents row as one pill per agent (``HomeAgentPills``, user 2026-11-03, msg 19960), and a status
+/// note or Feed row as a small muted caption line. Before the pills, every row was that line (user
 /// 2026-10-31, msg 19414: the "▸ Agent messages (3) · a957" header, a blue underlined link in a gray
-/// pill, "is bad"), and each status note of an opened notes row. A drawn custom row (CustomRows.swift, `.fullWidth`) like the table cards
+/// pill, "is bad"), and each status note of an opened agents row. A drawn custom row (CustomRows.swift, `.fullWidth`) like the table cards
 /// (``HomeTableRowProvider``): a chevron, the label ("Agent messages (3)", "Disconnected (5)") and
 /// the agents as plain chips, at the bubbles' left edge. A click anywhere on the line opens or closes
 /// the fold (`ChatIntents.agentRowClicked`); the provider takes no click itself.
@@ -29,11 +30,11 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         var chevron = true
         /// The header style that draws it (`HomeAgentFoldStyle` raw value in DEBUG); 0, the shipped look, elsewhere.
         var style = 0
-        /// What the row is: `fold`, `notes`, `note` or `feed` (a Feed row always draws the shipped look).
+        /// What the row is: `fold` (an agents row), `note` or `feed` (a Feed row always draws the shipped look).
         var role = "fold"
-        /// A fold or notes row's message count.
+        /// An agents row's message count.
         var count = 0
-        /// A fold or notes row's agents (all of them; `chips` is what the shipped look names).
+        /// An agents row's agents (all of them; `chips` is what the shipped look names).
         var peers: [String] = []
         /// Each agent's state, in `peers` order: `told`, `reported` or `stopped`.
         var states: [String] = []
@@ -41,6 +42,8 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         var latest: String?
         /// Each agent's title, in `peers` order (``HomeAgentMessageRow/peerTitles``).
         var titles: [String] = []
+        /// Each agent's unread dot, in `peers` order (``HomeAgentMessageRow/peerUnread``); empty: a report is unread.
+        var unread: [Bool] = []
     }
 
     /// The header style this provider draws (DEBUG: the Agent Messages Playground registers another).
@@ -65,10 +68,10 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         if installed == nil { CustomRows.register(HomeAgentFoldRowProvider()) }
     }
 
-    /// The caption part for a fold or notes row; nil for a message or note row, or when not installed.
+    /// The part for an agents row or a status note; nil for a message row, or when not installed.
     static func part(_ row: HomeAgentMessageRow) -> Part? { installed?.part(row) }
 
-    /// The caption part for a fold, notes or note row, drawn in this provider's style; nil for a message row.
+    /// The part for an agents row or a status note, drawn in this provider's style; nil for a message row.
     func part(_ row: HomeAgentMessageRow) -> Part? {
         var payload: Payload
         switch row.kind {
@@ -76,9 +79,6 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
             payload = Payload(open: expanded, label: expanded ? CmuxStrings.hideAgentMessages(count) : CmuxStrings.showAgentMessages(count),
                               chips: expanded ? [] : peers)
             (payload.role, payload.count, payload.peers) = ("fold", count, peers)
-        case let .notes(count, peers, reason, expanded):
-            payload = Payload(open: expanded, label: CmuxStrings.agentNotes(reason, count), chips: expanded ? [] : peers)
-            (payload.role, payload.count, payload.peers) = ("notes", count, peers)
         case let .note(peer, _, text):
             payload = Payload(open: false, label: "\(peer) · \(text)", chips: [], chevron: false)
             (payload.role, payload.count, payload.peers, payload.states) = ("note", 1, [peer], ["stopped"])
@@ -88,10 +88,12 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         if payload.role != "note" { payload.states = row.peerStates.map { "\($0)" } }
         payload.latest = row.latest
         payload.titles = row.peerTitles
+        payload.unread = row.peerUnread
         payload.style = style
         let key = [String(describing: payload.style), payload.role, "\(payload.chevron)", "\(payload.open)", payload.label,
                    payload.chips.joined(separator: ","), payload.peers.joined(separator: ","), payload.states.joined(separator: ","),
-                   payload.latest ?? "", payload.titles.joined(separator: "\u{1}")].joined(separator: "\u{0}")
+                   payload.latest ?? "", payload.titles.joined(separator: "\u{1}"),
+                   payload.unread.map { $0 ? "1" : "0" }.joined()].joined(separator: "\u{0}")
         guard let custom = try? CustomPart(kind: Self.kind, version: HomeDiagramRowProvider.version(key), value: payload) else { return nil }
         return .custom(custom)
     }
@@ -120,13 +122,29 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
     func measure(_ part: CustomPart, maxWidth: CGFloat) -> CGSize { CGSize(width: maxWidth, height: Self.height(Self.payload(part))) }
     func estimate(_ part: CustomPart, maxWidth: CGFloat) -> CGSize { measure(part, maxWidth: maxWidth) }
 
-    /// The row's height: the shipped line's, or in DEBUG its playground style's.
+    /// The row's height: an agents row's pills, a note's or Feed row's caption line, or in DEBUG its playground style's.
     private static func height(_ payload: Payload?) -> CGFloat {
+        guard let payload else { return height }
         #if DEBUG
-        if let payload, let style = HomeAgentFoldStyle.drawing(payload) { return style.height(payload) }
+        if let style = HomeAgentFoldStyle.drawing(payload) { return style.height(payload) }
         #endif
-        return height
+        return drawsPills(payload) ? HomeAgentPills(payload, shape: .pill, width: .greatestFiniteMagnitude).height : height
     }
+
+    /// The agent whose pill of the shipped agents row `part` holds `point` (the row's body coordinates,
+    /// a body `width` wide), or nil: not an agents row, or between pills. The host opens that agent's chat.
+    static func peer(_ part: CustomPart, at point: CGPoint, width: CGFloat) -> String? {
+        guard part.kind == kind, let payload = payload(part), drawsPills(payload) else { return nil }
+        #if DEBUG
+        if let style = HomeAgentFoldStyle.drawing(payload) {
+            return style.pillShape.flatMap { HomeAgentPills(payload, shape: $0, width: width).peer(at: point) }
+        }
+        #endif
+        return HomeAgentPills(payload, shape: .pill, width: width).peer(at: point)
+    }
+
+    /// True for an agents row: the shipped look draws it as one pill per agent.
+    static func drawsPills(_ payload: Payload) -> Bool { payload.role == "fold" }
 
     func plainText(_ part: CustomPart) -> String? {
         guard let payload = Self.payload(part) else { return nil }
@@ -141,7 +159,11 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
             return
         }
         #endif
-        HomeAgentFoldLine(payload, width: rect.width).draw(ctx, at: rect.origin)
+        if Self.drawsPills(payload) {
+            HomeAgentPills(payload, shape: .pill, width: rect.width).draw(ctx, origin: rect.origin)
+        } else {
+            HomeAgentFoldLine(payload, width: rect.width).draw(ctx, at: rect.origin)
+        }
     }
 
     /// DEBUG pill styles: a click on a pill goes to ``onPill`` with that agent; elsewhere the row folds as before.

@@ -157,6 +157,35 @@ pub(crate) fn mark_owner_gone() {
     OWNER_GONE.store(true, Ordering::Release);
 }
 
+/// The host's discovery record directory was removed (#36625): no daemon
+/// can discover or adopt it again, so it ends its terminal once it has had
+/// no client for [`RECORD_ROOT_REMOVED_ORPHAN_GRACE`], in every build.
+static RECORD_ROOT_REMOVED: AtomicBool = AtomicBool::new(false);
+
+/// How long a host whose record directory is gone waits with no client
+/// before it ends its terminal: a live daemon's reconnect gap, not a timer
+/// on a terminal anyone can still reach.
+pub(crate) const RECORD_ROOT_REMOVED_ORPHAN_GRACE: Duration = Duration::from_secs(5);
+
+pub(crate) fn mark_record_root_removed() {
+    RECORD_ROOT_REMOVED.store(true, Ordering::Release);
+}
+
+pub(crate) fn record_root_removed() -> bool {
+    RECORD_ROOT_REMOVED.load(Ordering::Acquire)
+}
+
+/// The orphan grace in force now: the build's grace, shortened to
+/// [`RECORD_ROOT_REMOVED_ORPHAN_GRACE`] once the record directory is gone.
+pub(crate) fn effective_orphan_grace() -> Option<Duration> {
+    if record_root_removed() {
+        return Some(host_orphan_grace().map_or(RECORD_ROOT_REMOVED_ORPHAN_GRACE, |grace| {
+            grace.min(RECORD_ROOT_REMOVED_ORPHAN_GRACE)
+        }));
+    }
+    host_orphan_grace()
+}
+
 /// The exit to persist and publish: an owner-gone end is a host loss.
 pub(crate) fn owner_gone_exit(exit: TerminalExit) -> TerminalExit {
     if OWNER_GONE.load(Ordering::Acquire) {

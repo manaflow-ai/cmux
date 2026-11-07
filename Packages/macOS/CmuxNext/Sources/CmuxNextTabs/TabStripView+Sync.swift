@@ -20,17 +20,30 @@ extension TabStripView {
             modelChangedWhileHidden = true
             return
         }
+        layOutPaneIfOneTabChanged()
         let input = ModelSnapshot(model)
-        if hasSynced, window != nil, let last = lastSyncedInput, isAtRest {
-            if input == last { return }
-            if input.differsOnlyInSelection(from: last) { return syncSelection(input) }
+        if hasSynced, window != nil, let last = lastSyncedInput {
+            // The echo of a change the strip already shows does nothing, also while a closed tab slides
+            // out: its move runs on the render server and its completion removes it.
+            if input == last, isAtRest(closing: true) { return }
+            if isAtRest(), input.differsOnlyInSelection(from: last) { return syncSelection(input) }
         }
         sync(fromModel: true)
     }
 
-    /// No gesture, drop, close or override in flight: `displayed` is the model's order.
-    private var isAtRest: Bool {
-        drag == nil && groups.drag == nil && pendingDrop == nil && dying.isEmpty && orderOverride == nil
+    /// One tab or more: the pane lays out again, since a one-tab pane's row is no band over its chat
+    /// (`TabStripModel.holdsOneTab`, the pane's `PaneTabRowSharing.offerTabRow(tabs:)`, #33132). Also on a
+    /// strip shown again after its tabs changed out of sight (`syncShown`).
+    func layOutPaneIfOneTabChanged() {
+        guard model.holdsOneTab != laidOutOneTab else { return }
+        laidOutOneTab = model.holdsOneTab
+        superview?.needsLayout = true
+    }
+
+    /// No gesture, drop, close or override in flight: `displayed` is the model's order. `closing`: a
+    /// tab that slides out still counts as at rest.
+    private func isAtRest(closing: Bool = false) -> Bool {
+        drag == nil && groups.drag == nil && pendingDrop == nil && (closing || dying.isEmpty) && orderOverride == nil
             && groups.membershipOverride.isEmpty && detachedID == nil && groups.detachedGroupID == nil
     }
 
@@ -103,16 +116,20 @@ extension TabStripView {
             }
         }
 
-        // A new tab grows into its slot while its neighbours slide, on one clock, and a closed one
-        // gives its room back, only with `ui.animations.newTab` on (hq-1d, Lawrence 2026-10-14: no big
-        // animations by default). Off (the default) or under Reduce Motion the strip takes its new
-        // places in one step, with no crossfade standing in for the motion (DESIGN P6). A tab that
-        // comes or goes during a person's gesture (a drag, a group drag, a drop settling) appears or
-        // leaves at once while the gesture's other springs keep running. Reorders keep their motion.
+        // A new tab grows into its slot while its neighbours slide, on one clock, with `ui.animations.newTab`
+        // on (on by default, hq-1d). A closed one shrinks out while the tabs right of it slide into its room
+        // (close case A, Lawrence cmux-ad m49 2026-11-07: "A: animate the tab strip";
+        // plans/cmux-next/close-animation/DESIGN.md) on the `tabs` category alone: the new-tab switch says
+        // nothing about a close. Motion off or Reduce Motion: the strip takes its new places in one step,
+        // with no crossfade standing in for the motion (DESIGN P6). A tab that comes or goes during a
+        // person's gesture (a drag, a group drag, a drop settling) appears or leaves at once while the
+        // gesture's other springs keep running. Reorders keep their motion.
         let ids = Set(ordered.map(\.id))
         let adding = ordered.contains { cells[$0.id] == nil }
         let removing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) }
-        let structureAnimates = !(adding || removing) || Motion.tabs.animates(.newTab)
+        // A pane's last tab never shrinks out: its pane (or its workspace) closes as one (close cases B, C, D).
+        let closesLastTab = removing && ordered.isEmpty
+        let structureAnimates = (!adding || Motion.tabs.animates(.newTab)) && !closesLastTab
         let inGesture = drag != nil || groups.drag != nil || pendingDrop != nil
         let animated = hasSynced && !reduceMotion && animating && (structureAnimates || inGesture)
         // Added/closed cells move only outside a gesture; a sync that adds no tab never re-tokens the strip.
@@ -123,13 +140,14 @@ extension TabStripView {
         }
         // A tab taking another's place (`TabStripModel.successors`) gets its cell's place; that cell goes now.
         let handed = model.takeSuccessions(shown: Set(cells.keys), next: ids)
+        // A cell handed to its successor stays on the strip as that successor.
+        let successor = Dictionary(handed.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
         for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) && !handed.values.contains(id) {
             if cellsAnimate {
                 // Chrome: it shrinks to the close width with its left edge pinned to the previous
                 // tab's right edge (`relayout` pins x), no fade; it goes when the tween ends.
                 dying.insert(id)
-                let shown = displayed.filter { !dying.contains($0.id) || $0.id == id }.map(\.id)
-                if let i = shown.firstIndex(of: id) { closingAnchors[id] = .some(i > 0 ? shown[i - 1] : nil) }
+                closingAnchors[id] = closingAnchor(of: id, staying: ids, successor: successor)
                 placed[id]?.width = metrics.chrome.closeEndWidth
                 cell.beginClosing()
             } else {
@@ -192,6 +210,22 @@ extension TabStripView {
         lastSelectedID = selected
         refreshHoverCard()
         hasSynced = true
+    }
+
+    /// The tab a closing tab's left edge stays on (``pinClosingTabs()``): the nearest one left of it that
+    /// stays, so tabs closed in one change ("Close Tabs to the Right") all pin to the tab that stays,
+    /// whatever order this sync meets them in. When none left of it stays, the strip's first tab (closing
+    /// too, it keeps its x); `.some(nil)` for the first tab itself; nil when it is not shown. A tab handed
+    /// to a successor in this sync stays as that successor (`successor`: old to new).
+    private func closingAnchor(of id: TabID, staying: Set<TabID>, successor: [TabID: TabID]) -> TabID?? {
+        guard let index = displayed.firstIndex(where: { $0.id == id }) else { return nil }
+        guard index > 0 else { return .some(nil) }
+        let left = displayed[..<index]
+        for item in left.reversed() {
+            if staying.contains(item.id) { return .some(item.id) }
+            if let next = successor[item.id] { return .some(next) }
+        }
+        return .some(left.first?.id)
     }
 
     /// The zoom indicator under a still pointer went (an unzoom, a selection): its tooltip and hover
@@ -270,6 +304,8 @@ extension TabStripView {
 
     /// Drops `id`'s place and the moves that tracked it.
     func forgetPlace(_ id: TabID) {
+        // A tab or chip that goes no longer counts in the cells' trailing edge (`followWidth`).
+        framedCells = nil
         placed[id] = nil
         dying.remove(id)
         goesAt[id] = nil

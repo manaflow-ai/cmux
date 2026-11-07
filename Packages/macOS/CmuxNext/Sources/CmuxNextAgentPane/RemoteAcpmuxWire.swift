@@ -261,6 +261,19 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 case .config(let config, let value): return try await client.setConfig(id: config, value: value)
                 }
             }
+        case "_acpmux/context":
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]) else { return refuse(id, method) }
+            run(id) { client in try await client.context() }
+        case "_acpmux/context_override":
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]), let scope = params["scope"] as? String,
+                  params["text"] == nil || params["text"] is NSNull || params["text"] is String,
+                  params["partId"] == nil || params["partId"] is NSNull || params["partId"] is String else { return refuse(id, method) }
+            // The daemon pins the project directory from the attached session, never the page.
+            let text = params["text"] as? String
+            let partId = params["partId"] as? String
+            run(id, afterEarlierPicks: true) { client in try await client.setContextOverride(scope: scope, text: text, partId: partId) }
         case "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
              "_acpmux/agent_login/cancel":
             // A Cloud chat's own sign-in on its machine (the failed turn's card): the host already
@@ -481,10 +494,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         return json(object)
     }
 
+    /// What `_acpmux/watch` attaches with: the newest transcript record only.
+    static let watchPage = AgentSessionPage(limit: 1, kinds: ["transcript"], listing: true)
+
     private static func page(_ params: [String: Any], method: String) -> AgentSessionPage {
         let number = { (key: String) -> UInt64? in (params[key] as? NSNumber)?.uint64Value }
         let kinds = (params["kinds"] as? [Any])?.compactMap { $0 as? String }
-        if method == "_acpmux/watch" { return AgentSessionPage(limit: 1, kinds: ["transcript"]) }
+        if method == "_acpmux/watch" { return watchPage }
         return AgentSessionPage(afterSeq: number("afterSeq"), beforeSeq: number("beforeSeq"),
                                 limit: (params["limit"] as? NSNumber)?.intValue, kinds: kinds)
     }

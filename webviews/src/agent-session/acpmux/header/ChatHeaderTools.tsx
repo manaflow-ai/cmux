@@ -7,18 +7,20 @@
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
 // checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
 // renders from the first frame at its final size; data fills in place.
-import {
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
-  type MouseEvent,
-  type PointerEvent,
-} from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
+import {
+  activityCue,
+  morphIntoTab,
+  motionCues,
+  motionMorphs,
+  useIconArrivals,
+  type HeaderMotionStyle,
+} from "./headerMotion";
+import { HeaderToolPreview, PREVIEW_INTENT_DELAY, type HeaderToolPreviewTarget } from "./HeaderToolPreview";
+import { motionMode } from "../../../ui/motion/motionMode";
 import { menuLetter, type MenuTyping } from "./menuLetters";
 import { HEADER_ACTIONS } from "./headerActions";
 import { headerQuickTools, type HeaderQuickTool } from "./headerQuickTools";
@@ -26,7 +28,7 @@ import { useHeaderFold } from "./headerOverflow";
 import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
 import { HEADER_SYMBOLS } from "./headerSymbols";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
-import { tooltipProps, useShortcut } from "../shortcuts";
+import { useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import {
   Menu,
@@ -42,7 +44,8 @@ import {
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { headerState, useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
-import { useWorktree, WorktreePill } from "./WorktreePill";
+import { WorktreePill } from "./WorktreePill";
+import { useWorktree } from "./worktreePillModel";
 import type { MergeResult } from "./PullRequestMerge";
 import {
   QUICK_ACTION_DEFAULTS,
@@ -55,93 +58,15 @@ import {
   type QuickActionId,
   type QuickActionMode,
 } from "./quickActions";
-
-/// Every header button's glyph (header.css): Claude Code desktop's top strip draws one size for all of
-/// them, the Needs you inbox and Session Info toggle included.
-export const HEADER_GLYPH = 16;
-
-export { HEADER_ACTIONS } from "./headerActions";
-
-export type ChatMenuItem =
-  | "separator"
-  | {
-      key: string;
-      label: string;
-      icon: string;
-      /// An app action id whose keycap the row shows.
-      shortcutAction?: string;
-      /// A letter that picks the row while the menu is open (Rename R, Fork F). It is never drawn: a
-      /// bare letter on the row's right reads as meaningless (design/menus.md, Leo 2026-10-31).
-      accelerator?: string;
-      disabled?: boolean;
-      onSelect?: (event?: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>) => void;
-      children?: ChatMenuChild[];
-    };
-
-/// The menu's groups in order, the empty ones dropped, with a separator between each two.
-export const menuGroups = (...groups: ChatMenuItem[][]): ChatMenuItem[] =>
-  groups.filter((group) => group.length > 0).flatMap((group, index) => (index ? ["separator", ...group] : group));
-
-/// A submenu row: its label, and the keycap of `shortcutAction` when it has one. A row with `checked`
-/// is one of a choice (the rows next to it with `checked` too), drawn with a check on the picked one;
-/// `separatorBefore` draws a line above the row.
-export type ChatMenuChild = {
-  key: string;
-  label: string;
-  disabled?: boolean;
-  shortcutAction?: string;
-  accelerator?: string;
-  checked?: boolean;
-  /// A row that is on or off on its own (Transcript view's Wrap lines), drawn with a check when on.
-  on?: boolean;
-  separatorBefore?: boolean;
-  onSelect: () => void;
-};
-
-/// Modifier glyphs a drawn menu keycap must carry, as in ⌘N or ⇧⌘I.
-const MODIFIER_GLYPHS = /[⌘⌥⌃⇧]/;
-
-/// The keycap a menu row may draw: a real shortcut with a modifier, never a bare letter (a bare
-/// letter only works while the menu is open, so it reads as meaningless on the row's right).
-export function menuKeycap(shortcut: string | undefined): string | undefined {
-  return shortcut && MODIFIER_GLYPHS.test(shortcut) ? shortcut : undefined;
-}
-
-type ShortcutMenuItem = Exclude<ChatMenuItem, "separator"> | ChatMenuChild;
-
-export function menuItemForShortcut(
-  items: readonly (ChatMenuItem | ChatMenuChild)[],
-  key: string,
-): ShortcutMenuItem | undefined {
-  const normalized = key.length === 1 ? key.toUpperCase() : "";
-  if (!normalized) return undefined;
-  return items.find(
-    (item): item is ShortcutMenuItem => item !== "separator" && item.accelerator?.toUpperCase() === normalized,
-  );
-}
-
-/** A popup may outlive the selected chat until React commits the new view. Its callbacks must
- * remain bound to the chat that opened it, including submenu callbacks. */
-export function guardedChatMenu(items: ChatMenuItem[], current: () => boolean): ChatMenuItem[] {
-  // The selection event goes through: Fork's Option-click opens its destination chooser (forkMenu.ts).
-  const guard =
-    <E,>(run: (event?: E) => void) =>
-    (event?: E) => {
-      if (current()) run(event);
-    };
-  return items.map((item) =>
-    item === "separator"
-      ? item
-      : {
-          ...item,
-          ...(item.onSelect && { onSelect: guard(item.onSelect) }),
-          ...(item.children && {
-            children: item.children.map((child) => ({ ...child, onSelect: guard(child.onSelect) })),
-          }),
-        },
-  );
-}
-
+import {
+  HEADER_GLYPH,
+  type ChatMenuItem,
+  menuGroups,
+  type ChatMenuChild,
+  menuKeycap,
+  menuItemForShortcut,
+} from "./chatHeaderToolsModel";
+import { tooltipProps } from "../shortcuts";
 export function ChatHeaderTools({
   onTerminal,
   onSplitDown,
@@ -171,6 +96,8 @@ export function ChatHeaderTools({
   sessionInfo,
   inbox,
   nativeRowTools,
+  working = false,
+  motion,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -226,19 +153,19 @@ export function ChatHeaderTools({
   inbox?: ReactNode;
   /// Only the migrated icons; the host offers this opt-in while its native tab row is visible.
   nativeRowTools?: NativeRowToolsHost;
+  /// The chat's turn runs: with a motion style, Changes carries the activity dot (headerMotion.ts).
+  working?: boolean;
+  /// The motion style, when the gallery picks one; else the App's (`agentChat.headerMotion`).
+  motion?: HeaderMotionStyle;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
   const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
-  const { lit, pullRequest, browserOpensPreview } = useHeaderState();
-  // With the Debug toggle off, the default buttons are the old ones: Preview beside Browser.
-  const quick = useQuickActions();
-  const actions =
-    !browserOpensPreview && JSON.stringify(quick) === JSON.stringify(QUICK_ACTION_DEFAULTS)
-      ? withShown(quick, "preview", true)
-      : quick;
+  const { lit, pullRequest, headerMotion } = useHeaderState();
+  const style = motion ?? headerMotion;
+  const actions = useQuickActions();
   const worktree = useWorktree(folder, readStatus, statusKey);
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
@@ -310,12 +237,11 @@ export function ChatHeaderTools({
         shortcutAction: HEADER_ACTIONS.changes,
         onSelect: () => onChanges("toggle"),
       });
-    // Browser opens the chat's page itself (Debug `agentChat.browserOpensPreview`), so then Preview
-    // folds only without a Browser button.
+    // Browser opens the chat's page itself, so Preview folds only without a Browser button.
     if (
       onPreview &&
       !shownIds.has("preview") &&
-      !(shownIds.has("browser") && headerState().browserOpensPreview) &&
+      !shownIds.has("browser") &&
       (previewUrl || lit.includes(HEADER_ACTIONS.preview))
     )
       folded.push({
@@ -354,7 +280,6 @@ export function ChatHeaderTools({
     tabTools,
     sideTabs,
     lit,
-    browserOpensPreview,
     hasChanges,
     previewUrl,
     onTerminal,
@@ -378,7 +303,7 @@ export function ChatHeaderTools({
           {
             tool: {
               id: "chat-menu",
-              symbol: HEADER_SYMBOLS["action.more.vertical"]!,
+              symbol: HEADER_SYMBOLS["action.more"]!,
               label: t("chatMenu.open"),
               enabled: chatMenu.items.length > 0,
               toggled: false,
@@ -400,24 +325,81 @@ export function ChatHeaderTools({
   const webButtons = !native && tabTools && actions.length > 0;
   const fold = useHeaderFold(toolsRef, webButtons ? tools.length : 0);
   live.current.overflow = webButtons && fold > 0 ? tools.slice(tools.length - fold) : [];
+  const shown = webButtons ? tools.slice(0, tools.length - fold) : [];
+  const shownIds = shown.map((tool) => tool.id);
+  // Motion styles (headerMotion.ts): `still`, the default, adds nothing to the buttons.
+  useIconArrivals(toolsRef, style, shownIds);
+  const cue = motionCues(style) ? activityCue(shownIds, { working, hasChanges }) : undefined;
+  const morphs = motionMorphs(style);
+  const [preview, setPreview] = useState<HeaderToolPreviewTarget>();
+  const intent = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(intent.current), []);
+  const endPreview = () => {
+    clearTimeout(intent.current);
+    setPreview(undefined);
+  };
+  // With every quick action folded the group is not rendered: an empty group still took a gap in the row.
   const buttons =
     webButtons &&
-    tools.slice(0, tools.length - fold).map((tool) => (
-      <button
-        key={tool.id}
-        data-quick-action={tool.id}
-        type="button"
-        className="acpmux-header-tool"
-        aria-label={tool.label}
-        aria-pressed={tool.pressed}
-        {...tooltipProps(tool.title ?? tool.label, tool.title ? undefined : shortcuts[tool.id])}
-        onClick={tool.run}
-      >
-        <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
-      </button>
-    ));
+    shown.length > 0 &&
+    shown.map((tool) => {
+      const shortcut = tool.title ? undefined : shortcuts[tool.id];
+      return (
+        <button
+          key={tool.id}
+          data-quick-action={tool.id}
+          type="button"
+          className="acpmux-header-tool"
+          aria-label={tool.label}
+          aria-pressed={tool.pressed}
+          // The morph's hover preview stands in for the tooltip, so the two never stack.
+          {...(morphs ? {} : tooltipProps(tool.title ?? tool.label, shortcut))}
+          onPointerEnter={
+            morphs
+              ? (event) => {
+                  const box = event.currentTarget.getBoundingClientRect();
+                  clearTimeout(intent.current);
+                  intent.current = setTimeout(
+                    () =>
+                      setPreview({
+                        id: tool.id,
+                        icon: tool.icon,
+                        label: tool.label,
+                        title: tool.title,
+                        shortcut: shortcuts[tool.id],
+                        pressed: tool.pressed,
+                        box: { left: box.left, right: box.right, bottom: box.bottom },
+                      }),
+                    PREVIEW_INTENT_DELAY,
+                  );
+                }
+              : undefined
+          }
+          onPointerLeave={morphs ? endPreview : undefined}
+          onClick={(event) => {
+            if (morphs) {
+              endPreview();
+              // Opening (not closing) sends the glyph to where its panel lands.
+              if (!tool.pressed && tool.id !== "newTab") morphIntoTab(event.currentTarget, tool.label);
+            }
+            tool.run?.();
+          }}
+        >
+          <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
+        </button>
+      );
+    });
   return (
-    <div ref={toolsRef} className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
+    <div
+      ref={toolsRef}
+      className="acpmux-header-tools"
+      onPointerEnter={onPointerEnter}
+      data-header-motion={style === "still" ? undefined : style}
+      data-motion-mode={style === "still" ? undefined : motionMode()}
+      data-activity={cue?.cue}
+      data-activity-on={cue?.on}
+    >
+      {preview && <HeaderToolPreview target={preview} />}
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
@@ -678,7 +660,7 @@ export function ChatMenu({
         title={triggerTitle}
         disabled={disabled}
       >
-        {trigger ?? <HeaderIcon name="action.more.vertical" size={HEADER_GLYPH} />}
+        {trigger ?? <HeaderIcon name="action.more" size={HEADER_GLYPH} />}
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end" onKeyDown={onMenuKeyDown}>
         {children
@@ -716,7 +698,11 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   const shortcut = menuKeycap(registeredShortcut);
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
-      <Icon name={item.icon} size={14} />
+      {item.image ? (
+        <img className="acpmux-chat-menu-image" src={item.image} alt="" width={14} height={14} />
+      ) : (
+        <Icon name={item.icon} size={14} />
+      )}
       <span className="acpmux-chat-menu-label">{item.label}</span>
       {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
     </MenuItem>

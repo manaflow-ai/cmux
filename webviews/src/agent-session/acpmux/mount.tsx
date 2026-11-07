@@ -2,6 +2,7 @@
 import "../../pages/shared/desktop";
 // The shared icon+label button (cx-s6zvc); the pane does not load the rest of ui.css.
 import "../../ui/ghost.css";
+import "../../ui/controls.css";
 import "./composerFooterShared.css";
 import "./diffTokens.css";
 import "./styles.css";
@@ -14,15 +15,19 @@ import { UiProvider } from "../../ui/UiProvider";
 import { nativePopupHost } from "../../ui/popupHost";
 import { installNativeMenu } from "../../ui/nativeMenu";
 import { postNative } from "./native";
+import { startFlickerLog } from "./flickerLog";
 import { pageHostClient } from "./pageHost";
 import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
 import { installDragOut } from "./conversation/dragOut";
 import { installPageKey } from "./pageKey";
+import { installToastRoom } from "./toastRoom";
 import { installRevealSettle } from "../shared/pageReveal";
 import { setHarnessSymbolHost } from "../shared/harnessIcons";
 import { experimentArm } from "../../experiments/experiment";
 import { liveBackground } from "../../ui/liveBackground/liveBackground.experiment";
+import { reportHostGlass } from "../../ui/glass/hostGlass";
+import { chatUnderHoverCard, hostGlassCover } from "./chatUnderGlass";
 
 // The native own-window picker runs in the page's inspector runtime. Keep its report on the
 // normal host protocol so the shared page host and the legacy WKWebView use the same validation.
@@ -49,6 +54,8 @@ installDragOut(document);
       installLiveBackground(document, arm),
     );
 }
+// The app's toasts keep a band at the pane's foot that the chat stays above (toastRoom.ts).
+installToastRoom(document);
 // The composer shows its caret only while the page is the key one (pageKey.ts).
 installPageKey(document);
 // A switch away and back is a reattach: nothing started while hidden plays on return, and a change
@@ -71,6 +78,15 @@ export function mountAcpmux(initialChat?: InitialChat): void {
   // its call with the page client; the legacy bridge answers `contextMenu.show`.
   if (!pageHostClient() && window.webkit?.messageHandlers?.agentSession)
     installNativeMenu((request) => postNative("contextMenu.show", { ...request }));
+  // Floating glass the page marks (data-host-glass: Session Info first) is the App's own glass under
+  // the page, as its native menus are (ui/glass/hostGlass.ts).
+  if (pageHostClient() || window.webkit?.messageHandlers?.agentSession)
+    reportHostGlass(document, (surfaces) => postNative("pane.glass", { surfaces }), {
+      candidates: chatUnderHoverCard,
+      options: hostGlassCover,
+    });
+  // The always-on flicker detector (flickerLog.ts), on the pane's own WebKit handler only.
+  if (!pageHostClient()) startFlickerLog();
   createRoot(root).render(
     <UiProvider container={root} popupHost={popupHost}>
       <PaneBoundary onRetry={() => window.location.reload()}>
