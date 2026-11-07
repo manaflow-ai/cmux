@@ -51,7 +51,8 @@ LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.jso
 # Dynamic imports (shiki's grammars, KaTeX) become chunks/ beside pane.js, loaded when used.
 # --css-inputs lists the stylesheets the pane imports; the bundle drops them, so each must be
 # one of the sheets the page's <style> is written from (checked below).
-bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets"
+# --preload-list names the chunks pane.js imports statically: the page preloads them with it.
+bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks"
 # Code highlighting runs in a worker beside the page (conversation/highlightPool.ts): Pierre's
 # worker, bundled with the same trimmed shiki. It is the entry point itself because the package
 # marks the module side-effect free, so an import of it would be dropped. Both hosts serve it
@@ -108,6 +109,9 @@ CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe
   # Fetch and parse the entry while the locale scripts and inline styles load. modulepreload
   # never evaluates it: the module below still runs after the selected language is installed.
   printf '<link rel="modulepreload" href="pane.js" />\n'
+  # The chunks pane.js imports statically too: without these the page learns of them only once
+  # pane.js has loaded and parsed, and fetches and parses them after it, one round behind.
+  while IFS= read -r chunk; do printf '<link rel="modulepreload" href="%s" />\n' "$chunk"; done < "$WORK/preload-chunks"
   printf '%s\n' "$LOADER"
   printf '<style>\n'
   cat "$WORK/styles.css"

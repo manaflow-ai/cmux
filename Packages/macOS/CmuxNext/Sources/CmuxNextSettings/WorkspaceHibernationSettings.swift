@@ -21,6 +21,16 @@ public nonisolated struct WorkspaceHibernationSettings: Sendable, Equatable {
     /// `workspaces.freeing.runningCommands`: whether a running command keeps its terminal (`never`, the default) or
     /// ends and is typed again on show (`relaunch`).
     public var freeingRunningCommands: WorkspaceFreeingRunningCommandsSetting
+    /// `agents.hiddenChats.discard`: whether a hidden agent chat's page is let go on its own, without
+    /// `browser.hibernation` (off by default).
+    public var hiddenChatDiscard: Bool
+    /// `agents.hiddenChats.discardAfterMinutes`: minutes a chat stays hidden before its page is let go.
+    public var hiddenChatDiscardAfterMinutes: Double
+
+    /// The chat-only release policy the hidden chat pages follow (``HiddenChatDiscardSetting``).
+    public var hiddenChatDiscardSetting: HiddenChatDiscardSetting {
+        HiddenChatDiscardSetting(enabled: hiddenChatDiscard, afterMinutes: hiddenChatDiscardAfterMinutes)
+    }
 
     /// - Parameters:
     ///   - enabled: on by default.
@@ -30,11 +40,15 @@ public nonisolated struct WorkspaceHibernationSettings: Sendable, Equatable {
     ///   - freeingIdleMinutes: one day by default (``freeingIdleMinutesDefault``).
     ///   - freeingAgents: on by default (``freeingAgentsDefault``).
     ///   - freeingRunningCommands: `never` by default (``freeingRunningCommandsDefault``).
+    ///   - hiddenChatDiscard: off by default (``hiddenChatDiscardDefault``).
+    ///   - hiddenChatDiscardAfterMinutes: 15 by default (``hiddenChatDiscardAfterMinutesDefault``).
     public init(enabled: Bool = Self.enabledDefault, idleMinutes: Double = Self.idleMinutesDefault,
                 hiddenSpaceMinutes: Double = Self.hiddenSpaceMinutesDefault,
                 freeingEnabled: Bool = Self.freeingEnabledDefault, freeingIdleMinutes: Double = Self.freeingIdleMinutesDefault,
                 freeingAgents: Bool = Self.freeingAgentsDefault,
-                freeingRunningCommands: WorkspaceFreeingRunningCommandsSetting = Self.freeingRunningCommandsDefault) {
+                freeingRunningCommands: WorkspaceFreeingRunningCommandsSetting = Self.freeingRunningCommandsDefault,
+                hiddenChatDiscard: Bool = Self.hiddenChatDiscardDefault,
+                hiddenChatDiscardAfterMinutes: Double = Self.hiddenChatDiscardAfterMinutesDefault) {
         self.enabled = enabled
         self.idleMinutes = idleMinutes
         self.hiddenSpaceMinutes = hiddenSpaceMinutes
@@ -42,6 +56,8 @@ public nonisolated struct WorkspaceHibernationSettings: Sendable, Equatable {
         self.freeingIdleMinutes = freeingIdleMinutes
         self.freeingAgents = freeingAgents
         self.freeingRunningCommands = freeingRunningCommands
+        self.hiddenChatDiscard = hiddenChatDiscard
+        self.hiddenChatDiscardAfterMinutes = hiddenChatDiscardAfterMinutes
     }
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
@@ -61,6 +77,34 @@ public nonisolated struct WorkspaceHibernationSettings: Sendable, Equatable {
                 ?? freeingRunningCommandsDefault
             diagnostics += reader.diagnostics
         }
+        // `agents.hiddenChats.*`: hidden agent chats give back their memory (HiddenChatPages, CmuxNextHibernation).
+        if var reader = ConfigFieldReader(root, at: ["agents", "hiddenChats"], diagnostics: &diagnostics) {
+            result.hiddenChatDiscard = reader.bool("discard") ?? hiddenChatDiscardDefault
+            result.hiddenChatDiscardAfterMinutes = reader.number("discardAfterMinutes", range: hiddenChatDiscardAfterMinutesRange)
+                ?? hiddenChatDiscardAfterMinutesDefault
+            diagnostics += reader.diagnostics
+        }
         return result
     }
+}
+
+/// `agents.hiddenChats.*` as the hidden agent chat pages read it (Leo, 2026-11-07: "if it really isn't
+/// being used after a while, can't things be more aggressive?"): when on, a chat hidden `afterMinutes`
+/// lets its page go without `browser.hibernation`. Chats only; browser tabs never follow it.
+public nonisolated struct HiddenChatDiscardSetting: Sendable, Equatable {
+    /// Whether hidden chats are let go on their own.
+    public var enabled: Bool
+    /// Minutes hidden before a chat's page goes (memory pressure shortens it).
+    public var afterMinutes: Double
+
+    /// - Parameters:
+    ///   - enabled: whether hidden chats are let go on their own.
+    ///   - afterMinutes: minutes hidden before a chat's page goes.
+    public init(enabled: Bool, afterMinutes: Double = WorkspaceHibernationSettings.hiddenChatDiscardAfterMinutesDefault) {
+        self.enabled = enabled
+        self.afterMinutes = afterMinutes
+    }
+
+    /// The default: off.
+    public static var off: Self { Self(enabled: false) }
 }
