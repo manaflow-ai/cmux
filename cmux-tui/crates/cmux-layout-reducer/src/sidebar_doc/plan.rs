@@ -23,7 +23,9 @@ use super::model::*;
 #[serde(tag = "plan", rename_all = "snake_case")]
 pub enum PlanRequest {
     /// A group `id` named `name` with `color` inside `parent` (a group item
-    /// id, or an old personal group id).
+    /// id, or an old personal group id). A blank `name` becomes
+    /// [`DEFAULT_GROUP_NAME`]: the daemon refuses an empty one. The app sends
+    /// its localized default itself.
     Subgroup {
         parent: String,
         id: ItemId,
@@ -41,6 +43,10 @@ pub enum PlanRequest {
         title: Option<String>,
     },
 }
+
+/// The name of a new group made without one (the app's `sidebar.group.newName`
+/// default).
+pub const DEFAULT_GROUP_NAME: &str = "New Group";
 
 /// Why a plan has no ops.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,7 +101,7 @@ fn subgroup(
     }
     Ok(Op::GroupCreate {
         id: Some(id.to_string()),
-        name: name.to_string(),
+        name: if name.trim().is_empty() { DEFAULT_GROUP_NAME } else { name }.to_string(),
         color: color.map(str::to_string),
         icon: None,
         profile: None,
@@ -230,6 +236,23 @@ mod tests {
             plan(&chain(6), &subgroup_request("g6")).is_ok(),
             "six levels is far from the limit"
         );
+    }
+
+    #[test]
+    fn a_blank_name_becomes_the_default_name() {
+        for blank in ["", "  ", "\n\t"] {
+            let request = PlanRequest::Subgroup {
+                parent: "g1".into(),
+                id: "g2".into(),
+                name: blank.into(),
+                color: None,
+            };
+            let ops = plan(&chain(1), &request).unwrap_or_default();
+            assert!(
+                matches!(ops.as_slice(), [Op::GroupCreate { name, .. }] if name == DEFAULT_GROUP_NAME),
+                "{blank:?}: {ops:?}"
+            );
+        }
     }
 
     #[test]
