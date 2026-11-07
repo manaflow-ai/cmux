@@ -198,3 +198,16 @@ async fn a_bare_short_name_in_another_case_beats_one_without_separators() {
         assert_eq!(found.as_deref(), Some("hb/0199aaaa-1111"), "first child {first}");
     }
 }
+
+/// Review of #36919: a key that is a session's whole name finds that session before `HOST/NAME`
+/// is read as a peer and a name on it, as `by_key` reads it: a local `coord/lane` is never
+/// mistaken for peer `coord`'s `lane-extra`.
+#[tokio::test]
+async fn resolve_takes_a_whole_name_before_a_peer_named_like_its_parent() {
+    let hub = test_hub();
+    let child = named(&hub, "coord/lane").await;
+    add_peer(&hub, "coord");
+    list(&hub, "coord", "0199dddd-4444", "lane-extra", "idle");
+    let found = hub.locate("coord/lane", false, true).unwrap();
+    assert_eq!(found["session"]["sessionId"], child.id.as_str(), "{found}");
+}
