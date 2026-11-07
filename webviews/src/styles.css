@@ -1347,6 +1347,7 @@ body[data-loading="true"] #status::before {
   visibility: hidden;
 }
 #comments-send-error {
+  display: block;
   padding: 0 12px 8px;
   color: var(--cmux-diff-deletion-fg);
   font-size: var(--cmux-diff-ui-font-size);

@@ -148,7 +148,11 @@ fn save(
         ));
     }
     match existing {
-        Some(index) => file.comments[index] = comment.clone(),
+        Some(index) => {
+            if let Some(slot) = file.comments.get_mut(index) {
+                *slot = comment.clone();
+            }
+        }
         None if file.comments.len() >= MAX_COMMENTS => {
             let message = format!("this root already keeps {MAX_COMMENTS} comments");
             let extra = json!({"message": message, "maximum": MAX_COMMENTS});
@@ -166,7 +170,7 @@ fn delete(file: &mut File, ids: &[String]) -> (Value, bool) {
     file.comments.retain(|comment| {
         !comment.get("id").and_then(Value::as_str).is_some_and(|id| ids.iter().any(|x| x == id))
     });
-    let deleted = before - file.comments.len();
+    let deleted = before.saturating_sub(file.comments.len());
     (json!({"deleted": deleted}), deleted > 0)
 }
 
@@ -242,7 +246,7 @@ impl File {
             let created = |comment: &Map<String, Value>| {
                 comment.get("createdAt").and_then(Value::as_str).unwrap_or_default().to_string()
             };
-            created(*left).cmp(&created(*right))
+            created(left).cmp(&created(right))
         });
         comments
     }

@@ -45,11 +45,7 @@ export function CommentsSidebarSection({
           </button>
         ) : null}
       </div>
-      {sendState === "failed" ? (
-        <div id="comments-send-error" role="status">
-          {labels.sendCommentsFailed}
-        </div>
-      ) : null}
+      {sendState === "failed" ? <output id="comments-send-error">{labels.sendCommentsFailed}</output> : null}
       <div id="comments-list">
         {entries.length === 0 ? (
           <div className="comments-empty">{labels.noComments}</div>
