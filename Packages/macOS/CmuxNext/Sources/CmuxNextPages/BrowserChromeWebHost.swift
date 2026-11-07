@@ -43,6 +43,7 @@ public final class BrowserChromeWebHost: BrowserChromeWebContent {
     public func close() {
         provider.onMessage = nil
         page.removeFromSuperview()
+        page.close()
     }
 }
 

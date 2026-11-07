@@ -58,9 +58,10 @@ final class PageInfoCardView: NSView {
 
     /// Shows the page's web view over the glass, filling the card; the page reports the height
     /// it needs (``PageInfoController``).
-    func setContent(_ view: NSView) {
+    func setContent(_ view: NSView?) {
         content?.removeFromSuperview()
         content = view
+        guard let view else { return }
         view.translatesAutoresizingMaskIntoConstraints = true
         view.autoresizingMask = [.width, .height]
         view.frame = body.bounds

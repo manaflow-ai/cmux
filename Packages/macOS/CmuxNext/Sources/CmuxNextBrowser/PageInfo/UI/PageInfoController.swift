@@ -43,6 +43,9 @@ public final class PageInfoController {
     /// The bubble opens once the page reported the size of the state it was given, so it never
     /// shows a frame of the old page or grows after it appeared.
     private var presentsOnSize = false
+    /// Counts the states sent to the page; a size report names the one it measured, so the bubble
+    /// opens at the size of the newest state only.
+    private var revision = 0
     var windows = PageInfoWindows()
 
     init(tab: @escaping () -> (any BrowserTab)?, anchor: @escaping () -> NSView?) {
@@ -142,6 +145,7 @@ public final class PageInfoController {
         isRetired = true
         content?.close()
         content = nil
+        card.setContent(nil)
         certificateTask?.cancel()
         certificateTask = nil
         close()
@@ -173,7 +177,14 @@ public final class PageInfoController {
     /// Sends the model to the page; its size report places the bubble.
     func render() {
         guard let content = content ?? makeContent() else { return }
-        content.push(model.wireState)
+        revision += 1
+        var state = model.wireState
+        state["revision"] = revision
+        // The card's metrics at the current density, which the page lays its rows out with.
+        state["metrics"] = ["width": PageInfoStyle.bubbleWidth, "row": PageInfoStyle.rowHeight,
+                            "rowSubtitle": PageInfoStyle.rowHeightWithSubtitle, "padding": PageInfoStyle.inset / 2,
+                            "rowInset": PageInfoStyle.rowInset]
+        content.push(state)
     }
 
     private func makeContent() -> (any BrowserChromeWebContent)? {
@@ -189,7 +200,8 @@ public final class PageInfoController {
         case "command":
             if let command = PageInfoCommand(wire: params) { send(command) }
         case "size":
-            guard let height = (params["height"] as? NSNumber)?.doubleValue, height > 0 else { return }
+            guard let height = (params["height"] as? NSNumber)?.doubleValue, height > 0,
+                  (params["revision"] as? NSNumber)?.intValue == revision else { return }
             let size = CGSize(width: PageInfoStyle.bubbleWidth, height: ceil(height))
             let changed = size != cardSize
             cardSize = size

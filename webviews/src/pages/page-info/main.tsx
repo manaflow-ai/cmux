@@ -15,8 +15,13 @@ import "../../ui/ui.css";
 import "../shared/pageBase.css";
 import "./styles.css";
 
+/** The card's metrics at the app's density (PageInfoStyle), in CSS px. */
+type Metrics = { width: number; row: number; rowSubtitle: number; padding: number; rowInset: number };
+/** The host's state: the bubble's model, the number of this push and the card's metrics. */
+type HostState = PageInfoModel & { revision: number; metrics?: Metrics };
+
 export function mountPageInfoPage(root: HTMLElement, client: PageClient): () => void {
-  let model: PageInfoModel | null = null;
+  let model: HostState | null = null;
   const listeners = new Set<() => void>();
   const store = {
     subscribe: (listener: () => void) => {
@@ -25,8 +30,9 @@ export function mountPageInfoPage(root: HTMLElement, client: PageClient): () => 
     },
     get: () => model,
   };
-  const unsubscribe = client.subscribe<PageInfoModel>("cmux.page-info.state", (next) => {
+  const unsubscribe = client.subscribe<HostState>("cmux.page-info.state", (next) => {
     model = next;
+    applyMetrics(next.metrics);
     for (const listener of listeners) listener();
   });
   const send = (command: PageInfoCommand) => void client.call("cmux.page-info.command", command);
@@ -34,7 +40,7 @@ export function mountPageInfoPage(root: HTMLElement, client: PageClient): () => 
   // height too), and resizes an open panel when the content changes height by itself.
   const report = () => {
     const height = Math.ceil(root.getBoundingClientRect().height);
-    if (height > 0) void client.call("cmux.page-info.size", { height });
+    if (height > 0 && model) void client.call("cmux.page-info.size", { height, revision: model.revision });
   };
   const sizes = new ResizeObserver(report);
   sizes.observe(root);
@@ -63,6 +69,16 @@ export function mountPageInfoPage(root: HTMLElement, client: PageClient): () => 
     void unsubscribe.then((stop) => stop());
     react.unmount();
   };
+}
+
+function applyMetrics(metrics: Metrics | undefined) {
+  if (!metrics) return;
+  const style = document.documentElement.style;
+  style.setProperty("--pi-host-width", `${metrics.width}px`);
+  style.setProperty("--pi-host-row", `${metrics.row}px`);
+  style.setProperty("--pi-host-row-subtitle", `${metrics.rowSubtitle}px`);
+  style.setProperty("--pi-host-padding", `${metrics.padding}px`);
+  style.setProperty("--pi-host-row-inset", `${metrics.rowInset}px`);
 }
 
 const root = document.getElementById("root");

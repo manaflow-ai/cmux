@@ -2,13 +2,14 @@
    card with a 6 pt padding, 28 pt rows (42 with a subtitle), a 6 pt row inset, a 26 pt icon column (from the card edge),
    2 pt between rows, 12 pt text (10.5 pt captions draw at the caption step, 11). The numbers are the
    native metrics, named here once, so a density change edits one block. Theme grays only: the "on"
-   switch is the text color, danger is the theme's red. */
+   switch is the text color, danger is the theme's red. In the app the host sets --pi-host-* to its
+   density's metrics. */
 .pi-bubble {
-  --pi-width: 320px;
-  --pi-padding: 6px;
-  --pi-row: 28px;
-  --pi-row-subtitle: 42px;
-  --pi-row-inset: 6px;
+  --pi-width: var(--pi-host-width, 320px);
+  --pi-padding: var(--pi-host-padding, 6px);
+  --pi-row: var(--pi-host-row, 28px);
+  --pi-row-subtitle: var(--pi-host-row-subtitle, 42px);
+  --pi-row-inset: var(--pi-host-row-inset, 6px);
   --pi-icon-column: 20px; /* the 26 pt column less the row inset before it */
   --pi-row-gap: 2px;
   --pi-row-radius: var(--ds-radius-sm);
