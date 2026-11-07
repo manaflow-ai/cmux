@@ -893,6 +893,15 @@ impl World {
                 self.take(Op::Restored { key: key(), link: (1, link), generation, last: None });
                 self.check_copy_kept(&before);
             }
+            Err("append_failed") if tries < 4 => {
+                // A prompt that waited before the restore began tries for its turn between the
+                // tries (review at 91b1343d, F2).
+                if self.rng.chance(50) {
+                    self.machine.work();
+                    self.note(format!("work while held (ends {})", self.machine.end()));
+                }
+                return;
+            }
             Err(_) if tries < 4 => return,
             Err(_) => {
                 // Held: prompts fail visibly until a later link decides again.
@@ -1274,7 +1283,13 @@ fn seeds() -> std::ops::Range<u64> {
 /// The seeds that fail under `rules`, and how many seeds failed of each kind (`lost`,
 /// `resurrected`, `twice`, `stale`, `stalled`, `ahead`, other).
 fn failures(rules: Rules) -> (u64, Vec<String>, BTreeMap<String, usize>) {
-    let range = seeds();
+    failures_in(rules, seeds())
+}
+
+fn failures_in(
+    rules: Rules,
+    range: std::ops::Range<u64>,
+) -> (u64, Vec<String>, BTreeMap<String, usize>) {
     let n = range.end - range.start;
     let mut kinds = BTreeMap::new();
     let mut failed = Vec::new();
@@ -1355,19 +1370,22 @@ fn move_sim_finds_the_losses_of_the_rules_of_98b4575a() {
     }
 }
 
-/// Under the rules of 91b1343d (review at 91b1343d, F1, F2 and F4) some seeds run a prompt whose
-/// removal the bound cut before any write reported it (`resurrected`: its proof still went back
-/// whole), run a queued prompt while a restore held the chat between tries (`held`), or read a
-/// log for a restore and write its recovery in the seqs the restore needed (`diverged`). Prints
-/// which seeds.
+/// Under the rules of 91b1343d (review at 91b1343d, F2 and F4) some seeds run a queued prompt
+/// while a restore held the chat between tries (`held`), or read a log for a restore and write
+/// its recovery in the seqs the restore needed (`diverged`); a few run a prompt whose removal the
+/// bound cut before any write reported it (`resurrected`, F1: its proof still went back whole;
+/// rare here, so `a_removal_the_bound_cut_before_its_write_keeps_its_prompt_from_going_back`
+/// holds it). At least 2000 seeds: a restore into a log not read yet is rare. Prints which seeds.
 #[test]
 fn move_sim_finds_the_losses_of_the_rules_of_91b1343d() {
-    let (n, failed, kinds) = failures(Rules::Last);
+    let range = seeds();
+    let range = range.start..range.end.max(range.start + 2000);
+    let (n, failed, kinds) = failures_in(Rules::Last, range);
     eprintln!("move sim, the rules of 91b1343d: {n} seeds, {} failed {kinds:?}", failed.len());
     for f in failed.iter().take(10) {
         eprintln!("  {f}");
     }
-    for kind in ["resurrected", "held", "diverged"] {
+    for kind in ["held", "diverged"] {
         assert!(kinds.contains_key(kind), "no seed found {kind}");
     }
 }
