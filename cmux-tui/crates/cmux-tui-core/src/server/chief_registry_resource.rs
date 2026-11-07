@@ -781,7 +781,9 @@ pub(super) fn person_page(mux: &Mux, client: u64) -> bool {
         .as_deref()
     {
         None => !ws.person,
-        Some(page) => matches!(page, "home-channels" | "home-messages") && ws.scoped_page && !ws.person,
+        Some(page) => {
+            matches!(page, "home-channels" | "home-messages") && ws.scoped_page && !ws.person
+        }
     });
     admitted
         && !mux.is_remote_client(client)
