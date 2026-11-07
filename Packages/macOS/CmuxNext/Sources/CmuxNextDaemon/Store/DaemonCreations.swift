@@ -64,10 +64,10 @@ import Foundation
     }
 
     /// Whether stand-in tab `id` stands for a creation still under way: neither closed by the person (cancelled) nor answered
-    /// and gone. A new tab placed right after it keeps it as its anchor while it is out of the records (`NewTabSuccession`).
+    /// (a confirmed reply or echo named its tab). A new tab placed right after it keeps it as its anchor while it is out of the records (`NewTabSuccession`).
     public func isUnderway(standIn id: String) -> Bool {
         store.intentLog.entries.contains { entry in
-            guard !entry.closeWhenCreated, !entry.standInClosed, case .createTab(_, let provisional) = entry.kind else { return false }
+            guard !entry.closeWhenCreated, !entry.standInClosed, !entry.createdConfirmed, case .createTab(_, let provisional) = entry.kind else { return false }
             return provisional.tabResourceID?.rawValue == id
         }
     }

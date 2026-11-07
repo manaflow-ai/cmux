@@ -111,12 +111,12 @@ struct NewTabSuccession {
         let opens = (active[key] ?? []).filter { now < $0.deadline }.map { $0.resolving(pane.pane) } // stand-ins the store replaced: the daemon's tabs
         var snapshot = snapshot, items = snapshot.items, kept: [NewTabSuccession] = [], claimed = Set(opens.compactMap(\.claimed))
         // Stand-ins swapped in one snapshot (no answer named them yet), in order; each stand-in's tab in this pass, for an open placed after it.
-        var unpaired = arrived.map(\.id).filter { !claimed.contains($0) }, became: [StripTabID: StripTabID] = [:]
+        var unpaired = left.count == arrived.count ? arrived.map(\.id).filter { !claimed.contains($0) } : [], became: [StripTabID: StripTabID] = [:] // only as many as left: no tab moved in
         for (index, var open) in opens.enumerated() {
             if let leader = open.before.flatMap({ became[$0] }) { open.before = leader }
             // Its own tab, else its surface; the newest also by the store's tab after a provisional one or the tab being selected.
             let newest = index == opens.count - 1, known = Set(open.known), tabs = pane.pane.tabs.filter { !known.contains($0.id) }
-            let mine = open.claimed.flatMap { id in tabs.first { $0.id == id.rawValue } ?? (left.contains(id) ? unpaired.first.flatMap { next in tabs.first { $0.id == next.rawValue } } : nil) }
+            let mine = open.claimed.flatMap { id in tabs.first { $0.id == id.rawValue } ?? open.surface.flatMap { surface in tabs.first { $0.surface == surface } } ?? (left.contains(id) ? unpaired.first.flatMap { next in tabs.first { $0.id == next.rawValue } } : nil) }
             if let mine, unpaired.first?.rawValue == mine.id { unpaired.removeFirst() }
             let guessed = [newest ? handed : nil, open.surface, newest ? pane.pendingSelect.surface : nil].lazy.compactMap { $0 }.compactMap { surface in tabs.first { $0.surface == surface && !claimed.contains(StripTabID($0.id)) } }.first
             guard let tab = mine ?? guessed, let item = items.first(where: { $0.id.rawValue == tab.id }) else {
