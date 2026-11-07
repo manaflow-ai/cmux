@@ -25,14 +25,14 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const REPORT = [
   "**#37534 is green** at `64d6b1b`; the exact-head review is a SHIP.",
   "",
-  "- the canary and the daemon stay on huge-blue, per your OK",
+  "- the canary and the daemon stay on studio-mac, per your OK",
   "- the placement cap now counts each host once",
   "",
   "Landing it pinned once the base-only reds are confirmed.",
 ].join("\n");
 
 const SUBAGENT_REPORT = [
-  "I fixed nothing. Every real fix needs a change to glaeda or the fleet config.",
+  "I fixed nothing. Every real fix needs a change to the CI poller or the build-box config.",
   "",
   "1. **Nightly**: the 30 GiB disk floor stops runners on disks that cleanup can't clear.",
   "2. **Idle fleet**: the same floor parks four minis.",
