@@ -632,6 +632,9 @@ export type AcpmuxRow = {
   /// A "Worked for" disclosure whose fold mixes the agent's messages with its work reads "N previous
   /// messages", as Codex's does (conversation/turns.ts `foldMixesMessages`).
   previous?: number;
+  /// The messages between agents a finished turn's "Worked for" folds, which its label names in the
+  /// `messages` arm of workedForMessages.experiment.ts (conversation/turns.ts `shapeTurn`).
+  workedMessages?: { sent: number; received: number };
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
   queued?: string;
   /// A prompt sent into a running turn: `waiting` until the agent reads it (it reads a steer when

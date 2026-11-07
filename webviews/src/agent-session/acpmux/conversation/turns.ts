@@ -30,7 +30,7 @@ import { lastWrapUp, withoutWrapUp } from "./wrapUp";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { awaitsPermission, isDraftCall, isFailed as callFailed, isRunning } from "./toolGroups";
+import { awaitsPermission, isDraftCall, isFailed as callFailed, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
@@ -38,6 +38,8 @@ import { agentCall } from "./agentCalls";
 import { experimentArm } from "../../../experiments/experiment";
 import { finishedTaskLook } from "./taskLine.experiment";
 import { turnFoldReplies } from "./turnFoldReplies.experiment";
+import { workedForMessages } from "./workedForMessages.experiment";
+import { inboxCounts } from "./inboxNotice";
 import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
@@ -122,9 +124,27 @@ export const toolCalls = (t: Translate, count = 0) => t("turn.toolCalls", { n: c
 export function workedLabel(t: Translate, row: AcpmuxRow): string {
   if (row.previous !== undefined)
     return row.previous === 1 ? t("turn.previous.one") : t("turn.previous.other", { n: row.previous });
-  if (row.durationMs === undefined) return toolCalls(t, row.toolCount);
+  if (row.durationMs === undefined) return toolCalls(t, row.toolCount) + workedMessagesText(t, row);
   const time = formatDuration(row.durationMs);
-  return row.status === "cancelled" ? t("turn.stopped", { time }) : t("turn.worked", { time });
+  return (
+    (row.status === "cancelled" ? t("turn.stopped", { time }) : t("turn.worked", { time })) + workedMessagesText(t, row)
+  );
+}
+
+/// ", sent a message, received 2 messages" after a "Worked for" that names the messages between
+/// agents it folds (`workedMessages`, the `messages` arm of workedForMessages.experiment.ts), else "".
+export function workedMessagesText(t: Translate, row: AcpmuxRow): string {
+  const counts = row.workedMessages;
+  if (!counts) return "";
+  const phrases = [
+    ...(counts.sent
+      ? [counts.sent === 1 ? t("messageRun.sent.one") : t("messageRun.sent.other", { n: counts.sent })]
+      : []),
+    ...(counts.received
+      ? [counts.received === 1 ? t("messageRun.received.one") : t("messageRun.received.other", { n: counts.received })]
+      : []),
+  ];
+  return phrases.map((phrase) => t("toolRun.separator") + phrase).join("");
 }
 
 /// A turn summary for a turn that was stopped (Stop, Esc, or an interruption) and did not go on
@@ -771,6 +791,8 @@ type ShapedTurn = {
   foldStyle: TurnFoldStyle;
   /// How its closed fold draws the work around the replies it keeps (turnFoldReplies.experiment.ts).
   repliesArm: string;
+  /// How its "Worked for" counts the messages it folds (workedForMessages.experiment.ts).
+  messagesArm: string;
   /// The person's own prompt opened the next turn (`supersededFooters`).
   endedByPerson: boolean;
   rows: AcpmuxRow[];
@@ -846,6 +868,7 @@ function shapedTurn(
   const endedByPerson = !live && !last && opener?.kind === "user" && !opener.incoming && !opener.received;
   const foldStyle = turnFoldStyle(agentFamily);
   const repliesArm = experimentArm(turnFoldReplies);
+  const messagesArm = experimentArm(workedForMessages);
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
@@ -860,6 +883,7 @@ function shapedTurn(
     cached.agentFamily === agentFamily &&
     cached.foldStyle === foldStyle &&
     cached.repliesArm === repliesArm &&
+    cached.messagesArm === messagesArm &&
     cached.endedByPerson === endedByPerson &&
     cached.source.length === source.length
   ) {
@@ -949,6 +973,15 @@ function shapedTurn(
     // The line is the first prompt's (`waiting` above), by id, so the turn that opens goes on with it.
     const sent = last && liveLine.length === 0 ? sentAfterTurn(held) : undefined;
     const line = sent ? [sentLine(sent)] : liveLine;
+    // Other agents' messages that started a finished turn are its "Worked for"'s first entries
+    // (``isAgentPrompt``): out of sight while it is closed, right under its line while it is open,
+    // in time order before the work. While the turn runs, or when it did nothing to fold (a reply
+    // alone), they stay in sight as its prompt.
+    const worked = !live && foldStyle.conclusion && isAgentPrompt(user) ? fold(body, user) : -1;
+    if (worked >= 0) {
+      if (body[worked]!.foldOpen) body.splice(worked + 1, 0, user);
+      drawnUser.length = 0;
+    }
     const emptyCompleted =
       isVisiblyEmptyMessage(user) &&
       body.length === 0 &&
@@ -984,11 +1017,16 @@ function shapedTurn(
       agentFamily,
       foldStyle,
       repliesArm,
+      messagesArm,
       endedByPerson,
       rows: shaped,
     });
   return shaped;
 }
+
+/// Where `body` draws the "Worked for" of the turn `user` opened, or -1 for none.
+const fold = (body: readonly AcpmuxRow[], user: AcpmuxRow) =>
+  body.findIndex((row) => row.kind === WORKED && row.id === `${WORKED}-${user.id}`);
 
 /// The person's latest prompt held after a turn that ended, still sending or taken but not yet
 /// written by acpmux (`pending`), or none: a failed one waits for Retry, and another session's
@@ -1183,6 +1221,39 @@ function aroundReplies(
 /// Another agent's message in a finished turn, drawn as its one line (IncomingMessageCard.tsx).
 const isReceivedLine = (row: AcpmuxRow) => row.kind === "user" && isLineRow(row) && !isWaitingMessage(row);
 
+/// A turn's prompt that is other agents' messages, not the person's: acpmux's inbox notice that woke
+/// the chat, or one agent's message. A finished turn's "Worked for" folds it as its first entries
+/// (``shapeTurn``, ``shapedTurn``). A tool's fire stays in sight, as it does in a message run.
+export const isAgentPrompt = (row: AcpmuxRow) =>
+  isReceivedLine(row) &&
+  !row.received &&
+  (row.incoming?.kind === "inbox" ||
+    (row.incoming?.kind === "message" &&
+      !row.incoming.message.fromPerson &&
+      row.incoming.message.notice?.severity !== "fire"));
+
+/// How many messages between agents `rows` hold: each send among their calls, and each message
+/// received (an inbox notice counts the messages it brought, as messageRuns.ts does).
+function foldedAgentMessages(rows: readonly AcpmuxRow[]): { sent: number; received: number } {
+  let sent = 0;
+  let received = 0;
+  for (const row of rows) {
+    if (isReceivedLine(row) && row.kind === "user")
+      received += row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
+    else if (row.kind === "activity" && row.items?.length)
+      for (const group of toolGroups(row.items))
+        sent +=
+          group.type === "sendGroup"
+            ? group.entries.length
+            : group.type === "message" ||
+                group.type === "send" ||
+                (group.type === "subsession" && group.call.tool === "send")
+              ? 1
+              : 0;
+  }
+  return { sent, received };
+}
+
 /// The calls of a step that edited, other than its edits, which the turn's edits card draws: they stay
 /// on the closed fold's line, under the id the step's copy has in the open fold (`FOLDED`), so the
 /// card keeps the step's own id. Undefined when the step only edited.
@@ -1231,6 +1302,10 @@ function shapeTurn(
   // The family's row of the one table (turnFoldStyle.ts) says how: Codex and ChatGPT under one
   // "Worked for", Claude, Gemini and Muse with no turn fold.
   const style = turnFoldStyle(agentFamily);
+  // Other agents' messages that started the turn fold into its "Worked for" once it ends, as its
+  // first entries (Leo, 2026-11-07: "fold the receiving and sending messages into the worked for as
+  // well? Like the nearest one?"); shapedTurn draws them there.
+  const foldsPrompt = !live && style.conclusion && isAgentPrompt(user);
   // Notification turns can contain an empty assistant segment and a summary solely for
   // bookkeeping. With no visible prompt or work, omit the whole turn, including its footer.
   if (isVisiblyEmptyMessage(user) && body.length === 0 && summary.status === "completed") return [];
@@ -1301,16 +1376,30 @@ function shapeTurn(
       // Its label counts the fold's messages (`previous`), which can change while the summary's and
       // the answer's versions do not: the count is part of the version, so the memoized row redraws.
       // A reply is never folded, so it is never one of the fold's messages, open or closed.
-      const hidden = work.filter((row) => !replies.has(row.id));
+      // Other agents' messages that started the turn fold in too, as its first entries (`foldsPrompt`).
+      const hidden = [...(foldsPrompt ? [user] : []), ...work.filter((row) => !replies.has(row.id))];
       const previous = style.countsMessages && foldMixesMessages(hidden) ? foldedMessages(hidden) : undefined;
+      // The messages between agents it folds count as calls by default (workedForMessages.experiment.ts).
+      const messages = foldedAgentMessages(hidden);
+      const messagesArm = experimentArm(workedForMessages);
+      const toolCount =
+        messagesArm === "calls" && summary.toolCount !== undefined
+          ? summary.toolCount + messages.received
+          : summary.toolCount;
+      const named = messagesArm === "messages" && messages.sent + messages.received > 0;
       const worked: AcpmuxRow = {
         id,
-        version: (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
+        // What its label names (`named`) is part of the version too.
+        version: mixVersion(
+          (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
+          named ? messages.sent * 1_000 + messages.received + 1 : 0,
+        ),
         at: from,
         kind: WORKED,
         foldOpen: open,
         status: summary.status,
-        toolCount: summary.toolCount,
+        toolCount,
+        ...(named && { workedMessages: messages }),
         tokens: summary.tokens,
         durationMs: summary.durationMs ?? Math.max(0, summary.at - user.at),
         // Codex's header (Leo, 2026-11-02: "i assume the x previous messages are when there's a mix
