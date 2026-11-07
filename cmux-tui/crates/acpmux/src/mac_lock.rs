@@ -147,7 +147,7 @@ mod imp {
             // SAFETY: `text` is a valid NUL-terminated UTF-8 string for the call; a null
             // allocator is the default allocator.
             let made = unsafe { CFStringCreateWithCString(std::ptr::null(), text.as_ptr(), UTF8) };
-            (!made.is_null()).then_some(Self(made))
+            (!made.is_null()).then(|| Self(made))
         }
     }
 
@@ -188,7 +188,7 @@ mod imp {
             // SAFETY: both strings are valid CFStrings for the call and `id` is a valid
             // out pointer.
             let status = unsafe { IOPMAssertionCreateWithName(kind.0, LEVEL_ON, name.0, &mut id) };
-            (status == 0).then_some(Self(id))
+            (status == 0).then(|| Self(id))
         }
     }
 

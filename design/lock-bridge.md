@@ -104,13 +104,17 @@ Narrowing it to -34018 is a Swift change for its own PR.
   the helper reads it in its consent gate (`ConsentGate.admit`), after the target check, the
   takeover wait and the consent answer, with no await before the driver runs. The legacy
   `cmux-cua` reads it in its tool registry after its last consent check, right before dispatch
-  (`scripts/cmux-cua-lock-at-execution.patch`), and says so in its `initialize` answer
-  (`capabilities.experimental["cmux/lock-at-execution-v1"]`). The gate sends a legacy helper that
-  does not say it (an older installed one) no call at all: each call gets `cua_helper_outdated`,
-  whose text says to update cmux. A call that passed
-  while unlocked and waited while the Mac locked gets the same `mac_locked` result. This applies
-  **whether or not the toggle is on**: it is the safe answer on any locked Mac. `tools/list` still
-  answers, so the agent knows the tools exist and can retry after the unlock.
+  (`scripts/cmux-cua-lock-at-execution.patch`). Only the process that knows where a call runs says
+  so in its `initialize` answer (`capabilities.experimental["cmux/lock-at-execution-v2"]`): the
+  in-process server when its registry reads the lock, and the `cmux-cua mcp` proxy, whose calls run
+  in a separately installed daemon that may be older, because it sends each call as
+  `call_lock_checked`. Only a daemon that reads the lock runs that request; an older one refuses it
+  as an unknown method, nothing runs, and the agent gets `cua_helper_outdated`. The gate sends a
+  legacy helper that does not say v2 (an older installed one, or a proxy that said v1 from its own
+  build) no call at all: each call gets `cua_helper_outdated`, whose text says to update cmux. A
+  call that passed while unlocked and waited while the Mac locked gets the same `mac_locked` result.
+  This applies **whether or not the toggle is on**: it is the safe answer on any locked Mac.
+  `tools/list` still answers, so the agent knows the tools exist and can retry after the unlock.
 - **Permission prompts and questions.** Unchanged: a request waits until the person answers, on the Mac
   or from an enrolled phone with its signed decision (`hub/person.rs`). No timeout allows anything.
   `_acpmux/permission_pending` now carries `macLocked: true` when it was sent while the screen was

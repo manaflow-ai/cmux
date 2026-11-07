@@ -17,10 +17,13 @@
 //!
 //! The gate reads the lock as a call comes in, and a call can then wait in the helper (on consent,
 //! on fronting its target) while the Mac locks. So the legacy helper must read the lock again right
-//! before it acts, and say so in its `initialize` answer
-//! ([`LOCK_AT_EXECUTION_CAPABILITY`], `scripts/cmux-cua-lock-at-execution.patch`). A helper that
-//! does not say it (one built before that check) gets no call at all: each one is answered with
-//! [`HELPER_OUTDATED`], which says to update cmux.
+//! before it acts, and its `initialize` answer must say so ([`LOCK_AT_EXECUTION_CAPABILITY`],
+//! `scripts/cmux-cua-lock-at-execution.patch`). `cmux-cua mcp` usually proxies to a separately
+//! installed daemon that runs the calls, so the proxy says it only because it sends each call as a
+//! request that only a daemon reading the lock runs; an older daemon refuses it unrun. A helper
+//! that does not say it (one built before that check, or a v1 proxy that said it from its own
+//! build) gets no call at all: each one is answered with [`HELPER_OUTDATED`], which says to update
+//! cmux.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,9 +37,11 @@ use crate::mac_lock::{MAC_LOCKED, MAC_LOCKED_TEXT};
 /// The acpmux command word of the legacy driver's gate (`acpmux cua-lock-gate -- CMD ARGS`).
 pub const COMMAND: &str = "cua-lock-gate";
 
-/// The `capabilities.experimental` key of the legacy helper's `initialize` answer when it reads
-/// the screen lock right before it dispatches a call (`scripts/cmux-cua-lock-at-execution.patch`).
-pub const LOCK_AT_EXECUTION_CAPABILITY: &str = "cmux/lock-at-execution-v1";
+/// The `capabilities.experimental` key of the legacy helper's `initialize` answer when its calls
+/// run only where the screen lock is read right before dispatch
+/// (`scripts/cmux-cua-lock-at-execution.patch`). v1 was said by the proxy from its own build,
+/// whatever daemon ran its calls, so it passes nothing.
+pub const LOCK_AT_EXECUTION_CAPABILITY: &str = "cmux/lock-at-execution-v2";
 
 /// The typed reason a call gets when the legacy helper does not say it checks the lock at execution.
 pub const HELPER_OUTDATED: &str = "cua_helper_outdated";
@@ -342,7 +347,7 @@ mod tests {
     }
 
     /// The initialize answer of a helper that reads the screen lock right before it acts.
-    const CHECKS_LOCK: &str = r#"{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{},"experimental":{"cmux/lock-at-execution-v1":{}}},"serverInfo":{"name":"cmux-cua","version":"0.8.12"}}}"#;
+    const CHECKS_LOCK: &str = r#"{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{},"experimental":{"cmux/lock-at-execution-v2":{}}},"serverInfo":{"name":"cmux-cua","version":"0.8.12"}}}"#;
     /// The answer of a proxy that said v1 from its own build alone, whatever helper ran its calls
     /// (review of cmux#37239, round 7).
     const V1_ONLY: &str = r#"{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{},"experimental":{"cmux/lock-at-execution-v1":{}}},"serverInfo":{"name":"cmux-cua","version":"0.8.12"}}}"#;
