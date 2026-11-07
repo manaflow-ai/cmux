@@ -131,6 +131,8 @@ private final class SiteSettingsSource {
     private let send: (PageInfoCommand) -> Void
     private var observation: ObservationLoop?
     var usage: SiteDataSummary? { didSet { render() } }
+    /// The engine's own decisions for the origin (Chromium's site exceptions), under the store's.
+    var live: [SitePermissionKind: SitePermissionSetting] = [:] { didSet { render() } }
 
     init(window: PageInfoWebWindow, origin: String, site: PageInfoSite, store: SitePermissionStore,
          provider: any PageInfoProviding, send: @escaping (PageInfoCommand) -> Void) {
@@ -146,6 +148,10 @@ private final class SiteSettingsSource {
         window.onCommand = { [weak self] command in self?.perform(command) }
         observation = ObservationLoop { [weak self] in self?.render() }
         Task { [weak self, provider, origin] in
+            let live = await provider.pageInfoLivePermissions(origin: origin)
+            self?.live = live
+        }
+        Task { [weak self, provider, origin] in
             let data = await provider.pageInfoSiteData(pageHost: URL(string: origin)?.host())
             self?.usage = data
         }
@@ -158,7 +164,7 @@ private final class SiteSettingsSource {
 
     private func render() {
         window.push(PageInfoWindowWire.siteSettings(site: site, origin: origin, supported: provider.supportedSitePermissions,
-                                                    decisions: store.decisions[origin] ?? [:], usage: usage))
+                                                    decisions: live.merging(store.decisions[origin] ?? [:]) { $1 }, usage: usage))
     }
 
     /// The bubble's page is still on this origin: go through the registry action; otherwise edit
@@ -175,16 +181,19 @@ private final class SiteSettingsSource {
             store.set(setting, kind, for: origin)
             Task { [provider, origin] in await provider.pageInfoDidChange(kind, to: setting, origin: origin) }
         case .resetPermissions:
+            // Reset clears the engine's decisions too.
+            live = [:]
             if isCurrentOrigin { return send(.resetPermissions) }
             // The engine keeps its own decisions (Chromium persists content settings): reset each
             // one the store or the engine had, not only the store.
             let stored = store.changedKinds(for: origin)
             store.reset(origin: origin)
-            Task { [provider, origin] in
+            Task { [weak self, provider, origin] in
                 let live = await provider.pageInfoLivePermissions(origin: origin)
                 for kind in stored.union(live.keys) {
                     await provider.pageInfoDidChange(kind, to: kind.defaultSetting, origin: origin)
                 }
+                self?.live = await provider.pageInfoLivePermissions(origin: origin)
             }
         case .deleteSiteData:
             guard let host = URL(string: origin)?.host() else { return }
