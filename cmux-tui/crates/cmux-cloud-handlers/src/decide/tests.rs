@@ -110,6 +110,16 @@ fn a_plan_refusal_names_the_plan_and_its_code() {
     assert_eq!((declined.reason, declined.refusal), (Said::key("createDeclined"), true));
 }
 
+#[test]
+fn a_returned_machine_wins_over_a_failed_or_gone_phase() {
+    for state in ["failed", "gone"] {
+        let made = run(json!({"state": state, "reason": "late", "creationId": "c-1",
+            "machine": {"id": "vm-1", "title": "box", "status": "running"}}))
+        .unwrap();
+        assert_eq!(made["machine_id"], json!("vm-1"), "{state}");
+    }
+}
+
 fn desktop_of(value: Value) -> Result<Desktop, Said> {
     desktop(&serde_json::from_value(value).unwrap())
 }
@@ -194,16 +204,30 @@ fn a_team_switch_takes_an_id_or_a_name() {
 
 #[test]
 fn set_up_github_says_the_app_or_the_fallback_and_why() {
-    assert_eq!(github_confirm(true, true, Some("x")), vec![Said::key("gitHubAppConfirmBody")]);
-    assert_eq!(github_confirm(false, true, None), vec![Said::key("gitHubAppConfirmNoIdentity")]);
+    let named = Said::with("gitHubAppConfirmBody", ["Ada", "—"]);
+    assert_eq!(github_confirm(Some("Ada"), None, GitHubApp::Ready), vec![named]);
     assert_eq!(
-        github_confirm(true, false, Some("the App is not installed")),
+        github_confirm(None, None, GitHubApp::Ready),
+        vec![Said::key("gitHubAppConfirmNoIdentity")]
+    );
+    assert_eq!(
+        github_confirm(Some("Ada"), Some("ada@x.dev"), GitHubApp::NotConnected),
         vec![
-            Said::with("gitHubFallback", ["the App is not installed"]),
-            Said::key("gitHubConfirmBody")
+            Said::key("gitHubFallbackNotConnected"),
+            Said::with("gitHubConfirmBody", ["Ada", "ada@x.dev"])
         ]
     );
-    assert_eq!(github_confirm(false, false, None), vec![Said::key("gitHubConfirmNoIdentity")]);
+    assert_eq!(
+        github_confirm(None, None, GitHubApp::NotConfigured),
+        vec![Said::key("gitHubFallbackNotConfigured"), Said::key("gitHubConfirmNoIdentity")]
+    );
+    assert_eq!(
+        github_confirm(None, Some("ada@x.dev"), GitHubApp::Unknown),
+        vec![
+            Said::key("gitHubFallbackUnknown"),
+            Said::with("gitHubConfirmBody", ["—", "ada@x.dev"])
+        ]
+    );
 }
 
 #[test]
@@ -217,10 +241,14 @@ fn the_cloud_deletes_ask_first() {
 
 #[test]
 fn a_port_failure_names_the_limit_or_the_detail() {
-    assert_eq!(port_failure(Some("cmux.cloud.port_limit"), "x"), Said::key("portLimit"));
+    let names = PortNames { name: "dev box".into(), id: "vm-1".into(), port: Some(3000) };
     assert_eq!(
-        port_failure(Some("other"), " The link is down... \n"),
-        Said::with("portFailed", ["The link is down"])
+        port_failure(Some("cmux.cloud.port_limit"), "x", &names),
+        Said::with("portLimit", ["dev box", "vm-1", "3000"])
+    );
+    assert_eq!(
+        port_failure(Some("other"), " The link is down... \n", &names),
+        Said::with("portFailed", ["dev box", "vm-1", "3000", "The link is down"])
     );
     assert_eq!(detail("no route."), "no route");
 }
