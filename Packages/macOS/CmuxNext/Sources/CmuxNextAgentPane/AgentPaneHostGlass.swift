@@ -1,5 +1,5 @@
-import CmuxNextDesign
-import Foundation
+public import CmuxNextDesign
+public import Foundation
 
 /// The page's floating glass that the App draws under it (`pane.glass {surfaces}`; webviews
 /// ui/glass/hostGlass.ts). Leo, 2026-11-06: "why the fuck is this not glass? Like the way the native
