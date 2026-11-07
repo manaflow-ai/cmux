@@ -239,7 +239,8 @@ afterEach(() => {
 });
 
 /// The tab's chat open with its rows on screen; each new socket is a new `Daemon` on the same log.
-async function openChat(log?: Daemon["log"]) {
+/// `down`: its machine is down from the first socket, so the rows are the Mac's copy of it.
+async function openChat(log?: Daemon["log"], down = false) {
   resetKeptTailsForTests();
   const daemons: Daemon[] = [];
   let state:
@@ -273,7 +274,10 @@ async function openChat(log?: Daemon["log"]) {
           ...(state.keepLog ? { log: state.log } : {}),
         });
       // The machine's log, when the test names one: every socket reaches the same machine.
-      else if (log) daemon.log = log.slice();
+      else {
+        if (log) daemon.log = log.slice();
+        daemon.down = down;
+      }
       daemons.push(daemon);
       state = daemon;
       return daemon as unknown as WebSocket;
@@ -581,6 +585,26 @@ test("a chat with more older rows read than a kept tail holds keeps them all whe
   expect(empty).toBe(0);
   expect(left).toEqual([]);
   expect(JSON.stringify(chat.drawn.at(-1)!.rows)).toContain("turn 0 part 2.");
+});
+
+test("a chat drawn from the Mac's copy keeps its older pages when listed again", async () => {
+  const chat = await openChat(undefined, true);
+  expect(chat.shown.peerCopy?.offline).toBe(true);
+  await chat.client.loadOlder();
+  await flush();
+  const shown = chat.drawn.at(-1)!;
+  expect(shown.rows.length).toBeGreaterThan(chat.shown.rows.length);
+  const from = chat.drawn.length;
+  chat.daemon().purge();
+  await flush(4);
+  chat.daemon().announce();
+  await flush();
+  const { empty, left, ids } = frames(chat.drawn, from, shown);
+  expect(empty).toBe(0);
+  expect(left).toEqual([]);
+  for (const row of shown.rows) expect(ids).toContain(row.id);
+  // Still the copy, offline, as before it left the list.
+  expect(chat.drawn.at(-1)!.peerCopy?.offline).toBe(true);
 });
 
 test("a chat that stays gone past its hold keeps no tail of it for a relist", async () => {
