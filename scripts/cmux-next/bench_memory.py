@@ -19,7 +19,7 @@ N Chromium tabs in the launch workspace's focused pane, one URL each from --urls
 page each, so a run is deterministic; `real`: 20 well-known public sites; or a
 comma list). Each count is sampled after --settle seconds.
 
---purge-hidden (or CMUX_BENCH_PURGE_HIDDEN=1) also measures, after each count's sample, what Chromium's own
+--purge-hidden also measures, after each count's sample, what Chromium's own
 memory purge gives back with nothing reloaded: every hidden cmux page's renderer
 gets a critical memory-pressure notice (DevTools Memory.simulatePressureNotification
 through `debug.cef_page_devtools`, a bench or DEV build), then the app settles and
@@ -728,9 +728,7 @@ def main():
                         help="an ACP agent script (cmux-tui/crates/acpmux/tests/fake_agent.py) the chats use: "
                              "its turns end, as a chat's do after its reply")
     parser.add_argument("--purge-hidden", action="store_true",
-                        default=os.environ.get("CMUX_BENCH_PURGE_HIDDEN") == "1",
-                        help="after each count, purge hidden pages' renderers (no reload) and sample again "
-                             "(also CMUX_BENCH_PURGE_HIDDEN=1, so perf-10x-idle.sh needs no new argument)")
+                        help="after each count, purge hidden pages' renderers (no reload) and sample again")
     parser.add_argument("--out")
     args = parser.parse_args()
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
