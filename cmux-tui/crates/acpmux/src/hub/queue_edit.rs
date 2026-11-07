@@ -369,7 +369,11 @@ impl Hub {
                     }
                     crate::prompt_provenance::edited_by(p, editor)
                 }),
-                agent: q.run.agent.clone().filter(|_| !digest),
+                // What it does is the person's now, apart from who it names: no agent's message to
+                // clear with an agents-only removal, hold for a stop or fold into a digest
+                // (`queue.rs` `remove_queued_by`, `digest.rs`), as a restart reads the same edit
+                // (`queue_updated` drops `fromAgent`). Its sender stays in `provenance` only.
+                agent: None,
                 class: None,
                 supersede: None,
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
