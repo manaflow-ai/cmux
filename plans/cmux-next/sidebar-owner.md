@@ -259,6 +259,10 @@
   (`droppingARowOntoAnotherGroupsThemInThePalettesNextColor`), `WallpaperTintTests`
   (`theWallpaperGroupPaletteSamplesWithTheWindowTintOff`). The header and the members' line read that color under
   their observation, so a new picture repaints them at once (`GroupHeaderThemeLookTests.aNewWallpaperColorRepaintsTheHeaders`).
+  Commits on this branch whose sidebar code edits are recorded here: e68e2b567b7 (an access-level compile fix, no change
+  to the look), 82dc6cc213c (the marble's token read, a compile fix; the marble view later left this PR) and ba2549631bb
+  (the AppKit editor's dots in the chosen palette; that editor was replaced by the React page in #37299, whose dots now
+  draw the same way).
 - 2026-11-07: the no-color block's rim lights its top and corners only and fades out over the first row, so no
   hairline runs down a tall group's sides (`GlassRimView.fadeDepth`). Leo, with a screenshot of a hard line down the
   right of a group's rows: "we want to make sure probably that we don't have this right edge going on ... for the
