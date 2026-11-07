@@ -46,8 +46,6 @@ export function chatMachine(
   if (summary?.hostKind === "cloud" || (peer && peerKinds?.[peer] === "cloud"))
     return { icon: "cloud", name: summary?.host || peer || machineName, kind: "cloud" };
   if (peer) return { icon: "machine.remote", name: summary?.host || peer, kind: "ssh" };
-  // A host not marked local is another machine (sessionList.ts `cloudHost`).
-  if (summary?.host && summary.hostKind !== "local") return { icon: "machine.remote", name: summary.host, kind: "ssh" };
   // The page's own acpmux is another machine's (the app's wire to it): the chat runs there, named by
   // that daemon (acpmux `machine`), never on this Mac.
   if (elsewhere) {
@@ -57,14 +55,16 @@ export function chatMachine(
   return { icon: "machine.mac", name: machineName || summary?.host || undefined, kind: "local" };
 }
 
-/// Whether the chat runs on this Mac (`chatMachine`'s Local): its folders are this Mac's, so Open
-/// Folder, a source file and a subagent's changes open here. A chat with no summary yet is not.
+/// Whether the chat's folders are this Mac's, so Open Folder, a source file and a subagent's changes
+/// open here: `chatMachine` says Local, and no host not marked local names another machine
+/// (sessionList.ts `cloudHost`). A chat with no summary yet is not.
 export function chatOnThisMac(
   summary: Pick<Summary, "peer" | "host" | "hostKind" | "machine"> | undefined,
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>,
   place?: ChatPlace,
 ): boolean {
-  return summary !== undefined && chatMachine(summary, undefined, peerKinds, place).kind === "local";
+  if (!summary || (summary.host && summary.hostKind !== "local")) return false;
+  return chatMachine(summary, undefined, peerKinds, place).kind === "local";
 }
 
 /// The composer's computer id for the chat (ComposerContext): its peer, its Cloud host, else `local`,
