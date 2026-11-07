@@ -119,6 +119,22 @@ final class PageInfoWindows {
     }
 }
 
+/// Reset permissions on the engine's side: every kind the store had or the engine decides on its
+/// own goes back to its default. The bubble's model can be empty (Site settings opened from a
+/// notice before the bubble), so the engine's decisions are read, not taken from the model.
+enum SitePermissionEngineReset {
+    /// Resets the kinds and answers the engine's decisions after it.
+    @discardableResult
+    static func run(origin: String, stored: Set<SitePermissionKind>,
+                    provider: any PageInfoProviding) async -> [SitePermissionKind: SitePermissionSetting] {
+        let live = await provider.pageInfoLivePermissions(origin: origin)
+        for kind in stored.union(live.keys) {
+            await provider.pageInfoDidChange(kind, to: kind.defaultSetting, origin: origin)
+        }
+        return await provider.pageInfoLivePermissions(origin: origin)
+    }
+}
+
 /// The site settings window's state and commands for one origin (like `chrome://settings/
 /// content/siteDetails`): usage with Delete data, every permission this engine enforces with its
 /// choices, and Reset permissions. Pushes the page a new state whenever the store changes.
@@ -133,6 +149,12 @@ private final class SiteSettingsSource {
     var usage: SiteDataSummary? { didSet { render() } }
     /// The engine's own decisions for the origin (Chromium's site exceptions), under the store's.
     var live: [SitePermissionKind: SitePermissionSetting] = [:] { didSet { render() } }
+    /// Counts the window's changes and refreshes: an engine read answers only if none came after it,
+    /// so a slow read never puts back a decision a later choice or reset replaced.
+    private var liveGeneration = 0
+    /// The store's entry for the origin as last seen: another surface changing it (the bubble's
+    /// reset, another window) re-reads the engine's decisions.
+    private var seenStored: [SitePermissionKind: SitePermissionSetting]?
 
     init(window: PageInfoWebWindow, origin: String, site: PageInfoSite, store: SitePermissionStore,
          provider: any PageInfoProviding, send: @escaping (PageInfoCommand) -> Void) {
@@ -146,11 +168,7 @@ private final class SiteSettingsSource {
 
     func start() {
         window.onCommand = { [weak self] command in self?.perform(command) }
-        observation = ObservationLoop { [weak self] in self?.render() }
-        Task { [weak self, provider, origin] in
-            let live = await provider.pageInfoLivePermissions(origin: origin)
-            self?.live = live
-        }
+        observation = ObservationLoop { [weak self] in self?.storeChanged() }
         Task { [weak self, provider, origin] in
             let data = await provider.pageInfoSiteData(pageHost: URL(string: origin)?.host())
             self?.usage = data
@@ -160,6 +178,27 @@ private final class SiteSettingsSource {
     func stop() {
         observation?.cancel()
         observation = nil
+    }
+
+    /// Reads the engine's decisions again; a change made while it reads wins.
+    private func refreshLive() {
+        liveGeneration += 1
+        let generation = liveGeneration
+        Task { [weak self, provider, origin] in
+            let live = await provider.pageInfoLivePermissions(origin: origin)
+            guard let self, self.liveGeneration == generation else { return }
+            self.live = live
+        }
+    }
+
+    private func storeChanged() {
+        let stored = store.decisions[origin] ?? [:]
+        if stored != seenStored {
+            // The first pass reads the engine; later ones follow changes made elsewhere.
+            seenStored = stored
+            refreshLive()
+        }
+        render()
     }
 
     private func render() {
@@ -178,24 +217,29 @@ private final class SiteSettingsSource {
         case .setPermission(let kind, let setting):
             guard provider.supportedSitePermissions.contains(kind) else { return }
             // The engine takes the choice too: its own decision for the kind is this one now.
+            liveGeneration += 1
             live[kind] = setting
             if isCurrentOrigin { return send(.setPermission(kind, setting)) }
+            seenStored = (store.decisions[origin] ?? [:]).merging([kind: setting]) { $1 }
             store.set(setting, kind, for: origin)
             Task { [provider, origin] in await provider.pageInfoDidChange(kind, to: setting, origin: origin) }
         case .resetPermissions:
             // Reset clears the engine's decisions too.
+            liveGeneration += 1
+            let generation = liveGeneration
             live = [:]
-            if isCurrentOrigin { return send(.resetPermissions) }
-            // The engine keeps its own decisions (Chromium persists content settings): reset each
-            // one the store or the engine had, not only the store.
+            // The engine keeps its own decisions (Chromium persists content settings), and the
+            // bubble knows only the kinds its model holds: on either path, reset each kind the
+            // store or the engine had.
             let stored = store.changedKinds(for: origin)
+            // The bubble's page on this origin resets its own model and the kinds it shows.
+            if isCurrentOrigin { send(.resetPermissions) }
+            seenStored = [:]
             store.reset(origin: origin)
             Task { [weak self, provider, origin] in
-                let live = await provider.pageInfoLivePermissions(origin: origin)
-                for kind in stored.union(live.keys) {
-                    await provider.pageInfoDidChange(kind, to: kind.defaultSetting, origin: origin)
-                }
-                self?.live = await provider.pageInfoLivePermissions(origin: origin)
+                let after = await SitePermissionEngineReset.run(origin: origin, stored: stored, provider: provider)
+                guard let self, self.liveGeneration == generation else { return }
+                self.live = after
             }
         case .deleteSiteData:
             guard let host = URL(string: origin)?.host() else { return }

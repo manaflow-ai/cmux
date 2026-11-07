@@ -168,3 +168,26 @@ struct PageInfoPageCommandGateTests {
         #expect(!PageInfoController.acceptsPageCommand(isOpen: true, opening: 2, from: 2, openedURL: nil, current: nil))
     }
 }
+
+/// Reset permissions from the site settings window when the bubble's model is empty (the window
+/// opened from a notice before the bubble): the engine's own decisions reset too.
+@MainActor
+struct SitePermissionEngineResetTests {
+    @Test func anEngineDecisionTheStoreNeverHadResetsToItsDefault() async {
+        let tab = MockBrowserEngine().makeMockTab(.init(initialURL: URL(string: "https://example.com")))
+        tab.pageInfoFake.live = [.camera: .allow]
+        await SitePermissionEngineReset.run(origin: "https://example.com", stored: [], provider: tab)
+        let applied = tab.pageInfoFake.appliedChanges.map { "\($0.0)=\($0.1)@\($0.2)" }
+        #expect(applied == ["camera=\(SitePermissionKind.camera.defaultSetting)@https://example.com"])
+    }
+
+    @Test func storedAndEngineKindsResetOnceEach() async {
+        let tab = MockBrowserEngine().makeMockTab(.init(initialURL: URL(string: "https://example.com")))
+        tab.pageInfoFake.live = [.camera: .allow, .location: .block]
+        await SitePermissionEngineReset.run(origin: "https://example.com", stored: [.location, .popups], provider: tab)
+        let kinds = tab.pageInfoFake.appliedChanges.map(\.0)
+        #expect(Set(kinds) == [.camera, .location, .popups])
+        #expect(kinds.count == 3)
+        #expect(tab.pageInfoFake.appliedChanges.allSatisfy { $0.1 == $0.0.defaultSetting })
+    }
+}
