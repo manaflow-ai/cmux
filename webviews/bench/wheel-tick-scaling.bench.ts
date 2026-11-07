@@ -10,15 +10,18 @@
 // (deltaMode 1, three lines: the notch path of wheelGlide.ts, as a mouse with a notched wheel takes):
 //   single: one tick up, its glide to rest, one tick down, its glide to rest; ROUNDS times;
 //   burst:  eight ticks up 50 ms apart, then eight down (a reader spinning the wheel).
+// With mode=live the chat also streams a turn while the ticks run (a 32-character delta every 50 ms and
+// a tool call every 20 deltas, the mock daemon's streamLoadTurn), as a busy chat such as a coordinator's
+// gets messages while its reader scrolls; mode=still scrolls a chat with nothing arriving.
 // Each animation frame from the first tick to the last glide's rest is timed from its start (the rAF
 // timestamp) until the page has rendered it (a posted message runs after the rendering update): the
 // frame's work, which a 120 Hz display needs under 8.3 ms whatever this runner's own refresh is. Also:
 // the first frame that moved after each tick (the tick's response), frames that did not move while a
 // glide was on (a stall), long tasks over 50 ms (Chromium), and the transcript's React and layout time
 // per frame (acpmuxPerf).
-//   bun bench/wheel-tick-scaling.bench.ts [sizes=50,500,3000] [rounds=6] [engine=chromium|webkit]
-// Prints one line per size and PERF_ROW rows: wheel_tick.<size>.work_ms (p50/p95) and
-// wheel_tick.scaling.work_p95_ratio (the largest size's p95 over the smallest's; 1 is flat).
+//   bun bench/wheel-tick-scaling.bench.ts [sizes=50,500,3000] [rounds=6] [engine=chromium|webkit] [mode=still|live]
+// Prints one line per size and PERF_ROW rows: wheel_tick.<engine>.<mode>.turns_<n>.work_ms (p50/p95) and
+// wheel_tick.<engine>.<mode>.scaling.work_p95_ratio (the largest size's p95 over the smallest's; 1 is flat).
 /// <reference types="bun" />
 import path from "node:path";
 import { chromium, webkit } from "playwright";
@@ -29,6 +32,8 @@ import { perfRow, TARGET_MS } from "./perfRow";
 const SIZES = (process.argv[2] ?? "50,500,3000").split(",").map(Number);
 const ROUNDS = Number(process.argv[3] ?? 6);
 const ENGINE = process.argv[4] ?? "chromium";
+const MODE = process.argv[5] ?? "still";
+if (MODE !== "still" && MODE !== "live") throw new Error(`wheel-tick-scaling: unknown mode ${MODE}`);
 if (!SIZES.every((size) => Number.isInteger(size) && size > 0) || !Number.isInteger(ROUNDS) || ROUNDS < 1)
   throw new Error("usage: wheel-tick-scaling.bench.ts [sizes=50,500,3000] [rounds>=1] [engine=chromium|webkit]");
 if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error(`wheel-tick-scaling: unknown engine ${ENGINE}`);
@@ -56,7 +61,15 @@ type SizeResult = {
 };
 
 /// Runs in the page: the ticks and the frame record. Returns the size's result less its open numbers.
-async function tickRun(rounds: number): Promise<Omit<SizeResult, "turns" | "rows" | "open_ms"> | { error: string }> {
+async function tickRun({
+  rounds,
+  session,
+  live,
+}: {
+  rounds: number;
+  session: string;
+  live: boolean;
+}): Promise<Omit<SizeResult, "turns" | "rows" | "open_ms"> | { error: string }> {
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
   if (!scroller) return { error: "no transcript" };
   const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
@@ -96,6 +109,16 @@ async function tickRun(rounds: number): Promise<Omit<SizeResult, "turns" | "rows
   }
   acpmuxPerf.enable();
   acpmuxPerf.resetFrames();
+  let streaming = true;
+  if (live) {
+    const mockUrl = "/src/agent-session/acpmux/mock.ts";
+    type MockModule = typeof import("../src/agent-session/acpmux/mock");
+    const { MockAcpmuxSocket } = (await import(/* @vite-ignore */ mockUrl)) as MockModule;
+    if (!MockAcpmuxSocket.live) return { error: "no mock daemon" };
+    void MockAcpmuxSocket.live
+      .streamLoadTurn(session, { seconds: 120, chunkChars: 32, chunkMs: 50, toolEvery: 20 })
+      .finally(() => (streaming = false));
+  }
 
   const work: number[] = [];
   const responses: number[] = [];
@@ -174,6 +197,7 @@ async function tickRun(rounds: number): Promise<Omit<SizeResult, "turns" | "rows
     glideStalls(moves);
   }
   observer?.disconnect();
+  if (live && !streaming) return { error: "the stream ended before the ticks did" };
   const perf = acpmuxPerf.stats() as {
     react: { p50_ms: number; p95_ms: number; max_ms: number };
     layout: { p50_ms: number; p95_ms: number; max_ms: number };
@@ -225,10 +249,10 @@ try {
     const seeded = (await page.evaluate(
       (turns) => (window as unknown as { cmuxAcpmuxDebug: { loadSeed(turns: number): Promise<unknown> } }).cmuxAcpmuxDebug.loadSeed(turns),
       turns,
-    )) as { error?: string; rows: number; open_ms: number };
+    )) as { error?: string; session: string; rows: number; open_ms: number };
     if (seeded.error) throw new Error(`wheel-tick-scaling: seed ${turns}: ${seeded.error}`);
     await page.locator(".acpmux-scroll").hover();
-    const run = await page.evaluate(tickRun, ROUNDS);
+    const run = await page.evaluate(tickRun, { rounds: ROUNDS, session: seeded.session, live: MODE === "live" });
     await page.close();
     if ("error" in run) throw new Error(`wheel-tick-scaling: ${turns} turns: ${run.error}`);
     if (run.response_frames.p50 === 0 || run.frames < ROUNDS * 4)
@@ -237,14 +261,14 @@ try {
     results.push(result);
     const pick = ({ p50, p95, max }: Summary) => `${p50}/${p95}/${max}`;
     console.log(
-      `wheel-tick-scaling ${ENGINE} turns=${turns} rows=${result.rows} frames=${result.frames} ticks=${result.ticks} ` +
+      `wheel-tick-scaling ${ENGINE} ${MODE} turns=${turns} rows=${result.rows} frames=${result.frames} ticks=${result.ticks} ` +
         `work=${pick(result.work)} over_120=${result.over_120} over_60=${result.over_60} ` +
         `react=${pick(result.react)} layout=${pick(result.layout)} response_frames=${pick(result.response_frames)} ` +
         `stalls=${result.stalls} long_tasks=${result.long_tasks} long_task_max=${result.long_task_max} ` +
         `heap_mb=${result.heap_mb} dom_nodes=${result.dom_nodes} open_ms=${result.open_ms}`,
     );
     perfRow({
-      name: `wheel_tick.${ENGINE}.turns_${turns}.work_ms`,
+      name: `wheel_tick.${ENGINE}.${MODE}.turns_${turns}.work_ms`,
       p50: result.work.p50,
       p95: result.work.p95,
       target: BUDGET_120,
@@ -254,8 +278,8 @@ try {
   const last = results.at(-1)!;
   if (results.length > 1) {
     const ratio = Math.round((last.work.p95 / Math.max(0.01, first.work.p95)) * 100) / 100;
-    console.log(`wheel-tick-scaling ${ENGINE} scaling: turns ${first.turns} -> ${last.turns}: work p95 x${ratio}`);
-    perfRow({ name: `wheel_tick.${ENGINE}.scaling.work_p95_ratio`, p95: ratio, unit: "x", target: 1.2 });
+    console.log(`wheel-tick-scaling ${ENGINE} ${MODE} scaling: turns ${first.turns} -> ${last.turns}: work p95 x${ratio}`);
+    perfRow({ name: `wheel_tick.${ENGINE}.${MODE}.scaling.work_p95_ratio`, p95: ratio, unit: "x", target: 1.2 });
   }
   void TARGET_MS;
 } finally {
