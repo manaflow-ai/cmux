@@ -27,6 +27,8 @@ import type { PageClient } from "../shared/pageClient";
 import { ConversationList, DRAFT_ROW } from "./list/ConversationList";
 import { clampWidth, COMPACT_BELOW, HEADER, WIDTH } from "./list/layout";
 import { holdsOneConversation, listModel } from "./list/model";
+import { MessagesNav } from "./nav";
+import { usePageCommands } from "./pageCommands";
 import type { HostMenuItem, MessagesChrome, MessagesDetail, MessagesHost } from "./types";
 
 export interface MessagesAppProps {
@@ -37,8 +39,10 @@ export interface MessagesAppProps {
   messages: MessagesHost;
   /** What the slot right of the list draws (the transcript, the sheets, the cards). */
   detail?: MessagesDetail;
-  /** New Message (absent: the host's `home.newMessage` action). */
+  /** New Message (absent: the page's own New Message opens). */
   onCompose?(): void;
+  /** The page's view state (absent: the page makes its own). */
+  nav?: MessagesNav;
   /** Where the column's width is kept (null: not kept, the gallery). */
   widthStorage?: Storage | null;
 }
@@ -46,8 +50,21 @@ export interface MessagesAppProps {
 const WIDTH_KEY = "cmux.home.sidebarWidth";
 const COMPOSE_INSET = 12;
 
-export function MessagesApp({ store, strings, host, messages, detail, onCompose, widthStorage }: MessagesAppProps) {
+export function MessagesApp({
+  store,
+  strings,
+  host,
+  messages,
+  detail,
+  onCompose,
+  widthStorage,
+  ...props
+}: MessagesAppProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const [ownNav] = useState(() => new MessagesNav());
+  const nav = props.nav ?? ownNav;
+  const view = useSyncExternalStore(nav.subscribe, nav.getSnapshot);
+  const composing = view.compose?.shown === true;
   const { t, format, language } = strings;
   const [chrome, setChrome] = useState<MessagesChrome>({ windowControls: null });
   useEffect(() => messages.subscribeChrome(setChrome), [messages]);
@@ -104,7 +121,7 @@ export function MessagesApp({ store, strings, host, messages, detail, onCompose,
   const wanted = own ?? WIDTH.standard;
   const listWidth = clampWidth(wanted, pageWidth - WIDTH.divider);
   const folded =
-    holdsOneConversation(model, { requests: 0 }) &&
+    holdsOneConversation(model, { requests: view.requests.length }) &&
     !query &&
     !unreadOnly &&
     listWidth < COMPACT_BELOW &&
@@ -139,12 +156,22 @@ export function MessagesApp({ store, strings, host, messages, detail, onCompose,
 
   const select = (id: string) => {
     if (id === DRAFT_ROW) return;
+    nav.leaveCompose();
     void store.select(id);
   };
   const open = (id: string) => {
+    nav.leaveCompose();
     void store.select(id);
     setOpenedAt(Date.now());
+    nav.requestFocus();
   };
+  // The host's commands (show, present, focus, move) and the shown conversation it keeps.
+  const shown = !composing && snapshot.selected ? snapshot.selected : undefined;
+  const selection = useMemo(
+    () => (shown ? { conversation: shown, ...(snapshot.highlight ? { message: snapshot.highlight } : {}) } : null),
+    [shown, snapshot.highlight],
+  );
+  usePageCommands(host, { store, nav, model }, selection);
 
   // Compose at the chat's top-left, after the traffic lights when they lie over it.
   const lights = chrome.windowControls;
@@ -158,7 +185,12 @@ export function MessagesApp({ store, strings, host, messages, detail, onCompose,
   const [composeItems, setComposeItems] = useState<HostMenuItem[]>([]);
   const loadCompose = () => void messages.menu("compose").then(setComposeItems);
   const compose =
-    onCompose ?? (() => void messages.perform({ id: "home.newMessage", title: "", action: "home.newMessage" }));
+    onCompose ??
+    (() => {
+      nav.dismiss();
+      nav.openCompose();
+      nav.requestFocus();
+    });
   const composeMenu: ContextMenuItem[] = composeItems.map((item) => ({
     id: item.id,
     label: item.title,
@@ -181,7 +213,7 @@ export function MessagesApp({ store, strings, host, messages, detail, onCompose,
             <ConversationList
               model={model}
               width={shownWidth}
-              {...(snapshot.selected ? { selected: snapshot.selected } : {})}
+              {...(composing ? { selected: DRAFT_ROW } : snapshot.selected ? { selected: snapshot.selected } : {})}
               query={query}
               onQuery={setQuery}
               unreadOnly={unreadOnly}
@@ -205,6 +237,14 @@ export function MessagesApp({ store, strings, host, messages, detail, onCompose,
               }
               hostMenu={(id) => messages.menu("row", id)}
               onHostItem={(item) => void messages.perform(item)}
+              {...(view.compose ? { draftTitle: t("home.compose.title") } : {})}
+              onSelectDraft={() => {
+                nav.openCompose();
+                nav.requestFocus();
+              }}
+              onCloseDraft={() => nav.closeCompose()}
+              requests={view.requests.length}
+              onOpenRequests={() => nav.present({ kind: "requests" })}
             />
           </div>
         )}
@@ -227,6 +267,7 @@ export function MessagesApp({ store, strings, host, messages, detail, onCompose,
             messages,
             chrome,
             ...(openedAt !== undefined ? { openedAt } : {}),
+            nav,
           })}
           <ContextMenu items={composeMenu} className="hm-menu-host">
             <button

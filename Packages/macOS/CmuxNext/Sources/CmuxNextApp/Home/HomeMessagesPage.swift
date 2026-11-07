@@ -1,0 +1,263 @@
+import AppKit
+import CmuxHomeCore
+import CmuxNextDesign
+import CmuxNextHomeEngine
+import CmuxNextHomeModel
+import CmuxNextPages
+import CmuxNextSettings
+import CmuxNextWakeups
+
+/// The docked Home's Messages view: the React page `cmux.home-messages` (the conversation list,
+/// the transcript and composer, the sheets and the in-chat cards), one page kept and reused for
+/// the dock tab's life. The app tells it what only the app knows: the window's traffic lights over
+/// its top-left (``HomeMessagesPageRoute/setWindowControls(_:)``), and what the palette, the menus
+/// and the CLI ask of the shown Home (open a conversation, present a sheet, step the list), through
+/// the host-to-page calls the page serves (`home.messages.*`, `home.moveConversation`,
+/// `home.currentSelection`). A strip over its top edge drags the window, as the native list's
+/// header did.
+@MainActor
+final class HomeMessagesPage: NSView {
+    /// The sheets the page draws (sheets/), by the name `home.messages.present` takes.
+    enum Sheet: String {
+        case newMessage, requests, groupInfo, newChief, invite, teamInvite, closeNewMessage
+    }
+
+    let page: PageWebView
+    let route: HomeMessagesPageRoute
+    let host: HomeMessagesHostProvider
+    private let dragStrip = HomeWindowDragStrip()
+    private weak var services: AppServices?
+    /// Follows `HomeService.pendingSelection` (a conversation a sheet, the CLI or a run started), the
+    /// preferred Chief and the unread colour.
+    private var watches: [Task<Void, Never>] = []
+    /// The Chief conversation the page opened by itself (a later Chief replaces it); nil once the person picked.
+    private var followed: String?
+    /// The list's pins and hidden conversations (``HomeListPage``): a source over the owner's stores.
+    let sidebar: HomeSidebarSource
+    /// The header band the traffic lights may lie over (the list's `HEADER.band`, list/layout.ts).
+    static let band: CGFloat = 52
+    /// How long a host-to-page call waits for the page (its first load, a reconnect) before it gives up.
+    static let answerDeadline: Duration = .seconds(5)
+
+    init(services: AppServices, page: PageWebView, route: HomeMessagesPageRoute, host: HomeMessagesHostProvider) {
+        self.services = services
+        self.page = page
+        self.route = route
+        self.host = host
+        sidebar = services.home.makeSidebarSource()
+        super.init(frame: .zero)
+        setAccessibilityIdentifier("cmux.homeMessages")
+        page.frame = bounds
+        page.autoresizingMask = [.width, .height]
+        addSubview(page)
+        addSubview(dragStrip)
+        watch(services.home)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    /// The Messages page for the docked Home (`dock`), classic Home's top page or a Home pane tab
+    /// (no dock: no view switch); nil when the page bundle is missing.
+    static func make(services: AppServices, dock: HomeDockView? = nil) -> HomeMessagesPage? {
+        guard let made = PageFactory(services: services).homeMessagesWebPage(dock: dock) else { return nil }
+        // A web link the person clicks opens on the Home workspace's right side, as in Channels.
+        made.page.onOpenExternal = { [weak services] in services?.home.dock.openLink($0, on: services?.daemon.connection) }
+        return HomeMessagesPage(services: services, page: made.page, route: made.route, host: made.host)
+    }
+
+    nonisolated deinit {
+        for watch in watches { watch.cancel() }
+    }
+
+    /// The conversation the page shows, as it last said (`cmux.home.messages.selected`).
+    var shown: ConversationID? { host.shown }
+
+    override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        dragStrip.frame = CGRect(x: 0, y: 0, width: bounds.width, height: HomeWindowDragStrip.height)
+        updateWindowControls()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateWindowControls()
+    }
+
+    /// The window's traffic lights over the page's top band, in its points from its top-left; nil
+    /// when none lie there (the window's sidebar beside the page, full screen, no window).
+    func updateWindowControls() {
+        route.setWindowControls(windowControls(band: Self.band))
+    }
+
+    private func windowControls(band: CGFloat) -> CGRect? {
+        guard let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) else { return nil }
+        var controls = lights
+        if let accessory = (window as? any TitlebarAccessoryHosting)?.titlebarAccessoryFrame, accessory.width > 0,
+           abs(accessory.midY - lights.midY) < lights.height {
+            controls = controls.union(accessory)
+        }
+        let local = convert(controls, from: nil)
+        guard local.intersects(CGRect(x: 0, y: 0, width: bounds.width, height: band)) else { return nil }
+        return local.integral
+    }
+
+    private func watch(_ home: HomeService) {
+        let store = home.homeStore
+        // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
+        watches.append(Task { [weak self] in
+            for await pending in ObservationStream({ (home.pendingSelection, store.rows.map(\.id)) }) {
+                guard let self, let id = pending.0, pending.1.contains(id) else { continue }
+                home.pendingSelection = nil
+                show(HomeDockSelection(conversation: id.rawValue), focus: true)
+            }
+        })
+        // The page opens the preferred Chief by itself while nothing of the person's shows, and
+        // follows it as it changes (HomeDefaultConversation.followUp); what the person opened stays.
+        followed = nil
+        host.onShown = { [weak self] id in
+            guard let self else { return }
+            if id == nil, let first = HomeDefaultConversation.defaultConversation(rows: visibleRows(home), home: home) {
+                followed = first.rawValue
+                show(HomeDockSelection(conversation: first.rawValue))
+            } else if id?.rawValue != followed {
+                followed = nil
+            }
+        }
+        // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
+        watches.append(Task { [weak self] in
+            var last = HomeDefaultConversation.chiefKey(home)
+            for await key in ObservationStream({ HomeDefaultConversation.chiefKey(home) }) {
+                guard let self, key != last else { continue }
+                last = key
+                let next = HomeDefaultConversation.followUp(chief: key.chief, shown: shown, followed: followed, composing: false,
+                                                            rows: visibleRows(home), home: home)
+                followed = next.followed
+                if let open = next.open { show(HomeDockSelection(conversation: open.rawValue)) }
+            }
+        })
+        // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
+        watches.append(Task { [weak self] in
+            for await _ in ObservationStream({ home.services.settings?.snapshot.attention.color }) {
+                self?.route.publishChrome()
+            }
+        })
+    }
+
+    /// The listed rows without archived Chiefs' (``HomeArchivedChiefs``).
+    private func visibleRows(_ home: HomeService) -> [InboxRow] {
+        HomeArchivedChiefs(home.directory.archivedChiefs, me: home.homeStore.me?.id).visible(home.homeStore.rows)
+    }
+
+    // MARK: Asking the page
+
+    /// Calls the page op `op`, waiting for the page to load and answer (``answerDeadline``); nil
+    /// when it never answers (a closed page, an older bundle).
+    @discardableResult
+    func ask(_ op: String, _ params: [String: JSONValue] = [:]) async -> JSONValue? {
+        let router = page.router
+        let clock = ContinuousClock()
+        let end = clock.now.advanced(by: Self.answerDeadline)
+        var backoff = Backoff(initial: .milliseconds(100), maximum: .seconds(1))
+        // A page still loading (or reconnecting) has no handler yet: ask again, spaced by a backoff,
+        // until it answers. Stops at the first answer, at the deadline, or when the task ends.
+        while clock.now < end, !Task.isCancelled {
+            if let answer = await PageAnswerDeadline(.seconds(1)).answer({ try await router.callPage(op, params: .object(params)) }) {
+                return answer
+            }
+            // concurrency-allow: Backoff.wait suspends the task (no thread blocks); it spaces the retries of a refused call
+            do { try await backoff.wait(owner: "home.messages.ask") } catch { return nil }
+        }
+        return nil
+    }
+
+    /// Opens a conversation (and its message), as a click on its row; `focus` gives its message box the keyboard.
+    func show(_ selection: HomeDockSelection, focus: Bool = false, draft: String? = nil) {
+        var params: [String: JSONValue] = ["conversation": .string(selection.conversation)]
+        if let message = selection.message { params["message"] = .string(message) }
+        if let draft { params["draft"] = .string(draft) }
+        // task-owner: one page call; ends with its answer (bounded by answerDeadline)
+        // main-hop-allow: already on main (a menu, palette or CLI action); the task only awaits the page's answer
+        Task { @MainActor [weak self] in
+            await self?.ask("home.messages.show", params)
+            if focus { self?.focusPrimaryInput() }
+        }
+    }
+
+    /// The person opened `id`: shown, and its message box takes the keyboard.
+    func open(_ id: ConversationID) { show(HomeDockSelection(conversation: id.rawValue), focus: true) }
+
+    /// Presents one of the page's sheets (New Message, Requests, Group Info, New Chief, Invite).
+    func present(_ sheet: Sheet, conversation: ConversationID? = nil, prefill: String? = nil) {
+        var params: [String: JSONValue] = ["sheet": .string(sheet.rawValue)]
+        if let conversation { params["conversation"] = .string(conversation.rawValue) }
+        if let prefill { params["prefill"] = .string(prefill) }
+        // task-owner: one page call; ends with its answer (bounded by answerDeadline)
+        // main-hop-allow: already on main (a menu, palette or CLI action); the task only awaits the page's answer
+        Task { @MainActor [weak self] in await self?.ask("home.messages.present", params) }
+    }
+
+    /// The previous or next conversation in the list (wrapping), opened.
+    func move(by offset: Int) async -> Bool {
+        await ask("home.moveConversation", ["delta": .number(Double(offset))])?.objectValue?["moved"]?.boolValue == true
+    }
+
+    /// The `number`th conversation of the list (9: the last), opened.
+    func select(number: Int) async -> Bool {
+        await ask("home.messages.selectNumber", ["number": .number(Double(number))])?.objectValue?["selected"]?.boolValue == true
+    }
+
+    /// The page's selection (`home.currentSelection`) for the dock's view switch.
+    func selection() async -> HomeDockSelection? {
+        guard let fields = await ask("home.currentSelection")?.objectValue, let conversation = fields["conversation"]?.stringValue,
+              HomeDockSelection.isLinkID(conversation) else { return nil }
+        let message = fields["message"]?.stringValue.flatMap { HomeDockSelection.isLinkID($0) ? $0 : nil }
+        return HomeDockSelection(conversation: conversation, message: message)
+    }
+
+    /// The page's primary input (the message box, or To: on New Message) takes the keyboard.
+    func focusPrimaryInput() {
+        let focus = { [weak self] in
+            guard let self else { return }
+            page.focusPage()
+            // task-owner: one page call; ends with its answer (bounded by answerDeadline)
+            // main-hop-allow: already on main (a focus request); the task only awaits the page's answer
+            Task { @MainActor [weak self] in await self?.ask("home.messages.focusComposer") }
+        }
+        if page.window != nil { focus() } else { page.whenPainted(focus) }
+    }
+
+    /// The dock tab closed: the page's document ends.
+    func close() {
+        for watch in watches { watch.cancel() }
+        watches = []
+        page.close()
+    }
+}
+
+/// The list actions (Pin, Delete from List) change the owner's stores; the page's list hears it from them.
+extension HomeMessagesPage: HomeListPage {
+    func listPinsChanged() {}
+    func conversationLeft(_ id: ConversationID, next: ConversationID?) {}
+}
+
+/// A thin strip over the Messages page's top edge that moves the window, as the native list's
+/// header did (a web view never moves its window); a double-click zooms or minimizes per the
+/// person's system setting, as a title bar does.
+final class HomeWindowDragStrip: NSView {
+    static let height: CGFloat = 8
+
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return super.mouseDown(with: event) }
+        if event.clickCount == 2 {
+            let action = UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick")
+            if action == "Minimize" { window.performMiniaturize(nil) } else if action != "None" { window.performZoom(nil) }
+            return
+        }
+        window.performDrag(with: event)
+    }
+}

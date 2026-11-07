@@ -44,10 +44,11 @@ extension PageFactory {
         return page
     }
 
-    /// The React Messages page (``PageDescriptor/homeMessages``) and its route: the row and compose menus
-    /// (``HomeConversationMenu``, ``HomePageMenus``) and the unread colour. Not docked yet: the dock hosts it
-    /// in place of `TopHomePageView` and hands the route the traffic lights.
-    func homeMessagesWebPage(dock: HomeDockView? = nil) -> (page: PageWebView, route: HomeMessagesPageRoute)? {
+    /// The React Messages page (``PageDescriptor/homeMessages``): the docked Home's Messages view
+    /// (``HomeMessagesPage``). Its route serves the row and compose menus (``HomeConversationMenu``,
+    /// ``HomePageMenus``), the runs, the unread colour and the traffic lights; ``HomeMessagesHostProvider``
+    /// serves its sheets, cards, colours and the conversation it shows.
+    func homeMessagesWebPage(dock: HomeDockView? = nil) -> (page: PageWebView, route: HomeMessagesPageRoute, host: HomeMessagesHostProvider)? {
         let (home, registry, app) = (services.home, services.registry, services)
         let route = HomeMessagesPageRoute(menu: { id in
             let entries = id.map { id in home.homeStore.rows.first { $0.id.rawValue == id }.map(home.conversationMenu.entries) ?? [] }
@@ -60,14 +61,21 @@ extension PageFactory {
             return true
         }, unreadColor: { app.settings?.snapshot.attention.color?.nsColor ?? Palette.notificationBlue },
            personOnlyMessage: RefusalStrings.personOnlyFromPage)
-        return homeWebPage(.homeMessages, dock: dock, extra: [PageRoute(prefix: HomeMessagesPageRoute.prefix, provider: route)]).map { ($0, route) }
+        let host = HomeMessagesHostProvider(services: services)
+        let actions = PageGestureActionProvider(page: .homeMessages, wrapping: AppPageNativeProvider(services: services, page: .homeMessages))
+        let extra = [PageRoute(prefix: HomeMessagesPageRoute.prefix, provider: route), PageRoute(prefix: PageNativeOp.actionRun, provider: actions)]
+            + HomeMessagesHostProvider.prefixes.map { PageRoute(prefix: $0, provider: host) }
+        guard let page = homeWebPage(.homeMessages, dock: dock, extra: extra) else { return nil }
+        host.window = { [weak page] in page?.window }
+        services.home.homeDidOpen(asked: true)
+        return (page, route, host)
     }
 
     /// A Home page on this instance's daemon (Channels, Messages): the credential verb, the Chief's
     /// profile and engine routes, the composers' edits, the docked view switch (in the dock only),
     /// then `extra`, with the selected-text menu of the Channels page.
     func homeWebPage(_ descriptor: PageDescriptor, dock: HomeDockView?, extra: [PageRoute] = []) -> PageWebView? {
-        let provider = DaemonCredentialPageProvider(daemon: services.daemon, chief: services.home.chief)
+        let provider = DaemonCredentialPageProvider(daemon: services.daemon, chief: services.home.chief, page: descriptor.resource)
         let (editRoute, edits) = Self.homeChannelsEditRoute()
         var routes = [PageRoute(prefix: "cmux.host.credential.", provider: provider),
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
@@ -127,17 +135,20 @@ final class PageEditProvider: PageProvider {
 final class DaemonCredentialPageProvider: PageProvider {
     private weak var daemon: DaemonService?
     private weak var chief: ChiefConversationOwner?
+    /// The page id the Chief owner's listener admits and its credential is bound to (`home-channels`, `home-messages`).
+    private let page: String
 
-    init(daemon: DaemonService, chief: ChiefConversationOwner?) {
+    init(daemon: DaemonService, chief: ChiefConversationOwner?, page: String = "home-channels") {
         self.daemon = daemon
         self.chief = chief
+        self.page = page
     }
 
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard op == "cmux.host.credential.load" else { throw PageError.unknownOp(op) }
         let credential = try await daemonCredential()
         guard case .object(var fields) = credential, let chief else { return credential }
-        switch await chief.pageEndpoint(page: "home-channels") {
+        switch await chief.pageEndpoint(page: page) {
         case .starting: throw PageError.unavailable(Self.chiefStarting)
         case .unavailable: return credential
         case .ready(let owner):

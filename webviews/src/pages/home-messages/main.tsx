@@ -7,6 +7,8 @@
 // The host adds only what the app knows (host.ts: the row and compose menus, the traffic lights).
 // In the gallery and dev loop (`?mock`) the Channels page's in-memory mock provider stands in.
 import "../shared/desktop";
+// Before any part that reads the pane's table: the Channels rows' keys, the mic's and the chips'.
+import "./paneStrings";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
@@ -19,6 +21,7 @@ import { HomeChannelsStore, PendingCarry } from "../home-channels/store";
 import { DaemonGate, type DaemonSource, type HostCredential } from "../home-channels/DaemonGate";
 import { DaemonHomeClient } from "../home-channels/daemonHome";
 import { MessagesApp } from "./App";
+import { MessagesDetail as MessagesDetailView } from "./detail/MessagesDetail";
 import { noMessagesHost, pageMessagesHost } from "./host";
 import type { MessagesDetail, MessagesHost } from "./types";
 import table from "./generated/strings.json";
@@ -27,8 +30,11 @@ import "../../ui/ui.css";
 import "./styles.css";
 import "./list/list.css";
 
+/** The detail slot the page mounts: the transcript, New Message, the sheets and the cards. */
+const pageDetail: MessagesDetail = (props) => <MessagesDetailView {...props} />;
+
 /** The page on an in-memory provider (the gallery, `?mock`). */
-export function mountMockMessagesPage(root: HTMLElement, detail?: MessagesDetail): HomeChannelsStore {
+export function mountMockMessagesPage(root: HTMLElement, detail: MessagesDetail = pageDetail): HomeChannelsStore {
   const store = new HomeChannelsStore(new MockHomeProvider());
   const strings = createStrings(table);
   document.title = strings.t("home.title");
@@ -39,7 +45,7 @@ export function mountMockMessagesPage(root: HTMLElement, detail?: MessagesDetail
         strings={strings}
         host={null}
         messages={noMessagesHost}
-        {...(detail ? { detail } : {})}
+        detail={detail}
         widthStorage={null}
       />
     </UiProvider>,
@@ -52,7 +58,7 @@ export function mountMessagesPage(
   root: HTMLElement,
   source: DaemonSource,
   client: PageClient | null,
-  detail?: MessagesDetail,
+  detail: MessagesDetail = pageDetail,
 ): void {
   const strings = createStrings(table);
   document.title = strings.t("home.title");
@@ -70,7 +76,7 @@ export function mountMessagesPage(
             messages={messages}
             strings={strings}
             carry={carry}
-            {...(detail ? { detail } : {})}
+            detail={detail}
           />
         )}
       </DaemonGate>
@@ -94,7 +100,7 @@ function DaemonMessages({
   messages: MessagesHost;
   strings: Strings;
   carry: PendingCarry;
-  detail?: MessagesDetail;
+  detail: MessagesDetail;
 }) {
   const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host));
   return (
@@ -103,7 +109,7 @@ function DaemonMessages({
       strings={strings}
       host={host}
       messages={messages}
-      {...(detail ? { detail } : {})}
+      detail={detail}
       widthStorage={globalThis.localStorage ?? null}
     />
   );

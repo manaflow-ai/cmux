@@ -11,6 +11,8 @@ import { Avatar } from "../../home-channels/Avatar";
 import { partText } from "../../home-channels/model";
 import type { HomeAttachment, HomeMessage, HomeParticipant } from "../../home-channels/types";
 import type { Strings } from "../../shared/i18n";
+import { HomeLinkChip } from "../cards/links/HomeLinkChip";
+import type { LinkPreviewFetch } from "../cards/links/linkPreview";
 import { formatDay, formatTime } from "./format";
 import type { TranscriptRow } from "./rows";
 
@@ -24,12 +26,19 @@ export const TAPBACKS = [
   { tapback: "question", value: "❓" },
 ] as const;
 
+/** Link chips in people's plain text (Swift `HomeLinkChip`): the app's facts and opening. */
+export interface RowLinks {
+  fetchPreview: LinkPreviewFetch;
+  onOpen(href: string): void;
+}
+
 export interface RowActions {
   onRetry?(key: string): void;
   onDiscard?(key: string): void;
   /** A tapback on a part: `value` is its emoji, `tapback` its name (sent again: taken back). */
   onReact?(message: HomeMessage, partIndex: number, value: string, tapback: string): void;
   onCopy?(text: string): void;
+  links?: RowLinks;
 }
 
 export interface TranscriptRowViewProps {
@@ -40,6 +49,8 @@ export interface TranscriptRowViewProps {
   now: number;
   people: ReadonlyMap<string, HomeParticipant>;
   actions: RowActions;
+  /** The message a link opened at: its bubbles are marked. */
+  highlight?: string;
 }
 
 const PENDING = "pending:";
@@ -51,6 +62,7 @@ export const TranscriptRowView = memo(function TranscriptRowView({
   now,
   people,
   actions,
+  highlight,
 }: TranscriptRowViewProps) {
   const { t } = strings;
   const style = row.gap ? { paddingTop: row.gap } : undefined;
@@ -106,7 +118,15 @@ export const TranscriptRowView = memo(function TranscriptRowView({
       );
     }
     case "bubble":
-      return <BubbleRow row={row} me={me} strings={strings} actions={actions} />;
+      return (
+        <BubbleRow
+          row={row}
+          me={me}
+          strings={strings}
+          actions={actions}
+          highlighted={highlight !== undefined && row.message.id === highlight}
+        />
+      );
   }
 });
 
@@ -115,11 +135,13 @@ function BubbleRow({
   me,
   strings,
   actions,
+  highlighted,
 }: {
   row: Extract<TranscriptRow, { kind: "bubble" }>;
   me: string;
   strings: Strings;
   actions: RowActions;
+  highlighted: boolean;
 }) {
   const { t } = strings;
   const { message, outgoing, delivery } = row;
@@ -177,7 +199,7 @@ function BubbleRow({
   ) : row.markdown ? (
     <Markdown streaming={row.streaming}>{text}</Markdown>
   ) : (
-    <span className="mt-text">{text}</span>
+    <span className="mt-text">{actions.links ? linkedText(text, actions.links) : text}</span>
   );
   const bubble = (
     <div
@@ -188,6 +210,7 @@ function BubbleRow({
         delivery?.state === "sending" ? "sending" : "",
         failed ? "failed" : "",
         row.markdown ? "md" : "",
+        highlighted ? "highlighted" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -221,4 +244,26 @@ function BubbleRow({
       )}
     </div>
   );
+}
+
+/** Links in people's text: http(s) and cmux app links, without the punctuation that ends a sentence. */
+const LINK = /\b(?:https?|cmux(?:-[a-z0-9]+)*):\/\/[^\s<>"]+/gi;
+const TRAILING = /[.,;:!?)\]}'"]+$/;
+
+/** `text` with each link drawn as its chip (the agent pane's web chip, or an app link's). */
+export function linkedText(text: string, links: RowLinks): ReactNode[] {
+  const out: ReactNode[] = [];
+  let at = 0;
+  for (const match of text.matchAll(LINK)) {
+    const href = match[0].replace(TRAILING, "");
+    if (!href) continue;
+    const start = match.index;
+    if (start > at) out.push(text.slice(at, start));
+    out.push(
+      <HomeLinkChip key={start} href={href} label={href} fetchPreview={links.fetchPreview} onOpen={links.onOpen} />,
+    );
+    at = start + href.length;
+  }
+  if (at < text.length) out.push(text.slice(at));
+  return out;
 }

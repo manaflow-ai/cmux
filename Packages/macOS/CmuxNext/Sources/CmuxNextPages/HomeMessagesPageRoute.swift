@@ -8,12 +8,19 @@ extension PageDescriptor {
     /// client of this instance's daemon over its loopback WebSocket (the same credential host verb,
     /// `cmux.host.credential.load`), with the Channels page's routes (Chief profile and engine, the
     /// docked view switch, the composers' edits); `cmux.home.messages.*` adds only what the app knows
-    /// (``HomeMessagesPageRoute``).
+    /// (``HomeMessagesPageRoute``, and the app's sheet, card and appearance ops under the same prefix).
+    /// The sheets run four catalog actions through `cmux.app.action.run`, each on the person's click.
     public static let homeMessages = PageDescriptor(
         id: "cmux.home-messages", resource: "home-messages",
         namespaces: ["cmux.host.credential.", "cmux.chief.profile.", "cmux.chief.backend.", "cmux.host.home.", HomeMessagesPageRoute.prefix],
-        nativeOps: [PageNativeOp.edit], commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
+        nativeOps: [PageNativeOp.edit, PageNativeOp.actionRun], actions: homeMessagesActions, gestureActions: homeMessagesActions,
+        commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
         csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]), acceptsFirstMouse: true)
+}
+
+extension PageDescriptor {
+    /// The catalog actions the Messages page's sheets run (Leave Group…, Invite…, Invite to Team…, New Chief…).
+    static let homeMessagesActions: Set<String> = ["home.leaveConversation", "home.invite", "home.inviteToTeam", "home.newChief"]
 }
 
 /// `cmux.home.messages.*`: what the Messages page asks of the app.
