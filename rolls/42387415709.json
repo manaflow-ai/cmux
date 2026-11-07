@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42387415709",
+  "recorded_at": "2026-11-07T15:50:14Z",
+  "reason": "dispatched: rebake the tip's image inputs with the pinned cmux-tui",
+  "dry_run": false,
+  "cmux_tui": "a36e33e8d72f718213ebdaadc8dee5b5450cc8a2",
+  "fixes": [],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T15:50:14Z",
+    "snapshot_id": "sh-c4f893bd871d4ad6802528233614ec01",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42387415709): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "bcc14f85dba643b474c90dc6bb2e122bd3ff79c8",
+    "image": "cloud-native-auto-a36e33e8-42387415709-1",
+    "revision": "ci-42387415709-1",
+    "at": "2026-11-07T15:50:14Z"
+  },
+  "rolled_back": false
+}
