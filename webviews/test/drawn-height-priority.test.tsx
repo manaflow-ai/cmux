@@ -5,6 +5,7 @@ import { act, startTransition, useCallback, useLayoutEffect, useRef, useState } 
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { LayeredMap } from "../src/agent-session/acpmux/conversation/layeredMap";
 
 // Exercise the production callback with React's real priority queues, without mounting the
 // whole agent pane. In particular, an updater is not interchangeable with its eager result.
@@ -35,12 +36,14 @@ type Height = {
   status?: string;
 };
 type Heights = Map<string, Height>;
+/// The drawn heights as the transcript keeps them (conversation/layeredMap.ts).
+type Drawn = LayeredMap<Height>;
 type Ref<T> = { current: T };
 type Inputs = {
-  drawnRef: Ref<Heights>;
+  drawnRef: Ref<Drawn>;
   pendingDrawn: Ref<Heights>;
   changedDrawn: Ref<Set<string>>;
-  setDrawn: (update: (current: Heights) => Heights) => void;
+  setDrawn: (update: (current: Drawn) => Drawn) => void;
 };
 const useFlush = compileFunction(
   new Bun.Transpiler({ loader: "ts" }).transformSync(`
@@ -91,12 +94,13 @@ async function setup() {
   };
   function Probe() {
     control.renders += 1;
-    const [drawn, setDrawn] = useState<Heights>(
-      () =>
+    const [drawn, setDrawn] = useState<Drawn>(() =>
+      LayeredMap.empty<Height>().with(
         new Map([
           ["row", h1],
           ["unchanged", h1],
         ]),
+      ),
     );
     const [, setTick] = useState(0);
     const drawnRef = useRef(drawn);
