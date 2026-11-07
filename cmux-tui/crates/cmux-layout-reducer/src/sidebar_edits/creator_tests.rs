@@ -37,7 +37,10 @@ fn group(id: &str, members: &[&str]) -> Node {
             parent: None,
             pinned: false,
             collapsed: false,
-            members: members.iter().map(|spec| Member::Workspace { workspace: row(spec) }).collect(),
+            members: members
+                .iter()
+                .map(|spec| Member::Workspace { workspace: row(spec) })
+                .collect(),
         },
     }
 }
@@ -182,10 +185,8 @@ fn closing_a_creator_clears_its_childrens_link() {
 fn closing_a_creators_group_clears_its_childrens_link() {
     // `b` lists in another section; its creator goes with the closed group.
     let mut sections = tree(vec![group("g", &["a"])]);
-    sections.insert(
-        0,
-        Section { id: SectionId::Pinned, collapsed: false, nodes: vec![loose("b<a")] },
-    );
+    sections
+        .insert(0, Section { id: SectionId::Pinned, collapsed: false, nodes: vec![loose("b<a")] });
     let (changed, after) = run(Intent::CloseGroup { group: "g".into() }, &sections);
     assert!(changed);
     let Node::Workspace { workspace } = &after[0].nodes[0] else { panic!("b listed") };
