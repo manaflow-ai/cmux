@@ -41,7 +41,8 @@ import { recordedPromptParts } from "../inlinePrompt";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
-import { SourceBadge, useSourceLabel, withSourceLabel } from "../composer/SourceBadge";
+import { SourceBadge } from "../composer/SourceBadge";
+import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
 import {
   ForkButton,
   forkWithFeedback,

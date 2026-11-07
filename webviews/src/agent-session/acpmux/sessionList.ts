@@ -4,6 +4,7 @@
 import { type Translate, translate } from "./i18n";
 import { withoutRelayLabel } from "./conversation/relayEnvelope";
 import { readRetry, type RetryState } from "./subagents/retryState";
+import { senderSessionName } from "./senderIdentity";
 import { type SessionUsageStats, usageStatsOf } from "./usageStats";
 
 /** A session as the sidebar sees it, cut from acpmux's session summary. */
@@ -418,10 +419,18 @@ export function isOpaqueName(bare: string): boolean {
  * name is the launch profile's (`claude-sr`), so a chat with no prompt yet is a "New chat".
  */
 export function sessionTitle(
-  session: { title?: string; lastPrompt?: string; name?: string; harness?: string; family?: string; sessionId: string },
+  session: {
+    title?: string;
+    lastPrompt?: string;
+    name?: string;
+    peer?: string;
+    harness?: string;
+    family?: string;
+    sessionId: string;
+  },
   t: Translate = translate,
 ): string {
-  const name = session.name ?? "";
+  const name = senderSessionName(session.name ?? "", session.peer);
   const bare = name.split("/").pop() ?? name;
   // acpmux names a session `agent` or `agent-N`, and a fork `<name>-fork`, also made unique with `-N`.
   const generatedFrom = (agent: string | undefined) =>

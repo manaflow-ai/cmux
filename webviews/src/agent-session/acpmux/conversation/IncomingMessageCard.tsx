@@ -41,7 +41,7 @@ import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
 import { hasAgentMark, knownMark, MonogramMark } from "../../shared/AgentMark";
-import { useMachineChats, useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { useMachineChats, useSenderChat, useSenderIdentity, useSenderPlace } from "../subagents/subsessions";
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 import { copyTextResult } from "./clipboard";
 import { harnessLabel, runModel } from "../subagents/agentRuns";
@@ -71,7 +71,7 @@ import { noticeMarkdown } from "./agentNotice";
 import { useNoticeLook, type NoticeLook } from "./noticeLook";
 import { openSessionAttributes } from "./menuParts";
 import { useSessionRef } from "./SessionRef";
-import { useSessionHover } from "../started/SessionHoverCard";
+import { useSessionHover } from "../started/useSessionHover";
 import { resolveSessionRef, senderRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
 import { AgentMessageRow } from "./AgentMessageRow";
 import { UnverifiedMark } from "./UnverifiedMark";
@@ -170,6 +170,16 @@ export function senderLabel(name: string, host: string | undefined): string {
     : name;
 }
 
+/// The name a received line gives its sender: the recorded session's own, from the session metadata
+/// (senderIdentity.ts), as its preview and session card name it, whatever name the message fell back
+/// to (a raw `acp:<id>` when its provenance carried no `fromName`). A Chief, an app's persona and a
+/// person name themselves.
+function useSenderSessionName(message: IncomingMessage, person: boolean): string {
+  const session = !person && !message.chief && !message.app ? message.sessionId : undefined;
+  const identity = useSenderIdentity({ name: session ? message.name : "", ...(session && { sessionId: session }) });
+  return session ? identity.name : message.name;
+}
+
 /// The sender's mark and name at a received line's start (and a waiting group's sender head,
 /// PendingMessagesCard.tsx): the name opens the sender's chat when there is one to open.
 export function SenderName(props: {
@@ -204,7 +214,8 @@ export function SenderChip({
   // chat of the list, so no listed chat with its name stands in for it, and it is no chat to open.
   const chief = useChiefFace(message.chief);
   const sender = useSenderChat(message.chief ? "" : (message.lookup ?? message.name), message.sessionId);
-  const name = (message.chief && chief?.name) || senderLabel(message.name, sender.host);
+  const recorded = useSenderSessionName(message, false);
+  const name = (message.chief && chief?.name) || senderLabel(recorded, sender.host);
   // Read only (a guest): the sender's chat is not this reader's to open.
   const readOnly = useTranscriptReadOnly();
   const listed = message.chief || readOnly ? undefined : sender.sessionId;
@@ -455,9 +466,12 @@ export function IncomingMessageLine({
   // A Chief's message names the Chief (chiefFace.ts): its name and avatar as the sidebar shows them.
   // Its turn session is no chat of the list, so no listed chat with its name stands in for it.
   const chief = useChiefFace(message.chief);
-  const name = (message.chief && chief?.name) || message.name;
   // A person is never a chat: their name never finds one (a guest names themselves).
   const sender = useSenderChat(person || message.chief ? "" : message.name, person ? undefined : message.sessionId);
+  // The session's own name, as SenderName shows it: a peer's `<machine>/<name>` reads as `<name>` in
+  // the toggle's label and the reply editor's, the machine already shown beside it.
+  const recorded = useSenderSessionName(message, Boolean(person));
+  const name = (message.chief && chief?.name) || senderLabel(recorded, sender.host);
   const place = useSenderPlace(sender.sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).

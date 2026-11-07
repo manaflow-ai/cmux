@@ -201,9 +201,11 @@
    sides (both apps); the cards' 12 radius (claude.ai 12). Was 8 by 12 with a 10 radius (38.75 tall).
    model.ts measures it. Its look is the glass rule below. */
 .cv-user__bubble {
+  --cv-bubble-pad-block: max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2);
+  --cv-bubble-pad-inline: calc(4 * var(--grid-base));
   box-sizing: border-box;
   max-width: 70%;
-  padding: max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2) calc(4 * var(--grid-base));
+  padding: var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);
   border-radius: var(--grid-cards-radius);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
@@ -561,28 +563,21 @@
   -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
   mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
 }
-.cv-user__more {
-  display: block;
-  height: 20px;
-  margin: 4px 0 0;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: none;
-  font-family: var(--cv-font);
-  font-size: var(--text-detail);
+/* Show more / Show less under a long prompt or agent message (ExpandRow.tsx): 4px above a 20px
+   line (promptCollapse.ts PROMPT_MORE_HEIGHT), the 4px inside the row so all of it is the target. */
+.cv-expand-row.cv-user__more {
+  min-height: 24px;
+  margin: 0;
+  padding-top: 4px;
   line-height: 20px;
-  color: var(--cv-text-muted);
-  white-space: nowrap;
-  user-select: none;
-  letter-spacing: var(--text-detail--letter-spacing);
 }
-.cv-user__more:hover {
-  color: var(--cv-text);
-}
-.cv-user__more:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
-  outline-offset: 1px;
+/* In a prompt's bubble the row is the bubble's whole bottom: its full width, and down through the
+   bubble's bottom padding, which it takes in as its own, so the bubble is exactly as tall as with a
+   bare label and the words sit where they did. */
+.cv-user__bubble > .cv-expand-row.cv-user__more {
+  width: calc(100% + 2 * var(--cv-bubble-pad-inline));
+  margin: 0 calc(-1 * var(--cv-bubble-pad-inline)) calc(-1 * var(--cv-bubble-pad-block));
+  padding: 4px var(--cv-bubble-pad-inline) var(--cv-bubble-pad-block);
 }
 /* A pasted block: one card of the paste's own text, no outline, a quiet tint of the bubble's ink.
    Closed, its first PASTE_PREVIEW_LINES lines wrap in the prompt's font, the last fading out, over
@@ -1705,9 +1700,13 @@
   --cv-block-cut: calc(8 * var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px)) + var(--cv-lane));
   max-height: var(--cv-block-cut);
 }
-.cv-edit-diff > .cv-output-more {
+/* Show all N lines / Show less is the card's whole bottom row on the card's own fill (ExpandRow.tsx),
+   as tall as its header: a cut diff's last lines fade straight into it, and an open one's last line
+   ends on the same surface the row continues, with no strip of another colour under the lines. */
+.cv-edit-diff > .cv-expand-row {
+  min-height: calc(var(--cv-font-size) * 32 / 14);
   margin: 0;
-  padding: var(--ds-space-1) var(--ds-space-3) var(--ds-space-2);
+  padding-inline: var(--ds-space-3);
 }
 .cv-edit-diff__empty {
   padding: var(--ds-space-2) var(--ds-space-3);
@@ -4396,10 +4395,11 @@ a.cv-sha:focus-visible {
 }
 /* Reserve the corner outside the text scroller, so even unwrapped lines stay clear of the buttons. */
 .cv-tool-output__box:has(> .cv-tool-output__actions) {
-  padding-right: 32px;
+  --cv-actions-room: 32px;
+  padding-right: var(--cv-actions-room);
 }
 .cv-tool-output__box:has(> .cv-tool-output__actions > :nth-child(2)) {
-  padding-right: calc(2 * 32px);
+  --cv-actions-room: calc(2 * 32px);
 }
 .cv-tool-output__box > .cv-tool-output {
   grid-column: 1;
@@ -4549,24 +4549,83 @@ a.cv-sha:focus-visible {
 .cv-output-cut {
   color: var(--cv-text-muted);
 }
-.cv-output-more {
+/* Show more / Show less under every cut block (ExpandRow.tsx): one button, its block's full width
+   and its whole bottom row, so a click anywhere along that edge toggles it (Leo, 2026-11-07: "what
+   if the whole bottom row area were clickable ... my mouse is in the general vicinity, it's in the
+   general height area"). On its block's own surface; under the pointer only its fill and ink change,
+   never its size, padding, border or weight, so pointing at it moves nothing. Its bottom corners
+   follow its block's; the focus ring is drawn inside it, so a card's clip never cuts it. Alone (a
+   search's files, an agent message) it is the text column's width, 4px under the text. No
+   transition: the tint comes and goes at once, and a prompt's row is already moving with its fold. */
+.cv-expand-row {
   all: unset;
-  display: block;
-  margin: 4px 0 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: calc(var(--grid-base) + var(--text-detail--line-height));
+  margin: 0;
+  padding-top: 4px;
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+  background-color: transparent;
+  color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
-  color: var(--cv-text-muted);
-  cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
 }
-.cv-output-more:hover {
+.cv-expand-row:hover {
+  background-color: color-mix(in srgb, var(--cv-fg) 4%, transparent);
   color: var(--cv-text);
 }
-.cv-output-more:focus-visible {
+.cv-expand-row:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
-  outline-offset: 1px;
-  border-radius: 4px;
+  outline-offset: -2px;
+}
+/* In a card the row is a row: the card's header height, the words at the card's text inset. */
+:is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row {
+  padding-top: 0;
+}
+/* A Shell block's row runs out through the card's padding to its edges and takes in its bottom
+   padding, so the card is as tall as with the bare label under the output (12px padding, 4px and a
+   16px line: 32px). */
+.cv-shell > .cv-expand-row {
+  width: calc(100% + 2 * var(--grid-cards-padding));
+  min-height: calc(var(--grid-base) + var(--text-detail--line-height) + var(--grid-cards-padding));
+  margin: 0 calc(-1 * var(--grid-cards-padding)) calc(-1 * var(--grid-cards-padding));
+  padding-inline: var(--grid-cards-padding);
+}
+.cv-shell > .cv-expand-row:not(:last-child) {
+  margin-bottom: 0;
+}
+/* A call output's row is the box's second grid row, out under the corner buttons' room too. */
+.cv-tool-output__box > .cv-expand-row {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  width: auto;
+  min-height: calc(var(--cv-font-size) * 32 / 14);
+  margin-right: calc(-1 * var(--cv-actions-room, 0px));
+  padding-inline: 12px;
+}
+/* Arms of `expand-row-look` (expandRow.experiment.ts), set on the root by ExpandRow.tsx; the shipped
+   arm, the row continuing its block's surface, sets nothing. */
+:root[data-expand-row="fade"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row[aria-expanded="false"] {
+  position: relative;
+  margin-top: -24px;
+}
+:root[data-expand-row="hairline"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row {
+  background-color: color-mix(in srgb, var(--cv-fg) 4%, transparent);
+  box-shadow: inset 0 1px 0 var(--cv-card-ring);
+}
+:root[data-expand-row="hairline"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row:hover {
+  background-color: color-mix(in srgb, var(--cv-fg) 8%, transparent);
+}
+:root[data-expand-row="centred"] .cv-expand-row {
+  justify-content: center;
 }
 .cv-tool-output__raw {
   all: unset;

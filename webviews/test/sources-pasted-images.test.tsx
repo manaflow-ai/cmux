@@ -114,7 +114,7 @@ test("a list numbers only the images with no name of their own, naming the app w
 });
 
 test("Sources numbers pasted screenshots across the whole list, in the web and native rows alike", async () => {
-  const { sourceLabels } = await import("../src/agent-session/acpmux/session-info/SourcesSection");
+  const { sourceLabels } = await import("../src/agent-session/acpmux/session-info/sourcesSectionModel");
   const { sourcesSection } = await import("../src/agent-session/acpmux/session-info/native/sources");
   const { NativeInfoActions } = await import("../src/agent-session/acpmux/session-info/native/model");
   const hex = (n: number) => n.toString(16).repeat(64);

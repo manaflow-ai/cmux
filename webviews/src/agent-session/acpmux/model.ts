@@ -641,6 +641,13 @@ export type AcpmuxRow = {
   /// A "Worked for" disclosure whose fold mixes the agent's messages with its work reads "N previous
   /// messages", as Codex's does (conversation/turns.ts `foldMixesMessages`).
   previous?: number;
+  /// The messages between agents a finished turn's "Worked for" folds, which its label names in the
+  /// `messages` arm of workedForMessages.experiment.ts (conversation/turns.ts `shapeTurn`).
+  workedMessages?: { sent: number; received: number };
+  /// The prompt of other agents' messages a finished turn's "Worked for" folds (conversation/turns.ts
+  /// `shapedTurn`): the line stands for that prompt where the closed fold draws none, so the turn
+  /// keeps its minimap tick (threadMinimap/model.ts `minimapTurns`).
+  foldedPrompt?: AcpmuxRow;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
   queued?: string;
   /// A prompt sent into a running turn: `waiting` until the agent reads it (it reads a steer when
@@ -685,11 +692,19 @@ export type AcpmuxRow = {
   /// The rows a run absorbed (conversation/turns.ts `mergeShortNotes`): its own, the short note and
   /// the run after it, so Find and a shell's count reach each (chatFind.ts).
   joined?: string[];
+  /// A closed fold's line that draws only a step's calls, not its edits (conversation/turns.ts
+  /// `lineWork`): it is not that step's open-fold copy, so a Find match in the step opens the fold
+  /// (chatFind.ts isFindRow).
+  partial?: boolean;
   /// The messages other sessions sent that the agent has not read yet, drawn as one group
   /// (conversation/pendingMessages.ts, PendingMessagesCard.tsx), each once, oldest first.
   pendingMessages?: { rows: readonly AcpmuxRow[]; displayRows?: readonly AcpmuxRow[]; flat?: boolean };
   /// A received row expanded from an inbox notice; used to keep its waiting run flat.
   inboxDelivery?: true;
+  /// The id of the inbox notice row a delivery was expanded from (laneNoticeBatches.ts
+  /// `inboxChildren`): a turn the notice opened keeps the notice's fold key and minimap anchor
+  /// (conversation/turns.ts `turnFoldFor`, threadMinimap/model.ts `minimapTurns`).
+  inboxSource?: string;
   inboxDeliveryBatch?: true;
   /// Metadata retained for a preview-only inbox delivery so opening it can hydrate its thread.
   inboxThread?: {

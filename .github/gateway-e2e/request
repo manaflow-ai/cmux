@@ -1,3 +1,3 @@
 # A push to feat-cmux-next that changes this file runs .github/workflows/gateway-e2e.yml (the inference gateway
 # proof on the development backend). Change the line below to ask for a run.
-2026-11-07 eighth run: time the gateway route (hop cost, cmuxterm-hq#7415 F1)
+2026-11-07 hop split: the route's time by hop from Server-Timing (cmux-platform#975)
