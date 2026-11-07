@@ -70,6 +70,8 @@ pub(in crate::server) async fn new_on(
     // live start remains well beyond the old local 90-second budget.
     // Match `peer::send_request`: the forwarded request must outlive both the
     // generic peer budget and the peer's pooled-start hazard envelope.
+    // The start as sent, for a refusal of full access (`try_asking`).
+    let asked = p.clone();
     let timings = peer.timings();
     let budget = timings.request.max(timings.start);
     let start_timeout = || {
@@ -91,6 +93,11 @@ pub(in crate::server) async fn new_on(
         return Err(start_timeout());
     }
     result.map_err(|e| {
+        // Full access refused: the way out is asking there, not this start on HOST (`explain`).
+        let e = crate::hub::full_access_children::refused_by(&peer.name, &asked, e);
+        if e.data.as_ref().is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) {
+            return try_asking(&peer.name, params, e);
+        }
         let (build, served_peer) =
             (peer.remote_build(), peer.served_as().as_deref() == Some("peer"));
         update_first(&e, &peer.name, build.as_deref(), served_peer && !web, params)
@@ -166,8 +173,9 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
 
 /// `e`, a refusal of full access by `host` (`hub/full_access_children.rs` `refused_by`, which
 /// sets `data.fullAccessRefusedBy`), with `data.try` the same start there asking
-/// (`--policy ask`), as its message says; any other error unchanged.
-pub(in crate::server) fn try_asking(host: &str, params: &Value, mut e: RpcError) -> RpcError {
+/// (`--policy ask`), also at the end of its message, as its message says; any other error
+/// unchanged.
+fn try_asking(host: &str, params: &Value, mut e: RpcError) -> RpcError {
     let Some(data) = e.data.as_mut().filter(|d| d.get("fullAccessRefusedBy").is_some()) else {
         return e;
     };
@@ -185,7 +193,9 @@ pub(in crate::server) fn try_asking(host: &str, params: &Value, mut e: RpcError)
         *argv = words.into_iter().map(Value::String).collect();
     }
     let start = Start { mode: None, ..Start::of(&p) };
-    data.set("try", json!(command(&p, &start, Some(host), false).render(None)));
+    let command = command(&p, &start, Some(host), false).render(None);
+    data.set("try", json!(command));
+    e.message = format!("{}; instead: {command}", e.message);
     e
 }
 
