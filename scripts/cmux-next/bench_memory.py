@@ -28,11 +28,12 @@ is sampled again as `purged-N` (one count per run, so `idle-N` is an unpurged ap
 
 --release-hidden-chats MINUTES measures lossless discard of hidden agent chats (Leo, 2026-11-07:
 "if it really isn't being used after a while, can't things be more aggressive?"): the app runs with
-the app runs with discard off until the count's `idle-N` sample, then the bench writes
-`agents.hiddenChats.discard` on and `agents.hiddenChats.discardAfterMinutes` MINUTES into its cmux.json
-(the app follows the file), so the baseline holds no released chat. It waits for the hidden chats to be
+the app runs with discard off until the count's `idle-N` sample, then the bench sets
+`agents.hiddenChats.discardAfterMinutes` MINUTES and `agents.hiddenChats.discard` on through the
+app's `settings.set` (its own settings writer; the reply's values are kept in the sample), so the
+baseline holds no released chat. It waits for the hidden chats to be
 released, samples `released-N` with the live Chromium page count, then shows the --restore-chats oldest
-workspaces one at a time and times each chat back on screen with the app's own chat-open trace
+workspaces' chat tabs one at a time and times each chat back on screen with the app's own chat-open trace
 (`debug.chat_open_trace`: first content, first kept image, longest empty run). The trace binds only to
 a chat that loads again; a chat whose page stayed live shows at once and is counted as `live`, not
 timed. One count per run, like --purge-hidden.
@@ -343,6 +344,7 @@ class FakeChats:
         if not created:
             print(f"   agent.openSessionWorkspace: {response.get('error') or response}", file=sys.stderr)
             return None
+        remember_chat_tab(created[0], response)
         return created[0]
 
 
@@ -368,6 +370,17 @@ def purge_hidden_pages(app: App) -> dict:
             "errors": errors[:5]}
 
 
+# Each workspace's chat tab (from the `created` ids of the action that made it): a workspace shows the
+# tab it showed last, which the terminal+chat mix leaves on its terminal, so a restore shows the chat itself.
+CHAT_TABS: dict[str, str] = {}
+
+
+def remember_chat_tab(workspace: str, response: dict):
+    tab = next((str(item) for item in response.get("created", []) if str(item).startswith("tab_")), None)
+    if tab:
+        CHAT_TABS[workspace] = tab
+
+
 def cef_page_count(app: App) -> int | None:
     """Live Chromium pages of cmux's own (`cmux-page://`), from `debug.cef_pages`."""
     pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
@@ -386,11 +399,17 @@ def restore_chats(app: App, workspaces: list[str], count: int) -> dict:
     times its chat back on screen with the app's chat-open trace."""
     opens = []
     for workspace in workspaces[:count]:
+        tab = CHAT_TABS.get(workspace)
+        if tab is None:
+            opens.append({"workspace": workspace, "error": "no chat tab recorded for it"})
+            continue
         armed = app.call("debug.chat_open_trace", {"action": "arm"}, timeout=30)
         if not isinstance(armed, dict) or armed.get("error"):
             opens.append({"workspace": workspace, "error": f"arm: {armed}"})
             continue
         shown = app.action("goToWorkspace", focus=True, workspace=workspace)
+        if not shown.get("error"):
+            shown = app.run("tab.focus", target=tab)
         trace = app.call("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000, "settle_ms": 300}, timeout=40) or {}
         frames = trace.get("frames") or []
         opens.append({
@@ -403,9 +422,9 @@ def restore_chats(app: App, workspaces: list[str], count: int) -> dict:
         })
     content = [o["first_content_ms"] for o in opens if isinstance(o.get("first_content_ms"), (int, float))]
     empty = [o["longest_empty_ms"] for o in opens if isinstance(o.get("longest_empty_ms"), (int, float))]
-    live = sum(1 for o in opens if o.get("timed_out") and o.get("first_content_ms") is None)
-    return {"opens": opens, "n": len(content), "live": live,
-            "timed_out": sum(1 for o in opens if o.get("timed_out")) - live,
+    errors = sum(1 for o in opens if o.get("error"))
+    live = sum(1 for o in opens if not o.get("error") and o.get("timed_out") and o.get("first_content_ms") is None)
+    return {"opens": opens, "n": len(content), "errors": errors, "live": live,
             "first_content_p50_ms": percentile(content, 0.5), "first_content_p95_ms": percentile(content, 0.95),
             "longest_empty_p50_ms": percentile(empty, 0.5), "longest_empty_p95_ms": percentile(empty, 0.95),
             "with_image": sum(1 for o in opens if o.get("first_image_ms") is not None)}
@@ -445,6 +464,7 @@ def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats
             # Send (fleet minis carry no agent credentials either): --fake-agent
             # makes chats that answered.
             response = app.run("newTab.submit", text=f"memory bench chat {index}")
+            remember_chat_tab(workspace, response)
         else:
             raise SystemExit(f"bench-memory: unknown kind {kind!r} in --mix")
         if response.get("error") or response.get("code"):
@@ -794,8 +814,6 @@ def main():
         # A later count's idle sample would follow the earlier purge, not an unpurged app. Checked
         # before the launch, so a refused run leaves no app behind.
         parser.error("--purge-hidden and --release-hidden-chats take one --workspaces count; run each count on its own")
-    if args.release_hidden_chats > 0 and args.socket:
-        parser.error("--release-hidden-chats launches the app itself (it writes the setting into the launch's cmux.json); drop --socket")
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
     signal.signal(signal.SIGTERM, interrupted)
     if sys.platform != "darwin":
@@ -857,13 +875,17 @@ def main():
                 settle_and_sample(f"purged-{count}")["purge"] = purge
             if args.release_hidden_chats > 0:
                 before = cef_page_count(app)
-                discard = {"agents": {"hiddenChats": {"discard": True, "discardAfterMinutes": args.release_hidden_chats}}}
-                with open(os.path.join(scratch, "cmux.json"), "w") as out:
-                    json.dump(merged(config, discard), out)
+                applied = {}
+                for key, value in (("agents.hiddenChats.discardAfterMinutes", args.release_hidden_chats),
+                                   ("agents.hiddenChats.discard", True)):
+                    reply = app.call("settings.set", {"path": key, "value": value}, timeout=30) or {}
+                    applied[key] = reply.get("value") if not reply.get("error") else f"error: {reply.get('error')}"
+                print(f"== discard settings: {json.dumps(applied)}", flush=True)
                 # test script: the hidden chats come due after the setting's minutes (plus the planner's slack)
                 time.sleep(args.release_hidden_chats * 60 + 30)
                 result = settle_and_sample(f"released-{count}")
                 result["cef_pages"] = {"before": before, "after": cef_page_count(app)}
+                result["discard_settings"] = applied
                 print(f"== released at {count}: cmux pages {json.dumps(result['cef_pages'])}", flush=True)
                 report["restore"] = restore_chats(app, opened, args.restore_chats)
                 print(f"== restore: {json.dumps({k: v for k, v in report['restore'].items() if k != 'opens'})}", flush=True)
