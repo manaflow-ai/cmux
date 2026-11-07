@@ -201,7 +201,7 @@ export function HatQuestions({
         >
           {t("hat.questions.open")}
         </button>
-      ) : shown.answers.length === 0 ? (
+      ) : shown.onCard ? (
         <button
           type="button"
           onKeyDown={stepKeys}

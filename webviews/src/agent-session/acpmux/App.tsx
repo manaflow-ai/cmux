@@ -10014,13 +10014,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       throw error;
                     },
                   );
-                return callNative("chat.send", {
-                  text,
-                  attachments,
-                  accepted: () => accept(true),
-                  steer,
-                  ...(gesture ? { gesture } : {}),
-                });
+                // A View Only chat, taken over above, answers its waiting question in the chat too.
+                return withdrawForTypedReply(
+                  snapshot.sessionId ? individualPermission : undefined,
+                  directClient.current,
+                  () =>
+                    callNative("chat.send", {
+                      text,
+                      attachments,
+                      accepted: () => accept(true),
+                      steer,
+                      ...(gesture ? { gesture } : {}),
+                    }),
+                );
               };
               // The composer that holds the prompt: a refusal that comes once it is gone (the pane
               // swaps it when the chat's session starts) puts the prompt in the one shown now.

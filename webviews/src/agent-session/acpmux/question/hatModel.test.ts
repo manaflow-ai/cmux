@@ -142,6 +142,16 @@ describe("the questions the composer hat holds", () => {
       asks: [{ sessionId: "chat", permission: permission(asked, "perm-3"), at: 1 }],
     });
     expect(list.map((question) => question.id)).toEqual(["perm-1", "perm-2", "perm-3"]);
+    // One that needs more than a click waits for the card: the hat could not point to it.
+    const several = hatQuestions({
+      sessionId: "chat",
+      permission: permission(asked, "perm-1"),
+      queued: [permission(fixture("pending-multi"), "perm-multi")],
+      rows: [],
+      sessions: [],
+      asks: [],
+    });
+    expect(several.map((question) => question.id)).toEqual(["perm-1"]);
   });
 
   test("while the chat's own question waits, no tagged ask shows: a turn is running", () => {

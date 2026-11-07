@@ -88,6 +88,10 @@ function ownQuestion(permission: AcpmuxPermission | undefined, onCard = false): 
   const first = question.items[0];
   if (!first) return undefined;
   const more = question.items.length - 1;
+  // One behind the card that needs more than a click waits for the card, which reaches it in turn:
+  // the hat has nowhere to point it before then.
+  const answers = onCard ? [] : oneClickAnswers(question);
+  if (!onCard && answers.length === 0) return undefined;
   return {
     id: permission.permissionId,
     source: "own",
@@ -95,7 +99,7 @@ function ownQuestion(permission: AcpmuxPermission | undefined, onCard = false): 
     ...(hatTag(first.header) ? { tag: hatTag(first.header) } : {}),
     prompt: first.prompt,
     ...(more > 0 ? { detail: question.items[1]!.prompt } : {}),
-    answers: onCard ? [] : oneClickAnswers(question),
+    answers: onCard ? [] : answers,
     typed: question.items.length === 1 && first.allowsOther,
     ...(onCard ? { onCard } : {}),
     question,
