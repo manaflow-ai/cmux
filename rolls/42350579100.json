@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42350579100",
+  "recorded_at": "2026-11-07T07:21:08Z",
+  "reason": "cmux-tui 505056ea5bc5 changes the image's cmux-tui (pinned 285ab2fac5e2)",
+  "dry_run": false,
+  "cmux_tui": "505056ea5bc52eb296cbf9f594ac6310a93e8607",
+  "fixes": [
+    {
+      "sha": "505056ea5bc52eb296cbf9f594ac6310a93e8607",
+      "mergedAt": "2026-11-06T23:01:32-08:00",
+      "subject": "cmux-window-rules: the rest of the window handlers' rules in Rust (step A) (#37427)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-07T07:21:08Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
