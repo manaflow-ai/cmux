@@ -95,11 +95,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // task-owner: cloudBootstrap; one CLI read before services, cancelled at termination.
+        // task-owner: cloudBootstrap; one CLI read before services, then the cache refresh after the first frame, cancelled at termination.
         cloudBootstrap = Task { [weak self] in
             guard let self else { return }
             do {
-                let selection = try await CloudEnvironmentBootstrap(work: launchReads.work).resolve()
+                let (selection, refresh) = try await CloudEnvironmentBootstrap(work: launchReads.work).resolveAtLaunch()
                 try Task.checkCancellation()
                 environment.cloudConfiguration = CloudConfiguration.from(selection: selection, isDebugBuild: ControlService.isDebugBuild)
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_RUNTIME"] = "1"
@@ -109,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                     terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
                     resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
-                finishLaunching()
+                finishLaunching(); await firstFrame.opened(); await refresh()
             } catch {
                 guard !Task.isCancelled else { return }
                 logger.error("Cloud environment bootstrap failed: \(String(describing: error), privacy: .public)")
@@ -246,13 +246,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.firstFrame.open()
             }
         }
-        // Once the first terminal frame is drawn, the palette panel is made
-        // at the next idle moment, so the first open costs what later opens
-        // cost (a launcher panel opens in one frame), without
-        // delaying that frame.
-        // Then the icon picker (its panel, page and symbol catalog), so the first Set Icon opens warm.
+        // Once the first terminal frame is drawn, the palette panel is made at the next idle moment, so the first
+        // open costs what later opens cost (a launcher panel opens in one frame), without delaying that frame.
+        // Then the icon picker (its panel, page and symbol catalog) and the dialogs' page, so the first Set Icon and dialog open warm.
         launchSettle.whenSettled { [palette = services.palette, weak services] in
-            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare(); services?.groupEditor.prepare() } }
+            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare(); services?.groupEditor.prepare(); services?.dialogs.prewarm() } }
         }
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the

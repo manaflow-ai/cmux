@@ -38424,6 +38424,37 @@
 
       ],
       "cli" : "offered",
+      "cli_name" : "settings window-style-blocks",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.chromeStyle.blocks",
+      "main_menu" : null,
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Window Style: Blocks",
+      "title_key" : "action.appearance.chromeStyle.blocks",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
       "cli_name" : "settings change-background",
       "context_menu" : "offered",
       "context_menus" : [

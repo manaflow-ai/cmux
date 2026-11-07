@@ -509,7 +509,7 @@
   height: 0;
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
 }
-.acpmux-session-info-more:hover {
+.acpmux-session-info-fold:hover {
   color: var(--agent-text);
 }
 .acpmux-session-info-more:hover > .acpmux-session-info-more__rule {

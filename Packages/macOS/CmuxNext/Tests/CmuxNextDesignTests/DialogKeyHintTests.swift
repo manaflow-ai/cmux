@@ -51,22 +51,23 @@ import Testing
         }
     }
 
-    /// The drawn dialog: each button's title carries its keycap, VoiceOver reads the key,
-    /// and pressing the shown key answers that button.
+    /// The shown dialog: each button gets its keycap (the overlay page draws it), and pressing
+    /// the shown key answers that button. A button view drawing that keycap (native cards) carries it
+    /// in its title, and VoiceOver reads the key.
     @Test(arguments: [approval, unsaved])
-    func theDrawnDialogShowsAndAnswersEachKey(_ spec: CmuxDialogSpec) throws {
-        let view = CmuxDialogView(spec: spec)
-        #expect(view.buttonViews.count == spec.buttons.count)
-        for buttonView in view.buttonViews {
-            let hint = try #require(buttonView.keyHint, "\(buttonView.button.title) draws no key")
+    func theShownDialogShowsAndAnswersEachKey(_ spec: CmuxDialogSpec) throws {
+        for button in spec.buttons {
+            let dialog = CmuxDialogPresentation(id: 1, spec: spec, activeLook: nil)
+            let hint = try #require(dialog.hint(for: button), "\(button.title) shows no key")
+            let buttonView = CmuxDialogButtonView(button, hint: hint, target: nil, action: NSSelectorFromString("noop:"))
             #expect(buttonView.attributedTitle.string.contains(hint.glyph))
-            #expect(buttonView.attributedTitle.string.hasPrefix(buttonView.button.title))
-            #expect(buttonView.accessibilityLabel() == buttonView.button.title, "automation finds buttons by title")
+            #expect(buttonView.attributedTitle.string.hasPrefix(button.title))
+            #expect(buttonView.accessibilityLabel() == button.title, "automation finds buttons by title")
             #expect(buttonView.accessibilityHelp()?.contains(hint.spokenName) == true)
             var pressed: String?
-            view.onPress = { pressed = $0 }
-            #expect(view.handle(hint.key, modifiers: hint.modifiers))
-            #expect(pressed == buttonView.button.id)
+            dialog.onPress = { pressed = $0 }
+            #expect(dialog.handle(hint.key, modifiers: hint.modifiers))
+            #expect(pressed == button.id)
         }
     }
 

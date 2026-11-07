@@ -2,7 +2,7 @@ import { SCROLLER_FADE_ATTRIBUTE } from "../../scrollers";
 import { applyAgentTheme } from "../shared/theme";
 import { configureSubagentTray } from "./subagents/runningTray";
 import { configureSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
-import { configureSelectionReply } from "./conversation/SelectionReply";
+import { configureSelectionReply } from "./conversation/selectionReplyModel";
 import { configureChatWidth } from "./chatWidth";
 import { configureToolRunLook } from "./toolRunLook";
 import { configureSentLook } from "./conversation/SentMessageLine";
