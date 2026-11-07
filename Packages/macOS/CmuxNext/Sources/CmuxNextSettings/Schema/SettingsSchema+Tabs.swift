@@ -7,7 +7,7 @@ nonisolated enum TabSettingsSchema {
     static func newTabPosition(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(
             NewTabPosition.configPath, section: .general, group: group,
-            title: SettingsText.keyed("settings.tabs.newTabPosition", "New Tab Position"),
+            title: SettingsText.keyed("settings.tabs.newTabPosition", "New Tab Position (Cmd-T)"),
             help: SettingsText.keyed("settings.tabs.newTabPosition.help",
                                     "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab."),
             kind: .choice(newTabPositionChoices),
@@ -20,9 +20,9 @@ nonisolated enum TabSettingsSchema {
     static func newTabButtonPosition(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(
             NewTabPosition.buttonConfigPath, section: .general, group: group,
-            title: SettingsText.keyed("settings.tabs.newTabButtonPosition", "New Tab Button Position"),
+            title: SettingsText.keyed("settings.tabs.newTabButtonPosition", "New Tab Position (+ Button)"),
             help: SettingsText.keyed("settings.tabs.newTabButtonPosition.help",
-                                    "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position."),
+                                    "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T)."),
             kind: .choice(newTabPositionChoices),
             default: .string(NewTabPosition.buttonFallback.rawValue),
             keywords: ["new tab", "plus", "+", "button", "position", "order", "right", "end", "after", "start", "first", "last", "insert"]
@@ -174,7 +174,7 @@ nonisolated enum TabSettingsSchema {
     static func plusButton(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(
             PlusButtonSetting.configPath, section: .general, group: group,
-            title: SettingsText.keyed("settings.tabs.plusButton", "New Tab Button"),
+            title: SettingsText.keyed("settings.tabs.plusButton", "+ Button Visibility"),
             help: SettingsText.keyed("settings.tabs.plusButton.help", "On Hover shows each tab bar's + only while the pointer is over that tab bar."),
             kind: .choice([
                 SettingChoice(PlusButtonMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
