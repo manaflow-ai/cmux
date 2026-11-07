@@ -19,6 +19,8 @@ final class PageInfoWebWindow: NSWindow {
     /// The window closed (Done, Escape, the close button); the owner drops it.
     var onClose: (() -> Void)?
     private(set) var isReady = false
+    /// The number of the newest state pushed; a size report for an older one is dropped.
+    private var revision = 0
 
     init(content: any BrowserChromeWebContent, title: String, width: CGFloat, activeLook: ActiveLookScope?) {
         self.content = content
@@ -37,6 +39,9 @@ final class PageInfoWebWindow: NSWindow {
 
     /// Sends the page its next state.
     func push(_ state: [String: Any]) {
+        revision += 1
+        var state = state
+        state["revision"] = revision
         content.push(state)
     }
 
@@ -45,7 +50,8 @@ final class PageInfoWebWindow: NSWindow {
         case "command":
             if let command = PageInfoWindowCommand(wire: params) { onCommand?(command) }
         case "size":
-            guard let height = (params["height"] as? NSNumber)?.doubleValue, height > 0 else { return }
+            guard let height = (params["height"] as? NSNumber)?.doubleValue, height > 0,
+                  (params["revision"] as? NSNumber)?.intValue == revision else { return }
             fit(contentHeight: ceil(height))
         default:
             break
