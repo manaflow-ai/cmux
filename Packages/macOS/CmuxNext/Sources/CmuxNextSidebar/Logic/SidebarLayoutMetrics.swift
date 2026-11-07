@@ -103,13 +103,13 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Document sections folded by their header: their groups do not list.
     public var collapsedDocSections: Set<String> = []
     /// Document sections whose block draws no item (at most a title) during a drag: each opens a one-row drop
-    /// zone under its title. A section the drag empties keeps it in the dragged rows' place; an empty Pinned has
-    /// one only while the drag reaches the top edge (`showEmptyPinned`).
+    /// zone under its title. A section the drag empties keeps it in the dragged rows' place; an empty section has
+    /// one only while the drag reaches it (`SidebarEmptyZones`).
     public var emptyDocSections: Set<String> = []
     /// When set, only these workspaces show; containers force-expand.
     public var filterMatches: Set<WorkspaceID>?
     /// Show the drop zone for an empty pinned section: only while a drag reaches the list's top edge
-    /// (`SidebarPinZone`), never at the drag's start.
+    /// (`SidebarEmptyZones`), or for a drag that empties it, never for a drag's start alone.
     public var showEmptyPinned = false
     /// A workspace or document drag runs: the Archive stays closed (its rows take no drop).
     public var dragClosesArchive = false

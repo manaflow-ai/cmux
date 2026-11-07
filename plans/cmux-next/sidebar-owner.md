@@ -1515,14 +1515,17 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - Every workspace drag (and every drag on the document) turned on `showEmptyPinned` as it lifted: an empty Pinned
   drew its header and "Drop here to pin" row at the top, and every empty document section its drop row, so every row
   moved down the moment a drag started.
-- Now the lift shows no new row. `SidebarPinZone` makes, at the lift, where an empty Pinned's zone would open; once
-  the pointer, moving up, reaches the top half of the first row (or above it), the zone opens there on the drag's
-  spring (rows move, the zone fades in) and takes the drop; half a row below the zone it closes again. A section the
-  drag empties still keeps its drop row in the dragged rows' place. An empty document section the drag does not
-  empty draws nothing, as at rest.
+- Now the lift shows no new row. `SidebarEmptyZones` makes, at the lift, the zones the drag can open: an empty
+  Pinned's opens once the pointer, moving up, reaches the top half of the row it opens above (or above it); an empty
+  titled section's once the pointer reaches its title. One opens at a time, on the drag's spring (rows move, the zone
+  fades in), takes the drop, and closes half a row past it. A group drag on the document rebuilds its plan when one
+  opens or closes. A section the drag empties still keeps its drop row in the dragged rows' place, and a list Pinned
+  the drag empties keeps its header and row for the whole drag (`keepsPinned`), so the row can go back.
+- A drag the document does not take (a workspace it places nowhere yet) resolves on the list, which drops into no
+  document section: it opens none of their zones (it never could drop there).
 - Tests: `SidebarDragStartKeepsRowsTests` (list and document), red commit first.
-- A block tile's drag opens the zone too; a Pinned that keeps items opens none (the drop goes among its items); the
-  half-row threshold is the height of the row the zone opens above (density, status and detail lines).
+- A block tile's drag opens zones too; a Pinned that keeps items opens none (the drop goes among its items); the
+  half-row reach is the height of the row the zone opens above (density, status and detail lines).
 
 ## Reviewed behavior-only commits
 

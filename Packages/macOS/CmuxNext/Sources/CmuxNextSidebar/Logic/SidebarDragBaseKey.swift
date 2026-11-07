@@ -10,7 +10,7 @@ nonisolated struct SidebarDragBaseKey: Equatable {
     var width: CGFloat
     var metrics: SidebarLayoutMetrics
     var ungroupedFirst: Bool
-    /// An empty Pinned's zone shows (`SidebarListDrag.reachesPinned`).
-    var reachesPinned = false
+    /// The empty section whose drop zone shows (`SidebarListDrag.openZone`).
+    var openZone: String?
     var drop = DropResolver.tunables
 }

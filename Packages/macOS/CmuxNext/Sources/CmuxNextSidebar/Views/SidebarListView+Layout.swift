@@ -106,20 +106,13 @@ extension SidebarListViewComponents {
         o.blockHeights = blockHeights(includeGap: includeGap)
         o.collapsedDocSections = Set(model.collapsedLayoutSections.map(\.rawValue))
         // A drag's start moves no row: a section the drag empties keeps a drop zone in the dragged rows' place, and an
-        // empty Pinned opens one only as the drag reaches the top edge (`SidebarPinZone`).
-        if let blocks, let drag = shownDrag {
-            let moving = Set(drag.docItems ?? [])
-            if drag.docItems != nil {
-                o.emptyDocSections = Set(blocks.sections.filter { !$0.value.items.isEmpty && $0.value.items.allSatisfy { moving.contains($0.id.rawValue) } }.keys)
-            }
-            // Only an empty Pinned (or one the drag empties) opens a zone: one that keeps items takes the drop among them.
-            // A workspace the document does not place yet drags on the list (no document items) and still pins there.
-            if drag.reachesPinned, blocks.sections[SidebarDocStore.pinnedSection]?.items.allSatisfy({ moving.contains($0.id.rawValue) }) ?? true {
-                o.emptyDocSections.insert(SidebarDocStore.pinnedSection)
-            }
+        // empty one opens its zone only as the drag reaches it (`SidebarEmptyZones`).
+        if let blocks, let moving = shownDrag?.docItems.map(Set.init) {
+            o.emptyDocSections = Set(blocks.sections.filter { !$0.value.items.isEmpty && $0.value.items.allSatisfy { moving.contains($0.id.rawValue) } }.keys)
+            if let open = shownDrag?.openZone { o.emptyDocSections.insert(open) }
         }
         guard let drag = shownDrag else { return o }
-        o.showEmptyPinned = drag.reachesPinned
+        o.showEmptyPinned = drag.keepsPinned || drag.openZone == SidebarDocStore.pinnedSection
         if drag.docItems != nil { o.dragClosesArchive = true }
         switch drag.payload {
         case let .workspaces(ids):

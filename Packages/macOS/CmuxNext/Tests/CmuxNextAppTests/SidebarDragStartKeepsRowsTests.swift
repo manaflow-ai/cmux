@@ -15,9 +15,10 @@ import Testing
 
     /// An empty Pinned over five loose rows: on the list's own sections, or (`document`) on the sidebar document with
     /// Home's block on top, as the nightly draws it.
-    static func list(document: Bool, pins: [LayoutItem] = [], unplaced: Set<WorkspaceID> = []) -> (SidebarListView, NSWindow) {
+    static func list(document: Bool, pins: [LayoutItem] = [], extra: [LayoutSection] = []) -> (SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let rows = SidebarSection(kind: .machine(machine), nodes: loose.map { .workspace(SidebarWorkspace(id: $0, title: $0.rawValue)) })
+        let extraSections = extra.map { SidebarSection(kind: .custom(SidebarCustomSection(id: $0.id.rawValue)), nodes: []) }
         let model: SidebarModel
         let list: SidebarListView
         if document {
@@ -27,15 +28,15 @@ import Testing
                 SidebarSection(kind: .custom(SidebarCustomSection(id: top.id.rawValue)), nodes: []),
                 SidebarSection(kind: .custom(SidebarCustomSection(id: pinned.id.rawValue)), nodes: []),
                 rows,
-            ])
+            ] + extraSections)
             list = SidebarListView(model: model)
             var metrics = SidebarRegionMetrics.standard
             metrics.trailingTrim = SidebarStyle.rowTrailingTrim
-            list.blocks = SidebarListBlocks(sections: [top.id.rawValue: top, pinned.id.rawValue: pinned], infos: Dictionary(uniqueKeysWithValues: ([home] + pins).map { ($0.id, SidebarItemInfo.fallback(for: $0)) }),
+            list.blocks = SidebarListBlocks(sections: Dictionary(uniqueKeysWithValues: ([top, pinned] + extra).map { ($0.id.rawValue, $0) }), infos: Dictionary(uniqueKeysWithValues: ([home] + pins).map { ($0.id, SidebarItemInfo.fallback(for: $0)) }),
                                             collapsed: [], look: .quiet, metrics: metrics, drawsLines: false, appHeights: [:])
-            let keys = [home.id.rawValue, top.id.rawValue, pinned.id.rawValue, "sec_m_local"] + pins.map(\.id.rawValue) + loose.map { "itm_" + $0.rawValue }
+            let keys = [home.id.rawValue, top.id.rawValue, pinned.id.rawValue, "sec_m_local"] + extra.map(\.id.rawValue) + pins.map(\.id.rawValue) + loose.map { "itm_" + $0.rawValue }
             model.docDrag = SidebarDocDrag(item: { key in
-                if case let .workspace(id) = key, !unplaced.contains(id) { return "itm_" + id.rawValue }
+                if case let .workspace(id) = key { return "itm_" + id.rawValue }
                 return nil
             }, section: { id in
                 if case .machine = id { return "sec_m_local" }
@@ -121,17 +122,17 @@ import Testing
     }
 
     /// Up to the top edge: the zone opens where Pinned goes and takes the drop (its row, or the drop's gap in its
-    /// place), and the rows between it and the lifted one move down together; back down, it closes. `unplaced`: on the
-    /// document, a workspace it does not place yet (just made), which drags on the list.
-    @Test(arguments: [(false, false), (true, false), (true, true)]) func theTopEdgeOpensPinnedsZone(_ document: Bool, _ unplaced: Bool) throws {
+    /// place), and the rows between it and the lifted one move down together; back down, it closes.
+    @Test(arguments: [false, true]) func theTopEdgeOpensPinnedsZone(_ document: Bool) throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        let (list, window) = Self.list(document: document, unplaced: unplaced ? [WorkspaceID("c")] : [])
+        let (list, window) = Self.list(document: document)
         defer { window.close() }
         let dragged = Self.dragged
         let before = Self.ys(list, except: [dragged])
         let (drag, start) = try Self.lift(list)
-        let zone = try #require(drag.pinZone?.span, "no zone to open for an empty Pinned")
+        let pinned = try #require(drag.zones.first { $0.id == SidebarDocStore.pinnedSection }, "no zone to open for an empty Pinned")
+        let zone = pinned.at...(pinned.at + pinned.height)
         let origin = try #require(list.displayed.row(for: dragged)).y
         let above = Self.ys(list, except: [dragged]).filter { $0.value >= zone.lowerBound - 0.5 && $0.value < origin }
         let first = try #require(above.min { $0.value < $1.value }, "no row above the lifted one")
@@ -140,18 +141,16 @@ import Testing
             y = max(zone.lowerBound + 4, y - 6)
             list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
         }
-        #expect(drag.reachesPinned, "the drag reached the top edge and the zone stayed shut")
+        #expect(drag.openZone == SidebarDocStore.pinnedSection, "the drag reached the top edge and the zone stayed shut")
         let moved = try #require(list.displayed.row(for: first.key)).y - first.value
         #expect(moved >= (zone.upperBound - zone.lowerBound) / 2, "the first row moved \(moved) pt, under a zone \(zone.upperBound - zone.lowerBound) pt tall")
         for key in above.keys {
             let shift = (list.displayed.row(for: key)?.y ?? 0) - (before[key] ?? 0)
             #expect(abs(shift - moved) < 0.5, "\(key) moved \(shift) pt, the first row \(moved) pt")
         }
-        #expect(unplaced == (document && drag.docItems == nil), "the drag runs on the wrong path")
-        if !document || unplaced {
+        if !document {
             guard case let .position(position)? = drag.target else { Issue.record("no drop at the top edge: \(String(describing: drag.target))"); return }
-            let pinned: SectionID = document ? .custom(SidebarLayoutDocument.pinnedSectionID.rawValue) : .pinned
-            #expect(position.section == pinned, "the top edge drops in \(position.section), not Pinned")
+            #expect(position.section == .pinned, "the top edge drops in \(position.section), not Pinned")
         } else {
             #expect(drag.docTarget != nil, "the top edge takes no drop on the document")
         }
@@ -162,7 +161,7 @@ import Testing
             y = min(down, y + 6)
             list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
         }
-        #expect(!drag.reachesPinned && !Self.zoneShows(list), "the zone stayed open with the pointer back under it")
+        #expect(drag.openZone == nil && !Self.zoneShows(list), "the zone stayed open with the pointer back under it")
         list.cancelDrag()
     }
 
@@ -174,7 +173,7 @@ import Testing
         let (list, window) = Self.list(document: true, pins: [pin])
         defer { window.close() }
         let (drag, start) = try Self.lift(list)
-        #expect(drag.pinZone == nil, "a Pinned with items has a zone to open")
+        #expect(!drag.zones.contains { $0.id == SidebarDocStore.pinnedSection }, "a Pinned with items has a zone to open")
         var y = start.y
         while y > 2 {
             y = max(2, y - 6)
@@ -182,6 +181,70 @@ import Testing
             #expect(!list.displayed.rows.contains { $0.key == .emptySection(.custom(SidebarLayoutDocument.pinnedSectionID.rawValue)) },
                     "a drop row shows under a Pinned with items at y \(y)")
         }
+        list.cancelDrag()
+    }
+
+    /// An empty titled section under the list: no drop row at the lift; its zone opens as the pointer reaches its
+    /// title, and takes the drop.
+    @Test func anEmptyTitledSectionOpensAtItsTitle() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        let later = LayoutSection(id: LayoutSectionID("sec_later"), title: "Later", region: .top, items: [])
+        let (list, window) = Self.list(document: true, extra: [later])
+        defer { window.close() }
+        let block = try #require(list.displayed.row(for: .block("sec_later")), "the empty titled section draws no title")
+        let (drag, start) = try Self.lift(list)
+        let zoneRow = SidebarRowKey.emptySection(.custom("sec_later"))
+        #expect(list.displayed.row(for: zoneRow) == nil, "the empty section's drop row shows at the lift")
+        #expect(drag.zones.contains { $0.id == "sec_later" }, "no zone to open for the empty section")
+        var y = start.y
+        let title = block.y + block.height / 2
+        while abs(y - title) > 0.5 {
+            y = y < title ? min(title, y + 6) : max(title, y - 6)
+            list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
+        }
+        #expect(drag.openZone == "sec_later", "the pointer on the title did not open its zone")
+        #expect(drag.docTarget != nil, "the empty section takes no drop at its title")
+        list.cancelDrag()
+    }
+
+    /// A drag of the list's only pinned row keeps Pinned's header and zone for the whole drag: out to the list and
+    /// back, it still drops in Pinned.
+    @Test func theLastPinnedRowCanGoBack() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        _ = NSApplication.shared
+        let pinned = WorkspaceID("p")
+        let model = SidebarModel(sections: [
+            SidebarSection(kind: .pinned, nodes: [.workspace(SidebarWorkspace(id: pinned, title: "p"))]),
+            SidebarSection(kind: .machine(Self.machine), nodes: Self.loose.map { .workspace(SidebarWorkspace(id: $0, title: $0.rawValue)) }),
+        ])
+        let list = SidebarListView(model: model)
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 600))
+        list.frame = window.contentView?.bounds ?? .zero
+        window.contentView?.addSubview(list)
+        defer { window.close() }
+        list.leftButtonIsDown = { false }
+        window.orderFrontRegardless()
+        list.reload(animated: false)
+        let row = try #require(list.displayed.row(for: .workspace(pinned)))
+        let start = NSPoint(x: 80, y: row.y + row.height / 2)
+        list.press = SidebarPress(key: .workspace(pinned), point: start)
+        list.beginDrag(try #require(list.press))
+        let drag = try #require(list.drag)
+        let bottom = (list.displayed.rows.last?.maxY ?? 200) - 4
+        var y = start.y
+        for target in [bottom, start.y] {
+            while abs(y - target) > 0.5 {
+                y = y < target ? min(target, y + 6) : max(target, y - 6)
+                list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
+                #expect(list.displayed.row(for: .section(.pinned)) != nil, "Pinned's header left at y \(y)")
+            }
+        }
+        guard case let .position(position)? = drag.target else { Issue.record("no drop back in Pinned: \(String(describing: drag.target))"); return }
+        #expect(position.section == .pinned, "back over its slot, the drop goes to \(position.section)")
         list.cancelDrag()
     }
 }

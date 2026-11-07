@@ -232,7 +232,7 @@ extension SidebarListViewComponents {
             self.drag = drag
             setHovered(nil)
             showDragLayout() // the tile's slot closes on the drag's spring
-            SidebarPinZone.begin(self, drag)
+            SidebarEmptyZones.begin(self, drag)
         }
         updateDrag(windowPoint: event.locationInWindow)
         return true
