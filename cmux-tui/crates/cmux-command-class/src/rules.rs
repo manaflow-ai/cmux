@@ -471,7 +471,7 @@ impl Classifier {
             match word {
                 "-delete" => verdict.add(FileWrite, "find -delete"),
                 "-fprint" | "-fprint0" | "-fprintf" | "-fls" => {
-                    verdict.add(FileWrite, "find -fprint")
+                    verdict.add(FileWrite, "find -fprint");
                 }
                 "-exec" | "-execdir" | "-ok" | "-okdir" => {
                     let start = j;
@@ -660,15 +660,16 @@ fn wget(tail: &[&str]) -> Classification {
         } else if word == "--output-document" {
             output = tail.get(j).copied();
             j += 1;
-        } else if is_flag(word) && !word.starts_with("--") {
-            if let Some(at) = word.find('O') {
-                let attached = &word[at + 1..];
-                if attached.is_empty() {
-                    output = tail.get(j).copied();
-                    j += 1;
-                } else {
-                    output = Some(attached);
-                }
+        } else if is_flag(word)
+            && !word.starts_with("--")
+            && let Some(at) = word.find('O')
+        {
+            let attached = &word[at + 1..];
+            if attached.is_empty() {
+                output = tail.get(j).copied();
+                j += 1;
+            } else {
+                output = Some(attached);
             }
         }
     }
