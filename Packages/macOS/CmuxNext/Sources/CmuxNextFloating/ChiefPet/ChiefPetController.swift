@@ -71,6 +71,10 @@ public final class ChiefPetController {
     /// Message the Chief ran while `home.chiefPetEnabled` was off: the pet shows for this message only
     /// and goes when its reply box closes; the setting turning on keeps it.
     var transient = false
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Where `debug.chief_pet`'s drag holds the pointer, in screen points (nil: no press; ChiefPetController+Debug).
+    var debugPointer: CGPoint?
+    #endif
 
     /// `appIsActive`: whether cmux is the active app (the App passes `NSApp.isActive`; tests pin one).
     /// `notifications`: where AppKit posts the app's activation changes; tests give their own.
