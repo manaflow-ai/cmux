@@ -139,7 +139,8 @@ def parse_issue(issue: dict) -> Freeze:
 RATE_LIMITED = re.compile(r"rate limit|HTTP 429", re.IGNORECASE)
 
 
-FALLBACK_ERRORS = re.compile(r"HTTP 40[13]|rate limit|Bad credentials", re.I)
+# GraphQL names no HTTP status for a token without access: it says "Resource not accessible".
+FALLBACK_ERRORS = re.compile(r"HTTP 40[13]|rate limit|Bad credentials|Resource not accessible|FORBIDDEN", re.I)
 
 
 def gh(*args: str, write: bool = False) -> str:
@@ -226,6 +227,41 @@ def repo_role(repo: str, login: str) -> str | None:
     return json.loads(out).get("role_name")
 
 
+FREEZES_QUERY = """query($o:String!,$n:String!,$l:String!,$c:String){repository(owner:$o,name:$n){
+issues(states:OPEN,labels:[$l],first:100,after:$c){pageInfo{hasNextPage endCursor}
+nodes{number title body createdAt author{login} labels(first:100){nodes{name}}}}}}"""
+
+
+def open_freeze_issues(repo: str, max_pages: int = MAX_PAGES) -> list[dict]:
+    """The open issues labeled merge-freeze, in the REST shape parse_issue reads. Over GraphQL: this
+    runs on every pull request event, and REST calls draw on the GITHUB_TOKEN budget every workflow
+    shares (cmuxterm-hq#7062). Pull requests never show up here. A list longer than max_pages
+    pages raises, as gh_items does."""
+    owner, name = repo.split("/", 1)
+    issues: list[dict] = []
+    cursor = None
+    for _ in range(max_pages):
+        args = ["api", "graphql", "-f", f"query={FREEZES_QUERY}", "-f", f"o={owner}", "-f", f"n={name}",
+                "-f", f"l={LABEL}"]
+        if cursor:
+            args += ["-f", f"c={cursor}"]
+        answer = json.loads(gh(*args))
+        if answer.get("errors"):
+            raise ValueError(f"{repo} open {LABEL} issues: GraphQL answered with errors: {answer['errors']}")
+        page = answer["data"]["repository"]["issues"]
+        for node in page["nodes"]:
+            issues.append({
+                "number": node["number"], "title": node.get("title"), "body": node.get("body"),
+                "created_at": node["createdAt"], "user": node.get("author") or {},
+                "labels": node["labels"]["nodes"],
+            })
+        if not page["pageInfo"]["hasNextPage"]:
+            return issues
+        cursor = page["pageInfo"]["endCursor"]
+    raise ValueError(f"{repo} has more than {max_pages} pages of open {LABEL} issues; "
+                     "refusing to read a list cut short as complete")
+
+
 def last_edited(repo: str, number: int) -> str | None:
     owner, name = repo.split("/", 1)
     query = "query($o:String!,$n:String!,$i:Int!){repository(owner:$o,name:$n){issue(number:$i){lastEditedAt}}}"
@@ -257,7 +293,7 @@ def open_freezes(repo: str, issues_file: str | None = None,
                   if i.get("state", "open") == "open"
                   and LABEL in {label.get("name") for label in i.get("labels", [])}]
     else:
-        issues = gh_items(f"repos/{repo}/issues?state=open&labels={LABEL}")
+        issues = open_freeze_issues(repo)
     freezes = []
     for issue in issues:
         if "pull_request" in issue:
