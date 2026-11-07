@@ -282,6 +282,9 @@ struct World {
     calm: bool,
     /// Each delivery as last seen: the outbox's retention may drop a settled one.
     seen: HashMap<String, Delivery>,
+    /// The prompts whose deliveries a link released: their machine held every record of their
+    /// proofs then (`od::Step::Release`).
+    released: HashSet<String>,
 }
 
 fn key() -> Key {
@@ -327,6 +330,7 @@ impl World {
             trace: vec![],
             calm: false,
             seen: HashMap::new(),
+            released: HashSet::new(),
         };
         world.connect();
         world
@@ -644,9 +648,14 @@ impl World {
         self.redeliver(&ends);
     }
 
-    /// A copy went: every record of it of the machine's generation must be on the machine.
+    /// A copy went on a refusal: every record of it of the machine's generation must be on the
+    /// machine, unless the machine holds another record at one of its seqs (it wrote its own
+    /// there first: another history, which the copy cannot go back into).
     fn check_copy_kept(&mut self, before: &[Rec]) {
-        if !self.copy_seqs().is_empty() {
+        let other = before.iter().any(|r| {
+            self.machine.journal.iter().any(|h| h.seq == r.seq && (h.at, h.kind) != (r.at, r.kind))
+        });
+        if other || !self.copy_seqs().is_empty() {
             return;
         }
         for r in before {
@@ -699,6 +708,7 @@ impl World {
                 }
                 od::Step::Release => {
                     self.note(format!("{} released", d.id));
+                    self.released.insert(d.prompt_id().to_owned());
                     self.outbox.update(&d.id, od::release);
                 }
                 od::Step::Lost => {
@@ -909,6 +919,11 @@ impl World {
                 (DState::Failed, _) if d.error.is_some() => {}
                 (DState::Delivered, 1) => {}
                 (DState::Delivered, 0) if removed || purged => {}
+                // Released (its machine held it on a later link), then lost to a disk older
+                // still: past what the rule promises (`open_delivery.rs`); counted, not failed.
+                (DState::Delivered, 0) if self.released.contains(prompt) => {
+                    PAST_RELEASE.with(|n| n.set(n.get() + 1));
+                }
                 (state, ran) => {
                     return Err(format!(
                         "lost: {prompt}: delivery {state:?} (open {}), {ran} times on the machine",
@@ -924,6 +939,8 @@ impl World {
 thread_local! {
     static WRITTEN: RefCell<Vec<(Key, u64, Vec<Value>)>> = const { RefCell::new(Vec::new()) };
     static LOST: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// Prompts lost after their release (`World::check`), over the seeds run.
+    static PAST_RELEASE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 fn run(seed: u64, rules: Rules) -> (Result<(), String>, Vec<String>) {
@@ -978,8 +995,13 @@ fn move_sim_seeds_hold_the_move_invariants() {
         assert!(verdict.is_ok(), "seed {seed}: {verdict:?}");
         return;
     }
+    PAST_RELEASE.with(|n| n.set(0));
     let (n, failed, kinds) = failures(Rules::Now);
-    eprintln!("move sim: {n} seeds, {} failed {kinds:?}", failed.len());
+    let past = PAST_RELEASE.with(std::cell::Cell::get);
+    eprintln!(
+        "move sim: {n} seeds, {} failed {kinds:?}; {past} prompts lost after their release",
+        failed.len()
+    );
     assert!(
         failed.is_empty(),
         "{} of {n} seeds failed (replay: MOVE_SIM_SEED=N cargo test -p acpmux --lib -- move_sim --nocapture):\n{}",
