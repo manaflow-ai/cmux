@@ -58,19 +58,16 @@ import {
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import {
-  pasteChipHeight,
   PASTE_FROM_HEIGHT,
-  PASTE_ROW_HEIGHT,
   type PasteRange,
   HUGE_PROMPT_HEAD_CHARS,
   collapsedPromptHeight,
   hasHugeTypedPart,
   isHugePrompt,
   promptHead,
-  promptParts,
+  recordedBody,
 } from "./conversation/promptCollapse";
-import { sentPasteLook } from "./conversation/sentPasteLook.experiment";
-import { agentText } from "./agentText";
+import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
 import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import { agentMessage } from "./conversation/agentMessages";
@@ -2468,38 +2465,25 @@ function measuredRowHeight(
       lexIncrementally(entry, row.text);
     }
     if (pasted) {
-      // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
-      // however long it is (conversation/UserBubble.tsx).
+      // A prompt with pasted blocks: one body of its typed text and the person's pastes, and a paste
+      // another agent wrote apart under its "Pasted from" line (conversation/PromptText.tsx). A huge
+      // part draws collapsed to its head, so its head is all there is to measure; the fold caps it.
       const { lineHeight } = metrics();
-      // As the bubble draws each paste (conversation/sentPasteLook.experiment.ts): its own text, a
-      // label row, or a card.
-      const look = experimentArm(sentPasteLook);
       contentHeight = 0;
-      for (const part of promptParts(row.text, row.pasted!))
+      for (const part of recordedBody(row.text, row.pasted!, experimentArm(sentPasteJoin)))
         contentHeight +=
-          part.kind === "paste"
-            ? look === "text"
-              ? (agentText(part.text).signals.length ? PASTE_FROM_HEIGHT : 0) +
-                Math.max(
-                  lineHeight,
-                  // Folded, it draws only its head (conversation/PromptText.tsx PastedText), more
-                  // than the fold holds; the fold below caps the height.
-                  textHeight(promptHead(part.text, HUGE_PROMPT_HEAD_CHARS), contentWidth, entry.prepared, usedPrepared),
-                )
-              : look === "row"
-                ? PASTE_ROW_HEIGHT
-                : pasteChipHeight(lineHeight)
-            : Math.max(
-                lineHeight,
-                // A huge typed part draws collapsed to its head (conversation/PromptText.tsx), so its
-                // head is all there is to measure.
-                textHeight(
-                  isHugePrompt(part.text) ? promptHead(part.text, HUGE_PROMPT_HEAD_CHARS) : part.text,
-                  contentWidth,
-                  entry.prepared,
-                  usedPrepared,
-                ),
-              );
+          (part.kind === "paste" ? PASTE_FROM_HEIGHT : 0) +
+          Math.max(
+            lineHeight,
+            textHeight(
+              part.kind === "paste" || isHugePrompt(part.text)
+                ? promptHead(part.text, HUGE_PROMPT_HEAD_CHARS)
+                : part.text,
+              contentWidth,
+              entry.prepared,
+              usedPrepared,
+            ),
+          );
     } else {
       if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
       contentHeight = (entry.blocks.length - 1) * blockGap();

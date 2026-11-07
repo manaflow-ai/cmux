@@ -1,10 +1,13 @@
 // A long prompt collapses as Claude's does (Leo 2026-10-21): its first twenty lines, the last one
-// fading out, with Show more / Show less under them (UserBubble.tsx). A block the composer sent as
-// a paste is the bubble's own text under that fold (sentPasteLook), or in its other arms a label
-// row or a card of its first lines, that opens in place. model.ts estimates the row
-// from the same numbers, so a prompt that mounts moves nothing below it.
+// fading out, with Show more / Show less under them (UserBubble.tsx). It is one fold for the whole
+// message: a block the composer sent as a paste is part of the message's one text body
+// (`oneBody`), never a card or a fold of its own inside the bubble (ask-14d16a6247; Leo,
+// 2026-11-07: "Like just don't separate these out. And, like, I thought we said, you know, remove
+// these inner bubbles, inner, inner cards."). model.ts estimates the row from the same numbers, so
+// a prompt that mounts moves nothing below it.
 
 import { sliceWhole } from "../../../ui/wholeChars";
+import { agentText } from "../agentText";
 
 /// A prompt taller than this many lines opens collapsed to them: twenty, twice the ten it was (Leo,
 /// 2026-11-07: "I feel like we should show more than we are showing right now"). conversation.css
@@ -12,20 +15,8 @@ import { sliceWhole } from "../../../ui/wholeChars";
 export const COLLAPSED_PROMPT_LINES = 20;
 /// The Show more line under a collapsed prompt (`.cv-user__more`: 4px above a 20px line).
 export const PROMPT_MORE_HEIGHT = 24;
-/// The lines of its text a pasted block's card shows closed.
-export const PASTE_PREVIEW_LINES = 3;
-/// The text a closed card draws: more than its lines hold at the bubble's widest, so a paste of a
-/// megabyte lays out no more than a short one (HUGE_PROMPT_CHARS).
-export const PASTE_PREVIEW_CHARS = 1_000;
-/// A pasted block's card as the bubble draws it closed, in prompt lines `lineHeight` tall
-/// (`.cv-user__paste-block`: 4px above and below the card, its 8px top and 4px bottom padding,
-/// and its 20px label 4px under the lines).
-export const pasteChipHeight = (lineHeight: number) => PASTE_PREVIEW_LINES * lineHeight + 44;
-/// A pasted block drawn as one label row (sentPasteLook `row`), closed: its 20px label with 4px
-/// above and below it (`.cv-user__paste-block`).
-export const PASTE_ROW_HEIGHT = 28;
-/// The "Pasted from <agent>" line over a paste another agent wrote, drawn as the bubble's text
-/// (sentPasteLook `text`): a 20px line 4px over the paste (`.cv-user__pasted-from`).
+/// The "Pasted from <agent>" line over a paste another agent wrote, which stays apart from the
+/// person's words (PromptText.tsx PastedText): a 20px line 4px over the paste (`.cv-user__pasted-from`).
 export const PASTE_FROM_HEIGHT = 24;
 /// Before the bubble is laid out (and where it never is), a prompt longer than this many
 /// characters is taken to wrap past the collapsed lines.
@@ -48,8 +39,8 @@ export const HUGE_PROMPT_HEAD_CHARS = 4_000;
 
 export const isHugePrompt = (text: string) => text.length > HUGE_PROMPT_CHARS;
 
-/// Whether a prompt's typed text makes it huge: one of its typed parts is. Pasted blocks are chips
-/// whatever their length (a huge paste draws as one chip, nothing more), so they never count.
+/// Whether a prompt's text makes it huge: one of its text parts is. Run it on the parts `oneBody`
+/// joined, so a paste counts as the message's text it is.
 export const hasHugeTypedPart = (parts: readonly { kind: string; text?: string }[]) =>
   parts.some((part) => part.kind === "text" && typeof part.text === "string" && isHugePrompt(part.text));
 
@@ -148,16 +139,84 @@ export function pasteName(text: string): string {
   return words.length > 40 ? `${sliceWhole(words, 39).trimEnd()}…` : words;
 }
 
-/// What a closed paste card draws of `text`: its head from its first line with words, the card's
-/// clamp hiding what its lines do not hold. Reads only its first `PASTE_PREVIEW_CHARS`.
-export function pastePreview(text: string): string {
-  const head = promptHead(text, PASTE_PREVIEW_CHARS * 2);
-  return promptHead(head.replace(/^(?:[ \t]*(?:\r\n|[\n\r\u2028\u2029]))+/, ""), PASTE_PREVIEW_CHARS);
-}
-
 /// A paste's line count (a final line break ends its last line, not a new one). Counts every break
 /// PASTE_LINE_BREAK names, so text whose lines end in \r or U+2028 is not "1 line".
 export function pasteLines(text: string): number {
   const body = text.replace(/(?:\r\n|[\n\r\u2028\u2029])$/, "");
   return (body.match(PASTE_LINE_BREAK)?.length ?? 0) + 1;
 }
+
+/// How the runs of one sent message's text join where a paste meets typed text or another paste
+/// (sentPasteJoin.experiment.ts): as the draft had them, with a blank line, or with a line break.
+export type PasteJoin = "typed" | "paragraph" | "line";
+
+/// One run of a body: its text, and whether the person typed it (else it was pasted).
+export type BodyRun = { text: string; typed: boolean };
+
+/// One body's text from its runs, in order. `typed` keeps what was between them in the draft:
+/// `between` is "" for runs the composer placed, where the space or line breaks typed around a
+/// paste are typed runs of their own, so a typed run meets a paste with nothing between; two pastes
+/// side by side, or a run and a paste that meet with no space at all (a big paste's chip put right
+/// after a word), get acpmux's line break. `between` is "\n" for a record that kept only acpmux's
+/// join of its text blocks (hub/session.rs `prompt_text`), so a recorded prompt reads as recorded.
+/// `paragraph` and `line` drop the blank lines at each run's ends and runs of only space, and put a
+/// blank line or one line break between the rest.
+export function joinRuns(runs: readonly BodyRun[], join: PasteJoin, between: string): string {
+  if (join === "typed")
+    return runs.reduce((text, run, index) => {
+      if (index === 0) return run.text;
+      const last = runs[index - 1]!;
+      const asDrafted = (last.typed || run.typed) && (/\s$/.test(last.text) || /^\s/.test(run.text));
+      return text + (between || asDrafted ? between : "\n") + run.text;
+    }, "");
+  return runs
+    .map(({ text }) =>
+      text.replace(/^(?:[ \t]*(?:\r\n|[\n\r\u2028\u2029]))+|(?:(?:\r\n|[\n\r\u2028\u2029])[ \t]*)+$/g, ""),
+    )
+    .filter((text) => text.trim() !== "")
+    .join(join === "paragraph" ? "\n\n" : "\n");
+}
+
+/// A sent message's parts with each run of typed text and the person's pastes made one text part:
+/// the message is one continuous body, and only what `joins` leaves out (an attachment, a paste
+/// another agent wrote) stands apart from it. `joins` gives a part's text when it is part of the
+/// body, else undefined.
+export function oneBody<T extends { kind: string }>(
+  parts: readonly T[],
+  joins: (part: T) => string | undefined,
+  join: PasteJoin,
+  between: string,
+): (T | { kind: "text"; text: string })[] {
+  const out: (T | { kind: "text"; text: string })[] = [];
+  let run: BodyRun[] = [];
+  const flush = () => {
+    const text = run.length ? joinRuns(run, join, between) : "";
+    if (text) out.push({ kind: "text", text });
+    run = [];
+  };
+  for (const part of parts) {
+    const text = joins(part);
+    if (text === undefined) {
+      flush();
+      out.push(part);
+    } else run.push({ text, typed: part.kind === "text" });
+  }
+  flush();
+  return out;
+}
+
+/// Whether a paste stands apart from the message's body: one that reads as another agent's output
+/// (agentText.ts), which keeps its "Pasted from" line (ask-fa4c523fa8). Every other paste is the
+/// person's words, part of the body.
+export const agentPaste = (text: string) => agentText(text).signals.length > 0;
+
+/// A recorded prompt (its text and `user_message.pasted` ranges) as its bubble draws it: one body
+/// of its typed text and the person's pastes, a paste another agent wrote apart. The record kept
+/// only acpmux's join of its text blocks, so as typed it reads as recorded.
+export const recordedBody = (text: string, pasted: readonly PasteRange[], join: PasteJoin) =>
+  oneBody(
+    promptParts(text, pasted),
+    (part) => (part.kind === "paste" && agentPaste(part.text) ? undefined : part.text),
+    join,
+    "\n",
+  );

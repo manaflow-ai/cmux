@@ -22,12 +22,7 @@ import {
   type AcpmuxRow,
 } from "./model";
 import { turnView } from "./conversation/turns";
-import {
-  COLLAPSED_PROMPT_LINES,
-  pasteChipHeight,
-  PASTE_ROW_HEIGHT,
-  PROMPT_MORE_HEIGHT,
-} from "./conversation/promptCollapse";
+import { COLLAPSED_PROMPT_LINES, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "./transcriptGrid";
 import { BUBBLE } from "./transcriptSpacing";
@@ -347,28 +342,8 @@ test("a prompt of twenty lines or fewer is estimated whole, with no Show more li
   expect(short!).toBeLessThan(BUBBLE.oneLine - lineHeight + COLLAPSED_PROMPT_LINES * lineHeight + 28 + 8);
 });
 
-// A pasted block (`pasted` ranges, the card in PromptText.tsx) is one closed card, however long the
-// paste, and the prompt's own words around it.
-test("a prompt with a 2,300-line paste is its typed line and one card", () => {
-  const typed = "Why does this fail?";
-  const paste = Array.from({ length: 2300 }, (_, index) => `frame ${index}`).join("\n");
-  const text = `${typed}\n${paste}`;
-  const pasted = [{ start: typed.length + 1, end: text.length }];
-  const before = globalThis.cmuxExperiments;
-  try {
-    globalThis.cmuxExperiments = { ...before, "sent-paste-look": "card" };
-    const [card] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
-    expect(card).toBeCloseTo(BUBBLE.oneLine + pasteChipHeight(currentChatMetrics().lineHeight), 5);
-    globalThis.cmuxExperiments = { ...before, "sent-paste-look": "row" };
-    const [row] = heightsOf([{ id: "u2", version: 1, at: 0, kind: "user", text, pasted }]);
-    expect(row).toBeCloseTo(BUBBLE.oneLine + PASTE_ROW_HEIGHT, 5);
-  } finally {
-    globalThis.cmuxExperiments = before;
-  }
-});
-
-// The default draws a paste as the bubble's own text (Leo, 2026-11-07: "We want to show the actual
-// characters"): a long one is estimated as the prompt's folded lines and its Show more, as typed text is.
+// A paste is part of the message's one text body (ask-14d16a6247): a long one is estimated as the
+// prompt's folded lines and its Show more, as typed text is.
 test("a prompt with a 2,300-line paste drawn as text is estimated at the prompt's fold", () => {
   const { lineHeight } = currentChatMetrics();
   const typed = "Why does this fail?";

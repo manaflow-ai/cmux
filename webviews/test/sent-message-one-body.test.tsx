@@ -56,7 +56,11 @@ type Row = Parameters<typeof UserBubble>[0]["row"];
 // Leo's message: one dictation pasted in three parts (1.6K, 503 and 218 characters).
 const sentence = (word: string) =>
   `So the ${word} thing I keep noticing is that the transcript separates what I said into pieces, and it should not. `;
-const part = (word: string, chars: number) => sentence(word).repeat(Math.ceil(chars / sentence(word).length)).slice(0, chars).trim();
+const part = (word: string, chars: number) =>
+  sentence(word)
+    .repeat(Math.ceil(chars / sentence(word).length))
+    .slice(0, chars)
+    .trim();
 const FIRST = part("first", 1600);
 const SECOND = part("second", 503);
 const THIRD = part("third", 218);
@@ -95,7 +99,13 @@ test("a sent message recorded with three pasted parts draws as one body with one
 
 test("a sent message whose three pastes the composer placed reads as the draft did, in one body", () => {
   const paste = (text: string) => ({ kind: "pasted", placed: true, text });
-  const inlineParts = [paste(FIRST), { kind: "text", text: " " }, paste(SECOND), { kind: "text", text: " " }, paste(THIRD)];
+  const inlineParts = [
+    paste(FIRST),
+    { kind: "text", text: " " },
+    paste(SECOND),
+    { kind: "text", text: " " },
+    paste(THIRD),
+  ];
   const text = [FIRST, " ", SECOND, " ", THIRD].join("\n");
   const bubble = render({ id: "placed", version: 1, at: Date.now(), kind: "user", text, inlineParts } as Row);
   expect(bubble.querySelectorAll(INNER).length).toBe(0);
