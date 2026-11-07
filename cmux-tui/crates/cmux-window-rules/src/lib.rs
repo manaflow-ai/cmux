@@ -8,5 +8,9 @@
 //!
 //! - [`close`]: what closing tabs asks first (a working agent, a foreground
 //!   program) and whether the close earns an undo toast.
+//! - [`chat`]: where an agent chat, a tool opened from it and a column action
+//!   go (the chat dock, the strip, the column target), and the agent chat
+//!   handlers' rules ([`chat::agent`]).
 
+pub mod chat;
 pub mod close;
