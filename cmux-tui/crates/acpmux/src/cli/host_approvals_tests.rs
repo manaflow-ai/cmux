@@ -21,6 +21,8 @@ struct Fake {
     listing: RefCell<Option<&'static str>>,
     /// The app has not sent its device id: no `thisMacPhonePrefix`.
     no_device: std::cell::Cell<bool>,
+    /// The local daemon predates phone enrollment: no `thisMacPhones` or prefix at all.
+    old_daemon: std::cell::Cell<bool>,
     scripts: RefCell<Vec<String>>,
 }
 
@@ -37,6 +39,7 @@ impl Fake {
             device: "mac-device-1",
             listing: RefCell::new(None),
             no_device: std::cell::Cell::new(false),
+            old_daemon: std::cell::Cell::new(false),
             scripts: RefCell::new(Vec::new()),
         }
     }
@@ -92,6 +95,9 @@ fn unhex(s: &str) -> Vec<u8> {
 impl Io for Fake {
     async fn rpc(&self, method: &str, _params: Value) -> Result<Value> {
         assert_eq!(method, "_acpmux/mac_approvers");
+        if self.old_daemon.get() {
+            return Ok(json!({"macs": [], "thisMac": self.own}));
+        }
         Ok(json!({
             "macs": [], "thisMac": self.own, "thisMacPhones": *self.phones.borrow(),
             "thisMacPhonePrefix": (!self.no_device.get())
@@ -412,4 +418,19 @@ fn fix_makes_room_on_a_full_peer_by_removing_unpaired_phones_first() {
     fake.unpair("iphone-new");
     assert_eq!(run(&fake, true).state, StepState::Fixed);
     assert!(fake.remote_ids().contains(&"mac-1".to_owned()));
+}
+
+#[test]
+fn an_older_local_daemon_warns_that_its_phones_were_not_enrolled() {
+    let fake = Fake::new(true, Some(Vec::new()));
+    fake.old_daemon.set(true);
+    // Enrolling the Mac still works, but says the phones were left out.
+    let r = run(&fake, true);
+    assert_eq!(r.state, StepState::Warn, "{r:?}");
+    assert!(r.detail.contains("too old to enroll its paired phones"), "{r:?}");
+    assert_eq!(fake.remote_ids(), ["mac-1"]);
+    // Doctor again: the Mac is there, the phones are still unknown, never "Ok".
+    let r = run(&fake, false);
+    assert_eq!(r.state, StepState::Warn, "{r:?}");
+    assert!(r.fix.as_deref().unwrap_or("").contains("Update acpmux"), "{r:?}");
 }

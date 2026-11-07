@@ -917,7 +917,8 @@ The trust rule:
   (`acpmux-mac-approver-decision-v1`): the peer's daemon run, the phone's id there,
   the session, the permission, the tool call, the option, the nonce, the expiry
   (at most 300 s) and the answers digest. The phone signs it only after the person
-  unlocks the approval key, as for its own Mac's prompts.
+  unlocks the approval key, as for its own Mac's prompts. The phone refuses to sign anything but a one-time
+  allow for a peer, before asking for the key.
 - **What it counts for.** A one-time allow of a tool's ask, a question or the
   folder-trust card, once (the peer's spent nonces): never a lasting allow, a plan
   or a mode switch. An id under `phone:` never signs a policy raise on a peer,

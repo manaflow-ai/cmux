@@ -346,7 +346,25 @@ pub(crate) async fn approvals_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
         text(m, "id") == id && (fingerprint.is_empty() || text(m, "fingerprint") == fingerprint)
     });
     let phones = PhonePlan::of(&view, &listed);
+    // A daemon from before phone enrollment lists no phones at all (not an empty list): its
+    // phones are unknown, never up to date.
+    let old_daemon = !view.get("thisMacPhones").is_some_and(Value::is_array);
+    let too_old = |state: StepState| {
+        step(
+            StepState::Warn,
+            format!(
+                "{} on {host}, but this Mac's acpmux is too old to enroll its paired phones there",
+                if state == StepState::Fixed { "enrolled this Mac" } else { "this Mac is enrolled" }
+            ),
+        )
+        .with_fix(format!(
+            "Update acpmux on this Mac, then run `acpmux machine doctor {name} --fix` again."
+        ))
+    };
     if enrolled && phones.is_empty() {
+        if old_daemon {
+            return too_old(StepState::Ok);
+        }
         return step(StepState::Ok, format!("{mac} may allow {host}'s prompts from the app"));
     }
     if !fix {
@@ -396,6 +414,9 @@ pub(crate) async fn approvals_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
     }
     if let Some(why) = failed.first() {
         return step(StepState::Warn, format!("could not enroll {mac}'s phones on {host}: {why}"));
+    }
+    if old_daemon {
+        return too_old(StepState::Fixed);
     }
     let what = if phones.paired == 0 { mac } else { format!("{mac} and its paired phones") };
     step(StepState::Fixed, format!("{what} may now allow {host}'s prompts from the app"))
