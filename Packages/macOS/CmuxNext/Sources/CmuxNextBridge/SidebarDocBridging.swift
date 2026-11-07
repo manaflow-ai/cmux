@@ -248,7 +248,15 @@ public final class SidebarDocSections {
                 let at = firstPlaces[w.id] ?? place
                 if let i = runs.firstIndex(where: { $0.0 == at }) { runs[i].1.append(w) } else { runs.append((at, [w])) }
             }
-            for (at, rows) in runs { Self.insertNew(rows, at, into: &sections, machineSections: machineSections) }
+            // A run below another new row goes in after that row's run, whatever the order (newest first reverses it).
+            while !runs.isEmpty {
+                let next = runs.firstIndex { run in
+                    guard case .below(let id) = run.0 else { return true }
+                    return !runs.contains { $0.1.contains { $0.id == id } }
+                } ?? 0
+                let (at, rows) = runs.remove(at: next)
+                Self.insertNew(rows, at, into: &sections, machineSections: machineSections)
+            }
         }
         flush()
         noteSlots(sections, session: session, placed: listed, held: held)
