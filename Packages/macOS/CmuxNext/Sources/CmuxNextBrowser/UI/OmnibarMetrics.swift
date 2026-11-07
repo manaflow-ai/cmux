@@ -51,7 +51,7 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
         // times this point size (13 -> 16 at Standard), and keeps 2 pt inside the chip, so a short
         // bar shrinks it (a suggestion row centers the glyph on the chip's center).
         iconPointSize = min(tokens.resolve(compact: 13, comfortable: 15), ((barHeight - 8) / 1.2).rounded(.down))
-        toolbarIconSize = min(tokens.resolve(compact: 20, comfortable: 22), buttonSize - 4)
+        toolbarIconSize = min(tokens.toolbarGlyphSize, buttonSize - 4)
         trailingIconSize = min(tokens.resolve(compact: 18, comfortable: 20), barHeight - 6)
     }
 
