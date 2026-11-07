@@ -155,8 +155,12 @@ pub unsafe extern "C" fn cmux_sdk_call(
         else {
             return CMUX_SDK_ERR_INVALID;
         };
+        // A key given but not UTF-8 is a bad key, never an absent one.
         // SAFETY: per this function's contract.
         let key = unsafe { text(idempotency_key) };
+        if key.is_none() && !idempotency_key.is_null() {
+            return CMUX_SDK_ERR_INVALID;
+        }
         let kind = match (kind, key) {
             (CMUX_SDK_KIND_READ, None) => CallKind::Read,
             (CMUX_SDK_KIND_MUTATION, Some(key)) => match MutationOptions::new(key) {
