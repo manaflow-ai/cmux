@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42383854121",
+  "recorded_at": "2026-11-07T15:02:30Z",
+  "reason": "cmux-tui bcb1220bbf81 changes the image's cmux-tui (pinned e3e51f684dfb)",
+  "dry_run": false,
+  "cmux_tui": "bcb1220bbf819a51e59298fb84111886ae9b3f4d",
+  "fixes": [
+    {
+      "sha": "bcb1220bbf819a51e59298fb84111886ae9b3f4d",
+      "mergedAt": "2026-11-07T06:22:59-08:00",
+      "subject": "cmux daemon: a busy view link forgets the guests that left (#37819)"
+    },
+    {
+      "sha": "ec74526793c144f3a8441194f3b1a6e6d30d429c",
+      "mergedAt": "2026-11-07T06:06:25-08:00",
+      "subject": "cmux-sdk: upload plans compute chunks on demand; FFI refuses a non-UTF-8 idempotency key (#37433)"
+    },
+    {
+      "sha": "062f3b58f35b7b0664dac602b4d9d3581d489758",
+      "mergedAt": "2026-11-07T06:02:36-08:00",
+      "subject": "cmux-wg: bench desktop streams over TCP, WireGuard TCP and datagrams (#37801)"
+    },
+    {
+      "sha": "a265564558f3850cec02d50058a31072285c9447",
+      "mergedAt": "2026-11-07T13:56:48Z",
+      "subject": "chore(next): base autofix at f2e74371744c"
+    },
+    {
+      "sha": "f2e74371744c1384b1171635af48bd1d1f9dd42d",
+      "mergedAt": "2026-11-07T05:55:02-08:00",
+      "subject": "cmux-tui: the session host survives a failed carrier relay ticket; the relay retries in the background (#37670)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T15:02:30Z",
+    "snapshot_id": "sh-0d6d063ffe2c4520ba32fb58fc878bfe",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42383854121): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "866baa63ad1c75500327f5ab7caea55cf10c344f",
+    "image": "cloud-native-auto-bcb1220b-42383854121-1",
+    "revision": "ci-42383854121-1",
+    "at": "2026-11-07T15:02:30Z"
+  },
+  "rolled_back": false
+}
