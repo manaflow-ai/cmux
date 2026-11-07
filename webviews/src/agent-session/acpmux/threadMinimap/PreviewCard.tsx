@@ -430,7 +430,8 @@ export const PreviewCard = React.forwardRef<
             <span className="acpmux-minimap__prompt" data-pending="" aria-hidden />
           ) : (
             <span className="acpmux-minimap__prompt">
-              {metadata?.sender && <PreviewSender sender={metadata.sender} />}
+              {/* An incoming prompt already names its sender on the from line above. */}
+              {metadata?.sender && from === undefined && <PreviewSender sender={metadata.sender} />}
               {prompt}
             </span>
           )}
