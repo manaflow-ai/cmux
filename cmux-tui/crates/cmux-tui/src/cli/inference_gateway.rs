@@ -51,6 +51,12 @@ const CONNECT_PATH: &str = "/v1/cloud/inference-gateway/connect";
 /// The exact text the backend's runtime answers without waking the object.
 const PING: &str = r#"{"v":1,"t":"ping"}"#;
 const PING_EVERY: Duration = Duration::from_secs(20);
+/// Nothing heard for this long (the API answers every ping with a pong): the path is dead, so redial.
+const SILENT_FOR: Duration = Duration::from_secs(70);
+/// Calls this gateway takes at once (the API's own cap per team); one more is answered busy.
+const MAX_CALLS: usize = 32;
+/// All calls' request bodies held at once, from the first body frame until the provider call ends.
+const MAX_HELD_BYTES: usize = 64 * 1024 * 1024;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 /// The backend refuses a frame over 1 MiB; answer chunks stay well under it once base64'd.
 const CHUNK_BYTES: usize = 192 * 1024;
@@ -456,13 +462,29 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
         let _ = sink.close().await;
     });
     let mut pending: HashMap<String, Pending> = HashMap::new();
-    let mut running: HashMap<String, tokio::task::AbortHandle> = HashMap::new();
+    // Each running call's task and the body bytes it holds.
+    let mut running: HashMap<String, (tokio::task::AbortHandle, usize)> = HashMap::new();
+    let mut held = 0usize;
     let (done_tx, mut done_rx) = mpsc::unbounded_channel::<String>();
+    let mut heard = tokio::time::Instant::now();
+    let mut watch = tokio::time::interval(Duration::from_secs(10));
     let ended = loop {
         let message = tokio::select! {
             m = source.next() => m,
-            Some(id) = done_rx.recv() => { running.remove(&id); continue }
+            Some(id) = done_rx.recv() => {
+                if let Some((_, bytes)) = running.remove(&id) {
+                    held -= bytes;
+                }
+                continue
+            }
+            _ = watch.tick() => {
+                if heard.elapsed() > SILENT_FOR {
+                    break Ended::Closed(format!("nothing heard for {} s", SILENT_FOR.as_secs()));
+                }
+                continue
+            }
         };
+        heard = tokio::time::Instant::now();
         let text = match message {
             None => break Ended::Closed("the socket ended".into()),
             Some(Err(e)) => break Ended::Closed(e.to_string()),
@@ -494,6 +516,15 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
                 log(&format!("connected to {}; serving the team's machines", options.api));
             }
             Some("request") if !id.is_empty() => {
+                if pending.len() + running.len() >= MAX_CALLS {
+                    let busy = error_frame(
+                        &id,
+                        "inference.gateway_busy",
+                        "the gateway is at its call limit; retry",
+                    );
+                    send(&tx, &busy).await;
+                    continue;
+                }
                 let headers = frame
                     .get("headers")
                     .and_then(Value::as_object)
@@ -530,11 +561,17 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
                     .and_then(Value::as_str)
                     .and_then(|d| base64::engine::general_purpose::STANDARD.decode(d).ok());
                 match chunk {
-                    Some(bytes) if call.body.len() + bytes.len() <= MAX_BODY_BYTES => {
+                    Some(bytes)
+                        if call.body.len() + bytes.len() <= MAX_BODY_BYTES
+                            && held + bytes.len() <= MAX_HELD_BYTES =>
+                    {
+                        held += bytes.len();
                         call.body.extend(bytes);
                     }
                     _ => {
-                        pending.remove(&id);
+                        if let Some(call) = pending.remove(&id) {
+                            held -= call.body.len();
+                        }
                         send(
                             &tx,
                             &error_frame(
@@ -549,24 +586,28 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
             }
             Some("body_end") => {
                 let Some(call) = pending.remove(&id) else { continue };
+                let bytes = call.body.len();
                 let (tx, done, upstream) = (tx.clone(), done_tx.clone(), upstream.clone());
                 let key = id.clone();
                 let task = tokio::spawn(async move {
                     answer(&upstream, &key, call, &tx).await;
                     let _ = done.send(key);
                 });
-                running.insert(id, task.abort_handle());
+                running.insert(id, (task.abort_handle(), bytes));
             }
             Some("cancel") => {
-                pending.remove(&id);
-                if let Some(task) = running.remove(&id) {
+                if let Some(call) = pending.remove(&id) {
+                    held -= call.body.len();
+                }
+                if let Some((task, bytes)) = running.remove(&id) {
                     task.abort();
+                    held -= bytes;
                 }
             }
             _ => {}
         }
     };
-    for task in running.values() {
+    for (task, _) in running.values() {
         task.abort();
     }
     drop(tx);
