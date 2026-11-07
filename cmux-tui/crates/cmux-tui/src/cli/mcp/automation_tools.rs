@@ -36,15 +36,22 @@ const TOOLS: &[AutomationTool] = &[
     AutomationTool {
         name: "automation_create",
         verb: "create",
-        description: "Make an automation: name, one body (prompt: an agent runs it; command: a shell runs it, this Mac only) and one schedule (hourly, daily HH:MM, weekdays HH:MM, weekly \"fri 17:00\", every 30m, at, in, cron, manual; webhook on Cloud only). target cloud runs a prompt in the Cloud Chief with this Mac asleep; private and editors set team sharing there.",
+        description: "Make an automation: name, one body (prompt: an agent runs it; command: a shell runs it, this Mac only) and one schedule (hourly, daily HH:MM, weekdays HH:MM, weekly \"fri 17:00\", every 30m, at, in, cron, manual, or watch: a command whose every output line is an event, with debounce; webhook on Cloud only). if: a shell condition run before each run with the event on stdin (exit 0 runs it and its output joins the prompt, 1 skips it); cooldown and max_runs (per 24 h) bound how often it runs. Check it with automation_test before you say it works. target cloud runs a prompt in the Cloud Chief with this Mac asleep; private and editors set team sharing there.",
         mutation: true,
         destructive: false,
     },
     AutomationTool {
         name: "automation_run",
         verb: "run",
-        description: "Run an automation now. The same idempotency_key starts one run.",
+        description: "Run an automation now, optionally with an event (the text a watch line would bring). Its condition still runs. The same idempotency_key starts one run.",
         mutation: true,
+        destructive: false,
+    },
+    AutomationTool {
+        name: "automation_test",
+        verb: "test",
+        description: "Dry run, on this Mac: run the condition with a sample event, read the guardrails (live run, cooldown, daily cap) and return would_run plus the exact prompt a run would send. Starts nothing.",
+        mutation: false,
         destructive: false,
     },
     AutomationTool {
@@ -109,6 +116,8 @@ const CREATE_OPTIONS: &[(&str, &str, u8)] = &[
     ("in", "in", STRING),
     ("cron", "cron", STRING),
     ("manual", "manual", BOOL),
+    ("watch", "watch", STRING),
+    ("debounce", "debounce", STRING),
     ("webhook", "webhook", BOOL),
     ("tz", "tz", STRING),
     ("folder", "folder", STRING),
@@ -116,6 +125,9 @@ const CREATE_OPTIONS: &[(&str, &str, u8)] = &[
     ("timeout", "timeout", STRING),
     ("catch_up", "catch-up", STRING),
     ("paused", "paused", BOOL),
+    ("if", "if", STRING),
+    ("cooldown", "cooldown", STRING),
+    ("max_runs", "max-runs", INT),
     ("private", "private", BOOL),
     ("editors", "editor", LIST),
 ];
@@ -123,7 +135,8 @@ const CREATE_OPTIONS: &[(&str, &str, u8)] = &[
 fn options(verb: &str) -> &'static [(&'static str, &'static str, u8)] {
     match verb {
         "create" => CREATE_OPTIONS,
-        "run" => &[("wait", "wait", BOOL)],
+        "run" => &[("wait", "wait", BOOL), ("event", "event", STRING)],
+        "test" => &[("event", "event", STRING)],
         "history" => &[("limit", "limit", INT), ("state", "state", STRING)],
         "teleport" => &[("to", "to", STRING), ("abort", "abort", BOOL)],
         "audit" => &[("limit", "limit", INT)],
@@ -342,6 +355,30 @@ mod tests {
             ["teleport", "Brief", "--to=ssh:mini"]
         );
         assert_eq!(w("automation_audit", json!({})).unwrap().0, ["audit", "--target", "cloud"]);
+        assert_eq!(
+            w("automation_test", json!({"automation": "Crash", "event": "FATAL x"})).unwrap(),
+            (vec!["test".to_string(), "Crash".into(), "--event=FATAL x".into()], None)
+        );
+        assert_eq!(
+            w(
+                "automation_create",
+                json!({"name": "Crash", "command": "true", "watch": "tail -F a.log",
+                       "debounce": "2s", "if": "grep -q FATAL", "cooldown": "1h", "max_runs": 3,
+                       "idempotency_key": "k-2"}),
+            )
+            .unwrap()
+            .0,
+            [
+                "create",
+                "Crash",
+                "--command=true",
+                "--watch=tail -F a.log",
+                "--debounce=2s",
+                "--if=grep -q FATAL",
+                "--cooldown=1h",
+                "--max-runs=3"
+            ]
+        );
         assert_eq!(w("automation_list", json!({})).unwrap(), (vec!["list".to_string()], None));
         assert_eq!(
             w("automation_runs", json!({"automation": "Brief", "limit": 5})).unwrap().0,
@@ -357,7 +394,7 @@ mod tests {
         assert!(w("automation_get", json!({})).is_err(), "automation is required");
         let names: Vec<_> =
             descriptors().iter().map(|d| d["name"].as_str().unwrap().to_string()).collect();
-        assert_eq!(names.len(), 10);
+        assert_eq!(names.len(), 11);
         assert!(names.iter().all(|n| n.starts_with("automation_")));
     }
 }

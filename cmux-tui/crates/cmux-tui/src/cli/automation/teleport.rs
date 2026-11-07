@@ -116,6 +116,7 @@ fn cloud_triggers(t: &Trigger) -> Result<Value, Failure> {
         Trigger::Cron { expr, tz } => Ok(cron(expr.clone(), tz)),
         Trigger::Manual => Ok(json!([{"type": "manual"}])),
         Trigger::At { .. } => usage(messages().cloud_local_only.replace("{flag}", "at")),
+        Trigger::Watch { .. } => usage(messages().cloud_local_only.replace("{flag}", "watch")),
         Trigger::Every { seconds, anchor } => match every_as_cron(*seconds, *anchor) {
             Some(expr) => Ok(cron(expr, "UTC")),
             None => usage(messages().teleport_every.replace("{value}", &t.describe())),
@@ -155,6 +156,9 @@ fn to_cloud(store: &Store, x: &Automation, global: &GlobalArgs, out: &Out) -> Ou
         return usage(messages().teleport_command);
     };
     let triggers = cloud_triggers(&x.trigger)?;
+    if x.gate.condition.is_some() {
+        return usage(messages().cloud_local_only.replace("{flag}", "if"));
+    }
     let chief = match cloud::call(global, "chief.list", json!({}), None) {
         Ok(Answer::Value(v)) => cloud::default_chief(&v)
             .ok_or_else(|| Failure::Usage(messages().cloud_no_chief.into()))?,
