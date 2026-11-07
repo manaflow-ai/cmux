@@ -42,9 +42,61 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# The server listens on loopback, which every local OS account can reach, and
+# it runs agents with this user's tools. Every launch therefore carries a
+# per-user token kept in an owner-only file; cmux reads the same file to open
+# this server. CMUX_AGENT_CHAT_TOKEN overrides it.
+TOKEN_DIR="$HOME/.cmuxterm/agent-chat"
+TOKEN_FILE="$TOKEN_DIR/cli-token"
+
+valid_token() {
+  case "$1" in
+    ''|*[!A-Za-z0-9_-]*) return 1 ;;
+  esac
+  [ "${#1}" -ge 16 ] && [ "${#1}" -le 256 ]
+}
+
+read_token_file() {
+  [ -f "$TOKEN_FILE" ] && [ ! -L "$TOKEN_FILE" ] && [ -O "$TOKEN_FILE" ] || return 1
+  chmod 600 "$TOKEN_FILE"
+  IFS= read -r token < "$TOKEN_FILE" || [ -n "${token:-}" ]
+  valid_token "$token"
+}
+
+resolve_token() {
+  if [ -n "${CMUX_AGENT_CHAT_TOKEN:-}" ]; then
+    token="$CMUX_AGENT_CHAT_TOKEN"
+    valid_token "$token" || { echo "CMUX_AGENT_CHAT_TOKEN must be 16-256 characters of [A-Za-z0-9_-]" >&2; exit 1; }
+    return
+  fi
+  (umask 077 && mkdir -p "$TOKEN_DIR")
+  chmod 700 "$TOKEN_DIR"
+  read_token_file && return
+  local tmp
+  tmp="$(umask 077 && mktemp "$TOKEN_DIR/cli-token.XXXXXX")"
+  python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "$tmp"
+  # ln refuses to replace a file, so concurrent first runs agree on one token.
+  ln "$tmp" "$TOKEN_FILE" 2>/dev/null || true
+  rm -f "$tmp"
+  read_token_file || { echo "could not create $TOKEN_FILE" >&2; exit 1; }
+}
+
+token=""
+resolve_token
+AUTH_BASE="$BASE/$token"
+
+# A server started without this token (an older cmux-chat, or another
+# account's process on the port) serves its HTML shell for every path, so
+# only a JSON answer proves the token is accepted.
+accepts_token() {
+  local content_type
+  content_type=$(curl -fsS --max-time 1 -o /dev/null -w '%{content_type}' "$AUTH_BASE/api/sessions" 2>/dev/null) || return 1
+  case "$content_type" in application/json*) return 0 ;; *) return 1 ;; esac
+}
+
 if ! curl -fsS --max-time 1 "$BASE/healthz" >/dev/null 2>&1; then
   echo "starting cmux-agent-ui server on :$PORT" >&2
-  (cd "$HERE" && "$BUN" server.ts >> /tmp/cmux-agent-ui.log 2>&1 &)
+  (cd "$HERE" && CMUX_AGENT_CHAT_TOKEN="$token" "$BUN" server.ts >> /tmp/cmux-agent-ui.log 2>&1 &)
   ok=false
   for _ in $(seq 1 50); do
     if curl -fsS --max-time 1 "$BASE/healthz" >/dev/null 2>&1; then ok=true; break; fi
@@ -52,11 +104,15 @@ if ! curl -fsS --max-time 1 "$BASE/healthz" >/dev/null 2>&1; then
   done
   $ok || { echo "server failed to start; see /tmp/cmux-agent-ui.log" >&2; exit 1; }
 fi
+accepts_token || {
+  echo "the server on :$PORT does not accept this user's agent chat token; stop it and rerun cmux-chat" >&2
+  exit 1
+}
 
-url="$BASE/"
+url="$AUTH_BASE/"
 if $terminal; then
   [ -n "$surface" ] || { echo "--terminal needs --surface or CMUX_SURFACE_ID" >&2; exit 1; }
-  url="$BASE/terminal/$surface"
+  url="$AUTH_BASE/terminal/$surface"
 elif [ ${#prompt[@]} -gt 0 ]; then
   body=$(printf '%s' "${prompt[*]}" | \
     CC_PROVIDER="$provider" CC_CWD="${cwd:-$PWD}" CC_AUTO="$auto_approve" python3 -c '
@@ -67,7 +123,7 @@ print(json.dumps({
     "cwd": os.environ["CC_CWD"],
     "autoApprove": os.environ["CC_AUTO"] == "true",
 }))')
-  resp=$(curl -fsS -X POST "$BASE/api/sessions" -H 'content-type: application/json' -d "$body")
+  resp=$(curl -fsS -X POST "$AUTH_BASE/api/sessions" -H 'content-type: application/json' -d "$body")
   url=$(printf '%s' "$resp" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')
 fi
 

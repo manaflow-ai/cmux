@@ -251,7 +251,13 @@ extension AppDelegate {
             )
         case .legacyDefaultURL:
             let isHealthy = await Self.agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5)
-            return AgentChatServerAvailability(isReachable: isHealthy, browserURL: agentChat.url)
+            let cliToken = await Task.detached(priority: .userInitiated) {
+                AgentChatCLIToken.read()
+            }.value
+            return AgentChatServerAvailability(
+                isReachable: isHealthy,
+                browserURL: AgentChatCLIToken.browserURL(baseURL: agentChat.url, token: cliToken)
+            )
         }
     }
 
