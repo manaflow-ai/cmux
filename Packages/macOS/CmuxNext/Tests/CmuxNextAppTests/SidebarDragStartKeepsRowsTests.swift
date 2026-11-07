@@ -15,7 +15,7 @@ import Testing
 
     /// An empty Pinned over five loose rows: on the list's own sections, or (`document`) on the sidebar document with
     /// Home's block on top, as the nightly draws it.
-    static func list(document: Bool, pins: [LayoutItem] = []) -> (SidebarListView, NSWindow) {
+    static func list(document: Bool, pins: [LayoutItem] = [], unplaced: Set<WorkspaceID> = []) -> (SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let rows = SidebarSection(kind: .machine(machine), nodes: loose.map { .workspace(SidebarWorkspace(id: $0, title: $0.rawValue)) })
         let model: SidebarModel
@@ -35,7 +35,7 @@ import Testing
                                             collapsed: [], look: .quiet, metrics: metrics, drawsLines: false, appHeights: [:])
             let keys = [home.id.rawValue, top.id.rawValue, pinned.id.rawValue, "sec_m_local"] + pins.map(\.id.rawValue) + loose.map { "itm_" + $0.rawValue }
             model.docDrag = SidebarDocDrag(item: { key in
-                if case let .workspace(id) = key { return "itm_" + id.rawValue }
+                if case let .workspace(id) = key, !unplaced.contains(id) { return "itm_" + id.rawValue }
                 return nil
             }, section: { id in
                 if case .machine = id { return "sec_m_local" }
@@ -121,11 +121,12 @@ import Testing
     }
 
     /// Up to the top edge: the zone opens where Pinned goes and takes the drop (its row, or the drop's gap in its
-    /// place), and the rows between it and the lifted one move down together; back down, it closes.
-    @Test(arguments: [false, true]) func theTopEdgeOpensPinnedsZone(_ document: Bool) throws {
+    /// place), and the rows between it and the lifted one move down together; back down, it closes. `unplaced`: on the
+    /// document, a workspace it does not place yet (just made), which drags on the list.
+    @Test(arguments: [(false, false), (true, false), (true, true)]) func theTopEdgeOpensPinnedsZone(_ document: Bool, _ unplaced: Bool) throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        let (list, window) = Self.list(document: document)
+        let (list, window) = Self.list(document: document, unplaced: unplaced ? [WorkspaceID("c")] : [])
         defer { window.close() }
         let dragged = Self.dragged
         let before = Self.ys(list, except: [dragged])
@@ -146,9 +147,11 @@ import Testing
             let shift = (list.displayed.row(for: key)?.y ?? 0) - (before[key] ?? 0)
             #expect(abs(shift - moved) < 0.5, "\(key) moved \(shift) pt, the first row \(moved) pt")
         }
-        if !document {
+        #expect(unplaced == (document && drag.docItems == nil), "the drag runs on the wrong path")
+        if !document || unplaced {
             guard case let .position(position)? = drag.target else { Issue.record("no drop at the top edge: \(String(describing: drag.target))"); return }
-            #expect(position.section == .pinned, "the top edge drops in \(position.section), not Pinned")
+            let pinned: SectionID = document ? .custom(SidebarLayoutDocument.pinnedSectionID.rawValue) : .pinned
+            #expect(position.section == pinned, "the top edge drops in \(position.section), not Pinned")
         } else {
             #expect(drag.docTarget != nil, "the top edge takes no drop on the document")
         }
