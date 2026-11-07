@@ -513,27 +513,36 @@ try {
             () => false,
           )
       : Promise.resolve(false);
-    const profiling =
-      cdp !== undefined &&
-      (await Promise.race([
-        settled,
-        running.then(
-          () => false,
-          () => false,
-        ),
-      ]));
+    let ended = false;
+    const end = running.then(
+      () => (ended = true),
+      () => (ended = true),
+    );
+    const profiling = cdp !== undefined && (await Promise.race([settled, end.then(() => false)]));
     if (cdp && profiling) {
       await cdp.send("Profiler.enable");
       await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
       await cdp.send("Profiler.start");
-      await page.evaluate(() => {
-        (window as unknown as { cmuxTickGo?: boolean }).cmuxTickGo = true;
-      });
     }
-    if (INPUT === "precise") {
-      await page.waitForFunction(() => (window as unknown as { cmuxTickReady?: boolean }).cmuxTickReady, null, {
-        timeout: 180_000,
-      });
+    // A held run goes on whether or not it is profiled: a settle that timed out can still come later.
+    if (cdp && !ended)
+      await page
+        .evaluate(() => {
+          (window as unknown as { cmuxTickGo?: boolean }).cmuxTickGo = true;
+        })
+        .catch(() => {});
+    // A run that ended first (an error) gets no input: `await running` below reports it.
+    const ready = async () =>
+      !ended &&
+      (await Promise.race([
+        page
+          .waitForFunction(() => (window as unknown as { cmuxTickReady?: boolean }).cmuxTickReady, null, {
+            timeout: 180_000,
+          })
+          .then(() => true),
+        end.then(() => false),
+      ]));
+    if (INPUT === "precise" && (await ready())) {
       // A tick or a flick as a smoothing tool sends it: `events` pixel deltas 8 ms apart, easing out, `total`
       // px in all. Deltas are fractional, never a legacy 120-unit notch. The pause between is input pacing.
       // Chromium's mouse.wheel sends legacy 120-unit ticks, which the glide takes as a notch; its synthetic
