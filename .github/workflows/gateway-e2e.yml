@@ -3,7 +3,7 @@ name: Inference gateway E2E (development)
 # One manual trip through a team's inference gateway on the DEVELOPMENT backend
 # (https://cmux-api-development.debussy.workers.dev): scripts/cmux-next/cloud-journey.ts --gateway makes a
 # chat machine and a second, tiny machine, runs `cmux inference setup --gateway-machine` with the cmux-tui
-# built from the dispatched commit (it names the second machine the team's gateway and starts
+# built from the run's commit (it names the second machine the team's gateway and starts
 # `cmux inference gateway` there in front of a model stub standing in for the person's own proxy), then
 # chats with Codex on the first machine. The step passes only when the reply carries the stub's nonce,
 # the gateway's log shows the call, and the chat machine holds no login. Both machines are deleted at the
@@ -14,7 +14,9 @@ name: Inference gateway E2E (development)
 # Secrets: the repo-level dev stack account (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD, as in
 # machine-join-e2e.yml) reaches the one journey step through env only; cloud-journey.ts keeps the session
 # and tokens in memory and hands `cmux inference setup` the install token in a 0600 temporary file.
-# Manual dispatch on feat-cmux-next only.
+# Runs on feat-cmux-next only: a push there that changes .github/gateway-e2e/request (land a PR that edits it), or a
+# manual dispatch once this file is on the default branch. A pull request run would not get the environment, whose
+# branch policy admits feat-cmux-next alone.
 #
 # mac: the same chat with the gateway on one of our own Mac runners (picked by the runner job), which sit on the
 # tailnet, in front of our subscription router (sr) at http://100.89.225.106:31415/v1, which only the tailnet reaches.
@@ -23,6 +25,10 @@ name: Inference gateway E2E (development)
 # mode. The cmux CLI is the published, attestation-checked client of this commit's cmux-tui (no build on the mini).
 on:
   workflow_dispatch: {}
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/gateway-e2e/request
 
 permissions:
   contents: read
@@ -268,7 +274,7 @@ jobs:
           RUNNER_LABEL: ${{ needs.runner.outputs.label }}
         run: |
           if ! curl -fsS -m 15 -o /dev/null http://100.89.225.106:31415/v1/models; then
-            echo "::error::sr is not reachable from this runner (${RUNNER_LABEL:-Blacksmith macOS}); only an owned Mac on the tailnet reaches it. Re-dispatch when an owned Mac is free."
+            echo "::error::sr is not reachable from this runner (${RUNNER_LABEL:-Blacksmith macOS}); only an owned Mac on the tailnet reaches it. Run it again (edit .github/gateway-e2e/request) when an owned Mac is free."
             exit 1
           fi
 
