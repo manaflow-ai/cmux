@@ -65,11 +65,13 @@ export function PairInviteCard({
   // The Name field keeps what the person typed for this machine; it is read only on Confirm.
   const [typed, setTyped] = useState<{ code: string; value: string } | null>(null);
   const name = candidate && typed?.code === candidate.code ? typed.value : (candidate?.name ?? "");
+  // Sent once per change of the field or of the machine (a fresh status is a new object each read).
   const nameChange = useRef(onNameChange);
   nameChange.current = onNameChange;
+  const candidateCode = candidate?.code;
   useEffect(() => {
-    if (candidate) nameChange.current?.(name);
-  }, [candidate, name]);
+    if (candidateCode) nameChange.current?.(name);
+  }, [candidateCode, name]);
   const buttons = buttonsOf(step);
   const press = (action: Action) => onAction(action);
   // Return presses the default button, never Confirm or Try Again: only a click pairs a machine.

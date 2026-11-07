@@ -56,7 +56,8 @@ function fakeHost(initial: PairInviteStatus) {
   const client: PageClient = {
     call: async <R,>(op: string, params: unknown) => {
       calls.push({ op, params });
-      if (op === "cmux.pairInvite.status") return status as R;
+      // A fresh object per read, as the bridge decodes each reply.
+      if (op === "cmux.pairInvite.status") return structuredClone(status) as R;
       return null as R;
     },
     subscribe: async <E,>(stream: string, onEvent: (data: E, seq: number) => void) => {
@@ -133,6 +134,12 @@ test("a change event reads the status again: the arrived machine shows its words
   expect(fake.calls.filter((call) => /confirm|approve/i.test(call.op))).toEqual([]);
   // The Name field reaches the host for the native Confirm.
   expect(ops(fake.calls, "cmux.pairInvite.setName").map((call) => call.params)).toEqual([{ name: "build-box" }]);
+  // Sending the name reads no status again: no loop between the page and the host.
+  const reads = ops(fake.calls, "cmux.pairInvite.status").length;
+  await flush();
+  await flush();
+  expect(ops(fake.calls, "cmux.pairInvite.status")).toHaveLength(reads);
+  expect(ops(fake.calls, "cmux.pairInvite.setName")).toHaveLength(1);
 });
 
 test("an ended invite offers New Code on Return; Cancel and Escape close the card", async () => {
