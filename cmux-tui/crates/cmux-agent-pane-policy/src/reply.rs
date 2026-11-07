@@ -35,9 +35,20 @@ pub fn filtered(value: &Value, shape: &ReplyShape) -> Option<Value> {
     }
 }
 
+/// The `data.reason` values a filtered reply's error keeps, as Swift's
+/// `keptErrorReasons`: a refusal told apart from a machine that is down.
+pub const KEPT_ERROR_REASONS: [&str; 6] = [
+    "browse.path",
+    "browse.outside_roots",
+    "browse.not_directory",
+    "peer_unreachable",
+    "peer_disconnected",
+    "peer.forward_refused",
+];
+
 /// A reply to a filtered request, rebuilt with the page's id (raw JSON) and
-/// its filtered result; an error keeps only its code and message. Keys
-/// sorted, as Swift writes it.
+/// its filtered result; an error keeps only its code, its message and a
+/// reason [`KEPT_ERROR_REASONS`] lists. Keys sorted, as Swift writes it.
 pub fn filtered_reply(object: &Map<String, Value>, shape: &ReplyShape, page_id: &str) -> String {
     let id = serde_json::from_str::<Value>(page_id).unwrap_or(Value::Null);
     let mut reply = Map::new();
@@ -46,7 +57,16 @@ pub fn filtered_reply(object: &Map<String, Value>, shape: &ReplyShape, page_id: 
     if let Some(error) = object.get("error").and_then(Value::as_object) {
         let code = error.get("code").and_then(integer_code).unwrap_or(-32603);
         let message = error.get("message").and_then(Value::as_str).unwrap_or_default();
-        reply.insert("error".into(), json!({"code": code, "message": message}));
+        let mut kept = Map::new();
+        kept.insert("code".into(), json!(code));
+        kept.insert("message".into(), json!(message));
+        if let Some(reason) =
+            error.get("data").and_then(|d| d.get("reason")).and_then(Value::as_str)
+            && KEPT_ERROR_REASONS.contains(&reason)
+        {
+            kept.insert("data".into(), json!({"reason": reason}));
+        }
+        reply.insert("error".into(), Value::Object(kept));
     } else {
         let result = object
             .get("result")

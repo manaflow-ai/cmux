@@ -127,6 +127,25 @@ nonisolated enum AcpmuxPathPolicy {
                 params = fields
             }
         }
+        // The folder browser on another machine (`_acpmux/browse` with `peer`) names that
+        // machine's folder: its acpmux holds it to its own roots, so here only the shape is checked.
+        var peerPath: String?
+        if method == "_acpmux/browse", var fields = params as? [String: Any],
+           let peer = fields["peer"] as? String, !peer.isEmpty, let value = fields.removeValue(forKey: "path") {
+            guard let path = value as? String, isPeerFolder(path) else {
+                return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
+            }
+            peerPath = path
+            params = fields
+        } else if method == "_acpmux/browse" {
+            // This Mac's folders: only one the page names as a nonempty string, which the roots
+            // below hold it to. With none (or an array, which the path walk passes when empty),
+            // acpmux would list the home folder, past every root.
+            let fields = params as? [String: Any] ?? [:]
+            if (fields["peer"] as? String ?? "").isEmpty, (fields["path"] as? String ?? "").isEmpty {
+                return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
+            }
+        }
         // Product rule 1: session/new (adopt too) without a cwd gets the pane's workspace root;
         // without one, the workspace's agent-home folder, made now. Never the home folder.
         // Do not work in a project (`_meta.acpmux.noProject`, the new chat's project picker,
@@ -183,8 +202,9 @@ nonisolated enum AcpmuxPathPolicy {
         var checked: Any
         do {
             checked = try rewrite(params, context: &context)
-            if peerCwd != nil || peerFolders != nil, var fields = checked as? [String: Any] {
+            if peerCwd != nil || peerFolders != nil || peerPath != nil, var fields = checked as? [String: Any] {
                 if let peerCwd { fields["cwd"] = peerCwd }
+                if let peerPath { fields["path"] = peerPath }
                 if let peerFolders { fields["additionalDirectories"] = peerFolders }
                 checked = fields
             }
@@ -245,7 +265,8 @@ nonisolated enum AcpmuxPathPolicy {
     }
 
     /// Whether a page frame needs the disk check: it names a folder field at any depth, or it is a
-    /// `session/new` (which gets a cwd when it names none). Parsed, never a substring test.
+    /// `session/new` (which gets a cwd when it names none) or an `_acpmux/browse` (whose daemon
+    /// lists the home folder when it names none). Parsed, never a substring test.
     public static func needsCheck(_ text: String) -> Bool {
         needsCheck((try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any])
     }
@@ -253,7 +274,8 @@ nonisolated enum AcpmuxPathPolicy {
     /// The same for a frame already parsed.
     public static func needsCheck(_ object: [String: Any]?) -> Bool {
         guard let object else { return false }
-        return object["method"] as? String == "session/new" || object["params"].map(namesFolder) == true
+        let method = object["method"] as? String
+        return method == "session/new" || method == "_acpmux/browse" || object["params"].map(namesFolder) == true
     }
 
     static func namesFolder(_ value: Any) -> Bool {

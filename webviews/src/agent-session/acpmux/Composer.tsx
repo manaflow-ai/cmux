@@ -28,6 +28,7 @@ import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { opensProcessTerminal } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
+import type { BrowseFolders } from "./folderBrowse";
 import { ComposerContext } from "./ComposerContext";
 import type { CloudMachine } from "./cloudMachines";
 import { showsLocationRow } from "./locationRow";
@@ -412,6 +413,8 @@ type Props = {
   projectChoices?: Project[];
   /// A chat on another machine: that machine's own folders (`project.list`), for its folder menu.
   machineFolders?: Project[];
+  /// Lists a machine's directory (`_acpmux/browse`), for the folder menu's Browse <machine>….
+  browseFolders?: BrowseFolders;
   onBrowseProject?(): void;
   /// A new chat's extra folders, in its folder menu (ComposerContext `extraFolders`).
   extraFolders?: ExtraFolderControl;
@@ -527,6 +530,7 @@ function ComposerFrame({
   onCloudMachinePicked,
   projectChoices,
   machineFolders,
+  browseFolders,
   onBrowseProject,
   extraFolders,
   onNewWorktree,
@@ -2304,6 +2308,7 @@ function ComposerFrame({
     <ComposerContext
       projectChoices={projectChoices}
       machineFolders={machineFolders}
+      {...(browseFolders ? { browseFolders } : {})}
       onBrowseProject={onBrowseProject}
       {...(extraFolders ? { extraFolders } : {})}
       onNewWorktree={onNewWorktree}

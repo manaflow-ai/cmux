@@ -814,5 +814,111 @@
     ]
    }
   }
+ },
+ {
+  "name": "browse error keeps a listed reason",
+  "method": "_acpmux/browse",
+  "page_id": "4",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "error": {
+    "code": -32602,
+    "message": "outside",
+    "data": {
+     "reason": "browse.outside_roots",
+     "roots": [
+      "/srv"
+     ]
+    }
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "error": {
+    "code": -32602,
+    "message": "outside",
+    "data": {
+     "reason": "browse.outside_roots"
+    }
+   }
+  }
+ },
+ {
+  "name": "browse error drops an unlisted reason",
+  "method": "_acpmux/browse",
+  "page_id": "4",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "error": {
+    "code": -32000,
+    "message": "no",
+    "data": {
+     "reason": "something.else",
+     "secret": 1
+    }
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "error": {
+    "code": -32000,
+    "message": "no"
+   }
+  }
+ },
+ {
+  "name": "browse keeps names, kinds and paths",
+  "method": "_acpmux/browse",
+  "page_id": "5",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "path": "/srv/a",
+    "parent": null,
+    "home": "/home/u",
+    "total": 1,
+    "offset": 0,
+    "token": "s",
+    "entries": [
+     {
+      "name": "b",
+      "path": "/srv/a/b",
+      "kind": "dir",
+      "text": "body"
+     }
+    ],
+    "truncated": {
+     "reason": "cap",
+     "scanned": 5000,
+     "x": 1
+    }
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 5,
+   "result": {
+    "path": "/srv/a",
+    "home": "/home/u",
+    "total": 1,
+    "offset": 0,
+    "entries": [
+     {
+      "name": "b",
+      "path": "/srv/a/b",
+      "kind": "dir"
+     }
+    ],
+    "truncated": {
+     "reason": "cap",
+     "scanned": 5000
+    }
+   }
+  }
  }
 ]

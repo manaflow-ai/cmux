@@ -13,6 +13,7 @@ import { acpmuxPerf } from "../perf";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
+import type { BrowseFolders } from "../folderBrowse";
 import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
@@ -242,6 +243,8 @@ export type NewTabChips = React.ComponentType<{
 
 type Props = NewTabScreenActions & {
   snapshot: AcpmuxSnapshot;
+  /// Lists a folder of this Mac's acpmux or a peer (`_acpmux/browse`): the location menu's Browse.
+  browseFolders?: BrowseFolders;
   omnibar?: OmnibarContext;
   /// The tab the page opened from (its URL or folder): in the field and selected.
   location?: string;
@@ -1800,6 +1803,7 @@ export function NewTabScreen(props: Props) {
         onNoProject={() => pickProject(undefined)}
         noProject={none}
         {...(browseProject ? { onBrowseProject: browseProject } : {})}
+        {...(props.browseFolders ? { browseFolders: props.browseFolders } : {})}
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
         {...(props.onConnect ? { onConnect: props.onConnect, connectOnlyWhenEmpty: !props.environments } : {})}

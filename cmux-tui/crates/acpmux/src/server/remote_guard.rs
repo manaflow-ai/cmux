@@ -1185,7 +1185,7 @@ fn outside_roots(field: &str) -> RpcError {
 /// filesystem's own spelling. A root that is `/`, the home directory or any
 /// ancestor of it is dropped: one session started in `~` must not open
 /// `~/.ssh` or `~/Library` to the Web. Compared by path components.
-async fn web_roots(hub: &std::sync::Arc<crate::hub::Hub>) -> Vec<std::path::PathBuf> {
+pub(super) async fn web_roots(hub: &std::sync::Arc<crate::hub::Hub>) -> Vec<std::path::PathBuf> {
     let mut raw: Vec<String> = hub.config.read().await.web_roots.clone();
     raw.extend(hub.sessions().iter().map(|s| s.meta().cwd.to_string_lossy().into_owned()));
     // The folders of the workspaces the person's app lists now (its own
