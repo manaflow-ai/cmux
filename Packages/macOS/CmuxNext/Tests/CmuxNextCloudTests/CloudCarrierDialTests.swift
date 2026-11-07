@@ -166,13 +166,16 @@ import Testing
         await #expect(throws: CloudLinkError.invalidAnswer("served another socket")) { _ = try await serve.socketPath() }
     }
 
-    /// Ownership is the latest connected line's `vmk`; the record's creator rule only until one arrives.
+    /// Ownership is the current child's latest connected line: its `vmk`, and a line without one is never
+    /// owner (nor the record's creator rule); the creator rule applies only before that child answered.
+    /// A new child starts with no answer.
     @Test func theGrantsVmkOwnsTheLinkElseTheRecord() async throws {
         #expect(CloudCallerOwnership(vmk: "owner") == .owner)
         #expect(CloudCallerOwnership(vmk: "team") == .team)
         #expect(CloudCallerOwnership(vmk: nil) == nil)
         #expect(CloudCallerOwnership(vmk: "admin") == nil)
-        let cli = try Self.standIn("printf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nread -r l\nprintf '{\"ok\":true,\"route\":\"carrier\",\"vmk\":\"team\"}\\n' >&2\nprintf '{\"ok\":true,\"route\":\"carrier\"}\\n' >&2\ncat >/dev/null\n")
+        // Each token line (a connect's) lets the stand-in answer: first an owner grant, then one with no vmk.
+        let cli = try Self.standIn("printf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nread -r l\nprintf '{\"ok\":true,\"route\":\"carrier\",\"vmk\":\"owner\"}\\n' >&2\nread -r l\nprintf '{\"ok\":true,\"route\":\"carrier\"}\\n' >&2\ncat >/dev/null\n")
         defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
         let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) {
             ["CMUX_CLOUD_ACCESS_TOKEN": "t"]
@@ -181,15 +184,46 @@ import Testing
         let link = CloudLinkSession(key: CloudLinkKey(machine: "vm_abc123"), resolver: CloudCarrierResolver(serve: serve) { .owner })
         // No connected line yet: the record says owner.
         _ = try await link.connect(origin: .user)
+        #expect(await serve.answer == nil)
         #expect(await link.callerOwnership == .owner)
-        // The second connect's token line lets the stand-in report a team grant, then one with no vmk.
         _ = try await link.connect(origin: .user)
-        let deadline = ContinuousClock.now + .seconds(5)
-        while await serve.vmk == nil, ContinuousClock.now < deadline { await Task.yield() }
-        #expect(await serve.vmk == "team")
+        var deadline = ContinuousClock.now + .seconds(5)
+        while await serve.answer != .owner, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(await serve.answer == .owner)
+        // An answer with no vmk takes the owner role away, on the live link and on the next connect.
         _ = try await link.connect(origin: .user)
-        #expect(await link.callerOwnership == .team)
+        deadline = ContinuousClock.now + .seconds(5)
+        while await serve.answer != .unknown, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(await serve.answer == .unknown)
+        #expect(await link.ownerLink == nil)
+        _ = try await link.connect(origin: .user)
+        #expect(await link.callerOwnership == .unknown, "the record's creator rule overrode a connection's answer")
+        #expect(await link.ownerLink == nil)
+        // A new child has answered nothing yet: the record's rule again.
+        await serve.stop()
+        _ = try await link.connect(origin: .user)
+        #expect(await serve.answer == nil)
+        #expect(await link.callerOwnership == .owner)
         await link.close()
+    }
+
+    /// A token lookup that fails keeps the healthy serve child (on its last token) rather than restarting it.
+    @Test func aFailedTokenLookupKeepsTheChild() async throws {
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\ncat >/dev/null\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let tokens = Counter()
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) {
+            guard await tokens.next() == 1 else { throw CancellationError() }
+            return ["CMUX_CLOUD_ACCESS_TOKEN": "t-1"]
+        }
+        let socket = "/tmp/cmux-link-0123456789ab.sock"
+        let serve = CloudCarrierServe(connector: connector, socket: socket) { _ in }
+        #expect(try await serve.socketPath() == socket)
+        #expect(try await serve.socketPath() == socket)
+        #expect(await serve.refusal == nil, "the child was torn down")
+        #expect(try String(contentsOf: folder.appendingPathComponent("launches"), encoding: .utf8) == "launched\n")
+        await serve.stop()
     }
 
     @Test func theRecordsCreatorOwnsTheMachine() {

@@ -5,8 +5,9 @@ public import Foundation
 /// session (``CloudCarrierServe``), whose private socket dials the machine's `mux` once per connection, the
 /// way the old link socket did. Every client of the machine's daemon gets that socket: the daemon
 /// connection (its retries and reconnects too, ``redials``), the CLI's copies, moves, uploads and updates,
-/// and the phone. The owner answer is the latest connected line's `vmk`, which also updates the live link,
-/// else the machine record's creator rule.
+/// and the phone. The owner answer is the current serve child's latest connected line (its `vmk`; a line
+/// without one is never owner), which also updates the live link; the machine record's creator rule
+/// applies only before that child answered at all.
 public struct CloudCarrierResolver: CloudLinkResolver {
     private let serve: CloudCarrierServe?
     private let ownership: @Sendable () async -> CloudCallerOwnership
@@ -21,9 +22,9 @@ public struct CloudCarrierResolver: CloudLinkResolver {
     public func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
         guard let serve else { throw CloudLinkError.helperNotRunning(reason: "no bundled cmux-tui") }
         let socket = try await serve.socketPath()
-        // The grant's answer on serve's latest connected line; the record's creator rule until one arrives.
-        let granted = CloudCallerOwnership(vmk: await serve.vmk)
-        let caller = if let granted { granted } else { await ownership() }
+        // The grant's answer on this child's latest connected line; the record's creator rule only before any.
+        let answered = await serve.answer
+        let caller = if let answered { answered } else { await ownership() }
         return CloudLinkSocket(key: key, path: socket, generation: nil, callerOwnsVM: caller == .owner, callerIsTeammate: caller == .team)
     }
 
@@ -61,8 +62,9 @@ public actor CloudCarrierServe {
     private var generation: UInt64 = 0
     /// The last refused dial since the current connect.
     private var refused: CloudLinkError?
-    /// The `vmk` of the latest connection serve reported connected (`owner` or `team`); nil before one.
-    private(set) var vmk: String?
+    /// The current child's latest connected answer: `owner` or `team` by its `vmk`, `unknown` for a line
+    /// without one (never owner). Nil until that child answered once; a new child starts with none.
+    private(set) var answer: CloudCallerOwnership?
     private var ownershipObserver: (@Sendable (CloudCallerOwnership) async -> Void)?
     /// The last token the child got (environment or stdin).
     private var sentToken: String?
@@ -108,9 +110,13 @@ public actor CloudCarrierServe {
         if ready, let child, child.isRunning {
             let token = try? await connector.environment()["CMUX_CLOUD_ACCESS_TOKEN"]
             guard mine == generation else { throw Self.stopped }
-            if let token, ready, child === self.child, child.writeInput(line: CloudCarrierDial.tokenLine(token)) {
-                sentToken = token
-                return socket
+            if ready, child === self.child, child.isRunning {
+                // A token lookup that failed keeps the healthy child on its last token (as refreshToken does).
+                guard let token else { return socket }
+                if child.writeInput(line: CloudCarrierDial.tokenLine(token)) {
+                    sentToken = token
+                    return socket
+                }
             }
         }
         let task = Task { try await self.launch(generation: mine) }
@@ -135,9 +141,10 @@ public actor CloudCarrierServe {
 
     private func noteRefused(_ error: CloudLinkError) { refused = error }
 
-    private func noteConnected(vmk: String?) async {
-        guard let vmk, let caller = CloudCallerOwnership(vmk: vmk) else { return }
-        self.vmk = vmk
+    private func noteConnected(vmk: String?, from serving: ChildProcess) async {
+        guard serving === child else { return }
+        let caller = CloudCallerOwnership(vmk: vmk) ?? .unknown
+        answer = caller
         await ownershipObserver?(caller)
     }
 
@@ -173,6 +180,7 @@ public actor CloudCarrierServe {
         let environment = ProcessInfo.processInfo.environment.merging(fresh) { $1 }
         let child = ChildProcess(executable: connector.cli, arguments: connector.dial.serveArguments(socket: socket), environment: environment)
         self.child = child
+        answer = nil
         sentToken = environment["CMUX_CLOUD_ACCESS_TOKEN"]
         let (answers, answer) = AsyncStream.makeStream(of: CloudCarrierDial.ServeLine.self, bufferingPolicy: .bufferingNewest(1))
         // One reader for all of stderr: the first answer, then one line per refused connection.
@@ -185,7 +193,7 @@ public actor CloudCarrierServe {
                 switch line {
                 case .refused(let code, let detail):
                     if let refusal = CloudCarrierDial.serveRefusal(code: code, detail: detail) { await self?.noteRefused(refusal) }
-                case .connected(let vmk): await self?.noteConnected(vmk: vmk)
+                case .connected(let vmk): await self?.noteConnected(vmk: vmk, from: child)
                 case .ready: break
                 }
             }
