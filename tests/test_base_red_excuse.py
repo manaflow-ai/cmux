@@ -4738,6 +4738,43 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             self.judge()
         self.assertEqual(len(self.graphql), 1)
 
+    def test_a_covered_pin_beside_a_red_the_base_shares_is_set_aside(self):
+        # cmux#37767 at 525bb16f: a step-A Rust change whose job also carried a red the base had too. The base never has
+        # the pin error, so comparing it with the base refused a PR the pin rule covers.
+        shared = "##[error]red check: Localized strings are complete"
+        self.gh.logs[1] = self.pin_log(shared)
+        self.gh.jobs[2]["conclusion"] = "failure"
+        self.gh.logs[2] = log(self.JOB, self.ROLLUP, shared, "##[error]Process completed with exit code 1.")
+        self.pr_files(*self.RUST)
+        [line] = self.judge()
+        self.assertIn("fails the same way", line)
+        self.assertIn("red check: Localized strings are complete", line)
+        self.assertNotIn("app FFI sources changed since the pinned source:", line.split("; set aside")[0])
+        self.assertTrue(line.endswith(
+            f"; set aside '{self.PIN}' (\"error: the app FFI sources changed since the pinned source\"): #37292 "
+            "changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: a step-A Rust change, "
+            "pinned by the release its merge publishes"), line)
+
+    def test_a_covered_pin_beside_a_red_the_base_lacks_is_refused(self):
+        self.gh.logs[1] = self.pin_log("##[error]red check: Localized strings are complete")
+        self.gh.jobs[2]["conclusion"] = "failure"
+        self.gh.logs[2] = log(self.JOB, self.ROLLUP, "##[error]red check: Swift files are formatted",
+                              "##[error]Process completed with exit code 1.")
+        self.pr_files(*self.RUST)
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next .*Localized strings are complete"):
+            self.judge()
+
+    def test_an_uncovered_pin_beside_a_red_the_base_shares_is_still_refused(self):
+        # The set-aside needs the path rule or a published base pin: a Swift change's pin error never leaves.
+        shared = "##[error]red check: Localized strings are complete"
+        self.gh.logs[1] = self.pin_log(shared)
+        self.gh.jobs[2]["conclusion"] = "failure"
+        self.gh.logs[2] = log(self.JOB, self.ROLLUP, shared, "##[error]Process completed with exit code 1.")
+        self.pr_files(*self.RUST, "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarClient.swift")
+        self.source = None
+        with self.assertRaisesRegex(excuse.Refused, "its app FFI pin is red, and #37292 changes Swift"):
+            self.judge()
+
     def test_a_rollup_that_never_named_the_pin_is_another_red(self):
         # Review of 0e1e7204: the rollup failed before its "red check:" line, so something else broke it.
         self.gh.logs[1] = self.pin_log().replace(f"##[error]red check: {self.PIN}", "Reading the step outcomes")
@@ -4914,6 +4951,20 @@ class GalleryBaseLoadCrash(unittest.TestCase):
                 with unittest.mock.patch.object(excuse, "ARTIFACT_MAX_BYTES", 100):
                     with self.assertRaisesRegex(excuse.Refused, "artifact 7 is over"):
                         reader.artifact_file(REPO, 7, "health.json")
+
+    def test_an_artifact_download_that_stalls_ends_at_its_deadline(self):
+        # gh itself stalls, and a gh wrapper (the agent hosts' shim) whose child holds stdout stalls
+        for script in ("exec sleep 30", "sleep 30\nexit 0"):
+            with self.subTest(script=script), tempfile.TemporaryDirectory() as where:
+                gh = Path(where) / "gh"
+                gh.write_text(f"#!/bin/sh\n{script}\n")  # sends nothing
+                gh.chmod(0o755)
+                with unittest.mock.patch.dict(os.environ, {"PATH": f"{where}:{os.environ['PATH']}"}), \
+                        unittest.mock.patch.object(excuse, "ARTIFACT_SECONDS", 0.2):
+                    started = excuse.time.monotonic()
+                    with self.assertRaisesRegex(excuse.Refused, "took over 0.2 seconds"):
+                        excuse.GitHub().artifact_file(REPO, 7, "health.json")
+                    self.assertLess(excuse.time.monotonic() - started, 5)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ import CmuxNextCompat
 /// The strip is wider than the line and lies across the edge (`SidebarResizeBand`), so the
 /// container mounts it in its superview: inside the container AppKit would clip the outer part
 /// out of hit testing, cursor rects and hover (u2255).
-final class SidebarResizeHandle: NSView {
+final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
     enum Phase {
         case began
         case changed(CGFloat)

@@ -7,7 +7,8 @@
 // Active and the rest under Done; a row opens that chat (`onOpenSession`).
 import React from "react";
 import { useT } from "../i18n";
-import { ChildSessionRows, sessionStatus } from "../session-info/ChildSessionRows";
+import { ChildSessionRows } from "../session-info/ChildSessionRows";
+import { sessionStatus } from "../session-info/childSessionRowsModel";
 import type { AcpmuxRow } from "../model";
 import type { StartedSession } from "../started/startedSessions";
 import { SubagentListRow, SubagentPaneContext } from "../subagents/SubagentGroup";
