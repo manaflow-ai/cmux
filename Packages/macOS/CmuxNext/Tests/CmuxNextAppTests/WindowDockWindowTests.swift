@@ -154,6 +154,29 @@ struct WindowDockWindowTests {
         }
     }
 
+    // MARK: - Undock Chief (cmux#37372)
+
+    /// Undock Chief, run from the docked Chief (its pane's menu or the palette): Home leaves the dock and the
+    /// window shows the stage's workspace alone, with the keys; a second run has nothing to undock.
+    @Test func undockChiefLeavesTheStageAndGivesItTheKeys() async throws {
+        try await Self.withDocks {
+            let f = try await Fixture(keys: Self.keys, tree: Self.tree())
+            defer { f.close() }
+            f.controller.armChiefDock(home: "k0", edge: .left)
+            f.services.windows.show(workspaceID: "k1", in: f.state) // a link from the Chief
+            f.frame()
+            f.controller.openChiefDock("k0", edge: .left) // the Chief has the keys
+            f.frame()
+            try #require(f.state.docks.isDocked("k0") && f.state.workspaceID == "k0" && f.state.stageWorkspaceID == "k1")
+
+            #expect(f.controller.undockChief("k0"))
+            f.frame()
+            #expect(f.state.docks.isEmpty, "the Chief is still docked: \(f.state.docks.all.map(\.workspace))")
+            #expect(f.state.workspaceID == "k1" && f.shown == ["k1"], "the stage did not keep the window: shown \(f.shown)")
+            #expect(!f.controller.undockChief("k0"), "a second Undock Chief undocked something")
+        }
+    }
+
     // MARK: - Cmd-Shift-P actions
 
     /// Show/Hide Dock Tab Bar gives the dock the Home Chief pane's mode (one tab: no bar), per dock; Move Dock to

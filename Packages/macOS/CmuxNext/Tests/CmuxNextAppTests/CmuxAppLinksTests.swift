@@ -45,6 +45,23 @@ struct CmuxAppLinksTests {
         #expect(link(text + "?machine=machine_0123456789abcdef0123456789abcdef") == nil)
     }
 
+    /// A subagent's chip or `aN` link, a chat session link and an agent link open an agent's chat, never a workspace
+    /// beside the Chief: none of them docks the Chief (cmux#37372). A workspace, pane or tab link may, when
+    /// `home.chiefDock.openBeside` is on.
+    @Test func onlyAWorkspacePaneOrTabLinkMayDockTheChief() {
+        func docks(_ text: String) -> Bool {
+            CmuxAppLinks.keepsChiefDocked(URL(string: text)!, linkScheme: scheme, chiefHost: "chief:2e448bc2")
+        }
+        #expect(!docks("cmux://chief/2e448bc2/session/01a12408-f0a2"), "a subagent chip docked the Chief")
+        #expect(!docks("\(scheme)://chief/2e448bc2/session/01a12408-f0a2"))
+        #expect(!docks("cmux://session/01a12408-f0a2"), "a moved subagent's chip docked the Chief")
+        #expect(!docks("cmux://agent/claude/0b6e4c1e-1d2f-4a8b-9c3d-5e6f7a8b9c0d"))
+        #expect(!docks("https://cmux.com/deeplink/agent?harness=claude&session=0b6e4c1e-1d2f-4a8b-9c3d-5e6f7a8b9c0d"))
+        #expect(docks("cmux://workspace/\(ws)"))
+        #expect(docks("cmux://pane/pane_0123456789abcdef0123456789abcdef"))
+        #expect(docks("cmux://tab/tab_0123456789abcdef0123456789abcdef"))
+    }
+
     @Test(arguments: [
         "javascript:alert(1)", "file:///etc/passwd", "data:text/html,x", "vbscript:x", "ssh://host/x",
         "https://cmux.dev/workspace/ws_0123456789abcdef0123456789abcdef",

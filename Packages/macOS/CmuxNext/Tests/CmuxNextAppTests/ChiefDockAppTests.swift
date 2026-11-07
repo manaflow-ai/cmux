@@ -40,6 +40,12 @@ struct ChiefDockAppTests {
             try await PasswordManagerRouteTests.until({ window.state.workspaceID == other })
             #expect(window.state.docks.edge(of: home.id) == .left, "the jump undocked the Chief")
             #expect(window.parked[home.id] === chief, "the jump rebuilt the Chief's content")
+
+            // Undock Chief (cmux#37372): Home leaves the dock, the stage keeps the window; again, it refuses.
+            #expect(services.registry.perform("home.undockChief", invocation: ActionInvocation(origin: .user)))
+            #expect(!window.state.docks.isDocked(home.id), "Undock Chief left the Chief docked")
+            #expect(window.state.workspaceID == other, "Undock Chief moved the stage")
+            #expect(!services.registry.perform("home.undockChief", invocation: ActionInvocation(origin: .user)))
         }
     }
 }
