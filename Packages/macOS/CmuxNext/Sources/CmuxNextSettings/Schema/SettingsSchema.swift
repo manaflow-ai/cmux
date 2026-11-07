@@ -15,7 +15,7 @@ public nonisolated enum SettingsSchema {
             + ComputerUseSettingsSchema.descriptors + FreeModelSettingsSchema.descriptors + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + [MachineColorsSetting.descriptor, SSHLinkHostsSetting.descriptor] + CloudNewWorkspaceSetting.descriptors + CloudLoginCopyConsentSetting.descriptors + CloudCodexSignInConsentSetting.descriptors + CloudAgentStartSetting.descriptors + SubsessionSettingsSchema.descriptors + AgentGuidanceSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + TrustSettingsSchema.descriptors + MobileSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
             + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors + ChiefSidebarSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefPermissionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors + ChiefSidebarSettingsSchema.descriptors
             + NotificationSettingsSchema.descriptors + NotificationSoundSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
             + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors
@@ -25,21 +25,8 @@ public nonisolated enum SettingsSchema {
             + BrowserAppSettingsSchema.descriptors
     }()
 
-    /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
-    /// `appearance.metrics.*` rows say so themselves.
-    static let sharedWithBrowser: Set<String> = [
-        "appearance.theme", "appearance.backgroundBlur", "ui.animationSpeed",
-        "focusRing.enabled", "focusRing.width", "focusRing.color",
-        "layout.defaultColumnWidth", "layout.minimumPaneWidth", "app.quitBehavior",
-        "appearance.surfaces.tabBar.color", "appearance.surfaces.browserChrome.color", "appearance.surfaces.sidebar.color",
-    ]
-
-    /// Keys Reset All Settings leaves alone: the look picked at onboarding
-    /// (the app theme and the terminal font), which each row still resets.
-    public static let keptOnResetAll: Set<[String]> = [
-        AppThemeSetting().configPath, ChromeThemeSetting().configPath, TerminalFontSetting().familyPath,
-        TerminalFontSetting().sizePath,
-    ]
+    // `sharedWithBrowser`, `keptOnResetAll`: schemas/settings/source/row-facts.json
+    // (SettingsSchema+RowFacts.generated.swift).
 
     /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads and
     /// page-hidden keys stay out).

@@ -14,6 +14,12 @@ script writes the copies the app's Swift modules compile in. Sources so far:
   still exported from Swift (SettingsSchemaExportTests); moving a section must not change it.
 - schemas/settings/source/sections.json: the Settings sections in sidebar order (Swift: the
   SettingsSection enum, SettingsSection.generated.swift). Every row's section must be listed there.
+- schemas/settings/source/agent-policy.json: which keys an agent may change, and why not
+  (Swift: SettingsSchema+AgentPolicy.generated.swift). Every row of a section source needs a group.
+- schemas/settings/source/row-facts.json: the keys Reset All keeps and cmux-browser shares, and each
+  row's validation domain (Swift: SettingsSchema+RowFacts.generated.swift).
+- schemas/settings/source/samples.json: the values per row kind and validation domain a validator
+  must accept and refuse (Swift: SettingsSchema+Samples.generated.swift; the export's accepts/refuses).
 
 A generated Swift file this script no longer writes (for example a choices file after a section
 lost its choice rows) counts as drift under --check and is deleted when writing.
@@ -527,6 +533,286 @@ def section_swift(section, data):
     return "\n".join(out) + "\n"
 
 
+# Per-row facts the schema export writes beside each row's definition: the agent policy, the keys
+# Reset All keeps and cmux-browser shares, validation domains and the conformance samples.
+POLICY_SOURCE = "schemas/settings/source/agent-policy.json"
+POLICY_SWIFT = SCHEMA_DIR + "/SettingsSchema+AgentPolicy.generated.swift"
+REFUSALS_SWIFT = SCHEMA_DIR + "/SettingsSchema+AgentRefusals.generated.swift"
+FACTS_SOURCE = "schemas/settings/source/row-facts.json"
+FACTS_SWIFT = SCHEMA_DIR + "/SettingsSchema+RowFacts.generated.swift"
+SAMPLES_SOURCE = "schemas/settings/source/samples.json"
+SAMPLES_SWIFT = SCHEMA_DIR + "/SettingsSchema+Samples.generated.swift"
+# The export's row kinds, plus choice_list (a string_list row with choices).
+SAMPLE_KINDS = {"toggle", "choice", "choice_or_number", "choice_or_url", "number", "color", "sound", "url", "host_list",
+                "folder_list", "time_range", "theme", "font_family", "text", "number_list", "string_map", "sound_rules",
+                "string_list", "choice_list"}
+SAMPLE_TOKENS = {"choices", "choices_reversed", "first_choice", "min", "max", "mid", "below", "above", "url_key"}
+DOMAIN = __import__("re").compile(r"^(portable|domain:[a-z][a-z_]*)$")
+
+
+def load_json(src):
+    with open(os.path.join(ROOT, src), encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def check_key(src, key):
+    if not isinstance(key, str) or not key or any(not part for part in key.split(".")) or any(ord(ch) < 0x20 for ch in key):
+        fail(src, "bad dotted key %r" % key)
+
+
+def wrap(items, indent, width=120):
+    """Swift literals joined with ", " into lines of at most `width` columns, each ending with a comma."""
+    lines, line = [], ""
+    for item in items:
+        candidate = (line + " " + item + ",") if line else (indent + item + ",")
+        if line and len(candidate) > width:
+            lines.append(line)
+            candidate = indent + item + ","
+        line = candidate
+    if line:
+        lines.append(line)
+    return lines
+
+
+def section_row_keys():
+    keys = set()
+    for section in SECTIONS:
+        for entry in load_json(section["source"])["lists"]:
+            keys.update(row["key"] for row in entry["rows"])
+    return keys
+
+
+def load_agent_policy():
+    src = POLICY_SOURCE
+    data = load_json(src)
+    if set(data) != {"$comment", "refusals", "groups"}:
+        fail(src, "fields are $comment, refusals, groups")
+    reasons = []
+    for refusal in data["refusals"]:
+        if set(refusal) != {"id", "doc"} or not IDENT.match(refusal["id"]) or refusal["id"] in SWIFT_KEYWORDS \
+                or refusal["id"] in reasons or refusal["id"] == "settable":
+            fail(src, "a refusal is {id, doc} with a unique identifier id: %r" % refusal)
+        check_note(src, refusal["id"], refusal["doc"])
+        reasons.append(refusal["id"])
+    seen = set()
+    for group in data["groups"]:
+        if set(group) - {"agent", "why", "keys"} or not group.get("keys"):
+            fail(src, "a group is {agent, why, keys} with keys: %r" % group)
+        if group["agent"] != "settable" and group["agent"] not in reasons:
+            fail(src, "agent %r is settable or a refusal id" % group["agent"])
+        check_note(src, "why", group.get("why"))
+        for key in group["keys"]:
+            check_key(src, key)
+            if key in seen:
+                fail(src, "%s is in two groups" % key)
+            seen.add(key)
+    retired = {entry["key"] for entry in load_retired()} & seen
+    if retired:
+        fail(src, "retired keys have no policy: %s" % sorted(retired))
+    missing = section_row_keys() - seen
+    if missing:
+        fail(src, "rows with no agent policy: %s" % sorted(missing))
+    return data
+
+
+def agent_policy_swift(data):
+    cases = []
+    for refusal in data["refusals"]:
+        cases += ["        /// " + refusal["doc"], "        case " + refusal["id"]]
+    settable, refused = [], []
+    for group in data["groups"]:
+        target = settable if group["agent"] == "settable" else refused
+        if group.get("why"):
+            target.append("        // " + group["why"])
+        if group["agent"] == "settable":
+            target += wrap([swift_string(key) for key in group["keys"]], "        ")
+        else:
+            target += wrap(["%s: .%s" % (swift_string(key), group["agent"]) for key in group["keys"]], "        ")
+    header = HEADER.format(c="//", src=POLICY_SOURCE)
+    policy = """// {header}
+
+/// Which schema keys an agent may change (MCP `settings_set` and
+/// `settings_reset`; plans/cmux-next/settings-react.md section 3). Every key
+/// is in exactly one of the two tables (`agentRefusedKeys`:
+/// SettingsSchema+AgentRefusals.generated.swift), with no default:
+/// `SettingsSchemaExportTests` fails on a key in neither or both, so a new
+/// setting cannot reach agents without a decision. Enforced at the one write
+/// path, `SettingsController.setSetting(_:to:by:)` (`SettingWriter`): every
+/// caller that is not the user (socket cli/mcp/script/remote, palette actions
+/// run from the socket, pages without a user gesture) may change only these keys.
+extension SettingsSchema {{
+    /// Why an agent may not change a key.
+    public nonisolated enum AgentRefusal: String, Sendable, Hashable {{
+{cases}
+    }}
+
+    /// Keys an agent may set and reset.
+    public static let agentSettableKeys: Set<String> = [
+{settable}
+    ]
+
+    /// True when an agent may change `descriptor`, false when it may not, nil
+    /// when the key is in neither table (a schema error the tests catch).
+    public static func agentSettable(_ descriptor: SettingDescriptor) -> Bool? {{
+        if agentSettableKeys.contains(descriptor.id) {{ return true }}
+        if agentRefusedKeys[descriptor.id] != nil {{ return false }}
+        return nil
+    }}
+}}
+""".format(header=header, cases="\n".join(cases), settable="\n".join(settable))
+    refusals = """// {header}
+
+extension SettingsSchema {{
+    /// Keys an agent may not set or reset, with the reason.
+    public static let agentRefusedKeys: [String: AgentRefusal] = [
+{refused}
+    ]
+}}
+""".format(header=header, refused="\n".join(refused))
+    return {POLICY_SWIFT: policy, REFUSALS_SWIFT: refusals}
+
+
+def load_row_facts():
+    src = FACTS_SOURCE
+    data = load_json(src)
+    if set(data) != {"$comment", "kept_on_reset_all", "shared_with_browser", "validation"}:
+        fail(src, "fields are $comment, kept_on_reset_all, shared_with_browser, validation")
+    for field in ("kept_on_reset_all", "shared_with_browser"):
+        if len(set(data[field])) != len(data[field]):
+            fail(src, "%s lists a key twice" % field)
+        for key in data[field]:
+            check_key(src, key)
+    validation = data["validation"]
+    if set(validation) != {"keys", "kinds", "default"}:
+        fail(src, "validation fields are keys, kinds, default")
+    for key, domain in validation["keys"].items():
+        check_key(src, key)
+    for kind in validation["kinds"]:
+        if kind not in SAMPLE_KINDS:
+            fail(src, "validation kind %r is not a row kind" % kind)
+    for domain in list(validation["keys"].values()) + list(validation["kinds"].values()) + [validation["default"]]:
+        if not isinstance(domain, str) or not DOMAIN.match(domain):
+            fail(src, "validation %r is portable or domain:<name>" % domain)
+    return data
+
+
+def row_facts_swift(data):
+    def table(mapping):
+        return "\n".join(wrap(["%s: %s" % (swift_string(k), swift_string(v)) for k, v in mapping.items()], "        "))
+    kept = ["[%s]" % ", ".join(swift_string(part) for part in key.split(".")) for key in data["kept_on_reset_all"]]
+    return """// {header}
+
+extension SettingsSchema {{
+    /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
+    /// `appearance.metrics.*` rows say so themselves.
+    static let sharedWithBrowser: Set<String> = [
+{shared}
+    ]
+
+    /// Keys Reset All Settings leaves alone: the look picked at onboarding
+    /// (the app theme and the terminal font), which each row still resets.
+    public static let keptOnResetAll: Set<[String]> = [
+{kept}
+    ]
+
+    /// How another validator checks a row's value (the export's `validation`): by key first, then
+    /// by the row's exported kind, else `defaultValidation`.
+    static let validationByKey: [String: String] = [
+{by_key}
+    ]
+    static let validationByKind: [String: String] = [
+{by_kind}
+    ]
+    static let defaultValidation = {default}
+}}
+""".format(header=HEADER.format(c="//", src=FACTS_SOURCE),
+           shared="\n".join(wrap([swift_string(k) for k in data["shared_with_browser"]], "        ")),
+           kept="\n".join(wrap(kept, "        ")), by_key=table(data["validation"]["keys"]),
+           by_kind=table(data["validation"]["kinds"]), default=swift_string(data["validation"]["default"]))
+
+
+def check_sample(src, where, value):
+    if isinstance(value, dict):
+        if "$sample" in value and (len(value) != 1 or value["$sample"] not in SAMPLE_TOKENS):
+            fail(src, "%s: {\"$sample\": NAME} takes one of %s" % (where, sorted(SAMPLE_TOKENS)))
+        for item in value.values():
+            check_sample(src, where, item)
+    elif isinstance(value, list):
+        for item in value:
+            check_sample(src, where, item)
+    elif isinstance(value, str) and any(ord(ch) < 0x20 for ch in value):
+        fail(src, "%s: control character in %r" % (where, value))
+
+
+def load_samples(facts):
+    src = SAMPLES_SOURCE
+    data = load_json(src)
+    if set(data) != {"$comment", "kinds", "domains"}:
+        fail(src, "fields are $comment, kinds, domains")
+    if set(data["kinds"]) != SAMPLE_KINDS:
+        fail(src, "kinds must be exactly %s" % sorted(SAMPLE_KINDS))
+    used = set(facts["validation"]["keys"].values())
+    if not set(data["domains"]) <= used:
+        fail(src, "domains no row uses: %s" % sorted(set(data["domains"]) - used))
+    for group in ("kinds", "domains"):
+        for name, entry in data[group].items():
+            if set(entry) != {"accept", "refuse"} or not entry["refuse"]:
+                fail(src, "%s %s needs accept and a non-empty refuse" % (group, name))
+            check_sample(src, name, entry)
+    return data
+
+
+def json_value_swift(value):
+    """A Swift `JSONValue` literal of a JSON value."""
+    if value is None:
+        return ".null"
+    if isinstance(value, bool):
+        return ".bool(%s)" % ("true" if value else "false")
+    if isinstance(value, (int, float)):
+        return ".number(%s)" % number_literal(value)
+    if isinstance(value, str):
+        return ".string(%s)" % swift_string(value)
+    if isinstance(value, list):
+        return ".array([%s])" % ", ".join(json_value_swift(item) for item in value)
+    if not value:
+        return ".object([:])"
+    return ".object([%s])" % ", ".join("%s: %s" % (swift_string(k), json_value_swift(v)) for k, v in value.items())
+
+
+def samples_swift(data):
+    def sets(mapping):
+        out = []
+        for name, entry in mapping.items():
+            out.append("        %s: SampleSet(" % swift_string(name))
+            for label in ("accept", "refuse"):
+                items = wrap([json_value_swift(v) for v in entry[label]], "                ")
+                end = "," if label == "accept" else ""
+                out += (["            %s: [" % label] + items + ["            ]%s" % end]) if items else ["            %s: []%s" % (label, end)]
+            out.append("        ),")
+        return "\n".join(out)
+    return """// {header}
+
+extension SettingsSchemaSamples {{
+    /// The sample sets by row kind (the export's kind; `choice_list` for a `string_list` row with choices).
+    static let kinds: [String: SampleSet] = [
+{kinds}
+    ]
+
+    /// The sample sets by validation domain; they win over the kind's.
+    static let domains: [String: SampleSet] = [
+{domains}
+    ]
+}}
+""".format(header=HEADER.format(c="//", src=SAMPLES_SOURCE), kinds=sets(data["kinds"]), domains=sets(data["domains"]))
+
+
+def row_fact_outputs():
+    facts = load_row_facts()
+    outputs = agent_policy_swift(load_agent_policy())
+    outputs.update({FACTS_SWIFT: row_facts_swift(facts), SAMPLES_SWIFT: samples_swift(load_samples(facts))})
+    return outputs
+
+
 def main():
     check = "--check" in sys.argv[1:]
     outputs = {RETIRED_SWIFT: retired_swift(load_retired())}
@@ -538,6 +824,7 @@ def main():
         data = load_section(section, seen_keys, section_ids)
         outputs[section["swift"]] = section_swift(section, data)
         outputs.update(choices_swift(section, data))
+    outputs.update(row_fact_outputs())
     drifted = []
     for path, text in outputs.items():
         full = os.path.join(ROOT, path)

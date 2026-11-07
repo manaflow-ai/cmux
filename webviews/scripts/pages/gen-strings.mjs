@@ -229,6 +229,17 @@ export const PAGES = {
       },
     ],
   },
+  // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
+  // the section's `machines.` keys and the check steps its status mark names (`addMachine.step.`).
+  machines: {
+    out: "webviews/src/pages/machines/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("machines.") || key.startsWith("addMachine.step.")),
+      },
+    ],
+  },
   // The Artifacts page (cmux-page://cmux.artifacts/); its table lives next to it.
   artifacts: {
     out: "webviews/src/pages/artifacts/generated/strings.json",

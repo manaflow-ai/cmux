@@ -1,5 +1,5 @@
-//! Ported from the app's CloudConfigurationSignedDEVTests, CloudShareAPITests and
-//! CloudSignedDEVAuthPersistenceTests (the configuration parts).
+//! Ported from the app's CloudRuntimeSelectionTests, CloudConfigurationSignedDEVTests and
+//! CloudAuthNamespacedAdoptionTests (the configuration parts).
 
 use std::collections::BTreeMap;
 
@@ -9,328 +9,201 @@ fn map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
     pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
 }
 
-fn config(
+fn selection(
+    name: &str,
     bundle_id: &str,
-    bundled: &[(&str, &str)],
-    process: &[(&str, &str)],
-    debug: bool,
-) -> Configuration {
-    resolve(&Inputs {
-        bundle_id: Some(bundle_id.to_owned()),
+    namespace: &str,
+    legacy: bool,
+    storage: Option<&str>,
+) -> Selection {
+    Selection {
+        name: name.to_owned(),
+        api_origin: "https://backend.standin.invalid".to_owned(),
+        auth_web_origin: "https://signin.standin.invalid".to_owned(),
+        stack_origin: "https://stack.standin.invalid".to_owned(),
+        stack_project_id: "staging-project".to_owned(),
+        stack_client_key: "staging-key".to_owned(),
+        bundle_id: bundle_id.to_owned(),
+        auth_namespace: namespace.to_owned(),
+        auth_storage_namespace: storage.map(str::to_owned),
+        legacy_storage: legacy,
+    }
+}
+
+fn configure(selection: Selection, bundled: &[(&str, &str)], debug: bool) -> Configuration {
+    from_selection(&Inputs {
+        bundle_id: Some(selection.bundle_id.clone()),
+        selection,
         bundled: map(bundled),
-        process: map(process),
+        process: map(&[("CMUX_AUTH_CALLBACK_SCHEME", "from-the-shell")]),
         is_debug_build: debug,
     })
 }
 
-fn none() -> BTreeMap<String, String> {
-    BTreeMap::new()
-}
-
 #[test]
-fn signed_dev_uses_the_development_cloud_without_launch_overrides() {
-    let config = config(NEXT_DEV_BUNDLE_ID, &[], &[], false);
-    let identity = config.identity();
-    assert_eq!(config.link_source, LinkSource::AppServer);
-    assert_eq!(
-        owner_api_base_url(&identity, &none()),
-        "https://cmux-api-development.debussy.workers.dev"
-    );
-    assert_eq!(config.api_base_url, "https://cmux-staging.vercel.app");
-    assert_eq!(config.auth_web_origin, "https://cmux-staging.vercel.app");
-    assert_eq!(config.stack_project_id, "454ecd03-1db2-4050-845e-4ce5b0cd9895");
-    assert!(!config.is_production_auth);
-    assert!(!config.is_debug_build);
-    assert_eq!(config.callback_scheme, "cmux-next-dev");
-    assert_eq!(
-        keychain_service(&identity),
-        "com.cmuxterm.app.debug.next.auth.454ecd03-1db2-4050-845e-4ce5b0cd9895"
-    );
-    // The Cloud API is NEXT Cloud's development Worker, never the classic staging web app.
-    assert_eq!(config.cloud_api_base_url, "https://cmux-api-development.debussy.workers.dev");
-    assert_eq!(config.backend, Backend::Development(config.cloud_api_base_url.clone()));
-    assert_eq!(vm_api_base_url(&config.backend), "https://vm-staging.cmux.dev");
-}
-
-#[test]
-fn signed_dev_does_not_accept_endpoint_or_auth_overrides() {
-    let overrides = [
-        ("CMUX_AUTH_ENVIRONMENT", "production"),
-        ("CMUX_STACK_BASE_URL", "https://override.invalid"),
-        ("CMUX_STACK_PROJECT_ID", "other-project"),
-        ("CMUX_API_BASE_URL", "https://override.invalid"),
-        ("CMUX_AUTH_WWW_ORIGIN", "https://override.invalid"),
-        ("CMUX_NEXT_FEED_API_URL", "https://override.invalid"),
-        ("CMUX_AUTH_CALLBACK_SCHEME", "other-app"),
-        ("CMUX_NEXT_CLOUD_LINK", "legacy"),
-    ];
-    let baseline = config(NEXT_DEV_BUNDLE_ID, &[], &[], false);
-    let config = config(NEXT_DEV_BUNDLE_ID, &overrides, &overrides, false);
-    assert_eq!(config, baseline);
-    assert_eq!(
-        owner_api_base_url(&config.identity(), &map(&overrides)),
-        owner_api_base_url(&baseline.identity(), &none())
-    );
-}
-
-#[test]
-fn other_release_channels_keep_production() {
-    for bundle_id in [
-        "com.cmuxterm.app",
-        "com.cmuxterm.app.nightly",
-        "com.cmuxterm.app.nightly.cmux-next",
-        "com.cmuxterm.app.rc",
-        "com.cmuxterm.app.debug",
-        "com.cmuxterm.app.debug.next.other",
-        "com.cmuxterm.app.debug.nextx",
-    ] {
-        let config = config(bundle_id, &[], &[], false);
-        assert_eq!(config.link_source, LinkSource::AppServer, "{bundle_id}");
-        assert!(config.is_production_auth, "{bundle_id}");
-        assert_eq!(config.api_base_url, "https://cmux.com", "{bundle_id}");
-        assert_eq!(config.cloud_api_base_url, "https://cmux.com", "{bundle_id}");
-        assert_eq!(owner_api_base_url(&config.identity(), &none()), "https://cloud-api.cmux.dev");
-        assert_eq!(vm_api_base_url(&config.backend), "https://vm.cmux.dev");
-        assert_eq!(keychain_service(&config.identity()), format!("{bundle_id}.auth"));
-    }
-    assert_eq!(config("com.cmuxterm.app.nightly", &[], &[], false).callback_scheme, "cmux-nightly");
-    assert_eq!(config("com.cmuxterm.app.rc", &[], &[], false).callback_scheme, "cmux-rc");
-    assert_eq!(config("com.cmuxterm.app", &[], &[], false).callback_scheme, "cmux");
-}
-
-#[test]
-fn production_keeps_the_legacy_escape_hatch() {
-    for bundled in [[("CMUX_NEXT_CLOUD_LINK", "legacy")], [("CMUX_CLOUD_LINK", "LEGACY")]] {
-        let config = config("com.cmuxterm.app.nightly.cmux-next", &bundled, &[], false);
-        assert_eq!(config.link_source, LinkSource::Legacy);
-        assert!(config.is_production_auth);
-    }
-    let launched = config(
-        "com.cmuxterm.app.nightly.cmux-next",
-        &[],
-        &[("CMUX_NEXT_CLOUD_LINK", "legacy")],
+fn the_selection_names_every_origin_and_scopes_auth() {
+    let selected = selection("staging", NEXT_DEV_BUNDLE_ID, "staging-2", false, None);
+    let config = configure(
+        selected.clone(),
+        &[
+            ("CMUX_AUTH_CALLBACK_SCHEME", "cmux-test-callback"),
+            ("CMUX_STACK_PROJECT_ID", "wrong-project"),
+        ],
         false,
     );
-    assert_eq!(launched.link_source, LinkSource::Legacy);
-}
-
-#[test]
-fn only_a_bench_capture_build_is_configured_as_debug() {
-    assert!(is_capture_build(Some("com.cmuxterm.app.debug.cap0123456789"), true));
-    assert!(is_capture_build(Some("com.cmuxterm.app.debug.capabcdef0123"), true));
-    assert!(!is_capture_build(Some("com.cmuxterm.app.debug.cap0123456789"), false));
-    for bundle_id in [
-        None,
-        Some("com.cmuxterm.app"),
-        Some("com.cmuxterm.app.nightly"),
-        Some("com.cmuxterm.app.rc"),
-        Some("com.cmuxterm.app.debug.next"),
-        Some("com.cmuxterm.app.debug.chrome.parity.x"),
-        Some("com.cmuxterm.app.debug.cap012345678"),
-        Some("com.cmuxterm.app.debug.cap0123456789a"),
-        Some("com.cmuxterm.app.debug.capABCDEF0123"),
-        Some("com.cmuxterm.app.debug.cap0123456789.x"),
-        Some("com.cmuxterm.app.nightly.cap0123456789"),
-    ] {
-        assert!(!is_capture_build(bundle_id, true), "{bundle_id:?}");
-    }
-    let capture = config("com.cmuxterm.app.debug.cap0123456789", &[], &[], true);
-    assert!(!capture.is_production_auth);
-    assert_eq!(
-        owner_api_base_url(&capture.identity(), &none()),
-        "https://cmux-api-development.debussy.workers.dev"
-    );
-}
-
-#[test]
-fn debug_build_keeps_its_explicit_link_and_worker_overrides() {
-    let config = config(NEXT_DEV_BUNDLE_ID, &[("CMUX_CLOUD_LINK", "app")], &[], true);
-    assert_eq!(config.link_source, LinkSource::AppServer);
-    assert_eq!(
-        owner_api_base_url(
-            &config.identity(),
-            &map(&[("CMUX_NEXT_FEED_API_URL", "https://override.invalid")])
-        ),
-        "https://override.invalid"
-    );
-}
-
-#[test]
-fn a_debug_build_mints_share_tokens_from_the_development_worker() {
-    let identity = config("com.cmuxterm.app.debug.walk", &[], &[], true).identity();
-    assert_eq!(owner_api_base_url(&identity, &none()), DEVELOPMENT_WORKER_ORIGIN);
-    assert_eq!(share_api_base_url(&identity, &none()), DEVELOPMENT_WORKER_ORIGIN);
-}
-
-#[test]
-fn an_owner_api_override_is_the_share_api_too_and_a_release_build_keeps_its_owner_api() {
-    let debug = config("com.cmuxterm.app.debug.walk", &[], &[], true).identity();
-    let named = map(&[("CMUX_NEXT_FEED_API_URL", "https://owner.standin.invalid")]);
-    assert_eq!(share_api_base_url(&debug, &named), owner_api_base_url(&debug, &named));
-    let release = config("com.cmuxterm.app", &[], &[], false).identity();
-    assert_eq!(share_api_base_url(&release, &none()), owner_api_base_url(&release, &none()));
-    // A release build never takes the debug override.
-    assert_eq!(owner_api_base_url(&release, &named), PRODUCTION_OWNER_API);
-}
-
-#[test]
-fn a_release_build_sends_credentials_only_to_a_cmux_api() {
-    let release = config("com.cmuxterm.app", &[], &[], false).identity();
-    let debug = config("com.cmuxterm.app.debug.walk", &[], &[], true).identity();
-    for api in [
-        "https://cloud-api.cmux.dev",
-        "https://cloud-api-staging.cmux.dev",
-        "https://cmux-api-development.debussy.workers.dev/",
-    ] {
-        assert!(accepts_share_api(&release, api), "{api}");
-    }
-    assert!(!accepts_share_api(&release, "https://elsewhere.example"));
-    assert!(accepts_share_api(&debug, "https://elsewhere.example"));
-    for api in [
-        "http://cloud-api.cmux.dev",
-        "https://cloud-api.cmux.dev:8443",
-        "https://cloud-api.cmux.dev/v1",
-        "https://u:p@cloud-api.cmux.dev",
-    ] {
-        assert!(!accepts_share_api(&debug, api), "{api}");
-    }
-}
-
-#[test]
-fn signed_dev_scopes_its_tokens_apart_from_the_old_production_session() {
-    let development = config(NEXT_DEV_BUNDLE_ID, &[], &[], false).identity();
-    let previous_production = Identity {
-        is_production_auth: true,
-        stack_project_id: PRODUCTION_PROJECT_ID.to_owned(),
-        ..development.clone()
-    };
-    assert_ne!(keychain_service(&development), keychain_service(&previous_production));
-    assert_ne!(credentials_subpath(&development), credentials_subpath(&previous_production));
-    assert_eq!(
-        credentials_subpath(&development),
-        ["Library", "Application Support", "cmux", NEXT_DEV_BUNDLE_ID, DEVELOPMENT_PROJECT_ID]
-    );
-    assert_eq!(
-        auth_defaults_key(&development, "cmux.auth.cachedUser"),
-        format!("cmux.auth.cachedUser.{DEVELOPMENT_PROJECT_ID}")
-    );
-    assert_eq!(
-        auth_defaults_key(&previous_production, "cmux.auth.cachedUser"),
-        "cmux.auth.cachedUser"
-    );
-    let unnamed = Identity { bundle_id: None, ..previous_production };
-    assert_eq!(keychain_service(&unnamed), "com.cmuxterm.app.auth");
-    assert_eq!(credentials_subpath(&unnamed), ["Library", "Application Support", "cmux", "cmux"]);
-}
-
-#[test]
-fn a_debug_build_signs_in_on_staging_and_takes_only_asked_for_loopback_origins() {
-    let tagged = [("CMUX_TAG", "My Tag!"), ("CMUX_API_BASE_URL", "http://localhost:4000")];
-    let plain = config("com.cmuxterm.app.debug.my-tag", &tagged, &[], true);
-    assert_eq!(plain.api_base_url, STAGING_WEB_ORIGIN);
-    assert_eq!(plain.cloud_api_base_url, DEVELOPMENT_WORKER_ORIGIN);
-    assert_eq!(plain.backend, Backend::Development(DEVELOPMENT_WORKER_ORIGIN.to_owned()));
-    assert_eq!(plain.callback_scheme, "cmux-dev-my-tag");
-    assert!(!plain.is_production_auth);
-    let local = config(
-        "com.cmuxterm.app.debug.my-tag",
-        &tagged,
-        &[("CMUX_NEXT_CLOUD_BACKEND", "local")],
-        true,
-    );
-    assert_eq!(local.api_base_url, "http://localhost:4000");
-    assert_eq!(local.cloud_api_base_url, "http://localhost:4000");
-    assert_eq!(local.backend, Backend::LocalOnly("http://localhost:4000".to_owned()));
-    let port = config(
-        "com.cmuxterm.app.debug",
-        &[("CMUX_PORT", "3999")],
-        &[("CMUX_NEXT_CLOUD_BACKEND", "LOCAL")],
-        true,
-    );
-    assert_eq!(port.api_base_url, "http://localhost:3999");
-    let remote = config(
-        "com.cmuxterm.app.debug",
-        &[("CMUX_DEV_BACKEND_URL", "https://dev.example")],
+    assert_eq!(config.backend, Backend::Development(selected.api_origin.clone()));
+    assert_eq!(config.api_base_url, selected.api_origin);
+    assert_eq!(config.auth_web_origin, selected.auth_web_origin);
+    assert_eq!(config.stack_base_url, selected.stack_origin);
+    assert_eq!(config.stack_project_id, "staging-project");
+    assert_eq!(config.stack_publishable_client_key, "staging-key");
+    // The bundle's value wins over the shell's.
+    assert_eq!(config.callback_scheme, "cmux-test-callback");
+    assert!(!config.is_production_auth);
+    assert_eq!(config.storage.keychain_service, "com.cmuxterm.app.debug.next.auth.staging-2");
+    assert_eq!(config.storage.credentials_subpath.last().map(String::as_str), Some("staging-2"));
+    assert_eq!(config.storage.defaults_key_suffix.as_deref(), Some("staging-2"));
+    assert_eq!(config.namespaced_legacy_store, None);
+    // Another backend's namespace is another store.
+    let other = configure(
+        selection("staging", NEXT_DEV_BUNDLE_ID, "other-backend", false, None),
         &[],
-        true,
+        false,
     );
+    assert_ne!(other.storage, config.storage);
+    // A selected local backend is available: development, not local-only.
+    let mut local = selection("local", NEXT_DEV_BUNDLE_ID, "staging-2", false, None);
+    local.api_origin = "http://localhost:8787".to_owned();
     assert_eq!(
-        (remote.api_base_url.as_str(), remote.auth_web_origin.as_str()),
-        ("https://dev.example", "https://dev.example")
+        configure(local, &[], false).backend,
+        Backend::Development("http://localhost:8787".to_owned())
     );
-    // The bundle wins over the launch environment; blank values count as unset.
-    let bundled = config(
-        "com.cmuxterm.app.debug",
-        &[("CMUX_API_BASE_URL", "https://a.example")],
-        &[("CMUX_API_BASE_URL", "https://b.example")],
-        true,
+}
+
+#[test]
+fn only_known_untouched_defaults_keep_their_old_locations() {
+    let production = configure(
+        selection("prod", "com.cmuxterm.app.nightly.cmux-next", "backend-0", true, None),
+        &[],
+        false,
     );
-    assert_eq!(bundled.api_base_url, "https://a.example");
-    assert_eq!(bundled.cloud_api_base_url, "https://a.example");
-    let blank = config("com.cmuxterm.app.debug", &[("CMUX_STACK_PROJECT_ID", "  ")], &[], true);
-    assert_eq!(blank.stack_project_id, DEVELOPMENT_PROJECT_ID);
-    let production =
-        config("com.cmuxterm.app.debug", &[("CMUX_AUTH_ENVIRONMENT", "Production")], &[], true);
+    assert_eq!(production.backend, Backend::Production);
     assert!(production.is_production_auth);
-    assert_eq!(production.callback_scheme, "cmux-dev");
-}
+    assert_eq!(production.storage.keychain_service, "com.cmuxterm.app.nightly.cmux-next.auth");
+    assert_eq!(
+        production.storage.credentials_subpath,
+        ["Library", "Application Support", "cmux", "com.cmuxterm.app.nightly.cmux-next"]
+    );
+    assert_eq!(production.storage.defaults_key_suffix, None);
+    // A legacy default adopts, once, a session from the namespaced store its update used.
+    let legacy = production.namespaced_legacy_store.expect("legacy store");
+    assert_eq!(legacy.keychain_service, "com.cmuxterm.app.nightly.cmux-next.auth.backend-0");
+    assert_eq!(legacy.credentials_subpath.last().map(String::as_str), Some("backend-0"));
 
-#[test]
-fn a_callback_scheme_that_cannot_form_a_url_is_ignored() {
-    let bad = config(
-        "com.cmuxterm.app.debug",
-        &[("CMUX_AUTH_CALLBACK_SCHEME", "not a scheme")],
+    let signed_dev = configure(
+        selection(
+            "dev",
+            NEXT_DEV_BUNDLE_ID,
+            "backend-0",
+            true,
+            Some("development-project-fixture"),
+        ),
         &[],
-        true,
+        false,
     );
-    assert_eq!(bad.callback_scheme, "cmux-dev");
-    let good =
-        config("com.cmuxterm.app.debug", &[("CMUX_AUTH_CALLBACK_SCHEME", "cmux-x")], &[], true);
-    assert_eq!(good.callback_scheme, "cmux-x");
-}
-
-#[test]
-fn previews_and_artifacts_come_from_each_owners_platform() {
-    let debug = config("com.cmuxterm.app.debug", &[], &[], true).identity();
     assert_eq!(
-        platform_preview_api_base_url(&debug, &none()).as_deref(),
-        Some(DEVELOPMENT_PLATFORM)
+        signed_dev.storage.keychain_service,
+        "com.cmuxterm.app.debug.next.auth.development-project-fixture"
     );
-    let staging_owner = map(&[("CMUX_NEXT_FEED_API_URL", "https://cloud-api-staging.cmux.dev")]);
     assert_eq!(
-        platform_preview_api_base_url(&debug, &staging_owner).as_deref(),
-        Some(STAGING_PLATFORM)
+        signed_dev.storage.defaults_key_suffix.as_deref(),
+        Some("development-project-fixture")
     );
-    let named = map(&[("CMUX_NEXT_PLATFORM_PREVIEW_API_URL", "https://p.example")]);
-    assert_eq!(platform_preview_api_base_url(&debug, &named).as_deref(), Some("https://p.example"));
-    let bad = map(&[("CMUX_NEXT_PLATFORM_PREVIEW_API_URL", "https://p.example/x")]);
-    assert_eq!(platform_preview_api_base_url(&debug, &bad), None);
-    let release = config("com.cmuxterm.app", &[], &[], false).identity();
-    assert_eq!(platform_preview_api_base_url(&release, &none()), None);
-    assert_eq!(artifacts_api_base_url(&release, &none()), PRODUCTION_PLATFORM);
-    assert_eq!(artifacts_api_base_url(&debug, &none()), DEVELOPMENT_PLATFORM);
-    let local = map(&[("CMUX_NEXT_ARTIFACTS_API_URL", "http://localhost:8787")]);
-    assert_eq!(artifacts_api_base_url(&debug, &local), "http://localhost:8787");
-    let foreign = map(&[("CMUX_NEXT_ARTIFACTS_API_URL", "https://elsewhere.example")]);
-    assert_eq!(artifacts_api_base_url(&debug, &foreign), DEVELOPMENT_PLATFORM);
+    assert_eq!(signed_dev.namespaced_legacy_store, None);
+    let switched =
+        configure(selection("dev", NEXT_DEV_BUNDLE_ID, "backend-1", false, Some("x")), &[], false);
+    assert_eq!(switched.storage.keychain_service, "com.cmuxterm.app.debug.next.auth.backend-1");
 }
 
 #[test]
-fn scheme_tags_are_lowercase_runs_joined_by_single_hyphens() {
-    assert_eq!(sanitized_scheme_tag("My__Tag 2").as_deref(), Some("my-tag-2"));
-    assert_eq!(sanitized_scheme_tag("--x--").as_deref(), Some("x"));
-    assert_eq!(sanitized_scheme_tag("!!!"), None);
+fn the_placeholder_never_restores_a_real_bundles_credentials() {
+    let names = storage_names(Some(UNAVAILABLE_BUNDLE_ID), None);
+    assert_eq!(
+        names.keychain_service,
+        "com.cmuxterm.app.cloud-unavailable.auth.bootstrap-unavailable"
+    );
+    assert_eq!(
+        names.credentials_subpath[3..],
+        ["com.cmuxterm.app.cloud-unavailable", "bootstrap-unavailable"]
+    );
+    assert_eq!(names.defaults_key_suffix.as_deref(), Some("bootstrap-unavailable"));
+    assert_eq!(storage_names(None, None).keychain_service, "com.cmuxterm.app.auth");
+    assert_eq!(storage_names(Some(""), None).credentials_subpath[3], "cmux");
 }
 
 #[test]
-fn no_development_build_uses_the_classic_staging_web_app_as_its_cloud_api() {
-    for (bundle_id, debug) in [
-        (NEXT_DEV_BUNDLE_ID, false),
-        ("com.cmuxterm.app.debug", true),
-        ("com.cmuxterm.app.debug.my-tag", true),
-    ] {
-        let config = config(bundle_id, &[], &[], debug);
-        assert_ne!(config.cloud_api_base_url, STAGING_WEB_ORIGIN, "{bundle_id}");
-        assert_eq!(config.cloud_api_base_url, DEVELOPMENT_WORKER_ORIGIN, "{bundle_id}");
-    }
+fn the_callback_scheme_follows_the_build() {
+    let scheme = |bundle: &str, bundled: &[(&str, &str)], debug: bool| {
+        let mut config = from_selection(&Inputs {
+            bundle_id: Some(bundle.to_owned()),
+            selection: selection("dev", bundle, "n", true, None),
+            bundled: map(bundled),
+            process: BTreeMap::new(),
+            is_debug_build: debug,
+        });
+        std::mem::take(&mut config.callback_scheme)
+    };
+    assert_eq!(scheme(NEXT_DEV_BUNDLE_ID, &[], false), "cmux-next-dev");
+    assert_eq!(scheme(NEXT_DEV_BUNDLE_ID, &[], true), "cmux-next-dev");
+    assert_eq!(
+        scheme("com.cmuxterm.app.debug.x", &[("CMUX_TAG", "My_Tag!!2")], true),
+        "cmux-dev-my-tag-2"
+    );
+    assert_eq!(scheme("com.cmuxterm.app.debug.x", &[("CMUX_TAG", "---")], true), "cmux-dev");
+    assert_eq!(scheme("com.cmuxterm.app.nightly", &[], false), "cmux-nightly");
+    assert_eq!(scheme("com.cmuxterm.app.rc", &[], false), "cmux-rc");
+    assert_eq!(scheme("com.cmuxterm.app", &[], false), "cmux");
+    // A scheme that cannot form a URL is ignored.
+    assert_eq!(
+        scheme("com.cmuxterm.app", &[("CMUX_AUTH_CALLBACK_SCHEME", "1 bad")], false),
+        "cmux"
+    );
+}
+
+#[test]
+fn only_signed_dev_on_production_adopts_nightlys_session() {
+    assert!(
+        configure(selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], false)
+            .adopts_nightly_session
+    );
+    assert!(
+        !configure(selection("dev", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], false)
+            .adopts_nightly_session
+    );
+    assert!(
+        !configure(selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], true)
+            .adopts_nightly_session
+    );
+    assert!(
+        !configure(selection("prod", NIGHTLY_BUNDLE_ID, "n", true, None), &[], false)
+            .adopts_nightly_session
+    );
+}
+
+#[test]
+fn the_sign_in_url_nests_the_callback_with_its_state() {
+    assert_eq!(
+        sign_in_url("http://localhost:4577", "cmux-dev-safauth", Some("state-secret")),
+        "http://localhost:4577/handler/native-sign-in?after_auth_return_to=http%3A%2F%2Flocalhost%3A4577%2Fhandler%2Fafter-sign-in%3Fnative_app_return_to%3Dcmux-dev-safauth%253A%252F%252Fauth-callback%253Fcmux_auth_state%253Dstate-secret"
+    );
+    assert_eq!(
+        sign_in_url("https://cmux.com/", "cmux", None),
+        "https://cmux.com/handler/native-sign-in?after_auth_return_to=https%3A%2F%2Fcmux.com%2Fhandler%2Fafter-sign-in%3Fnative_app_return_to%3Dcmux%253A%252F%252Fauth-callback"
+    );
+}
+
+#[test]
+fn the_vm_api_follows_the_backend() {
+    assert_eq!(vm_api_base_url(&Backend::Production), PRODUCTION_VM_API);
+    assert_eq!(vm_api_base_url(&Backend::Development("https://x".to_owned())), STAGING_VM_API);
 }
