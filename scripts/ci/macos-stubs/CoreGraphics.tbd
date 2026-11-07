@@ -2,7 +2,7 @@
 tbd-version:     4
 targets:         [ x86_64-macos, arm64-macos ]
 install-name:    '/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics'
-current-version: 1.600.0
+current-version: 1774.5.4
 compatibility-version: 64.0.0
 exports:
   - targets:         [ x86_64-macos, arm64-macos ]
