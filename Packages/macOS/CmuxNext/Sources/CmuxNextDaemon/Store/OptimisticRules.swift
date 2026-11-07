@@ -107,7 +107,7 @@ import Foundation
     }
 
     /// One `optimistic` request's JSON answer (`null` when it shows nothing); nil when the operation refused it.
-    nonisolated static func respond(_ request: Data) -> Data? {
+    private nonisolated static func respond(_ request: Data) -> Data? {
         var capacity = initialCapacity
         for _ in 0..<2 {
             var output = [UInt8](repeating: 0, count: capacity)
