@@ -82,7 +82,7 @@ import Testing
         defer { shown.end() }
         let source = try shown.controller(2), target = try shown.controller(1)
         let tab = try #require(source.pane.tabs.first)
-        TabMoves.move(tab, to: target.pane, index: 1, services: shown.services)
+        source.move(StripTabID(tab.id), toPane: target, index: 1)
         #expect(shown.content.layoutModel.isClosing(source.layoutPaneID), "the emptied pane waited for the daemon's tree")
         #expect(shown.content.layoutModel.screens.first?.layout.contains(source.layoutPaneID) == false,
                 "the emptied pane still shows")
@@ -96,7 +96,7 @@ import Testing
         defer { shown.end() }
         let source = try shown.controller(2), target = try shown.controller(1)
         let tab = try #require(source.pane.tabs.first)
-        TabMoves.move(tab, to: target.pane, index: 1, services: shown.services)
+        source.move(StripTabID(tab.id), toPane: target, index: 1)
         #expect(!shown.content.layoutModel.isClosing(source.layoutPaneID), "a pane with a tab left closed")
         #expect(source.stripModel.departures.contains(StripTabID(tab.id)))
     }

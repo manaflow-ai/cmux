@@ -18,7 +18,7 @@ enum TabMoves {
 
     /// Reorder or cross-pane move to `index` (final display index), shown
     /// at once as an intent in the store's intent log.
-    static func move(_ tab: TabModel, to pane: PaneModel, index: Int, services: AppServices,
+    static func move(_ tab: TabModel, to pane: PaneModel, index: Int, services: AppServices, from source: PaneController? = nil,
                      transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
@@ -31,7 +31,7 @@ enum TabMoves {
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
         // The tab shows in its new pane in this turn (the intent), and a pane it empties leaves in
         // the same turn. Made first: it reads where the tab is before the intent moves it.
-        let completion = depart(tab, into: pane, closesPane: true, services: services, then: completion)
+        let completion = depart(tab, into: pane, from: source, closesPane: true, services: services, then: completion)
         let send = daemon.intendNow("move-tab", .moveTab(surface: surface, toPane: target, index: index),
                                     transaction: transaction) { connection -> Void in
             _ = try await connection.moveTab(surface, to: target, index: wire, transaction: echoes ? transaction : nil)
@@ -45,15 +45,16 @@ enum TabMoves {
 
     /// `tab` leaves its pane by this move, not a close (Leo 2026-11-07: "it's trying to play the close
     /// animation when there's no need to play that at all"): its strip drops it with no close
-    /// (`TabStripModel.departures`). `target` is the pane it moves into, nil for one the move makes.
+    /// (`TabStripModel.departures`). `target` is the pane it moves into, nil for one the move makes;
+    /// `source` the controller of the pane it leaves when the caller has it, else the window's.
     /// `closesPane`: the destination shows in this turn, so a pane the move empties leaves in it too,
     /// on the close's one motion (`PaneController.showPaneClose`), instead of sitting empty until the
     /// daemon's tree and then closing; else that pane leaves with the daemon's tree, in the same layout
     /// as the destination. Returns `completion` behind the move's outcome: a refused move shows the
     /// pane again, and the tab closes as usual later.
-    @MainActor static func depart(_ tab: TabModel, into target: PaneModel? = nil, closesPane: Bool, services: AppServices,
-                                  then completion: @escaping Completion) -> Completion {
-        guard let pane = services.locateTab(model: tab)?.1, pane !== target, let source = services.paneController(for: pane) else { return completion }
+    @MainActor static func depart(_ tab: TabModel, into target: PaneModel? = nil, from source: PaneController? = nil, closesPane: Bool,
+                                  services: AppServices, then completion: @escaping Completion) -> Completion {
+        guard let pane = services.locateTab(model: tab)?.1, pane !== target, let source = source.flatMap({ $0.pane === pane ? $0 : nil }) ?? services.paneController(for: pane) else { return completion }
         let id = StripTabID(tab.id), close = source.stripModel.depart(id) && closesPane ? source.showPaneClose() : nil
         return { ok in
             if !ok { source.stripModel.departures.remove(id) }
@@ -257,9 +258,8 @@ enum TabMoves {
             if !inCommit, let created, let name { _ = try? await connection.renameWorkspace(created, to: name) }
             return created
         }
-        let created = key ?? nil
-        departed(created != nil)
-        return created
+        departed((key ?? nil) != nil)
+        return key ?? nil
     }
 
     /// The name a workspace made from `tab` takes: the tab's, or, when
