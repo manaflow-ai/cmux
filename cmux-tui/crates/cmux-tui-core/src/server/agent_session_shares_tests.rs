@@ -1287,3 +1287,204 @@ fn a_link_shares_role_survives_a_restart_and_old_files_have_none() {
     assert!(view_only(&json!({"id":"guest:s.g", "name":"x", "approval":"owner"})), "no role");
     let _ = std::fs::remove_dir_all(&directory);
 }
+
+/// A busy view link's guests that left are forgotten when the file needs room (cmux#37803, F4):
+/// 900 joins that came and went still let another chat make a share, the uses count down
+/// exactly to the 1000th, and a kicked guest stays recorded and cannot come back.
+#[test]
+fn a_view_link_redeemed_900_times_leaves_room_for_another_chats_share() {
+    let directory = scratch("shares-forget-gone");
+    let dir = Some(directory.as_path());
+    let shares = LinkShares::default();
+    let view = ShareTerms {
+        ttl_secs: MAX_TTL_SECS,
+        uses: MAX_VIEW_USES,
+        create_id: None,
+        role: Some(Role::View),
+    };
+    let share = shares.insert(dir, "acp_view".into(), 1, view, false).unwrap();
+    let share_id = share["share_id"].as_str().unwrap().to_owned();
+    let secret = share["secret"].as_str().unwrap().to_owned();
+    let join = |attempt: String| {
+        let redeem = Redeem {
+            share_id: share_id.clone(),
+            secret: secret.clone(),
+            name: "n".repeat(64),
+            attempt_id: attempt,
+            account: None,
+        };
+        shares.redeem(dir, redeem)
+    };
+    let kicked = join("kicked".into()).unwrap();
+    let kicked_id = kicked["guest_id"].as_str().unwrap().to_owned();
+    let kick = Named { share_id: share_id.clone(), guest_id: Some(kicked_id.clone()) };
+    shares.end(dir, &kick).unwrap();
+    for i in 1..900 {
+        // Guests come and go: none of these is connected, and time passes.
+        if i % 50 == 0 {
+            shares.advance(Duration::from_millis(KEEP_MS));
+        }
+        let joined = join(format!("{i}-{}", "y".repeat(100)));
+        assert!(joined.is_ok(), "join {i}: {joined:?}");
+    }
+    let all = shares.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    assert_eq!(all[0].uses_left, MAX_VIEW_USES - 900, "every join spent one use");
+    assert!(all[0].guests.len() < 900, "the guests that left are forgotten");
+    let still = all[0].guests.iter().find(|g| g.guest_id == kicked_id);
+    assert_eq!(still.map(|g| g.state), Some(GuestState::Kicked), "the kicked guest stays");
+    assert_eq!(join("kicked".into()), Err("share.kicked"), "its retry is still refused");
+    assert_eq!(shares.guest(dir, &share_id, &kicked_id).err(), Some("share.kicked"));
+    // Another chat's share fits.
+    let other = shares.insert(dir, "acp_other".into(), 1, terms(), false);
+    assert!(other.is_ok(), "{other:?}");
+    // The rest of the uses, then none.
+    for i in 900..1000 {
+        assert!(join(format!("late-{i}")).is_ok(), "join {i}");
+    }
+    assert_eq!(join("one-too-many".into()), Err("share.used"));
+    let read = |s: &LinkShares| s.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    assert_eq!(read(&LinkShares::default()), read(&shares), "a restart reads it back");
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+/// Only link guests bound to no connection are forgotten: a connected one, one that just joined
+/// and a kicked one stay.
+#[test]
+fn a_connected_link_guest_is_never_forgotten() {
+    let fake = FakeAcpmux::start("share-forget-connected");
+    let mux = mux_with(&fake, "share-forget-connected");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-forget-connected-owner");
+    let share = create(&mut owner, surface, json!({"role":"view", "uses":10}));
+    let ann = redeem(&mut owner, &share, "Ann", "a1");
+    let bob = redeem(&mut owner, &share, "Bob", "b1");
+    let eve = redeem(&mut owner, &share, "Eve", "e1");
+    let kick = json!({"cmd":"agent-session-share-kick", "share_id":share["share_id"],
+        "guest_id":eve["data"]["guest_id"]});
+    assert_eq!(owner.request(kick)["ok"], true);
+    let (_ann, bound) = bind(&mux, &share, &ann, "share-forget-connected-ann");
+    assert_eq!(bound["ok"], true, "{bound}");
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    shares.advance(Duration::from_millis(KEEP_MS));
+    let cara = redeem(&mut owner, &share, "Cara", "c1");
+    let directory = mux.session_state_directory();
+    let present = shares.present();
+    shares
+        .with(directory.as_deref(), |all, now| {
+            forget_gone(all, now, &present);
+            Ok(((), true))
+        })
+        .unwrap();
+    shares.settle(&mux);
+    let guests: Vec<Value> = list(&mut owner)[0]["guests"].as_array().unwrap().clone();
+    let names: Vec<&str> = guests.iter().map(|g| g["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["Ann", "Eve", "Cara"], "Bob left and is forgotten");
+    let (_bob, rebound) = bind(&mux, &share, &bob, "share-forget-connected-bob");
+    assert_eq!(rebound["ok"], false, "{rebound}");
+    let (_cara, bound) = bind(&mux, &share, &cara, "share-forget-connected-cara");
+    assert_eq!(bound["ok"], true, "{bound}");
+    assert_eq!(list(&mut owner)[0]["uses_left"], 6, "forgetting spends and returns no use");
+}
+
+/// Joins `share` by its link until `done` holds of the registry (the file filled and the guests
+/// that left were forgotten); bounded by the link's uses.
+fn join_until(mux: &Mux, share: &Value, done: impl Fn(&[LinkShare]) -> bool) {
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    let directory = mux.session_state_directory();
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    loop {
+        let i = NEXT.fetch_add(1, Ordering::Relaxed);
+        let all = shares.with(directory.as_deref(), |all, _| Ok((all.clone(), false))).unwrap();
+        if done(&all) {
+            return;
+        }
+        let redeem = Redeem {
+            share_id: share["share_id"].as_str().unwrap().into(),
+            secret: share["secret"].as_str().unwrap().into(),
+            name: "n".repeat(64),
+            attempt_id: format!("fill-{i}-{}", "y".repeat(100)),
+            account: None,
+        };
+        shares.redeem(directory.as_deref(), redeem).unwrap();
+        shares.settle(mux);
+    }
+}
+
+fn has_guest(all: &[LinkShare], guest: &Value) -> bool {
+    all.iter().flat_map(|s| &s.guests).any(|g| g.guest_id == guest["data"]["guest_id"])
+}
+
+/// Forgetting and binding never cross: a guest forgotten while its bind runs is refused, and a
+/// guest bound before the file fills stays bound and recorded however many guests are forgotten.
+#[test]
+fn a_bind_and_forgetting_its_guest_never_cross() {
+    let fake = FakeAcpmux::start("share-forget-bind");
+    let mux = mux_with(&fake, "share-forget-bind");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-forget-bind-owner");
+    let share = create(&mut owner, surface, json!({"role":"view", "uses":1000}));
+    let ann = redeem(&mut owner, &share, "Ann", "a1");
+    let bob = redeem(&mut owner, &share, "Bob", "b1");
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    shares.advance(Duration::from_millis(KEEP_MS));
+    let (_bob_link, bound) = bind(&mux, &share, &bob, "share-forget-bind-bob");
+    assert_eq!(bound["ok"], true, "{bound}");
+    // Between Ann's bind check and its registration, the file fills and the guests that left go.
+    let (hook_mux, hook_share, hook_ann) = (mux.clone(), share.clone(), ann.clone());
+    *shares.bind_hook.lock().unwrap() = Some(Box::new(move || {
+        join_until(&hook_mux, &hook_share, |all| !has_guest(all, &hook_ann));
+    }));
+    let (_ann_link, refused) = bind(&mux, &share, &ann, "share-forget-bind-ann");
+    assert_code(&refused, "agent_session.share_ended");
+    let directory = mux.session_state_directory();
+    let all = shares.with(directory.as_deref(), |all, _| Ok((all.clone(), false))).unwrap();
+    assert!(has_guest(&all, &bob), "the bound guest stays recorded");
+    assert_eq!(mux.control_clients.agent_sessions.proxy_authors.lock().unwrap().len(), 1);
+    assert!(shares.guest_live(&bound_author(&share, &bob)), "and live");
+}
+
+fn bound_author(share: &Value, guest: &Value) -> Value {
+    json!({"id": format!("{GUEST_PREFIX}{}.{}", share["share_id"].as_str().unwrap(),
+        guest["data"]["guest_id"].as_str().unwrap())})
+}
+
+/// A guest whose connection ended (the room's host socket dropped, the daemon restarted) is kept
+/// for a while, so its relay comes back as itself; one gone longer is forgotten.
+#[test]
+fn a_guest_whose_relay_just_dropped_resumes_as_itself() {
+    let fake = FakeAcpmux::start("share-forget-relay");
+    let mux = mux_with(&fake, "share-forget-relay");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-forget-relay-owner");
+    let share = create(&mut owner, surface, json!({"role":"view", "uses":1000}));
+    let ann = redeem(&mut owner, &share, "Ann", "a1");
+    let (link, bound) = bind(&mux, &share, &ann, "share-forget-relay-ann");
+    assert_eq!(bound["ok"], true, "{bound}");
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    // Guests that came and went long ago, then the relay's connection drops and the file fills
+    // while it reconnects.
+    let count = |all: &[LinkShare]| all.iter().map(|s| s.guests.len()).sum::<usize>();
+    join_until(&mux, &share, |all| count(all) >= 50);
+    shares.advance(Duration::from_millis(2 * KEEP_MS));
+    drop(link);
+    wait_unbound(&mux, 0);
+    let filled = std::cell::Cell::new(0usize);
+    join_until(&mux, &share, |all| {
+        let guests = count(all);
+        let dropped = guests < filled.get();
+        filled.set(guests);
+        dropped
+    });
+    let directory = mux.session_state_directory();
+    let all = shares.with(directory.as_deref(), |all, _| Ok((all.clone(), false))).unwrap();
+    assert!(has_guest(&all, &ann), "the guest whose relay just dropped stays");
+    let (link, again) = bind(&mux, &share, &ann, "share-forget-relay-ann-again");
+    assert_eq!(again["ok"], true, "its relay comes back as itself: {again}");
+    // Gone for longer than the grace, it is forgotten at the next fill.
+    drop(link);
+    wait_unbound(&mux, 0);
+    shares.advance(Duration::from_millis(KEEP_MS));
+    join_until(&mux, &share, |all| !has_guest(all, &ann));
+    let (_link, refused) = bind(&mux, &share, &ann, "share-forget-relay-ann-late");
+    assert_code(&refused, "agent_session.share_ended");
+}
