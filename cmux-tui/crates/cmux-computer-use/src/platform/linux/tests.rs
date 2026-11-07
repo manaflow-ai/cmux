@@ -268,3 +268,16 @@ fn apps_resolve_without_reading_processes() {
     assert_eq!(apps.resolve("cmux-test-class-zz", "").0, "cmux-test-class-zz");
     assert_eq!(apps.resolve("", "cmux-test-instance-zz").0, "cmux-test-instance-zz");
 }
+
+#[test]
+fn only_old_protocol_clients_get_a_lent_focus() {
+    let (take_focus, ping, delete) = (10, 11, 12);
+    // Tk: WM_DELETE_WINDOW only.
+    assert!(x11::tracks_focus_from_events(&[delete], take_focus, ping));
+    // A bare Xlib client: no WM_PROTOCOLS at all.
+    assert!(x11::tracks_focus_from_events(&[], take_focus, ping));
+    // GTK, Qt: WM_TAKE_FOCUS and _NET_WM_PING.
+    assert!(!x11::tracks_focus_from_events(&[delete, take_focus, ping], take_focus, ping));
+    // Chromium: _NET_WM_PING without WM_TAKE_FOCUS.
+    assert!(!x11::tracks_focus_from_events(&[delete, ping], take_focus, ping));
+}

@@ -338,11 +338,11 @@ impl X11Desktop {
             Some(name) => (Route::XTest, name, false),
             None => match self.focus_in(c) {
                 Some(focus) => (Route::Send(focus), "xsendevent", false),
-                None => (Route::Send(c.win), "xsendevent", true),
+                None => (Route::Send(c.win), "xsendevent", self.needs_lent_focus(c)),
             },
         };
-        // A window without the keyboard focus: toolkits that track focus from
-        // FocusIn (Tk, Motif) drop keys they get while they think they lack it.
+        // A window without the keyboard focus whose toolkit tracks focus from
+        // FocusIn (Tk, Motif) drops keys it gets while it thinks it lacks it.
         // Tell only this window it has the focus for these keys, then take it
         // back; the server's real focus, the person's, never moves.
         if lend_focus {
@@ -351,6 +351,7 @@ impl X11Desktop {
         let result = f(self, route);
         if lend_focus {
             let _ = self.send_focus(c.win, false);
+            self.reassert_real_focus(c);
         }
         self.restore_keymap();
         result?;
@@ -635,6 +636,56 @@ impl X11Desktop {
         let mask = EventMask::POINTER_MOTION | EventMask::BUTTON_MOTION;
         self.conn.send_event(true, win, mask, ev).map_err(xerr)?;
         Ok(())
+    }
+
+    /// Whether keys for `c` (which does not hold the keyboard focus) need a
+    /// lent FocusIn: only a client that tracks focus from events, and not
+    /// when focus follows the pointer (PointerRoot) and the pointer is over
+    /// it, since then it already believes it has the focus.
+    fn needs_lent_focus(&self, c: &Client) -> bool {
+        let a = &self.atoms;
+        let protocols = self.prop32(c.win, a.wm_protocols, xproto::AtomEnum::ATOM);
+        if !super::tracks_focus_from_events(&protocols, a.wm_take_focus, a.net_wm_ping) {
+            return false;
+        }
+        let Some(focus) = self.conn.get_input_focus().ok().and_then(|r| r.reply().ok()) else {
+            return false;
+        };
+        if focus.focus == u32::from(InputFocus::POINTER_ROOT) {
+            let pointer = self.conn.query_pointer(self.root).ok().and_then(|r| r.reply().ok());
+            if let Some(p) = pointer
+                && self.top_at(Point { x: f64::from(p.root_x), y: f64::from(p.root_y) })
+                    == Some(c.frame_win)
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// After a lent focus: the window that really holds the keyboard focus
+    /// is told so again when its toolkit tracks focus from events. Tk keeps
+    /// one focus record per application, so the FocusOut sent to one of its
+    /// windows would otherwise leave the person's window of the same app
+    /// dropping their keys. A window that holds the focus hears that it does.
+    fn reassert_real_focus(&self, target: &Client) {
+        let Some(focus) = self.conn.get_input_focus().ok().and_then(|r| r.reply().ok()) else {
+            return;
+        };
+        if focus.focus <= 1 {
+            return;
+        }
+        let frame = self.top_of(focus.focus);
+        if frame == target.frame_win {
+            return;
+        }
+        let Ok(clients) = self.clients() else { return };
+        let Some(owner) = clients.into_iter().find(|c| c.frame_win == frame) else { return };
+        let a = &self.atoms;
+        let protocols = self.prop32(owner.win, a.wm_protocols, xproto::AtomEnum::ATOM);
+        if super::tracks_focus_from_events(&protocols, a.wm_take_focus, a.net_wm_ping) {
+            let _ = self.send_focus(owner.win, true);
+        }
     }
 
     /// A synthetic FocusIn (or FocusOut) to one window only.

@@ -50,6 +50,9 @@ pub(crate) struct Atoms {
     pub net_supporting_wm_check: Atom,
     pub net_wm_cm_s0: Atom,
     pub wm_state: Atom,
+    pub wm_protocols: Atom,
+    pub wm_take_focus: Atom,
+    pub net_wm_ping: Atom,
     pub utf8_string: Atom,
     pub overlay: Atom,
 }
@@ -82,10 +85,24 @@ impl Atoms {
             net_supporting_wm_check: get("_NET_SUPPORTING_WM_CHECK")?,
             net_wm_cm_s0: get("_NET_WM_CM_S0")?,
             wm_state: get("WM_STATE")?,
+            wm_protocols: get("WM_PROTOCOLS")?,
+            wm_take_focus: get("WM_TAKE_FOCUS")?,
+            net_wm_ping: get("_NET_WM_PING")?,
             utf8_string: get("UTF8_STRING")?,
             overlay: get(OVERLAY_ATOM)?,
         })
     }
+}
+
+/// Whether a client with these `WM_PROTOCOLS` keeps track of its keyboard
+/// focus only from FocusIn and FocusOut events and drops keys while it
+/// thinks it lacks focus: Tk, Xt/Motif and plain Xlib clients, which
+/// speak neither `WM_TAKE_FOCUS` nor `_NET_WM_PING`. GTK, Qt and Chromium
+/// speak both and take window-scoped keys without focus; a synthetic
+/// FocusIn could make them act (Qt hands activation to a modal dialog,
+/// GTK moves the input method), so they never get one.
+pub(crate) fn tracks_focus_from_events(protocols: &[Atom], take_focus: Atom, ping: Atom) -> bool {
+    !protocols.iter().any(|p| *p == take_focus || *p == ping)
 }
 
 /// One client window as X11 describes it.
