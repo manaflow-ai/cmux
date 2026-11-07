@@ -16,6 +16,7 @@ export const ThinkingRow = memo(
         sendSession={row.doingSendSession}
         draft={row.doingDraft}
         done={row.doingDone}
+        call={row.doingCall}
         doneMs={row.doingForMs}
         liveState={row.liveState}
         liveAgents={row.liveAgents}
@@ -43,6 +44,7 @@ export const ThinkingRow = memo(
     a.row.doingSendSession === b.row.doingSendSession &&
     a.row.doingDraft === b.row.doingDraft &&
     a.row.doingDone === b.row.doingDone &&
+    a.row.doingCall === b.row.doingCall &&
     a.row.doingForMs === b.row.doingForMs &&
     a.row.liveState === b.row.liveState &&
     a.row.liveAgents === b.row.liveAgents &&
