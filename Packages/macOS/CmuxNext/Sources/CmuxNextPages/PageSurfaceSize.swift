@@ -12,13 +12,13 @@ public nonisolated struct PageSurfaceSize: Equatable, Sendable {
     /// nothing to show).
     public private(set) var reported = false
     /// The last report as the page sent it, CSS px, so a new zoom can take it again.
-    private var css: (height: CGFloat, width: CGFloat, overlay: CGFloat) = (0, 0, 0)
+    private var cssHeight: CGFloat = 0, cssWidth: CGFloat = 0, cssOverlay: CGFloat = 0
 
     public init() {}
 
     /// Takes one report; true when the host must lay the surface out again.
     public mutating func take(height: CGFloat, width: CGFloat, overlay: CGFloat, zoom: CGFloat) -> Bool {
-        css = (height, width, overlay)
+        (cssHeight, cssWidth, cssOverlay) = (height, width, overlay)
         let next = (max(0, (height * zoom).rounded(.up)), max(0, (width * zoom).rounded(.up)), max(0, (overlay * zoom).rounded(.up)))
         guard next != (self.height, self.width, self.overlay) || !reported else { return false }
         (self.height, self.width, self.overlay, reported) = (next.0, next.1, next.2, true)
@@ -28,6 +28,7 @@ public nonisolated struct PageSurfaceSize: Equatable, Sendable {
     /// Takes the last report again at a new zoom (a live interface scale change: the page's CSS size
     /// stays, so it sends no new report); true when the host must lay the surface out again.
     public mutating func rezoom(_ zoom: CGFloat) -> Bool {
-        reported && take(height: css.height, width: css.width, overlay: css.overlay, zoom: zoom)
+        guard reported else { return false }
+        return take(height: cssHeight, width: cssWidth, overlay: cssOverlay, zoom: zoom)
     }
 }
