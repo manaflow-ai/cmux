@@ -19,14 +19,14 @@ extension AgentTabStore {
             return openBeside(provisional, split: destination.opening == .split, direction: destination.splitDirection ?? "right",
                               open: open, created: { opened.key = $0 }, finished: { [weak self] _ in opened.key.map { self?.focusForkComposer($0) } })
         }
-        let hold = holdOutbound(chat)
+        let hold = holdOutbound(pane, daemon)
         guard let pending = try? open(pane, daemon, nil), hold?.started(true) != false else { hold?.finish(moved: false); return false }; hold?.made(key: pending.key)
         // task-owner: one tab creation, one move, one focus once it landed (a new workspace: placed in its window, else the chat's showed it)
         Task { [weak self] in
             guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: locate) else { hold?.finish(moved: false); return }
-            if destination == .workspace || destination == .window { guard await moveToNewWorkspace(tab.key, destination == .window) else { hold?.finish(moved: false); return focusForkComposer(tab.key) } } else if let move = destination.moveAction {
+            if destination == .workspace || destination == .window { guard await moveToNewWorkspace(tab.key, daemon.machineID, destination == .window) else { hold?.finish(moved: false); return focusForkComposer(tab.key) } } else if let move = destination.moveAction {
                 _ = actionRegistry?.perform(move, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), arguments: destination.splitDirection.map { ["direction": .string($0), "keepFocus": .bool(false)] } ?? [:], origin: .user))
-            } else if case let .column(left) = TerminalForkPlacement(destination) { placeFork(tab.key, chat, left) } else { placeFork(tab.key, chat, nil) }
+            } else if case let .column(left) = TerminalForkPlacement(destination) { placeFork(tab.key, resolve(provisional), left) } else { placeFork(tab.key, resolve(provisional), nil) }
             hold?.finish(moved: await TabMirror.reaches(tab.key, in: { [weak self] in self?.locate($0).flatMap { $0.pane != pane ? $0 : nil } }))
             focusForkComposer(tab.key)
         }

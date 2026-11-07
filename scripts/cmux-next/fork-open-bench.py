@@ -291,7 +291,9 @@ def checks(run, pane, watch):
                             and isinstance(height, (int, float)) and height - client - top <= 2)
     out["late_shifts"] = len(watch.get("shifts") or []) + len(watch.get("scroll_jumps") or [])
     # The fork takes the keyboard where it opens (AgentTabs+Fork.swift focusForkComposer).
-    out["composer_focused"] = (run.pane("composer_focused", pane=pane) or {}).get("focused")
+    # The page's caret, and the native keyboard: the pane's window is key and its first responder is in the pane.
+    focus = run.pane("composer_focused", pane=pane) or {}
+    out["composer_focused"] = focus.get("focused") is True and focus.get("native") is True
     targets = {"composer": {"selector": '.acpmux-composer [contenteditable="true"], .acpmux-composer textarea'},
                "title": {"selector": ".acpmux-thread-title"},
                "menu": {"selector": 'button[aria-label="Chat actions"]'}}
@@ -416,7 +418,8 @@ def fork_once(run, placement, parent, before_sessions):
     # A new window's workspace is not the first window's: closed with the run's.
     after["fork_workspace"] = workspace_of(run, fork_pane) if fork_pane else None
     made = store_sessions(run.home) - before_sessions
-    state = run.pane("chat_state", pane=fork_pane) if fork_pane else run.pane("chat_state")
+    # The pane the app reports focused, not the fork read by its own pane: the fork must be the one focused.
+    state = run.pane("chat_state")
     record = {
         "placement": placement, "usable_ms": usable, "pane_ms": marks.get("pane_made"),
         "content_ms": trace.get("first_content_ms"), "timed_out": trace.get("timed_out"),

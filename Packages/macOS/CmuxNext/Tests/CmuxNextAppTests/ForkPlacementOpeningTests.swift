@@ -16,7 +16,7 @@ import Testing
 @MainActor @Suite(.serialized) struct ForkPlacementOpeningTests {
     @MainActor private final class Seen {
         var creates: [ConversationTabSplit?] = []
-        var held: [String] = []
+        var held: [PaneID] = []
         let (heard, hear) = AsyncStream<Void>.makeStream()
     }
 
@@ -46,8 +46,8 @@ import Testing
         tabs.serially = { _, turn in turn({}); return true }
         tabs.openInMainPane = { _, _, _, _, _ in nil }
         let seen = Seen()
-        tabs.holdOutbound = { chat in
-            seen.held.append(chat)
+        tabs.holdOutbound = { pane, _ in
+            seen.held.append(pane)
             return nil
         }
         tabs.create = { _, _, _, _, _, split in
@@ -104,7 +104,7 @@ import Testing
             }
             #expect(target == PaneID(rawValue: 1))
             // Held out of the chat's strip from the gesture, before the store answers.
-            #expect(seen.held == [chat], "\(destination): the fork's tab shows in the chat's strip on its way")
+            #expect(seen.held == [PaneID(rawValue: 1)], "\(destination): the fork's tab shows in the chat's strip on its way")
         }
         if seen.creates.isEmpty { for await _ in seen.heard { break } }
         try #require(seen.creates.count == 1, "\(destination): one new-conversation-tab")
@@ -123,7 +123,7 @@ import Testing
         tabs.actionRegistry = registry
         let (moving, moveStarted) = AsyncStream<Bool>.makeStream()
         let gate = Gate()
-        tabs.moveToNewWorkspace = { [weak services] _, newWindow in
+        tabs.moveToNewWorkspace = { [weak services] _, _, newWindow in
             // The store lists the fork in its new pane now, outside the chat's pane; the move's reply, and the
             // window's placement after it, wait.
             tabs.locate = { _ in services.map { (pane: PaneID(rawValue: 2), daemon: $0.daemon) } }
