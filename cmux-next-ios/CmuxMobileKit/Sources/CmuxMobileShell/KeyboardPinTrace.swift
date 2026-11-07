@@ -73,7 +73,7 @@ final class KeyboardPinTrace: NSObject {
             shared.record(tap: "\(label):hit(\(shift))")
         } else {
             let name = hit.map { NSStringFromClass(type(of: $0)).split(separator: ".").last.map(String.init) ?? "?" } ?? "none"
-            shared.record(tap: "\(label):miss(\(name),\(shift))")
+            shared.record(tap: "\(label):miss(\(name)/\(shift))")
         }
     }
 
