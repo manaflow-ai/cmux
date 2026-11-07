@@ -16,6 +16,7 @@ import { subsessionCall } from "./subsessionCalls";
 import { argsSource, fieldsText, inputFields, opensToFields, requestText } from "./toolInputFields";
 import { fileCard, fileCardText } from "./fileResults";
 import { plainText } from "./messageMenu";
+import { drawnPromptText } from "./promptCollapse";
 import { drawnThought } from "./thoughts";
 import { callOutput, rowFailed, shellOutput, toolFailure } from "./toolFailure";
 import { agentCall } from "./agentCalls";
@@ -183,6 +184,8 @@ function searchableActivityText(item: AcpmuxActivity): string {
 /** What Find reads of a row: a prompt's or reply's text, or its tool calls'. Diffs come last, so
  * the drawn matches keep their order and a diff's match lands on the row's last drawn one. */
 function rowText(row: AcpmuxRow): string | undefined {
+  // A prompt with placed parts: the words its bubble draws, not a text file's body behind its chip.
+  if (row.kind === "user" && row.inlineParts) return drawnPromptText(row.inlineParts);
   if (SEARCHED_KINDS.has(row.kind)) return row.text;
   if (!row.items?.length) return undefined;
   return [...row.items.map(drawnText), ...row.items.map(diffText)].join("\n");

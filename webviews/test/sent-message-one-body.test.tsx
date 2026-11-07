@@ -116,6 +116,30 @@ test("a sent message whose three pastes the composer placed reads as the draft d
   expect(bubble.querySelectorAll(".cv-user__more").length).toBe(1);
 });
 
+test("Find does not count a text file's body, which draws only as its chip", async () => {
+  // A placed text file's body went as a text block, so it is in the recorded text; the bubble draws
+  // only its chip. Counted, a match there opened the fold to nothing Find could show or highlight.
+  const { findMatches } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const body = "notes.txt\n```\nzanzibar rollout plan\n```";
+  const inlineParts = [
+    { kind: "text", text: "See the notes" },
+    { kind: "file", placed: true, name: "notes.txt", mimeType: "text/plain", size: 22, text: body },
+  ];
+  const row = {
+    id: "file-row",
+    version: 1,
+    at: Date.now(),
+    kind: "user",
+    text: `See the notes\n${body}`,
+    inlineParts,
+  } as Row;
+  expect(findMatches([row], "zanzibar").length).toBe(0);
+  expect(findMatches([row], "notes").length).toBeGreaterThan(0);
+  const bubble = render(row);
+  expect(bubble.querySelector(".acpmux-file-chip")).not.toBeNull();
+  expect(bubble.querySelector(".cv-user__more")).toBeNull();
+});
+
 test("a short message with a paste draws no fold and no card", () => {
   const typed = "Can you look at this?";
   const text = `${typed}\n${THIRD}`;

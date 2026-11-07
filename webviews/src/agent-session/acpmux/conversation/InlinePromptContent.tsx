@@ -2,7 +2,14 @@ import { Fragment, memo, useMemo, type ReactNode } from "react";
 import type { PromptContentPart, PromptImage } from "../model";
 import { attachmentPath, FileAttachment } from "../FileAttachment";
 import { PastedText, PromptText, PromptTyped } from "./PromptText";
-import { agentPaste, HUGE_PROMPT_HEAD_CHARS, hasHugeTypedPart, headParts, oneBody } from "./promptCollapse";
+import {
+  agentPaste,
+  drawnPromptText,
+  HUGE_PROMPT_HEAD_CHARS,
+  hasHugeTypedPart,
+  headParts,
+  oneBody,
+} from "./promptCollapse";
 import { experimentArm } from "../../../experiments/experiment";
 import { sentPasteJoin } from "./sentPasteJoin.experiment";
 
@@ -31,9 +38,8 @@ export const InlinePromptContent = memo(function InlinePromptContent({
   return (
     <PromptText
       rowId={rowId}
-      // The text acpmux recorded: its text blocks joined by a newline (hub/session.rs `prompt_text`),
-      // what Find searches and the fold measures.
-      text={parts.flatMap((part) => blockText(part) ?? []).join("\n")}
+      // What Find searches and the fold measures: the words the bubble draws.
+      text={drawnPromptText(parts)}
       show={show}
       huge={hasHugeTypedPart(body)}
     >

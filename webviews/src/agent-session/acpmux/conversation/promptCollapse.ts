@@ -8,6 +8,7 @@
 
 import { sliceWhole } from "../../../ui/wholeChars";
 import { agentText } from "../agentText";
+import type { PromptContentPart } from "../model";
 
 /// A prompt taller than this many lines opens collapsed to them: twenty, twice the ten it was (Leo,
 /// 2026-11-07: "I feel like we should show more than we are showing right now"). conversation.css
@@ -220,3 +221,10 @@ export const recordedBody = (text: string, pasted: readonly PasteRange[], join: 
     join,
     "\n",
   );
+
+/// A prompt's text as its bubble draws it, joined by a newline as acpmux records it (hub/session.rs
+/// `prompt_text`): typed text and every paste, not a text file's body, which draws only as its
+/// chip. What Find searches and the fold measures, so a match never points at undrawn words.
+export function drawnPromptText(parts: readonly PromptContentPart[]): string {
+  return parts.flatMap((part) => (part.kind === "text" || part.kind === "pasted" ? (part.text ?? []) : [])).join("\n");
+}
