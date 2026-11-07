@@ -13,10 +13,11 @@
 // Nothing here calls GitHub. The host answers from its own cache and reads gh in the background
 // (pullRequestStore.ts, AgentReplyPullRequests); when its answer is not fresh the card prints how
 // old it is instead of an error.
-import { type ReactNode } from "react";
+import { type CSSProperties, type ReactNode } from "react";
 import { FILE_KINDS, kindTotals, missingTests, type FileKind } from "../../../fileKinds";
 import { usePaneLanguage, useT, type PaneLanguage, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { Tooltip } from "../../../ui/Tooltip";
 import { relativeTime } from "../conversation/relativeTime";
 import { usePullRequestAnswer, type LinkedPullRequest } from "./pullRequestStore";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
@@ -117,7 +118,14 @@ export function PullRequestCardBody({
         {waiting && <Placeholder row="who" />}
         {read?.author && (
           <div className="acpmux-pr-card__who">
-            <Monogram login={read.author} />
+            {read.authorAvatar?.startsWith("data:image/") ? (
+              // The host's copy of their GitHub picture (Leo 2026-11-07: "can you not just also pull
+              // the GitHub icon for the profile picture?"), in the monogram's own box, so the row
+              // keeps its size whichever one shows.
+              <img className="acpmux-pr-card__avatar" src={read.authorAvatar} alt="" width={18} height={18} />
+            ) : (
+              <Monogram login={read.author} />
+            )}
             <span className="acpmux-pr-card__author">{read.author}</span>
             {Number.isFinite(updatedAt) && (
               <span className="acpmux-pr-card__when">
@@ -218,12 +226,14 @@ function Secondary({ read, t }: { read: LinkedPullRequest | undefined; t: Transl
   );
 }
 
-/// An open pull request's checks, compact: ✓ passed, ✗ failing, ◷ still running, and how many of
-/// the failures the base branch's tip has too — a red the pull request did not cause, which is
-/// what decides whether anyone has to go and look at it. The host works that out
-/// (AgentPanePullRequest `failingOnBase`, which only compares each workflow's newest run, so a run
-/// the concurrency group cancelled can never excuse a red); the card only reads it. The whole
-/// sentence is for screen readers; the glyphs are for the eye.
+/// An open pull request's CI checks, said in words (Leo 2026-11-07: "The check mark, the X mark,
+/// whatever. What does that mean? Is that the tests or what? As in, like the CI?"): "Checks 11
+/// passed · 1 failed · 1 running", and how many of the failures the base branch's tip has too — a
+/// red the pull request did not cause, which is what decides whether anyone has to go and look at
+/// it. The host works that out (AgentPanePullRequest `failingOnBase`, which only compares each
+/// workflow's newest run, so a run the concurrency group cancelled can never excuse a red); the card
+/// only reads it. Pointing at the row lists the failing and running checks by name. The whole
+/// sentence is for screen readers; the row is for the eye.
 function Checks({ read, t }: { read: LinkedPullRequest | undefined; t: Translate }) {
   const checks = read?.checks;
   if (!checks) return null;
@@ -244,21 +254,29 @@ function Checks({ read, t }: { read: LinkedPullRequest | undefined; t: Translate
         ? t("prCard.checksFailingOnBase", { ...counts, onBase })
         : t("prCard.checksFailing", counts)
       : t("prCard.checks", counts);
-  return (
+  const failingNames = rows.filter((check) => check.state === "failed").map((check) => check.name);
+  const runningNames = rows.filter((check) => check.state === "pending").map((check) => check.name);
+  const row = (
     <div
       className="acpmux-pr-card__checks"
       data-state={checks.state}
-      // Every red is base's: the ✗ reads muted rather than danger, because nothing here is this
-      // pull request's to fix (the merge rules say so too).
+      // Every red is base's: the failures read muted rather than danger, because nothing here is
+      // this pull request's to fix (the merge rules say so too).
       data-on-base={onBase > 0 && onBase >= failing ? "all" : undefined}
+      // Focusable only when it has names to show, so a keyboard reaches the same list a pointer does.
+      // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the check names' tooltip is keyboard-focusable without an action
+      tabIndex={failingNames.length + runningNames.length > 0 ? 0 : undefined}
     >
       <span className="acpmux-pr-card__sr">{sentence}</span>
+      <span className="acpmux-pr-card__checksName" aria-hidden="true">
+        {t("prCard.checksName")}
+      </span>
       <span className="acpmux-pr-card__passed" aria-hidden="true">
-        ✓ {checks.passed}
+        <span className="acpmux-pr-card__count">{checks.passed}</span> {t("prCard.checksPassed")}
       </span>
       {failing > 0 && (
         <span className="acpmux-pr-card__failed" aria-hidden="true">
-          ✗ {failing}
+          <span className="acpmux-pr-card__count">{failing}</span> {t("prCard.checksFailed")}
         </span>
       )}
       {onBase > 0 && (
@@ -268,9 +286,43 @@ function Checks({ read, t }: { read: LinkedPullRequest | undefined; t: Translate
       )}
       {pending > 0 && (
         <span className="acpmux-pr-card__pending" aria-hidden="true">
-          ◷ {pending}
+          <span className="acpmux-pr-card__count">{pending}</span> {t("prCard.checksRunning")}
         </span>
       )}
+    </div>
+  );
+  if (failingNames.length + runningNames.length === 0) return row;
+  return (
+    <Tooltip
+      className="ui-card acpmux-pr-card__checkNames"
+      side="bottom"
+      label={
+        <>
+          <CheckNames title={t("prCard.checksFailingNames")} names={failingNames} state="failed" />
+          <CheckNames title={t("prCard.checksRunningNames")} names={runningNames} state="pending" />
+        </>
+      }
+    >
+      {row}
+    </Tooltip>
+  );
+}
+
+/// How many check names a list shows before it stops with "…": the host keeps at most 50, and a
+/// tooltip that long is a page.
+const NAMES_SHOWN = 8;
+
+function CheckNames({ title, names, state }: { title: string; names: string[]; state: "failed" | "pending" }) {
+  if (names.length === 0) return null;
+  return (
+    <div className="acpmux-pr-card__checkList" data-state={state}>
+      <div className="acpmux-pr-card__checkListTitle">{title}</div>
+      {names.slice(0, NAMES_SHOWN).map((name, index) => (
+        <div key={`${index}:${name}`} className="acpmux-pr-card__checkName">
+          {name}
+        </div>
+      ))}
+      {names.length > NAMES_SHOWN && <div className="acpmux-pr-card__checkName">…</div>}
     </div>
   );
 }
@@ -288,15 +340,47 @@ function Review({ read, t }: { read: LinkedPullRequest | undefined; t: Translate
         </span>
       )}
       {labels.map((name) => (
-        <span key={name} className="acpmux-pr-card__label">
-          {name}
-        </span>
+        <Label key={name} name={name} color={read?.labelColors?.[name]} />
       ))}
     </div>
   );
 }
 
-/// The files and `+/−`, with the file-kind totals kept on one quiet inline row.
+const HEX_COLOR = /^[0-9a-f]{6}$/i;
+
+/// How many tones a label without GitHub's colour picks from (linkCard.css `__label[data-tone]`).
+const LABEL_TONES = 8;
+
+/// A label in its GitHub colour (Leo 2026-11-07: "Are we able to pull the colors? Or at least ...
+/// just have some colors"), drawn as a tint with the colour mixed into the text so a pale or a dark
+/// label reads in both themes. One GitHub has no colour for gets a tone its name picks, and a
+/// `risk:high` without one is drawn in the failure ink, never as a grey chip.
+function Label({ name, color }: { name: string; color: string | undefined }) {
+  if (color && HEX_COLOR.test(color))
+    return (
+      <span className="acpmux-pr-card__label" data-colored="" style={{ "--label": `#${color}` } as CSSProperties}>
+        {name}
+      </span>
+    );
+  return (
+    <span className="acpmux-pr-card__label" data-tone={name === "risk:high" ? "danger" : toneOf(name, LABEL_TONES)}>
+      {name}
+    </span>
+  );
+}
+
+/// A stable tone for `text`: the same name gets the same tone in every card.
+function toneOf(text: string, tones: number): number {
+  let hash = 0;
+  for (const character of text) hash = (hash * 31 + character.codePointAt(0)!) % 4096;
+  return hash % tones;
+}
+
+/// The files and `+/−`, then one bar split by how many lines each kind of file changed (code, tests,
+/// generated, ... — the diff viewer's classifier, src/fileKinds.ts) with each kind's `+/−` under
+/// it (Leo 2026-11-07: "as for the code, the test, the generated files, and whatever, could we do
+/// that better?"). When GitHub listed only some of the files (it sends the first 100), the numbers
+/// say so beside them: "from 100 of 255 files".
 function Changes({ read, t }: { read: LinkedPullRequest | undefined; t: Translate }) {
   if (!read) return null;
   const files = read.files ?? [];
@@ -307,6 +391,8 @@ function Changes({ read, t }: { read: LinkedPullRequest | undefined; t: Translat
   const totals = kindTotals(files);
   const noTests = files.length > 0 && files.length === changed && missingTests(files);
   const partial = files.length > 0 && files.length < changed;
+  const kinds = FILE_KINDS.flatMap((kind) => totals.filter((total) => total.kind === kind));
+  const lines = kinds.reduce((sum, total) => sum + total.additions + total.deletions, 0);
   return (
     <div className="acpmux-pr-card__changes">
       <div className="acpmux-pr-card__counts">
@@ -317,29 +403,41 @@ function Changes({ read, t }: { read: LinkedPullRequest | undefined; t: Translat
         </span>
         {noTests && <span className="acpmux-pr-card__warning">{t("prCard.noTests")}</span>}
       </div>
-      {totals.length > 0 && (
-        <div className="acpmux-pr-card__breakdown" aria-label={t("prCard.linesByKind")}>
-          {FILE_KINDS.filter((kind) => totals.some((total) => total.kind === kind)).map((kind, index) => {
-            const total = totals.find((entry) => entry.kind === kind)!;
-            return (
-              <span key={kind} className="acpmux-pr-card__kind" data-kind={kind}>
-                {index > 0 && (
-                  <span className="acpmux-pr-card__separator" aria-hidden="true">
-                    ·
-                  </span>
-                )}
-                <span className="acpmux-pr-card__kindName">{t(KINDS[kind])}</span>
+      {kinds.length > 0 && (
+        <>
+          {lines > 0 && (
+            <div className="acpmux-pr-card__kindBar" aria-hidden="true">
+              {kinds.map((total) => {
+                const share = (total.additions + total.deletions) / lines;
+                return share > 0 ? (
+                  <span
+                    key={total.kind}
+                    className="acpmux-pr-card__barPart"
+                    data-kind={total.kind}
+                    style={{ flexGrow: share }}
+                  />
+                ) : null;
+              })}
+            </div>
+          )}
+          <div className="acpmux-pr-card__breakdown" aria-label={t("prCard.linesByKind")}>
+            {kinds.map((total) => (
+              <span key={total.kind} className="acpmux-pr-card__kind" data-kind={total.kind}>
+                <span className="acpmux-pr-card__kindDot" aria-hidden="true" />
+                <span className="acpmux-pr-card__kindName">{t(KINDS[total.kind])}</span>
                 <span className="acpmux-pr-card__added">+{total.additions.toLocaleString()}</span>
                 {total.deletions > 0 && (
                   <span className="acpmux-pr-card__removed">−{total.deletions.toLocaleString()}</span>
                 )}
               </span>
-            );
-          })}
-          {partial && (
-            <span className="acpmux-pr-card__kindPartial">{t("prCard.kindsPartial", { shown: files.length })}</span>
-          )}
-        </div>
+            ))}
+            {partial && (
+              <span className="acpmux-pr-card__kindPartial">
+                {t("prCard.kindsFrom", { shown: files.length, total: changed })}
+              </span>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
@@ -372,16 +470,14 @@ function Freshness({
 /// How many tones a monogram picks from; each is one of the theme's own terminal colours.
 const MONOGRAM_TONES = 6;
 
-/// The author's monogram: their first letter on a tone their login picks out of the theme's
-/// palette. cmux draws no avatar it would have to fetch from GitHub, so a card costs no network,
-/// leaks nothing to github.com, and looks the same offline.
+/// The author's monogram, until the host has their GitHub picture (or when it never will: offline,
+/// a GitHub Enterprise host): their first letter on a tone their login picks out of the theme's
+/// palette.
 function Monogram({ login }: { login: string }) {
   const first = login.codePointAt(0);
   const letter = first == null ? "?" : String.fromCodePoint(first).toUpperCase();
-  let hash = 0;
-  for (const character of login) hash = (hash * 31 + character.codePointAt(0)!) % 4096;
   return (
-    <span className="acpmux-pr-card__monogram" data-tone={hash % MONOGRAM_TONES} aria-hidden="true">
+    <span className="acpmux-pr-card__monogram" data-tone={toneOf(login, MONOGRAM_TONES)} aria-hidden="true">
       {letter}
     </span>
   );

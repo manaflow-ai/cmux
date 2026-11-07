@@ -113,6 +113,10 @@ const fn access(operation: Op) -> Access {
         | Op::GitCheckpointList
         | Op::GitCheckpointPin
         | Op::GitCheckpointUnpin
+        // The diff page's review comments: kept for the app, never a page.
+        | Op::DiffCommentsList
+        | Op::DiffCommentsSave
+        | Op::DiffCommentsDelete
         | Op::SessionJournalHookPut
         // It tells whether a path exists and is a folder (cx-9aps).
         | Op::WorkspaceAgentStartGet
@@ -386,6 +390,10 @@ const fn access(operation: Op) -> Access {
         // (page-router.json: home-channels reads participant.avatar.get).
         | Op::ParticipantAvatarSet
         | Op::ParticipantAvatarGet
+        // Ranking rows the page itself sends: a page reaches it only
+        // through its allow list (page-router.json: home-channels reads
+        // palette.rank).
+        | Op::PaletteRank
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet
