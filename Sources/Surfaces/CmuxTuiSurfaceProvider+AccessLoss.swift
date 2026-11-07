@@ -3,6 +3,20 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
+    /// Cards every restored terminal of this machine that is not attached yet:
+    /// those waiting for the machine, and those whose attach is in flight.
+    func showRestoredTerminalsUnavailable(detail: String, retry: (@MainActor () -> Void)?) {
+        for panelID in restoredAttachTasks.keys {
+            guard let workspaceID = catalog.projection(forPanel: panelID)?.workspaceID else { continue }
+            Workspace.liveWorkspace(id: workspaceID)?.failRestoredCloudTerminalPane(
+                panelID: panelID,
+                detail: detail,
+                retry: retry
+            )
+        }
+        catalog.showRestoredMachineUnavailable(machine, detail: detail, retry: retry)
+    }
+
     /// The control plane answered that this user can no longer reach the
     /// machine. Automatic reconnects stop, and every attached pane shows the
     /// access-lost card; the pane itself stays open so the user decides.
@@ -13,6 +27,16 @@ extension CmuxTuiSurfaceProvider {
         // A pane still restoring keeps its reservation; rebuilding it on
         // regain restarts its attach.
         accessLostPanelIDs.formUnion(restoredAttachTasks.keys)
+        // A restored terminal that has not attached yet has no session to stop.
+        // Only a listing can end these two losses, so only they offer Reconnect.
+        let reconnect: @MainActor () -> Void = {
+            Task { @MainActor in _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true) }
+        }
+        let canReconnect = loss == .forbidden || loss == .notFound
+        showRestoredTerminalsUnavailable(
+            detail: stopReason.endedPresentation?.detail ?? "",
+            retry: canReconnect ? reconnect : nil
+        )
         for task in restoredAttachTasks.values { task.cancel() }
         restoredAttachTasks.removeAll()
         attachmentRetry.cancel()
@@ -45,6 +69,7 @@ extension CmuxTuiSurfaceProvider {
         self.accessLoss = nil
         materializedPanels.subtract(accessLostPanelIDs)
         accessLostPanelIDs.removeAll()
+        catalog.clearRestoredMachineUnavailable(machine)
         guard isRegisteredInCatalog() else { return }
         publishLinkStatus(.connecting, error: nil)
         // Browser and display panes showed the unavailable card; routing them
