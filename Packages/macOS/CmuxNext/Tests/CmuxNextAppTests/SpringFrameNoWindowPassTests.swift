@@ -45,6 +45,9 @@ struct SpringFrameNoWindowPassTests {
         case constraintInSiblingSubtree
         /// Diagnosis: as `constraintSibling`, with the layout not translating its mask and no constraint of its own.
         case constraintSiblingLayoutNoMask
+        /// Diagnosis: as `constraintInSiblingSubtree`, with the layout in a container that runs no constraint update
+        /// for its subtree (`updateConstraintsForSubtreeIfNeeded` and `needsUpdateConstraints` overridden).
+        case boundaryNoConstraintUpdate
 
         var description: String { rawValue }
 
@@ -129,8 +132,33 @@ struct SpringFrameNoWindowPassTests {
                 content.addSubview(label)
                 NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: content.leadingAnchor),
                                              label.topAnchor.constraint(equalTo: content.topAnchor)])
+            case .boundaryNoConstraintUpdate:
+                let content = NSView(frame: rect)
+                window.contentView = content
+                let boundary = NoConstraintUpdateView(frame: rect)
+                boundary.autoresizingMask = [.width, .height]
+                content.addSubview(boundary)
+                layout.frame = boundary.bounds
+                layout.autoresizingMask = [.width, .height]
+                boundary.addSubview(layout)
+                let side = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+                content.addSubview(side)
+                let label = NSTextField(labelWithString: "x")
+                label.translatesAutoresizingMaskIntoConstraints = false
+                side.addSubview(label)
+                NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: side.leadingAnchor),
+                                             label.topAnchor.constraint(equalTo: side.topAnchor)])
             }
             return window
+        }
+    }
+
+    /// A container that never updates constraints for its subtree.
+    final class NoConstraintUpdateView: NSView {
+        override func updateConstraintsForSubtreeIfNeeded() {}
+        override var needsUpdateConstraints: Bool {
+            get { false }
+            set {} // swiftlint:disable:this unused_setter_value
         }
     }
 
