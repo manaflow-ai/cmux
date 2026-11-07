@@ -1,5 +1,6 @@
 import { translate, useT } from "./i18n";
 import { isAgentHome, projectLabel } from "./sessionList";
+import { rememberWorktreeSetup, type WorktreeSetupStart } from "./worktreeSetup";
 
 // Where a chat starts (cx-nn3e). The host names a new chat's folder in the handshake (its
 // workspace's folder, else none: the chat starts in the workspace's private agent-home folder),
@@ -65,12 +66,14 @@ export async function pickFolder(
 /// as it is), and the chat starts there as in a picked folder: when the host asks about that
 /// folder first, the question comes back (`ask`) for the pane to show, and nothing starts until the
 /// user answers it. Rejects with the host's reason when it makes none; nothing is used then.
+/// The host starts the project's worktree recipe after its reply (`setup`): the pane remembers it
+/// before the chat uses the folder, so the chat's setup line (worktreeSetup.tsx) follows it at once.
 export async function newWorktree(
   callNative: Native,
   cwd: string,
   use: (cwd: string) => void,
-): Promise<{ root: string; branch?: string; ask?: FolderAsk }> {
-  let reply: { value?: { root?: unknown; branch?: unknown } } | undefined;
+): Promise<{ root: string; branch?: string; ask?: FolderAsk; setup?: WorktreeSetupStart }> {
+  let reply: { value?: { root?: unknown; branch?: unknown; setup?: unknown } } | undefined;
   try {
     reply = (await callNative("git.worktree.create", { cwd, idempotency_key: crypto.randomUUID() })) as typeof reply;
   } catch (error) {
@@ -82,9 +85,19 @@ export async function newWorktree(
   }
   const root = reply?.value?.root;
   if (typeof root !== "string" || !root) throw new Error(translate("worktree.failed"));
-  const ask = await pickFolder(callNative, root, use);
+  const setup = rememberWorktreeSetup(root, reply?.value?.setup);
+  // The host may spell the folder its own way (links resolved): the line follows that spelling too.
+  const ask = await pickFolder(callNative, root, (folder) => {
+    if (setup && folder !== root) rememberWorktreeSetup(folder, setup);
+    use(folder);
+  });
   const branch = reply?.value?.branch;
-  return { root, ...(typeof branch === "string" ? { branch } : {}), ...(ask ? { ask } : {}) };
+  return {
+    root,
+    ...(typeof branch === "string" ? { branch } : {}),
+    ...(ask ? { ask } : {}),
+    ...(setup ? { setup } : {}),
+  };
 }
 
 /// New Worktree's refusal above the composer: the host's reason, and Dismiss.
