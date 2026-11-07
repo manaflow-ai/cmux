@@ -177,8 +177,8 @@ pub fn parse_file(text: Option<&str>) -> Result<Option<CarrierFile>, String> {
     Ok(Some(CarrierFile { route, team, issuer, keyset }))
 }
 
-/// [`CARRIER_FILE`]'s new text when a receiving-policy read brought a
-/// keyset for the same issuer that differs from the kept one; `None` when
+/// [`CARRIER_FILE`]'s new text when a keyset fetch (`cloud/carrier_keyset.rs`)
+/// brought a keyset for the same issuer that differs from the kept one; `None` when
 /// there is no valid file, the keyset is not valid, or nothing changed.
 /// The Cloud role writes it (temp file, then rename); the supervisor's
 /// watch then rewrites [`GRANT_CONFIG_FILE`] from it, and the session

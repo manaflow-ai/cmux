@@ -795,7 +795,7 @@ fn remote_entry(paths: &crate::config::Paths) -> crate::remote_entry::RemoteEntr
 /// is written first (temp file, then rename), so a session host started
 /// with these flags finds it. Each carrier.json change writes it again, and
 /// the running host's verifier re-reads it at the first grant signed by a
-/// kid it does not hold (a rotated keyset, `Worker::refresh_carrier_keyset`).
+/// kid it does not hold (a rotated keyset, `cloud/carrier_keyset.rs`).
 fn carrier_args(paths: &crate::config::Paths, bin: &std::path::Path) -> Vec<String> {
     use crate::carrier_entry::GRANT_CONFIG_FILE;
     let Some(file) = carrier_file(paths) else { return Vec::new() };

@@ -517,6 +517,8 @@ struct Worker {
     live: Option<Live>,
     /// GitHub token asks, off the poll loop (`github_minter.rs`).
     github: Minter<PosterHttp>,
+    /// The carrier grant keyset's own fetch (`carrier_keyset.rs`).
+    keyset: super::carrier_keyset::Refresher<PosterHttp>,
     /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
     trajectories: Option<Trajectories<PosterHttp>>,
     /// The held socket of the relay-first chat path (`relay.rs`), from bind on.
@@ -551,6 +553,7 @@ impl Worker {
         let trajectories =
             spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
         forget_harness_login_state(&paths);
+        let keyset = super::carrier_keyset::Refresher::spawn(paths.clone(), log)?;
         Ok(Worker {
             bootstrap: None,
             bootstrap_retry_at: None,
@@ -575,6 +578,7 @@ impl Worker {
             },
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
+            keyset,
             trajectories,
             relay: None,
             bind_retry_at: None,
@@ -802,6 +806,24 @@ impl Worker {
             if closed.contains(&i) {
                 continue;
             }
+            if let Some(ask) = carrier_keyset_ask(&line) {
+                let reply = match ask {
+                    Ok(kid) => {
+                        self.keyset.unknown_kid(kid);
+                        json!({ "ok": true })
+                    }
+                    Err(why) => super::github::refusal("request.invalid", &why),
+                };
+                let Some(client) = self.clients.get_mut(i) else { continue };
+                if !client.output.is_empty() {
+                    closed.push(i);
+                    continue;
+                }
+                client.output = serde_json::to_vec(&reply).unwrap_or_default();
+                client.output.push(b'\n');
+                client.write_deadline = Some(self.epoch.elapsed().as_millis() as u64 + 1000);
+                continue;
+            }
             if let Some(ask) = agent_ask(&line) {
                 asks.push((i, ask));
                 continue;
@@ -845,10 +867,7 @@ impl Worker {
                 // `refused` revokes the receiver's retained policy at once;
                 // `unavailable` (no answer) lets local admission keep it.
                 let value = match value {
-                    Some(Ok(value)) => {
-                        self.refresh_carrier_keyset(&value);
-                        value
-                    }
+                    Some(Ok(value)) => value,
                     Some(Err(error)) if super::receiver::is_refusal(&error) => {
                         json!({ "ok": false, "error": super::receiver::POLICY_REFUSED })
                     }
@@ -1000,27 +1019,6 @@ impl Worker {
         }
     }
 
-    /// A receiving-policy read's keyset, when it differs from the one the
-    /// bind kept in carrier.json: the file is rewritten so the session
-    /// host's grant config follows a rotation without a re-bind
-    /// (`carrier_entry::with_keyset`).
-    fn refresh_carrier_keyset(&mut self, reply: &Value) {
-        use crate::carrier_entry::{CARRIER_FILE, with_keyset};
-        let (Some(issuer), Some(keyset)) =
-            (reply["value"]["issuer"].as_str(), reply["value"].get("keyset"))
-        else {
-            return;
-        };
-        let Some(text) = with_keyset(self.store.read(CARRIER_FILE).as_deref(), issuer, keyset)
-        else {
-            return;
-        };
-        match self.store.write(CARRIER_FILE, &text, 0o600) {
-            Ok(()) => log("carrier: kept the refreshed keyset"),
-            Err(e) => log(&format!("carrier.json keyset write: {e}")),
-        }
-    }
-
     /// The session host's Noise static public key, from its identity file
     /// under the home the supervisor spawned it with (the layout marker).
     fn daemon_noise_key(&self) -> Option<String> {
@@ -1069,6 +1067,10 @@ impl Worker {
         match github_client(&bound, &key) {
             Ok(client) => self.github.bound(client),
             Err(e) => log(&format!("github minter: {e}")),
+        }
+        match github_client(&bound, &key) {
+            Ok(client) => self.keyset.bound(client),
+            Err(e) => log(&format!("carrier keyset: {e}")),
         }
         if let Some(trajectories) = self.trajectories.as_ref() {
             match github_client(&bound, &key) {
@@ -1346,6 +1348,13 @@ fn forget_harness_login_state(paths: &Paths) {
 fn github_client(bound: &Bound, key: &InstallKey) -> Result<CloudClient<PosterHttp>, String> {
     let key = InstallKey::from_pkcs8(key.pkcs8(), &SystemRandom::new())?;
     Ok(CloudClient::new(PosterHttp(JsonPoster::new()?), bound.clone(), key))
+}
+
+/// The kid of a `{"carrier_keyset": {"kid": ...}}` line (checked): the
+/// session host's verifier saw a grant signed by a kid it does not hold.
+fn carrier_keyset_ask(line: &str) -> Option<Result<String, String>> {
+    let msg: Value = serde_json::from_str(line).ok()?;
+    msg.get(super::carrier_keyset::REQUEST_KEY).map(super::carrier_keyset::check_ask)
 }
 
 /// The ask of a `{"github_token": {...}}` or `{"handoff_report": {...}}`

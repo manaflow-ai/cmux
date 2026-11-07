@@ -272,6 +272,30 @@ pub struct FileGrantVerifier {
     config: GrantConfig,
     inner: CarrierGrantVerifier,
     reloaded_at: Mutex<Option<Instant>>,
+    /// Told the kid of a grant the held keyset and the file both lack, at
+    /// most once per [`UNKNOWN_KID_REPORT_INTERVAL`]: the host fetches the
+    /// keyset and rewrites the file.
+    unknown_kid: Option<UnknownKidHook>,
+    reported_at: Mutex<Option<Instant>>,
+}
+
+/// [`FileGrantVerifier::with_unknown_kid_hook`]'s hook; it must not block.
+pub type UnknownKidHook = Box<dyn Fn(&str) + Send + Sync>;
+
+/// How often an unknown kid may be reported to the host (its fetch for an
+/// unknown kid is limited the same way, cmux-link `keyset`).
+pub const UNKNOWN_KID_REPORT_INTERVAL: Duration = cmux_link::keyset::UNKNOWN_KID_INTERVAL;
+
+/// The `kid` of a compact JWS's header, when it has one.
+fn token_kid(token: &str) -> Option<String> {
+    use base64::Engine as _;
+    let header = token.split('.').next()?;
+    if header.len() > 1024 {
+        return None;
+    }
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(header).ok()?;
+    let value: Value = serde_json::from_slice(&bytes).ok()?;
+    value.get("kid")?.as_str().map(str::to_owned)
 }
 
 impl std::fmt::Debug for FileGrantVerifier {
@@ -295,7 +319,33 @@ impl FileGrantVerifier {
             config.keys.clone(),
         )
         .map_err(|_| "grant config names no valid issuer, machine, team or keyset".to_string())?;
-        Ok(Self { path, config, inner, reloaded_at: Mutex::new(None) })
+        Ok(Self {
+            path,
+            config,
+            inner,
+            reloaded_at: Mutex::new(None),
+            unknown_kid: None,
+            reported_at: Mutex::new(None),
+        })
+    }
+
+    /// Reports a grant's kid that neither the held keyset nor the file has.
+    pub fn with_unknown_kid_hook(mut self, hook: UnknownKidHook) -> Self {
+        self.unknown_kid = Some(hook);
+        self
+    }
+
+    fn report_unknown_kid(&self, token: &str) {
+        let Some(hook) = self.unknown_kid.as_ref() else { return };
+        let Some(kid) = token_kid(token) else { return };
+        let mut reported_at =
+            self.reported_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if reported_at.is_some_and(|at| at.elapsed() < UNKNOWN_KID_REPORT_INTERVAL) {
+            return;
+        }
+        *reported_at = Some(Instant::now());
+        drop(reported_at);
+        hook(&kid);
     }
 
     pub fn config(&self) -> &GrantConfig {
@@ -334,11 +384,13 @@ impl GrantVerifier for FileGrantVerifier {
                 serves_any,
             )
         };
+        let unknown = |grant: &Result<CarrierGrant, TokenRefusal>| matches!(grant, Err(refusal) if refusal.kind == TokenRefused::UnknownKey);
         let mut grant = check();
-        if matches!(&grant, Err(refusal) if refusal.kind == TokenRefused::UnknownKey)
-            && self.reload_keys()
-        {
+        if unknown(&grant) && self.reload_keys() {
             grant = check();
+        }
+        if unknown(&grant) {
+            self.report_unknown_kid(presentation.token);
         }
         admit(grant, presentation.noise_key)
     }
@@ -451,6 +503,29 @@ mod tests {
 
         fn present<'a>(token: &'a str, noise_key: &'a [u8; 32]) -> GrantPresentation<'a> {
             GrantPresentation { token, noise_key, link_group: [1; 32] }
+        }
+
+        /// A grant signed by a kid neither the keyset nor the file holds is
+        /// reported to the host once per interval, with its kid.
+        #[test]
+        fn an_unknown_kid_is_reported_once_per_interval() {
+            let dir = tempfile::tempdir().unwrap();
+            let file = dir.path().join("carrier-grant.json");
+            let (held, other) = (signer(), signer());
+            std::fs::write(&file, config("k1", &held, MACHINE)).unwrap();
+            let seen = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
+            let sink = std::sync::Arc::clone(&seen);
+            let verifier = FileGrantVerifier::load(&file).unwrap().with_unknown_kid_hook(Box::new(
+                move |kid| sink.lock().unwrap().push(kid.to_owned()),
+            ));
+            let noise_key = [5_u8; 32];
+            for jti in [10, 11] {
+                let token = grant("k9", &other, &noise_key, jti);
+                assert!(verifier.verify(present(&token, &noise_key)).is_err());
+            }
+            let known = grant("k1", &held, &noise_key, 12);
+            assert!(verifier.verify(present(&known, &noise_key)).is_ok());
+            assert_eq!(*seen.lock().unwrap(), ["k9"]);
         }
 
         /// A grant refused only for naming unknown services keeps its jti:
