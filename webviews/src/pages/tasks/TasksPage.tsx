@@ -118,21 +118,35 @@ function OwnerNotRunning({ strings, copy }: { strings: Strings; copy?: (text: st
   );
 }
 
-/** Return sends `create` and clears the field for the next one; Escape clears it. It takes focus
- * only on a click or a user-run New Task (`request` changes). */
+/** Return sends `create`; the field clears once the owner has the task, so a create whose outcome
+ * is unknown (the link broke, the call timed out) keeps its text, with Retry (the same key) and
+ * Discard. Escape clears it (and gives up an unsent create). It takes focus only on a click or a
+ * user-run New Task (`request` changes). */
 function NewTaskField({ store, strings, request }: { store: TasksStore; strings: Strings; request: number }) {
   const input = useRef<HTMLInputElement | null>(null);
   const [title, setTitle] = useState("");
+  const [sent, setSent] = useState<string | undefined>();
+  const outcome = sent ? store.createOutcome(sent) : undefined;
   useEffect(() => {
     if (store.takeNewTaskRequest()) input.current?.focus();
   }, [request, store]);
+  const settled = outcome?.state === "done" || outcome?.state === "refused" ? outcome.state : undefined;
+  useEffect(() => {
+    if (!settled) return;
+    // Done: the next task starts empty. Refused: the text stays for the person to fix.
+    if (settled === "done") setTitle("");
+    setSent(undefined);
+  }, [settled]);
+  const unsentKey = outcome?.state === "unsent" ? outcome.key : undefined;
+  const busy = outcome?.state === "sending" || unsentKey !== undefined;
   return (
-    <label className="tasks-new">
+    <label className={`tasks-new${unsentKey ? " unsent" : ""}`}>
       <Icon name="action.add" size={14} />
       <input
         ref={input}
         className="tasks-new-input"
         value={title}
+        readOnly={busy}
         placeholder={strings.t("create.placeholder")}
         aria-label={strings.t("create.placeholder")}
         onChange={(event) => setTitle(event.target.value)}
@@ -140,14 +154,63 @@ function NewTaskField({ store, strings, request }: { store: TasksStore; strings:
           if (event.nativeEvent.isComposing) return;
           if (event.key === "Enter") {
             event.preventDefault();
-            if (store.createTask(title)) setTitle("");
+            if (unsentKey) store.retry(unsentKey);
+            else if (!busy) setSent(store.createTask(title));
           } else if (event.key === "Escape") {
+            if (unsentKey) store.discard(unsentKey);
+            setSent(undefined);
             setTitle("");
             input.current?.blur();
           }
         }}
       />
+      {unsentKey ? (
+        <UnsentActions
+          strings={strings}
+          onRetry={() => store.retry(unsentKey)}
+          onDiscard={() => {
+            store.discard(unsentKey);
+            setSent(undefined);
+          }}
+        />
+      ) : null}
     </label>
+  );
+}
+
+/** "Not sent" with Retry and Discard: a change whose outcome is unknown, never resent on its own. */
+function UnsentActions({
+  strings,
+  onRetry,
+  onDiscard,
+}: {
+  strings: Strings;
+  onRetry: () => void;
+  onDiscard: () => void;
+}) {
+  return (
+    <span className="tasks-unsent">
+      <span className="tasks-unsent-label">{strings.t("change.unsent")}</span>
+      <button type="button" className="tasks-link-button" onClick={onRetry}>
+        {strings.t("change.retry")}
+      </button>
+      <button type="button" className="tasks-link-button" onClick={onDiscard}>
+        {strings.t("change.discard")}
+      </button>
+    </span>
+  );
+}
+
+/** A row's or card's unsent change, if any, as its Retry and Discard. */
+function RowUnsent({ store, strings, task }: { store: TasksStore; strings: Strings; task: string }) {
+  const intent = store.unsent(task);
+  if (!intent) return null;
+  return (
+    <UnsentActions
+      strings={strings}
+      onRetry={() => store.retry(intent.key)}
+      onDiscard={() => store.discard(intent.key)}
+    />
   );
 }
 
@@ -231,7 +294,7 @@ function TaskRow({
   const selected = state.selection === task.id;
   return (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized row (absolute, transformed), not a flow <li>
-    <div role="listitem" style={style}>
+    <div role="listitem" style={style} className="tasks-row-slot">
       <ContextMenu items={items}>
         <button
           type="button"
@@ -253,6 +316,7 @@ function TaskRow({
           <AssigneeBadge assignee={task.assignee} delegate={task.delegate} strings={strings} />
         </button>
       </ContextMenu>
+      <RowUnsent store={store} strings={strings} task={task.id} />
     </div>
   );
 }
@@ -621,6 +685,7 @@ function BoardCard({
           </span>
         </button>
       </ContextMenu>
+      <RowUnsent store={store} strings={strings} task={task.id} />
     </div>
   );
 }

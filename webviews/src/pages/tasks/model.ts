@@ -48,10 +48,29 @@ export interface Intent {
   kind: IntentKind;
   /** The owner's sequence after the request (its reply); the intent leaves once the mirror has it. */
   settle?: number;
-  /** The connection broke before the owner's reply: it may or may not have applied. The intent stays
-   * shown and is sent again, with the same key, once the page reconnects (the owner answers a repeat
-   * of an applied key with its first reply). */
-  interrupted?: true;
+  /** The outcome is unknown (the link broke, the call timed out, or a retry lacked the person's
+   * gesture): the change may or may not have applied. It stays shown, marked unsent, until the mirror
+   * shows its result or its echo, or the person retries it (with the same key) or discards it. It is
+   * never sent again on its own: a Tasks change needs the person's gesture. */
+  unsent?: true;
+}
+
+/** The intent's result is already in the mirror (it committed while its reply was lost). A move
+ * cannot be told from the mirror; it waits for its echo, a retry or a discard. */
+export function committedIn(mirror: Mirror, kind: IntentKind): boolean {
+  if (kind.type === "create") return mirror.tasks.has(kind.id);
+  if (kind.type === "delegate") return mirror.sessions.has(kind.session);
+  const task = mirror.tasks.get(kind.task);
+  switch (kind.type) {
+    case "setStatus":
+      return task?.status === kind.status;
+    case "archive":
+      return !task || Boolean(task.archived);
+    case "assign":
+      return task !== undefined && (task.assignee?.id ?? undefined) === kind.person;
+    case "move":
+      return false;
+  }
 }
 
 export const EMPTY_MIRROR: Mirror = {
@@ -244,7 +263,9 @@ export function visibleTasks(mirror: Mirror, pending: readonly Intent[]): Task[]
   const moves: Extract<IntentKind, { type: "move" }>[] = [];
   // Each pending create takes the next number in turn (the owner does not echo `next_number`).
   let nextNumber = Math.max(mirror.settings.next_number ?? 0, maxNumber(tasks) + 1);
-  for (const { kind } of pending) {
+  for (const { kind, unsent } of pending) {
+    // An unsent create is shown in the New Task field (its text and Retry), not as a row.
+    if (kind.type === "create" && unsent) continue;
     if (kind.type === "move") {
       moves.push(kind);
       continue;

@@ -76,6 +76,39 @@
   background: var(--page-hover);
 }
 
+/* A change whose outcome is unknown: "Not sent", Retry, Discard. Never resent on its own. */
+.tasks-unsent {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-caption);
+}
+
+.tasks-unsent-label {
+  color: var(--page-text-3);
+}
+
+.tasks-new.unsent .tasks-new-input {
+  color: var(--page-text-2);
+}
+
+/* A list row and its unsent actions side by side; the row keeps the width it had. */
+.tasks-row-slot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tasks-row-slot > .ui-context-menu-host {
+  flex: 1;
+  min-width: 0;
+}
+
+.tasks-card-slot > .tasks-unsent {
+  padding: 4px 4px 0;
+}
+
 .tasks-new-input {
   flex: 1;
   min-width: 0;

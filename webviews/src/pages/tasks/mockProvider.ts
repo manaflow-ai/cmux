@@ -33,6 +33,9 @@ export class MockTasksProvider implements PageClient {
   answerImmediately = true;
   /** When true, a reply arrives before its echo events (`release` sends the events later). */
   echoAfterReply = false;
+  /** The next mutations fail, in order, with these errors (`owner` is the owner's code). With
+   * `commit` the owner applies it first and its echo is lost (the reply never came back). */
+  readonly failNext: { code: string; owner?: string; commit?: boolean }[] = [];
   /** How many `cmux.tasks.changed` subscribes fail before one works (a relay still recovering). */
   failSubscribes = 0;
   readonly page = new MockPageStreams();
@@ -56,6 +59,18 @@ export class MockTasksProvider implements PageClient {
     if (op === TasksOps.snapshot) return structuredClone(this.state) as R;
     const key = String(params.idempotency_key ?? "");
     if (!key) throw pageError("cmux.validation.invalid", "a Tasks mutation needs an idempotency_key");
+    const failure = this.failNext.shift();
+    if (failure) {
+      if (failure.commit) {
+        this.muted = true;
+        try {
+          this.commit(op, params, key);
+        } finally {
+          this.muted = false;
+        }
+      }
+      throw pageError(failure.code, "no answer", true, failure.owner ? { extra: { code: failure.owner } } : undefined);
+    }
     const answer = () => this.commit(op, params, key);
     if (this.answerImmediately) return answer() as R;
     return new Promise<R>((resolve, reject) => {
@@ -75,6 +90,8 @@ export class MockTasksProvider implements PageClient {
   }
 
   private pendingEvents: TaskEvent[] = [];
+  /** A failed call's commit: its events never reach the page. */
+  private muted = false;
 
   /** Sends the echo events a reply went out before (`echoAfterReply`). */
   flushEvents(): void {
@@ -185,6 +202,7 @@ export class MockTasksProvider implements PageClient {
       kind: "task.updated",
       change,
     }));
+    if (this.muted) return { result: { ok: true }, seq: this.state.seq };
     if (this.echoAfterReply) this.pendingEvents.push(...events);
     else for (const event of events) this.publish({ change: event });
     return { result: { ok: true }, seq: this.state.seq };

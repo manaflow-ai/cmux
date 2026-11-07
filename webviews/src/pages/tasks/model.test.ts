@@ -3,6 +3,7 @@ import {
   applyEvent,
   assigneeChoices,
   choiceIntent,
+  committedIn,
   fromSnapshot,
   inboxGroups,
   intentWire,
@@ -215,6 +216,32 @@ describe("assignee", () => {
     const task5 = m.tasks.get("task_5")!;
     expect(choiceIntent(m, task5, { type: "nobody" }, () => "s")).toBeUndefined();
     expect(isCurrentChoice(m, task5, { type: "nobody" })).toBe(true);
+  });
+});
+
+describe("unsent intents", () => {
+  test("committedIn tells a change already in the mirror; a move never", () => {
+    const m = mirror();
+    const task5 = m.tasks.get("task_5")!;
+    expect(committedIn(m, { type: "create", id: "task_1", title: "x" })).toBe(true);
+    expect(committedIn(m, { type: "create", id: "task_new", title: "x" })).toBe(false);
+    expect(committedIn(m, { type: "setStatus", task: "task_5", status: task5.status })).toBe(true);
+    expect(committedIn(m, { type: "setStatus", task: "task_5", status: "st_other" })).toBe(false);
+    expect(committedIn(m, { type: "archive", task: "task_gone" })).toBe(true);
+    expect(committedIn(m, { type: "archive", task: "task_5" })).toBe(false);
+    expect(committedIn(m, { type: "assign", task: "task_5" })).toBe(true);
+    expect(committedIn(m, { type: "move", task: "task_5" })).toBe(false);
+  });
+
+  test("an unsent create is not drawn as a row; other unsent changes still show", () => {
+    const m = mirror();
+    const pending: Intent[] = [
+      { key: "a", kind: { type: "create", id: "task_new", title: "Draft" }, unsent: true },
+      { key: "b", kind: { type: "archive", task: "task_5" }, unsent: true },
+    ];
+    const tasks = visibleTasks(m, pending);
+    expect(tasks.some((t) => t.id === "task_new")).toBe(false);
+    expect(tasks.some((t) => t.id === "task_5")).toBe(false);
   });
 });
 

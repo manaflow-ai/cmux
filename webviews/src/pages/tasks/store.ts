@@ -11,6 +11,7 @@ import {
   EMPTY_MIRROR,
   applyEvent,
   choiceIntent,
+  committedIn,
   fromSnapshot,
   intentTask,
   intentWire,
@@ -74,6 +75,21 @@ function unreachable(error: unknown): boolean {
   if (ownerCode(error) === OWNER_UNREACHABLE) return true;
   return isPageError(error) && (error.code === "cmux.protocol.closed" || error.code === "cmux.page.closed");
 }
+
+/** No answer the owner gave: the change may or may not have applied (the link broke, the call timed
+ * out on either side, or the daemon refused a call without the person's gesture). The intent stays. */
+function uncertain(error: unknown): boolean {
+  if (unreachable(error)) return true;
+  if (ownerCode(error) === "tasks.timeout") return true;
+  return isPageError(error) && UNCERTAIN_CODES.has(error.code);
+}
+
+const UNCERTAIN_CODES = new Set([
+  "cmux.protocol.timeout",
+  "cmux.protocol.unavailable",
+  "cmux.op.cancelled",
+  "origin.forbidden",
+]);
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -224,12 +240,15 @@ export class TasksStore {
       const snapshot = await this.client.call<Snapshot>(TasksOps.snapshot, {});
       if (lifetime !== this.lifetime) return;
       let mirror = fromSnapshot(snapshot);
-      for (const event of this.early ?? []) mirror = applyEvent(mirror, event);
+      const echoes: string[] = [];
+      for (const event of this.early ?? []) {
+        mirror = applyEvent(mirror, event);
+        if (event.tx) echoes.push(event.tx);
+      }
       this.early = null;
       this.cancelRetry();
       this.retryDelay = this.options.backoff?.initial ?? 200;
-      this.setMirror(mirror, { connection: "connected", everConnected: true });
-      this.resendInterrupted();
+      this.setMirror(mirror, { connection: "connected", everConnected: true }, echoes);
     } catch (error) {
       if (lifetime !== this.lifetime) return;
       this.early = null;
@@ -285,7 +304,7 @@ export class TasksStore {
       return;
     }
     if (this.snapshot.connection !== "connected") return;
-    this.setMirror(applyEvent(this.snapshot.mirror, event));
+    this.setMirror(applyEvent(this.snapshot.mirror, event), {}, event.tx ? [event.tx] : []);
   }
 
   // MARK: view state
@@ -321,6 +340,16 @@ export class TasksStore {
 
   isPending(task: string): boolean {
     return this.snapshot.pending.some((intent) => intentTask(intent.kind) === task);
+  }
+
+  /** Where the create of task `id` stands: in flight, unsent (unknown outcome), done (in the
+   * mirror) or refused (the owner said no; the reason is in `reject`). */
+  createOutcome(id: string): { state: "sending" | "unsent"; key: string } | { state: "done" | "refused" } {
+    const intent = this.snapshot.pending.find(
+      (candidate) => candidate.kind.type === "create" && candidate.kind.id === id,
+    );
+    if (intent) return { state: intent.unsent ? "unsent" : "sending", key: intent.key };
+    return { state: this.snapshot.mirror.tasks.has(id) ? "done" : "refused" };
   }
 
   /** Creates a task titled `title` (trimmed) in the owner's default status and selects it. */
@@ -363,7 +392,9 @@ export class TasksStore {
     return true;
   }
 
-  private async dispatch(intent: Intent): Promise<void> {
+  /** `resync`: a retry. Its first send may have committed with its echo lost, so the owner's reply
+   * names a sequence no event will bring; the snapshot is read again after it. */
+  private async dispatch(intent: Intent, resync = false): Promise<void> {
     if (!this.client) return;
     const lifetime = this.lifetime;
     const { verb, params } = intentWire(intent.kind);
@@ -378,15 +409,22 @@ export class TasksStore {
         return settle <= this.snapshot.mirror.seq ? [] : [{ ...candidate, settle }];
       });
       this.recompute({ pending });
+      if (resync) void this.read();
     } catch (error) {
       if (lifetime !== this.lifetime) return;
-      if (unreachable(error)) {
-        // Not a refusal: keep the intent (a New Task title is already cleared) and resend it on reconnect.
+      if (uncertain(error)) {
+        // Not the owner's refusal: the person's change stays, unsent, until it shows in the mirror or
+        // they retry or discard it. A gesture refusal says why; a broken link reads again.
         const pending = this.snapshot.pending.map((candidate) =>
-          candidate.key === intent.key ? { ...candidate, interrupted: true as const } : candidate,
+          candidate.key === intent.key ? { ...candidate, unsent: true as const } : candidate,
         );
-        this.recompute({ pending, connection: "unreachable" });
-        void this.read();
+        const lost = unreachable(error);
+        this.recompute({
+          pending,
+          ...(lost ? { connection: "unreachable" as const } : {}),
+          ...(isPageError(error) && error.code === "origin.forbidden" ? { reject: message(error) } : {}),
+        });
+        if (lost) void this.read();
         return;
       }
       this.recompute({
@@ -396,17 +434,30 @@ export class TasksStore {
     }
   }
 
-  /** Sends again, with their own keys, the intents a broken connection left without a reply. */
-  private resendInterrupted(): void {
-    const interrupted = this.snapshot.pending.filter((intent) => intent.interrupted);
-    if (!interrupted.length) return;
-    const pending = this.snapshot.pending.map((intent) => {
-      if (!intent.interrupted) return intent;
-      const { interrupted: _, ...rest } = intent;
-      return rest;
+  /** The unsent intent on `task` (a change whose outcome is unknown), if any. */
+  unsent(task: string): Intent | undefined {
+    return this.snapshot.pending.find((intent) => intent.unsent && intentTask(intent.kind) === task);
+  }
+
+  /** Sends an unsent intent again, from the person's click (a fresh gesture), with its original key:
+   * the owner answers a key it already applied with its first reply, so nothing is done twice. */
+  retry(key: string): boolean {
+    if (!this.client || this.snapshot.connection !== "connected") return false;
+    const intent = this.snapshot.pending.find((candidate) => candidate.key === key && candidate.unsent);
+    if (!intent) return false;
+    const { unsent: _, ...again } = intent;
+    this.recompute({
+      pending: this.snapshot.pending.map((candidate) => (candidate === intent ? again : candidate)),
+      reject: undefined,
     });
-    this.recompute({ pending });
-    for (const intent of pending) if (interrupted.some((old) => old.key === intent.key)) void this.dispatch(intent);
+    void this.dispatch(again, true);
+    return true;
+  }
+
+  /** Drops an unsent intent: the person gave the change up. */
+  discard(key: string): void {
+    const pending = this.snapshot.pending.filter((candidate) => !(candidate.key === key && candidate.unsent));
+    if (pending.length !== this.snapshot.pending.length) this.recompute({ pending });
   }
 
   private newId(prefix: "task_" | "asess_"): string {
@@ -416,8 +467,12 @@ export class TasksStore {
   // MARK: state
 
   /** A new mirror: settled intents it covers leave, then the visible rows are derived again. */
-  private setMirror(mirror: Mirror, patch: Partial<TasksSnapshot> = {}): void {
-    const pending = this.snapshot.pending.filter((intent) => intent.settle === undefined || intent.settle > mirror.seq);
+  private setMirror(mirror: Mirror, patch: Partial<TasksSnapshot> = {}, echoes: readonly string[] = []): void {
+    const pending = this.snapshot.pending.filter((intent) => {
+      // An unsent change whose result or echo is in the mirror committed after all.
+      if (intent.unsent) return !echoes.includes(intent.key) && !committedIn(mirror, intent.kind);
+      return intent.settle === undefined || intent.settle > mirror.seq;
+    });
     this.recompute({ ...patch, mirror, pending });
   }
 

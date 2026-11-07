@@ -29,7 +29,7 @@ async function started(provider = new MockTasksProvider(), visible = () => true)
   const timers = new Timers();
   const store = new TasksStore(provider, {
     newKey: () => `k${++key}`,
-    newId: (prefix) => `${prefix}${key + 1}`,
+    newId: (prefix) => `${prefix}new${key + 1}`,
     backoff: { initial: 1, maximum: 4 },
     schedule: timers.schedule,
     visible,
@@ -86,31 +86,78 @@ describe("TasksStore", () => {
     const { store, provider } = await started();
     expect(store.createTask("   ")).toBeUndefined();
     const id = store.createTask(" Ship it ");
-    expect(id).toBe("task_1");
+    expect(id).toBe("task_new1");
     expect(store.getSnapshot().selection).toBe(id);
     await tick();
     expect(provider.calls.at(-1)?.params).toMatchObject({ id, title: "Ship it" });
     expect(store.getSnapshot().mirror.tasks.get(id!)?.key).toBe("CMX-12");
   });
 
-  test("a change cut off by a lost connection stays shown and is sent again with its key on reconnect", async () => {
+  test("a create that times out stays unsent, off the rows, and is never sent again on its own", async () => {
     const { store, provider, timers } = await started();
-    provider.ownerDown = true;
-    const id = store.createTask("Ship it");
+    provider.failNext.push({ code: "cmux.operation.failed", owner: "tasks.timeout" });
+    const id = store.createTask("Ship it")!;
     await tick();
-    // No reply: not a refusal, so the typed task stays (its field is already cleared).
-    expect(store.getSnapshot().connection).toBe("unreachable");
+    expect(store.createOutcome(id)).toEqual({ state: "unsent", key: "k1" });
     expect(store.getSnapshot().reject).toBeUndefined();
-    expect(store.isPending(id!)).toBe(true);
-    expect(store.getSnapshot().tasks.some((t) => t.id === id)).toBe(true);
-    provider.ownerDown = false;
+    // Its text is in the New Task field (with Retry), not a row.
+    expect(store.getSnapshot().tasks.some((t) => t.id === id)).toBe(false);
     await timers.fire();
+    expect(provider.calls.filter((call) => call.op === TasksOps.create).length).toBe(1);
+  });
+
+  test("a page-side timeout on a status change leaves the row's change unsent", async () => {
+    const { store, provider } = await started();
+    provider.failNext.push({ code: "cmux.protocol.timeout" });
+    store.setStatus("task_5", "st_done");
+    await tick();
+    expect(store.unsent("task_5")?.kind).toEqual({ type: "setStatus", task: "task_5", status: "st_done" });
+    expect(store.getSnapshot().tasks.find((t) => t.id === "task_5")?.status).toBe("st_done");
+  });
+
+  test("a create that committed before the link broke settles on reconnect, with no second create", async () => {
+    const { store, provider } = await started();
+    provider.failNext.push({ code: "cmux.operation.failed", owner: "tasks.owner_unreachable", commit: true });
+    const id = store.createTask("Ship it")!;
+    await tick();
+    // The lost link reads the snapshot again at once; the task is there, so the create settles.
     await tick();
     expect(store.getSnapshot().connection).toBe("connected");
+    expect(store.createOutcome(id).state).toBe("done");
+    expect(store.getSnapshot().pending).toEqual([]);
+    expect(provider.calls.filter((call) => call.op === TasksOps.create).length).toBe(1);
+    expect(provider.state.tasks.filter((t) => t.title === "Ship it").length).toBe(1);
+  });
+
+  test("Retry sends the unsent change again with its original key", async () => {
+    const { store, provider } = await started();
+    provider.failNext.push({ code: "cmux.operation.failed", owner: "tasks.timeout", commit: true });
+    const id = store.createTask("Ship it")!;
+    await tick();
+    expect(store.retry("k1")).toBe(true);
+    await tick();
     const creates = provider.calls.filter((call) => call.op === TasksOps.create);
-    expect(creates.at(-1)?.params).toMatchObject({ id, title: "Ship it", idempotency_key: "k1" });
-    expect(store.getSnapshot().mirror.tasks.get(id!)?.title).toBe("Ship it");
-    expect(store.isPending(id!)).toBe(false);
+    expect(creates.map((call) => call.params.idempotency_key)).toEqual(["k1", "k1"]);
+    expect(provider.state.tasks.filter((t) => t.title === "Ship it").length).toBe(1);
+    expect(store.createOutcome(id).state).toBe("done");
+  });
+
+  test("a gesture refusal on Retry keeps the change unsent and says why", async () => {
+    const { store, provider } = await started();
+    provider.failNext.push({ code: "cmux.protocol.closed" }, { code: "origin.forbidden" });
+    store.archive("task_3");
+    await tick();
+    expect(store.unsent("task_3")?.key).toBe("k1");
+    // The link came back; the person's Retry is refused for want of a gesture.
+    await store.start();
+    await tick();
+    expect(store.retry("k1")).toBe(true);
+    await tick();
+    expect(store.unsent("task_3")?.key).toBe("k1");
+    expect(store.getSnapshot().reject).toBe("no answer");
+    store.discard("k1");
+    expect(store.unsent("task_3")).toBeUndefined();
+    expect(store.getSnapshot().tasks.some((t) => t.id === "task_3")).toBe(true);
   });
 
   test("a change made elsewhere arrives as an event and keeps the selection", async () => {
