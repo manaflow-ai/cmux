@@ -184,7 +184,8 @@ export type ToolbarHostState = {
   site: PageInfoSite | null;
   /** The page's title, for a drag of the address out of the chip. */
   title: string | null;
-  navigation: { canGoBack: boolean; canGoForward: boolean; loading: boolean };
+  /** `canReload` false: Reload is off (the Markdown tab's empty state); absent means on. */
+  navigation: { canGoBack: boolean; canGoForward: boolean; loading: boolean; canReload?: boolean };
   /** The row has the navigation buttons and trailing buttons (false: the omnibar alone, a popup window). */
   showsButtons: boolean;
   bookmark: "hidden" | "off" | "on";

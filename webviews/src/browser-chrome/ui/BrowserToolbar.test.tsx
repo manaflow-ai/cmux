@@ -193,3 +193,15 @@ test("Back, Forward and Reload keep their native accessibility identifiers", () 
     expect(doc.getElementById(id)).not.toBeNull();
   }
 });
+
+test("a row that cannot reload draws Reload off (the Markdown tab's empty state)", () => {
+  const doc = render(
+    <BrowserToolbar
+      navigation={{ canGoBack: false, canGoForward: false, loading: false, canReload: false }}
+      omnibar={{ text: "", chip: resolveChip(null), bookmark: "hidden" }}
+      onCommand={() => {}}
+      width={800}
+    />,
+  );
+  expect(doc.getElementById("browser.toolbar.reload")?.hasAttribute("disabled")).toBe(true);
+});

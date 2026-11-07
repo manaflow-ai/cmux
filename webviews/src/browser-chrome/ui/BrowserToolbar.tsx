@@ -49,6 +49,8 @@ export type BrowserToolbarProps = {
     canGoBack: boolean;
     canGoForward: boolean;
     loading: boolean;
+    /** False turns Reload off (the Markdown tab's empty state); absent means on. */
+    canReload?: boolean;
     /** 0...1 while loading; the line under the toolbar. */
     progress?: number;
   };
@@ -760,6 +762,7 @@ export function BrowserToolbar({
             domId="browser.toolbar.reload"
             icon={loading ? "browser.toolbar.stop" : "browser.toolbar.reload"}
             label={t(loading ? "browser.toolbar.stop" : "browser.toolbar.reload")}
+            enabled={loading || navigation.canReload !== false}
             holdsFocus={hold}
             iconSize={icons.toolbar}
             onPress={() => send({ type: loading ? "stop" : "reload" })}

@@ -224,7 +224,7 @@ struct BrowserToolbarWireTests {
         #expect(state["url"] as? String == "https://example.com/a")
         #expect(state["tab"] as? String == "default")
         let navigation = try #require(state["navigation"] as? [String: Bool])
-        #expect(navigation == ["canGoBack": true, "canGoForward": false, "loading": true])
+        #expect(navigation == ["canGoBack": true, "canGoForward": false, "loading": true, "canReload": true])
         #expect(state["showsButtons"] as? Bool == true)
         let site = try #require(state["site"] as? [String: Any])
         #expect(site["displayName"] as? String == "example.com")
