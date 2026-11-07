@@ -78,7 +78,15 @@ function Row({ policy, step }: { policy: Policy; step: Step }) {
           ))}
         </div>
         <div
-          style={{ position: "absolute", right: 8, top: 4, height: 24, display: "flex", gap: GAP, alignItems: "center" }}
+          style={{
+            position: "absolute",
+            right: 8,
+            top: 4,
+            height: 24,
+            display: "flex",
+            gap: GAP,
+            alignItems: "center",
+          }}
         >
           {Array.from({ length: tools }, (_, index) => (
             <span
