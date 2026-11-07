@@ -30,7 +30,22 @@ extension HomeContact {
     }
 }
 
+extension HomeContact {
+    /// `contacts`' answer (sheets/wire.ts parseContactsAnswer): the people New Message offers, the
+    /// team an invite row names, and the invites still pending (the Invite sheet's list, as the
+    /// native HomeInviteSheet's `pending`: each address invited into a conversation not joined yet).
+    public static func pageAnswer(_ contacts: [HomeContact], inviteTeam: String?, rows: [InboxRow]) -> JSONValue {
+        .object(["contacts": .array(contacts.map(\.pageJSON)), "inviteTeam": inviteTeam.map(JSONValue.string) ?? .null,
+                 "pendingInvites": .array(rows.pendingInvites.map { .string($0.contact) })])
+    }
+}
+
 extension HomeGroupInfo {
+    /// `group.info`'s answer and each event of `group.follow` (sheets/wire.ts parseGroupInfoAnswer).
+    public func pageAnswer(addable: [HomeContact]) -> JSONValue {
+        .object(["info": pageJSON, "addable": .array(addable.map(\.pageJSON))])
+    }
+
     /// As the Messages page reads it (sheets/model.ts).
     public var pageJSON: JSONValue {
         var fields: [String: JSONValue] = [
@@ -110,6 +125,16 @@ extension HomeGroupOutcome {
         case .refused(let reason): .object(["kind": .string("refused"), "reason": .string(reason)])
         }
         return .object(["outcome": value])
+    }
+}
+
+extension HomeGroupOutcome {
+    /// The refusal of a `home.messages.present` the page did not present, as the person reads it:
+    /// Group Info of a conversation the page does not list is an unknown conversation (the native
+    /// TopHomePageView.presentGroupInfo refused it so); nil for any other answer.
+    public static func presentRefusal(sheet: String, answer: JSONValue?) -> String? {
+        guard sheet == "groupInfo", answer?.objectValue?["presented"]?.boolValue == false else { return nil }
+        return unknownConversation.message ?? ""
     }
 }
 

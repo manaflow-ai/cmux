@@ -32,12 +32,15 @@ import MessagesLabHome
 ///   same way (``HomeMessagesOutbox``).
 /// - `requests.list {}` -> `{requests}`; `requests.answer {conversation, answer}` -> `{ok}`.
 /// - `group.info {conversation}` -> `{info, addable}`; `group.rename|add|remove|mute|chiefReplies` -> `{outcome}`.
-/// - `contacts {}` -> `{contacts, inviteTeam}`.
-/// - `chief.create {name, backend}`, `invite.send {email}`, `start {recipients, text}` -> `{outcome}`.
+/// - `contacts {}` -> `{contacts, inviteTeam, pendingInvites}`.
+/// - `chief.create {name, backend}`, `invite.send {email}`, `start {recipients, text}` -> `{outcome}`
+///   (``HomeMessagesFirstSend``: a first send with no answer comes with its outbox row).
 /// - `teamInvite.seatImpact {}` -> `{impact}`; `teamInvite.send {email}` -> `{result}`.
 /// - `linkPreview {url, kind, details}` -> a preview (cards/links/linkPreview.ts).
 /// - `headerPanels.toggle {id}`: runs that panel's action as the person's own (a click only).
-/// Streams: `appearance` (the bubble look and each chat's colours), `headerPanels` (the toggles of
+/// Streams: `appearance` (the bubble look, each chat's colours, the composer's spell checking),
+/// `group.follow {conversation}` and `requests.follow` (Group Info and Requests while they show,
+/// ``HomeMessagesFollow``), `headerPanels` (the toggles of
 /// the open conversation) and `hidden` (`{hidden: {id: seq}}`: the conversations deleted from the
 /// list, each listed again by a message after its seq), each sent on subscribe and on every change.
 @MainActor
@@ -100,7 +103,7 @@ final class HomeMessagesHostProvider: PageProvider {
             let id = try conversation(fields)
             let actions = home.groupActions
             guard let info = actions.info(id) else { throw PageError(code: "cmux.home.unknown_conversation", message: HomeGroupOutcome.unknownConversation.message ?? "") }
-            return .object(["info": info.pageJSON, "addable": .array(actions.addable(to: id).map(\.pageJSON))])
+            return info.pageAnswer(addable: actions.addable(to: id))
         case "group.rename":
             let id = try conversation(fields)
             return (await home.groupActions.rename(id, to: fields["title"]?.stringValue ?? "")).pageOutcome
@@ -123,7 +126,7 @@ final class HomeMessagesHostProvider: PageProvider {
             return (await home.groupActions.setChiefReplies(policy, id)).pageOutcome
         case "contacts":
             let team = services.cloud.isSignedIn ? services.cloud.auth.activeTeam.team?.displayName : nil
-            return .object(["contacts": .array(home.contacts().map(\.pageJSON)), "inviteTeam": team.map(JSONValue.string) ?? .null])
+            return HomeContact.pageAnswer(home.contacts(), inviteTeam: team, rows: home.homeStore.rows)
         case "chief.create":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             let name = (fields["name"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -147,7 +150,8 @@ final class HomeMessagesHostProvider: PageProvider {
             return .object(["result": .object(["kind": .string(Self.kind(answer))])])
         case "start":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
-            return (await start(fields, home: home)).pageOutcome
+            return await HomeMessagesFirstSend(store: home.homeStore, contacts: home.contacts(), start: { await home.startConversation($0, title: "", firstMessage: $1) },
+                                               refusal: { home.composer.outcome(for: $0, naming: $1) }).run(fields)
         case "linkPreview":
             guard let text = fields["url"]?.stringValue, let url = URL(string: text),
                   let kind = fields["kind"]?.stringValue.flatMap(HomeLinkChipKind.init(rawValue:)) else {
@@ -188,6 +192,14 @@ final class HomeMessagesHostProvider: PageProvider {
                 appearanceListeners[key] = nil
                 if appearanceListeners.isEmpty { appearanceWatch?.cancel(); appearanceWatch = nil }
             }
+        case HomeMessagesPageRoute.prefix + "group.follow":
+            guard let actions = services?.home.groupActions else { throw PageError.unavailable("cmux is closing") }
+            let id = try conversation(filter.objectValue ?? [:])
+            return HomeMessagesFollow.start({ actions.info(id)?.pageAnswer(addable: actions.addable(to: id)) }, onEvent: onEvent)
+        case HomeMessagesPageRoute.prefix + "requests.follow":
+            guard let requests = services?.home.requests else { throw PageError.unavailable("cmux is closing") }
+            requests.refresh()
+            return HomeMessagesFollow.start({ .object(["requests": .array(requests.items.map(\.pageJSON))]) }, onEvent: onEvent)
         case HomeMessagesPageRoute.prefix + "hidden":
             hidden.subscribe(key, onEvent)
             return PageSubscription { [weak self] in self?.hidden.unsubscribe(key) }
@@ -212,30 +224,6 @@ final class HomeMessagesHostProvider: PageProvider {
         if moved { restartPanels(); firstRun?.restart() }
     }
 
-    // MARK: New Message's first send
-
-    /// The blank page's first send (what the native New Message sent first): makes the DM or group with the
-    /// recipients and posts `text` there. Addresses only: the email-link start carries the text.
-    private func start(_ fields: [String: JSONValue], home: HomeService) async -> HomeComposeOutcome {
-        let contacts = home.contacts()
-        let recipients: [HomeRecipient] = (fields["recipients"]?.arrayValue ?? []).compactMap { entry in
-            if let id = entry["contact"]?.stringValue, !id.isEmpty {
-                return .contact(contacts.first { $0.id.rawValue == id } ?? HomeContact(id: ParticipantID(id), name: id, source: .team))
-            }
-            return entry["address"]?.stringValue.flatMap { ContactAddress.parse($0) }.map(HomeRecipient.address)
-        }
-        guard !recipients.isEmpty else { return .refused("") }
-        let text = (fields["text"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts: [MessagePart] = text.isEmpty ? [] : [.text(text)]
-        let addressesOnly = recipients.allSatisfy { if case .address = $0 { true } else { false } }
-        let outcome = await home.startConversation(recipients, title: "", firstMessage: addressesOnly ? parts : [])
-        if case .opened(let id) = outcome, !addressesOnly, !parts.isEmpty {
-            // The real store owns the send from here (its offline queue and Not Delivered state).
-            _ = try? await home.homeStore.perform(.sendMessage(conversation: id, parts: parts))
-        }
-        return outcome
-    }
-
     // MARK: Streams
 
     private func appearance() -> JSONValue {
@@ -247,6 +235,7 @@ final class HomeMessagesHostProvider: PageProvider {
             "chiefLook": .string(design.homeChiefBubblesThemed ? "theme" : "imessage"),
             "defaults": HomeChatColorStore.colors(fromHexes: design.homeBubbleColors).pageJSON,
             "colors": .object(colors),
+            "spellChecking": .bool(services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false),
         ])
     }
 
@@ -254,7 +243,8 @@ final class HomeMessagesHostProvider: PageProvider {
         guard let chats = services?.home.chatColors else { return }
         // task-owner: lives while the page listens to `appearance` (cancelled with its last listener); event-driven (Observation)
         appearanceWatch = Task { [weak self] in
-            for await _ in ObservationStream({ (chats.chats, DesignSettings.shared.homeBubbleColors, DesignSettings.shared.homeChiefBubblesThemed) }) {
+            for await _ in ObservationStream({ [weak self] in (chats.chats, DesignSettings.shared.homeBubbleColors, DesignSettings.shared.homeChiefBubblesThemed,
+                                                                   self?.services?.settings?.snapshot.agentPaneComposer.spellChecking) }) {
                 guard let self else { return }
                 let value = appearance()
                 for listener in appearanceListeners.values { listener(value) }

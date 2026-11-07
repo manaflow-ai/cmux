@@ -15,6 +15,7 @@ extension AppActions {
         let registry = services.registry
         registry.bind("home.conversationInfo", invoke: { invocation in
             guard let id = conversation(invocation, services) else { return }
+            guard services.home.groupActions.info(id) != nil else { return services.registry.refuse(HomeGroupOutcome.unknownConversation.message ?? "") }
             guard services.home.dock.isClassic else {
                 return withDock(services) { dock in
                     guard let page = dock.messages else { return services.registry.refuse(RefusalStrings.homeNotReady) }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
@@ -236,7 +237,10 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
         if let prefill { params["prefill"] = .string(prefill) }
         // task-owner: one page call; ends with its answer (bounded by answerDeadline)
         // main-hop-allow: already on main (a menu, palette or CLI action); the task only awaits the page's answer
-        Task { @MainActor [weak self] in await self?.ask("home.messages.present", params) }
+        Task { @MainActor [weak self] in
+            let answer = await self?.ask("home.messages.present", params)
+            if let refusal = HomeGroupOutcome.presentRefusal(sheet: sheet.rawValue, answer: answer) { self?.services?.registry.refuse(refusal) }
+        }
     }
 
     /// The previous or next conversation in the list (wrapping), opened.
