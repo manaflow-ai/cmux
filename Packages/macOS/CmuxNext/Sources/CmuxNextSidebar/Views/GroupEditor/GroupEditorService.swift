@@ -124,7 +124,13 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
         warm?.provider.openSession = nil
         if let name = open.typedName { open.events.rename(name) }
         if let panel = warm?.panel {
-            if open.shown { panel.close(toward: open.anchor.rect) } else { panel.veil() }
+            if open.shown {
+                panel.close(toward: open.anchor.rect)
+            } else {
+                // Closed before the page answered: the panel already has the keys (present), so they go back too.
+                panel.giveBackKeys()
+                panel.veil()
+            }
         }
         open.events.close()
     }
@@ -263,13 +269,18 @@ final class GroupEditorPanel: ActiveAppKeyPanel {
         generation += 1
         let closing = generation
         ignoresMouseEvents = true
-        makeFirstResponder(nil)
-        if isKeyWindow, let parent, parent.isVisible { parent.makeKey() }
+        giveBackKeys()
         closePopup(pivot: popupPivot(toward: anchor)) { [weak self] in
             // A reopen during the fade keeps its card.
             guard let self, self.generation == closing else { return }
             self.veil()
         }
+    }
+
+    /// The keys go back to the window under the editor (the panel takes them as an open begins).
+    func giveBackKeys() {
+        makeFirstResponder(nil)
+        if isKeyWindow, let parent, parent.isVisible { parent.makeKey() }
     }
 
     /// The card transparent and click-through; the panel stays where it is.
