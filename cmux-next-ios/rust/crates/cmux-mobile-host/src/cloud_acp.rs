@@ -312,6 +312,13 @@ impl Adapter {
                 else {
                     return Ok(error(phone, -32000, "Cloud machine did not start the chat"));
                 };
+                // The directory refuses a machine past MAX_SESSIONS chats; a start past it would
+                // drop this channel at the next refresh, so it closes its tab instead.
+                if self.tabs.len() >= MAX_SESSIONS && !self.tabs.contains_key(session) {
+                    let mut out = error(phone, -32000, "Cloud machine has too many chats");
+                    out.to_native.push(json!({"cmd":"close-surface","surface":surface}));
+                    return Ok(out);
+                }
                 let summary = json!({"sessionId":session,"name":"","harness":PHONE_START_HARNESS,
                     "updatedAt":now_ms()});
                 self.tabs.insert(session.to_owned(), Tab { surface, summary: summary.clone() });
@@ -373,6 +380,17 @@ impl Adapter {
             to_phone: vec![json!({"jsonrpc":"2.0","method":method,"params":params})],
             ..Effects::default()
         })
+    }
+
+    /// The phone left: every start still waiting closes its empty tab, since no one will open it.
+    pub(crate) fn abandon(&mut self) -> Effects {
+        let mut out = Effects::default();
+        for (_, pending) in self.pending.drain() {
+            if let Reply::Start { surface } = pending.reply {
+                out.to_native.push(json!({"cmd":"close-surface","surface":surface}));
+            }
+        }
+        out
     }
 
     pub(crate) fn expire(&mut self) -> Effects {
@@ -846,5 +864,32 @@ mod tests {
         let out = a.expire();
         assert_eq!(out.to_phone[0]["id"], 2);
         assert_eq!(out.to_native, vec![json!({"cmd":"close-surface","surface":31})]);
+    }
+
+    #[test]
+    fn a_start_past_the_session_cap_closes_its_tab_instead_of_listing_it() {
+        let mut a = adapter();
+        let start = start_chat(&mut a, 2);
+        for n in 0..MAX_SESSIONS {
+            a.tabs.insert(format!("s-{n}"), Tab { surface: 1000 + n as u64, summary: json!({}) });
+        }
+        let out = respond(&mut a, &start, json!({"session":"new-chat"}));
+        assert_eq!(out.to_phone[0]["id"], 2);
+        assert_eq!(out.to_phone[0]["error"]["message"], "Cloud machine has too many chats");
+        assert_eq!(out.to_native, vec![json!({"cmd":"close-surface","surface":31})]);
+        assert_eq!(a.tabs.len(), MAX_SESSIONS);
+        assert!(!a.surface_sessions.contains_key(&31));
+    }
+
+    #[test]
+    fn a_phone_that_leaves_mid_start_closes_its_empty_tab() {
+        let mut a = adapter();
+        start_chat(&mut a, 2);
+        let out = a.abandon();
+        assert!(out.to_phone.is_empty());
+        assert_eq!(out.to_native, vec![json!({"cmd":"close-surface","surface":31})]);
+        assert!(a.pending.is_empty());
+        // Nothing else was waiting: nothing to close.
+        assert!(a.abandon().to_native.is_empty());
     }
 }
