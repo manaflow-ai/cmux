@@ -277,6 +277,17 @@
       },
       "record": "file",
       "wait": 0.5
+    },
+    {
+      "title": "Home in front for the closing light and dark stills: the chat's transcript stamps the mini's message \"via CLI on\" this host's name, which the privacy check refuses",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "home.show",
+          "focus": true
+        }
+      },
+      "wait": 2
     }
   ]
 }
