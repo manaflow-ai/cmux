@@ -428,6 +428,7 @@ test("a gap read that fails keeps the hole to read: the machine's next answer fi
   await chat.reconnect();
   for (let seq = 17; seq <= 24; seq += 1) chat.daemon().log.push(reply(seq, `missed ${seq}. `));
   // Back for the attach (19..24), gone again before the records between it and the pane are read.
+  const drawnFrom = chat.drawn.length;
   chat.daemon().readsDown = true;
   chat.daemon().down = false;
   chat.daemon().announce();
@@ -436,6 +437,11 @@ test("a gap read that fails keeps the hole to read: the machine's next answer fi
     "the gap read",
   );
   await flush();
+  // Gone again with the page in and the hole not: no frame showed the page past the hole.
+  for (const snapshot of chat.drawn.slice(drawnFrom)) {
+    const text = JSON.stringify(snapshot.rows);
+    if (text.includes("missed 24.")) expect(text).toContain("missed 17.");
+  }
   chat.daemon().readsDown = false;
   const from = chat.daemon().asked.length;
   chat.daemon().down = true;

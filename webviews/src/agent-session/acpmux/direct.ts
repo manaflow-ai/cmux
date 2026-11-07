@@ -3487,25 +3487,24 @@ export class AcpmuxDirectClient {
     copy.attaching = true;
     const generation = this.selectionGeneration;
     const mine = ++this.copyAttaches;
+    // Rows the machine drew itself continue as after a reconnect: its page joins them, and the
+    // records between them and the page are read (`fetchMissedEvents`), never dropped. The frame
+    // drawn stays until both are in, or, when either fails, until the copy is offline again: no
+    // transcript with a hole in it between them.
+    const hold = copy.own ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
     try {
-      // Rows the machine drew itself continue as after a reconnect: its page joins them, and the
-      // records between them and the page are read (`fetchMissedEvents`), never dropped. The frame
-      // drawn stays until both are in: no transcript with a hole in it between them.
-      const hold = copy.own ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
-      try {
-        const page = await this.attach(sessionId, generation, copy.own ? 0 : copy.lastSeq);
-        const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
-        if (copy.own && oldest > copy.lastSeq + 1 && generation === this.selectionGeneration)
-          await this.fetchMissedEvents(sessionId, generation, copy.lastSeq, false);
-      } finally {
-        if (hold !== undefined) this.releaseSnapshots(hold);
-      }
+      const page = await this.attach(sessionId, generation, copy.own ? 0 : copy.lastSeq);
+      const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
+      if (copy.own && oldest > copy.lastSeq + 1 && generation === this.selectionGeneration)
+        await this.fetchMissedEvents(sessionId, generation, copy.lastSeq, false);
     } catch (error) {
       // A reconnect's attach took the copy over meanwhile: its outcome decides.
       if (mine !== this.copyAttaches) return;
       if (await this.keepPeerCopy(sessionId, generation, error)) return;
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
       this.dropPeerCopy(sessionId);
+    } finally {
+      if (hold !== undefined) this.releaseSnapshots(hold);
     }
   }
 
