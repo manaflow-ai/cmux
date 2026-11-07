@@ -731,6 +731,7 @@ function ComposerFrame({
     revive,
     originalFailures,
     originalUploads,
+    needsOriginal,
     attachError,
     setAttachError,
     drop,
@@ -1575,7 +1576,7 @@ function ComposerFrame({
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
       holdForOriginals(
-        awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id)),
+        awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id), {}, undefined, needsOriginal),
         (gesture) => submitNow.current(force, steer, gesture),
         kept,
       )
@@ -2702,8 +2703,10 @@ function ComposerFrame({
                     void capture?.(action === "composer.attachWindow" ? "window" : "screen")
                       .then(async (shot) => {
                         // One over the image cap goes as a pasted one does: a preview, and its
-                        // original saved to the chat for the agent to read. Never refused for size.
-                        if (shot) await attach([shot], shot.size > MAX_IMAGE_BYTES);
+                        // original saved to the chat for the agent to read; a send waits for that
+                        // original (its preview is a reduced copy). Never refused for size.
+                        const over = Boolean(shot && shot.size > MAX_IMAGE_BYTES);
+                        if (shot) await attach([shot], over, undefined, over);
                       })
                       .finally(() => {
                         const focused = document.activeElement;
