@@ -327,13 +327,34 @@ extension ControlCommandCoordinator {
             return "ERROR: Invalid shell state '\(rawState)' — expected prompt or running"
         }
 
+        let acknowledgmentRequested = parsed.options["ack"] != nil
         let explicitScope = sidebarExplicitScope(options: parsed.options)
         if explicitScope.invalidTerminalLifecycleScope {
-            return context.controlSidebarInvalidTerminalLifecycleIDError()
+            return acknowledgmentRequested
+                ? "ERROR: stale-lifecycle"
+                : context.controlSidebarInvalidTerminalLifecycleIDError()
         }
         if let scope = explicitScope.scope {
-            context.controlSidebarScheduleScopedShellState(scope: scope, stateRawValue: stateRawValue)
-            return "OK"
+            guard acknowledgmentRequested else {
+                context.controlSidebarScheduleScopedShellState(scope: scope, stateRawValue: stateRawValue)
+                return "OK"
+            }
+            switch context.controlSidebarAcknowledgeScopedShellState(
+                scope: scope,
+                stateRawValue: stateRawValue
+            ) {
+            case .accepted:
+                return "ACK:accepted"
+            case .alreadyCurrent:
+                return "ACK:already-current"
+            case .staleLifecycle:
+                return "ERROR: stale-lifecycle"
+            case .rejected:
+                return "ERROR: not-accepted"
+            }
+        }
+        if acknowledgmentRequested {
+            return "ERROR: missing-surface-scope"
         }
 
         let tabArg = parsed.options["tab"]

@@ -27,6 +27,7 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         scope: ControlSidebarPanelScope,
         stateRawValue: String
     )?
+    nonisolated(unsafe) var shellStateAcknowledgement = "ACK:accepted"
     nonisolated(unsafe) var statusUpsertCall: (
         target: ControlSidebarTabTarget,
         key: String,
@@ -108,6 +109,19 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         stateRawValue: String
     ) {
         shellStateCall = (scope, stateRawValue)
+    }
+
+    nonisolated func controlSidebarAcknowledgeScopedShellState(
+        scope: ControlSidebarPanelScope,
+        stateRawValue: String
+    ) -> ControlSidebarShellStateAdmission {
+        shellStateCall = (scope, stateRawValue)
+        return switch shellStateAcknowledgement {
+        case "ACK:already-current": .alreadyCurrent
+        case "ERROR: stale-lifecycle": .staleLifecycle
+        case "ERROR: not-accepted": .rejected
+        default: .accepted
+        }
     }
 
     func controlSidebarSetWorkspaceLoading(

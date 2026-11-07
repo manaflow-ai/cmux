@@ -182,6 +182,80 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.shellStateCall?.stateRawValue == "promptIdle")
     }
 
+    @Test func acknowledgedShellStateReportsAdmissionStatusWithoutChangingLegacyReply() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let scope = "--tab=\(UUID().uuidString) --panel=\(UUID().uuidString) "
+            + "--terminal-lifecycle-id=\(UUID().uuidString)"
+
+        let acknowledged = coordinator.handleSidebarV1(
+            command: "report_shell_state",
+            args: "prompt \(scope) --ack"
+        )
+        let legacy = coordinator.handleSidebarV1(
+            command: "report_shell_state",
+            args: "prompt \(scope)"
+        )
+
+        #expect(acknowledged == "ACK:accepted")
+        #expect(legacy == "OK")
+    }
+
+    @Test func acknowledgedShellStateRejectsStaleLifecycle() {
+        let context = FakeSidebarV1ControlCommandContext()
+        context.shellStateAcknowledgement = "ERROR: stale-lifecycle"
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "report_shell_state",
+            args: "prompt --tab=\(UUID().uuidString) --panel=\(UUID().uuidString) "
+                + "--terminal-lifecycle-id=\(UUID().uuidString) --ack"
+        )
+
+        #expect(response == "ERROR: stale-lifecycle")
+    }
+
+    @Test func acknowledgedShellStateRejectsEnqueueFailure() {
+        let context = FakeSidebarV1ControlCommandContext()
+        context.shellStateAcknowledgement = "ERROR: not-accepted"
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "report_shell_state",
+            args: "prompt --tab=\(UUID().uuidString) --panel=\(UUID().uuidString) "
+                + "--terminal-lifecycle-id=\(UUID().uuidString) --ack"
+        )
+
+        #expect(response == "ERROR: not-accepted")
+    }
+
+    @Test func acknowledgedShellStateRequiresExplicitScope() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "report_shell_state",
+            args: "prompt --ack"
+        )
+
+        #expect(response == "ERROR: missing-surface-scope")
+        #expect(context.shellStateCall == nil)
+    }
+
+    @Test func acknowledgedDuplicateShellStateIsAlreadyCurrent() {
+        let context = FakeSidebarV1ControlCommandContext()
+        context.shellStateAcknowledgement = "ACK:already-current"
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "report_shell_state",
+            args: "prompt --tab=\(UUID().uuidString) --panel=\(UUID().uuidString) "
+                + "--terminal-lifecycle-id=\(UUID().uuidString) --ack"
+        )
+
+        #expect(response == "ACK:already-current")
+    }
+
     @Test func shellStateRejectsMalformedTerminalLifecycleScope() {
         let context = FakeSidebarV1ControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
