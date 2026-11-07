@@ -25,6 +25,15 @@ struct CloudMachineRepoTests {
         #expect(request?.repo == CloudMachineRepo(owner: "o", name: "r", ref: "main"))
     }
 
+    nonisolated final class FakeMachine: @unchecked Sendable {
+        var writes: [String] = []
+        var data: [Data] = []
+        var machine: CloudMachineBootstrap.Machine {
+            CloudMachineBootstrap.Machine(write: { path, data, _ in self.writes.append(path); self.data.append(data) },
+                                          exec: { _ in CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "") })
+        }
+    }
+
     @Test func aRepoAloneStillRunsTheRunnerAndItsStepGoesBesideIt() async throws {
         let request = CloudMachineRequest(repo: CloudMachineRepo(owner: "o", name: "r"))
         let bootstrap = try #require(try await request.loadScript(work: BackgroundWork()))
