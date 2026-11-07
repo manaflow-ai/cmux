@@ -146,8 +146,10 @@ pub struct HealthService {
     settings: Mutex<Settings>,
     rows: Mutex<Vec<HarnessHealth>>,
     /// Successful ACP session handshakes are authentication evidence for
-    /// profiles whose provider has no safe non-interactive check.
-    acp_auth: Mutex<HashMap<String, String>>,
+    /// profiles whose provider has no safe non-interactive check, keyed by
+    /// harness id, with the program path the session ran (an id that later
+    /// names another program does not inherit it) and the detail shown.
+    acp_auth: Mutex<HashMap<String, (Option<String>, String)>>,
     inventory: inventory_feed::InventoryFeed,
     /// One check at a time.
     checking: tokio::sync::Mutex<()>,
@@ -528,13 +530,14 @@ impl HealthService {
             return;
         }
         let detail = detail.into();
-        self.acp_auth
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(id.to_owned(), detail.clone());
         let cache = self.settings.lock().unwrap_or_else(PoisonError::into_inner).cache.clone();
         self.update_rows(|rows| {
-            let Some(row) = rows.iter_mut().find(|row| row.id == id) else { return };
+            let row = rows.iter_mut().find(|row| row.id == id);
+            self.acp_auth
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(id.to_owned(), (row.as_ref().and_then(|r| r.path.clone()), detail.clone()));
+            let Some(row) = row else { return };
             if row.auth == Auth::SignedIn && row.auth_detail.as_deref() == Some(detail.as_str()) {
                 return;
             }
@@ -641,13 +644,16 @@ impl HealthService {
     /// the check could not read takes it.
     fn apply_acp_auth(&self, rows: &mut [HarnessHealth]) {
         let mut evidence = self.acp_auth.lock().unwrap_or_else(PoisonError::into_inner);
+        // Evidence for an id no row has any more, or one that now runs another
+        // program, says nothing about what that id runs next.
+        evidence.retain(|id, (path, _)| rows.iter().any(|row| &row.id == id && &row.path == path));
         for row in rows {
             match row.auth {
                 Auth::SignedOut | Auth::Expired => {
                     evidence.remove(&row.id);
                 }
                 Auth::Unknown => {
-                    if let Some(detail) = evidence.get(&row.id) {
+                    if let Some((_, detail)) = evidence.get(&row.id) {
                         row.auth = Auth::SignedIn;
                         row.auth_detail = Some(detail.clone());
                     }
@@ -925,6 +931,14 @@ mod tests {
         checked[0].auth = Auth::Unknown;
         service.apply_acp_auth(&mut checked);
         assert_eq!(checked[0].auth, Auth::Unknown, "the logout's evidence is gone");
+
+        // An id that now runs another program does not inherit the evidence.
+        service.record_acp_auth_success("muse", "ACP session/new authenticated the harness");
+        let mut moved = service.rows();
+        moved[0].auth = Auth::Unknown;
+        moved[0].path = Some("/elsewhere/muse-acp".into());
+        service.apply_acp_auth(&mut moved);
+        assert_eq!(moved[0].auth, Auth::Unknown, "a repointed id is not signed in");
     }
 
     fn home_with(n: usize, config: Option<&str>) -> (std::path::PathBuf, BTreeMap<String, String>) {
