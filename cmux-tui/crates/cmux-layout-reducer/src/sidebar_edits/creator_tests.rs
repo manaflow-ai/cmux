@@ -243,6 +243,73 @@ fn toggle_children_flips_the_creators_collapse() {
     assert_eq!(again, sections);
 }
 
+#[test]
+fn toggle_children_on_a_row_without_children_changes_nothing() {
+    let sections = tree(vec![loose("a"), loose("b")]);
+    let reply = edit(&EditRequest {
+        sections: sections.clone(),
+        intent: Intent::ToggleChildren { id: "a".into() },
+        prunes: true,
+    });
+    assert_eq!(reply, EditReply { changed: false, sections: None });
+}
+
+#[test]
+fn attaching_a_row_already_under_its_creator_changes_nothing() {
+    let sections = tree(vec![loose("a"), loose("b<a"), loose("c<a")]);
+    let reply = edit(&EditRequest {
+        sections: sections.clone(),
+        intent: Intent::Attach { ids: ids(&["b"]), creator: "a".into() },
+        prunes: true,
+    });
+    assert_eq!(reply, EditReply { changed: false, sections: None });
+}
+
+/// One keyboard step of `id`, as the app runs it: the slot, then a reorder.
+fn step(id: &str, direction: Direction, sections: &[Section]) -> Vec<String> {
+    let position = keyboard_target(&ids(&[id]), direction, sections).expect("a slot");
+    let (changed, after) = run(Intent::Reorder { ids: ids(&[id]), position }, sections);
+    assert!(changed, "{id} {direction:?} moved");
+    top(&after)
+}
+
+#[test]
+fn keyboard_down_on_a_creator_moves_its_subtree_below_the_next_row() {
+    let sections = tree(vec![loose("a"), loose("b<a"), loose("d")]);
+    assert_eq!(step("a", Direction::Down, &sections), ["d", "a", "b<a"]);
+}
+
+#[test]
+fn keyboard_up_below_a_subtree_steps_over_it() {
+    let sections = tree(vec![loose("a"), loose("b<a"), loose("x")]);
+    assert_eq!(step("x", Direction::Up, &sections), ["x", "a", "b<a"]);
+    // And back down over it.
+    let sections = tree(vec![loose("x"), loose("a"), loose("b<a")]);
+    assert_eq!(step("x", Direction::Down, &sections), ["a", "b<a", "x"]);
+}
+
+#[test]
+fn keyboard_steps_a_child_among_its_siblings() {
+    let sections = tree(vec![loose("a"), loose("b<a"), loose("c<a"), loose("d")]);
+    assert_eq!(step("b", Direction::Down, &sections), ["a", "c<a", "b<a", "d"]);
+}
+
+#[test]
+fn a_creator_is_matched_on_its_childs_machine() {
+    // Pinned holds `a` of another machine; `b`'s creator `a` on its own machine is not listed.
+    let mut other = ws("a", None);
+    other.machine = "cloud".into();
+    let sections = vec![Section {
+        id: SectionId::Pinned,
+        collapsed: false,
+        nodes: vec![Node::Workspace { workspace: other }, loose("b<a")],
+    }];
+    let rows = rows(&sections, 12);
+    assert_eq!(find(&rows, "b").depth, 0);
+    let (changed, _) = run(Intent::Attach { ids: ids(&["b"]), creator: "a".into() }, &sections);
+    assert!(!changed);
+}
+
 // MARK: Layout
 
 fn find<'a>(rows: &'a [TreeRow], id: &str) -> &'a TreeRow {

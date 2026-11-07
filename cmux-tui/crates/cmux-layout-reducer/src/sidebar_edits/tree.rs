@@ -5,8 +5,8 @@
 //! while it lists inside the creator's subtree there. Rows past
 //! [`MAX_DEPTH`] draw at it; the stored links never change for the cap.
 
-use super::creator::{Link, Row, parents};
-use super::{Node, Section, SectionId};
+use super::creator::{Link, Nesting, nesting, parents};
+use super::{Member, Node, Section, SectionId};
 use serde::{Deserialize, Serialize};
 
 /// The deepest a row draws; deeper rows flatten to it.
@@ -60,14 +60,21 @@ pub struct TreeReply {
 pub fn rows(sections: &[Section], indent: u32) -> Vec<TreeRow> {
     let mut out = Vec::new();
     for section in sections {
-        let nodes: Vec<&Node> = section.nodes.iter().collect();
+        let nodes: Vec<Link<'_>> = section.nodes.iter().map(workspace_of).collect();
         let top = container(&nodes, &section.id, None, indent);
         for (node, row) in section.nodes.iter().zip(top) {
             if let Some(row) = row {
                 out.push(row);
             }
             if let Node::Group { group } = node {
-                let members: Vec<_> = group.members.iter().collect();
+                let members: Vec<Link<'_>> = group
+                    .members
+                    .iter()
+                    .map(|member| match member {
+                        Member::Workspace { workspace } => Some(workspace),
+                        Member::Item { .. } => None,
+                    })
+                    .collect();
                 out.extend(
                     container(&members, &section.id, Some(&group.id), indent).into_iter().flatten(),
                 );
@@ -77,42 +84,26 @@ pub fn rows(sections: &[Section], indent: u32) -> Vec<TreeRow> {
     out
 }
 
+fn workspace_of(node: &Node) -> Link<'_> {
+    match node {
+        Node::Workspace { workspace } => Some(workspace),
+        Node::Group { .. } | Node::Item { .. } => None,
+    }
+}
+
 /// One container's rows: None for a group or an item.
-fn container<R: Row>(
-    rows: &[&R],
+fn container(
+    links: &[Link<'_>],
     section: &SectionId,
     group: Option<&String>,
     indent: u32,
 ) -> Vec<Option<TreeRow>> {
-    let links: Vec<Link<'_>> = rows.iter().map(|row| row.link()).collect();
-    let parents = parents(&links);
     let count = links.len();
-    // The true depth of each workspace row: under its creator only while the
-    // creator's subtree is still open above it. `end` is where a subtree stops.
-    let mut depth: Vec<Option<usize>> = vec![None; count];
-    let mut end: Vec<usize> = vec![count; count];
-    let mut open: Vec<usize> = Vec::new();
-    for (at, (link, parent)) in links.iter().zip(&parents).enumerate() {
-        // Rows stay open while the next one lists under them; a group or an item closes all.
-        let keep = match (link, parent) {
-            (Some(_), Some(parent)) => {
-                open.iter().position(|row| row == parent).map_or(0, |p| p + 1)
-            }
-            _ => 0,
-        };
-        for closed in open.drain(keep..) {
-            end[closed] = at;
-        }
-        if link.is_some() {
-            depth[at] = Some(open.len());
-            open.push(at);
-        }
-    }
+    let Nesting { depth, end } = nesting(links, &parents(links));
     let shown: Vec<Option<usize>> = depth.iter().map(|d| d.map(|d| d.min(MAX_DEPTH))).collect();
     // A row under a collapsed shown row is hidden.
-    let collapsed = |at: usize| {
-        rows.get(at).and_then(|row| row.workspace()).is_some_and(|ws| ws.collapsed_children)
-    };
+    let collapsed =
+        |at: usize| links.get(at).copied().flatten().is_some_and(|ws| ws.collapsed_children);
     let mut hidden = vec![false; count];
     let mut hide_until = 0;
     for (at, flag) in hidden.iter_mut().enumerate() {
@@ -146,11 +137,11 @@ fn container<R: Row>(
     }
     (0..count)
         .map(|at| {
-            let (id, _) = links.get(at).copied().flatten()?;
+            let ws = links.get(at).copied().flatten()?;
             let d = shown.get(at).copied().flatten()?;
             let descendants = end[at].saturating_sub(at + 1);
             Some(TreeRow {
-                id: id.to_owned(),
+                id: ws.id.clone(),
                 section: section.clone(),
                 group: group.cloned(),
                 depth: u8::try_from(d).unwrap_or(u8::MAX),
