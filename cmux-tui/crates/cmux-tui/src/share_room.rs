@@ -29,7 +29,14 @@ pub(crate) fn url() -> Option<String> {
     // to a room chosen from another environment.
     match crate::cloud_environment::current() {
         Ok(Some(selection)) => {
-            return Some(selection.configuration.share_room_origin);
+            // A declared deployment's room is used at its short share host whichever of its origins the
+            // client-config names, so links read `share.cmux.dev/g/...`; builds that predate the host keep
+            // using the origin the config names.
+            let origin = selection.configuration.share_room_origin;
+            let host = cmux_tui_core::cloud_conversations::platform::share_host(
+                origin.trim_end_matches('/'),
+            );
+            return Some(host.map_or(origin, str::to_owned));
         }
         Err(error) => {
             eprintln!("Cloud environment is unavailable: {error}");

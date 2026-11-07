@@ -41,6 +41,17 @@ pub fn share_deployment(origin: &str) -> Option<&'static str> {
     }
 }
 
+/// The short share host of the deployment a room origin belongs to (`https://share.cmux.dev` for production's
+/// either origin), so links are made there; nil for any other origin, which stays as configured.
+pub fn share_host(origin: &str) -> Option<&'static str> {
+    use cmux_cloud_environment::{DEVELOPMENT_SHARE, PRODUCTION_SHARE, STAGING_SHARE};
+    match share_deployment(origin)? {
+        DEVELOPMENT => Some(DEVELOPMENT_SHARE),
+        STAGING => Some(STAGING_SHARE),
+        _ => Some(PRODUCTION_SHARE),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -68,5 +79,15 @@ mod tests {
         assert_eq!(share_deployment(PRODUCTION), Some(PRODUCTION));
         assert_eq!(share_owner_api("http://localhost:8787"), None);
         assert_eq!(share_owner_api(""), None);
+    }
+
+    #[test]
+    fn each_room_is_made_on_its_share_host() {
+        assert_eq!(share_host(DEVELOPMENT), Some("https://share-dev.cmux.dev"));
+        assert_eq!(share_host(STAGING), Some("https://share-staging.cmux.dev"));
+        assert_eq!(share_host(PRODUCTION), Some("https://share.cmux.dev"));
+        assert_eq!(share_host("https://share.cmux.dev"), Some("https://share.cmux.dev"));
+        assert_eq!(share_host("http://localhost:8788"), None);
+        assert_eq!(share_host("https://links.example.com"), None);
     }
 }
