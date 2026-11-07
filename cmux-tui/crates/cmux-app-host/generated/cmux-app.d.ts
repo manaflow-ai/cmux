@@ -120,6 +120,10 @@ declare namespace Cmux {
   type Cursor = { generation: string; revision: string }
   type DeviceId = string
   type DeviceStatus = { install: Cmux.InstallId; user: string; policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; reported_at: number }
+  type DiffComment = Record<string, Cmux.JsonValue>
+  type DiffCommentsDeleteResult = { deleted: number; ids: Array<string> }
+  type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment> }
+  type DiffCommentsSaveResult = { comment: Cmux.DiffComment }
   type EgressHost = string
   type EmailAddress = string
   type EmailDomain = string
@@ -909,6 +913,16 @@ interface CmuxGlobal {
     thread: CmuxOp<{ conversation: Cmux.ConversationId; root: Cmux.MessageId; after_seq?: number; limit?: number }, { root: Cmux.HomeMessage; replies: Array<Cmux.HomeMessage>; has_more: boolean; thread: Cmux.HomeThreadSummary }>
     /** `conversation.typing` (mutation, scope `conversation:write`) */
     typing: CmuxOp<{ machine?: string; session?: string; conversation: string; on: boolean }, Cmux.MutationResult<Cmux.ConversationPublishResult>>
+  }
+  diff: {
+    comments: {
+      /** `diff.comments.delete` (mutation, scope `diff:write`) */
+      delete: CmuxOp<{ machine?: string; session?: string; root: string; ids: Array<string>; versions?: Record<string, string> }, Cmux.MutationResult<Cmux.DiffCommentsDeleteResult>>
+      /** `diff.comments.list` (read, scope `diff:read`) */
+      list: CmuxOp<{ machine?: string; session?: string; root: string }, Cmux.DiffCommentsListResult>
+      /** `diff.comments.save` (mutation, scope `diff:write`) */
+      save: CmuxOp<{ machine?: string; session?: string; root: string; comment: Cmux.DiffComment }, Cmux.MutationResult<Cmux.DiffCommentsSaveResult>>
+    }
   }
   diffs: {
     /** `diffs.cycle_variant` (mutation, scope `diffs:write`, owner `app:cmux/diffs`): Switch to the next Diffs design variant (DEV and NIGHTLY). */
@@ -1752,7 +1766,7 @@ interface CmuxGlobal {
   }
   workspace: {
     /** `workspace.create` (mutation, scope `workspace:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; name?: string; initial_content: "terminal" | "empty"; ephemeral?: boolean; focus?: boolean; placement?: "top" | "after_current" | "bottom"; cwd?: string; argv?: Array<string>; shell?: string; correlation_key?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedPath>>
+    create: CmuxOp<{ machine?: string; session?: string; name?: string; initial_content: "terminal" | "empty"; ephemeral?: boolean; focus?: boolean; placement?: "top" | "after_current" | "bottom"; created_by?: { kind: "person" | "agent" | "script"; workspace?: string; session?: string }; cwd?: string; argv?: Array<string>; shell?: string; correlation_key?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedPath>>
     /** `workspace.ensure_app` (mutation, scope `workspace:write`) */
     ensure_app: CmuxOp<{ machine?: string; session?: string; app: string; route?: string; name?: string }, Cmux.MutationResult<Cmux.CreatedWorkspaceOnly>>
     /** `workspace.ensure_home` (mutation, scope `workspace:write`) */

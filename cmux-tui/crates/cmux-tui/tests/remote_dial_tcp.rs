@@ -10,6 +10,7 @@ use cmux_remote::daemon::{
     DirectWebSocketOptions, RemoteDaemon, serve_direct_websocket_with_options,
 };
 use cmux_remote::identity::AuthDatabase;
+use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
 use cmux_remote::session::SessionLimits;
 use cmux_remote::workspace::WorkspaceService;
@@ -49,7 +50,8 @@ async fn start_daemon(state: &Path) -> Daemon {
 
 /// A daemon that accepts the session and then never answers it, so the
 /// client's workspace and route setup waits forever.
-/// The daemon and a receiver that fires once it has accepted the session.
+/// The daemon and a receiver that fires once the client has opened its first
+/// service stream (workspace setup's `WorkspaceRpc`), which it never answers.
 async fn start_silent_daemon(state: &Path) -> (Daemon, tokio::sync::oneshot::Receiver<()>) {
     let auth = AuthDatabase::load_or_create(state.join("daemon"), "dial-tcp", true).unwrap();
     let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
@@ -64,9 +66,12 @@ async fn start_silent_daemon(state: &Path) -> (Daemon, tokio::sync::oneshot::Rec
     let endpoint = format!("ws://{}/v1/link", websocket.local_addr());
     let (session_tx, session_rx) = tokio::sync::oneshot::channel();
     tokio::task::spawn_local(async move {
-        let _connection = accepted.recv().await;
-        let _ = session_tx.send(());
-        std::future::pending::<()>().await;
+        let Some(connection) = accepted.recv().await else { return };
+        let multiplexer = ServiceMultiplexer::new(connection, EndpointRole::Daemon);
+        if let Ok(Some(_setup)) = multiplexer.accept().await {
+            let _ = session_tx.send(());
+            std::future::pending::<()>().await;
+        }
     });
     (Daemon { endpoint, websocket }, session_rx)
 }
@@ -206,11 +211,11 @@ async fn dial_tcp_exits_on_sigterm_during_setup() {
                 let (daemon, session) = start_silent_daemon(fixture.path()).await;
                 let mut child =
                     dial_tcp(fixture.path(), &daemon.endpoint, "127.0.0.1", 22).spawn().unwrap();
-                // SIGTERM only once the daemon holds the session: the client is
-                // past connect and waiting on setup, not failing early.
+                // SIGTERM only once the client has opened its workspace stream:
+                // it is in setup, past its first dial, not failing early.
                 tokio::time::timeout(STEP_TIMEOUT, session)
                     .await
-                    .expect("dial-tcp never reached the daemon")
+                    .expect("dial-tcp never opened its workspace stream")
                     .unwrap();
                 assert!(child.try_wait().unwrap().is_none(), "dial-tcp exited before setup");
                 let pid = child.id().expect("dial-tcp exited before setup").to_string();

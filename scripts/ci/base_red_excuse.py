@@ -69,7 +69,9 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
+import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -145,13 +147,15 @@ class GitHub(_evidence.GitHub):
         route = f"repos/{repo}/actions/jobs/{job['id']}/logs"
         # Request ANSI-capable output first; old gh versions reject the flag, while modern
         # versions reject coloured output without it. Either way, normalize bytes in Python.
+        # A log section can open with a byte-order mark before its timestamp, which hides that line from every
+        # reader that matches a stamp or a prefix (cmuxterm-hq run 42391652834's WS_CHECK_RESULT, 2026-11-07).
         try:
-            return self.run(["api", ESCAPE_FLAG, route])
+            return self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", "")
         except Refused as error:
             said = str(error)
             if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(said[len(REQUEST_FAILED):])):
                 raise
-        return self.run(["api", route])
+        return self.run(["api", route]).replace("\ufeff", "")
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = 100):
         # A run's job list carries every job's steps; see JOBS_PAGE.
@@ -169,6 +173,47 @@ class GitHub(_evidence.GitHub):
         except (ValueError, AttributeError):
             return None
         return run if isinstance(run, int) else None
+
+    def artifact_file(self, repo: str, artifact: int, member: str) -> str | None:
+        """MEMBER's text in Actions ARTIFACT's zip, or None when the zip has no such file. Refused when the download
+        fails, passes ARTIFACT_SECONDS, or the zip or the file passes ARTIFACT_MAX_BYTES."""
+        with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+            process = subprocess.Popen(["gh", "api", f"repos/{repo}/actions/artifacts/{int(artifact)}/zip"],
+                                       stdout=subprocess.PIPE, stderr=errors)
+            try:
+                kept, end = 0, time.monotonic() + ARTIFACT_SECONDS
+                while chunk := process.stdout.read(1 << 20):
+                    kept += len(chunk)
+                    if kept > ARTIFACT_MAX_BYTES:
+                        raise Refused(f"artifact {artifact} is over {ARTIFACT_MAX_BYTES} bytes")
+                    if time.monotonic() > end:
+                        raise Refused(f"artifact {artifact} took over {ARTIFACT_SECONDS} seconds to read")
+                    output.write(chunk)
+                process.wait(timeout=max(1, end - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                raise Refused(f"artifact {artifact} took over {ARTIFACT_SECONDS} seconds to read") from None
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+            if process.returncode:
+                errors.seek(0)
+                raise Refused(REQUEST_FAILED + errors.read(2000).decode(errors="replace"))
+            output.seek(0)
+            try:
+                with zipfile.ZipFile(output) as archive:
+                    if member not in archive.namelist():
+                        return None
+                    info = archive.getinfo(member)
+                    if info.file_size > ARTIFACT_MAX_BYTES:
+                        raise Refused(f"artifact {artifact}: {member} unpacks past the cap")
+                    with archive.open(info) as found:
+                        raw = found.read(ARTIFACT_MAX_BYTES + 1)
+            except zipfile.BadZipFile as error:
+                raise Refused(f"artifact {artifact} is not a zip ({error})") from None
+            if len(raw) > ARTIFACT_MAX_BYTES:
+                raise Refused(f"artifact {artifact}: {member} unpacks past the cap")
+            return raw.decode(errors="replace")
 
     def blob(self, repo: str, ref: str, path: str) -> str:
         """PATH's text in REPO at REF over GraphQL (`object(expression: "REF:PATH")`), never the contents API: an
@@ -780,7 +825,7 @@ def normalise_error(text: str) -> str:
 def lines_of(log: str) -> list[str]:
     """The text of each `job<TAB>step<TAB>stamp text` line of `gh run view --log`."""
     found = []
-    for line in log.splitlines():
+    for line in log.replace("\ufeff", "").splitlines():  # a log section can open with a BOM; strip() keeps it
         parts = line.split("\t", 2)
         # `gh run view --log` prefixes each line with job and step columns.
         # The job-log API does not; preserve tabs in raw command output.
@@ -2363,7 +2408,8 @@ UNITTEST_SUMMARY = re.compile(r"^FAILED \(([^)]*)\)$")
 # complete unittest summary would otherwise hide behind a failure the base shares (cmux#36219 F1).
 WS_CHECK_CRASH = re.compile(r"Segmentation fault|core dumped|Fatal Python error|\bKilled\b|\bAborted\b|"
                             r"MemoryError|died on signal|unexpected signal")
-WS_CHECK_STEP_EXIT = re.compile(r" \(exit (-?\d+), ran \d+, skipped \d+, gh calls \d+\)$")
+# tools/ws_check_run.py's step line; since leo-workspace#3746 it also ends with the step's time (", 62.1 s").
+WS_CHECK_STEP_EXIT = re.compile(r" \(exit (-?\d+), ran \d+, skipped \d+, gh calls \d+(?:, [\d.]+ s)?\)$")
 # The checkout root a ws-check run's paths start with: fast-checks.yml's workspace, or ws-check-heads.yml's clone.
 WS_CHECK_ROOT = re.compile(r"(?:/[\w.-]+)*/_work/(?:cmuxterm-hq/cmuxterm-hq|_temp/lw)/")
 
@@ -2667,6 +2713,176 @@ def base_dispatch(repo: str, base: str, run: dict, runs: list[dict], github, now
     return f"dispatched {file}{named} on the {base} tip for a base verdict; re-check once it completes"
 
 
+# A gallery health shard of a pull request replays its red states on the base it merged with (gallery-health.yml's
+# GALLERY_REPLAY_STEP). When the base itself does not load, the replay dies before it compares and the shard is red
+# with no per-state verdict: 2026-11-07, base d7e68dec's webviews imported 'pillAsks' from JumpPill.tsx after it
+# moved ("SyntaxError: Export named 'pillAsks' not found", job 128448409188), and merge_hold refused cmux#37916, the
+# fix itself, as "'health (1)': no failing test or error line to match". Such a shard is judged as its replay would
+# have judged it (test_reds.gallery_classify), against the newest first-parent base commit, at or before the replay's
+# base and within GALLERY_FALLBACK_COMMITS / GALLERY_FALLBACK_HOURS, whose gallery health run gave every shard a whole
+# health.json. The same rule as cmuxterm-hq#7649 (next_autoland.crashed_webview_replay): only a crash in the replay of
+# the base counts, its first failed step the replay and a load error after the replay starts. A head that does not
+# load never reaches the replay (it names no red state), and stays its own red.
+GALLERY_WORKFLOW = ".github/workflows/gallery-health.yml"
+GALLERY_JOB = re.compile(r"health \((\d+)\)")
+GALLERY_RENDER_STEP = "Render the gallery and judge it"
+GALLERY_REPLAY_STEP = "Judge the red states against the base"
+GALLERY_REPLAY_START = re.compile(r"^replaying on base ([0-9a-f]{40}): \S")
+GALLERY_ARTIFACT = "gallery-health-"
+GALLERY_HEALTH = "health.json"
+# cmuxterm-hq#7649's BASE_LOAD_CRASH: a module that does not load.
+BASE_LOAD_CRASH = re.compile(r"SyntaxError|Export named '[^']*' not found|No matching export|Cannot find module|"
+                             r"Could not resolve|Module not found|failed to load module", re.I)
+GALLERY_FALLBACK_COMMITS = 50
+GALLERY_FALLBACK_HOURS = 48
+GALLERY_FALLBACK_RUNS = 6  # base runs whose jobs and artifacts are read, newest first
+COMMITS_PAGES = 3
+ARTIFACT_MAX_BYTES = 64 * 1024 * 1024  # a shard's zip, screenshots included, was 18 MB on 2026-11-07
+ARTIFACT_SECONDS = 120
+
+
+def gallery_replay_crash(job: dict, head_log: str) -> tuple[str, str] | None:
+    """(the replay's base sha, its load error) when gallery health shard JOB's base replay crashed loading the base:
+    its first failed step is GALLERY_REPLAY_STEP and a BASE_LOAD_CRASH line follows the replay's start, before the
+    next step. None otherwise: any other red, or a crash before the replay (the head's own)."""
+    failed = [step.get("name") for step in job.get("steps") or []
+              if step.get("conclusion") not in (None, "success", "skipped")]
+    if not failed or failed[0] != GALLERY_REPLAY_STEP:
+        return None
+    base = None
+    for text in lines_of(head_log):
+        if base is None:
+            if started := GALLERY_REPLAY_START.match(text):
+                base = started.group(1)
+        elif text.startswith("##[group]Run "):
+            return None  # the next step: the replay ended without a load error
+        elif BASE_LOAD_CRASH.search(text):
+            return base, text[:300]
+    return None
+
+
+def first_parent_chain(repo: str, base_sha: str, github) -> list[tuple[str, datetime]]:
+    """BASE_SHA and its first parents, newest first: at most GALLERY_FALLBACK_COMMITS, none committed over
+    GALLERY_FALLBACK_HOURS before BASE_SHA, read from up to COMMITS_PAGES pages of the commit listing."""
+    by_sha: dict[str, dict] = {}
+    chain: list[tuple[str, datetime]] = []
+    sha, newest = base_sha, None
+    for page in range(1, COMMITS_PAGES + 1):
+        listed = github.json(f"repos/{repo}/commits?sha={base_sha}&per_page=100&page={page}")
+        by_sha.update((commit["sha"], commit) for commit in listed if isinstance(commit, dict)
+                      and isinstance(commit.get("sha"), str))
+        while sha in by_sha and len(chain) < GALLERY_FALLBACK_COMMITS:
+            stamp = ((by_sha[sha].get("commit") or {}).get("committer") or {}).get("date") or ""
+            try:
+                when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            except ValueError:
+                return chain
+            newest = newest or when
+            if newest - when > timedelta(hours=GALLERY_FALLBACK_HOURS):
+                return chain
+            chain.append((sha, when))
+            parents = by_sha[sha].get("parents") or []
+            sha = parents[0].get("sha") if parents and isinstance(parents[0], dict) else None
+        if sha is None or len(chain) >= GALLERY_FALLBACK_COMMITS or len(listed) < 100:
+            return chain
+    return chain
+
+
+def newest_artifacts(listed: dict) -> dict[str, dict]:
+    """A run's unexpired artifacts by name; of one name (a re-run's), the newest."""
+    found: dict[str, dict] = {}
+    for item in sorted((item for item in listed.get("artifacts") or []
+                        if isinstance(item, dict) and isinstance(item.get("id"), int) and not item.get("expired")),
+                       key=lambda item: item["id"]):
+        found[str(item.get("name"))] = item
+    return found
+
+
+def gallery_run_results(repo: str, run: dict, github) -> list[str] | None:
+    """Every rendered shard's health.json of gallery health RUN, or None when RUN gave no whole verdict: a shard
+    job without a verdict conclusion, a shard whose render crashed (no health.json, or one with no per-state
+    results), or a run that rendered nothing."""
+    jobs = [job for job in base_run_jobs(repo, run, github) if GALLERY_JOB.fullmatch(job.get("name") or "")]
+    if not jobs or any(job.get("conclusion") not in VERDICTS for job in jobs):
+        return None
+    for job in jobs:
+        failed = [step.get("name") for step in job.get("steps") or []
+                  if step.get("conclusion") not in (None, "success", "skipped")]
+        if failed and failed[0] != GALLERY_REPLAY_STEP:
+            return None  # red before its verdict step (a checkout, the entries it renders): no verdict
+    rendered = [job for job in jobs if any(step.get("name") == GALLERY_RENDER_STEP
+                                           and step.get("conclusion") not in (None, "skipped")
+                                           for step in job.get("steps") or [])]
+    if not rendered:
+        return None
+    listed = github.json(f"repos/{repo}/actions/runs/{run['id']}/artifacts?per_page=100")
+    artifacts = newest_artifacts(listed)
+    texts = []
+    for job in rendered:
+        item = artifacts.get(GALLERY_ARTIFACT + GALLERY_JOB.fullmatch(job["name"]).group(1))
+        text = github.artifact_file(repo, item["id"], GALLERY_HEALTH) if item else None
+        found = test_reds.gallery_read(text)
+        if found.truncated or found.crashes:
+            return None
+        texts.append(text)
+    return texts
+
+
+def gallery_fallback(repo: str, base: str, workflow, base_sha: str, github,
+                     base_runs: dict) -> tuple[str, list[str]] | str:
+    """("SHA12 (run R)", its shards' health.json) for the newest gallery health run of a commit in BASE_SHA's
+    first-parent chain (first_parent_chain) with a whole verdict, or why there is none."""
+    chain = first_parent_chain(repo, base_sha, github)
+    list_base_runs(repo, base, workflow, github, base_runs)
+    by_sha: dict[str, list[dict]] = {}
+    for run in base_runs[workflow]:
+        if run.get("status") == "completed" and run.get("conclusion") in VERDICTS:
+            by_sha.setdefault(tested_sha(run), []).append(run)
+    reads = 0
+    for sha, _ in chain:
+        for run in sorted(by_sha.get(sha, []), key=lambda found: found["id"], reverse=True):
+            if reads >= GALLERY_FALLBACK_RUNS:
+                return (f"none of the {GALLERY_FALLBACK_RUNS} newest {base} gallery health runs before it gave "
+                        "every shard a whole result")
+            reads += 1
+            if (texts := gallery_run_results(repo, run, github)) is not None:
+                return f"{sha[:12]} (run {run['id']})", texts
+    return (f"no {base} commit in the last {GALLERY_FALLBACK_COMMITS} first-parent commits or "
+            f"{GALLERY_FALLBACK_HOURS} h at or before {base_sha[:12]} has a gallery health run with a whole result "
+            f"(read {reads} of the {base} runs listed)")
+
+
+def gallery_crash_verdict(repo: str, base: str, name: str, job: dict, head_log: str, workflow_info: dict,
+                          github, base_runs: dict) -> str | None:
+    """The audit line for gallery health shard JOB (NAME) whose base replay crashed loading the base
+    (gallery_replay_crash), judged per state against an older base verdict (gallery_fallback); None for any other
+    job or red. Raises Refused when a red state is not red the same way there, or nothing could be judged."""
+    path = str(workflow_info.get("path") or "").split("@", 1)[0]
+    if path != GALLERY_WORKFLOW or not (shard := GALLERY_JOB.fullmatch(name)):
+        return None
+    if (crash := gallery_replay_crash(job, head_log)) is None:
+        return None
+    base_sha, error = crash
+    said = f"'{name}': its base replay crashed loading {base} {base_sha[:12]} ({error})"
+    listed = github.json(f"repos/{repo}/actions/runs/{job['run_id']}/artifacts?per_page=100")
+    head = newest_artifacts(listed).get(GALLERY_ARTIFACT + shard.group(1))
+    if head is None:
+        raise Refused(f"{said}, and its own {GALLERY_ARTIFACT}{shard.group(1)} artifact is not readable")
+    head_text = github.artifact_file(repo, head["id"], GALLERY_HEALTH)
+    fallback = gallery_fallback(repo, base, workflow_info["workflow_id"], base_sha, github, base_runs)
+    if isinstance(fallback, str):
+        raise Refused(f"{said}; {fallback}: fix the base, then re-run it")
+    where, texts = fallback
+    verdict = test_reds.gallery_classify(head_text, texts, f"{base} {where}")
+    if verdict is None:
+        raise Refused(f"{said}, and its {GALLERY_HEALTH} names no red state: nothing to judge")
+    if verdict.own:
+        raise Refused(f"{said}, so judged against {base} {where}: " + "; ".join(verdict.reasons)[:800])
+    return (f"excused '{name}': its base replay crashed loading {base} {base_sha[:12]} ({error}); judged per state "
+            f"against {base} {where}, the newest whole gallery health verdict before it, where each red state is "
+            f"red the same way: {'; '.join(verdict.shared)[:400]}")
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
           flake_state: dict | None = None) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not, or RateLimitedRead
@@ -2740,6 +2956,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if base == "feat-cmux-next" and quarantined_only(job, head_log, known):
             audit.append(f"excused '{name}': quarantined base flakes: "
                          + "; ".join(f"{test} ({why})" for test, why in sorted(known.items())))
+            continue
+        if (crashed := gallery_crash_verdict(repo, base, name, job, head_log, workflow_info, github,
+                                             base_runs)) is not None:
+            audit.append(crashed)
             continue
         list_base_runs(repo, base, workflow, github, base_runs)
         # The newest base run where this job has a verdict decides whether it is red on the base.
