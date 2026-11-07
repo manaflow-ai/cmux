@@ -9,7 +9,7 @@
 //!
 //! This is a strict allowlist that fails closed: a script passes only when every command in it
 //! is a known reader with no option that writes or runs another program. Anything the
-//! tokenizer cannot read plainly (an expansion, a redirection, a subshell, a background job,
+//! tokenizer cannot read plainly (a variable, a redirection, a subshell, a background job,
 //! an unterminated quote) refuses, and a refusal only means the person is asked as before.
 //! `permissions.rs` answers a pass with allow_once only, never a persistent grant.
 //!
@@ -30,6 +30,14 @@
 //!
 //! An allowed git read may still write git's own bookkeeping, as it does when the person runs
 //! it: `git status` refreshes the index's stat data. Nothing the agent chooses reaches it.
+//!
+//! A command substitution (`$(...)` or backticks, quoted or not) passes when its own script
+//! does, judged the same way (nesting up to `SUBST_DEPTH`). Its output is text the script
+//! does not show, so where it lands matters too: the argument of a `PLAIN` command takes any
+//! output, and any other command takes only a `git rev-parse` or `git merge-base` with plain
+//! revision arguments, which prints object names or echoes one of those arguments back
+//! (`substituted`). An output that is an option (`git diff $(git log --format=--output=x)`)
+//! never reaches a command that reads its options. `$((...))`, `<(...)` and `>(...)` ask.
 //!
 //! What is trusted: the launch environment and the person's own files it points at (`$HOME`'s
 //! shell startup files, `~/.gitconfig`). The agent changes those only by writing, which asks.
@@ -215,7 +223,7 @@ pub(crate) fn request_is_read_only(request: &Value, session_cwd: &Path, env: &En
         return false;
     }
     let found = |name: &str| BUILTINS.contains(&name) || resolve(name, env).is_some();
-    let Some(git_dirs) = git_dirs(script, &found) else { return false };
+    let Some(git_dirs) = git_dirs(script, &found, 0) else { return false };
     if git_dirs.is_empty() {
         return true;
     }
@@ -235,29 +243,157 @@ pub(crate) fn request_is_read_only(request: &Value, session_cwd: &Path, env: &En
 /// the allowlist. Its bare names still need `resolve`, and its git reads `repository_runs_nothing`.
 #[cfg(test)]
 pub(crate) fn is_read_only(script: &str) -> bool {
-    git_dirs(script, &|_| true).is_some()
+    git_dirs(script, &|_| true, 0).is_some()
 }
 
 /// The `-C` directory of each git command in `script` (None: git's own directory), when every
 /// command passes the allowlist and `found` passes each bare command name; None otherwise.
-fn git_dirs(script: &str, found: &dyn Fn(&str) -> bool) -> Option<Vec<Option<String>>> {
-    let segments = segments(script)?;
+/// The scripts of its command substitutions count as its own commands; `depth` is how deep
+/// `script` itself sits in them.
+fn git_dirs(script: &str, found: &dyn Fn(&str) -> bool, depth: u8) -> Option<Vec<Option<String>>> {
+    let (segments, substitutions) = segments(script, depth)?;
     if segments.iter().all(Vec::is_empty) {
         return None;
     }
     let mut git = Vec::new();
     for s in &segments {
         if let Some(first) = s.first()
-            && !first.contains('/')
-            && !found(first)
+            && (first.contains([SUBSTITUTED, OPAQUE]) || (!first.contains('/') && !found(first)))
         {
+            return None;
+        }
+        // An output only a `PLAIN` command may take whole, and one that would be an option or
+        // a glob's prefix nowhere.
+        let plain = s.first().and_then(|f| command_name(f)).is_some_and(|n| PLAIN.contains(&n));
+        if s.iter().any(|w| {
+            (w.contains(OPAQUE) && !plain)
+                || (w.contains([SUBSTITUTED, OPAQUE])
+                    && (w.starts_with('-') || w.ends_with(GLOBBED)))
+        }) {
             return None;
         }
         if let Reads::Git(dir) = segment_ok(s)? {
             git.push(dir);
         }
     }
+    for inner in &substitutions {
+        git.extend(git_dirs(inner, found, depth + 1)?);
+    }
     Some(git)
+}
+
+/// How deep command substitutions may nest: `$(a $(b $(c)))` is 3.
+const SUBST_DEPTH: u8 = 3;
+
+/// Stands in a word for the output of a substitution `substituted` reads as object names,
+/// followed by the arguments it may echo instead, so the checks that look inside a word (a
+/// signature format) see them. The script refuses control characters, so none of its own
+/// words holds one.
+const SUBSTITUTED: char = '\u{1}';
+
+/// Stands in a word for the output of any other substitution: text only a `PLAIN` command
+/// takes as an argument.
+const OPAQUE: char = '\u{2}';
+
+/// What the output of substitution `body` (at `depth`) stands as in a word: `SUBSTITUTED` and
+/// the arguments it may echo when it is a single `git rev-parse` or `git merge-base` whose
+/// arguments are only revisions (no option, glob or blank), else `OPAQUE`. None when `body`
+/// sits too deep or does not read plainly; whether its commands only read is `git_dirs`'s call.
+fn substituted(body: &str, depth: u8) -> Option<String> {
+    if depth > SUBST_DEPTH {
+        return None;
+    }
+    let (segments, _) = segments(body, depth)?;
+    let mut commands = segments.iter().filter(|s| !s.is_empty());
+    let (Some(words), None) = (commands.next(), commands.next()) else {
+        return Some(OPAQUE.to_string());
+    };
+    let names = match words.as_slice() {
+        [git, sub, args @ ..] if command_name(git) == Some("git") => match sub.as_str() {
+            // `git rev-parse` prints an argument it cannot resolve as it is.
+            "rev-parse" => args.iter().all(|a| {
+                matches!(a.as_str(), "--verify" | "-q" | "--quiet" | "--short")
+                    || a.strip_prefix("--short=")
+                        .is_some_and(|n| n.chars().all(|c| c.is_ascii_digit()))
+                    || is_revision(a)
+            }),
+            "merge-base" => args.iter().all(|a| {
+                matches!(a.as_str(), "--all" | "--octopus" | "--independent" | "--fork-point")
+                    || is_revision(a)
+            }),
+            _ => false,
+        },
+        _ => false,
+    };
+    if !names {
+        return Some(OPAQUE.to_string());
+    }
+    let echoed = words.iter().skip(2).filter(|a| is_revision(a));
+    Some(std::iter::once(SUBSTITUTED.to_string()).chain(echoed.cloned()).collect())
+}
+
+/// A word `git rev-parse` may print back that is one plain word: no option, glob or blank.
+/// A nested substitution in it is already one of these, or `OPAQUE`.
+fn is_revision(word: &str) -> bool {
+    !word.is_empty()
+        && !word.starts_with('-')
+        && !word.contains(OPAQUE)
+        && !word.contains(|c: char| c.is_whitespace() || matches!(c, '*' | '?' | '[' | GLOBBED))
+}
+
+/// The script of a `$(...)` whose `$(` `chars` has just passed, up to its closing `)`. None
+/// when it is unterminated, arithmetic (`$((`), or holds something whose end this cannot
+/// find the way the shell does (a comment, a backtick).
+fn substitution_body(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+    if chars.peek() == Some(&'(') {
+        return None;
+    }
+    let mut body = String::new();
+    let mut open = 0u32;
+    loop {
+        let c = chars.next()?;
+        match c {
+            ')' if open == 0 => return Some(body),
+            '(' => open += 1,
+            ')' => open -= 1,
+            '#' | '`' => return None,
+            '\\' => {
+                body.push(c);
+                body.push(chars.next()?);
+                continue;
+            }
+            '\'' | '"' => {
+                body.push(c);
+                loop {
+                    let q = chars.next()?;
+                    body.push(q);
+                    if q == c {
+                        break;
+                    }
+                    if c == '"' && q == '\\' {
+                        body.push(chars.next()?);
+                    }
+                }
+                continue;
+            }
+            _ => {}
+        }
+        body.push(c);
+    }
+}
+
+/// The script of a backtick substitution whose opening backtick `chars` has just passed, up
+/// to the next one. None when it is unterminated or holds a backslash, which the shell reads
+/// differently inside backticks.
+fn backtick_body(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+    let mut body = String::new();
+    loop {
+        match chars.next()? {
+            '`' => return Some(body),
+            '\\' => return None,
+            c => body.push(c),
+        }
+    }
 }
 
 /// Ends a word that holds an unquoted glob: the shell expands it after this has read it, so a
@@ -282,10 +418,25 @@ enum Reads {
     Git(Option<String>),
 }
 
-/// The words of each command in `script`, split at `;`, `&&`, `||`, `|` and newlines. None
-/// for anything this does not read plainly.
-fn segments(script: &str) -> Option<Vec<Vec<String>>> {
+/// The words of each command in `script`, split at `;`, `&&`, `||`, `|` and newlines, and the
+/// scripts of its command substitutions (`depth` deep already), each standing in its word as
+/// `substituted` says. None for anything this does not read plainly.
+fn segments(script: &str, depth: u8) -> Option<(Vec<Vec<String>>, Vec<String>)> {
     let mut segs = vec![Vec::new()];
+    let mut substitutions = Vec::new();
+    // The body of the substitution `chars` is at (after `$` or a backtick), and what stands
+    // for its output.
+    let mut substitute = |chars: &mut std::iter::Peekable<std::str::Chars<'_>>, tick: bool| {
+        let body = if tick {
+            backtick_body(chars)?
+        } else {
+            chars.next_if_eq(&'(')?;
+            substitution_body(chars)?
+        };
+        let stands = substituted(&body, depth + 1)?;
+        substitutions.push(body);
+        Some(stands)
+    };
     let mut word = String::new();
     let mut in_word = false;
     let mut globbed = false;
@@ -318,7 +469,8 @@ fn segments(script: &str) -> Option<Vec<Vec<String>>> {
                 loop {
                     match chars.next()? {
                         '"' => break,
-                        '$' | '`' => return None,
+                        '$' => word.push_str(&substitute(&mut chars, false)?),
+                        '`' => word.push_str(&substitute(&mut chars, true)?),
                         '\\' => match chars.next()? {
                             // An escaped `$` is refused too: cmux-codex-acp's unwrap of a
                             // double-quoted `bash -lc "..."` leaves its escapes in place.
@@ -342,7 +494,11 @@ fn segments(script: &str) -> Option<Vec<Vec<String>>> {
                     word.push(ch);
                 }
             },
-            '$' | '`' | '>' | '<' | '(' | ')' | '{' | '}' => return None,
+            '$' | '`' => {
+                in_word = true;
+                word.push_str(&substitute(&mut chars, c == '`')?);
+            }
+            '>' | '<' | '(' | ')' | '{' | '}' => return None,
             // A glob could expand to a file named like an option (`--pre=sh`): one passes only
             // after a literal prefix that is not an option.
             '*' | '?' | '[' => {
@@ -380,7 +536,7 @@ fn segments(script: &str) -> Option<Vec<Vec<String>>> {
         }
     }
     end(&mut segs, &mut word, &mut in_word, &mut globbed);
-    Some(segs)
+    Some((segs, substitutions))
 }
 
 /// The name a command word runs: itself, or the basename of a path in a trusted directory.
@@ -502,7 +658,10 @@ fn git_ok(args: &[String]) -> Option<Option<String>> {
         };
         // The shell expands a glob or a leading `~` in the directory; the probe would read
         // another one.
-        if named.contains(['*', '?', '[']) || named.starts_with('~') || dir.replace(named).is_some()
+        // So would a substitution's output.
+        if named.contains(['*', '?', '[', SUBSTITUTED, OPAQUE])
+            || named.starts_with('~')
+            || dir.replace(named).is_some()
         {
             return None;
         }
