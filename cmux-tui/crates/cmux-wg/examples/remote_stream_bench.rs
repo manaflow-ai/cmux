@@ -34,7 +34,7 @@ use cmux_wg::testing::config_pair;
 use cmux_wg::{Priority, WgNet};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
-use tokio::time::{Instant, sleep_until, timeout};
+use tokio::time::{Instant, sleep_until, timeout, timeout_at};
 
 const STREAM_PORT: u16 = 5900;
 const BULK_PORT: u16 = 5901;
@@ -454,7 +454,9 @@ async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
         tokio::spawn(async move {
             // The stream starts on the viewer's first input, as a viewer's
             // request starts one; before the handshake a datagram is lost.
-            if host.recv_from().await.is_none() {
+            // With no input by the end of the run (100 % loss, no handshake),
+            // the host sends nothing and the run still ends.
+            if !matches!(timeout_at(end, host.recv_from()).await, Ok(Some(_))) {
                 return;
             }
             let interval = Duration::from_secs(1) / args.fps.max(1);
