@@ -177,8 +177,8 @@ export default agentPaneEntry({
   title: "Reply to a selected part of a message",
   area: "Agent pane",
   height: 420,
-  // The edge cases' stages (and test/selection-reply-place.test.ts) at every width: the chip goes on
-  // the selection's last line, or wraps under it, and never into the margin.
+  // The edge cases' stages (and test/selection-reply-place.test.ts) at every width: the chip covers
+  // no unselected text, stays in the visible transcript and never goes into the margin.
   widths: { narrow: 400, normal: 760, wide: 1040 },
   covers: ["agent-session/acpmux/conversation/SelectionReply.tsx"],
   variants: {
@@ -199,7 +199,7 @@ export default agentPaneEntry({
     "chip-right-edge": {
       ...variant(
         "chip",
-        "A selection that ends at a line's right edge: no room after it in the column, so the chip wraps under it, never into the margin.",
+        "A selection that ends at a line's right edge mid-paragraph: no free spot near, so the chip covers the selection's own last words, never other text or the margin.",
         rightEdge,
         chat(longRows),
       ),
@@ -208,7 +208,7 @@ export default agentPaneEntry({
     "chip-multi-line": {
       ...variant(
         "chip",
-        "A selection over three lines: the chip follows the last line, just after its last character.",
+        "A selection over three lines ending mid-line: the chip takes the nearest spot that covers no other text.",
         multiLine,
         chat(longRows),
       ),
@@ -217,7 +217,7 @@ export default agentPaneEntry({
     "chip-inline-code": {
       ...variant(
         "chip",
-        "A selection that ends inside inline code: the chip sits on that line, centred on it.",
+        "A selection that ends inside inline code at its paragraph's end: the chip goes over the end when that is free, else just after it.",
         inlineCode,
         chat(longRows),
       ),
@@ -250,8 +250,8 @@ export default agentPaneEntry({
       },
     ),
   },
-  // Where the chip wraps when the selection's last line has no room for it (selectionReplyWrap):
-  // compare the arms on chip-right-edge, at the narrow width too.
+  // Where the chip goes when no spot near the selection's end is free of other text
+  // (selectionReplyWrap): compare the arms on chip-right-edge, at the narrow width too.
   experiment: {
     definition: selectionReplyWrap,
     script: [

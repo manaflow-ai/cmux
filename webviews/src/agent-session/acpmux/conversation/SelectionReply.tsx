@@ -1,7 +1,7 @@
 // Reply to a part of a message: selecting transcript text shows a small Reply chip above the
 // selection's end; where that spot holds text (the line before, a "Sent to" line over the reply) it
-// sits on the selection's last line just after its last character, or wraps under it, and never
-// floats in the margin past the column; clicking it quotes the selection into the composer,
+// takes the nearest spot that covers no other text (selectionReplyPlace). It never floats in the
+// margin past the column or leaves the visible transcript; clicking it quotes the selection into the composer,
 // the same Quote in Reply the selection's right-click menu runs (AgentPaneContextMenu.swift
 // `quote`, App.tsx `chat.quoteReply`). Leo, 2026-11-03: "would it make sense to have a direct
 // reply button? or would you mostly just re-read your own thing anyways? what makes sense here?"
@@ -81,6 +81,8 @@ export type SelectionReplyTarget = {
   bottom: number;
   /** The selection's last line: the right of its last character and that line's box. */
   end?: { right: number; top: number; bottom: number };
+  /** The selection's own text boxes: the one text the chip may cover when nothing near is free. */
+  lines?: readonly PlaceRect[];
   /** The text column the end sits in: where its lines start (the end's block) and its right edge. */
   column?: { left: number; right: number };
 };
@@ -131,15 +133,45 @@ export function selectionReplyTarget(doc: Document): SelectionReplyTarget | unde
     top: rect.top,
     bottom: rect.bottom,
     end,
+    lines: wide.map(({ left, top, right, bottom }) => ({ left, top, right, bottom })),
     column: columnOf(range.endContainer),
   };
 }
 
 export type PlaceRect = { left: number; top: number; right: number; bottom: number };
 const PLACE_GAP = 6;
-/// Between the selection's last line and a chip wrapped under it.
-const WRAP_GAP = 4;
-export type SelectionReplyWrap = "line-start" | "under-end" | "edge";
+/// What the chip does when no spot near the selection's end is free of text (selectionReplyWrap).
+export type SelectionReplyWrap = "own-end" | "own-start" | "farther";
+/// The chip's margin inside the visible transcript's top and bottom.
+const EDGE = 2;
+/// How many lines past the rows next to the end the chip looks for a free spot.
+const FARTHER = 3;
+
+/// The part of the viewport where the transcript shows: its scroller's box, above a composer dock
+/// floating over it. The chip never leaves it. Read once per placed chip.
+export function transcriptClip(doc: Document, node: Node | null): { top: number; bottom: number } {
+  const view = doc.defaultView;
+  let top = 0;
+  let bottom = doc.documentElement.clientHeight || view?.innerHeight || 0;
+  // The first scrolling ancestor (a handful of elements up from the text).
+  for (let element = elementOf(node); element && element !== doc.body; element = element.parentElement) {
+    const overflow = view?.getComputedStyle?.(element).overflowY;
+    if (overflow !== "auto" && overflow !== "scroll") continue;
+    const box = element.getBoundingClientRect();
+    if (box.height) {
+      top = Math.max(top, box.top);
+      bottom = Math.min(bottom, box.bottom);
+    }
+    break;
+  }
+  // A composer dock drawn over the transcript's foot (bottomStack.css `data-dock="float"`).
+  const dock = doc.querySelector(".acpmux-dock");
+  for (const element of dock ? [dock, ...Array.from(dock.children)] : []) {
+    const box = element.getBoundingClientRect();
+    if (box.height && box.top > top && box.top < bottom && box.bottom >= bottom - 1) bottom = box.top;
+  }
+  return { top, bottom };
+}
 
 /// The boxes of the transcript's text in rows that cross `band` (viewport px, top to bottom): what
 /// the chip must not cover. Read only when a chip is placed, and only for the rows near it.
@@ -166,44 +198,106 @@ const overlap = (a: PlaceRect, b: PlaceRect) =>
   Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
   Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
 
-/// Where the chip goes. Over the selection's end and centred on it (as Claude and ChatGPT) when
-/// that spot covers no text and stays in the column: the chip never sits on a label or a line it
-/// does not belong to (Leo, 2026-11-05, on the chip drawn over a "Sent to" line: "this is a bad
-/// reply"). Else on the selection's last line, just after its last character and centred on that
-/// line; and where that line has no room before the column's right edge, wrapped as `wrap` says.
-/// Never past the column into the margin (Leo, 2026-11-07: "if it's ever on the right edge, just
-/// make it in line ... Sometimes it gets a bit strange, I guess. Like at the sides, because it's not
-/// aligned").
+const area = (box: PlaceRect, rects: readonly PlaceRect[]) => rects.reduce((sum, rect) => sum + overlap(box, rect), 0);
+
+/// Where the chip goes: the first of these spots that is free (it covers no transcript text) and
+/// fits (inside the transcript column and the visible transcript, `pane` from its top to its
+/// height). Leo, 2026-11-05, on the chip drawn over a "Sent to" line: "this is a bad reply"; and
+/// 2026-11-07: "if it's ever on the right edge, just make it in line ... Sometimes it gets a bit
+/// strange, I guess. Like at the sides, because it's not aligned".
+///   1. Over the selection's end, centred on it (as Claude and ChatGPT do): unchanged wherever it
+///      was free.
+///   2. Inline: just after the selection's last character, centred on that line, when the rest of
+///      the line is empty (the selection ends its line or its paragraph).
+///   3. Just under the selection's last line, centred on its end (a paragraph break, a block's end).
+///   4. The nearest free spot in the rows just above and just below the last line (`farther`: up
+///      to three lines further each way).
+///   5. Over the selection's own last words, centred on its last line: the person's own text, never
+///      anyone else's (`own-end` ends at the selection's end, `own-start` starts at its last line's
+///      start).
+/// When even that runs into other text (a last line shorter than the chip), a free spot up to three
+/// lines away; and failing that (a line half under the composer), the spot covering the least text
+/// that is not the selection's.
 export function selectionReplyPlace(
   target: SelectionReplyTarget,
   size: { width: number; height: number },
-  pane: { width: number; height: number },
+  pane: { width: number; height: number; top?: number },
   text: readonly PlaceRect[],
-  wrap: SelectionReplyWrap = "line-start",
+  wrap: SelectionReplyWrap = "own-end",
 ): { left: number; top: number } {
   const { width, height } = size;
   const gap = PLACE_GAP;
+  const own = target.lines ?? [];
+  const left = Math.max(target.column?.left ?? gap, gap);
   const right = Math.min(target.column?.right ?? Infinity, pane.width - gap);
-  const start = Math.max(target.column?.left ?? gap, gap);
-  const fits = (top: number) => top >= gap && (pane.height <= 0 || top + height <= pane.height - gap);
+  // The visible transcript's own edges are the bounds: a chip flush with the composer is fine.
+  const top = Math.max(pane.top ?? 0, 0) + EDGE;
+  const bottom = pane.height > 0 ? pane.height - EDGE : Infinity;
+  const clampX = (x: number) => Math.max(left, Math.min(x, right - width));
+  const clampY = (y: number) => Math.max(top, Math.min(y, bottom - height));
+  const boxAt = (x: number, y: number) => ({ left: x, top: y, right: x + width, bottom: y + height });
+  const fits = (x: number, y: number) =>
+    x >= left - 0.5 && x + width <= right + 0.5 && y >= top && y + height <= bottom;
+  const free = (x: number, y: number) => fits(x, y) && area(boxAt(x, y), text) === 0;
+  // Text under the chip that is not the selection's own.
+  const others = (x: number, y: number) => Math.max(0, area(boxAt(x, y), text) - area(boxAt(x, y), own));
 
-  const centred = Math.max(gap, Math.min(target.left - width / 2, pane.width - width - gap));
+  const centredAbove = Math.max(gap, Math.min(target.left - width / 2, pane.width - width - gap));
   const above = target.top - height - gap;
-  const box = { left: centred, top: above, right: centred + width, bottom: above + height };
-  if (fits(above) && box.right <= right && !text.some((rect) => overlap(box, rect) > 0))
-    return { left: centred, top: above };
+  if (free(centredAbove, above)) return { left: centredAbove, top: above };
 
   const end = target.end ?? { right: target.left, top: target.top, bottom: target.bottom };
   const line = (end.top + end.bottom - height) / 2;
-  const after = end.right + gap;
-  if (after + width <= right) return { left: after, top: line };
-  const under = end.bottom + WRAP_GAP;
-  // Under the line, or over it when the line is the pane's last.
-  const next = fits(under) ? under : end.top - height - WRAP_GAP;
-  const pinned = Math.max(start, right - width);
-  if (wrap === "edge") return { left: pinned, top: line };
-  if (wrap === "under-end") return { left: Math.max(start, Math.min(end.right - width, pinned)), top: next };
-  return { left: Math.min(start, pinned), top: next };
+  if (free(end.right + gap, line)) return { left: end.right + gap, top: line };
+  const under = end.bottom + gap;
+  const centred = clampX(end.right - width / 2);
+  if (free(centred, under)) return { left: centred, top: under };
+
+  // 4: along the rows over and under the last line (`lines` more each way), the free spot nearest
+  // the end among those that start or end at a gap's edge.
+  const step = Math.max(end.bottom - end.top, height / 2);
+  const nearest = (lines: number) => {
+    let near: { left: number; top: number; far: number } | undefined;
+    for (let k = 0; k <= lines; k += 1)
+      for (const y of [end.top - height - gap - k * step, under + k * step]) {
+        const band = text.filter((rect) => rect.bottom > y && rect.top < y + height);
+        const xs = [
+          left,
+          right - width,
+          centred,
+          ...band.flatMap((rect) => [rect.right + gap, rect.left - gap - width]),
+        ];
+        for (const x of xs) {
+          if (!free(x, y)) continue;
+          const far = Math.abs(x + width / 2 - end.right) + Math.abs(y - line);
+          if (!near || far < near.far) near = { left: x, top: y, far };
+        }
+      }
+    return near && { left: near.left, top: near.top };
+  };
+  const near = nearest(wrap === "farther" ? FARTHER : 0);
+  if (near) return near;
+
+  // 5: over the selection's own last words.
+  const last = own[own.length - 1];
+  const ownX = clampX(wrap === "own-start" && last ? last.left : end.right - width);
+  const ownY = clampY(line);
+  if (others(ownX, ownY) === 0) return { left: ownX, top: ownY };
+  // A last line shorter than the chip: a free spot a few lines away before anyone's words.
+  const farther = wrap === "farther" ? undefined : nearest(FARTHER);
+  if (farther) return farther;
+
+  let best: { left: number; top: number; covered: number } | undefined;
+  for (const [x, y] of [
+    [ownX, ownY],
+    [clampX(end.right + gap), clampY(line)],
+    [centred, clampY(under)],
+    [centred, clampY(end.top - height - gap)],
+  ] as const) {
+    const covered = others(x, y);
+    if (!best || covered < best.covered) best = { left: x, top: y, covered };
+  }
+  return { left: best!.left, top: best!.top };
 }
 
 /// A Reply button for a message's action row (`row` look only), its glyph the row's 16 px
@@ -274,9 +368,12 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
   useLayoutEffect(() => {
     if (!target) return setPlaced(undefined);
     const size = { width: chip.current?.offsetWidth ?? 0, height: chip.current?.offsetHeight ?? 0 };
+    const selection = doc.getSelection();
+    const clip = transcriptClip(doc, selection?.rangeCount ? selection.getRangeAt(0).endContainer : null);
     const pane = {
       width: doc.documentElement.clientWidth || doc.defaultView?.innerWidth || 0,
-      height: doc.documentElement.clientHeight || doc.defaultView?.innerHeight || 0,
+      height: clip.bottom,
+      top: clip.top,
     };
     const band = { top: target.top - 2 * size.height - PLACE_GAP, bottom: target.bottom + 2 * size.height + PLACE_GAP };
     setPlaced(

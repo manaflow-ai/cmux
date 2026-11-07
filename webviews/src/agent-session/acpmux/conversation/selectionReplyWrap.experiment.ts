@@ -1,28 +1,29 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment } from "../../../experiments/experiment";
 
-/// Where the selection's Reply chip goes when it has no room on the selection's last line (Leo,
-/// 2026-11-07: "if it's ever on the right edge, just make it in line"). Every arm keeps the chip
-/// in the transcript column, never in the margin; they differ only in where the wrapped chip
-/// sits. Compare them in the gallery's `agent-pane.selection-reply` (SelectionReply.tsx).
+/// What the selection's Reply chip does when no spot near the selection's end is free of other
+/// text: a selection that ends at a line's right edge mid-paragraph, or mid-line with text all
+/// around (Leo, 2026-11-07: "if it's ever on the right edge, just make it in line"). Every arm keeps
+/// the chip in the transcript column and the visible transcript, and off every word the person did
+/// not select. Compare them in the gallery's `agent-pane.selection-reply` (SelectionReply.tsx).
 export const selectionReplyWrap = defineExperiment({
   id: "selection-reply-wrap",
-  title: "Selection Reply chip wrap",
+  title: "Selection Reply chip with no free spot",
   description:
-    "Where the Reply chip goes when the selection ends too close to the column's right edge for it to fit on that line.",
+    "Where the Reply chip goes when the spots over, after and under the selection's end all hold other text.",
   arms: {
-    "line-start": {
-      label: "Next line start",
-      description: "Wraps like the next word would: to the start of the line under the selection's end.",
+    "own-end": {
+      label: "Over its last words",
+      description: "On the selection's last line, over its own last words, its right edge at the selection's end.",
     },
-    "under-end": {
-      label: "Under the end",
-      description: "Right under the selection's last character, its right edge on it.",
+    "own-start": {
+      label: "Over its last line's start",
+      description: "On the selection's last line, over its own words from that line's start.",
     },
-    edge: {
-      label: "At the edge",
-      description: "Stays on the selection's last line, pinned to the column's right edge over the last words.",
+    farther: {
+      label: "Farther gap",
+      description: "Up to three lines over or under the end for a spot with no text, before covering the selection.",
     },
   },
-  defaultArm: "line-start",
+  defaultArm: "own-end",
 });

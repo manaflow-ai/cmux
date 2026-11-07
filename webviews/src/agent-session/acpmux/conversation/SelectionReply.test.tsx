@@ -228,8 +228,10 @@ const at = (right: number) => ({
   lines: [LINE(right)],
   column: COLUMN,
 });
-const covers = (place: { left: number; top: number }, rect: { left: number; right: number; top: number; bottom: number }) =>
-  place.left < rect.right && rect.left < place.left + 72 && place.top < rect.bottom && rect.top < place.top + 28;
+const covers = (
+  place: { left: number; top: number },
+  rect: { left: number; right: number; top: number; bottom: number },
+) => place.left < rect.right && rect.left < place.left + 72 && place.top < rect.bottom && rect.top < place.top + 28;
 
 test("a clear spot over the selection's end keeps the chip there, centred on the end", () => {
   expect(selectionReplyPlace(at(400), SIZE, PANE, [LINE(820)])).toEqual({ left: 364, top: 166 });

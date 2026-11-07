@@ -63,11 +63,7 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
    *  selection's last line is the first or last one in view when `edge` says, and reads the chip's
    *  box, the selection's last character's box (its last line), the column's box and what
    *  unselected text the chip covers. */
-  const placed = async (
-    variant: string,
-    width: number,
-    edge?: "top" | "bottom",
-  ): Promise<Placed> => {
+  const placed = async (variant: string, width: number, edge?: "top" | "bottom"): Promise<Placed> => {
     const page: Page = await browser!.newPage({ viewport: { width, height: edge ? 240 : 700 } });
     for (;;) {
       await page.goto(stageURL(variant, width));
@@ -171,7 +167,9 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
   const inline = ({ chip, line }: Placed) => {
     expect(chip.left, "inline: after the last character").toBeGreaterThanOrEqual(line.right);
     expect(chip.left - line.right, "inline: just after the last character").toBeLessThanOrEqual(12);
-    expect(Math.abs(centre(chip) - centre(line)), "inline: centred on the selection's last line").toBeLessThanOrEqual(1);
+    expect(Math.abs(centre(chip) - centre(line)), "inline: centred on the selection's last line").toBeLessThanOrEqual(
+      1,
+    );
   };
 
   for (const width of [1040, 400])
