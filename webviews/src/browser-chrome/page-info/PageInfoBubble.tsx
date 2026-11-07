@@ -175,7 +175,9 @@ function SiteName({ name }: { name: string }) {
   return (
     <span className="pi-site-name" title={name}>
       <span className="pi-site-name-head">{head}</span>
-      <span className="pi-site-name-tail">{tail}</span>
+      <span className="pi-site-name-tail">
+        <bdi dir="ltr">{tail}</bdi>
+      </span>
     </span>
   );
 }

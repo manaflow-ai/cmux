@@ -79,18 +79,27 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* A site name cuts its head, never its tail (the registrable domain). */
+/*
+ * A site name cuts its head first; a tail wider than the line (one very long label) is cut at
+ * its start, so the registrable domain's end and the port always show.
+ */
 .pi-site-name {
   display: flex;
   min-width: 0;
 }
 .pi-site-name-head {
+  flex: 0 100000 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .pi-site-name-tail {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  direction: rtl;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .pi-header-subtitle {

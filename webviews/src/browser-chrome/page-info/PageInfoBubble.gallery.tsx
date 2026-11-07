@@ -122,6 +122,18 @@ export default componentEntry<Props>({
       },
       note: "A long host cuts its start: the real domain, attacker.test, stays visible.",
     },
+    "main-long-label": {
+      props: {
+        model: {
+          ...secure,
+          site: {
+            ...secure.site,
+            displayName: "a-very-long-single-label-that-runs-the-full-sixty-three-characters.com:8443",
+          },
+        },
+      },
+      note: "One label wider than the header: its start is cut, the end and the port stay.",
+    },
     "security-long-host": {
       props: {
         model: {
