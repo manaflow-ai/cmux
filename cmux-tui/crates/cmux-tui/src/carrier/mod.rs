@@ -310,4 +310,6 @@ pub(crate) fn run(args: &[String]) -> i32 {
 }
 
 #[cfg(test)]
+mod argv_contract_tests;
+#[cfg(test)]
 mod tests;
