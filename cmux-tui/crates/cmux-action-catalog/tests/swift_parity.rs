@@ -109,13 +109,10 @@ fn action_list_export_matches() {
         );
         assert_eq!(row["main_menu"], serde_json::json!(action.main_menu), "{id}");
         assert_eq!(row["title"], action.title.en, "{id}");
-        // The export names a title's key by a guess from its English (`ActionTitleCatalog`); the
-        // catalog keeps the key the app looks the title up by. They agree on the action's own key.
-        if let Some(key) = row["title_key"].as_str()
-            && key == format!("action.{id}")
-        {
-            assert_eq!(key, action.title.key, "{id}");
-        }
+        // `title_key` is not compared: the export guesses it from the English
+        // (`ActionTitleCatalog`), and two keys can share one (Recently Closed is
+        // `action.history.closed`, not `action.recentlyClosed`). The catalog keeps the key the
+        // app looks the title up by, read from a build that marked every lookup.
         let mut shortcut = action
             .default_shortcut
             .as_ref()
