@@ -496,3 +496,35 @@ fn output_flags_may_come_before_device_or_the_verb() {
     assert_eq!(split(&["--json"]), ("help".to_owned(), words(&["--json"])));
     assert_eq!(split(&["remove", "x"]), ("remove".to_owned(), words(&["x"])));
 }
+
+/// A removed joined machine leaves the machine list; one that was only revoked stays.
+#[test]
+fn removed_joined_machines_leave_the_list_and_revoked_ones_stay() {
+    use super::removed;
+    let dir = tempfile::tempdir().unwrap();
+    assert!(removed::ids_in(dir.path()).is_empty(), "no file: nothing hidden");
+    removed::add_in(dir.path(), "m_1", 1).unwrap();
+    removed::add_in(dir.path(), "m_1", 2).unwrap();
+    let ids = removed::ids_in(dir.path());
+    assert_eq!(ids.len(), 1, "recorded once");
+    let rows = vec![
+        json!({"kind": "joined", "id": "m_1", "name": "lane-vm-3", "state": "revoked"}),
+        json!({"kind": "joined", "id": "m_2", "name": "build-box", "state": "revoked"}),
+        json!({"kind": "joined", "name": "no id"}),
+    ];
+    let shown = removed::without(rows, &ids);
+    let names: Vec<&str> = shown.iter().filter_map(|r| r["name"].as_str()).collect();
+    assert_eq!(names, ["build-box", "no id"], "only the removed one leaves; a revoked one stays");
+}
+
+/// A removed-machines file that cannot be read hides nothing, and a write replaces it whole.
+#[test]
+fn an_unreadable_removed_file_hides_nothing() {
+    use super::removed;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(removed::FILE), b"{not json").unwrap();
+    assert!(removed::ids_in(dir.path()).is_empty());
+    removed::add_in(dir.path(), "m_9", 3).unwrap();
+    assert!(removed::ids_in(dir.path()).contains("m_9"));
+    assert!(!dir.path().join(format!("{}.tmp", removed::FILE)).exists());
+}

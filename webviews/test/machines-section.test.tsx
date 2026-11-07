@@ -16,20 +16,44 @@ import { MachinesStore } from "../src/pages/machines/store";
 import type { MachinesSnapshot } from "../src/pages/machines/types";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "MouseEvent", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "MouseEvent",
+  "KeyboardEvent",
+  "Event",
+  "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "Node",
+  "Element",
+  "HTMLButtonElement",
+  "IS_REACT_ACT_ENVIRONMENT",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
 let host: HTMLElement;
 const strings = createStrings(table, ["en"]);
 
 beforeAll(() => {
-  const { window } = new JSDOM("<!doctype html><div id=root></div>");
+  // The Remove dialog (Base UI) times its transitions by animation frames and reads computed style.
+  const { window } = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
   Object.assign(scope, {
     window,
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     MouseEvent: window.MouseEvent,
+    KeyboardEvent: window.KeyboardEvent,
+    Event: window.Event,
+    getComputedStyle: window.getComputedStyle.bind(window),
+    requestAnimationFrame: window.requestAnimationFrame.bind(window),
+    cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+    Node: window.Node,
+    Element: window.Element,
+    HTMLButtonElement: window.HTMLButtonElement,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   host = window.document.getElementById("root")!;
@@ -155,4 +179,50 @@ test("a running change shows a spinner in the more button's place; a failed one 
   expect(failed.textContent).toContain("rotate");
   // The capture fixture's open menu lights its row as a real open menu does.
   expect(rowNamed("studio-mini").hasAttribute("data-menu-open")).toBe(true);
+});
+
+test("Remove asks first, then the joined row leaves in the same frame, before the host answers", async () => {
+  const { provider } = await mount();
+  const name = joinedRows[0]!.name;
+  const before = host.querySelectorAll(".machines-row").length;
+  provider.holdRemove();
+  await act(async () => rowNamed(name).querySelector<HTMLElement>(".machines-remove")!.click());
+  const dialog = host.ownerDocument.querySelector('[role="dialog"]')!;
+  expect(dialog.textContent).toContain(`Remove ${name}?`);
+  expect(ops(provider, "cmux.machines.remove")).toHaveLength(0);
+  const remove = [...dialog.querySelectorAll<HTMLElement>("button")].find((button) =>
+    button.textContent?.startsWith("Remove"),
+  )!;
+  await act(async () => remove.click());
+  // Gone now, while the host still works on it.
+  expect(host.querySelectorAll(".machines-row")).toHaveLength(before - 1);
+  expect(rowNamed(name)).toBeUndefined();
+  expect(ops(provider, "cmux.machines.remove").map((call) => call.params)).toEqual([{ row: joinedRows[0]!.id }]);
+  // The host's next list has it gone too; it stays gone.
+  await act(async () => {
+    provider.finishRemove();
+    provider.push({ ...sampleSnapshot, rows: sampleSnapshot.rows.filter((row) => row.id !== joinedRows[0]!.id) });
+  });
+  expect(host.querySelectorAll(".machines-row")).toHaveLength(before - 1);
+});
+
+test("a Remove the host refuses brings the row back; Cancel removes nothing", async () => {
+  const { provider } = await mount();
+  const name = joinedRows[0]!.name;
+  const before = host.querySelectorAll(".machines-row").length;
+  await act(async () => rowNamed(name).querySelector<HTMLElement>(".machines-remove")!.click());
+  const cancel = [...host.ownerDocument.querySelectorAll<HTMLElement>('[role="dialog"] button')].find((button) =>
+    button.textContent?.startsWith("Cancel"),
+  )!;
+  await act(async () => cancel.click());
+  expect(ops(provider, "cmux.machines.remove")).toHaveLength(0);
+  expect(host.querySelectorAll(".machines-row")).toHaveLength(before);
+  provider.removeAnswer = false;
+  await act(async () => rowNamed(name).querySelector<HTMLElement>(".machines-remove")!.click());
+  const remove = [...host.ownerDocument.querySelectorAll<HTMLElement>('[role="dialog"] button')].find((button) =>
+    button.textContent?.startsWith("Remove"),
+  )!;
+  await act(async () => remove.click());
+  expect(host.querySelectorAll(".machines-row")).toHaveLength(before);
+  expect(rowNamed(name)).toBeDefined();
 });
