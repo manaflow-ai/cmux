@@ -50,6 +50,9 @@ mod restart_tests;
 #[cfg(test)]
 #[path = "peer_handshake_tests.rs"]
 mod handshake_tests;
+#[cfg(test)]
+#[path = "peer_liveness_tests.rs"]
+mod liveness_tests;
 
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);

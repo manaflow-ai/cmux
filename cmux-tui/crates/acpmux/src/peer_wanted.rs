@@ -180,6 +180,28 @@ mod tests {
         assert!(started.elapsed() <= Backoff::WANTED_CAP, "{:?}", started.elapsed());
     }
 
+    /// A client that asks while the link is down gets the next attempt at once, not after
+    /// the wanted bound; asks that keep coming get one cut per `WANTED_CAP`.
+    #[tokio::test(start_paused = true)]
+    async fn an_ask_starts_the_next_attempt_at_once_once_per_cap() {
+        let peer = peer();
+        let waiting = peer.clone();
+        let started = Instant::now();
+        let wait = tokio::spawn(async move { waiting.wait_backoff(Backoff::CAP).await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        peer.want();
+        assert_eq!(wait.await.unwrap(), BackoffWait::Done);
+        assert!(started.elapsed() < Duration::from_millis(150), "{:?}", started.elapsed());
+
+        let waiting = peer.clone();
+        let again = Instant::now();
+        let wait = tokio::spawn(async move { waiting.wait_backoff(Backoff::CAP).await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        peer.want();
+        assert_eq!(wait.await.unwrap(), BackoffWait::Done);
+        assert!(again.elapsed() >= Backoff::WANTED_CAP / 2, "{:?}", again.elapsed());
+    }
+
     #[tokio::test(start_paused = true)]
     async fn an_unwanted_peer_waits_its_whole_delay_and_a_stop_ends_any_wait() {
         let peer = peer();
