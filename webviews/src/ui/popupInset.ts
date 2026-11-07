@@ -27,6 +27,12 @@ export function setPopupInsetTop(height: number, source = "tabRow"): void {
 }
 
 const read = () => insetTop;
+
+/// What `source` alone covers now (0 when it covers nothing): a renderer that already keeps clear of
+/// the others its own way reads one source (titleTooltips.ts and Find's bar).
+export function popupInsetOf(source: string): number {
+  return sources.get(source) ?? 0;
+}
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);

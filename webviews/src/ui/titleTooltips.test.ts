@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
 import { HoverGroup, HoverIntent } from "./hoverIntent";
 import { installTooltips, tooltipPosition, tooltipWidth, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./titleTooltips";
 import { UI_TOOLTIP_GAP } from "./tooltipTokens";
+import { setPopupInsetTop } from "./popupInset";
 
 test("full labels stay content-sized and bounded even on wide truncated rows", () => {
   for (const width of [140, 600, 900]) {
@@ -370,4 +371,28 @@ test("a pane-wide row's tooltip anchors at its words and stays out of the tab ro
   // below the row, not above it under the tabs (48 - 4 - 36 = 8).
   expect(tip.style.left).toBe("30px");
   expect(tip.style.top).toBe(`${48 + 22 + UI_TOOLTIP_GAP}px`);
+});
+
+test("a timestamp's tooltip under an open Find bar flips below its row, never over the bar", async () => {
+  // Leo 2026-11-07: a message time's "Nov 7, 2026, 12:05 AM" drawn over the find bar. The bar
+  // (ChatFindBar.tsx) registers its bottom, 52px down, in ui/popupInset.ts while it shows.
+  const doc = page(
+    `<div id="scroll" style="overflow-y: auto"><time id="time" title="Nov 7, 2026, 12:05 AM">12:05 AM</time></div>`,
+  );
+  const box = (left: number, top: number, width: number, height: number) =>
+    ({ left, top, width, height, right: left + width, bottom: top + height }) as DOMRect;
+  doc.getElementById("scroll")!.getBoundingClientRect = () => box(0, 0, 1000, 800);
+  const time = doc.getElementById("time")!;
+  time.getBoundingClientRect = () => box(800, 60, 60, 18);
+  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  tip.getBoundingClientRect = () => box(0, 0, 160, 24);
+  setPopupInsetTop(52, "findBar");
+  try {
+    await hover(time);
+    expect(tip.hidden).toBe(false);
+    // Above would be 60 - 4 - 24 = 32, under the bar: it goes below the time instead.
+    expect(tip.style.top).toBe(`${60 + 18 + UI_TOOLTIP_GAP}px`);
+  } finally {
+    setPopupInsetTop(0, "findBar");
+  }
 });

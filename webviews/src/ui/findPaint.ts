@@ -73,11 +73,36 @@ function adopt(name: string, root: StyledRoot) {
   }
 }
 
+/** Each painter's last paint, replayed when the theme changes: the fills are fit to the surfaces
+ * and colors of the theme they were painted in, which `light-dark()` rules would have followed. */
+type PaintArgs = Parameters<typeof paintAdaptiveFind>;
+const lastPaint = new Map<string, PaintArgs>();
+const themeWatched = new WeakSet<Document>();
+
+/** Repaints every painter of `doc` once, on the next frame after the host's theme or the color
+ * scheme changes. One listener pair per document; a paint with no painter left does nothing. */
+function watchTheme(doc: Document): void {
+  const view = doc.defaultView;
+  if (!view || themeWatched.has(doc)) return;
+  themeWatched.add(doc);
+  let frame = 0;
+  const repaint = () => {
+    frame = 0;
+    for (const args of lastPaint.values()) if (args[0] === doc) paintAdaptiveFind(...args);
+  };
+  const schedule = () => {
+    if (!frame && lastPaint.size) frame = view.requestAnimationFrame(repaint);
+  };
+  view.addEventListener("cmux-theme", schedule);
+  view.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", schedule);
+}
+
 /** Removes every highlight `name`'s painter set. */
 export function clearAdaptiveFind(name: string): void {
   const highlights = registry();
   for (const group of painted.get(name) ?? []) highlights?.delete(group);
   painted.delete(name);
+  lastPaint.delete(name);
 }
 
 /** Drops `name`'s stylesheet from every root it was adopted into (a painter's dispose). */
@@ -113,6 +138,8 @@ export function paintAdaptiveFind(
   const highlights = registry();
   const Highlight = highlightCtor();
   if (!highlights || !Highlight) return;
+  lastPaint.set(name, [doc, name, colors, ranges, current, roots, floors]);
+  watchTheme(doc);
   const matchBase = resolveCssColor(doc, colors.match);
   const currentBase = resolveCssColor(doc, colors.current);
   const currentInk = resolveCssColor(doc, colors.currentInk);

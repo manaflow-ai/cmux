@@ -84,18 +84,44 @@ export function fitHighlight(
   floor: HighlightFloor,
   options: { freeInk?: boolean } = {},
 ): FitHighlight {
-  const start = over(base, surface);
+  return fitHighlightOn(base, [surface], ink, floor, options);
+}
+
+/**
+ * The fit for every surface at once (a selection that starts on a bubble and ends on the page): it
+ * starts from the base over the surface it reads worst on and passes only when it passes on all of
+ * them, as `fitHighlight` does for one.
+ */
+export function fitHighlightOn(
+  base: RGBA,
+  surfaces: readonly RGB[],
+  ink: RGB,
+  floor: HighlightFloor,
+  options: { freeInk?: boolean } = {},
+): FitHighlight {
+  if (!surfaces.length) return { fill: over(base, WHITE), ink };
+  let worst = surfaces[0]!;
+  for (const surface of surfaces)
+    if (contrast(over(base, surface), surface) < contrast(over(base, worst), worst)) worst = surface;
+  const start = over(base, worst);
   // Text already fainter than AA on its surface (a muted label) keeps what the fill's step from the
   // surface leaves it: contrast ratios multiply along lightness, so asking more could never pass.
-  const inkFloor = (text: RGB) => Math.min(floor.ink, contrast(text, surface) / (floor.surface * INK_SLACK));
+  const inkFloor = (text: RGB, surface: RGB) =>
+    Math.min(floor.ink, contrast(text, surface) / (floor.surface * INK_SLACK));
   const score = (fill: RGB, text: RGB) =>
-    Math.min(contrast(fill, surface) / floor.surface, contrast(text, fill) / inkFloor(text));
+    Math.min(
+      ...surfaces.map((surface) =>
+        Math.min(contrast(fill, surface) / floor.surface, contrast(text, fill) / inkFloor(text, surface)),
+      ),
+    );
+  const readable = (fill: RGB, text: RGB) =>
+    surfaces.every((surface) => contrast(text, fill) >= inkFloor(text, surface));
   if (score(start, ink) >= 1) return { fill: start, ink };
   const inks = options.freeInk ? [ink, readableInk(start)] : [ink];
   let best: FitHighlight = { fill: start, ink };
   let bestScore = score(start, ink);
   const origin = toOklch(start);
-  const surfaceLightness = toOklch(surface).l;
+  const surfaceLightness = toOklch(worst).l;
   for (const text of inks) {
     const textLightness = toOklch(text).l;
     const toward = textLightness !== surfaceLightness ? Math.sign(textLightness - surfaceLightness) : 1;
@@ -109,28 +135,11 @@ export function fitHighlight(
           bestScore = value;
         }
         // Past the point where the text stops reading on it, no further step helps.
-        if (contrast(text, fill) < inkFloor(text)) break;
+        if (!readable(fill, text)) break;
       }
     }
   }
   return best;
-}
-
-/** The fit for every surface at once (a selection that starts on a bubble and ends on the page):
- * fit to the surface the base reads worst on, and kept when it passes the others. */
-export function fitHighlightOn(
-  base: RGBA,
-  surfaces: readonly RGB[],
-  ink: RGB,
-  floor: HighlightFloor,
-  options: { freeInk?: boolean } = {},
-): FitHighlight {
-  const [first, ...rest] = surfaces;
-  if (!first) return { fill: over(base, WHITE), ink };
-  let worst = first;
-  for (const surface of rest)
-    if (contrast(over(base, surface), surface) < contrast(over(base, worst), worst)) worst = surface;
-  return fitHighlight(base, worst, ink, floor, options);
 }
 
 /** A CSS color for `color`. Translucent by a hair, so WebKit paints a selection in it as is (an

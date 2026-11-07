@@ -67,8 +67,10 @@ export function installAdaptiveSelection(doc: Document = document): void {
   doc.addEventListener("selectionchange", () => {
     if (!frame) frame = view.requestAnimationFrame(run);
   });
-  // A theme change moves the surfaces and the base: refit a selection that stays.
-  view.addEventListener("cmux-theme", () => {
+  // A theme or color scheme change moves the surfaces and the base: refit a selection that stays.
+  const schedule = () => {
     if (!frame) frame = view.requestAnimationFrame(run);
-  });
+  };
+  view.addEventListener("cmux-theme", schedule);
+  view.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", schedule);
 }

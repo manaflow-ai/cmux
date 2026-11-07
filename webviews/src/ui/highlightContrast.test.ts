@@ -117,3 +117,13 @@ describe("fitHighlight on muted text", () => {
     expect(toOklch(fit.fill).l).toBeGreaterThan(0.6);
   });
 });
+
+describe("fitHighlightOn across surfaces", () => {
+  // Review F3: fit only to the worst surface, the fill lost contrast on the other one.
+  test("the fill keeps the floor on every surface the selection touches", () => {
+    const gray = hex("#cccccc");
+    const fit = fitHighlightOn(rgba("#e9e9ec"), [page, gray], ink, HIGHLIGHT_FLOORS.selection);
+    for (const surface of [page, gray])
+      expect(contrast(fit.fill, surface)).toBeGreaterThanOrEqual(HIGHLIGHT_FLOORS.selection.surface);
+  });
+});
