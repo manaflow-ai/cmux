@@ -156,4 +156,16 @@ struct RemoteThinkingChatRingTests {
         feed.handle(try read(#"{"jsonrpc":"2.0","id":4,"result":{"sessions":[],"nextCursor":null}}"#))
         #expect(lanes.lanes["gone"] == nil, "the page's older lane brought a purged peer chat back")
     }
+
+    /// A peer's change whose summary does not repeat `peer` (the push names it beside the summary)
+    /// is that peer's row, not a purge: the chat still reads as working.
+    @Test func aPeerChangeWithoutPeerInItsSummaryKeepsTheRow() throws {
+        let turns = AgentTurnStateStore()
+        let feed = AgentTurnStateFeed(socketPath: "/nonexistent/remote-thinking-peer-change.sock", turns: turns, lanes: AgentLaneStore())
+        func read(_ line: String) throws -> AgentTurnStateFeed.Message { try #require(AgentTurnStateFeed.Message(line: Data(line.utf8))) }
+        feed.handle(try read(#"{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"r1","indicator":"idle","peer":"lab"}]}}"#))
+        feed.handle(try read(#"{"jsonrpc":"2.0","method":"_acpmux/session_changed","params":{"sessionId":"r1","peer":"lab","kind":"status","session":{"sessionId":"r1","indicator":"working"}}}"#))
+        let ref = AgentSessionRef(host: "registry:remote-thinking", session: "r1")
+        #expect(turns.isWorking(ref, isChatMachine: { $0 == "lab" }), "a peer change without peer in its summary removed the row")
+    }
 }
