@@ -991,6 +991,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
+name = "cmux-action-catalog"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
@@ -1155,6 +1162,14 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "cmux-cloud-tasks"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1867,6 +1882,7 @@ dependencies = [
  "cmux-cloud-client",
  "cmux-cloud-config",
  "cmux-cloud-environment",
+ "cmux-cloud-wire",
  "cmux-config",
  "cmux-conversation",
  "cmux-git",
@@ -1880,6 +1896,7 @@ dependencies = [
  "cmux-rd-host",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
  "cmux-terminal-client",

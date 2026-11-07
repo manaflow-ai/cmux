@@ -3732,6 +3732,29 @@ jobs:
           python3 "$ptr" verify --pointer "$dir/check.json" --keys "$keys" --channel cloud-machine
           echo "Cloud machine channel -> ${GITHUB_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
 
+  # The Cloud VM image roll (cloud-vm-image-roll.yml) for this build: the same published and read-back
+  # commit manifests point-machine-channel reads. The roll's plan decides whether the build changes what
+  # the image carries; its concurrency keeps one roll running and replaces a waiting one with this.
+  request-image-roll:
+    name: request the Cloud VM image roll
+    needs: [publish, verify-publish]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      # BASH_ENV (the API call log) lives in the checkout.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - name: Dispatch the image roll
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run cloud-vm-image-roll.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f commit="$GITHUB_SHA"
+
   # nightly-next is promoted only to a commit whose cmux-tui tree is published
   # and whose cmux-next Release compile passed, so the nightly builds its tip
   # with the tip's own nightly.yml and daemon. cmux-next.yml asks when the
