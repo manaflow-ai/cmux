@@ -5286,7 +5286,7 @@
 			<key>pfm_default</key>
 			<string>leading</string>
 			<key>pfm_description</key>
-			<string>How a workspace pinned inside its group shows it. A pin after the name, a pin before the name in the group's color, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row.</string>
+			<string>How a workspace pinned inside its group shows it. A pin after the name, a pin before the name, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row.</string>
 			<key>pfm_name</key>
 			<string>sidebar.groupPinMark</string>
 			<key>pfm_range_list</key>

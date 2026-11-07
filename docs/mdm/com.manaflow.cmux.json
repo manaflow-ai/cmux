@@ -3918,7 +3918,7 @@
     },
     "sidebar.groupPinMark" : {
       "default" : "leading",
-      "description" : "How a workspace pinned inside its group shows it. A pin after the name, a pin before the name in the group's color, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row.",
+      "description" : "How a workspace pinned inside its group shows it. A pin after the name, a pin before the name, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row.",
       "enum" : [
         "off",
         "trailing",
