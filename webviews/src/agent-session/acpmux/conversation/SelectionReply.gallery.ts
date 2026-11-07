@@ -68,7 +68,7 @@ const sentRows = [
 // word, one over three lines, and one that ends inside inline code (his second screenshot).
 const LONG =
   "The fetch helper retries a request only when the server answers 429 or 503, and it waits a little longer before each new attempt so a busy server gets room to recover. Every other status fails at once, so a bad token or a missing route shows up in the first call instead of after a minute of retries. The backoff starts at 250 ms, doubles on each attempt, adds up to a quarter of jitter and stops growing at 4 s, which keeps a stuck call from holding the queue for long.";
-const CODE = "Then run `cmux chat --on cloud` once the lane has its machine, and check the first reply it sends back.";
+const CODE = "Once the lane has its machine and the first reply is back, run `cmux chat --on cloud`";
 const longRows = [
   user("How should the fetch helper handle a failed request?", 6, {
     id: "gallery-reply-prompt",
@@ -144,11 +144,25 @@ const multiLine = (ctx: PlayContext) =>
     const end = node.data.lastIndexOf(" ", Math.floor((ends[1]! + ends[2]!) / 2));
     return { from: [node, Math.floor(ends[0]! / 2)], to: [node, end] };
   });
-/// From "Then run" into the inline code, ending after "--on cloud".
+/// From "Once the lane" into the inline code, ending after "--on cloud", the paragraph's end.
 const inlineCode = (ctx: PlayContext) =>
-  selectIn(ctx, "Then run", (node) => {
+  selectIn(ctx, "Once the lane", (node) => {
     const code = textNode(ctx.document, "cmux chat --on cloud")!;
     return { from: [node, 0], to: [code, code.data.length] };
+  });
+
+/// The long paragraph's last line, to the paragraph's end: nothing follows it on that line.
+const paragraphEnd = (ctx: PlayContext) =>
+  selectIn(ctx, "The fetch helper", (node, ends) => ({
+    from: [node, node.data.indexOf(" ", ends[ends.length - 2]!) + 1],
+    to: [node, ends[ends.length - 1]!],
+  }));
+/// Two words in the middle of the long paragraph's third line: text over it, after it and under it.
+const midLine = (ctx: PlayContext) =>
+  selectIn(ctx, "The fetch helper", (node, ends) => {
+    const from = node.data.indexOf(" ", Math.floor((ends[1]! + ends[2]!) / 2)) + 1;
+    const to = node.data.indexOf(" ", node.data.indexOf(" ", from) + 1);
+    return { from: [node, from], to: [node, to] };
   });
 
 const variant = (look: string, note: string, play: (ctx: PlayContext) => Promise<void>, snapshot = chat(rows)) => ({
@@ -205,6 +219,24 @@ export default agentPaneEntry({
         "chip",
         "A selection that ends inside inline code: the chip sits on that line, centred on it.",
         inlineCode,
+        chat(longRows),
+      ),
+      height: 640,
+    },
+    "chip-paragraph-end": {
+      ...variant(
+        "chip",
+        "A selection that ends its paragraph: the chip sits just after its last character, centred on that line.",
+        paragraphEnd,
+        chat(longRows),
+      ),
+      height: 640,
+    },
+    "chip-mid-line": {
+      ...variant(
+        "chip",
+        "Two words mid-paragraph, text all around: the chip takes the nearest spot with no text under it, or covers only the selection's own words.",
+        midLine,
         chat(longRows),
       ),
       height: 640,

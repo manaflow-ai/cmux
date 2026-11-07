@@ -184,7 +184,7 @@ function layOut(doc: Document): () => void {
   };
 }
 
-test("the chip never covers the Sent to line over the selected reply: it sits on the selection's line", () => {
+test("the chip never covers the Sent to line over the selected reply, nor the reply's other words", () => {
   const doc = mount(SENT_OVER_REPLY);
   const restore = layOut(doc);
   try {
@@ -198,47 +198,76 @@ test("the chip never covers the Sent to line over the selected reply: it sits on
     const label = { left: 24, right: 24 + 32 * 8, ...LINES.sent };
     const hits = (a: typeof pill, b: typeof pill) =>
       a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    const prose = { left: 24, right: 24 + 26 * 8, ...LINES.prose };
     expect(hits(pill, label)).toBe(false);
-    // Just after "429" (x 160) and centred on its line (Leo, 2026-11-07: "just make it in line").
-    expect(left).toBe(160 + 6);
-    expect(top + 14).toBe((LINES.prose.top + LINES.prose.bottom) / 2);
+    expect(hits(pill, prose)).toBe(false);
+    // Text over the end and after it on its line: just under the line, centred on "429"'s end.
+    expect({ left, top }).toEqual({ left: 160 - 36, top: LINES.prose.bottom + 6 });
   } finally {
     restore();
   }
 });
 
-// The placement alone (selectionReplyPlace): a 72 x 28 chip, a 22 px line from y 200 whose text
-// runs in a column from x 100 to x 820 of a 1040 px pane, the line over it full of text.
+// The placement alone (selectionReplyPlace): a 72 x 28 chip, a selection whose last line is the
+// 22 px line from y 200, in a column from x 100 to x 820 of a 1040 x 700 pane. Text rects: the line
+// over it (178 to 196), the selection's line, the line under it (228 to 246).
 const SIZE = { width: 72, height: 28 };
 const PANE = { width: 1040, height: 700 };
 const COLUMN = { left: 100, right: 820 };
-const ABOVE = [{ left: 100, right: 820, top: 178, bottom: 196 }];
+const row = (top: number, right = 820) => ({ left: 100, right, top, bottom: top + 18 });
+const OVER = row(178);
+const UNDER = row(228);
+const LINE = (right: number) => ({ left: 100, right, top: 200, bottom: 222 });
+/// A selection from the line's start to `right`.
 const at = (right: number) => ({
   text: "x",
   left: right,
   top: 200,
   bottom: 222,
   end: { right, top: 200, bottom: 222 },
+  lines: [LINE(right)],
   column: COLUMN,
 });
+const covers = (place: { left: number; top: number }, rect: { left: number; right: number; top: number; bottom: number }) =>
+  place.left < rect.right && rect.left < place.left + 72 && place.top < rect.bottom && rect.top < place.top + 28;
 
 test("a clear spot over the selection's end keeps the chip there, centred on the end", () => {
-  expect(selectionReplyPlace(at(400), SIZE, PANE, [])).toEqual({ left: 364, top: 166 });
+  expect(selectionReplyPlace(at(400), SIZE, PANE, [LINE(820)])).toEqual({ left: 364, top: 166 });
 });
 
-test("with text over the end, the chip sits just after the end, centred on its line", () => {
-  expect(selectionReplyPlace(at(400), SIZE, PANE, ABOVE)).toEqual({ left: 406, top: 197 });
+test("a selection that ends its line, text over it: inline, just after the end and centred on the line", () => {
+  expect(selectionReplyPlace(at(400), SIZE, PANE, [OVER, LINE(400), UNDER])).toEqual({ left: 406, top: 197 });
 });
 
-test("a selection ending at the column's right edge wraps the chip, never into the margin", () => {
-  // "after" would be x 816 to 888, past the column's 820.
-  expect(selectionReplyPlace(at(810), SIZE, PANE, ABOVE)).toEqual({ left: 100, top: 226 });
-  expect(selectionReplyPlace(at(810), SIZE, PANE, ABOVE, "under-end")).toEqual({ left: 738, top: 226 });
-  expect(selectionReplyPlace(at(810), SIZE, PANE, ABOVE, "edge")).toEqual({ left: 748, top: 197 });
-  // Even with a clear spot over it: centred there, it would run past the column.
-  expect(selectionReplyPlace(at(810), SIZE, PANE, [])).toEqual({ left: 100, top: 226 });
+test("a mid-line end with text over it and after it: just under the end when that is free", () => {
+  expect(selectionReplyPlace(at(400), SIZE, PANE, [OVER, LINE(820)])).toEqual({ left: 364, top: 228 });
 });
 
-test("a selection on the pane's last line wraps the chip over that line instead", () => {
-  expect(selectionReplyPlace(at(810), SIZE, { width: 1040, height: 240 }, ABOVE)).toEqual({ left: 100, top: 168 });
+test("a mid-line end with a short line under it: the nearest free spot in that row", () => {
+  const place = selectionReplyPlace(at(400), SIZE, PANE, [OVER, LINE(820), row(228, 420)]);
+  expect(place).toEqual({ left: 426, top: 228 });
+  for (const rect of [OVER, row(228, 420)]) expect(covers(place, rect)).toBe(false);
+});
+
+test("a right-edge end mid-paragraph, no free spot near: over the selection's own last words, never others'", () => {
+  const text = [OVER, LINE(820), UNDER];
+  // The end is at x 810; "after" (816 to 888) would run past the column's 820.
+  const ownEnd = selectionReplyPlace(at(810), SIZE, PANE, text);
+  expect(ownEnd).toEqual({ left: 738, top: 197 });
+  const ownStart = selectionReplyPlace(at(810), SIZE, PANE, text, "own-start");
+  expect(ownStart).toEqual({ left: 100, top: 197 });
+  for (const place of [ownEnd, ownStart]) for (const rect of [OVER, UNDER]) expect(covers(place, rect)).toBe(false);
+  // Farther: two lines up is clear, so it goes there, at the column's edge nearest the end.
+  expect(selectionReplyPlace(at(810), SIZE, PANE, text, "farther")).toEqual({ left: 748, top: 144 });
+});
+
+test("the chip never leaves the visible transcript: on its first or last line", () => {
+  // The last line: inline would end at 225, past the visible foot (226 less its 2 px).
+  const last = selectionReplyPlace(at(400), SIZE, { width: 1040, height: 226 }, [OVER, LINE(400)]);
+  expect(last.top + 28).toBeLessThanOrEqual(224);
+  expect(covers(last, OVER)).toBe(false);
+  // The first line: the spot over it is above the visible top (194 plus its 2 px).
+  const first = selectionReplyPlace(at(400), SIZE, { width: 1040, height: 700, top: 194 }, [LINE(820), UNDER]);
+  expect(first.top).toBeGreaterThanOrEqual(196);
+  expect(covers(first, UNDER)).toBe(false);
 });
