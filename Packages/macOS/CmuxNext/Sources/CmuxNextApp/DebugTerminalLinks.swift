@@ -29,8 +29,9 @@ extension DebugTerminalLinks {
     /// is the terminal `open` clicks in, else the focused one. `hover: [column, row]` moves the pointer over that viewport
     /// cell and `click: [column, row]` clicks there, both through the view's own mouse handlers with `keys` held
     /// (`["command"]` by default; `[]` for none); `modifiers: [...]` presses or releases keys with the pointer still.
-    /// `hovered` is the link Ghostty reports under the pointer (`link-previews`), `wrapped` a link a program broke
-    /// onto several rows, `pointingHand` whether the pointer shows the hand. `menu` (text, or true for
+    /// `hovered` is the link Ghostty reports under the pointer (`link-previews`), `wrapped` a link cmux found that
+    /// Ghostty does not (a URL a program broke onto rows, a bare file name), `underlinedRows` the rows cmux underlines
+    /// for it, `pointingHand` whether the pointer shows the hand. `menu` (text, or true for
     /// the hovered link) returns the right-click's link or path rows; `route` where a click on that URL goes now
     /// (`other`: Shift-Command), opening nothing; `agentLink` opens a URL as a click in an agent chat does.
     /// `opened` is where links went (``LinkRouter/recorded``).
@@ -57,6 +58,7 @@ extension DebugTerminalLinks {
             result["hovered"] = entry.session.model.hoveredLink.map(JSONValue.string) ?? .null
             let pointer = entry.session.linkPointerStateForTesting
             result["wrapped"] = pointer.wrapped.map(JSONValue.string) ?? .null
+            result["underlinedRows"] = .array(pointer.underlinedRows.map { JSONValue($0) })
             result["pointingHand"] = .bool(pointer.pointingHand)
             if let menu = params["menu"], menu.boolValue == true || menu.stringValue != nil {
                 let rows = services.terminalDelegate.linkMenu(entry.session, text: menu.stringValue, services: services).rows

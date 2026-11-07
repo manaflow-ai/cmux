@@ -23,12 +23,15 @@ and in a full-screen program that reads the mouse (a fixture TUI, as Claude Code
   8. a URL the program broke onto two rows itself opens whole from either row, and the
      hover reports the whole URL;
   9. `src/app.ts:3:5` opens the code editor at line 3, column 5;
+  9b. a bare file name, `main.py:2:5` (no folder part, so Ghostty's pattern misses it), is a
+      link with the hand when the file exists and opens at its line; `nothere.py:3` is not;
+  9c. on a URL the program broke onto rows, cmux underlines only the rows Ghostty does not;
 
 and, with --agent codex=PATH / claude=PATH, in real Codex or Claude Code:
 
- 10. a long URL the agent printed, on several rows, shows whole with the hand and every row
-     underlined, and a Cmd-click on its first or last row opens it whole;
- 11. a path:line the agent printed opens the file at that line.
+ 10. a long URL the agent printed, on several rows, shows whole with the hand; Ghostty
+     underlines it and cmux adds no second line; a Cmd-click on its first or last row opens it whole;
+ 11. a path:line the agent printed opens the file at that line, and so does a bare `main.py:2:5`.
 
 Window snapshots go to --out. GUI host only (a capture mini). Exits 1 when a check fails.
 """
@@ -143,6 +146,8 @@ for folder in (".git", "src", "sub"):
     os.makedirs(os.path.join(REPO, folder), exist_ok=True)
 with open(os.path.join(REPO, "src", "app.ts"), "w") as f:
     f.write("const a = 1;\nconst b = 2;\nconst c = 3;\n")
+with open(os.path.join(REPO, "main.py"), "w") as f:
+    f.write("import sys\nprint(sys.argv)\n")
 
 # The fixture TUI: alternate screen, mouse reporting (1000/1002/1006), and its own line
 # breaks, as Claude Code and Codex draw. It writes where it drew each link and logs every
@@ -172,11 +177,13 @@ for index, piece in enumerate(pieces):
     at(6 + index, 2, piece)
 path_row = 6 + len(pieces) + 1
 at(path_row, 2, "Edited src/app.ts:3:5")
+at(path_row + 1, 2, "Answer: main.py:2:5 and nothere.py:3")
 at(path_row + 2, 2, "plain text")
 out.flush()
 with open(layout_path, "w") as f:
     json.dump({"cols": cols, "plain": [12, 2], "osc8": [12, 4], "wrapped": [[4, 6], [4, 7]],
-               "wrappedRows": len(pieces), "path": [12, path_row], "text": [4, path_row + 2]}, f)
+               "wrappedRows": len(pieces), "path": [12, path_row], "text": [4, path_row + 2],
+               "bare": [12, path_row + 1], "bare_missing": [28, path_row + 1]}, f)
 with open(log_path, "ab", buffering=0) as log:
     while True:
         data = os.read(fd, 1024)
@@ -219,7 +226,7 @@ def run_agent(kind, path):
     """A real agent prints a long URL and a path; Command over each shows and opens it."""
     name, url, marker = AGENT_NAMES[kind], agent_url(kind), f"{kind}=1"
     links(modifiers=[])
-    prompt = f"Reply with exactly these two lines and nothing else. Line 1: {url} Line 2: Edited src/app.ts:3:5"
+    prompt = f"Reply with exactly these three lines and nothing else. Line 1: {url} Line 2: Edited src/app.ts:3:5 Line 3: Opened main.py:2:5"
     flags = "-a never -s read-only" if kind == "codex" else "--permission-mode plan"
     send(f"clear && cd {REPO} && {path} {flags} '{prompt}'\n")
     if kind == "claude":
@@ -266,8 +273,9 @@ def run_agent(kind, path):
     shown = state.get("wrapped") or state.get("hovered")
     check(shown == url, f"Command over {name}'s URL shows the whole URL ({(shown or '')[:70]!r})")
     check(state.get("pointingHand") is True, f"the pointer shows the pointing hand over {name}'s URL ({state.get('pointingHand')!r})")
-    if end > start:
-        check(state.get("wrapped") == url, f"every row of {name}'s URL is underlined ({(state.get('wrapped') or '')[:50]!r})")
+    check(state.get("hovered") == url and not state.get("wrapped") and not state.get("underlinedRows"),
+          f"Ghostty underlines {name}'s URL itself and cmux adds no second line "
+          f"(Ghostty {(state.get('hovered') or '')[:30]!r}, cmux {state.get('wrapped')!r}, rows {state.get('underlinedRows')})")
     snapshot(f"{kind}-url-hover")
     opened = click(col + 1, start)
     check(opened == [f"system:{url}"], f"Cmd-click on {name}'s URL opens it whole ({[o[:80] for o in opened]})")
@@ -289,6 +297,15 @@ def run_agent(kind, path):
               f"Cmd-click on {name}'s src/app.ts:3:5 opens the file at line 3, column 5 ({opened}; hovered {state.get('hovered')!r})")
         time.sleep(2)  # test harness: the editor page loads
         snapshot(f"{kind}-editor-at-line")
+    brow = max((i for i, row in enumerate(rows) if "main.py:2:5" in row and "Line" not in row), default=None)
+    if check(brow is not None, f"found the bare file name {name} drew"):
+        bcol = rows[brow].index("main.py:2:5") + 2
+        hover(bcol, brow)
+        state = hover(bcol + 1, brow)
+        snapshot(f"{kind}-bare-file-hover")
+        opened = click(bcol + 1, brow)
+        check(any(entry.startswith("file:") and entry.endswith("main.py:2:5") for entry in opened),
+              f"Cmd-click on {name}'s bare main.py:2:5 opens the file at line 2, column 5 ({opened}; cmux {state.get('wrapped')!r})")
     links(modifiers=[])
     for _ in range(3):  # the agent quits on a second Ctrl-C
         send("\x03")
@@ -457,6 +474,10 @@ try:
     # 8. The URL the program broke onto rows itself.
     (c1, r1), (c2, r2) = layout.get("wrapped", [[4, 6], [4, 7]])
     hover(c1 + 20, r1)
+    state = links()
+    check(state.get("hovered") and r1 not in (state.get("underlinedRows") or []) and state.get("underlinedRows"),
+          f"on the first row Ghostty underlines its piece and cmux only the other rows "
+          f"(Ghostty {(state.get('hovered') or '')[:30]!r}, cmux rows {state.get('underlinedRows')})")
     snapshot("tui-wrapped-hover-first-row")
     state = hover(c2, r2)
     check(state.get("wrapped") == LONG_URL, f"Cmd-hover on the second row reports the whole URL ({(state.get('wrapped') or '')[:50]!r})")
@@ -480,6 +501,25 @@ try:
     check(any(entry.endswith(":3:5") for entry in opened), f"the file opens at line 3, column 5 ({opened}, want {expected})")
     time.sleep(2)  # test harness: the editor page loads
     snapshot("editor-at-line")
+
+    # 9b. Bare file names.
+    col, row = layout.get("bare", [12, 10])
+    hover(col, row)
+    state = hover(col + 1, row)
+    check(state.get("wrapped") == "./main.py:2:5" and not state.get("hovered") and state.get("underlinedRows") == [row],
+          f"Command over a bare main.py:2:5 makes it a link, underlined once by cmux "
+          f"(cmux {state.get('wrapped')!r}, Ghostty {state.get('hovered')!r}, rows {state.get('underlinedRows')})")
+    check(state.get("pointingHand") is True, f"the pointer shows the hand over main.py:2:5 ({state.get('pointingHand')!r})")
+    snapshot("tui-bare-file-hover")
+    before = presses()
+    opened = click(col + 1, row)
+    check(any(entry.startswith("file:") and entry.endswith("main.py:2:5") for entry in opened),
+          f"Cmd-click on main.py:2:5 opens the file at line 2, column 5 ({opened})")
+    check(presses() == before, f"the program sees no press from that Cmd-click ({presses() - before} new)")
+    col, row = layout.get("bare_missing", [28, 10])
+    hover(col, row)
+    state = hover(col + 1, row)
+    check(not state.get("wrapped") and not state.get("hovered"), f"nothere.py:3 names no file and stays plain text ({state.get('wrapped')!r})")
     send("q")
     time.sleep(1)  # test harness: the fixture TUI leaves the alternate screen
     for spec in opts.agent:
