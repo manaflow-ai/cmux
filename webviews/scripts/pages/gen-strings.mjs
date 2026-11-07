@@ -198,6 +198,11 @@ export const PAGES = {
       },
     ],
   },
+  // The Bookmarks page shares its table with the Swift bar, bubble and manager.
+  bookmarks: {
+    out: "webviews/src/pages/bookmarks/generated/strings.json",
+    catalogs: [{ file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings` }],
+  },
   // Cloud has no Swift page, so its table lives next to the page.
   cloud: {
     out: "webviews/src/pages/cloud/generated/strings.json",

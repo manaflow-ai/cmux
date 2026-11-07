@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextBookmarks
 import CmuxNextBrowser
 import CmuxNextCloudUI
 import CmuxNextPages
@@ -56,7 +57,7 @@ enum FirstPartyPageSchemes {
     static let descriptors: [PageDescriptor] = [
         .agent, .history, .cloud, .apps, .settings, .keybindings, .diff, .markdown, .iconPicker, .groupEditor, .passwords, .editor,
         .chiefInspector, .debugSettings, .homeChannels, .homeMessages, .changelog, .coderouter, .files, .artifacts, .stats, .chiefUsage,
-        .mobilePairing, .agentActivity, .importHistory, .github, .cloudProgress, .machines, .tasks,
+        .mobilePairing, .agentActivity, .importHistory, .github, .cloudProgress, .machines, .bookmarks, .tasks,
     ]
 
     /// The accepted entries of `roots`, each with its page's own CSP.
