@@ -293,7 +293,14 @@ async fn setup(options: &Options) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let machine = Machine { http, options, token };
     if let Some(gw) = &options.gateway {
-        make_gateway(&machine, gw).await?;
+        // Naming a gateway machine asks for the gateway path: it either works end to end or the team's routing goes
+        // back to what it was. No device login is offered in its place.
+        let before = make_gateway(&machine, gw).await?;
+        let checked = gateway(&machine).await;
+        if checked.is_err() {
+            undo_gateway(&machine, gw, &before).await;
+        }
+        return checked;
     }
     if options.path != PathChoice::Device {
         match gateway(&machine).await {
@@ -311,23 +318,39 @@ async fn setup(options: &Options) -> Result<(), String> {
 /// person's own proxy, on the machine's own short-lived token (cmux-host `gateway_token.rs`). Then waits for it.
 /// On any failure after the naming, the team's earlier mode and machine come back and the gateway machine's opt-in
 /// marker goes, so no machine is left routed to a gateway that never came up.
-async fn make_gateway(machine: &Machine<'_>, gw: &GatewayMachine) -> Result<(), String> {
-    let before = gateway_state(machine).await?;
-    let before_mode = before.get("mode").and_then(Value::as_str).unwrap_or("off").to_owned();
-    let before_machine = before.get("machine").and_then(Value::as_str).map(str::to_owned);
+async fn make_gateway(machine: &Machine<'_>, gw: &GatewayMachine) -> Result<Before, String> {
+    let state = gateway_state(machine).await?;
+    let before = Before {
+        mode: state.get("mode").and_then(Value::as_str).unwrap_or("off").to_owned(),
+        machine: state.get("machine").and_then(Value::as_str).map(str::to_owned),
+    };
     put_gateway(machine, "gateway", Some(&gw.machine)).await?;
-    let started = start_gateway(machine, gw).await;
-    if started.is_err() {
-        let undo = "p=\"$HOME/.cache/cmux/inference-gateway.pid\"; [ -f \"$p\" ] && kill \"$(cat \"$p\")\" 2>/dev/null; \
-                    rm -f \"$HOME/.config/cmux/inference-gateway/enabled\" \"$p\"";
-        let _ = machine.exec_on(&gw.machine, undo, 30_000).await;
-        if put_gateway(machine, &before_mode, before_machine.as_deref()).await.is_err() {
-            say(&format!(
-                "Could not set the team's gateway back to {before_mode}; run `cmux inference setup` again."
-            ));
+    match start_gateway(machine, gw).await {
+        Ok(()) => Ok(before),
+        Err(e) => {
+            undo_gateway(machine, gw, &before).await;
+            Err(e)
         }
     }
-    started
+}
+
+/// The team's gateway mode and machine before setup named a new one.
+struct Before {
+    mode: String,
+    machine: Option<String>,
+}
+
+/// Stops the gateway on `gw.machine`, removes its opt-in marker, and gives the team its earlier mode and machine.
+async fn undo_gateway(machine: &Machine<'_>, gw: &GatewayMachine, before: &Before) {
+    let undo = "p=\"$HOME/.cache/cmux/inference-gateway.pid\"; [ -f \"$p\" ] && kill \"$(cat \"$p\")\" 2>/dev/null; \
+                rm -f \"$HOME/.config/cmux/inference-gateway/enabled\" \"$p\"";
+    let _ = machine.exec_on(&gw.machine, undo, 30_000).await;
+    if put_gateway(machine, &before.mode, before.machine.as_deref()).await.is_err() {
+        say(&format!(
+            "Could not set the team's gateway back to {}; run `cmux inference setup` again.",
+            before.mode
+        ));
+    }
 }
 
 /// The team's gateway state (`gateway` in GET /v1/cloud/inference-gateway).
