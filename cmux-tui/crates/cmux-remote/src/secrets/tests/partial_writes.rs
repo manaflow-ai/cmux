@@ -215,7 +215,7 @@ fn a_save_after_a_file_went_in_place_survives_a_later_failure() {
     let before_credentials = snapshot(&fixture.home).get(".claude/.credentials.json").cloned();
     // settings.json goes in first; the person's editor saves it right after,
     // and then the credentials rename (step 4) fails.
-    let path = settings.clone();
+    let path = settings;
     AFTER_PLACE.with(|hook| {
         *hook.borrow_mut() = Some(Box::new(move |index| {
             if index == 0 {

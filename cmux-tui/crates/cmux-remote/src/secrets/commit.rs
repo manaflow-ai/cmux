@@ -31,6 +31,10 @@ use zeroize::Zeroizing;
 
 use super::files::{Changed, Expect, Guard, Planned};
 
+/// Tests only: [`AFTER_PLACE`]'s hook.
+#[cfg(test)]
+pub(super) type PlaceHook = Box<dyn FnMut(usize)>;
+
 #[cfg(test)]
 thread_local! {
     /// Tests only: fail the step with this index (each staged write and
@@ -42,7 +46,7 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
     /// Tests only: run with a file's index once it is in place, as an
     /// outside edit would.
-    pub(super) static AFTER_PLACE: std::cell::RefCell<Option<Box<dyn FnMut(usize)>>> =
+    pub(super) static AFTER_PLACE: std::cell::RefCell<Option<PlaceHook>> =
         const { std::cell::RefCell::new(None) };
 }
 
