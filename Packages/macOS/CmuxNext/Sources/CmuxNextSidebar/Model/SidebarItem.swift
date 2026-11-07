@@ -21,11 +21,15 @@ public nonisolated struct SidebarItemOrder: Hashable, Sendable {
     public let rows: [SidebarItem]
     /// The stop that stands for a workspace without its own row (a member of a collapsed group).
     public let stops: [WorkspaceID: SidebarItem]
+    /// Where a workspace with no stop (folded into "Done (N)", behind "Show N more") draws when selected: the index in
+    /// `rows` it sits before. A step from it goes on from there.
+    public let places: [WorkspaceID: Int]
 
-    public init(topItems: [SidebarItem], rows: [SidebarItem], stops: [WorkspaceID: SidebarItem] = [:]) {
+    public init(topItems: [SidebarItem], rows: [SidebarItem], stops: [WorkspaceID: SidebarItem] = [:], places: [WorkspaceID: Int] = [:]) {
         self.topItems = topItems
         self.rows = rows
         self.stops = stops
+        self.places = places
     }
 
     public var items: [SidebarItem] { topItems + rows }
@@ -83,10 +87,18 @@ public nonisolated struct SidebarItemOrder: Hashable, Sendable {
     public func step(from selected: SidebarItem?, by offset: Int, _ settings: SidebarNavigationSettings) -> SidebarItem? {
         let list = items(settings.stepping)
         guard !list.isEmpty, offset != 0 else { return nil }
-        guard let current = stop(for: selected), let index = list.firstIndex(of: current) else {
+        let next: Int
+        if let current = stop(for: selected), let index = list.firstIndex(of: current) {
+            next = index + offset
+        } else if case .workspace(let id)? = selected, let place = places[id] {
+            // Between two stops: +1 is the stop after its place, -1 the one before.
+            let before = settings.stepping == .allItems
+                ? topItems.count + place
+                : rows[..<place].filter { if case .topItem = $0 { false } else { true } }.count
+            next = offset > 0 ? before + offset - 1 : before + offset
+        } else {
             return offset > 0 ? list.first : list.last
         }
-        let next = index + offset
         if list.indices.contains(next) { return list[next] }
         guard settings.steppingWraps else { return nil }
         return list[((next % list.count) + list.count) % list.count]

@@ -3,7 +3,10 @@ extension SidebarModel {
     /// top region's visible items (hidden, missing and suppressed apps' items
     /// skipped), then the list's selectable rows in drawn order (the sidebar's
     /// own row layout, so collapsed sections and rows the filter hides are not
-    /// stops). A collapsed group is one stop; an empty one is none.
+    /// stops). A collapsed group is one stop; an empty one is none. The rows are
+    /// laid out with the list's own row options (`rowOptions`): a workspace folded
+    /// into a "Done (N)" row or hidden behind "Show N more" is no stop until its
+    /// fold opens (Leo 2026-11-07: Cmd-1…7 next to a group "messes things up a ton").
     ///
     /// Made once per change of what it reads (`SidebarItemOrderInputs`), so
     /// a Cmd-1…9 or Cmd-Ctrl-[ / ] press costs a key compare, not a layout
@@ -26,9 +29,10 @@ extension SidebarModel {
             let info = itemInfo[item.id]
             return info?.isHidden != true && info?.isMissing != true && !suppressedApps.contains(item.owningAppID ?? "")
         }
-        var options = SidebarLayoutOptions()
-        options.filterMatches = filterMatches
-        options.grouping = settledGrouping()
+        // As the list draws its rows, without the selection: the active workspace keeps its place in a fold when the
+        // list draws it, but it is no stop of its own, so no number moves when it is selected.
+        var options = rowOptions()
+        options.hidesWorkspaces = false // Cmd-1…9 reach workspaces with the Projects list hidden, as before
         // The session tree moves a started workspace under its parent: the numbers follow the drawn order.
         options.sessionTree = SidebarSessionTree.shared.drawn?.shape
         // The sidebar document draws its sections in the list: a block's items are stops where the block draws.
@@ -60,7 +64,25 @@ extension SidebarModel {
             }
         }
         let topItems = top.filter { item in !listed.contains(inBlock.first { $0.value.contains(item) }?.key ?? "") }
-        return SidebarItemOrder(topItems: topItems.map { .topItem($0.id) }, rows: rows, stops: stops)
+        return SidebarItemOrder(topItems: topItems.map { .topItem($0.id) }, rows: rows, stops: stops,
+                                places: places(of: selectableWorkspaces.map(\.id), rows: rows, stops: stops))
+    }
+
+    /// Where each workspace with no stop (folded into "Done (N)", behind "Show N more") sits among `rows`: the index
+    /// after the last stop before it in the model's order. Selected, it draws there, so stepping goes on from there.
+    private func places(of ids: [WorkspaceID], rows: [SidebarItem], stops: [WorkspaceID: SidebarItem]) -> [WorkspaceID: Int] {
+        var index: [SidebarItem: Int] = [:]
+        for (i, item) in rows.enumerated() where index[item] == nil { index[item] = i }
+        var next = rows.firstIndex { if case .topItem = $0 { false } else { true } } ?? rows.count
+        var places: [WorkspaceID: Int] = [:]
+        for id in ids {
+            if let at = index[.workspace(id)] ?? stops[id].flatMap({ index[$0] }) {
+                next = at + 1
+            } else {
+                places[id] = next
+            }
+        }
+        return places
     }
 }
 
@@ -78,6 +100,10 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
     var transientTopItems: [SidebarTransientItem]
     var grouping: SidebarGrouping
     var collapsedLayoutSections: Set<LayoutSectionID>
+    var foldsDone: Bool
+    var rowLimit: Int
+    var openDoneFolds: Set<SidebarDoneFoldID>
+    var openShowMore: Set<SidebarDoneFoldID>
     var treeShape: SidebarSessionTreeState?
 
     @MainActor init(_ model: SidebarModel) {
@@ -90,6 +116,8 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
         transientTopItems = model.transientTopItems
         grouping = model.grouping
         collapsedLayoutSections = model.collapsedLayoutSections
+        (foldsDone, rowLimit) = (SidebarTunables.doneFold.value, SidebarTunables.rowLimit)
+        (openDoneFolds, openShowMore) = (model.openDoneFolds, model.openShowMore)
         treeShape = SidebarSessionTree.shared.drawn?.shape
     }
 }

@@ -120,6 +120,10 @@ public final class SidebarModel {
     }
     /// `itemOrder` and the inputs it was made from.
     @ObservationIgnored var itemOrderCache: (inputs: SidebarItemOrderInputs, order: SidebarItemOrder)?
+    /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`), kept here so `itemOrder` numbers what they show.
+    @ObservationIgnored var openDoneFolds: Set<SidebarDoneFoldID> = []
+    /// The lists whose "Show N more" row the person opened, kept here for the same reason.
+    @ObservationIgnored var openShowMore: Set<SidebarDoneFoldID> = []
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
     @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
     /// The workspace rows as the list draws them, top to bottom (its folder sort and filter applied; empty with no list).
@@ -578,9 +582,7 @@ public final class SidebarModel {
 
     /// The list layout's options that come from the model.
     func listOptions() -> SidebarLayoutOptions {
-        var o = SidebarLayoutOptions()
-        o.filterMatches = filterMatches
-        (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, SidebarTunables.doneFold.value, SidebarTunables.rowLimit)
+        var o = rowOptions()
         o.activeWorkspaceID = activeWorkspaceID
         // A group opened by a structural set (another client) forgets its revealed members.
         revealedMembers = revealedMembers.filter { group($0.key)?.isCollapsed == true }
@@ -605,6 +607,16 @@ public final class SidebarModel {
         }
         o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
+        return o
+    }
+
+    /// The options that decide which rows the list draws and in what order, without the selection: the list's
+    /// layout (`listOptions`) and the Cmd-1…9 order (`itemOrder`) both start from these, so a digit counts the rows drawn.
+    func rowOptions() -> SidebarLayoutOptions {
+        var o = SidebarLayoutOptions()
+        o.filterMatches = filterMatches
+        (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, SidebarTunables.doneFold.value, SidebarTunables.rowLimit)
+        (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
         o.grouping = settledGrouping()
         return o
     }
