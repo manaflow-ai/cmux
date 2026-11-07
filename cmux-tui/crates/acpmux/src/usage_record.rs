@@ -163,7 +163,10 @@ pub(crate) fn turn_event(
         session: Id::new(session),
         harness: Token::new(harness),
         // A provider-qualified id (`openai/gpt-5`) keeps its model part: a `/` makes a token `other`.
-        model: result.get("model").and_then(Value::as_str).map(|m| Token::new(m.rsplit('/').next().unwrap_or(m))),
+        model: result
+            .get("model")
+            .and_then(Value::as_str)
+            .map(|m| Token::new(m.rsplit('/').next().unwrap_or(m))),
         ms: started_at.map_or(0, |at| now_ms().saturating_sub(at)),
         input_tokens: tokens("inputTokens"),
         output_tokens: tokens("outputTokens"),

@@ -18,7 +18,6 @@ mod graphics;
 mod host_share;
 mod layout;
 mod live_code;
-mod usage_recording;
 mod local_server;
 mod machine_agent;
 mod menu;
@@ -38,6 +37,7 @@ mod terminal;
 mod terminal_input;
 pub(crate) mod terminal_respawn;
 mod update_notice;
+mod usage_recording;
 
 pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
@@ -54,7 +54,6 @@ pub(crate) use foreign_viewport::ForeignViewportMessages;
 pub(crate) use graphics::GraphicsMessages;
 pub(crate) use layout::LayoutMessages;
 pub(crate) use live_code::LiveCodeMessages;
-pub(crate) use usage_recording::UsageRecordingMessages;
 pub(crate) use local_server::LocalServerMessages;
 pub(crate) use machine_agent::MachineAgentMessages;
 pub(crate) use menu::MenuMessages;
@@ -73,6 +72,7 @@ pub(crate) use startup::StartupMessages;
 pub(crate) use terminal::TerminalMessages;
 pub(crate) use terminal_input::TerminalInputMessages;
 pub(crate) use update_notice::UpdateNoticeMessages;
+pub(crate) use usage_recording::UsageRecordingMessages;
 
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
