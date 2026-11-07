@@ -22,20 +22,12 @@ extension TabStripView {
     func startObservingTokens() {
         guard tokenObservationTask == nil else { return }
         tokenObservationTask = Task { [weak self] in
-            let changes = ObservationStream {
-                TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.tabTitle.pointSize, topRowLine: TopRowLineLook.tunable.value)
-            }
-            var line: TopRowLineLook?
+            let changes = ObservationStream { TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.tabTitle.pointSize) }
             for await snapshot in changes {
                 guard let self else { return }
                 if snapshot.metrics != self.metrics || snapshot.titleFont != self.tabTitleFontSize {
                     self.applyTokens(animated: true)
                 }
-                // Another line in Debug Settings: a top-row strip lays its window out again once.
-                if let line, line != snapshot.topRowLine, let window = self.window, WindowTitlebar.isInTopRow(self) {
-                    WindowTitlebar.layOutTopRowAgain(in: window)
-                }
-                line = snapshot.topRowLine
             }
         }
     }

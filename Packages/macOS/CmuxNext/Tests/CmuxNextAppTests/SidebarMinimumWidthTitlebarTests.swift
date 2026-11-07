@@ -71,6 +71,32 @@ import Testing
         #expect(root.sidebar.model.minimumWidth == max(Metrics.sidebarMinWidth, controls))
     }
 
+    /// The +'s trailing inset follows the trailing column, which moves with the app's and the sidebar's
+    /// density: switching either at the narrowest width refreshes the cached minimum, so the + stays on
+    /// the column and clear of Forward (review of #37619: the render only marked layout dirty, and the
+    /// old density's minimum moved the + toward Forward).
+    @Test(arguments: SidebarDensity.allCases) func switchingDensityAtTheMinimumKeepsThePlusOnTheColumn(_ density: SidebarDensity) {
+        let design = DesignSettings.shared
+        let savedTokens = design.densityTokens, savedSidebar = design.sidebarSections.density
+        defer { design.densityTokens = savedTokens; design.sidebarSections.density = savedSidebar }
+        let (window, root) = root()
+        defer { window.close() }
+        let container = root.sidebar, sidebarView = root.sidebar.sidebarView
+        for preset in DensityPreset.allCases {
+            design.densityTokens = preset.tokens
+            design.sidebarSections.density = density
+            sidebarView.renderNow()
+            container.restore(width: container.model.minimumWidth, presentation: .shown)
+            settle(root)
+            let label = "\(preset.rawValue)/\(density.rawValue)"
+            #expect(container.model.titlebarControlsWidth == sidebarView.titlebarControlsWidth, "\(label): stale minimum")
+            let width = sidebarView.bounds.width
+            let column = SidebarStyle.trailingColumnCenterX(sidebarWidth: width)
+            #expect(abs(sidebarView.newButton.frame.midX - column) <= 0.5, "\(label) at \(width): + \(sidebarView.newButton.frame.midX), column \(column)")
+            #expect(gapBeforePlus(root) >= Metrics.space2, "\(label) at \(width): + reaches Forward")
+        }
+    }
+
     @Test func thePriorityBellWidensTheMinimumAndStaysClearOfForward() {
         let (window, root) = root()
         defer { window.close() }

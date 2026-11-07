@@ -1,5 +1,4 @@
 import CoreGraphics
-import CmuxNextDesign
 
 // What the strip's observation loops compare between updates.
 extension TabStripView {
@@ -7,8 +6,6 @@ extension TabStripView {
     struct TokenSnapshot: Equatable, Sendable {
         var metrics: TabStripMetrics
         var titleFont: CGFloat
-        /// The window top's line variant (Debug Settings `chrome.topRowLine`).
-        var topRowLine: TopRowLineLook
     }
 
     /// Model fields whose change triggers a sync. Equal arrays that share

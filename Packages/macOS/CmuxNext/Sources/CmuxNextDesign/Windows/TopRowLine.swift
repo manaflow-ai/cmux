@@ -101,7 +101,7 @@ extension WindowTitlebar {
                                   titlebarHeight: Metrics.titlebarHeight)
     }
 
-    /// Lays out every view of `window` again: a top-row strip calls it when Debug Settings picks
+    /// Lays out every view of `window` again: the sidebar (every window has one) calls it when Debug Settings picks
     /// another line, since the strips, the toolbar band, the sidebar's + and the card top all read
     /// the line in `layout()`. One walk per change of a Debug setting, never per frame.
     public static func layOutTopRowAgain(in window: NSWindow) {

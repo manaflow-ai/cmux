@@ -55,6 +55,14 @@ extension SidebarViewComponents {
         var noColorBlocks: Bool
         /// Where leading glyphs sit in the icon column (`sidebar.leadingColumn`): every row lays out again.
         var leadingColumn: SidebarLeadingColumnLook
+        /// Every token the titlebar row's width reads past the view's own inputs (the reserve, the accessory, the
+        /// Priority bell, which refresh it themselves): the button, the +'s trailing inset (the trailing column at
+        /// the app and sidebar density), the traffic lights' inset and the gaps. A change refreshes
+        /// `SidebarModel.titlebarControlsWidth`, so the minimum width never keeps an old density's.
+        var titlebarRow: [CGFloat]
+        /// The window top's line (Debug Settings `chrome.topRowLine`): every window has a sidebar, so it lays its
+        /// window out again on a change, with or without a top-row tab strip.
+        var topRowLine: TopRowLineLook
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
@@ -86,6 +94,9 @@ extension SidebarViewComponents {
             groupLineJoinsBar = SidebarGroupLine.joinsBar
             noColorBlocks = SidebarNoColorGroupLook.tunable.value != .plain
             leadingColumn = SidebarLeadingColumnLook.tunable.value
+            titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, Metrics.trafficLightInset,
+                           Metrics.space1, Metrics.space2, Metrics.space3]
+            topRowLine = TopRowLineLook.tunable.value
         }
     }
     func observe() {
@@ -121,6 +132,8 @@ extension SidebarViewComponents {
         guard state != lastState else { return }
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
             || lastState?.titlebarHeight != state.titlebarHeight || lastState?.leadingColumn != state.leadingColumn
+        if lastState?.titlebarRow != state.titlebarRow { titlebarReserveChanged() }
+        if let last = lastState, last.topRowLine != state.topRowLine, let window { WindowTitlebar.layOutTopRowAgain(in: window) }
         let profileChanged = lastState?.activeProfile != state.activeProfile
         let profilesChanged = lastState?.profiles != state.profiles || profileChanged
             || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo
