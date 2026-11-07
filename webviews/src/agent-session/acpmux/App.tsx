@@ -5350,6 +5350,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             waiting={waitingAgents}
             onOpen={showSubagent}
             onOpenCommand={openTrayCommand}
+            canOpenTerminal={opensProcessTerminal(snapshot.summary)}
             canReadTail={
               opensProcessTerminal(snapshot.summary) &&
               clientEpoch > 0 &&
