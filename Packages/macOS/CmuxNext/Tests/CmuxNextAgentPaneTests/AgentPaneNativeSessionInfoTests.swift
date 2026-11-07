@@ -563,7 +563,7 @@ struct AgentPaneNativeSessionInfoTests {
         header.frame = CGRect(x: 0, y: 0, width: 180, height: 26)
         header.layoutSubtreeIfNeeded()
         let frames = header.subviews.map(\.frame)
-        let chevron = try #require(header.subviews.first { $0 is NSImageView }).frame
+        let chevron = try #require(header.subviews.first { $0 is SessionInfoChevronView }).frame
         let meta = try #require(frames.max { $0.minX < $1.minX })
         #expect(chevron.maxX <= meta.minX)
 
@@ -638,6 +638,7 @@ struct AgentPaneNativeSessionInfoTests {
             view.subviews.compactMap { $0 as? SessionInfoGripView }.first
         }
         func images(_ view: SessionInfoLineView) -> [NSImageView] { view.subviews.compactMap { $0 as? NSImageView } }
+        func chevrons(_ view: SessionInfoLineView) -> [SessionInfoChevronView] { view.subviews.compactMap { $0 as? SessionInfoChevronView } }
 
         let context = view(SessionInfoLine(id: "context", kind: .header, symbol: "gauge", title: "Context", trailing: "42%",
                                            unfolded: true, reorderable: true, action: "fold:context:0"))
@@ -666,12 +667,16 @@ struct AgentPaneNativeSessionInfoTests {
             #expect(!line.showsChevron)
             let titleX = try title(line).minX
             #expect(images(line).allSatisfy { $0.isHidden || $0.frame.maxX <= titleX })
+            #expect(chevrons(line).allSatisfy(\.isHidden))
         }
         #expect(images(changes).filter { !$0.isHidden }.isEmpty)
-        // Foldable headers carry a chevron; a plain one does not.
-        #expect(images(context).count == 2)
-        #expect(images(changes).count == 1)
+        // Foldable headers carry a chevron (one glyph that turns: down open, right folded); a plain one does not.
+        #expect(images(context).count == 1)
+        #expect(images(changes).isEmpty)
         #expect(images(plain).isEmpty)
+        #expect(chevrons(context).map(\.degrees) == [90])
+        #expect(chevrons(changes).map(\.degrees) == [0])
+        #expect(chevrons(plain).isEmpty)
 
         let enter = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
                                                     windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
@@ -693,7 +698,7 @@ struct AgentPaneNativeSessionInfoTests {
             if line.line.unfolded != nil {
                 // The chevron shows one grid gap after the title, before the meta.
                 #expect(line.showsChevron)
-                let chevron = try #require(images(line).first { !$0.isHidden && $0.frame.minX > before.maxX })
+                let chevron = try #require(chevrons(line).first { !$0.isHidden && $0.frame.minX > before.maxX })
                 #expect(chevron.frame.minX == before.maxX + LayoutGrid.gap)
                 #expect(chevron.frame.width == LayoutGrid.iconBox)
             }
