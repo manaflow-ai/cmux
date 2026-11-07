@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import select
+import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -10,6 +12,7 @@ from unittest.mock import patch
 
 import cmux
 import cmux._protocol as resource_protocol
+from cmux.transport import JsonLineConnection
 import cmux.aio
 import cmux.raw
 from cmux.resources import _journal_record
@@ -107,6 +110,319 @@ def canceled_end(connection, stream_id, **fields):
 
 
 class ResourceApiTests(unittest.TestCase):
+    def _assert_request_deadline_bounds_socket_dispatch(self, asynchronous):
+        accepted = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+        errors = []
+
+        def handler(connection, _index):
+            connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+            accepted.set()
+            release.wait(3)
+
+        def write(path):
+            try:
+                if asynchronous:
+                    async def exercise():
+                        async with cmux.aio.Client(path, timeout=2) as client:
+                            try:
+                                await client.session(SESSION).terminal(TERMINAL).write(
+                                    "x" * (1024 * 1024),
+                                    request_options=RequestOptions(timeout=0.05),
+                                )
+                            finally:
+                                finished.set()
+                    asyncio.run(exercise())
+                else:
+                    with Client(path, timeout=2) as client:
+                        try:
+                            client.with_request_options(
+                                RequestOptions(timeout=0.05),
+                                client.session(SESSION).terminal(TERMINAL).write,
+                                "x" * (1024 * 1024),
+                            )
+                        finally:
+                            finished.set()
+            except BaseException as error:
+                errors.append(error)
+
+        with UnixJsonServer(handler) as server:
+            worker = threading.Thread(target=write, args=(server.path,))
+            worker.start()
+            try:
+                self.assertTrue(accepted.wait(1), "server did not accept the SDK client")
+                self.assertTrue(
+                    finished.wait(0.5),
+                    "request deadline did not bound blocked socket dispatch",
+                )
+            finally:
+                release.set()
+                worker.join(timeout=3)
+            self.assertFalse(worker.is_alive(), "SDK request worker was not released")
+            self.assertEqual(len(errors), 1)
+            self.assertIsInstance(errors[0], MutationTransportError)
+            self.assertIsInstance(errors[0].__cause__, cmux.TimeoutError)
+
+    def test_request_deadline_bounds_socket_dispatch(self) -> None:
+        self._assert_request_deadline_bounds_socket_dispatch(False)
+
+    def test_aio_request_deadline_bounds_socket_dispatch(self) -> None:
+        self._assert_request_deadline_bounds_socket_dispatch(True)
+
+    def test_pre_write_dispatch_timeout_keeps_connection_reusable(self) -> None:
+        observed = []
+        pending_seen = threading.Event()
+        release_response = threading.Event()
+        timed_out = threading.Event()
+        pending_result = []
+        timed_out_errors = []
+
+        def handler(connection, _index):
+            request = next(frames(connection))
+            observed.append(request)
+            pending_seen.set()
+            release_response.wait(1)
+            ok(
+                connection,
+                request,
+                {
+                    "alive": True,
+                    "cursor": {
+                        "generation": "generation-a",
+                        "revision": "1",
+                    },
+                },
+            )
+
+        def pending_request(client):
+            try:
+                pending_result.append(client.session(SESSION).ping())
+            except BaseException as error:
+                pending_result.append(error)
+
+        def timed_out_request(client):
+            try:
+                client.with_request_options(
+                    RequestOptions(timeout=0.05),
+                    client.session(SESSION).ping,
+                )
+            except BaseException as error:
+                timed_out_errors.append(error)
+            finally:
+                timed_out.set()
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=2) as client:
+                pending_worker = threading.Thread(
+                    target=pending_request,
+                    args=(client,),
+                )
+                pending_worker.start()
+                self.assertTrue(pending_seen.wait(1))
+                send_lock = client._connection._wire._send_lock
+                self.assertTrue(send_lock.acquire())
+                timed_out_worker = threading.Thread(
+                    target=timed_out_request,
+                    args=(client,),
+                )
+                timed_out_worker.start()
+                try:
+                    self.assertTrue(
+                        timed_out.wait(1),
+                        "request did not time out while waiting for send lock",
+                    )
+                finally:
+                    send_lock.release()
+                    timed_out_worker.join(timeout=1)
+                self.assertFalse(timed_out_worker.is_alive())
+                self.assertEqual(len(timed_out_errors), 1)
+                self.assertIsInstance(timed_out_errors[0], cmux.TimeoutError)
+                self.assertFalse(client.closed)
+                release_response.set()
+                pending_worker.join(timeout=1)
+                self.assertFalse(pending_worker.is_alive())
+                self.assertEqual(len(pending_result), 1)
+                self.assertTrue(pending_result[0].alive)
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.ping"],
+        )
+
+    def test_oversized_dispatch_timeout_does_not_overflow_send_lock(self) -> None:
+        observed = []
+        handler_done = threading.Event()
+
+        def handler(connection, _index):
+            observed.extend(frames(connection))
+            handler_done.set()
+
+        with UnixJsonServer(handler) as server:
+            connection = JsonLineConnection(server.path, timeout=0.2)
+            try:
+                timeout = threading.TIMEOUT_MAX * 2
+                connection.send({"operation": "ordinary"}, timeout=timeout)
+                self.assertTrue(
+                    connection.send_bounded_if(
+                        {"operation": "bounded"},
+                        timeout,
+                        lambda: True,
+                    )
+                )
+            finally:
+                connection.close()
+            self.assertTrue(handler_done.wait(1))
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["ordinary", "bounded"],
+        )
+
+    def test_dispatch_keeps_deadline_after_platform_wait_slice(self) -> None:
+        def handler(connection, _index):
+            for request in frames(connection):
+                send_frame(connection, request)
+
+        with UnixJsonServer(handler) as server:
+            with JsonLineConnection(server.path, timeout=1) as connection:
+                select_socket = select.select
+                first_wait = True
+
+                def readiness(readers, writers, exceptional, timeout):
+                    nonlocal first_wait
+                    if writers and first_wait:
+                        first_wait = False
+                        return [], [], []
+                    return select_socket(readers, writers, exceptional, timeout)
+
+                with patch("cmux.transport._SELECT_TIMEOUT_MAX", 0.001), patch(
+                    "cmux.transport.select.select", side_effect=readiness
+                ):
+                    connection.send({"value": "still within deadline"}, timeout=1)
+                self.assertEqual(
+                    connection.recv(), {"value": "still within deadline"}
+                )
+
+    def test_dispatch_keeps_deadline_after_platform_lock_slice(self) -> None:
+        def handler(connection, _index):
+            for request in frames(connection):
+                send_frame(connection, request)
+
+        for bounded in (False, True):
+            with self.subTest(bounded=bounded), UnixJsonServer(handler) as server:
+                with JsonLineConnection(server.path, timeout=1) as connection:
+                    lock = connection._send_lock
+                    lock.acquire()
+
+                    def acquire(timeout):
+                        acquired = lock.acquire(timeout=timeout)
+                        if not acquired:
+                            lock.release()
+                        return acquired
+
+                    with patch.object(connection, "_send_lock") as send_lock, patch(
+                        "cmux.transport.threading.TIMEOUT_MAX", 0.001
+                    ):
+                        send_lock.acquire.side_effect = acquire
+                        send_lock.release.side_effect = lock.release
+                        if bounded:
+                            self.assertTrue(connection.send_bounded_if(
+                                {"value": "bounded"}, 1, lambda: True
+                            ))
+                        else:
+                            connection.send({"value": "ordinary"}, timeout=1)
+                    self.assertEqual(connection.recv(), {
+                        "value": "bounded" if bounded else "ordinary"
+                    })
+
+    def test_expired_socket_readiness_does_not_dispatch(self) -> None:
+        def handler(connection, _index):
+            for request in frames(connection):
+                send_frame(connection, request)
+
+        with UnixJsonServer(handler) as server:
+            with JsonLineConnection(server.path, timeout=1) as connection:
+                select_socket = select.select
+                dispatched = []
+                with patch("cmux.transport.time") as clock:
+                    clock.monotonic.return_value = 0
+
+                    def delayed_readiness(readers, writers, exceptional, timeout):
+                        ready = select_socket(readers, writers, exceptional, timeout)
+                        clock.monotonic.return_value = 2
+                        return ready
+
+                    with patch(
+                        "cmux.transport.select.select", side_effect=delayed_readiness
+                    ), self.assertRaises(cmux.TimeoutError):
+                        connection.send(
+                            {"value": "expired"}, timeout=1,
+                            on_sent=lambda: dispatched.append(True),
+                        )
+                self.assertEqual(dispatched, [])
+                connection.send({"value": "reused"}, timeout=1)
+                self.assertEqual(connection.recv(), {"value": "reused"})
+
+    def test_pre_write_mutation_timeout_is_conclusive(self) -> None:
+        for asynchronous in (False, True):
+            with self.subTest(asynchronous=asynchronous):
+                observed = []
+
+                def handler(connection, _index):
+                    for request in frames(connection):
+                        observed.append(request["operation"])
+                        ok(connection, request, {
+                            "alive": True,
+                            "cursor": {"generation": "generation-a", "revision": "1"},
+                        })
+
+                with UnixJsonServer(handler) as server:
+                    if asynchronous:
+                        async def exercise():
+                            async with cmux.aio.Client(server.path, timeout=2) as client:
+                                with client._sync._connection._wire._send_lock:
+                                    with self.assertRaises(cmux.TimeoutError):
+                                        await client.session(SESSION).terminal(TERMINAL).write(
+                                            "not sent", request_options=RequestOptions(timeout=0.05)
+                                        )
+                                self.assertTrue((await client.session(SESSION).ping()).alive)
+                        asyncio.run(exercise())
+                    else:
+                        with Client(server.path, timeout=2) as client:
+                            with client._connection._wire._send_lock:
+                                with self.assertRaises(cmux.TimeoutError):
+                                    client.with_request_options(
+                                        RequestOptions(timeout=0.05),
+                                        client.session(SESSION).terminal(TERMINAL).write,
+                                        "not sent",
+                                    )
+                            self.assertTrue(client.session(SESSION).ping().alive)
+                self.assertEqual(observed, ["session.ping"])
+
+    def test_close_during_dispatch_setup_preserves_mutation_error_key(self) -> None:
+        def handler(connection, _index):
+            while connection.recv(1):
+                pass
+
+        with UnixJsonServer(handler) as server, Client(server.path) as client:
+            wire = client._connection._wire
+            sock = wire._socket
+
+            def close_before_setup():
+                timeout = sock.gettimeout()
+                wire.close()
+                return timeout
+
+            with patch.object(wire, "_socket", wraps=sock) as proxy:
+                proxy.gettimeout.side_effect = close_before_setup
+                with self.assertRaises(MutationTransportError) as raised:
+                    client.session(SESSION).terminal(TERMINAL).write(
+                        "not sent", idempotency_key="close-during-dispatch"
+                    )
+            self.assertIsInstance(raised.exception.__cause__, CmuxConnectionError)
+            self.assertEqual(raised.exception.idempotency_key, "close-during-dispatch")
+
     def test_public_models_export_journal_append_result(self) -> None:
         self.assertIn("JournalAppendResult", cmux.__all__)
 
@@ -2580,17 +2896,17 @@ class ResourceApiTests(unittest.TestCase):
         with UnixJsonServer(handler) as server:
             with Client(server.path, timeout=0.2) as client:
                 session = client.session(SESSION)
-                send_encoded = client._connection._wire._send_encoded
+                send_encoded = client._connection._wire._send_encoded_bounded
 
-                def deliver_then_fail(encoded):
-                    send_encoded(encoded)
+                def deliver_then_fail(encoded, dispatch_deadline):
+                    send_encoded(encoded, dispatch_deadline)
                     if not open_seen.wait(1):
                         raise AssertionError("server did not receive stream open")
                     raise expected
 
                 with patch.object(
                     client._connection._wire,
-                    "_send_encoded",
+                    "_send_encoded_bounded",
                     side_effect=deliver_then_fail,
                 ):
                     with self.assertRaises(CmuxConnectionError) as raised:
@@ -2698,10 +3014,10 @@ class ResourceApiTests(unittest.TestCase):
 
         with UnixJsonServer(handler) as server:
             with Client(server.path, timeout=0.2) as client:
-                send_encoded = client._connection._wire._send_encoded
+                send_encoded = client._connection._wire._send_encoded_bounded
 
-                def wait_for_reader_failure(encoded):
-                    send_encoded(encoded)
+                def wait_for_reader_failure(encoded, dispatch_deadline):
+                    send_encoded(encoded, dispatch_deadline)
                     if not failure_sent.wait(1):
                         raise AssertionError("server did not send protocol failure")
                     deadline = time.monotonic() + 1
@@ -2712,7 +3028,7 @@ class ResourceApiTests(unittest.TestCase):
 
                 with patch.object(
                     client._connection._wire,
-                    "_send_encoded",
+                    "_send_encoded_bounded",
                     side_effect=wait_for_reader_failure,
                 ):
                     with self.assertRaises(cmux.ProtocolError) as raised:
@@ -3686,14 +4002,14 @@ class ResourceApiTests(unittest.TestCase):
         with UnixJsonServer(handler) as server:
             with Client(server.path, timeout=2) as client:
                 session = client.session(SESSION)
-                send_encoded = client._connection._wire._send_encoded
+                send_encoded = client._connection._wire._send_encoded_bounded
                 send_count = 0
 
-                def fail_second_write(encoded):
+                def fail_second_write(encoded, dispatch_deadline):
                     nonlocal send_count
                     send_count += 1
                     if send_count == 1:
-                        send_encoded(encoded)
+                        send_encoded(encoded, dispatch_deadline)
                         return
                     partial = encoded[: max(1, len(encoded) // 2)]
                     client._connection._wire._socket.sendall(partial)
@@ -3712,7 +4028,7 @@ class ResourceApiTests(unittest.TestCase):
 
                 with patch.object(
                     client._connection._wire,
-                    "_send_encoded",
+                    "_send_encoded_bounded",
                     side_effect=fail_second_write,
                 ):
                     open_thread = threading.Thread(target=open_stream)
