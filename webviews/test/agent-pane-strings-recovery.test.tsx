@@ -102,7 +102,13 @@ test("a failed load is tried again, at most twice", async () => {
   expect(recoverStrings(doc, "en")).toBe(true);
   doc.head.querySelectorAll("script")[1]!.dispatchEvent(new dom!.window.Event("error"));
   expect(added(doc)).toEqual([]);
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  // The retry appends a new tag after its delay: wait for that tag, not for a fixed time.
+  await new Promise<void>((resolve) =>
+    new dom!.window.MutationObserver((_, observer) => {
+      observer.disconnect();
+      resolve();
+    }).observe(doc.head, { childList: true }),
+  );
   expect(added(doc)).toEqual(["locales/en.js"]);
 });
 
