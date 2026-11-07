@@ -56,6 +56,7 @@ import {
   type BackgroundTask,
   type StopTarget,
 } from "./backgroundTasks";
+import { BackgroundTaskCard } from "./BackgroundTaskCard";
 import { NestedAgents, SubagentTranscript } from "./SubagentTranscript";
 import "./backgroundTasks.css";
 
@@ -67,6 +68,10 @@ const StopsAgents = createContext(true);
 /// agents are listed but open nothing.
 export type WorkflowReads = { sessionId?: string; chat: string; connection: string; read: TranscriptRead };
 const Workflows = createContext<WorkflowReads | undefined>(undefined);
+
+/// Whether the host reads a command's output (a chat on this Mac, App.tsx `canReadTail`); without it
+/// a command's card shows its command alone, never a "No output yet" that would never change.
+const ReadsOutput = createContext(true);
 
 /// How many finished tasks a group lists before Show more, and how many more each press adds.
 export const FINISHED_PAGE = 8;
@@ -86,6 +91,7 @@ export function BackgroundTasksPanel({
   expanded = false,
   initialDrill,
   stopsAgents = true,
+  readsOutput = true,
   workflow,
   onStop,
   onClearFinished,
@@ -103,6 +109,8 @@ export function BackgroundTasksPanel({
   /// A gallery or a test opens on a transcript.
   initialDrill?: Drill;
   stopsAgents?: boolean;
+  /// The host reads a command's output (BackgroundTaskOutputContext); off, its card shows the command.
+  readsOutput?: boolean;
   /// Reads a workflow agent's transcript; unset (Labs off), a workflow's agents open nothing.
   workflow?: WorkflowReads;
   onStop?(target: StopTarget): Promise<unknown>;
@@ -149,88 +157,117 @@ export function BackgroundTasksPanel({
   const drilled = drill && agentOf(groups, drill.agentId);
   return (
     <StopsAgents.Provider value={stopsAgents}>
-      <Workflows.Provider value={workflow}>
-        <PanelFrame
-          title={drill ? (drilled?.name ?? drill.agentId) : t("backgroundTasks.title")}
-          back={drill ? back : undefined}
-          backLabel={t("backgroundTasks.back")}
-          clear={!drill && finished.length > 0 ? () => onClearFinished(finished) : undefined}
-          expanded={expanded}
-          onExpand={onExpand}
-          onClose={onClose}
-        >
-          <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
-            {groups.length === 0 ? (
-              <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
-            ) : (
-              sections.map((section) => (
-                <Section key={section.id} id={section.id} count={section.groups.length}>
-                  {section.groups.map((group, index) => (
-                    <GroupBlock
-                      key={group.id}
-                      group={group}
-                      look={look}
-                      now={now}
-                      startsOpen={section.id === "running" && index === 0}
-                      onDrill={open}
-                      onStop={onStop}
-                      onOpenSession={onOpenSession}
-                      onOpenCommand={onOpenCommand}
-                    />
-                  ))}
-                </Section>
-              ))
+      <ReadsOutput.Provider value={readsOutput}>
+        <Workflows.Provider value={workflow}>
+          <PanelFrame
+            title={drill ? (drilled?.name ?? drill.agentId) : t("backgroundTasks.title")}
+            back={drill ? back : undefined}
+            backLabel={t("backgroundTasks.back")}
+            clear={!drill && finished.length > 0 ? () => onClearFinished(finished) : undefined}
+            expanded={expanded}
+            onExpand={onExpand}
+            onClose={onClose}
+          >
+            <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
+              {groups.length === 0 ? (
+                <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
+              ) : (
+                sections.map((section) => (
+                  <Section key={section.id} id={section.id} count={section.groups.length + section.commands.length}>
+                    {section.commands.map((task) => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        now={now}
+                        onDrill={open}
+                        onStop={onStop}
+                        onOpenCommand={onOpenCommand}
+                      />
+                    ))}
+                    {section.groups.map((group, index) => (
+                      <GroupBlock
+                        key={group.id}
+                        group={group}
+                        look={look}
+                        now={now}
+                        startsOpen={section.id === "running" && index === 0 && section.commands.length === 0}
+                        onDrill={open}
+                        onStop={onStop}
+                        onOpenSession={onOpenSession}
+                        onOpenCommand={onOpenCommand}
+                      />
+                    ))}
+                  </Section>
+                ))
+              )}
+            </div>
+            {drill?.workflow && workflow && (
+              // Workflow transcripts list no nested agents today (summary/workflowTranscript.ts reads
+              // them with no subagents); should one, it opens and stops as anywhere else in the panel.
+              <NestedAgents.Provider value={nested}>
+                <WorkflowAgentTranscript
+                  key={`${stack.length}:${drill.agentId}`}
+                  pane={drill.agentId}
+                  agent={drilled?.workflow}
+                  running={drilled?.state === "running"}
+                  reads={workflow}
+                />
+              </NestedAgents.Provider>
             )}
-          </div>
-          {drill?.workflow && workflow && (
-            // Workflow transcripts list no nested agents today (summary/workflowTranscript.ts reads
-            // them with no subagents); should one, it opens and stops as anywhere else in the panel.
-            <NestedAgents.Provider value={nested}>
-              <WorkflowAgentTranscript
-                key={`${stack.length}:${drill.agentId}`}
-                pane={drill.agentId}
-                agent={drilled?.workflow}
-                running={drilled?.state === "running"}
-                reads={workflow}
-              />
-            </NestedAgents.Provider>
-          )}
-          {drill && !drill.workflow && (
-            <NestedAgents.Provider value={nested}>
-              <SubagentTranscript
-                key={`${stack.length}:${drill.agentId}`}
-                rows={views?.[drill.agentId] ?? []}
-                running={drilled?.state === "running"}
-                anchor={drill.rowId}
-              />
-            </NestedAgents.Provider>
-          )}
-        </PanelFrame>
-      </Workflows.Provider>
+            {drill && !drill.workflow && (
+              <NestedAgents.Provider value={nested}>
+                <SubagentTranscript
+                  key={`${stack.length}:${drill.agentId}`}
+                  rows={views?.[drill.agentId] ?? []}
+                  running={drilled?.state === "running"}
+                  anchor={drill.rowId}
+                />
+              </NestedAgents.Provider>
+            )}
+          </PanelFrame>
+        </Workflows.Provider>
+      </ReadsOutput.Provider>
     </StopsAgents.Provider>
   );
 }
 
-export type PanelSection = { id: "running" | "finished"; groups: BackgroundGroup[] };
+export type PanelSection = {
+  id: "running" | "finished";
+  groups: BackgroundGroup[];
+  /// The chat's own commands, each a card of its own at the heading's level (no "This chat" block
+  /// around them), as Claude Desktop's panel lists its shells: the running ones under Running, the
+  /// ended ones under Finished (Leo, 2026-11-07).
+  commands: BackgroundTask[];
+};
 
 /// The list under its two headings, as Claude Desktop's panel splits it: "Running N", then
 /// "Finished N" (Leo, 2026-11-03, on its "Finished 28"). The groups keep their order
 /// (backgroundTasks.ts: running first, oldest first; then ended, latest first); a group that still
-/// runs a nested agent is a running one (`isLive`). An empty heading is left out.
+/// runs a nested agent is a running one (`isLive`). The chat's own commands (the `commands` group)
+/// split by their own state instead. N counts what the heading lists. An empty heading is left out.
 export function panelSections(groups: readonly BackgroundGroup[]): PanelSection[] {
-  const running = groups.filter(isLive);
-  const ended = groups.filter((group) => !isLive(group));
+  const agents = groups.filter((group) => group.kind !== "commands");
+  const own = groups.filter((group) => group.kind === "commands");
   return [
-    { id: "running" as const, groups: running },
-    { id: "finished" as const, groups: ended },
-  ].filter((section) => section.groups.length > 0);
+    {
+      id: "running" as const,
+      groups: agents.filter(isLive),
+      commands: own.flatMap((group) => group.running),
+    },
+    {
+      id: "finished" as const,
+      groups: agents.filter((group) => !isLive(group)),
+      commands: own.flatMap((group) => group.finished),
+    },
+  ].filter((section) => section.groups.length + section.commands.length > 0);
 }
 
-/// A heading that folds its groups, open at first; its fold is the panel's own state, so Back from a
-/// transcript finds it as it was.
+/// A heading that folds its groups: Running open at first, Finished folded, as Claude Desktop's panel
+/// opens (Leo, 2026-11-07); its fold is the panel's own state, so Back from a transcript finds it as
+/// it was.
 function Section({ id, count, children }: { id: PanelSection["id"]; count: number; children: ReactNode }) {
   const t = useT();
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(id === "running");
   return (
     <div className="acpmux-bg__section" data-section={id}>
       <Button
@@ -613,6 +650,24 @@ function TaskRow({
 }) {
   const agentId = task.agentId;
   const pane = useContext(Workflows) ? task.workflow?.pane : undefined;
+  const readsOutput = useContext(ReadsOutput);
+  // A command opens in place as a rendered card (its command, its output streaming), not a bare
+  // terminal tab; Open in terminal stays inside it as the secondary action (Leo, 2026-11-07: "only
+  // showing the terminal thing, I don't think is very useful").
+  if (task.kind === "command" && task.command !== undefined && !agentId && !pane)
+    return (
+      <BackgroundTaskCard
+        title={task.title}
+        command={task.command}
+        toolCallId={task.toolCallId}
+        processId={task.processId}
+        state={task.state}
+        time={time(task.startedAt, task.endedAt, now, task.state === "running")}
+        stop={<StopSlot target={task.stop} name={task.title} onStop={onStop} />}
+        readOutput={readsOutput}
+        onOpenTerminal={onOpenCommand && task.toolCallId ? () => onOpenCommand(task) : undefined}
+      />
+    );
   const opens = agentId
     ? () => onDrill({ agentId, rowId: task.kind === "agent" ? undefined : task.rowId })
     : pane

@@ -59,6 +59,10 @@ export type BackgroundTask = {
   rowId?: string;
   /// A command's tool call, which its terminal opens by (processTerminal.ts).
   toolCallId?: string;
+  /// A command's full text as typed, which its card shows (BackgroundTaskCard.tsx), and the
+  /// registry's process id, which its output is read by.
+  command?: string;
+  processId?: string;
   stop?: StopTarget;
   /// The task this one nests under: a command a workflow's agent started, under that agent's task.
   parent?: string;
@@ -268,6 +272,8 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
     startedAt: command.startedAt,
     endedAt: command.endedAt,
     toolCallId: command.toolCallId,
+    command: command.command,
+    ...(command.processId !== undefined && { processId: command.processId }),
     ...(command.state === "running" &&
       command.processId !== undefined && { stop: { kind: "process", id: command.processId } as StopTarget }),
   });
@@ -368,8 +374,11 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
       failed: 0,
     });
   }
-  if (ownCommands.length > 0) {
-    const tasks: BackgroundTask[] = ownCommands.map(commandTask);
+  const keptCommands = ownCommands.filter(
+    (command) => command.state === "running" || !dismissed?.has(commandClearKey(command.id)),
+  );
+  if (keptCommands.length > 0) {
+    const tasks: BackgroundTask[] = keptCommands.map(commandTask);
     const parts = split(tasks);
     const starts = tasks.map((task) => task.startedAt).filter((at): at is number => at !== undefined);
     const ends = tasks.map((task) => task.endedAt).filter((at): at is number => at !== undefined);
@@ -406,7 +415,17 @@ export const clearKey = (group: BackgroundGroup): string =>
 /// What Clear finished clears (their `clearKey`s): every group with nothing left running (one whose
 /// agent ended while a nested agent or command of it still runs stays).
 export const finishedGroupIds = (groups: readonly BackgroundGroup[]): string[] =>
-  groups.filter((group) => !isLive(group)).map(clearKey);
+  groups.flatMap((group) =>
+    !isLive(group)
+      ? [clearKey(group)]
+      : group.kind === "commands"
+        ? group.finished.map((task) => commandClearKey(task.id))
+        : [],
+  );
+
+/// What Clear finished records for one of the chat's own commands that ended while another still
+/// runs: the panel lists those one by one under Finished, so each clears on its own.
+export const commandClearKey = (id: string): string => `command:${id}`;
 
 /// Whether anything runs: the panel's clock ticks only then (SubagentGroup.tsx `useNow`).
 export const anyRunning = (groups: readonly BackgroundGroup[]): boolean => groups.some(isLive);
