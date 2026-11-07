@@ -3,9 +3,9 @@ import Foundation
 import Testing
 @testable import CmuxMobileLive
 
-/// Real controller with only the transport replaced. The benchmark uses
-/// wall time; lifecycle tests control heartbeat time. A silent link
-/// deliberately ignores the probe deadline, exercising the outer FFI bound.
+/// Real controller with only the transport replaced. Every test that times
+/// the heartbeat controls its clock. A silent link deliberately ignores the
+/// probe deadline, exercising the outer FFI bound.
 private final class RecoveryLink: MacLink, @unchecked Sendable {
     let transport: TransportKind = .wireGuard
     let states: AsyncStream<LinkState>
@@ -128,21 +128,33 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
     }
 
     /// Run this unchanged against base and head for the Performance table.
-    /// It reports actual elapsed time; the separate budget test guards policy.
+    /// It times the silent drop on the controller's clock, from a drop just
+    /// after link up (the worst point in the heartbeat cycle) to the redial,
+    /// and the redial must come with that clock stopped at the budget. Wall
+    /// time measured the runner instead: 13.4 s and 9.25 s on a loaded CI
+    /// runner for a 5 s budget.
     @Test func silentDropDetectionBenchmark() async throws {
         let dialer = RecoveryDialer()
-        let controller = controller(dialer)
-        defer { controller.send(.target(nil)) }
-        try await eventually { controller.phase.isConnected }
-        // Let any initial probe finish; the drop occurs just after link up,
-        // covering the worst position in the heartbeat cycle on both refs.
-        try await Task.sleep(for: .milliseconds(50))
+        let clock = LinkTestClock()
+        let controller = controller(dialer, clock: clock)
+        defer { controller.send(.target(nil)); clock.stop() }
+        let drop = clock.now
+        let beat = drop.advanced(by: LinkController.heartbeat)
+        // Link up arms the heartbeat and the first probe's bound.
+        let firstBound = drop.advanced(by: LinkController.foregroundProbeTimeout + LinkController.probeGrace)
+        try await eventually { dialer.first.probeCount == 1 && clock.isSleeping(untilAll: [beat, firstBound]) }
         dialer.first.dropSilently()
-        let start = ContinuousClock.now
-        try await eventually({ dialer.dials >= 2 }, within: .seconds(26))
-        let elapsed = ContinuousClock.now - start
+        clock.advance(by: LinkController.heartbeat)
+        // The beat probes the silent link; only the outer bound can end it.
+        let bound = beat.advanced(by: LinkController.probeTimeout + LinkController.probeGrace)
+        let nextBeat = beat.advanced(by: LinkController.heartbeat)
+        try await eventually { dialer.first.probeCount == 2 && clock.isSleeping(untilAll: [bound, nextBeat]) }
+        #expect(dialer.dials == 1, "No redial before the probe's bound")
+        clock.advance(by: clock.now.duration(to: bound))
+        try await eventually { dialer.dials >= 2 }
+        let elapsed = drop.duration(to: clock.now)
         print("LINK_RECOVERY silent_drop_ms=\(milliseconds(elapsed))")
-        #expect(elapsed <= LinkController.heartbeat + LinkController.probeTimeout + LinkController.probeGrace + .seconds(1))
+        #expect(elapsed <= LinkController.heartbeat + LinkController.probeTimeout + LinkController.probeGrace)
     }
 
     private func milliseconds(_ duration: Duration) -> Double {
