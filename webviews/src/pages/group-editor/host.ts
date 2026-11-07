@@ -60,6 +60,9 @@ export interface GroupEditorSession {
   /** Bumps on every event; a refresh keeps the same id. */
   readonly revision: number;
   readonly name: string;
+  /** The name the person typed this open (the host's last draft), or null while the field is untouched. A
+   * page that reloads while the editor is open shows it, so the field holds what the close commits. */
+  readonly draft?: string | null;
   readonly strings: GroupEditorStrings;
   readonly colors: readonly GroupEditorColor[];
   /** The custom color (when chosen) and whether it is the group's color. */

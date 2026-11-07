@@ -127,7 +127,7 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
 
     private func push(_ open: Open) {
         let themed = SidebarGroupPalette.tunable.value == .theme
-        let session = GroupEditorSession(id: open.session, revision: open.revision, group: open.group, items: open.items)
+        let session = GroupEditorSession(id: open.session, revision: open.revision, group: open.group, items: open.items, draft: open.draft)
         let build = { session.event(themed: themed, icons: self.icons) }
         warm?.provider.push(open.themeAnchor.map { $0.performWithTheme(build) } ?? build())
     }
@@ -146,6 +146,7 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
         case let .draft(name):
             open.draft = name
             self.open = open
+            warm?.provider.keep(draft: name)
         case let .color(id):
             guard let color = GroupColor(rawValue: id) else { return }
             open.events.color(color)

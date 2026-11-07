@@ -36,6 +36,14 @@ final class GroupEditorProvider: PageProvider {
         listener?(event)
     }
 
+    /// Keeps `draft` in the last event without sending it: the page that typed it has it, and a page that
+    /// reloads while the editor is open draws it, so the field shows the name the close will commit.
+    func keep(draft: String) {
+        guard case var .object(fields) = event else { return }
+        fields["draft"] = .string(draft)
+        event = .object(fields)
+    }
+
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let call = Self.decode(op, params) else { throw PageError.invalidParams(op) }
         // A call from an earlier open (a late click after a close) edits nothing.

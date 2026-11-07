@@ -110,12 +110,12 @@ export function mountGroupEditor(
     if (!isNew && next.revision <= session.revision) return;
     session = next;
     picked = undefined;
-    if (isNew) typed = false;
+    if (isNew) typed = next.draft != null;
     flushSync(render);
     const field = name.current;
     if (next.id && field) {
       if (isNew) {
-        field.value = next.name;
+        field.value = next.draft ?? next.name;
         field.focus();
         field.select();
       } else if (!typed && field.value !== next.name) {

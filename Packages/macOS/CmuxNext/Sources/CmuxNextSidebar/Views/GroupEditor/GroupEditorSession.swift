@@ -23,6 +23,8 @@ struct GroupEditorSession {
     var revision: Int
     var group: SidebarGroup
     var items: [[SidebarGroupEditorItem]]
+    /// The name the person typed this open; nil while the field is untouched.
+    var draft: String?
 
     /// The event the page gets; `themed` takes the theme's group colors (`sidebar.groupColors`).
     func event(themed: Bool, icons: GroupEditorIcons) -> JSONValue {
@@ -40,6 +42,7 @@ struct GroupEditorSession {
             "id": .string(id),
             "revision": .number(Double(revision)),
             "name": .string(group.name),
+            "draft": draft.map(JSONValue.string) ?? .null,
             "strings": .object([
                 "editor": .string(GroupEditorStrings.editor),
                 "nameLabel": .string(GroupEditorStrings.nameLabel),
