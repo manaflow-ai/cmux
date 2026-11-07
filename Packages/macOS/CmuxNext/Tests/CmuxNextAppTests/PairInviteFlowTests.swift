@@ -248,6 +248,57 @@ import Testing
         #expect(approvals(source).count == 1, "the machine's own pairing outlives the invite")
     }
 
+    @Test func anEndedOrUsedInviteCopiesNothing() async {
+        for end in [PairInviteFrame.arrived(code: MockServerScenario.offerCode), .expired, .lost, .voided(reason: "second_redemption")] {
+            let fake = Fake()
+            let provider = fake.provider()
+            await provider.mintInvite()
+            fake.push(end)
+            await settle()
+            await #expect(throws: PageError.self, "\(end)") {
+                _ = try await provider.call(PairInviteCardProvider.copyOp, params: ["target": "code"], context: Self.gesture)
+            }
+            #expect(fake.copied.isEmpty, "\(end): the stale code stays off the clipboard")
+        }
+    }
+
+    @Test func aSubscriptionReadsTheCurrentStateAtOnce() async throws {
+        let fake = Fake()
+        let provider = fake.provider()
+        await provider.mintInvite()
+        var events = 0
+        let subscription = try await provider.subscribe(PairInviteCardProvider.changesStream, filter: [:],
+                                                        context: PageCallContext(page: "cmux.server-cards")) { _ in events += 1 }
+        #expect(events == 1, "a page that subscribed after the mint still reads it")
+        subscription.cancel()
+    }
+
+    /// A test card that counts its sessions.
+    @MainActor final class CountingCard: WebCard {
+        let card: String
+        var prefix: String { "cmux.test\(card)." }
+        weak var host: WebCardPanel?
+        var opens = 0
+        var closes = 0
+        init(_ card: String) { self.card = card }
+        func opened(again: Bool) { if !again { opens += 1 } }
+        func closed() { closes += 1 }
+        func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue { .null }
+        func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+                       onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription { PageSubscription {} }
+    }
+
+    @Test func aCardClosedBeforeItsFirstSizeEndsItsSession() throws {
+        let first = CountingCard("a"), second = CountingCard("b")
+        let panel = try #require(WebCardPanel(descriptor: .serverCards, cards: [first, second]))
+        panel.present(card: "a", over: nil, takeKeys: false)
+        #expect(!panel.isVisible, "a first opening waits for the page's size")
+        panel.present(card: "b", over: nil, takeKeys: false)
+        #expect(first.closes == 1, "another card opening ends the waiting one's session")
+        panel.dismiss()
+        #expect(second.closes == 1, "a dismiss before the first size ends the session too")
+    }
+
     @Test func aLostSocketSaysSoAndNeverReconnectsOnItsOwn() async {
         let fake = Fake()
         let provider = fake.provider()
