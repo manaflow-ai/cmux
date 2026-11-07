@@ -457,6 +457,12 @@ impl Role for CloudRole {
                 self.send("resume");
                 Ok(())
             }
+            // The late network attach lands about a second after the bind: a bind or relay token in flight over the
+            // old addresses would otherwise hang to its 20 s bound.
+            HostEvent::AddressesChanged => {
+                cmux_server::cloud_http::network_changed();
+                Ok(())
+            }
             // No request is held open into a snapshot.
             HostEvent::Parked { deadline } | HostEvent::Shutdown { deadline } => {
                 self.halt(*deadline)
@@ -464,6 +470,12 @@ impl Role for CloudRole {
             _ => Ok(()),
         }
     }
+}
+
+/// How long a failed bind waits before its retry. One the machine's address change failed (a fresh machine's network
+/// attach lands about a second after it boots) goes again at once, without growing the backoff.
+fn bind_retry_wait(backoff: &mut Backoff, network_changed: bool) -> u64 {
+    if network_changed { 0 } else { backoff.next(0, random_unit()) }
 }
 
 struct Client {
@@ -945,6 +957,7 @@ impl Worker {
             self.bind_retry_at = Some(self.now() + NOISE_KEY_WAIT_MS);
             return log("bind: waiting for the session host's Noise key");
         }
+        let changes = cmux_server::cloud_http::network_changes();
         let result = bind_machine(
             &mut self.store,
             &http,
@@ -964,7 +977,9 @@ impl Worker {
                 self.start_live(*bound, key, http, daemon);
             }
             BindResult::Retry(_) => {
-                self.bind_retry_at = Some(self.now() + self.bind_backoff.next(0, random_unit()));
+                let changed = cmux_server::cloud_http::network_changes() != changes;
+                self.bind_retry_at =
+                    Some(self.now() + bind_retry_wait(&mut self.bind_backoff, changed));
             }
             _ => {}
         }

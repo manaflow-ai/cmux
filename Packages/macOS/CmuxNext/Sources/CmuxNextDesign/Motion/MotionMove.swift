@@ -24,7 +24,7 @@ public struct MotionMove: Sendable {
 
     /// A move on tween `token` (Chrome's tab strip tweens: open, close, move), or nil when the change
     /// applies at once (`gate.duration(token)` is 0: the master switch or `gate`'s category off,
-    /// speed off, Reduce Motion, a live resize, or a `ui.animations.newTab` kind that is off).
+    /// speed off, Reduce Motion, a live resize, or tabOpen with `ui.animations.newTab` off).
     public static func tween(_ token: MotionTween, in gate: MotionGate) -> MotionMove? {
         let duration = gate.duration(token)
         return duration > 0 ? MotionMove(curve: .tween(token), duration: duration) : nil

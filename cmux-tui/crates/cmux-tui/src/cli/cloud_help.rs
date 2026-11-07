@@ -426,9 +426,9 @@ directly.
 QUICK START
   Start a Cloud chat, send it a prompt and print the reply, in one command
   (it answers reply, machine_id, session_id, workspace_id and tab_id;
-  `cmux cloud start-chat --help` has every flag):
-  cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
-  cmux cloud start-chat --name dev --prompt 'Run the tests' --json
+  `cmux chat --help` has every flag):
+  cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
+  cmux chat --on vm:dev --prompt 'Run the tests' --json
 
   Then, on that chat (MACHINE_ID and SESSION_ID from the answer):
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
@@ -457,9 +457,9 @@ const INTRO_JA: &str = "\
 クイックスタート
   Cloud チャットを開始し、プロンプトを送り、返信を表示する（1 コマンド。
   reply、machine_id、session_id、workspace_id、tab_id を返す。
-  全フラグは `cmux cloud start-chat --help`）:
-  cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
-  cmux cloud start-chat --name dev --prompt 'Run the tests' --json
+  全フラグは `cmux chat --help`）:
+  cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
+  cmux chat --on vm:dev --prompt 'Run the tests' --json
 
   続けて同じチャットに（MACHINE_ID と SESSION_ID は返答から）:
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
@@ -526,6 +526,8 @@ usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--cwd DIR]
 
 Starts an agent chat on a Cloud machine and sends it a prompt, in one step.
 The chat opens as a tab in the machine's workspace in the cmux app.
+This is `cmux chat --on vm:ID|NAME|new` (`cmux chat --help`), by its
+older name; both run the same start.
 
   --prompt TEXT      What to send (`-` reads it from stdin). Without it the
                      chat starts and nothing is sent; the answer has ready_ms
@@ -578,9 +580,9 @@ fn find(name: &str) -> Option<&'static Verb> {
 fn usage_line(verb: &Verb) -> String {
     let flags = verb.usage.replace("{target}", TARGET);
     if flags.is_empty() {
-        format!("cmux cloud {}", verb.name)
+        format!("cmux vm {}", verb.name)
     } else {
-        format!("cmux cloud {} {flags}", verb.name)
+        format!("cmux vm {} {flags}", verb.name)
     }
 }
 
@@ -607,7 +609,8 @@ pub(super) fn overview(japanese: bool) -> String {
     });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
-    text
+    // `cmux cloud` is now `cmux vm` (vm.rs `cloud_alias`); the texts keep one spelling.
+    text.replace("cmux cloud ", "cmux vm ").replace("cmux cloud`", "cmux vm`")
 }
 
 /// `cmux cloud <verb> --help`: that verb's usage and what it does. `None` for
@@ -624,9 +627,9 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     let usage = usage_line(verb);
     let note = renamed(name).map_or_else(String::new, |new| {
         if japanese {
-            format!("`cmux cloud {name}` は `{new}` の旧名です（`{new} --help`）。\n\n")
+            format!("`cmux vm {name}` は `{new}` の旧名です（`{new} --help`）。\n\n")
         } else {
-            format!("`cmux cloud {name}` is the old name of `{new}` (`{new} --help`).\n\n")
+            format!("`cmux vm {name}` is the old name of `{new}` (`{new} --help`).\n\n")
         }
     });
     Some(

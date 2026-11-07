@@ -418,6 +418,34 @@ fn a_failure_carries_the_steps_it_ran() {
     assert_eq!(error["details"]["stages_ms"]["steps"][0]["step"], "cloud list-machines");
 }
 
+/// A run that made its machine and then failed still names it, so its caller can delete what it
+/// made (the start matrix, `cmux chat --on vm:new`); a failure on a machine it did not make does not.
+#[test]
+fn a_failure_after_making_the_machine_names_it() {
+    let refused = || Ran {
+        code: 1,
+        stderr: json!({"code": "unavailable", "message": "Machine didn't connect"}).to_string(),
+        ..Ran::default()
+    };
+    // `--wait` makes the machine first (`cloud new-machine`), then starts the session there.
+    let mut fake = Fake::new(vec![signed_in(), made(), no_relay(), refused()]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--name", "chat-fresh", "--json"]));
+    assert_eq!(error["details"]["machine_id"], "vm-1");
+    assert_eq!(error["details"]["new_machine"], true);
+
+    let mut fake = Fake::new(vec![signed_in(), refused()]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", "x", "--target", "machine:vm-9"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert!(error["details"].get("new_machine").is_none(), "{error}");
+}
+
 #[test]
 fn without_wait_it_answers_once_the_prompt_is_sent() {
     let mut fake = Fake::new(vec![
@@ -1198,13 +1226,59 @@ fn no_relay_chat_without_wait_for_a_big_prompt_or_a_machine_still_being_made() {
         run(&mut fake, &request(&["--prompt", big.as_str(), "--target", "machine:vm-1", "--wait"]));
     assert_eq!(fake.ran[1][1], "start-session");
 
-    let mut fake = Fake::new(vec![signed_in(), ok(json!({"pending": true, "status": "creating"}))]);
-    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    // A create still pending at `--timeout` is the answer; nothing is sent. The one deadline counts from the
+    // start: the list and the create take 10 s of it, one read of the list the rest.
+    let mut fake = Fake::new(vec![signed_in(), creating(), still_creating("creating")]);
+    let Outcome::Failed { error, exit } =
+        run(&mut fake, &request(&["--prompt", "x", "--wait", "--timeout", "14"]))
     else {
         panic!()
     };
     assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75));
-    assert_eq!(fake.ran.len(), 2);
+    assert_eq!(fake.ran.len(), 3);
+}
+
+/// `cloud new-machine`'s answer for a create slower than the app's own answer window.
+fn creating() -> Ran {
+    ok(json!({"pending": true, "status": "creating", "creation_id": "c-1"}))
+}
+
+/// `cloud list-machines` while create `c-1` is still on its way.
+fn still_creating(status: &str) -> Ran {
+    ok(json!({"account": {"signed_in": true}, "machines": [{"machine_id": "vm-0", "title": "dev"}],
+              "creating": [{"creation_id": "c-1", "name": null, "status": status, "reason": "no capacity"}]}))
+}
+
+/// `--wait` covers a slow create: it reads the app's list until the create's machine is there, then chats on it.
+#[test]
+fn wait_covers_a_create_slower_than_the_apps_answer() {
+    let up = ok(json!({"account": {"signed_in": true}, "creating": [],
+                       "machines": [{"machine_id": "vm-0", "title": "dev"}, {"machine_id": "vm-1", "title": "chat-1"}]}));
+    let listed = ok(
+        json!({"account": {"signed_in": true}, "machines": [{"machine_id": "vm-0", "title": "dev"}]}),
+    );
+    let mut fake = Fake::new(vec![
+        listed,
+        creating(),
+        still_creating("creating"),
+        up,
+        relayed(json!({"session_id": "relay-1", "reply": "4"})),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "4");
+    assert_eq!(answer["new_machine"], true);
+    assert_eq!(&fake.ran[4][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));
+
+    // A create that fails says why and sends nothing.
+    let mut fake = Fake::new(vec![signed_in(), creating(), still_creating("failed")]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!()
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_failed"), 1));
+    assert!(error["message"].as_str().unwrap().contains("no capacity"), "{error}");
 }
 
 #[test]
@@ -1595,12 +1669,12 @@ fn a_pending_create_with_no_id_is_asked_again_by_its_name_and_never_made_twice()
         ),
         ("the relay's create, late", &["--wait", "--timeout", "60"], 60),
         ("--environment's create, in time, no --wait", &["--environment", "env_1"], 5),
-        ("the relay's create, in time", &["--wait"], 5),
+        ("the relay's create, waited on until --timeout", &["--wait", "--timeout", "14"], 5),
     ];
     for (case, words, cost) in cases {
         let mut all = vec!["--prompt", "x"];
         all.extend_from_slice(words);
-        let mut fake = Fake::new(vec![signed_in(), pending()]);
+        let mut fake = Fake::new(vec![signed_in(), pending(), still_creating("creating")]);
         fake.slow.push((1, secs(cost)));
         let Outcome::Failed { error, exit } = run(&mut fake, &request(&all)) else {
             panic!("{case}: {:?}", fake.ran)
@@ -1610,7 +1684,16 @@ fn a_pending_create_with_no_id_is_asked_again_by_its_name_and_never_made_twice()
             (Some("cloud.start_pending"), 75),
             "{case}: {error}"
         );
-        assert_eq!(fake.ran.len(), 2, "{case}: {:?}", fake.ran);
+        let steps: Vec<&str> = fake.ran.iter().map(|words| words[1].as_str()).collect();
+        assert_eq!(
+            steps.iter().filter(|step| **step == "new-machine").count(),
+            1,
+            "{case}: {steps:?}"
+        );
+        assert!(
+            steps.iter().all(|step| ["list-machines", "new-machine"].contains(step)),
+            "{case}: nothing started or sent: {steps:?}"
+        );
         let create = &fake.ran[1];
         let at = create
             .iter()
