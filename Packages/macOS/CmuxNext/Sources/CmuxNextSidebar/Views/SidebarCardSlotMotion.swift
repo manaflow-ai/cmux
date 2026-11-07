@@ -81,6 +81,16 @@ final class SidebarCardSlotMotion: MotionAnimating {
         view.needsLayout = true
     }
 
+    /// The value shown now, wherever the spring is (0 before it has run).
+    var value: CGFloat { height?.value ?? 0 }
+
+    /// Stops the spring and puts it at rest at 0 (its owner shows `value` some other way now: a drag that
+    /// took over the card mid-settle carries it on).
+    func reset() {
+        height = SpringValue(0)
+        if let view { MotionClock.forView(view).stop(self) }
+    }
+
     /// Proofs: the spring caught at `value` on its way to `target`, as a frame between two steps sees it.
     func catchMidFlight(at value: CGFloat, toward target: CGFloat) {
         var height = SpringValue(target)

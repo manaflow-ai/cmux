@@ -47,7 +47,8 @@ export interface CardDragHost {
 export const RUBBER_LEAN = 0.3;
 
 /** The card's place in the page's localStorage, as the toasts keep theirs (the bottom is stored as
- *  nothing). The host keeps it too, so the first frame after a relaunch is at the place. */
+ *  nothing). In the sidebar it mirrors the host's copy, the one that outlives the page (the page's
+ *  storage is not persistent), which places the card's first frame after a relaunch. */
 const memory = anchorMemory("cmux.sidebar.card.");
 const MEMORY_KEY = "updated";
 

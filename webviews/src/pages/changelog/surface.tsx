@@ -18,7 +18,7 @@ import { ChangelogStore, compareVersions, type UpdateSpan } from "./store";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 import { UpdatedCard, UpdateReadyHighlights } from "./UpdateSurfaces";
-import { rememberedRow, type CardDragHost, type CardPlace, type CardRow } from "./updatedCardDrag";
+import { rememberRow, type CardDragHost, type CardPlace, type CardRow } from "./updatedCardDrag";
 import "../shared/pageBase.css";
 import "../../ui/glass/composerMaterial.css";
 import "./updateSurfaces.css";
@@ -184,18 +184,16 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
       })
       .catch(() => undefined);
     // An older host sends no place: the card stays at the bottom and does not drag.
-    let first = true;
     void client
       .subscribe<unknown>(SurfaceOps.cardPlace, (event) => {
         if (!isCardPlace(event)) return;
         const moved = event.anchor !== place?.anchor;
         place = event;
         document.documentElement.dataset.cardAnchor = event.anchor;
-        // The page's memory (the toasts' anchorMemory) is the card's place; the host keeps a copy for
-        // its first frame, so the two differ only when one was cleared: the host follows the page.
-        const remembered = first ? rememberedRow() : undefined;
-        first = false;
-        if (remembered && remembered !== event.anchor) drop(remembered, { x: 0, y: 0 });
+        // The host's place is the card's: its copy (cmux.sidebar.updatedCard.anchor) outlives the
+        // page, whose storage does not (a non-persistent website data store). The page's copy (the
+        // toasts' anchorMemory) mirrors it and never moves the card (review F1 of #37669).
+        rememberRow(event.anchor);
         if (moved) render(latest);
       })
       .catch(() => undefined);

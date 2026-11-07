@@ -68,6 +68,9 @@ final class SidebarUpdatedCardHost: NSView {
     var anchor = SidebarUpdatedCardHost.rememberedAnchor
     /// How far the page holds the card from its rest while it is dragged; nil when not held.
     var heldOffset: CGPoint?
+    /// Where the card was shown, from its rest, when the drag took it: a press while it still sprang to
+    /// its place (review F2 of #37669). The page's offset counts from the press, so it adds to this.
+    var heldBase = CGPoint.zero
     /// Where the card's view was when it was let go, until the next layout springs it from there.
     var droppedAt: CGPoint?
     /// The dropped card's way from where it was let go to its rest (each springs to 0).
@@ -211,7 +214,7 @@ final class SidebarUpdatedCardHost: NSView {
                 self.island = nil
             }
             (heldHeight, holdArmed, pendingRememberedHeight) = (0, false, nil)
-            (heldOffset, droppedAt) = (nil, nil)
+            (heldOffset, heldBase, droppedAt) = (nil, .zero, nil)
             // A card that comes back starts without its x until the pointer moves onto it.
             isHovered = false
             setHoverShown(closeButton, false, fades: false)

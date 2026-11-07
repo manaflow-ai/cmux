@@ -4,7 +4,8 @@ import AppKit
 /// nightly, and you can drag that up to the top if you wanted to?"). The card's page runs it (webviews
 /// `ui/anchors.ts`, the toasts' anchors and drag): it says how far it holds the card from its rest,
 /// and on release the anchor the card settles at; a flick or a drop past the sidebar's edge sends the
-/// page's dismiss, the x's path. This view only follows: held, it stands where the page holds it;
+/// page's dismiss, the x's path. This view only follows: held, it stands where the page holds it
+/// (from where it was shown when the press came, if that was mid-settle);
 /// dropped, it springs from where it was let go to its anchor while the list's room moves on its own
 /// spring (``SidebarCardSlotMotion``), one transition with nothing popping. The anchor is kept across
 /// launches, so the card's first frame is at its place.
@@ -19,13 +20,19 @@ extension SidebarUpdatedCardHost {
     func pageDragged(_ drag: SidebarCardDrag) {
         guard card != nil else { return }
         guard let drop = drag.drop else {
+            if heldOffset == nil {
+                // Taken mid-settle: the drag carries on from where the card is shown, never from its rest.
+                heldBase = CGPoint(x: settleX.value, y: settleY.value)
+                settleX.reset()
+                settleY.reset()
+            }
             heldOffset = drag.offset
             onHeightChange?()
             return
         }
         // Springs from here to the rest at `drop` (laid out next: the slot moves the list's room).
         droppedAt = frame.origin
-        heldOffset = nil
+        (heldOffset, heldBase) = (nil, .zero)
         if drop != anchor {
             anchor = drop
             let defaults = UserDefaults.standard
@@ -37,7 +44,7 @@ extension SidebarUpdatedCardHost {
     /// The view's frame for a card resting at `rest`: where the page holds it, else on its way from
     /// where it was let go, else at its rest. `sidebar` runs the settle's springs.
     func displaced(_ rest: NSRect, in sidebar: NSView) -> NSRect {
-        if let held = heldOffset { return rest.offsetBy(dx: held.x, dy: held.y) }
+        if let held = heldOffset { return rest.offsetBy(dx: heldBase.x + held.x, dy: heldBase.y + held.y) }
         if let dropped = droppedAt {
             droppedAt = nil
             settleX.start(at: dropped.x - rest.minX, toward: 0, in: sidebar)
