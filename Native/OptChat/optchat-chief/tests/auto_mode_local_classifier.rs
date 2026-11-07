@@ -8,21 +8,14 @@
 
 use optchat_chief::acpmux::Family;
 use optchat_chief::host::{subagent_preset, turn_preset};
-/// Claude Code's switch for auto mode's server-side check.
-const AUTO_MODE_SERVER_ENV: &str = "CLAUDE_CODE_AUTO_MODE_SERVER";
-
-/// What a session gets with this test process's own env: the user's value
-/// when one is set, else the local classifier.
-fn expected() -> String {
-    std::env::var(AUTO_MODE_SERVER_ENV).unwrap_or_else(|_| "0".to_owned())
-}
+use optchat_chief::session_dir::{AUTO_MODE_SERVER_ENV, claude_session_env};
 
 #[test]
 fn every_chief_claude_session_judges_auto_mode_locally() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("mux");
     let paths = optchat_chief::paths::Paths::new(&home);
-    let want = expected();
+    let want = "0".to_owned();
     for harness in ["claude", "claude-sr", "claude-sr2"] {
         for isolate in [true, false] {
             let turn = turn_preset(&paths, &home, harness, Family::Claude, isolate, "SYS").unwrap();
@@ -71,5 +64,17 @@ fn other_harnesses_get_no_claude_auto_mode_switch() {
     let home = dir.path().join("mux");
     let paths = optchat_chief::paths::Paths::new(&home);
     let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
-    assert!(!codex.env.contains_key(AUTO_MODE_SERVER_ENV), "{:?}", codex.env);
+    assert!(
+        !codex.env.contains_key(AUTO_MODE_SERVER_ENV),
+        "{:?}",
+        codex.env
+    );
+}
+
+/// The Claude session env keeps the quiet settings next to the switch.
+#[test]
+fn the_claude_session_env_keeps_the_quiet_settings() {
+    let env = claude_session_env();
+    assert_eq!(env[AUTO_MODE_SERVER_ENV], "0");
+    assert_eq!(env["DISABLE_AUTOUPDATER"], "1");
 }
