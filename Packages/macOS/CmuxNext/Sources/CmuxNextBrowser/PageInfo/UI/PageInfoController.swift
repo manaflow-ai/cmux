@@ -83,7 +83,7 @@ public final class PageInfoController {
     /// The omnibar button: opens the bubble, or closes it when open (a press on the button is no
     /// dismiss for the host, ``NativePopupHost/keepsOpen``).
     public func toggle() {
-        if isShown { close() } else { send(.show(.main)) }
+        if isOpen { close() } else { send(.show(.main)) }
     }
 
     /// Sends a UI command: through the registry when routed, else directly.
@@ -119,7 +119,7 @@ public final class PageInfoController {
         guard let tab, let anchor = anchorSource(), let window = anchor.window else { return }
         let site = PageInfoSite(state: tab.state)
         guard site.kind != .empty else { return }
-        if !isShown {
+        if !isOpen {
             openedURL = tab.state.url
             pageHadFocus = Self.pageHasFocus(tab, in: window)
             model.site = site
@@ -130,13 +130,18 @@ public final class PageInfoController {
             loadAsyncData()
         }
         model.page = page
-        if !isShown { presentsOnSize = true }
+        if !isOpen {
+            presentsOnSize = true
+            // A click outside, a deactivation or a window move before the page's size arrives
+            // drops the open.
+            popup.watchBeforeShowing(window)
+        }
         render()
     }
 
     public func close() {
-        guard isShown || presentsOnSize else { return }
-        if isShown { popup.hide() }
+        guard isOpen else { return }
+        popup.hide()
         closed()
     }
 
@@ -169,7 +174,7 @@ public final class PageInfoController {
         anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil)).offsetBy(dx: -PageInfoStyle.rowInset, dy: 0)
         // The bubble takes the omnibar's theme scope (its room or workspace).
         panel.adoptThemeScope(of: anchor)
-        guard let placed = popup.show(size: cardSize, anchor: anchorRect, in: window, preferred: anchor.toolbarPopupSide, makeKey: true) else { return }
+        guard let placed = popup.show(size: cardSize, anchor: anchorRect, in: window, preferred: anchor.toolbarPopupSide, makeKey: true) else { return close() }
         side = placed.side
         content?.focus()
     }
