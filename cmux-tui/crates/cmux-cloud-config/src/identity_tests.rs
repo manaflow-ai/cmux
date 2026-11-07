@@ -76,7 +76,8 @@ fn claims_are_read_from_the_token() {
         .encode(r#"{"exp":1900000600,"sub":"user_1","team":""}"#);
     assert_eq!(claims(&format!("a.{personal}.c")).team, None);
     assert_eq!(claims("not-a-jwt"), Claims::default());
-    let empty = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"sub":"","exp":-1,"team":""}"#);
+    let empty =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"sub":"","exp":-1,"team":""}"#);
     assert_eq!(claims(&format!("a.{empty}.c")), Claims::default());
 }
 

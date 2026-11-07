@@ -113,7 +113,10 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         &json!({"requested": null, "activeStackTeam": null, "managedStackTeam": null, "stackProjectId": "p"}),
     );
     assert_eq!(team["team"], Value::Null);
-    let (_, own) = call(c"cloud_identity_token", &json!({"token": "e30.eyJzdWIiOiJ1IiwiZXhwIjoxOTAwMDAwNjAwLCJ0ZWFtIjoidGVhbV9hYWFhYWFhYWFhYWFhYWFhYWFhYSJ9.c2ln"}));
+    let (_, own) = call(
+        c"cloud_identity_token",
+        &json!({"token": "e30.eyJzdWIiOiJ1IiwiZXhwIjoxOTAwMDAwNjAwLCJ0ZWFtIjoidGVhbV9hYWFhYWFhYWFhYWFhYWFhYWFhYSJ9.c2ln"}),
+    );
     assert_eq!(own["team"], "team_aaaaaaaaaaaaaaaaaaaa");
     assert_eq!(own["user"], "u");
     let (_, key) = call(c"cloud_identity_install_key", &json!({"user": "u"}));
