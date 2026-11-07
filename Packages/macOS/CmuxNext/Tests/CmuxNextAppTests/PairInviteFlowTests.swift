@@ -196,7 +196,7 @@ import Testing
         #expect(model.perform(.retry) == false)
         #expect(PairInviteAction.confirm.isPersonClickOnly && PairInviteAction.retry.isPersonClickOnly)
         #expect(approvals(source).isEmpty, "perform(.confirm), the key's and Accessibility's path, approves nothing")
-        let descriptor = ServerActionCatalog.descriptors().first { $0.id == "server.pairAnotherMachine" }
+        let descriptor = ActionCatalog.all.first { $0.id == "server.pairAnotherMachine" }
         #expect(descriptor?.isPersonOnly == true, "only a person may open the card and mint an invite")
         #expect(descriptor?.arguments.isEmpty == true, "the action takes no code, words or confirm: nothing to script")
     }

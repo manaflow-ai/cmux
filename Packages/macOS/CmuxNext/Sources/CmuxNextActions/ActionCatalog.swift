@@ -11,6 +11,12 @@ public nonisolated enum ActionCatalog {
     /// registry folds these on register and lookup so older call sites, keybindings and scripts
     /// keep working.
     public static var legacyAliases: [ActionID: ActionID] { RustActionCatalog.shared.legacyAliases }
+
+    /// The descriptors one catalog group declares (`AppStoreActionCatalog`, ...), in catalog order.
+    static func descriptors(inGroup group: String) -> [ActionDescriptor] {
+        let groupOf = RustActionCatalog.shared.groupOf
+        return all.filter { groupOf[$0.id] == group }
+    }
 }
 
 extension ActionRegistry {

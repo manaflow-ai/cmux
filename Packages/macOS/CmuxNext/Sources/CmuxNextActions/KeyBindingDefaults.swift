@@ -34,7 +34,7 @@ public nonisolated struct KeyBindingDefaults {
 
     /// Cmd-Shift-] / [ step the focused pane's tabs (Lawrence 2026-10-15: switching
     /// workspaces on them is "extremely bad"); Ctrl-Tab / Ctrl-Shift-Tab are the catalog keys.
-    public static var tabCycleAliases: [KeyBinding] { RustActionCatalog.shared.bindings["tab_cycle_aliases"] ?? [] }
+    public static let tabCycleAliases: [KeyBinding] = RustActionCatalog.shared.bindings["tab_cycle_aliases"] ?? []
 
     /// Workspaces as tabs (the `sidebar.workspacesAsTabs` setting or Debug tunable, off; Leo, relayed
     /// 2026-10-21): Cmd-Shift-] / [ step the sidebar's workspaces (`nextSidebarTab` with `scope`
@@ -43,7 +43,7 @@ public nonisolated struct KeyBindingDefaults {
     /// over `nextSurface`; like every cmux default, the user's Ghostty config and cmux.json win over them.
     /// The table holds them only while the tunable is on (`ActionRegistry.includesWorkspaceTabKeys`),
     /// so off, the keymap, the shortcut list and its conflicts are the shipped ones. Home keeps its own keys.
-    public static var workspacesAsTabs: [KeyBinding] { RustActionCatalog.shared.bindings["workspaces_as_tabs"] ?? [] }
+    public static let workspacesAsTabs: [KeyBinding] = RustActionCatalog.shared.bindings["workspaces_as_tabs"] ?? []
 
     /// Home's chat list has the keyboard (Lawrence 2026-10-21: "ctrl 1-9 and cmd shift [] and ctrl
     /// tab ... need to work for cycling through chiefs (only for home chief, if user opens chief in
@@ -58,18 +58,18 @@ public nonisolated struct KeyBindingDefaults {
     /// The actions that step or pick a Home conversation: every key of theirs (a default, a cmux.json
     /// or a Settings rebind) runs only where ``onHomeChats`` holds, so a rebind never takes the key
     /// from a terminal or a pane's tabs (`RegistryKeyBindings`).
-    public static var homeChatScoped: Set<ActionID> { Set(RustActionCatalog.shared.idLists["home_chat_scoped"] ?? []) }
+    public static let homeChatScoped: Set<ActionID> = Set(RustActionCatalog.shared.idLists["home_chat_scoped"] ?? [])
 
     /// The Chief chat's zoom: every key of theirs (a default, a cmux.json or a Settings rebind) runs only
     /// where ``onHome`` holds, so a rebind never zooms the Chief chat from a terminal or a browser.
-    public static var homeScoped: Set<ActionID> { Set(RustActionCatalog.shared.idLists["home_scoped"] ?? []) }
+    public static let homeScoped: Set<ActionID> = Set(RustActionCatalog.shared.idLists["home_scoped"] ?? [])
 
     /// The tab keys on Home: the keys that cycle a pane's tabs move through Home's chat list in
     /// sidebar order, wrapping as tabs do. Ctrl-Tab / Ctrl-Shift-Tab and Ctrl-1…9 are also the
     /// actions' catalog keys; Cmd-Shift-] / [ are aliases. They go after the catalog defaults and
     /// ``tabCycleAliases``, which they replace on Home only; like every cmux default, the user's
     /// Ghostty config and cmux.json win over them.
-    public static var homeChatSwitching: [KeyBinding] { RustActionCatalog.shared.bindings["home_chat_switching"] ?? [] }
+    public static let homeChatSwitching: [KeyBinding] = RustActionCatalog.shared.bindings["home_chat_switching"] ?? []
 
     /// The Home tab keys whose action is on and keeps its default key: a rebound action (cmux.json,
     /// Settings) keeps only its own key, still scoped to Home (``homeChatScoped``).
@@ -108,7 +108,7 @@ public nonisolated struct KeyBindingDefaults {
     }
 
     /// The scoped defaults without the registry's unbinding applied.
-    public static var scopedDefaults: [KeyBinding] { RustActionCatalog.shared.bindings["scoped_defaults"] ?? [] }
+    public static let scopedDefaults: [KeyBinding] = RustActionCatalog.shared.bindings["scoped_defaults"] ?? []
 
     /// The sidebar list has the keyboard with two or more rows selected.
     public static let sidebarMultiSelection = WhenClause.has(KeyContext.sidebarMultiSelection)
@@ -123,12 +123,12 @@ public nonisolated struct KeyBindingDefaults {
     /// The arrow aliases for pane resize. These are defaults in addition to
     /// each action's catalog Ctrl-Shift H/J/K/L key, and disappear when a user
     /// overrides or unbinds that action.
-    public static var paneResizeAliases: [KeyBinding] { RustActionCatalog.shared.bindings["pane_resize_aliases"] ?? [] }
+    public static let paneResizeAliases: [KeyBinding] = RustActionCatalog.shared.bindings["pane_resize_aliases"] ?? []
 
     /// The vim-letter aliases for pane focus, in addition to each action's
     /// catalog Cmd-Opt arrow; they disappear when a user overrides or
     /// unbinds that action.
-    public static var paneFocusAliases: [KeyBinding] { RustActionCatalog.shared.bindings["pane_focus_aliases"] ?? [] }
+    public static let paneFocusAliases: [KeyBinding] = RustActionCatalog.shared.bindings["pane_focus_aliases"] ?? []
 
     /// Cmd-[ / Cmd-] are focus history Back / Forward everywhere but a web
     /// page, as in the shipping cmux (chief decision, cx-442;
@@ -137,11 +137,11 @@ public nonisolated struct KeyBindingDefaults {
     /// user's Ghostty config still wins over them. In a web page, the Markdown
     /// viewer and other surfaces with their own Back / Forward, the more
     /// specific catalog entry on the same key comes later and wins.
-    public static var focusHistoryAliases: [KeyBinding] { RustActionCatalog.shared.bindings["focus_history_aliases"] ?? [] }
+    public static let focusHistoryAliases: [KeyBinding] = RustActionCatalog.shared.bindings["focus_history_aliases"] ?? []
     /// Cmd-Shift-= (Cmd-+ on a US layout) is the markdown viewer's Zoom In too, as Cmd-= is: the
     /// key a person reads as "Command plus". The action needs `markdownFocused`, so a terminal or a
     /// browser page never loses the key to it.
-    public static var zoomAliases: [KeyBinding] { RustActionCatalog.shared.bindings["zoom_aliases"] ?? [] }
+    public static let zoomAliases: [KeyBinding] = RustActionCatalog.shared.bindings["zoom_aliases"] ?? []
 
     /// Not in a web page, and not in the code editor, whose Cmd-[ / Cmd-] are outdent / indent.
     static let notWebPage = WhenClause.and([
@@ -157,7 +157,7 @@ public nonisolated struct KeyBindingDefaults {
     /// catalog Ctrl-Opt-1…9 (the Number Keys card's scheme, ``ShortcutDigitScheme``) and adds
     /// Ctrl-Opt-Cmd-1…9. Ctrl-Cmd-arrows and Ctrl-Cmd-digits were asked for, but they are Ghostty's
     /// reserved pane resize and Focus Pane by Number; Ctrl-arrows and Ctrl-digits are Mission Control's.
-    public static var spaceAliases: [KeyBinding] { RustActionCatalog.shared.bindings["space_aliases"] ?? [] }
+    public static let spaceAliases: [KeyBinding] = RustActionCatalog.shared.bindings["space_aliases"] ?? []
 
     /// Actions whose default key Monaco also uses for editing (R127,
     /// webviews/src/pages/editor/README.md): while the code editor has the
@@ -165,7 +165,7 @@ public nonisolated struct KeyBindingDefaults {
     /// the key reaches the editor. A user binding keeps its own `when`.
     /// App-global chords (Cmd-T, Cmd-W, Cmd-N, Cmd-1…9, Ctrl-1…9,
     /// Shift-Cmd-P, Cmd-Q, Cmd-comma, Shift-Cmd-T) are not here.
-    public static var yieldsToCodeEditor: Set<ActionID> { Set(RustActionCatalog.shared.idLists["yields_to_code_editor"] ?? []) }
+    public static let yieldsToCodeEditor: Set<ActionID> = Set(RustActionCatalog.shared.idLists["yields_to_code_editor"] ?? [])
 
     /// Actions whose default key a terminal program also uses (Ctrl-_ is
     /// readline/emacs undo): their default binding applies everywhere but a
@@ -176,13 +176,13 @@ public nonisolated struct KeyBindingDefaults {
     /// focused terminal, as in Ghostty and the shipping cmux (decision K1 follow-up, 2026-10-06).
     /// Cmd-Return (checklist item) reaches the terminal program, as in the shipping cmux
     /// (plans/cmux-next/terminal-shortcuts.md).
-    public static var yieldsToTerminal: Set<ActionID> { Set(RustActionCatalog.shared.idLists["yields_to_terminal"] ?? []) }
+    public static let yieldsToTerminal: Set<ActionID> = Set(RustActionCatalog.shared.idLists["yields_to_terminal"] ?? [])
 
     /// Actions whose default key an agent chat or a web page also uses: their default binding
     /// applies everywhere but there (`notWebContent`), so the page's own handler gets the key.
     /// Cmd-Return steers a running agent turn in the composer (Composer.tsx) and submits forms
     /// on many sites; the checklist toggle took it first and refused "no todo items".
-    public static var yieldsToWebContent: Set<ActionID> { Set(RustActionCatalog.shared.idLists["yields_to_web_content"] ?? []) }
+    public static let yieldsToWebContent: Set<ActionID> = Set(RustActionCatalog.shared.idLists["yields_to_web_content"] ?? [])
 
     /// Not an agent chat (`agent`, the acpmux page) and not a web page (`page`).
     public static let notWebContent = WhenClause.and([
@@ -196,17 +196,17 @@ public nonisolated struct KeyBindingDefaults {
     /// its action is scoped to a surface (`requires`: the omnibar's Cmd-Return, the file explorer's
     /// Return).
     /// The checklist toggle took Cmd-Return from the chat composer and refused "no todo items".
-    public static var textInputKeys: Set<Shortcut> { RustActionCatalog.shared.textInputKeys }
+    public static let textInputKeys: Set<Shortcut> = RustActionCatalog.shared.textInputKeys
 
     /// No text field, page editor or terminal TextBox has the keyboard.
     public static let notTextInput = WhenClause.and([
         .not(.has(KeyContext.textInputFocus)), .not(.has("textBoxFocused")),
     ])
 
-    /// The command palette's keys (R59 fold, `PaletteKeyActionCatalog`), in
+    /// The command palette's keys (R59 fold, the catalog's `PaletteKeyActionCatalog` group), in
     /// table order: a later applicable entry wins, so a more specific
     /// `when` follows a general one for the same key.
-    public static var paletteKeys: [KeyBinding] { RustActionCatalog.shared.bindings["palette_keys"] ?? [] }
+    public static let paletteKeys: [KeyBinding] = RustActionCatalog.shared.bindings["palette_keys"] ?? []
 
     /// List navigation (R85): Ctrl-N / Ctrl-J move down and Ctrl-P /
     /// Ctrl-K move up wherever a list-like control has the keyboard
@@ -214,7 +214,7 @@ public nonisolated struct KeyBindingDefaults {
     /// a terminal or a plain text field, where `listFocus` is unset.
     public static let listFocus = WhenClause.has(KeyContext.listFocus)
 
-    public static var listNavigation: [KeyBinding] { RustActionCatalog.shared.bindings["list_navigation"] ?? [] }
+    public static let listNavigation: [KeyBinding] = RustActionCatalog.shared.bindings["list_navigation"] ?? []
 
     /// The aliases whose action still has its default key, then list
     /// navigation (removed one by one with `-list.next` entries in

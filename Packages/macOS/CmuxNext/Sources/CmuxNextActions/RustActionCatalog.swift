@@ -12,6 +12,8 @@ import os
 /// (`ActionCatalog.all`); the decode never touches disk.
 nonisolated struct RustActionCatalog: Sendable {
     let descriptors: [ActionDescriptor]
+    /// Each action's catalog group (`AppStoreActionCatalog`, ...), by id.
+    let groupOf: [ActionID: String]
     let legacyAliases: [ActionID: ActionID]
     let bindings: [String: [KeyBinding]]
     let idLists: [String: [ActionID]]
@@ -22,8 +24,8 @@ nonisolated struct RustActionCatalog: Sendable {
     let paletteAliases: [ActionID: [String]]
     let paletteFamilies: [PaletteFamily]
     let paletteDuplicates: [ActionID: ActionID]
-    let categoryTitles: [ActionCategory: String]
-    let folderTitles: [MenuFolder: String]
+    let categories: [ActionCategory: (title: String, titleKey: String, titleTable: String)]
+    let folders: [MenuFolder: (title: String, symbol: String, group: MenuGroup)]
 
     static let shared: RustActionCatalog = load(language: Locale.preferredLanguages.first ?? "en")
 
@@ -52,8 +54,16 @@ nonisolated struct RustActionCatalog: Sendable {
     }
 
     init(root: [String: Any]) {
-        let actions = root["actions"] as? [[String: Any]] ?? []
+        var actions = root["actions"] as? [[String: Any]] ?? []
+        #if !DEBUG
+        actions = Self.withoutDebugBuildEntries(actions, root["debug_build_only"] as? [String: Any] ?? [:])
+        #endif
         descriptors = actions.compactMap(Self.descriptor)
+        var groupOf: [ActionID: String] = [:]
+        for row in actions {
+            if let id = row["id"] as? String, let group = row["group"] as? String { groupOf[ActionID(rawValue: id)] = group }
+        }
+        self.groupOf = groupOf
         legacyAliases = Self.idMap(root["legacy_aliases"])
         let defaults = root["key_binding_defaults"] as? [String: Any] ?? [:]
         var bindings: [String: [KeyBinding]] = [:]
@@ -85,16 +95,47 @@ nonisolated struct RustActionCatalog: Sendable {
             return PaletteFamily(id, title: family["title"] as? String ?? "", symbol: family["symbol"] as? String ?? "", members: members)
         }
         paletteDuplicates = Self.idMap(palette["duplicates"])
-        var categories: [ActionCategory: String] = [:]
+        var categories: [ActionCategory: (title: String, titleKey: String, titleTable: String)] = [:]
         for row in root["categories"] as? [[String: Any]] ?? [] {
-            if let id = row["id"] as? String, let category = ActionCategory(rawValue: id) { categories[category] = row["title"] as? String }
+            guard let id = row["id"] as? String, let category = ActionCategory(rawValue: id) else { continue }
+            categories[category] = (row["title"] as? String ?? id, row["title_key"] as? String ?? "category.\(id)",
+                                    row["title_table"] as? String ?? "Localizable")
         }
-        categoryTitles = categories
-        var folders: [MenuFolder: String] = [:]
+        self.categories = categories
+        var folders: [MenuFolder: (title: String, symbol: String, group: MenuGroup)] = [:]
         for row in root["menu_folders"] as? [[String: Any]] ?? [] {
-            if let id = row["id"] as? String, let folder = MenuFolder(rawValue: id) { folders[folder] = row["title"] as? String }
+            guard let id = row["id"] as? String, let folder = MenuFolder(rawValue: id),
+                  let group = (row["group"] as? String).flatMap({ Self.groupsByName[$0] })
+            else { continue }
+            folders[folder] = (row["title"] as? String ?? id, row["symbol"] as? String ?? "folder", group)
         }
-        folderTitles = folders
+        self.folders = folders
+    }
+
+    /// `actions` without what only a Debug build has (its handlers are compiled out of Release):
+    /// the listed actions, and the listed values of an action's enumeration argument.
+    static func withoutDebugBuildEntries(_ actions: [[String: Any]], _ table: [String: Any]) -> [[String: Any]] {
+        let dropped = Set(table["actions"] as? [String] ?? [])
+        var droppedCases: [String: [(argument: String, value: String)]] = [:]
+        for row in table["cases"] as? [[String: String]] ?? [] {
+            guard let action = row["action"], let argument = row["argument"], let value = row["value"] else { continue }
+            droppedCases[action, default: []].append((argument, value))
+        }
+        return actions.compactMap { row in
+            guard let id = row["id"] as? String, !dropped.contains(id) else { return nil }
+            guard let cases = droppedCases[id], var arguments = row["arguments"] as? [[String: Any]] else { return row }
+            for index in arguments.indices {
+                guard var kind = arguments[index]["kind"] as? [String: Any], let values = kind["enumeration"] as? [[String: Any]] else { continue }
+                let name = arguments[index]["name"] as? String
+                kind["enumeration"] = values.filter { value in
+                    !cases.contains { $0.argument == name && $0.value == value["value"] as? String }
+                }
+                arguments[index]["kind"] = kind
+            }
+            var copy = row
+            copy["arguments"] = arguments
+            return copy
+        }
     }
 
     // MARK: - Values

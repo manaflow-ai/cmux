@@ -9,9 +9,8 @@
 //! - Every translation must equal the app's string catalogs (`CmuxNextActions/*.xcstrings`),
 //!   in every language.
 //!
-//! The last two read files the Swift catalog still writes (it stays the app's until the app
-//! reads this crate), so a Swift edit would fail them on the base branch: they run with
-//! `--ignored`. The first reads the frozen dump and always runs.
+//! The app reads this crate since step B, so the export is written from it; the string
+//! catalogs still hold the same translations until the Swift string tables are trimmed.
 
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -83,14 +82,16 @@ fn english_catalog_equals_the_swift_dump() {
     sort(&mut swift);
     let mut rust = cmux_action_catalog::json::catalog_value(0);
     sort(&mut rust);
-    rust.as_object_mut().expect("an object").remove("locale");
+    let object = rust.as_object_mut().expect("an object");
+    object.remove("locale");
+    // The dump is a Debug build's, which has every Debug-only entry; the list of them is new.
+    object.remove("debug_build_only");
     if let Some(difference) = first_difference("$", &rust, &swift) {
         panic!("the Rust catalog differs from the Swift dump: {difference}");
     }
 }
 
 #[test]
-#[ignore = "live Swift parity: the Swift catalog is still the app's until step B; run with --ignored"]
 fn action_list_export_matches() {
     let export = read_json(&repo().join("plans/cmux-next/action-surfaces.json"));
     let rows = export["actions"].as_array().expect("actions");
@@ -153,7 +154,6 @@ fn action_list_export_matches() {
 
 /// Every translation the catalog carries is the app's, in every language.
 #[test]
-#[ignore = "live Swift parity: the Swift catalog is still the app's until step B; run with --ignored"]
 fn translations_equal_the_string_catalogs() {
     let dir = repo().join("Packages/macOS/CmuxNext/Sources/CmuxNextActions");
     let mut tables = std::collections::HashMap::new();
@@ -191,4 +191,20 @@ fn japanese_titles_are_translated() {
     let action = cmux_action_catalog::find("newSurface").expect("newSurface");
     assert_ne!(cmux_action_catalog::strings::resolve(&action.title, ja), action.title.en);
     assert_eq!(cmux_action_catalog::find("app.quit").map(|a| a.id), Some("quit"));
+}
+
+#[test]
+fn debug_build_only_entries_exist() {
+    for id in cmux_action_catalog::tables::DEBUG_BUILD_ONLY_ACTIONS {
+        let action = cmux_action_catalog::find(id).unwrap_or_else(|| panic!("{id} is not an action"));
+        assert!(action.is_debug_only, "{id} is Debug-build only but not in the Debug menu");
+    }
+    for (id, name, value) in cmux_action_catalog::tables::DEBUG_BUILD_ONLY_CASES {
+        let action = cmux_action_catalog::find(id).unwrap_or_else(|| panic!("{id} is not an action"));
+        let argument = action.arguments.iter().find(|a| a.name == *name).expect("the argument");
+        let cmux_action_catalog::model::ArgKind::Enumeration(cases) = argument.kind else {
+            panic!("{id}.{name} is not an enumeration");
+        };
+        assert!(cases.iter().any(|c| c.value == *value), "{id}.{name} has no {value}");
+    }
 }
