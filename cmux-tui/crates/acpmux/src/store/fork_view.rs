@@ -161,23 +161,27 @@ impl ForkView {
         Held::Exclusive(self.dropping.write().unwrap_or_else(|e| e.into_inner()))
     }
 
-    fn reference(&self, id: &str) -> Option<HistoryRef> {
+    /// The history `id` references, if any. A meta that cannot be read is an error, never taken
+    /// for one that names none: a read of a fork of a fork would then show only that chat's own
+    /// records, and a copy made from it (an export, a write of the history) would keep that for
+    /// good (review of #37020). It is read again next time.
+    fn reference(&self, id: &str) -> Result<Option<HistoryRef>> {
         {
             let refs = self.refs.read().unwrap_or_else(|e| e.into_inner());
             if refs.known.contains(id) {
-                return refs.by_fork.get(id).cloned();
+                return Ok(refs.by_fork.get(id).cloned());
             }
         }
-        // Not read yet: its stored meta says. A meta that cannot be read now is read again next
-        // time, not taken for one that names none (review of #37020).
         match self.inner.load(id) {
             Ok(Some(meta)) => self.note(&meta),
             Ok(None) => {
                 self.refs.write().unwrap_or_else(|e| e.into_inner()).known.insert(id.to_owned());
             }
-            Err(e) => tracing::warn!(session = %id, "fork view: meta unreadable: {e:#}"),
+            Err(e) => {
+                return Err(e.context(format!("chat {id}: its history's source is unreadable")));
+            }
         }
-        self.refs.read().unwrap_or_else(|e| e.into_inner()).by_fork.get(id).cloned()
+        Ok(self.refs.read().unwrap_or_else(|e| e.into_inner()).by_fork.get(id).cloned())
     }
 
     fn note(&self, meta: &SessionMeta) {
@@ -202,7 +206,7 @@ impl ForkView {
     /// [`ForkView::materialize`] under `dropping`.
     fn materialize_locked(&self, id: &str) -> Result<()> {
         // Read under the lock: a write that ran first left none.
-        let Some(reference) = self.reference(id) else { return Ok(()) };
+        let Some(reference) = self.reference(id)? else { return Ok(()) };
         // A fork reserved and not saved yet has no meta to hold the history's end, and no folder
         // made with it: the history would go nowhere, or into a folder its meta's save then
         // takes as already there. Its first save comes under `dropping` too, so the chat waits
@@ -323,7 +327,7 @@ impl Store for ForkView {
     }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let _held = self.shared();
-        let Some(r) = self.reference(id) else { return self.inner.events(id, after, limit) };
+        let Some(r) = self.reference(id)? else { return self.inner.events(id, after, limit) };
         let mut out = Vec::new();
         if after < r.through_seq && limit > 0 {
             self.scan(&r.session, after, &mut |rec| {
@@ -343,7 +347,7 @@ impl Store for ForkView {
     }
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
         let _held = self.shared();
-        let Some(r) = self.reference(id) else { return self.inner.scan(id, after, visit) };
+        let Some(r) = self.reference(id)? else { return self.inner.scan(id, after, visit) };
         if !self.prefix(&r, after, visit)? {
             return Ok(());
         }
@@ -356,7 +360,7 @@ impl Store for ForkView {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         let _held = self.shared();
-        let Some(r) = self.reference(id) else { return self.inner.scan_strict(id, after, visit) };
+        let Some(r) = self.reference(id)? else { return self.inner.scan_strict(id, after, visit) };
         let mut going = true;
         if after < r.through_seq {
             self.scan_strict(&r.session, after, &mut |rec| {
@@ -383,7 +387,7 @@ impl Store for ForkView {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         let _held = self.shared();
-        let Some(r) = self.reference(id) else {
+        let Some(r) = self.reference(id)? else {
             return self.inner.scan_back(id, after, before, skip, visit);
         };
         let mut going = true;
@@ -405,7 +409,7 @@ impl Store for ForkView {
     }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         let _held = self.shared();
-        let Some(r) = self.reference(id) else { return self.inner.tail_after(id, after) };
+        let Some(r) = self.reference(id)? else { return self.inner.tail_after(id, after) };
         let (mut count, mut last) = (0, after);
         self.prefix(&r, after, &mut |rec| {
             count += 1;
@@ -422,7 +426,7 @@ impl Store for ForkView {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         let _held = self.shared();
-        let Some(r) = self.reference(id) else { return self.inner.scan_kinds(id, kinds, visit) };
+        let Some(r) = self.reference(id)? else { return self.inner.scan_kinds(id, kinds, visit) };
         let shown: Vec<&str> = kinds.iter().copied().filter(|k| is_history(k)).collect();
         let mut going = true;
         if !shown.is_empty() {
@@ -446,7 +450,7 @@ impl Store for ForkView {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         let _held = self.shared();
-        let Some(r) = self.reference(id) else {
+        let Some(r) = self.reference(id)? else {
             return self.inner.scan_kinds_strict(id, kinds, visit);
         };
         let shown: Vec<&str> = kinds.iter().copied().filter(|k| is_history(k)).collect();
@@ -467,7 +471,7 @@ impl Store for ForkView {
     }
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         let _held = self.shared();
-        let Some(r) = self.reference(id) else { return self.inner.scan_heads(id, visit) };
+        let Some(r) = self.reference(id)? else { return self.inner.scan_heads(id, visit) };
         let mut going = true;
         self.scan_heads(&r.session, &mut |head| {
             if head.seq > r.through_seq {
@@ -489,7 +493,7 @@ impl Store for ForkView {
         visit: &mut dyn FnMut(crate::session_search::Entry),
     ) -> Result<()> {
         let _held = self.shared();
-        if self.reference(id).is_none() {
+        if self.reference(id)?.is_none() {
             return self.inner.text_entries(id, visit);
         }
         let mut projector = crate::session_search::Projector::default();

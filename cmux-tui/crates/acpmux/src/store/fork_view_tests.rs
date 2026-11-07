@@ -221,6 +221,72 @@ fn a_fork_of_a_fork_read_before_any_list_shows_both_histories() {
     assert_eq!(seqs(&fresh.events("grandchild", 0, usize::MAX).unwrap()), want);
 }
 
+/// A store whose meta read of one chat fails while `failing` is set (a disk error, a meta being
+/// replaced).
+struct FailingLoad(LocalStore, &'static str, std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Store for FailingLoad {
+    fn list(&self) -> Result<Vec<SessionMeta>> {
+        self.0.list()
+    }
+    fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
+        if id == self.1 && self.2.load(std::sync::atomic::Ordering::SeqCst) {
+            anyhow::bail!("meta unreadable");
+        }
+        self.0.load(id)
+    }
+    fn save(&self, meta: &SessionMeta) -> Result<()> {
+        self.0.save(meta)
+    }
+    fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
+        self.0.append(id, record)
+    }
+    fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
+        self.0.events(id, after, limit)
+    }
+    fn delete(&self, id: &str) -> Result<()> {
+        self.0.delete(id)
+    }
+    fn session_dir(&self, id: &str) -> Option<PathBuf> {
+        self.0.session_dir(id)
+    }
+    fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        self.0.history_writer(id)
+    }
+}
+
+/// A fork of a fork read cold while the middle chat's meta cannot be read fails, never shows only
+/// that chat's own records, and its history is not written from such a read (review of #37020 at
+/// cacca8e: the failed read was taken for "no reference", and a write of the grandchild's history
+/// then kept it without the first chat's records for good).
+#[test]
+fn a_fork_of_a_fork_whose_middle_meta_is_unreadable_fails_its_read() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let view = forked(Box::new(LocalStore::new(dir.clone(), 1 << 20).unwrap()), 30, 20, 4);
+    let reference = HistoryRef { session: "fork".into(), through_seq: 24 };
+    view.save(&meta("grandchild", Some(reference))).unwrap();
+    view.append("grandchild", &record(25, "user_message")).unwrap();
+    drop(view);
+
+    let failing = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let store = FailingLoad(LocalStore::new(dir, 1 << 20).unwrap(), "fork", failing.clone());
+    let fresh = ForkView::new(Box::new(store));
+    assert!(
+        fresh.events("grandchild", 0, usize::MAX).is_err(),
+        "a part of the history read as all of it"
+    );
+    assert!(
+        fresh.materialize("grandchild").is_err(),
+        "the history was written without the first chat's"
+    );
+    failing.store(false, std::sync::atomic::Ordering::SeqCst);
+    let mut want = expected(20, 4);
+    want.push(25);
+    assert_eq!(seqs(&fresh.events("grandchild", 0, usize::MAX).unwrap()), want);
+    fresh.materialize("grandchild").unwrap();
+    assert_eq!(seqs(&fresh.events("grandchild", 0, usize::MAX).unwrap()), want);
+}
+
 /// Two writes of one fork's history at once (the chat deleted while its fork's files are read)
 /// write it once (review of #37020: each wrote it, and the fork showed it twice).
 #[test]
@@ -245,7 +311,7 @@ fn a_stale_meta_noted_after_the_write_names_no_reference() {
     let stale = view.inner.load("fork").unwrap().unwrap();
     view.materialize("fork").unwrap();
     view.note(&stale);
-    assert!(view.reference("fork").is_none());
+    assert!(view.reference("fork").unwrap().is_none());
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
 }
 
@@ -330,7 +396,7 @@ fn a_fork_whose_history_is_not_written_is_not_replaced_by_a_move() {
 fn a_chat_whose_folder_a_move_replaces_leaves_its_forks_their_history() {
     let dir = tempfile::tempdir().unwrap().keep();
     let view = forked(Box::new(LocalStore::new(dir, 1 << 20).unwrap()), 30, 20, 4);
-    assert!(view.reference("fork").is_some());
+    assert!(view.reference("fork").unwrap().is_some());
     let fence = fence_history(&view, "chat").unwrap();
     folder_to_replace(&view, "chat").unwrap().expect("the chat's folder");
     // A fork asked for while the folder is replaced is refused, and taken once it is in place
@@ -343,7 +409,10 @@ fn a_chat_whose_folder_a_move_replaces_leaves_its_forks_their_history() {
     drop(fence);
     view.reserve_reference("late", &reference).unwrap();
     view.forget_reference("late");
-    assert!(view.reference("fork").is_none(), "the fork still reads the folder being replaced");
+    assert!(
+        view.reference("fork").unwrap().is_none(),
+        "the fork still reads the folder being replaced"
+    );
     assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
 }
@@ -360,7 +429,10 @@ fn a_fork_history_commit_syncs_the_folder_that_names_its_events() {
     let failed = view.materialize("fork");
     crate::store::log_sync::FAIL_DIR_SYNC.with(|fail| *fail.borrow_mut() = None);
     assert!(failed.is_err(), "the chat's folder was never synced");
-    assert!(view.reference("fork").is_some(), "the reference went without a synced history");
+    assert!(
+        view.reference("fork").unwrap().is_some(),
+        "the reference went without a synced history"
+    );
     view.materialize("fork").unwrap();
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 0));
 }
@@ -374,7 +446,7 @@ fn a_failed_meta_save_leaves_the_reference_to_try_again() {
     let flag = |on: bool| failing.store(on, std::sync::atomic::Ordering::SeqCst);
     flag(true);
     assert!(view.delete("chat").is_err());
-    assert!(view.reference("fork").is_some(), "the reference was dropped");
+    assert!(view.reference("fork").unwrap().is_some(), "the reference was dropped");
     assert!(view.load("chat").unwrap().is_some(), "the chat went without its fork's history");
     flag(false);
     view.delete("chat").unwrap();
@@ -452,7 +524,7 @@ fn a_read_that_a_delete_lands_in_still_reads_the_history() {
         20,
         4,
     ));
-    view.reference("fork").expect("the fork names its chat");
+    view.reference("fork").unwrap().expect("the fork names its chat");
     let reading = {
         let view = view.clone();
         std::thread::spawn(move || {
