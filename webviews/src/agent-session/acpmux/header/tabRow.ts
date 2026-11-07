@@ -8,6 +8,11 @@ import { setPopupInsetTop } from "../../../ui/popupInset";
 export interface TabRow {
   readonly height: number;
   readonly trailingInset: number;
+  /// The pane's trailing control column (`Metrics.paneTrailingControlCenter`): the distance from the
+  /// pane's trailing edge to the center of its last control, CSS pixels. While `trailingInset` is 0
+  /// (no native "…" keeps the row's end), the last tool centers on it, as the tab bar's and the browser
+  /// toolbar's ⋮ do, so it and its pressed fill sit inside the pane's rounded corner (#37412). Absent: 0.
+  readonly trailingColumn?: number;
   /// Debug chrome.tabs.nativeRowTools; absent/false keeps the existing web buttons.
   readonly nativeRowTools?: boolean;
   /// The pane holds this one tab (PaneContentView): the row has no band of its own. The transcript runs up
@@ -33,6 +38,7 @@ export function setTabRow(value: unknown): void {
   const raw = (value ?? {}) as {
     height?: unknown;
     trailingInset?: unknown;
+    trailingColumn?: unknown;
     nativeRowTools?: unknown;
     soloTab?: unknown;
   };
@@ -42,6 +48,7 @@ export function setTabRow(value: unknown): void {
       ? {
           height,
           trailingInset: pixels(raw.trailingInset),
+          trailingColumn: pixels(raw.trailingColumn),
           nativeRowTools: raw.nativeRowTools === true,
           soloTab: raw.soloTab === true,
         }
@@ -61,12 +68,15 @@ const subscribe = (listener: () => void) => {
 export const useTabRow = (): TabRow => useSyncExternalStore(subscribe, tabRow, tabRow);
 
 /// The header's height and right inset in the row, for the stage that holds the header and the
-/// summary card (header.css, summary.css); none outside it.
+/// summary card (header.css, summary.css); none outside it. `--acpmux-tab-row-column` is the column
+/// the tools' last button centers on, 0 while the pane's own "…" keeps the row's end (its toolbar
+/// width already holds that button's gap to the edge).
 export function tabRowStyle(row: TabRow): CSSProperties | undefined {
   if (row.height <= 0) return undefined;
   return {
     "--acpmux-tab-row-height": `${row.height}px`,
     "--acpmux-tab-row-inset": `${row.trailingInset}px`,
+    "--acpmux-tab-row-column": `${row.trailingInset > 0 ? 0 : (row.trailingColumn ?? 0)}px`,
   } as CSSProperties;
 }
 
