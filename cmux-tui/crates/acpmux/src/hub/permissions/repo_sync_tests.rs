@@ -96,7 +96,7 @@ async fn repo_sync_head_lets_only_a_self_gating_start_through() {
     let (_dir, hub, session) = fixture();
     let cwd = session.meta().cwd;
     let mut sync = Sync::begin(&cwd).unwrap();
-    sync.head_ready().unwrap();
+    sync.head_ready();
     let never = || false;
     let start = super::super::repo_sync::wait_for_start(&session, cwd.clone(), true, never);
     let ready = tokio::time::timeout(Duration::from_secs(2), start).await.unwrap().unwrap();

@@ -105,7 +105,7 @@ fn a_head_ready_sync_lets_a_start_through_while_tools_still_wait() {
     let mut sync = Sync::begin(&repo).unwrap();
     std::fs::create_dir(&repo).unwrap();
     std::fs::write(repo.join("AGENTS.md"), "head").unwrap();
-    sync.head_ready().unwrap();
+    sync.head_ready();
     assert!(matches!(probe(&repo.join("src/main.rs")).unwrap(), Probe::HeadReady));
     let waited = wait_ready(&repo, std::time::Duration::from_millis(50)).unwrap_err();
     assert_eq!(
@@ -123,10 +123,28 @@ fn a_producer_that_dies_after_the_head_leaves_the_barrier_incomplete() {
     let scratch = Scratch::new();
     let repo = scratch.repo();
     let mut sync = Sync::begin(&repo).unwrap();
-    sync.head_ready().unwrap();
+    sync.head_ready();
     drop(sync);
     assert!(matches!(probe(&repo).unwrap(), Probe::Incomplete));
     assert!(wait_ready(&repo, std::time::Duration::from_millis(50)).is_err());
+}
+
+#[test]
+fn a_retry_after_a_dead_head_is_syncing_until_it_marks_its_own_head() {
+    let scratch = Scratch::new();
+    let repo = scratch.repo();
+    let mut first = Sync::begin(&repo).unwrap();
+    first.head_ready();
+    drop(first);
+    let mut retry = Sync::begin(&repo).unwrap();
+    assert!(
+        matches!(probe(&repo).unwrap(), Probe::Syncing),
+        "the dead sync's head is not this one's"
+    );
+    retry.head_ready();
+    assert!(matches!(probe(&repo).unwrap(), Probe::HeadReady));
+    retry.complete().unwrap();
+    assert!(matches!(probe(&repo).unwrap(), Probe::Ready(_)));
 }
 
 #[test]
@@ -137,7 +155,7 @@ fn an_outer_sync_past_no_head_outranks_an_inner_head() {
     let outer_sync = Sync::begin(&outer).unwrap();
     std::fs::create_dir_all(&inner).unwrap();
     let mut inner_sync = Sync::begin(&inner).unwrap();
-    inner_sync.head_ready().unwrap();
+    inner_sync.head_ready();
     assert!(matches!(probe(&inner).unwrap(), Probe::Syncing));
     outer_sync.complete().unwrap();
     assert!(matches!(probe(&inner).unwrap(), Probe::HeadReady));
