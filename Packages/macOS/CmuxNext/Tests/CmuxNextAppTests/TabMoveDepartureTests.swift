@@ -87,6 +87,25 @@ import Testing
         #expect(shown.content.layoutModel.screens.first?.layout.contains(source.layoutPaneID) == false,
                 "the emptied pane still shows")
         #expect(source.stripModel.departures.contains(StripTabID(tab.id)), "the source strip would close the moved tab")
+        // The pane's close carries the tab to its destination in the focus topology: a tab that never
+        // leaves it keeps its browser focus mode (the reducer drops modes of tabs it no longer holds).
+        let topology = shown.content.focus.state.topology
+        #expect(topology.pane(try shown.key(1))?.tab(tab.id) != nil, "the moved tab left the focus topology")
+    }
+
+    /// Router review F1: the topology the close publishes holds the moved tab, and a refused move
+    /// shows the pane again with its tab, so a browser tab's focus mode survives both outcomes.
+    @Test func aRefusedMoveBringsThePaneBackWithItsTab() throws {
+        let shown = try PaneCloseControllerTests.Shown(tree: PaneCloseControllerTests.splitTree(Self.sideBySide))
+        defer { shown.end() }
+        let source = try shown.controller(2)
+        let tab = try #require(source.pane.tabs.first)
+        let finish = TabMoves.depart(tab, into: try shown.controller(1).pane, from: source, closesPane: true, services: shown.services) { _ in }
+        #expect(shown.content.focus.state.topology.allTabIDs.contains(tab.id), "the moved tab left the focus topology")
+        finish(false)
+        #expect(!shown.content.layoutModel.isClosing(source.layoutPaneID), "a refused move kept the pane closed")
+        #expect(!source.stripModel.departures.contains(StripTabID(tab.id)), "a refused move left the tab departing")
+        #expect(shown.content.focus.state.topology.pane(try shown.key(2))?.tab(tab.id) != nil, "the tab did not come back to its pane")
     }
 
     /// A pane that keeps a tab stays; only its strip drops the moved one.

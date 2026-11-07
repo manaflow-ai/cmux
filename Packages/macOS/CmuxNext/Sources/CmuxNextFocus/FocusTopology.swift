@@ -96,5 +96,16 @@ public nonisolated struct FocusTopology: Hashable, Sendable, Codable {
         return topology
     }
 
+    /// Without pane `id`, its tab `moving` (a move that empties it) carried to pane `destination`
+    /// first: a moved tab never leaves the topology, so its browser focus mode stays.
+    public func removing(pane id: String, moving tab: String, to destination: String) -> FocusTopology {
+        var topology = self
+        if let carried = pane(id)?.tab(tab), let index = topology.panes.firstIndex(where: { $0.id == destination }),
+           topology.panes[index].tab(tab) == nil {
+            topology.panes[index].tabs.append(carried)
+        }
+        return topology.removing(pane: id)
+    }
+
     public var allTabIDs: Set<String> { Set(panes.flatMap { $0.tabs.map(\.id) }) }
 }

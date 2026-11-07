@@ -55,7 +55,7 @@ enum TabMoves {
     @MainActor static func depart(_ tab: TabModel, into target: PaneModel? = nil, from source: PaneController? = nil, closesPane: Bool,
                                   services: AppServices, then completion: @escaping Completion) -> Completion {
         guard let pane = services.locateTab(model: tab)?.1, pane !== target, let source = source.flatMap({ $0.pane === pane ? $0 : nil }) ?? services.paneController(for: pane) else { return completion }
-        let id = StripTabID(tab.id), close = source.stripModel.depart(id) && closesPane ? source.showPaneClose() : nil
+        let id = StripTabID(tab.id), destination = target.flatMap { source.workspace?.pane(for: $0.handle)?.paneKey }, close = source.stripModel.depart(id) && closesPane ? source.showPaneClose(moving: destination.map { (tab.id, $0) }) : nil
         return { ok in
             if !ok { source.stripModel.departures.remove(id) }
             source.finishPaneClose(close, failed: !ok)
