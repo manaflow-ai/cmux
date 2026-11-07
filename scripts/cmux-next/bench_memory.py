@@ -23,7 +23,7 @@ comma list). Each count is sampled after --settle seconds.
 memory purge gives back with nothing reloaded: every hidden cmux page's renderer
 gets a critical memory-pressure notice (DevTools Memory.simulatePressureNotification
 through `debug.cef_page_devtools`, a bench or DEV build), then the app settles and
-is sampled again as `purged-N`. The page keeps its DOM, scroll and state, as the
+is sampled again as `purged-N` (one count per run, so `idle-N` is an unpurged app). The page keeps its DOM, scroll and state, as the
 "a page never reloads unless the person asks" design (#25791) requires.
 
 Two ways to run (macOS only, a fleet or capture mini, never a laptop):
@@ -750,6 +750,9 @@ def main():
     chats = None
     recipes = args.mix.split(",")
     counts = sorted(int(n) for n in args.workspaces.split(",") if n)
+    if args.purge_hidden and len(counts) > 1:
+        # A later count's idle sample would follow the earlier purge, not an unpurged app.
+        parser.error("--purge-hidden takes one --workspaces count; run each count on its own")
     report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [], "cef_switches": args.cef_switches,
               "webkit_attributed": _responsible is not None}
     opened = []

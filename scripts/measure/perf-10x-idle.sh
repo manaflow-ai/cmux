@@ -13,7 +13,7 @@
 # agents: also measure that many idle agent chats (one workspace each, on the
 # acpmux test agent cmux-tui/crates/acpmux/tests/fake_agent.py, its first turn
 # answered), as PERF-IDLE app-agents lines (resource-efficiency-DESIGN.md).
-# purge=1 (with agents=): after each agent count, Chromium's memory purge of every hidden chat's renderer (no
+# purge=1 (with one agents= count, e.g. agents=100): after the agent count, Chromium's memory purge of every hidden chat's renderer (no
 # reload; bench_memory.py --purge-hidden), sampled again as purged-N.
 # Output: PERF-IDLE lines; JSON under .build/perf-idle.
 set -euo pipefail
