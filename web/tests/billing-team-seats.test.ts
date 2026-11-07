@@ -121,7 +121,7 @@ describe("team seat reconciler", () => {
 
     const result = await reconcileTeamSeats({}, deps);
 
-    expect(result).toEqual({ checked: 1, updated: 1, skipped: 0, failed: 0, busy: 0 });
+    expect(result).toEqual({ checked: 1, updated: 1, skipped: 0, failed: 0, busy: 0, deferred: 0 });
     expect(stripe.updates).toEqual([{ subscriptionId: SUBSCRIPTION_ID, itemId: ITEM_ID, quantity: 3 }]);
     expect(applied).toEqual([3]);
     const row = queue.rows.get(TEAM_ID)!;
@@ -136,7 +136,7 @@ describe("team seat reconciler", () => {
 
     const result = await reconcileTeamSeats({}, deps);
 
-    expect(result).toEqual({ checked: 1, updated: 1, skipped: 0, failed: 0, busy: 0 });
+    expect(result).toEqual({ checked: 1, updated: 1, skipped: 0, failed: 0, busy: 0, deferred: 0 });
     expect(stripe.updates).toEqual([{ subscriptionId: SUBSCRIPTION_ID, itemId: ITEM_ID, quantity: 3 }]);
     expect(queue.rows.get(TEAM_ID)!).toMatchObject({ dirtyAt: null, lastMemberCount: 3, lastStripeQuantity: 3, lastError: null });
   });
@@ -191,7 +191,7 @@ describe("team seat reconciler", () => {
     await free.queue.markDirty(TEAM_ID);
     expect(await reconcileTeamSeats({}, free.deps)).toMatchObject({ skipped: 1, updated: 0 });
     expect(free.stripe.updates).toEqual([]);
-    expect(free.queue.rows.get(TEAM_ID)!).toMatchObject({ dirtyAt: null, lastMemberCount: 2 });
+    expect(free.queue.rows.get(TEAM_ID)!).toMatchObject({ dirtyAt: null, lastMemberCount: null });
   });
 
   test("a deleted team is cleared without touching Stripe", async () => {
@@ -255,6 +255,44 @@ describe("team seat reconciler", () => {
     expect(await reconcileTeamSeats({}, deps)).toMatchObject({ busy: 1, updated: 0 });
     expect(stripe.updates).toEqual([]);
     expect(queue.rows.get(TEAM_ID)!.dirtyAt).not.toBeNull();
+  });
+
+  test("an unsubscribed team is cleared without asking Stack", async () => {
+    const { stack, queue, stripe, deps } = harness({ subscribed: false });
+    await queue.markDirty(TEAM_ID);
+    expect(await reconcileTeamSeats({}, deps)).toMatchObject({ skipped: 1, failed: 0 });
+    expect(stack.calls).toEqual([]);
+    expect(queue.events.filter((event) => event.startsWith("lock:"))).toEqual([]);
+    expect(stripe.updates).toEqual([]);
+    expect(queue.rows.get(TEAM_ID)!.dirtyAt).toBeNull();
+  });
+
+  test("records each outcome after releasing the team lock", async () => {
+    const { stack, queue, deps } = harness();
+    stack.addMember(TEAM_ID, OUTSIDER_ID, MEMBER_GRANTS);
+    await queue.markDirty(TEAM_ID);
+    await reconcileTeamSeats({}, deps);
+    const events = queue.events.filter((event) => !event.startsWith("dirty:"));
+    expect(events).toEqual([`lock:${TEAM_ID}`, `unlock:${TEAM_ID}`, `outcome:${TEAM_ID}:3:3:null`]);
+  });
+
+  test("stops starting teams once its time budget is spent and leaves the rest dirty", async () => {
+    const { queue, deps } = harness();
+    await queue.markDirty(TEAM_ID);
+    queue.now = new Date(queue.now.getTime() + 1);
+    await queue.markDirty(OTHER_TEAM_ID);
+    let clock = 0;
+    const result = await reconcileTeamSeats({ budgetMs: 1_000 }, {
+      ...deps,
+      now: () => clock,
+      activeSubscription: async (teamId) => {
+        clock += 1_500;
+        return deps.activeSubscription!(teamId);
+      },
+    });
+    expect(result).toMatchObject({ checked: 1, deferred: 1, failed: 0 });
+    expect(queue.rows.get(TEAM_ID)!.dirtyAt).toBeNull();
+    expect(queue.rows.get(OTHER_TEAM_ID)!.dirtyAt).not.toBeNull();
   });
 
   test("scopes an inline run to the named team", async () => {
