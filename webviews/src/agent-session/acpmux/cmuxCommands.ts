@@ -1,4 +1,6 @@
 import { cliOnlyCommand } from "./cliOnlyCommands";
+import type { ConnectorServer } from "./session-info/connectorServers";
+import type { ChatTool } from "./summary/chatTools";
 import type { StringKey } from "./i18n";
 import { goesAsText, type SlashCommand } from "./slashCommands";
 
@@ -19,7 +21,8 @@ export type CmuxCommand = SlashCommand & {
     | "status"
     | "cd"
     | "resume"
-    | "login";
+    | "login"
+    | "mcp";
   descriptionKey?: SlashCommand["descriptionKey"];
 };
 
@@ -137,6 +140,18 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     descriptionKey: "composer.slashLogin",
     source: "cmux",
     action: "login",
+  },
+  // Claude Code's own /mcp is a terminal menu (over ACP it answers "isn't available in this
+  // environment") and Codex's app-server takes no slash commands, so a typed /mcp did nothing useful
+  // in a GUI chat (user, 2026-11-06: "/mcp doesn't work in cmux agent GUIs"). cmux's shows the chat's
+  // MCP servers in Session Info's Connectors, and its subcommands do what that menu's rows do.
+  {
+    name: "mcp",
+    description: "",
+    descriptionKey: "composer.slashMcp",
+    hint: "[reconnect|enable|disable <server>]",
+    source: "cmux",
+    action: "mcp",
   },
 ];
 
@@ -278,6 +293,8 @@ export function cmuxCommandRefusal(
     case "resume":
     case "login":
       return undefined;
+    case "mcp":
+      return state.newTab || !state.session ? "composer.cmuxMcpUnavailable" : undefined;
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
     case "cd":
@@ -317,4 +334,50 @@ export function cdFolder(args: string | undefined, cwd: string | undefined): str
     else parts.push(part);
   }
   return `/${parts.join("/")}`;
+}
+
+/// What `/mcp <args>` does in a chat: show the chat's MCP servers (bare), reconnect one, or turn
+/// one on or off for this chat, as Session Info's Connectors and Use tools do. A refusal names why.
+export type McpCommandPlan =
+  | { kind: "show" }
+  | { kind: "reconnect"; server: string }
+  | { kind: "set"; id: string; server: string; enabled: boolean }
+  | { kind: "refuse"; key: StringKey; values?: Record<string, string> };
+
+export function mcpCommandPlan(
+  args: string | undefined,
+  chat: {
+    /// The chat's servers as Connectors lists them (connectorServers.ts).
+    servers: readonly ConnectorServer[];
+    /// acpmux's `tools` for the chat, whose `mcp:<server>` rows say which can turn on or off.
+    tools?: readonly ChatTool[];
+    /// acpmux reconnects this chat's servers (`_acpmux/mcp/reconnect`: a Claude Code chat).
+    reconnects: boolean;
+    /// `_acpmux/set_tools` can change this chat's tools from this page.
+    setsTools: boolean;
+  },
+): McpCommandPlan {
+  const typed = args?.trim() ?? "";
+  if (!typed) return { kind: "show" };
+  const match = /^(\S+)(?:\s+(.+))?$/s.exec(typed);
+  const verb = match?.[1]?.toLowerCase();
+  const name = match?.[2]?.trim();
+  if (!name || (verb !== "reconnect" && verb !== "enable" && verb !== "disable"))
+    return { kind: "refuse", key: "composer.cmuxMcpUsage" };
+  // The server as the chat names it: exact first, then ignoring case.
+  const names = [
+    ...chat.servers.map((server) => server.name),
+    ...(chat.tools ?? []).filter((tool) => tool.id.startsWith("mcp:")).map((tool) => tool.id.slice(4)),
+  ];
+  const server =
+    names.find((known) => known === name) ?? names.find((known) => known.toLowerCase() === name.toLowerCase());
+  if (!server) return { kind: "refuse", key: "composer.cmuxMcpUnknown", values: { server: name } };
+  if (verb === "reconnect") {
+    if (!chat.reconnects) return { kind: "refuse", key: "composer.cmuxMcpNoReconnect" };
+    return { kind: "reconnect", server };
+  }
+  const tool = chat.tools?.find((row) => row.id === `mcp:${server}`);
+  if (!chat.setsTools) return { kind: "refuse", key: "summary.tools.immutable" };
+  if (!tool?.canToggle) return { kind: "refuse", key: "summary.tools.fixed" };
+  return { kind: "set", id: tool.id, server, enabled: verb === "enable" };
 }

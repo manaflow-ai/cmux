@@ -7,11 +7,9 @@ import { useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import type { AcpmuxSnapshot } from "../model";
+import type { ConnectorServer } from "./connectorServers";
 import { IMessageConnector } from "./IMessageConnector";
 import type { IMessageView } from "./imessage";
-
-type McpServer = NonNullable<NonNullable<AcpmuxSnapshot["summary"]>["mcpServers"]>[number];
 
 const ROW_ICON = rowIconSize(12);
 
@@ -20,7 +18,7 @@ export function ConnectorsSection({
   onReconnect,
   imessage,
 }: {
-  servers: readonly McpServer[];
+  servers: readonly ConnectorServer[];
   /// `_acpmux/mcp/reconnect` of the server by its name.
   onReconnect?: (server: string) => Promise<unknown>;
   imessage?: IMessageView;
@@ -37,13 +35,7 @@ export function ConnectorsSection({
             <ReconnectButton name={server.name} reconnect={onReconnect} />
           ) : (
             <span className="acpmux-session-info-row__end" data-state={server.status}>
-              {t(
-                server.status === "failed"
-                  ? "sessionInfo.connectors.needsReconnect"
-                  : server.status === "pending"
-                    ? "rail.connectorPending"
-                    : "composer.envConnected",
-              )}
+              {t(connectorStateKey(server.status))}
             </span>
           )}
         </li>
@@ -51,6 +43,19 @@ export function ConnectorsSection({
     </ul>
   );
 }
+
+/// A server's state as its row says it: a harness's report, or on or off for the chat where the
+/// harness reports none (connectorServers.ts).
+export const connectorStateKey = (status: ConnectorServer["status"]) =>
+  status === "failed"
+    ? "sessionInfo.connectors.needsReconnect"
+    : status === "pending"
+      ? "rail.connectorPending"
+      : status === "on"
+        ? "sessionInfo.connectors.on"
+        : status === "off"
+          ? "sessionInfo.connectors.off"
+          : "composer.envConnected";
 
 /// A failed server's Reconnect: busy while Claude Code tries, and after an error from acpmux it
 /// reads Try again (in the danger color) and tries again. Success needs nothing here: acpmux marks
