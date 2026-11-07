@@ -10,32 +10,9 @@ public import AppKit
 /// document when it loads and again when a live resize starts, so the gap
 /// reads as more page instead of white or the window backdrop.
 extension CEFTab {
-    /// The document's background as `[r, g, b]` (0-255): the root element's,
-    /// else the body's (CSS propagates it to the canvas); when neither has
-    /// one, Chromium's canvas: white, or its dark canvas when the document's
-    /// color scheme is dark (`PageBackground.usesDarkCanvasScript`); null when
-    /// the first one set is translucent (Chromium's white base stays, since the
-    /// page paints its color over that base). A 1x1 canvas turns any CSS color
-    /// syntax into sRGB bytes.
-    static let pageBackdropScript = """
-    (() => {
-      const canvas = document.createElement('canvas');
-      canvas.width = canvas.height = 1;
-      const context = canvas.getContext('2d', { willReadFrequently: true });
-      for (const element of [document.documentElement, document.body]) {
-        if (!element) continue;
-        context.clearRect(0, 0, 1, 1);
-        context.fillStyle = 'rgba(0, 0, 0, 0)';
-        context.fillStyle = getComputedStyle(element).backgroundColor;
-        context.fillRect(0, 0, 1, 1);
-        const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
-        if (a === 0) continue;
-        // Translucent: the page paints it over Chromium's base, so a base of the same color would darken it.
-        return a === 255 ? [r, g, b] : null;
-      }
-      return \(PageBackground.usesDarkCanvasScript) ? [18, 18, 18] : [255, 255, 255];
-    })()
-    """
+    /// The document's background read (`PageBackground.backdropScript`): `[r, g, b]` for its own, `"dark"` or
+    /// `"light"` for none (Chromium paints its canvas then, so its page base stays white), null when translucent.
+    static let pageBackdropScript = PageBackground.backdropScript
 
     /// `pageBackdropScript` once the page has the color scheme it was just sent (`dark`): the scheme reaches the
     /// renderer on its own channel, so the read first waits (bounded) until the page's media query agrees, then one
@@ -72,7 +49,8 @@ extension CEFTab {
     var pageBackdropColor: CGColor? {
         let loading = loadingBaseARGB
         return PageBackground.closingGroundARGB(realPage: pastFirstRealPage, settled: loading == nil, loading: loading,
-                                                document: pageBackdropARGB, canvas: PageBackground.engineDefaultARGB)
+                                                document: pageBackdropARGB,
+                                                canvas: pageCanvasDark ? PageBackground.chromiumDarkCanvasARGB : PageBackground.engineDefaultARGB)
             .map(PageBackground.cgColor)
     }
 
@@ -93,8 +71,13 @@ extension CEFTab {
             // A navigation since the read: the next document samples its own.
             guard let self, document == self.pageBackdropDocument, !self.isClosed else { return }
             let argb = Self.backdropARGB(from: value)
-            guard argb != self.pageBackdropARGB, argb != nil || !keepsColorWithoutAnswer else { return }
+            let canvasDark = PageBackground.canvasDark(from: value)
+            // A scheme re-read keeps the color read before when the answer is none the script gives (a promise the
+            // path did not await); null (a translucent background) is an answer.
+            if keepsColorWithoutAnswer, argb == nil, canvasDark == nil, value != .null { return }
+            guard argb != self.pageBackdropARGB || (canvasDark ?? false) != self.pageCanvasDark else { return }
             self.pageBackdropARGB = argb
+            self.pageCanvasDark = canvasDark ?? false
             self.applyPageBackground()
         }
     }
@@ -102,9 +85,13 @@ extension CEFTab {
     /// The page was just sent a new `prefers-color-scheme` (`CEFColorScheme.apply`, a theme or appearance change): a
     /// page that follows it changes its own background, which a closing pane and a resize gap must show (CLOSE GROUND
     /// FIX: it was read only at load end and at a live resize start). A document that has not settled reads its color
-    /// when it does.
+    /// when it does; when that read is already in flight it may answer with the color from before the scheme, so one
+    /// more read follows it.
     func colorSchemeWasSent(dark: Bool) {
-        guard documentSettled else { return }
+        guard documentSettled else {
+            if pageBackdropReading == pageBackdropDocument { pageBackdropReReadOwed = true }
+            return
+        }
         samplePageBackdrop(script: Self.pageBackdropScript(afterScheme: dark), keepsColorWithoutAnswer: true)
     }
 
@@ -115,6 +102,7 @@ extension CEFTab {
         pageBackdropDocument += 1
         let settled = documentSettled
         documentSettled = false
+        pageCanvasDark = false
         guard pageBackdropARGB != nil || settled else { return }
         pageBackdropARGB = nil
         applyPageBackground()

@@ -51,6 +51,16 @@ import Testing
         #expect(Self.argb(tab.pageGround) == Self.navy)
     }
 
+    /// A `color-scheme: dark` page with no background of its own: Blink paints its dark canvas over the white page
+    /// base, so the base stays white (as Chrome's) and the pane closes on the dark canvas, not white.
+    @Test func aDarkSchemePageWithNoBackgroundClosesOnTheDarkCanvasOverAWhiteBase() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try await rig.settledTab(answer: #""dark""#)
+        #expect(Self.argb(tab.pageGround) == PageBackground.chromiumDarkCanvasARGB)
+        #expect(ShimLog.backgrounds.last == PageBackground.engineDefaultARGB, "the page base stays Chromium's white")
+    }
+
     @Test func aSeeThroughCmuxPageKeepsThePanesGround() async throws {
         let rig = try Rig()
         defer { rig.close() }
@@ -125,7 +135,8 @@ import Testing
             CEFFirstPaintBridge(tab: tab).painted()
             await until { ShimLog.evaluates > 0 }
             try #require(ShimLog.evaluates == 1, "SETUP: the first paint read no background")
-            answerEvaluate(#"{"result":{"type":"object","value":\#(answer)}}"#)
+            let type = answer.hasPrefix("\"") ? "string" : "object"
+            answerEvaluate(#"{"result":{"type":"\#(type)","value":\#(answer)}}"#)
             await until { tab.documentSettled }
             try #require(tab.documentSettled, "SETUP: the page did not settle")
             return tab
@@ -157,11 +168,13 @@ import Testing
 
 /// What the fake shim was asked (the shim is called on the main thread).
 private nonisolated enum ShimLog {
+    nonisolated(unsafe) static var backgrounds: [UInt32] = []
     nonisolated(unsafe) static var evaluates = 0
     nonisolated(unsafe) static var lastEvaluate: Int32?
     nonisolated(unsafe) static var nextMessage: Int32 = 100
 
     static func reset() {
+        backgrounds = []
         evaluates = 0
         lastEvaluate = nil
     }
@@ -170,7 +183,10 @@ private nonisolated enum ShimLog {
         // Fork API 28: the tab's scripts and its color scheme go through DevTools (no renderer path).
         let version: @convention(c) () -> Int32 = { 28 }
         let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in 1 }
-        let background: @convention(c) (Int32, UInt32) -> Int32 = { _, _ in 1 }
+        let background: @convention(c) (Int32, UInt32) -> Int32 = { _, argb in
+            ShimLog.backgrounds.append(argb)
+            return 1
+        }
         let devToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, method, params in
             ShimLog.nextMessage += 1
             // Only the page-background read (`CEFTab.pageBackdropScript`); the tab's other calls are not it.

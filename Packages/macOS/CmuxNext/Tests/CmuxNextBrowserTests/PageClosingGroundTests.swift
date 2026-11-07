@@ -31,12 +31,19 @@ import WebKit
                      "SETUP: the page did not load")
     }
 
-    /// A white page's link to a host that cannot be reached: the error page covers the page area in the theme's page
-    /// color, and the closing pane shows that color, not the white of the document under it.
-    @Test func aPaneShowingTheErrorPageClosesOnTheErrorPagesColor() throws {
+    /// A loaded yellow page whose color the pane would close on, so only a status page's own color can pass.
+    static func loadYellowPage(in pane: Pane) async throws {
+        try await load("<html style=\"background: rgb(255, 255, 0)\"><body>page</body></html>", in: pane)
+        try #require(await WebKitPagePaneMotionTests.poll { rgb(pane.area.groundColor) == [255, 255, 0, 255] },
+                     "SETUP: the yellow page's color did not become the pane's ground")
+    }
+
+    /// A yellow page's link to a host that cannot be reached: the error page covers the page area in the theme's page
+    /// color, and the closing pane shows that color, not the yellow of the document under it.
+    @Test func aPaneShowingTheErrorPageClosesOnTheErrorPagesColor() async throws {
         let pane = Pane(frame: Self.frame)
         defer { pane.tearDown() }
-        pane.page.pageBackdropARGB = 0xFFFF_FF00 // the document under the error page read yellow
+        try await Self.loadYellowPage(in: pane) // the document under the error page
         let error = pane.chrome.pageStatus.errorView
         error.show(BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost, message: "not found",
                                     failingURL: URL(string: "https://unreachable.example/")))
@@ -46,10 +53,10 @@ import WebKit
     }
 
     /// The page's process ended: the sad tab covers the page area, and the closing pane shows its color.
-    @Test func aPaneShowingTheSadTabClosesOnTheSadTabsColor() throws {
+    @Test func aPaneShowingTheSadTabClosesOnTheSadTabsColor() async throws {
         let pane = Pane(frame: Self.frame)
         defer { pane.tearDown() }
-        pane.page.pageBackdropARGB = 0xFFFF_FF00
+        try await Self.loadYellowPage(in: pane)
         let gone = pane.chrome.pageStatus.goneView
         gone.show(BrowserProcessExit(reason: .crashed))
         let shown = try #require(Self.rgb(gone.layer?.backgroundColor), "SETUP: the sad tab paints no color")
