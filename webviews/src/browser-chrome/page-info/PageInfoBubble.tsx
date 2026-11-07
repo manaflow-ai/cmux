@@ -80,10 +80,12 @@ function Row({ icon, title, subtitle, accessory, danger, onActivate, checked, to
     "data-subtitle": subtitle ? true : undefined,
   };
   if (toggle) {
-    // A row with a toggle: the row opens the permission's page, the switch flips it.
+    // A row with a toggle: the row opens the permission's page, the switch flips it. A row with
+    // no page to open (the permission's own page) flips it too.
+    const activate = onActivate ?? (() => toggle.onToggle(!toggle.toggle));
     return (
       <div className="pi-row" data-row-id={id} {...flags}>
-        <button type="button" className="pi-row-main" data-pi-focus onClick={onActivate}>
+        <button type="button" className="pi-row-main" data-pi-focus onClick={activate}>
           {body}
         </button>
         <Switch

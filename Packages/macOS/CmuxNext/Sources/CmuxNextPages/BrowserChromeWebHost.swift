@@ -28,6 +28,9 @@ public final class BrowserChromeWebHost: BrowserChromeWebContent {
         let provider = BrowserChromeWebProvider(namespace: descriptor.id + ".")
         guard let page = PageWebView(descriptor: descriptor, routes: [PageRoute(prefix: provider.namespace, provider: provider)],
                                      options: Self.engineOptions) else { return nil }
+        // The owner sizes the card in points from the page's reports and pushes its metrics in
+        // points: one CSS pixel is one point.
+        page.followsUIScale = false
         self.page = page
         self.provider = provider
     }
