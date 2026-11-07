@@ -111,7 +111,7 @@ struct BookmarkFolderIconTests {
         let context = PageCallContext(page: PageDescriptor.bookmarks.id)
         let state = try await host.call("cmux.bookmarkPage.state", params: .object([:]), context: context)
         #expect(state["browser_profile_id"]?.stringValue == "default")
-        let ids: [JSONValue] = [.string("bm_emoji"), .string("bm_plain"), .string("bm_gone")]
+        let ids: [CmuxNextSettings.JSONValue] = [.string("bm_emoji"), .string("bm_plain"), .string("bm_gone")]
         let reply = try await host.call("cmux.bookmarkPage.icons", params: .object(["ids": .array(ids)]), context: context)
         let icons = reply["icons"]?.objectValue ?? [:]
         #expect(icons["bm_emoji"]?.stringValue?.hasPrefix("data:image/png;base64,") == true)

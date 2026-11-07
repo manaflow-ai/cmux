@@ -38,11 +38,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApps/Section/AppSectionFrame.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Section/AppSectionProvider.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditBubble.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditorSheet.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkManagerHostView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkManagerList.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkManagerView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkNodeIcon.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkPageColors.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryChangeRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryInspectorView.swift
