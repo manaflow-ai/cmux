@@ -130,16 +130,31 @@ import Testing
         await link.close()
     }
 
-    /// A socket another serve holds (its `socket` refusal, or a usage exit 64) is a clear failure.
-    @Test(arguments: ["printf '{\"ok\":false,\"error_code\":\"socket\"}\\n' >&2\nexit 6\n", "exit 64\n"])
-    func aTakenSocketIsAClearFailure(body: String) async throws {
-        let cli = try Self.standIn(body)
+    /// A socket another serve holds (serve's `bad_request` naming the path, exit 64) is a clear failure.
+    @Test func aTakenSocketIsAClearFailure() async throws {
+        let cli = try Self.standIn("printf '{\"ok\":false,\"error_code\":\"bad_request\",\"error_detail\":\"Unix socket path /tmp/mine.sock is already leased\",\"route\":\"carrier\"}\\n' >&2\nexit 64\n")
         defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
         let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { [:] }
         let serve = CloudCarrierServe(connector: connector, socket: "/tmp/mine.sock") { _ in }
         await #expect(throws: CloudLinkError.failed(code: "socket", message: "another cmux is serving this machine's connection socket")) {
             _ = try await serve.socketPath()
         }
+    }
+
+    /// Serve's exits (#37278) as link failures: before ready, a path it could not claim is the taken socket and
+    /// `ticket` (2) and `handshake` (5) keep the dial's wording; after ready, the listener failing (`socket`, 6)
+    /// ends serve, and a refused stdin line (`bad_request`) is not a refused connection.
+    @Test func serveRefusalsReadAsTheirFailures() {
+        let socket = "/tmp/x/cmux-link-0123456789ab.sock"
+        #expect(CloudCarrierDial.serveStartError(code: "bad_request", detail: "Unix socket path \(socket) is already leased", socket: socket)
+            == CloudCarrierDial.socketTaken)
+        #expect(CloudCarrierDial.serveStartError(code: "bad_request", detail: "usage: cmux carrier serve --machine vm_… --socket PATH", socket: socket)
+            == .failed(code: "bad_request", message: "bad_request: usage: cmux carrier serve --machine vm_… --socket PATH"))
+        #expect(CloudCarrierDial.serveStartError(code: "ticket", detail: "no credential", socket: socket) == .failed(code: "ticket", message: "ticket: no credential"))
+        #expect(CloudCarrierDial.serveStartError(code: "handshake", detail: nil, socket: socket) == .failed(code: "handshake", message: ""))
+        #expect(CloudCarrierDial.serveRefusal(code: "bad_request", detail: "a stdin line is too long") == nil)
+        #expect(CloudCarrierDial.serveRefusal(code: "socket", detail: "accept failed") == .helperNotRunning(reason: "cmux carrier serve stopped listening: accept failed"))
+        #expect(CloudCarrierDial.serveRefusal(code: "parked_timeout", detail: nil) == .notUp(state: "parked_timeout"))
     }
 
     /// A child that serves another socket than the one asked for is refused.
@@ -274,6 +289,64 @@ import Testing
         #expect(CloudCarrierServe.refreshDelay(jwt(exp: 1_000_600), now: now) == .seconds(540))
         #expect(CloudCarrierServe.refreshDelay(jwt(exp: 1_000_030), now: now) == .seconds(15))
         #expect(CloudCarrierServe.refreshDelay("opaque", now: now) == .seconds(300))
+    }
+
+    /// stop() while a launch waits for its token never spawns a child (it would carry the old account's token).
+    @Test func aStopDuringThePendingTokenSpawnsNothing() async throws {
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\ncat >/dev/null\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let gate = Gate()
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) {
+            await gate.wait()
+            return ["CMUX_CLOUD_ACCESS_TOKEN": "old-account"]
+        }
+        let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock") { _ in }
+        let connect = Task { try await serve.socketPath() }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await !gate.isWaiting, ContinuousClock.now < deadline { await Task.yield() }
+        await serve.stop()
+        await gate.open()
+        await #expect(throws: CloudLinkError.disconnected(reason: "closed")) { _ = try await connect.value }
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("launches").path), "a stopped launch spawned serve")
+    }
+
+    /// stop() while a launch waits for the previous child's exit never spawns the next one.
+    @Test func aStopDuringThePreviousExitSpawnsNothing() async throws {
+        // The first child ignores its stdin closing and exits only on `go`.
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nwhile [ ! -f \"$d/go\" ]; do sleep 0.05; done\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let tokens = Counter()
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) {
+            ["CMUX_CLOUD_ACCESS_TOKEN": "t-\(await tokens.next())"]
+        }
+        let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock") { _ in }
+        _ = try await serve.socketPath()
+        await serve.stop()
+        // The next connect closes the first child and waits for it to exit.
+        let connect = Task { try await serve.socketPath() }
+        try await Task.sleep(for: .milliseconds(300))
+        await serve.stop()
+        try Data().write(to: folder.appendingPathComponent("go"))
+        await #expect(throws: CloudLinkError.disconnected(reason: "closed")) { _ = try await connect.value }
+        #expect(try String(contentsOf: folder.appendingPathComponent("launches"), encoding: .utf8) == "launched\n")
+        #expect(await tokens.current() == 1, "a stopped launch asked for a token")
+    }
+
+    private actor Gate {
+        private var waiter: CheckedContinuation<Void, Never>?
+        private var opened = false
+        var isWaiting: Bool { waiter != nil }
+        func wait() async {
+            if opened { return }
+            await withCheckedContinuation { waiter = $0 }
+        }
+        func open() {
+            opened = true
+            waiter?.resume()
+            waiter = nil
+        }
     }
 
     private actor Counter {
