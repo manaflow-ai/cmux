@@ -1427,11 +1427,8 @@ impl Hub {
             return;
         };
         #[cfg(test)]
-        if let Some(hook) = self
-            .peer_notice_projection_hook
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+        if let Some(hook) =
+            self.peer_notice_projection_hook.lock().unwrap_or_else(|e| e.into_inner()).clone()
         {
             hook.pause();
         }

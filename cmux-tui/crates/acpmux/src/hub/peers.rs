@@ -268,7 +268,7 @@ impl Hub {
         let mut settled = {
             // A saved peer takes the name over from a lease (`peer_lease.rs`),
             // under the lease lock so no notice of the leased peer finds the
-                // name unleased first (lock order: `peer_leases`, then `peers`, then rows).
+            // name unleased first (lock order: `peer_leases`, then `peers`, then rows).
             let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
             if leases.remove(name).is_some() {
                 // The leased machine's peer goes before its rows: a late
@@ -450,10 +450,7 @@ impl Hub {
             // lands after its cache is gone (`save_peer_cache`).
             let leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
             if leases.contains_key(name) {
-                self.peer_cache_writers
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .remove(name);
+                self.peer_cache_writers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
                 return Err(RpcError::invalid_params(format!(
                     "{name:?} is a leased peer; it ends when the connection that leased it closes"
                 )));
@@ -468,10 +465,7 @@ impl Hub {
                 drop(rows);
                 drop(peers);
                 drop(leases);
-                self.peer_cache_writers
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .remove(name);
+                self.peer_cache_writers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
                 return Err(RpcError::not_found(format!("no peer {name:?}")));
             };
             peer.stop();
@@ -2061,7 +2055,8 @@ mod tests {
         let make_hub = || {
             let mut cfg = crate::config::Config::default();
             cfg.store.mode = crate::config::StoreMode::Memory;
-            let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+            let store =
+                crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
             let hub = Hub::new(cfg, store);
             let (tx, _rx) = tokio::sync::mpsc::channel(8);
             let peer = crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, tx);
