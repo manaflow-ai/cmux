@@ -299,7 +299,8 @@ test("in the deck, a toast's time stops while hovered, and a persistent toast's 
   const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" now={() => clock} arm={arm} />);
   // Only the timed toast arms a timer; the persistent one never does.
   expect(live().map((timer) => timer.ms)).toEqual([4000]);
-  const stack = doc.querySelector(".ui-notice-stack")!;
+  // The pointer is on a toast, so in its deck.
+  const stack = doc.querySelector(".ui-notice-deck-card")!;
   act(() => {
     stack.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
   });
