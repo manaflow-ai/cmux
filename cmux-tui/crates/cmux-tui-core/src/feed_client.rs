@@ -109,8 +109,9 @@ pub(crate) struct State {
     /// Bumped by every configure, refresh and account change: the poller's
     /// wait ends on it.
     pub(crate) github_generation: u64,
-    /// Bumped on every account change: a poll answer read before it is
-    /// dropped, so the old account's rows never come back.
+    /// Bumped on every account change and configure: a poll answer read
+    /// before it is dropped, so the old account's rows, or rows of a poller
+    /// turned off, never come back.
     pub(crate) github_epoch: u64,
     pub(crate) github_running: bool,
     pub(crate) github_error: Option<String>,
@@ -586,6 +587,7 @@ impl FeedClient {
             let mut state = self.inner.lock();
             state.github_config = config;
             state.github_generation = state.github_generation.wrapping_add(1);
+            state.github_epoch = state.github_epoch.wrapping_add(1);
             if !config.enabled {
                 state.github_error = None;
             }

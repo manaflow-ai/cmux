@@ -86,11 +86,21 @@ package final class FeedDaemonClient {
     }
 
     /// `feed.item.get {ids, confirmed}`: with `confirmed`, the owner's own state (never a pending intent).
+    /// More ids than one call takes (the daemon's 500) are read in calls of 500, none dropped.
     package func items(_ ids: [String], confirmed: Bool) async throws -> [FeedDaemonItem] {
-        guard !ids.isEmpty else { return [] }
-        let params: [String: JSONValue] = ["ids": .array(ids.prefix(500).map(JSONValue.string)), "confirmed": .bool(confirmed)]
-        return try await Self.decode(FeedDaemonItems.self, from: send("feed.item.get", params, nil)).items
+        var out: [FeedDaemonItem] = []
+        var start = ids.startIndex
+        while start < ids.endIndex {
+            let end = ids.index(start, offsetBy: Self.maxItemIDs, limitedBy: ids.endIndex) ?? ids.endIndex
+            let params: [String: JSONValue] = ["ids": .array(ids[start..<end].map(JSONValue.string)), "confirmed": .bool(confirmed)]
+            out += try await Self.decode(FeedDaemonItems.self, from: send("feed.item.get", params, nil)).items
+            start = end
+        }
+        return out
     }
+
+    /// The daemon's limit of ids per `feed.item.get`.
+    static let maxItemIDs = 500
 
     /// `feed.items.list {state?, home?, confirmed: true}`: the owner's items in that state and home.
     package func list(state: String? = nil, home: String? = nil) async throws -> [FeedDaemonItem] {

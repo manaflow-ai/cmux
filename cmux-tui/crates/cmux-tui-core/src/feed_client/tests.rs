@@ -371,7 +371,9 @@ fn another_account_starts_the_github_poller_over() {
     for call in calls.get(4..8).unwrap_or_default() {
         assert!(!call.iter().any(|arg| arg.starts_with("If-None-Match")), "{call:?}");
     }
+    let epoch = h.feed.inner.lock().github_epoch;
     h.feed.configure_github(GitHubConfig { enabled: false, interval_s: 3600 });
+    assert_eq!(h.feed.inner.lock().github_epoch, epoch.wrapping_add(1), "a poll in flight is kept");
     wait_until("the poller to stop", || !h.feed.inner.lock().github_running);
 }
 

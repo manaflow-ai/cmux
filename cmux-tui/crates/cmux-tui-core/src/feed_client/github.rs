@@ -159,8 +159,9 @@ fn poll(inner: &Inner) {
         let now = inner.now();
         let events = {
             let mut state = inner.lock();
-            if state.github_epoch != epoch {
-                // The account changed while gh ran: this answer is the old one's.
+            if state.github_epoch != epoch || !state.github_config.enabled {
+                // The account or the setting changed while gh ran: this
+                // answer is the old one's.
                 return;
             }
             match state.github.apply(query, &response, now) {
