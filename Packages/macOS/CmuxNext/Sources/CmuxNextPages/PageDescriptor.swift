@@ -247,6 +247,13 @@ public extension PageDescriptor {
     /// opens. `cmux.page-info.state` brings the bubble's state; the page sends its commands and size.
     static let pageInfo = PageDescriptor(id: "cmux.page-info", resource: "page-info", namespaces: ["cmux.page-info."])
 
+    /// Page Info's windows (webviews/src/pages/site-settings, site-data, certificate), each in a
+    /// native window CmuxNextBrowser's PageInfoWindows owns: `cmux.<page>.state` brings the
+    /// window's state; the page sends its commands and its content height.
+    static let siteSettings = PageDescriptor(id: "cmux.site-settings", resource: "site-settings", namespaces: ["cmux.site-settings."])
+    static let siteData = PageDescriptor(id: "cmux.site-data", resource: "site-data", namespaces: ["cmux.site-data."])
+    static let certificate = PageDescriptor(id: "cmux.certificate", resource: "certificate", namespaces: ["cmux.certificate."])
+
     /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
     /// page's `media-src`, a folder, so nothing else on that host plays.
     static let changelogReelSource = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/"

@@ -982,6 +982,8 @@ typedef struct CmuxSidebarFaceRow {
     CmuxSidebarFaceRange status_line;
     uint64_t last_activity_ms;
     double progress_value;
+    uint32_t front_chat;       /* the chat Copy Agent Identifier copies: the front tab's, else the first chat */
+    uint32_t reserved2;
 } CmuxSidebarFaceRow;
 
 typedef struct CmuxSidebarFaceListedTab {

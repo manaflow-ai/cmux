@@ -21,9 +21,9 @@ import { UpdateOfferContext } from "../harnessHealthNoticeModel";
 import { PromptFocus } from "../promptFocus";
 import { ShellActionsContext } from "../shell/ShellRow";
 import { SignInContext } from "../signIn";
+import { SubagentNavContext, SubagentPaneContext, SubagentStopContext } from "../subagents/subagentGroupModel";
 import { SessionHoverContext } from "../started/sessionHoverCardModel";
 import { NO_MENTIONS, StartedMentionsContext } from "../started/startedSessionCardModel";
-import { SubagentNavContext, SubagentPaneContext, SubagentStopContext } from "../subagents/SubagentGroup";
 import { SubsessionContext } from "../subagents/subsessions";
 import { AvatarContext } from "../../../pages/home-channels/avatars";
 
