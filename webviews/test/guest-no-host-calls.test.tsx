@@ -120,7 +120,7 @@ const { setMessageMenuSource, installMessageMenuReporter } =
   await import("../src/agent-session/acpmux/conversation/messageMenu");
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
-const { ShellActionsContext } = await import("../src/agent-session/acpmux/shell/ShellRow");
+const { ShellActionsContext } = await import("../src/agent-session/acpmux/shell/shellRowModel");
 const { SubagentNavContext, SubagentPaneContext, SubagentStopContext } =
   await import("../src/agent-session/acpmux/subagents/SubagentGroup");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");

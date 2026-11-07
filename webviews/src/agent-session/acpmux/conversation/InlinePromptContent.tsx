@@ -1,7 +1,8 @@
 import { Fragment, memo, useContext, type ReactNode } from "react";
 import type { PromptContentPart, PromptImage } from "../model";
 import { FindReveal } from "./chatFind";
-import { attachmentPath, FileAttachment } from "../FileAttachment";
+import { FileAttachment } from "../FileAttachment";
+import { attachmentPath } from "../fileAttachmentModel";
 import { PasteChip, PromptText, PromptTyped } from "./PromptText";
 import { HUGE_PROMPT_HEAD_CHARS, hasHugeTypedPart, headParts } from "./promptCollapse";
 
