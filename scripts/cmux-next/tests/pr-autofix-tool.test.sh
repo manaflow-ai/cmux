@@ -12,18 +12,28 @@ trap 'rm -rf "$tmp"' EXIT
 fail() { echo "FAIL: $*" >&2; cat "$tmp/out" >&2 2>/dev/null || true; exit 1; }
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 
-# A pull request on lane/x whose one change is an unformatted webviews file.
+# The base branch carries the real apply script and its tables. A pull request on lane/x
+# changes an unformatted webviews file and replaces the apply script with one that would
+# run its own code and apply anything: the tool must run the base's copy.
 git init -q --bare "$tmp/acme/widgets.git"
-git init -q -b lane/x "$tmp/work"
+git init -q -b feat-cmux-next "$tmp/work"
 cd "$tmp/work"
-mkdir -p webviews/src .github/workflows
+mkdir -p webviews/src .github/workflows scripts/cmux-next
 printf 'export const a = 1;\n' > webviews/src/a.ts
 printf 'on: push\n' > .github/workflows/x.yml
+for name in pr-autofix pr-autofix-apply.sh settings-exports.txt generated_outputs.py; do
+  cp "$ROOT_DIR/scripts/cmux-next/$name" scripts/cmux-next/
+done
 git add -A && git commit -q -m base
-printf 'export const   a = 2;\n' > webviews/src/a.ts
-git commit -q -am change
 git remote add origin "$tmp/acme/widgets.git"
+git push -q origin feat-cmux-next
+git checkout -q -b lane/x
+printf 'export const   a = 2;\n' > webviews/src/a.ts
+printf '#!/usr/bin/env bash\ntouch "%s/pwned"\ngit -C "$2" apply "$1"\n' "$tmp" > scripts/cmux-next/pr-autofix-apply.sh
+git commit -q -am change
 git push -q origin lane/x
+# Run as a lane does, from the pull request's checkout, beside its replaced apply script.
+TOOL="$tmp/work/scripts/cmux-next/pr-autofix"
 head_sha="$(git rev-parse HEAD)"
 
 make_artifact() { # NAME FILE CONTENT -> $tmp/NAME.zip holding pr-autofix.patch for FILE
@@ -42,6 +52,7 @@ case "\$*" in
   *"--jq .headRefOid"*) echo "\${FAKE_HEAD:-$head_sha}" ;;
   *"--jq .headRefName"*) echo lane/x ;;
   *"--jq .isCrossRepository"*) echo "\${FAKE_CROSS:-false}" ;;
+  *"--jq .baseRefName"*) echo feat-cmux-next ;;
   *"/runs?head_sha="*) echo "\${FAKE_RUN-42}" ;;
   *"/runs/42/artifacts"*) echo "\${FAKE_ARTIFACT-7}" ;;
   *"/artifacts/7/zip"*) cat "$tmp/\${FAKE_ZIP:-fmt}.zip" ;;
@@ -101,5 +112,7 @@ if git log -1 --format=%B | grep -q '^Autofix-Run: '; then fail "no Autofix-Run 
 # The repaired head's patch from the old run no longer applies: refused as stale.
 if FAKE_HEAD="$(git rev-parse HEAD)" pr_autofix --no-push >"$tmp/out" 2>&1; then fail "a stale patch must be refused"; fi
 grep -q "does not apply cleanly" "$tmp/out" || fail "must say the patch does not apply"
+
+[[ ! -e "$tmp/pwned" ]] || fail "the pull request's own apply script ran; only the base's copy may"
 
 echo "PASS: pr-autofix apply"

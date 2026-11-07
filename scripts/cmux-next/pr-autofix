@@ -11,8 +11,11 @@
 # (pr-autofix-apply.sh: autofix outputs the pull request owns), and commits and
 # pushes it to the pull request's branch.
 #
-# Run it in a clean checkout of the pull request's head. Through the lane-gh
-# broker on a lane VM, gh and git push need no token here.
+# Run it in a clean checkout of the pull request's head. The apply script and
+# the tables it reads come from the base branch (origin/<base>), never from
+# that checkout: a pull request could replace them and run its own code with
+# the lane's credentials, as the push job's base copy prevents in CI. Through
+# the lane-gh broker on a lane VM, gh and git push need no token here.
 #
 # Usage: scripts/cmux-next/pr-autofix apply N [--repo OWNER/REPO] [--no-push]
 set -euo pipefail
@@ -32,13 +35,13 @@ while (( $# )); do
   esac
 done
 GH="${CMUX_PR_AUTOFIX_GH:-gh}"
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 top="$(git rev-parse --show-toplevel 2>/dev/null)" || die "run this inside a checkout of $repo"
 cd "$top"
 
 head_sha="$("$GH" pr view "$pr" -R "$repo" --json headRefOid --jq .headRefOid)"
 head_ref="$("$GH" pr view "$pr" -R "$repo" --json headRefName --jq .headRefName)"
 cross="$("$GH" pr view "$pr" -R "$repo" --json isCrossRepository --jq .isCrossRepository)"
+base_ref="$("$GH" pr view "$pr" -R "$repo" --json baseRefName --jq .baseRefName)"
 [[ "$cross" == false ]] || die "#$pr comes from a fork; its author applies the artifact (see the run's summary)"
 [[ "$(git rev-parse HEAD)" == "$head_sha" ]] \
   || die "HEAD is $(git rev-parse --short HEAD), not #$pr's head ${head_sha:0:12}: fetch and check out $head_ref first"
@@ -63,6 +66,15 @@ fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/pr-autofix.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
+# The trusted apply script, from the base branch's tip (cmux-next-pr-autofix.yml's push job does the same).
+git fetch --quiet origin "refs/heads/$base_ref:refs/remotes/origin/$base_ref" \
+  || die "could not fetch $base_ref for its trusted apply script"
+mkdir "$tmp/trusted"
+for name in pr-autofix-apply.sh settings-exports.txt generated_outputs.py; do
+  git show "origin/$base_ref:scripts/cmux-next/$name" > "$tmp/trusted/$name" \
+    || die "origin/$base_ref has no scripts/cmux-next/$name"
+done
+chmod +x "$tmp/trusted/pr-autofix-apply.sh"
 "$GH" api "repos/$repo/actions/artifacts/$artifact/zip" > "$tmp/artifact.zip"
 python3 -I -m zipfile -e "$tmp/artifact.zip" "$tmp/artifact"
 patch="$tmp/artifact/pr-autofix.patch"
@@ -84,7 +96,7 @@ for (( page = 1; page <= 30; page++ )); do
   grep -vx -- --file-- "$tmp/page" >> "$tmp/changed.txt" || true
   (( $(grep -cx -- --file-- "$tmp/page" || true) == 100 )) || break
 done
-"$here/pr-autofix-apply.sh" "$patch" "$top" --changed "$tmp/changed.txt" | tee "$tmp/applied"
+"$tmp/trusted/pr-autofix-apply.sh" "$patch" "$top" --changed "$tmp/changed.txt" | tee "$tmp/applied"
 mapfile -t applied < <(sed -n 's/^applied: //p' "$tmp/applied")
 if (( ${#applied[@]} == 0 )); then
   echo "pr-autofix: every repair belongs to the base autofix; nothing to commit"
