@@ -275,6 +275,13 @@ export const PAGES = {
     out: "webviews/src/browser-chrome/page-info/generated/strings.json",
     catalogs: [{ file: "webviews/src/browser-chrome/page-info/Localizable.xcstrings" }],
   },
+  // The browser toolbar row and its omnibox card (cmux-page://cmux.browser-toolbar/,
+  // cmux-page://cmux.omnibox-popup/); their table lives next to the components in
+  // webviews/src/browser-chrome/ui.
+  "browser-chrome-ui": {
+    out: "webviews/src/browser-chrome/ui/generated/strings.json",
+    catalogs: [{ file: "webviews/src/browser-chrome/ui/Localizable.xcstrings" }],
+  },
   // The Chief Usage page (cmux-page://cmux.chief-usage/); its table lives next to it.
   "chief-usage": {
     out: "webviews/src/pages/chief-usage/generated/strings.json",
