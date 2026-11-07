@@ -573,6 +573,11 @@ function rememberCommands(sessionId: string, commands: SlashCommand[]) {
 /// The longest a chat switch keeps the chat before on screen while the new one attaches. Match the
 /// cold-open hold: a busy daemon must not expose a blank transcript between the old and new chats.
 const SWITCH_HOLD_MS = 1_500;
+/// The longest a chat drawn from its own rows (a copy kept while its machine was down) keeps that
+/// frame while its machine's page and the records between them are read (`reattachPeerCopy`): the
+/// copy, marked offline, is a whole transcript, where the page alone has a hole in it. The hold
+/// ends as soon as both are in or either fails; this limit is only for a read that never answers.
+const GAP_HOLD_MS = 30_000;
 /// Reading ahead (``AcpmuxDirectClient.readAhead``): the user, 2026-10-21, "switching between
 /// different chiefs and messages/conversations needs instant loading of messages". A chat the page
 /// never read waited on its attach behind the hold above; the recent ones are read while the pane is
@@ -3587,7 +3592,7 @@ export class AcpmuxDirectClient {
     // records between them and the page are read (`fetchMissedEvents`), never dropped. The frame
     // drawn stays until both are in, or, when either fails, until the copy is offline again: no
     // transcript with a hole in it between them.
-    const hold = copy.own ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
+    const hold = copy.own ? this.holdSnapshots(GAP_HOLD_MS) : undefined;
     try {
       const page = await this.attach(sessionId, generation, copy.own ? 0 : copy.lastSeq);
       const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
