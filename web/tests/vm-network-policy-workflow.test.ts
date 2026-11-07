@@ -172,4 +172,24 @@ describe("network policy workflows", () => {
     expect(created[0]?.networkRules?.publicEgress).toBe(false);
     expect(writes.at(-1)?.status).toMatchObject({ state: "applied" });
   });
+
+  test("none with a whole-Internet range kept from allowlist installs and applies a closed plan", async () => {
+    const none = parseNetworkPolicy({ mode: "none", ranges: ["0.0.0.0/0", "::/0"] });
+    const { layer, created, applied } = harness();
+    await Effect.runPromise(createVm({
+      userId: "user-net",
+      billingCustomerType: "team",
+      billingTeamId: "team-net",
+      billingPlanId: "max",
+      maxActiveVms: 50,
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageSize: { name: "xl", cpu: 16, memoryMb: 32768, storageMb: 131072 },
+      networkPolicy: none,
+    }).pipe(Effect.provide(layer)));
+    await Effect.runPromise(updateVmNetworkPolicy({ ...access, policy: none }).pipe(Effect.provide(layer)));
+    expect(created[0]?.networkRules?.publicEgress).toBe(false);
+    expect(applied[0]?.publicEgress).toBe(false);
+    expect(applied[0]?.ranges).toEqual([]);
+  });
 });
