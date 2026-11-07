@@ -640,6 +640,7 @@ impl Client {
             cleanup_timeout: self.shared.config.timeout,
             item_validator,
             initial_envelopes,
+            origin: self.origin,
         })
     }
 
@@ -751,7 +752,7 @@ impl Client {
             "request_id".to_string(),
             Value::String(target_id.to_string()),
         )]));
-        let envelope = request_envelope(&cancel_id, operation, params, None, None);
+        let envelope = request_envelope(&cancel_id, operation, params, None, self.origin);
         let send_timeout = budget.remaining(operation)?;
         connection.with_write_timeout(send_timeout, |connection| {
             connection.send_with_limit(&envelope, self.shared.config.max_request_bytes)
