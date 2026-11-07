@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextChiefPetWiring
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextCompat
@@ -159,6 +160,7 @@ extension AgentTabStore {
             guard let services, let avatars = tabs?.agentAvatars else { return [:] }
             return await services.home.agentPageFace(of: chief, avatars: avatars)
         }
+        tabs.mini = services.chiefPetMini
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state, files: services.agentPaneStateFiles)
         tabs.unsentDrafts.windowOfTab = { [weak services, weak tabs] key in
@@ -540,6 +542,8 @@ extension AgentTabStore {
             self?.agentAvatarChanged(session)
         }
         model.onChiefFace = { [weak self] chief in await self?.chiefFace?(chief) ?? [:] }
+        model.onMiniSubject = { [weak self] in self?.mini?.subject.chat?.session }
+        model.onShowInMini = { [weak self, weak model] session in if let model, let registry = self?.actionRegistry { self?.mini?.show(session: session, of: model, registry: registry) } }
     }
 
     /// Every agent page (tabs and standalone chats) asks for session `session`'s avatar again: a
