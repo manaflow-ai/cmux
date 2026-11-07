@@ -59,6 +59,12 @@
  * the gateway's log line for the chat machine's /v1/responses or /v1/messages, the proxy's own log, and that the chat
  * machine has no login file. The gateway machine is deleted with the chat machine.
  *
+ * --gateway-local CMUX_BIN --gateway-upstream URL: the same chat, with `cmux inference gateway` on this computer (the
+ * person's Mac) in front of the person's proxy at URL, holding this run's own install token in a 0600 file. Checked:
+ * the reply, the local gateway's log line for the chat machine's call, and that the chat machine has no login file.
+ * Either way the team is put in gateway mode before the chat machine is made (its edge route is picked when it is
+ * made) and set back to its earlier mode at the end.
+ *
  * --probe-out FILE writes the run as one synthetic-probe result row (cmuxterm-hq probes.py: probe, at,
  * outcome ok|fail, ms = send to first reply, error), --probe NAME naming it.
  *
@@ -67,7 +73,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -726,7 +732,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // journey passes is then a made-up setup-token shape: the stub checks it arrived, and no real credential exists.
   const modelStub = argValue("--model", argv) === "stub";
   const gatewayCmux = argValue("--gateway", argv);
+  const gatewayLocal = argValue("--gateway-local", argv);
   const gatewayUpstream = argValue("--gateway-upstream", argv) ?? "stub";
+  if (gatewayCmux && gatewayLocal) throw new Error("--gateway and --gateway-local: pick one");
+  if (gatewayLocal && gatewayUpstream === "stub") throw new Error("--gateway-local needs --gateway-upstream URL (the person's proxy, reachable from this computer)");
+  const gatewayAny = Boolean(gatewayCmux || gatewayLocal);
   // With the gateway and the stub, the stub's nonce reply is checked as --model stub does, but it runs on the gateway.
   const gatewayStub = Boolean(gatewayCmux) && gatewayUpstream === "stub";
   const nonce = randomBytes(6).toString("hex");
@@ -762,6 +772,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const api = new Api(backend.api, team);
   let machine: string | null = null;
   let gatewayMachine: string | null = null;
+  // The team's gateway mode before this run changed it, the API that set it, and the local gateway this run started.
+  let gatewayModeBefore: string | null = null;
+  let gatewayApi: Api | null = null;
+  let localGateway: ReturnType<typeof spawn> | null = null;
+  let localGatewayDir: string | null = null;
   let deleted = false;
   let cleaned = false;
   let headlessLink: HeadlessLink | null = null;
@@ -772,8 +787,27 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await headlessLink.close().catch(() => undefined);
       headlessLink = null;
     }
+    if (localGateway?.pid) {
+      // Only the process this run started, by its own pid.
+      try { process.kill(localGateway.pid, "SIGTERM"); } catch {}
+      localGateway = null;
+    }
+    if (localGatewayDir) {
+      // The gateway's log (machine ids, paths and statuses; never a token) stays with the run's evidence.
+      try { if (outDir) writeFileSync(path.join(outDir, "gateway.log"), scrub(readFileSync(path.join(localGatewayDir, "gateway.log"), "utf8"), J.secrets)); } catch {}
+      rmSync(localGatewayDir, { recursive: true, force: true });
+      localGatewayDir = null;
+    }
     if (cleaned || keep || !api.bearer) return;
     cleaned = true;
+    if (gatewayModeBefore && gatewayApi) {
+      const before = gatewayModeBefore;
+      await J.step("team gateway mode restored (cleanup)", async () => {
+        const r = await gatewayApi!.raw("PUT", "/v1/cloud/inference-gateway", { mode: before, machine: null });
+        if (r.status !== 200) throw new Error(`HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+        return { value: null, detail: before };
+      }).catch(() => undefined);
+    }
     if (gatewayMachine) {
       const g: string = gatewayMachine;
       await J.step("delete gateway machine (cleanup)", async () => {
@@ -855,6 +889,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const installApi = new Api(backend.api, team);
     installApi.bearer = install.token;
 
+    if (gatewayAny) {
+      gatewayApi = installApi;
+      await J.step("team in gateway mode", async () => {
+        const g = await installApi.raw("GET", "/v1/cloud/inference-gateway");
+        if (g.status !== 200) throw new Error(`GET HTTP ${g.status} ${short(g.body?.error ?? g.body)}`);
+        const before = String(g.body?.gateway?.mode ?? "off");
+        const r = await installApi.raw("PUT", "/v1/cloud/inference-gateway", { mode: "gateway", machine: null });
+        if (r.status !== 200) throw new Error(`PUT HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+        gatewayModeBefore = before;
+        return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
+      });
+    }
     const created = reuse
       ? await J.step("use machine", async () => {
           const m = await api.read("cloud.machine.get", { machine: reuse });
@@ -967,7 +1013,46 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
-    if (gatewayCmux) {
+    if (gatewayLocal) {
+      await J.step("cmux inference gateway (this computer)", async () => {
+        const dir = mkdtempSync(path.join(tmpdir(), "cmux-gw-local-"));
+        localGatewayDir = dir;
+        const tokenFile = path.join(dir, "token");
+        writeFileSync(tokenFile, install.token, { mode: 0o600 });
+        const log = path.join(dir, "gateway.log");
+        const args = ["inference", "gateway", "--api", backend.api, "--upstream", gatewayUpstream, "--token-file", tokenFile];
+        if (team) args.push("--team", team);
+        const out = openSync(log, "a");
+        const child = spawn(gatewayLocal, args, { stdio: ["ignore", out, out], env: { PATH: process.env.PATH ?? "", HOME: dir } });
+        localGateway = child;
+        closeSync(out);
+        const t0 = Date.now();
+        while (Date.now() - t0 < 60_000) {
+          const g = await installApi.raw("GET", "/v1/cloud/inference-gateway");
+          if (g.body?.gateway?.online === true) return { value: null, detail: `online in ${Math.round((Date.now() - t0) / 1000)} s, in front of ${gatewayUpstream}` };
+          if (child.exitCode !== null) break;
+          await sleep(1_000);
+        }
+        throw new Error(`the gateway did not come online: ${scrub(readFileSync(log, "utf8"), J.secrets).slice(-600)}`);
+      });
+      await J.step("cmux inference setup (this computer's gateway)", async () => {
+        const dir = mkdtempSync(path.join(tmpdir(), "cmux-gw-"));
+        const tokenFile = path.join(dir, "token");
+        writeFileSync(tokenFile, install.token, { mode: 0o600 });
+        try {
+          const args = ["inference", "setup", "--machine", created.id, "--path", "gateway", "--api", backend.api, "--token-file", tokenFile];
+          if (team) args.push("--team", team);
+          const r = spawnSync(gatewayLocal, args, { encoding: "utf8", timeout: 600_000, env: { PATH: process.env.PATH ?? "", HOME: dir } });
+          const out = scrub(`${r.stdout ?? ""}${r.stderr ?? ""}`, J.secrets);
+          if (r.status !== 0 || !out.includes("Path: gateway")) throw new Error(`exit ${r.status}: ${out.slice(-600)}`);
+          return { value: null, detail: out.trim().split("\n").filter((l) => l.startsWith("Path:") || l.startsWith("This machine")).join(" ").slice(0, 300) };
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      });
+    }
+
+    if (gatewayAny) {
       J.skip(loginStep, "--gateway: the chat machine gets no login; its model calls go to the team's gateway");
     } else if (!provider || only.has("chat") || only.has("login")) {
       J.skip(loginStep, !provider ? `agent ${agent}` : "--skip");
@@ -1095,7 +1180,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (!(fresh[0].step >= 1)) throw new Error(`this turn's first model request is at step ${fresh[0].step}: the session lost the earlier turns`);
       return { value: null, detail: `${last.slice(0, 120)} (model request at step ${fresh[0].step}: the earlier turns came along)` };
     };
-    const lifecycle = provider && !gatewayCmux && !only.has("chat") && !only.has("lifecycle");
+    const lifecycle = provider && !gatewayAny && !only.has("chat") && !only.has("lifecycle");
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
     } else {
@@ -1128,10 +1213,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           return { value: null, detail: `${turns.length} model requests, each with the forwarded login (SHA-256 match); the shell call ran and its output came back` };
         });
       }
-      if (gwExec) {
+      if (gwExec || gatewayLocal) {
         await J.step("gateway: the call went through it", async () => {
           const route = provider === "claude" ? "/v1/messages" : "/v1/responses";
-          const r = await gwExec!(`cat ${shq(gwLog)} 2>/dev/null`);
+          const r = gwExec
+            ? await gwExec(`cat ${shq(gwLog)} 2>/dev/null`)
+            : { stdout: localGatewayDir ? readFileSync(path.join(localGatewayDir, "gateway.log"), "utf8") : "" };
           const line = r.stdout.split("\n").find((l) => l.includes(`${created.id} POST ${route}`) && / -> 200 /.test(l));
           if (!line) throw new Error(`no ${route} call from ${created.id} answered 200 in the gateway's log: ${r.stdout.slice(-400)}`);
           if (gatewayStub) {
@@ -1139,7 +1226,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             const rows = s.stdout.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
             if (!rows.some((x: any) => x.method === "POST" && String(x.path).startsWith(route) && x.stream)) throw new Error("the proxy on the gateway machine logged no streamed model request");
           }
-          return { value: null, detail: `chat machine -> edge -> cmux -> gateway machine -> proxy: ${line.replace(/^.*?: /, "").slice(0, 160)}` };
+          return { value: null, detail: `chat machine -> edge -> cmux -> ${gwExec ? "gateway machine" : "this computer's gateway"} -> proxy: ${line.replace(/^.*?: /, "").slice(0, 160)}` };
         });
         await J.step("the chat machine holds no login", async () => {
           const r = await exec(
