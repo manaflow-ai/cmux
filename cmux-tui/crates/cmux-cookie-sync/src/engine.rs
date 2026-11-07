@@ -412,7 +412,7 @@ fn run(
     let started = Instant::now();
     let routes = Routes::new(&config.sources);
     let events = events.clone();
-    let mut watcher = notify::recommended_watcher(move |event| {
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         let _ = events.send(Message::File(event));
     })
     .ok();
