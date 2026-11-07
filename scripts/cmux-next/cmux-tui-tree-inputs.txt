@@ -90,3 +90,7 @@ blob skills/cmux-customization/references/examples.md
 blob skills/cmux-customization/references/local-app-views.md
 blob skills/cmux-customization/references/viewer-types.md
 blob skills/cmux/SKILL.md
+blob skills/cmux/references/handles-and-identify.md
+blob skills/cmux/references/panes-surfaces.md
+blob skills/cmux/references/trigger-flash-and-health.md
+blob skills/cmux/references/windows-workspaces.md
