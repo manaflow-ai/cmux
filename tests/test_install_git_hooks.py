@@ -795,6 +795,22 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertNotEqual(clash.returncode, 0, clash.stdout + clash.stderr)
         self.git("merge", "--abort")
 
+        # The same key with its fields in another order is still the same key.
+        reordered = '{"property":"height","kind":"height","file":"a.css","values":{"7px":3}}\n'
+        self.git("checkout", "--quiet", "-b", "reordered", doubled)
+        jsonl.write_text(row("a.css", '{"8px":1}'))
+        self.commit_all("single")
+        single = self.git("rev-parse", "HEAD").stdout.strip()
+        jsonl.write_text(row("a.css", '{"8px":1}') + reordered)
+        self.commit_all("reordered ours")
+        reordered_ours = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "-b", "reordered-theirs", single)
+        jsonl.write_text(row("a.css", '{"8px":2}'))
+        self.commit_all("reordered theirs")
+        clash = self.git("merge", "--no-edit", reordered_ours, check=False)
+        self.assertNotEqual(clash.returncode, 0, clash.stdout + clash.stderr)
+        self.git("merge", "--abort")
+
     def test_insertions_both_sides_made_merge_and_changes_still_conflict(self):
         """Two lanes that each append to the same list merge with both entries; a line both
         changed, or a JSON result that no longer parses, stays a conflict."""

@@ -148,7 +148,9 @@ def split_rows(text: str):
         if (not isinstance(row, dict) or not isinstance(row.get("values"), dict)
                 or compact(row) != line):
             return None
-        key = compact({name: value for name, value in row.items() if name != "values"})
+        # Sorted, so two rows that list the same fields in another order share one key.
+        key = json.dumps({name: value for name, value in row.items() if name != "values"},
+                         separators=(",", ":"), ensure_ascii=False, sort_keys=True)
         if key in rows:
             return None
         rows[key] = row
