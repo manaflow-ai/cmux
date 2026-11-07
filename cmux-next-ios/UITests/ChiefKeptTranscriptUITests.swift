@@ -15,7 +15,7 @@ final class ChiefKeptTranscriptUITests: XCTestCase {
         let first = launch(slowHistory: false)
         let mine = first.cells["conversation.message.msg_local_7"]
         XCTAssertTrue(mine.waitForExistence(timeout: 30), "Chief's transcript\n\(first.debugDescription)")
-        attach(first, "1-chief-open")
+        attach(first, "0-chief-open")
         XCUIDevice.shared.press(.home)
         XCTAssertTrue(first.wait(for: .runningBackground, timeout: 10), "the app in the background")
         first.terminate()
@@ -28,6 +28,15 @@ final class ChiefKeptTranscriptUITests: XCTestCase {
                       "the kept messages show at once\n\(again.debugDescription)")
         XCTAssertFalse(again.activityIndicators["conversation.initialLoading"].exists, "no spinner over them")
         attach(again, "2-relaunch-kept")
+        // Frames across the 5 s the page is held back and after it lands (the evidence video is
+        // made of these: the fleet's simulator step records no screen video). The waits only pace
+        // the captures; nothing waits on them.
+        for frame in 0..<16 {
+            XCTAssertFalse(again.activityIndicators["conversation.initialLoading"].exists, "no spinner at frame \(frame)")
+            attach(again, String(format: "frame-%02d", frame))
+            _ = XCTWaiter().wait(for: [XCTestExpectation(description: "pace")], timeout: 0.5)
+        }
+        XCTAssertTrue(again.cells["conversation.message.msg_local_7"].exists, "the server's page keeps the rows")
     }
 
     @MainActor
