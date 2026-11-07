@@ -149,13 +149,26 @@ canary_crash_loop() {
   rollback_upgrade canary-target-unhealthy
 }
 
-if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then H=/home/cmux; else H=/root; fi
+# True when a restart would hand the daemon to a supervisor that cannot start it:
+# the work user cannot `sudo -n`, root has no binary, and the baked supervisor
+# predates the selector clause that keeps the work user in that state.
+supervisor_would_strand_daemon() {
+  [ "$H" = /home/cmux ] || return 1
+  [ ! -x /root/.cmux/bin/cmux-tui ] || return 1
+  setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1 && return 1
+  ! grep -qF '[ ! -x /root/.cmux/bin/cmux-tui ]' "${CMUX_DEVBOX_BOOT:-/usr/local/bin/cmux-devbox-boot}" 2>/dev/null
+}
+
+if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && { setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1 || { [ -x /home/cmux/.cmux/bin/cmux-tui ] && [ ! -x /root/.cmux/bin/cmux-tui ]; }; }; then H=/home/cmux; else H=/root; fi
 BIN="$H/.cmux/bin/cmux-tui"
 # A crash-looping daemon is between restarts some of the time. Without a
 # live child, its carrier contract cannot be proven; retry after inspecting it.
 D=$(daemon_pid)
 [ -n "$D" ] || finish "SKIP no-daemon"
 daemon_has_trusted_carrier "$D" || finish "SKIP no-trusted-carrier"
+# cmux-devbox-boot is bake-only. An older copy re-selects /root when sudo needs a
+# password, so stopping this daemon would leave the machine with no terminals.
+supervisor_would_strand_daemon && finish "SKIP supervisor-would-select-missing-root-install"
 if [ "$(exe_sha "$D")" = "$TARGET_SHA" ]; then
   install_state_mount || {
     restore_state_mount || finish "FAIL state-mount-restore reason=$STATE_MOUNT_FAILURE"

@@ -252,6 +252,31 @@ print("named", ready.wait(2.0))
     expect(result.stdout.trim().split("\n")).toEqual(["default False", "named True"]);
   });
 
+  test("prompt sync picks the same daemon layout as the selector when sudo needs a password", async () => {
+    const script = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-prompt-sync");
+    const result = await runChild("python3", ["-c", String.raw`
+import importlib.machinery, importlib.util, os, pwd, subprocess, sys, types
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader("prompt_sync", sys.argv[1])
+spec = importlib.util.spec_from_loader("prompt_sync", loader)
+module = importlib.util.module_from_spec(spec); loader.exec_module(module)
+os.environ.pop("CMUX_TUI_BIN", None)
+pwd.getpwnam = lambda name: None
+subprocess.run = lambda *args, **kwargs: types.SimpleNamespace(returncode=1)
+def layout(*installed):
+    binaries = {"/home/cmux/.cmux/bin/cmux-tui": "work", "/root/.cmux/bin/cmux-tui": "root"}
+    os.access = lambda target, mode: target == "/home/cmux" or binaries.get(target) in installed
+    return module.tui_layout()[0]
+print(layout("work"), layout("root"), layout("work", "root"), layout())
+def timed_out(*args, **kwargs):
+    raise subprocess.TimeoutExpired("sudo", 2)
+subprocess.run = timed_out
+print(layout("work"), layout("root"))
+`, script]);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.trim().split("\n")).toEqual(["cmux root root root", "cmux root"]);
+  });
+
   test("prompt sync never polls faster after a failure than after a success", async () => {
     // Every success waits 30 s. A refused credential used to retry every 8 s
     // forever, so a machine whose credential stopped working polled almost

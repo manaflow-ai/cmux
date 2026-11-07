@@ -12,6 +12,7 @@ import {
   devboxParkDaemonCommand,
   devboxPrepareTemplateTerminalCommand,
   devboxSshHostKeyRegenerateCommand,
+  devboxSudoPasswordKeepsDaemonCommand,
   devboxWipeDaemonStateKeepingTemplateCommand,
 } from "../scripts/devbox-image-common";
 import { DEVBOX_HOSTNAME, DEVBOX_HOSTNAME_LOOPBACK, DEVBOX_PROVIDER_HOSTNAME } from "../services/vms/images/identity";
@@ -130,6 +131,8 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
     expect(bake).toContain("${devboxJournalResetCommand}; sync; true");
     const verify = readScript("verify-devbox-image.ts");
     expect(verify).toContain("devboxIdentityCheckCommand()");
+    expect(verify).toContain("devboxSudoPasswordKeepsDaemonCommand()");
+    expect(verify).toContain("idleOk && cloneIdentityOk && sudoPasswordOk");
     expect(verify).toContain("...IDENTITY_CHECKS");
     expect(verify).toContain("root-prompt-names-${DEVBOX_HOSTNAME}");
     // The pty probes synchronize on the shell's own readiness signal, not a fixed delay.
@@ -475,5 +478,36 @@ describe("devbox warm template terminal", () => {
     expect(park).toContain("pgrep -f '[_]_terminal-host'");
     expect(park).toContain("/etc/cmux/daemon-boot-id");
     expect(park).toContain("rm -f /run/cmux/bound /run/cmux/clone-started /run/cmux/first-prompt-named");
+  });
+});
+
+describe("devbox sudo-password daemon check", () => {
+  /** Runs only the check's sudo-refusal step, with `setpriv` replaced by a stub. */
+  async function refusalStep(setpriv: string): Promise<number> {
+    const lines = devboxSudoPasswordKeepsDaemonCommand().split("\n");
+    const start = lines.findIndex((line) => line.startsWith("sudo_refusal="));
+    expect(start).toBeGreaterThan(-1);
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-sudo-refusal-"));
+    try {
+      writeFileSync(path.join(root, "setpriv"), `#!/bin/sh\n${setpriv}\n`, { mode: 0o755 });
+      const result = await runChild("bash", ["-c", ["set -e", lines[start], lines[start + 1], "echo reached"].join("\n")], {
+        env: { ...process.env, PATH: `${root}:/usr/bin:/bin` },
+      });
+      return result.status ?? -1;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  test("it continues only when sudo really asks for a password", async () => {
+    expect(await refusalStep('echo "sudo: a password is required" >&2; exit 1')).toBe(0);
+  });
+
+  test("it fails when sudo is still passwordless", async () => {
+    expect(await refusalStep("exit 0")).toBe(1);
+  });
+
+  test("it fails when sudo refuses for another reason", async () => {
+    expect(await refusalStep('echo "setpriv: not permitted" >&2; exit 1')).toBe(1);
   });
 });
