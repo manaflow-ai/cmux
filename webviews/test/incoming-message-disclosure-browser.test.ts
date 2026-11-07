@@ -657,14 +657,16 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
         scheme,
       );
       try {
+        // Another agent's message is the one message row (AgentMessageRow.tsx, cmux#37653): its
+        // line's toggle opens it.
         const line = page.locator(".cv-received").last();
-        await line.locator(".cv-disclosure__toggle").click();
+        await line.locator(".cv-agentmsg__toggle").click();
         await rest(page);
         if (process.env.SENDER_IDENTITY_CAPTURE)
           await page.screenshot({ path: `${process.env.SENDER_IDENTITY_CAPTURE}-${scheme}.png` });
         expect(await line.locator(".cv-received__from").allInnerTexts()).toEqual(["design-check"]);
         expect(await line.locator(".cv-received__host-name").allInnerTexts()).toEqual(["review-box"]);
-        expect(await line.locator(".cv-disclosure__toggle").getAttribute("aria-label")).toBe(
+        expect(await line.locator(".cv-agentmsg__toggle").getAttribute("aria-label")).toBe(
           "Message from design-check: Synthetic review complete. The layout and keyboard checks passed.",
         );
         expect(await line.locator(".cv-received__from--open").getAttribute("aria-label")).toBe(
