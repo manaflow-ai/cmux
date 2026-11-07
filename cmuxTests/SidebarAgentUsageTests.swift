@@ -230,11 +230,15 @@ struct SidebarAgentUsageTests {
         #expect(metadata.agentUsageByStatusKey["claude_code"]?.contextFraction == 0.2)
     }
 
-    @Test func snapshotRowLeavesOutADisabledPart() {
+    @Test func snapshotRowLeavesOutADisabledPart() throws {
         let defaults = Self.makeDefaults(enabled: true)
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showAgentModelKey)
         let workspace = Workspace()
         workspace.statusEntries["claude_code"] = Self.statusEntry(key: "claude_code", value: "Running")
+        // A structured agent key stays out of the sidebar until an agent owns
+        // it; a PID with no panel binding is the smallest proof, as in
+        // `SidebarCompactAgentStatusTests`.
+        workspace.agentPIDs["claude_code"] = 4242
         workspace.sidebarMetadata.updateAgentUsage(Self.usage, forStatusKey: "claude_code")
 
         let snapshot = SidebarWorkspaceSnapshotFactory(
@@ -242,9 +246,9 @@ struct SidebarAgentUsageTests {
         ).makeSnapshot()
         // The percent and currency follow `Locale.current`, so assert the
         // model is gone and the rest is still appended rather than exact text.
-        let row = snapshot.metadataEntries.first { $0.key == "claude_code" }?.value
-        #expect(row?.hasPrefix("Running" + SidebarAgentUsageFormatter.separator) == true)
-        #expect(row?.contains("Opus 4.8") == false)
+        let row = try #require(snapshot.metadataEntries.first { $0.key == "claude_code" }?.value)
+        #expect(row.hasPrefix("Running" + SidebarAgentUsageFormatter.separator))
+        #expect(!row.contains("Opus 4.8"))
     }
 
     @Test func resumingTheSameTranscriptKeepsUsageAndPaddedWorkspaceIdsResolve() async throws {
