@@ -8,6 +8,7 @@ import { AlertCircle, Check, ChevronDown, ChevronRight, Folder, Spinner } from "
 
 import { Thinking } from "./conversation/Thinking";
 import { usePaneLanguage, useT, type Translate } from "./i18n";
+import { cloudPlanRecoveryLabels } from "./cloudPlanRecoveryLabels";
 import "./cloudStart.css";
 import { type ChecklistStep, startupChecklist } from "./cloudStartViewModel";
 function mark(step: ChecklistStep, t: Translate) {
@@ -98,6 +99,9 @@ export function CloudStartView({
   onAnswer,
   onRetry,
   onSignIn,
+  onUpgrade,
+  onRunHere,
+  onDismiss,
 }: {
   start: CloudStartProgress;
   bubble?: boolean;
@@ -110,6 +114,11 @@ export function CloudStartView({
   /// Sends the same prompt again, a retry of this start (its key is kept): offered on a retryable failure.
   onRetry?: () => void;
   onSignIn?: () => void | Promise<unknown>;
+  /// A plan refusal's recovery (`cloud_plan_required`): the app's paid-plan path, the same prompt
+  /// on this Mac, or leave the card (the draft stays in the composer).
+  onUpgrade?: () => void;
+  onRunHere?: () => void;
+  onDismiss?: () => void;
 }) {
   const t = useT();
   const arm = experimentArm(cloudStartLook);
@@ -126,6 +135,7 @@ export function CloudStartView({
     else if (start.initialized) setExpanded(false);
   }, [failed, start.initialized]);
   const language = usePaneLanguage();
+  const planLabels = cloudPlanRecoveryLabels(language);
   const rows = startupChecklist(start, t, now, language);
   const known = facts(start, t);
   const openEnvironment = () => {
@@ -294,6 +304,25 @@ export function CloudStartView({
             </button>
           )}
         </div>
+      )}
+      {failed && start.code === "cloud_plan_required" && (onUpgrade || onRunHere || onDismiss) && (
+        <span className="acpmux-cloud-ask__actions">
+          {onUpgrade && (
+            <button type="button" className="acpmux-cloud-ask__button" data-role="default" onClick={() => onUpgrade()}>
+              {planLabels.upgrade}
+            </button>
+          )}
+          {onRunHere && (
+            <button type="button" className="acpmux-cloud-ask__button" onClick={() => onRunHere()}>
+              {planLabels.runHere}
+            </button>
+          )}
+          {onDismiss && (
+            <button type="button" className="acpmux-cloud-ask__button" onClick={() => onDismiss()}>
+              {t("harness.notNow")}
+            </button>
+          )}
+        </span>
       )}
       {failed && start.retryable && onRetry && (
         <span className="acpmux-cloud-ask__actions">
