@@ -86,7 +86,7 @@ enum DebugDialog {
             if let button = params["press"]?.stringValue { result["pressed"] = .bool(center.press(target, button: button)) }
             if params["dismiss"]?.boolValue == true { result["dismissed"] = .bool(center.dismiss(target)) }
         }
-        result["dialogs"] = .array(center.records.map { report($0, view: center.view($0.id)) })
+        result["dialogs"] = .array(center.records.map { report($0, dialog: center.dialog($0.id)) })
         return .object(result)
     }
 
@@ -116,7 +116,7 @@ enum DebugDialog {
         }
     }
 
-    private static func report(_ record: CmuxDialogCenter.Record, view: CmuxDialogView?) -> JSONValue {
+    private static func report(_ record: CmuxDialogCenter.Record, dialog: CmuxDialogPresentation?) -> JSONValue {
         var values: [String: JSONValue] = [:]
         for (field, value) in record.values {
             switch value {
@@ -141,8 +141,8 @@ enum DebugDialog {
             options[id] = .array(choices.map { .object(["label": .string($0.label), "value": .string($0.value)]) })
         }
         if !options.isEmpty { object["options"] = .object(options) }
-        if let view, view.window != nil {
-            let frame = view.convert(view.bounds, to: nil)
+        if let dialog, let view = dialog.view, view.window != nil {
+            let frame = view.convert(dialog.cardRect ?? view.bounds, to: nil)
             object["frame"] = .array([frame.minX, frame.minY, frame.width, frame.height].map { .number(Double($0)) })
             object["window"] = .number(Double(view.window?.windowNumber ?? 0))
         }

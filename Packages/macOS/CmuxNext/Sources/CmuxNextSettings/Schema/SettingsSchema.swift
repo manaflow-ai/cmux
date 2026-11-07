@@ -16,7 +16,9 @@ public nonisolated enum SettingsSchema {
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
             + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
             + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefPermissionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors + ChiefSidebarSettingsSchema.descriptors
-            + NotificationSettingsSchema.descriptors + NotificationSoundSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
+            + NotificationSettingsSchema.dismissalDescriptors + NotificationSettingsSchema.bannerDescriptors + NotificationSettingsSchema.feedMirrorDescriptors
+            + NotificationSettingsSchema.attentionDescriptors + NotificationSettingsSchema.mutedWorkspacesDescriptors + NotificationSettingsSchema.soundDescriptors
+            + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
             + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors
             + MachineSettingsSchema.macScreen + MachineSettingsSchema.macScreenDebug + MachineSettingsSchema.remote
@@ -234,7 +236,7 @@ public nonisolated enum SettingsSchema {
     // MARK: Appearance
 
     static var appearance: [SettingDescriptor] {
-        AppearanceSettingsSchema.appTheme + AppearanceSettingsSchema.windowBackground + AppearanceSettingsSchema.tuning
+        AppearanceSettingsSchema.iconTheme + AppearanceSettingsSchema.appTheme + AppearanceSettingsSchema.windowBackground + AppearanceSettingsSchema.tuning
             + AppearanceSettingsSchema.look + AppearanceSettingsSchema.chromeStyle + AppearanceSettingsSchema.lookMotion
             + AppearanceSettingsSchema.panes + AppearanceSettingsSchema.focusRing + MotionSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
             + DiffViewerSettingsSchema.descriptors + MarkdownViewerSettingsSchema.descriptors + AgentPaneDisplaySettingsSchema.descriptors
