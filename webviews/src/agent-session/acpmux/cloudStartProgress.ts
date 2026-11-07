@@ -123,7 +123,10 @@ export function cloudStartBegun(
 
 /// Start `key`'s sign-in came back signed in and the start goes on: the card leaves its waiting for
 /// sign-in state for the normal start. Another start, or one not waiting on a sign-in, is unchanged.
-export function cloudStartSignedIn(current: CloudStartProgress | undefined, key: string): CloudStartProgress | undefined {
+export function cloudStartSignedIn(
+  current: CloudStartProgress | undefined,
+  key: string,
+): CloudStartProgress | undefined {
   if (current?.key !== key || !current.signingIn) return current;
   const { signingIn: _signedIn, ...started } = current;
   return started;
