@@ -1382,8 +1382,9 @@ fn a_late_answer_of_any_step_is_its_phases_timeout() {
         request(&all)
     };
     // (case, request, answers, the slow step's index and cost, code, exit, steps run)
+    type Case<'a> = (&'a str, Request, Vec<Ran>, (usize, u64), &'a str, i32, usize);
     let big = "a".repeat(400 * 1024);
-    let cases: Vec<(&str, Request, Vec<Ran>, (usize, u64), &str, i32, usize)> = vec![
+    let cases: Vec<Case<'_>> = vec![
         (
             "start-session errs late",
             asked(&["--target", "machine:vm-1", "--timeout", "30"]),
