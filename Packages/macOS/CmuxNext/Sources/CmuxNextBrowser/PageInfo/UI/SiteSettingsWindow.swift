@@ -158,4 +158,5 @@ final class SiteSettingsWindow: PageInfoWindow {
         case .thirdPartySignIn: "person.badge.key"
         case .insecureContent: "shield.slash"
         }
+    }
 }
