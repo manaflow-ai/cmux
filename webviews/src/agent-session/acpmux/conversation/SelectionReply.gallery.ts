@@ -204,6 +204,33 @@ const backwardMulti = (ctx: PlayContext) =>
     true,
   );
 
+// A short Markdown prompt, right-aligned in its bubble: a column narrower than the chip.
+const okRows = [
+  user("**OK**", 6, { id: "gallery-reply-ok" }),
+  assistant(LONG, 5.9, { id: "gallery-reply-long" }),
+  summary(5.9, { id: "gallery-reply-summary", status: "completed" }),
+];
+/// Selects "OK" in the prompt's bubble.
+async function selectOk(ctx: PlayContext) {
+  const doc = ctx.document;
+  const find = () => {
+    const row = doc.querySelector('[data-row-id="gallery-reply-ok"]');
+    if (!row) return undefined;
+    const walker = doc.createTreeWalker(row, 4);
+    for (let node = walker.nextNode(); node; node = walker.nextNode())
+      if (node.textContent === "OK") return node as Text;
+    return undefined;
+  };
+  await ctx.waitFor(() => !!find());
+  const node = find()!;
+  doc.getSelection()!.setBaseAndExtent(node, 0, node, 2);
+  doc.dispatchEvent(new doc.defaultView!.PointerEvent("pointerup", { bubbles: true }));
+  await ctx.waitFor(() => {
+    const chip = doc.querySelector<HTMLElement>(".cv-selection-reply");
+    return chip && chip.style.visibility !== "hidden" ? chip : undefined;
+  });
+}
+
 const variant = (look: string, note: string, play: (ctx: PlayContext) => Promise<void>, snapshot = chat(rows)) => ({
   note,
   theme: { selectionReply: look },
@@ -304,6 +331,15 @@ export default agentPaneEntry({
         "Three lines dragged backward: the chip goes over where the pointer let go when that is free, else near the end, measured there.",
         backwardMulti,
         chat(denseRows),
+      ),
+      height: 640,
+    },
+    "chip-short-prompt": {
+      ...variant(
+        "chip",
+        "A short Markdown prompt right-aligned in its bubble, narrower than the chip: the chip stays in the pane, over the prompt.",
+        selectOk,
+        chat(okRows),
       ),
       height: 640,
     },
