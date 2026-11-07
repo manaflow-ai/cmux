@@ -467,9 +467,10 @@ fn locate_on(id: &str, machine: &str, sections: &[Section]) -> Option<Location> 
 
 /// `Attach`: links `ids` under `creator` (on their machine) and lists them,
 /// with the children they carry, right after its subtree, in its group or
-/// section. Refused for an unlisted creator, a link that would loop or a
-/// creator's section that may not hold them; a no-op for rows already its
-/// children there.
+/// section. Refused for an unlisted creator, a link that would loop, a
+/// creator's section that may not hold them, or a moving id that another
+/// machine's row shares (the removal matches ids alone); a no-op for rows
+/// already its children there.
 pub(super) fn attach(ids: &[String], creator: &str, sections: &mut [Section]) -> bool {
     let ordered = tree_order(ids, sections);
     if ordered.is_empty() || ordered.iter().any(|id| id == creator) {
@@ -505,6 +506,14 @@ pub(super) fn attach(ids: &[String], creator: &str, sections: &mut [Section]) ->
         return false;
     }
     let moving = with_subtrees(&ordered, sections);
+    let moving_ids: HashSet<&str> = moving.iter().map(String::as_str).collect();
+    let shared = sections
+        .iter()
+        .flat_map(Section::workspaces)
+        .any(|ws| moving_ids.contains(ws.id.as_str()) && ws.machine != machine);
+    if shared {
+        return false;
+    }
     let placeable =
         moving.iter().filter_map(|id| workspace(id, sections)).all(|ws| can_place(ws, section));
     if !placeable {

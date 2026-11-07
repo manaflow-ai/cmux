@@ -327,6 +327,23 @@ fn a_creator_is_matched_on_its_childs_machine() {
     assert!(!changed);
 }
 
+#[test]
+fn an_attach_whose_id_another_machine_shares_is_refused() {
+    // Pinned holds `a` and `b` of the cloud machine; the local section holds another `b`.
+    let cloud = |id: &str| {
+        let mut workspace = ws(id, None);
+        workspace.machine = "cloud".into();
+        Node::Workspace { workspace }
+    };
+    let sections = vec![
+        Section { id: SectionId::Pinned, collapsed: false, nodes: vec![cloud("a"), cloud("b")] },
+        Section { id: machine(LOCAL), collapsed: false, nodes: vec![loose("b")] },
+    ];
+    let (changed, after) = run(Intent::Attach { ids: ids(&["b"]), creator: "a".into() }, &sections);
+    assert!(!changed);
+    assert_eq!(after, sections);
+}
+
 // MARK: Layout
 
 fn find<'a>(rows: &'a [TreeRow], id: &str) -> &'a TreeRow {
