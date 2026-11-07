@@ -70,6 +70,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import zipfile
 from datetime import datetime, timedelta
@@ -178,24 +179,42 @@ class GitHub(_evidence.GitHub):
         """MEMBER's text in Actions ARTIFACT's zip, or None when the zip has no such file. Refused when the download
         fails, passes ARTIFACT_SECONDS, or the zip or the file passes ARTIFACT_MAX_BYTES."""
         with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+            # gh in a group of its own: a gh wrapper's child holds stdout too, and only killing the whole group
+            # ends the read.
             process = subprocess.Popen(["gh", "api", f"repos/{repo}/actions/artifacts/{int(artifact)}/zip"],
-                                       stdout=subprocess.PIPE, stderr=errors)
+                                       stdout=subprocess.PIPE, stderr=errors, start_new_session=True)
+
+            def kill() -> None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):  # gone, or a macOS zombie group
+                    pass
+
+            fired = threading.Event()
+
+            def expire() -> None:
+                fired.set()
+                kill()
+
+            # A read blocks while gh sends nothing: the deadline kills gh's group, which ends the read
+            # (router-review F1 of #37969: a stalled download held the whole run's deadline, not ARTIFACT_SECONDS).
+            end = time.monotonic() + ARTIFACT_SECONDS
+            deadline = threading.Timer(ARTIFACT_SECONDS, expire)
+            deadline.start()
             try:
-                kept, end = 0, time.monotonic() + ARTIFACT_SECONDS
+                kept = 0
                 while chunk := process.stdout.read(1 << 20):
                     kept += len(chunk)
                     if kept > ARTIFACT_MAX_BYTES:
                         raise Refused(f"artifact {artifact} is over {ARTIFACT_MAX_BYTES} bytes")
-                    if time.monotonic() > end:
-                        raise Refused(f"artifact {artifact} took over {ARTIFACT_SECONDS} seconds to read")
                     output.write(chunk)
-                process.wait(timeout=max(1, end - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                raise Refused(f"artifact {artifact} took over {ARTIFACT_SECONDS} seconds to read") from None
+                process.wait()
+                if fired.is_set() or time.monotonic() > end:  # the timer thread may run late
+                    raise Refused(f"artifact {artifact} took over {ARTIFACT_SECONDS} seconds to read")
             finally:
-                if process.poll() is None:
-                    process.kill()
-                    process.wait()
+                deadline.cancel()
+                kill()  # a stray child of a wrapper too, on every path
+                process.wait()
             if process.returncode:
                 errors.seek(0)
                 raise Refused(REQUEST_FAILED + errors.read(2000).decode(errors="replace"))
