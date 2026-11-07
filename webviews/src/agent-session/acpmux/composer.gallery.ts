@@ -2389,6 +2389,17 @@ export default agentPaneEntry({
     },
     // Leo 2026-10-22 (relayed by claude-sr2): "Match theirs: icon, plain name, a sentence saying what
     // selecting it does in the current state." Claude Code's `/fast` row as ChatGPT's Fast row.
+    "slash-menu-mcp": {
+      note: "Play: type /mcp in a chat; cmux's own /mcp row shows (the chat's MCP servers, or reconnect, enable or disable one) in every harness, where before /mcp went to the agent as text.",
+      snapshot: chat(finished, {
+        commands: [{ name: "compact", description: "Clear conversation history but keep a summary in context" }],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/mcp");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+      },
+    },
     "slash-menu-fast-on": {
       note: "Play: type /fast in a Claude chat with Fast on; the row is the bolt, Fast, and what picking it does now: turn Fast off.",
       snapshot: fastChat("on"),

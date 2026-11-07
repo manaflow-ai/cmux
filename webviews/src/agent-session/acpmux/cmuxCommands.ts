@@ -149,7 +149,7 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     name: "mcp",
     description: "",
     descriptionKey: "composer.slashMcp",
-    hint: "[reconnect|enable|disable <server>]",
+    hint: "[<action> <server>]",
     source: "cmux",
     action: "mcp",
   },
