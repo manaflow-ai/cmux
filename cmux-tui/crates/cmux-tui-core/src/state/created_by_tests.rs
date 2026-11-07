@@ -130,6 +130,36 @@ fn an_agent_workspace_joins_its_creators_group() {
     mux.shutdown();
 }
 
+/// A workspace with a terminal (what a plain `cmux workspace create` makes)
+/// commits through the effect journal, possibly on its writer thread: it
+/// still goes below its creator and keeps `extra.created_by`.
+#[test]
+fn an_agent_terminal_workspace_goes_below_its_creator() {
+    let session = Session::new("created-by-terminal");
+    let mux = session.open();
+    let bottom = NewWorkspacePlacement::Bottom.set_for_test();
+    let a = empty_workspace(&mux, "a");
+    let b = empty_workspace(&mux, "b");
+    drop(bottom);
+    let _after = NewWorkspacePlacement::AfterCurrent.set_for_test();
+    focus(&mux, &b);
+    let x = mutate(
+        &mux,
+        "workspace.create",
+        json!({"name": "x", "initial_content": "terminal",
+            "created_by": {"kind": "script", "workspace": a}}),
+        "create-x",
+    )["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let ids = [&a, &b, &x].map(String::as_str);
+    let [a, b, x] = ids;
+    assert_eq!(listed(&mux, &ids), [a, x, b].map(str::to_string).to_vec());
+    assert_eq!(workspace(&mux, x)["extra"]["created_by"], json!({"kind": "script", "workspace": a}));
+    mux.shutdown();
+}
+
 /// An agent or script create with no creator workspace (none named, or one
 /// that is gone) goes at the end, never below the selection.
 #[test]
