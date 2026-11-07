@@ -26,6 +26,8 @@ to the first frame the pane shows the chat's content, with every surface the pan
   click      a mouse click on the sidebar row of a chat never shown in this app's life (its workspace made in
              the background, so the click makes its pane): judged from pixels, not the page's mark
   click_again  a click back onto the row of a chat shown before and left (its page kept)
+  click_hover  a click on the row of a chat never shown, after the pointer rested on that row for --hover-ms
+             (`debug.mouse` move, the sidebar's hover path), as a person's pointer does before a click
 
 The click cases read the window as the window server composited it, frame after frame, from the click
 (`debug.new_tab frame_strip` with gesture `mouse`, `above` so the Chromium page is in it: read through
@@ -111,6 +113,8 @@ parser.add_argument("--bloat", default="20 400 5", help="calls, updates per call
 parser.add_argument("--sessions", type=int, default=1500)
 parser.add_argument("--conditions", default="idle,load,load_utility,load_nice")
 parser.add_argument("--cases", default="click,click_again,sidebar,reopen,subagent,big,bloated,restore")
+parser.add_argument("--hover-ms", type=float, default=300,
+                    help="click_hover: how long the pointer rests on the row before the click")
 parser.add_argument("--strip-ms", type=float, default=2500, help="click cases: how long the frame strip records after the click")
 parser.add_argument("--strip-tolerance", type=float, default=0.001,
                     help="click cases: the share of the content area's pixels that may differ for two frames to count as one "
@@ -145,7 +149,7 @@ if opts.capture_check:
 APP = os.path.realpath(opts.app.rstrip("/"))
 CONDITIONS = [c.strip() for c in opts.conditions.split(",") if c.strip()]
 CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
-CLICK_CASES = ("click", "click_again")
+CLICK_CASES = ("click", "click_again", "click_hover")
 # The click cases go first in a condition: each makes a sidebar row, and a row below the sidebar's fold can't be clicked.
 CASES = [c for c in CASES if c in CLICK_CASES] + [c for c in CASES if c not in CLICK_CASES]
 SUBAGENTS = opts.subagents or opts.runs + 1
@@ -379,6 +383,7 @@ def seed(root):
             if "relaunched" in CASES else [],
             "click": [copy_chat(home, small, f"Click {condition} {i}") for i in range(opts.runs)],
             "click_again": [copy_chat(home, small, f"Click again {condition} {i}") for i in range(opts.runs)],
+            "click_hover": [copy_chat(home, small, f"Click hover {condition} {i}") for i in range(opts.runs)],
             "subagent": [copy_chat(home, sub, f"Subagents {condition} {i}") for i in range(opts.runs)],
             "big": [copy_chat(home, big, f"Big {condition} {i}") for i in range(opts.runs)] if big else [],
             "bloated": [copy_chat(home, bloated, f"Bloated {condition} {i}") for i in range(opts.runs)] if bloated else [],
@@ -831,7 +836,8 @@ def frame_click(run, key, label, keep=False):
 
 def measure_click(run, case, session, base, label, index=0):
     """One click case: the chat's workspace made in the background (`click`), or shown once and left
-    (`click_again`), then a click on its row from the workspace `base`, which shows no chat."""
+    (`click_again`), or made in the background and its row hovered for --hover-ms (`click_hover`), then a click on
+    its row from the workspace `base`, which shows no chat."""
     key, row, error = background_row(run, session)
     if error:
         return {"error": error, "row": row}
@@ -852,6 +858,14 @@ def measure_click(run, case, session, base, label, index=0):
         # nothing to change; cmux#33845).
         if next((r.get("selected") for r in sidebar_rows(run) if workspace_id(r) == key), False):
             return {"error": "the chat's workspace was shown before the click: the click would measure nothing", "row": row}
+        if case == "click_hover":
+            # The pointer comes onto the row and rests there, as before a person's click (`debug.pointer_hover`: real
+            # tracking-area events, so the sidebar's own hover path runs). The strip starts recording about 120 ms
+            # before its click (DebugFrameStrip's lead), so the rest before the click is --hover-ms.
+            hovered = run.rpc("debug.pointer_hover", {"row": key}) or {}
+            if not str(hovered.get("row_hovered") or "").endswith(key):
+                return {"error": f"the hover did not land on the row: {json.dumps(hovered)[:300]}", "row": row}
+            time.sleep(max(0.0, opts.hover_ms / 1000 - 0.12))  # test script: the pointer rests on the row
     record = frame_click(run, key, label, keep=index < opts.keep_frames)
     record["workspace"] = key
     # Back to the workspace with no chat, so the next click starts from the same picture.
