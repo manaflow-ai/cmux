@@ -58,7 +58,7 @@ import Testing
         let payload = DragPayload.workspaces([WorkspaceID("dc-0")])
         let height = SidebarLayout.make(sections: sections, metrics: metrics, options: options).totalHeight
         var cost = Cost()
-        let key = SidebarDragBaseKey(content: 1, metrics: metrics, options: options, ungroupedFirst: false)
+        let key = SidebarDragBaseKey(content: 1, reloads: 1, width: 260, metrics: metrics, ungroupedFirst: false)
         let base = SidebarLayout.make(sections: sections, metrics: metrics, options: options)
         var made: (key: SidebarDragBaseKey, layout: SidebarLayout, rules: DropResolver.DragRules?)? = (key, base,
             DropResolver.DragRules(payload: payload, base: base, sections: sections))
@@ -68,7 +68,7 @@ import Testing
             var resolved: (target: DropTarget?, probe: DropResolver.DragProbe)?
             let move = microseconds {
                 cost.layout.append(microseconds {
-                    let now = SidebarDragBaseKey(content: 1, metrics: metrics, options: options, ungroupedFirst: false)
+                    let now = SidebarDragBaseKey(content: 1, reloads: 1, width: 260, metrics: metrics, ungroupedFirst: false)
                     if made?.key != now { made = nil }
                     rules = made?.rules
                 })

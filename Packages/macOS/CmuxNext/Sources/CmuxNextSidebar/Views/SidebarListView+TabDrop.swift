@@ -71,6 +71,8 @@ extension SidebarListViewComponents {
             if proposal != external.proposal {
                 external.proposal = proposal
                 reload(animated: true)
+                // That reload only drew the proposal's gap, which the base leaves out: the base still holds.
+                if external.base?.key.reloads == reloads &- 1 { external.base?.key.reloads = reloads }
             }
         }
         updateSpringLoad(external)
@@ -92,10 +94,9 @@ extension SidebarListViewComponents {
     /// A tab drag's base layout (no gap) and its drop rules in the Rust reducer, made again only when the rows, their
     /// look or the tab's machine change, so a move lays out nothing and crosses into Rust with its y only.
     private func tabDragBase(_ external: ExternalDrag) -> (layout: SidebarLayout, rules: DropResolver.TabDragRules?) {
-        let options = options(includeGap: false)
-        let key = SidebarDragBaseKey(content: model.contentRevision, metrics: metrics, options: options, ungroupedFirst: false)
+        let key = SidebarDragBaseKey(content: model.contentRevision, reloads: reloads, width: bounds.width, metrics: metrics, ungroupedFirst: false)
         if let base = external.base, base.key == key, base.machine == external.sourceMachine { return (base.layout, base.rules) }
-        let layout = SidebarLayout.make(sections: listSections, metrics: metrics, options: options)
+        let layout = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
         let rules = DropResolver.TabDragRules(base: layout, sections: model.sections, sourceMachine: external.sourceMachine)
         external.base = (key, external.sourceMachine, layout, rules)
         return (layout, rules)

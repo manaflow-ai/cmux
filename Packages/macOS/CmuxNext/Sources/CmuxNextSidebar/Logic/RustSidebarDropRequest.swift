@@ -11,8 +11,7 @@ nonisolated struct RustDropRequest: Encodable {
     }
 }
 
-/// `resolve_drag`: the card's centre and leading edge in displayed y, the
-/// open gap, and the drop rules (Rust `sidebar_drag::DragRequest`).
+/// What a drop moves (Rust `sidebar_drop::Payload`).
 nonisolated struct RustPayload: Encodable {
     var kind: String; var ids: [String]?; var id: String?
     init(_ payload: DragPayload) {
