@@ -10,10 +10,10 @@ sides: a 7-day replay of every base merge on cmux pull requests (2026-10-31 to
 
 This runs git's own three-way merge (`git merge-file --diff3`) and then settles
 each conflict whose base side is empty, an insertion on both sides, by keeping
-ours and then theirs. Every other conflict (a line both sides changed, a delete
+all of ours and then all of theirs. Every other conflict (a line both sides changed, a delete
 against a change) stays an ordinary conflict for the author. A .json or .toml
-result that no longer parses is written back as the plain line merge, so a
-missing comma never merges silently.
+result that no longer parses, or names a key twice, is written back as the
+plain line merge, so a missing comma or a doubled key never merges silently.
 
 Usage (git): merge-insertions.py %O %A %B %P %L; writes the result to %A and
 exits 1 when a conflict remains.
@@ -77,31 +77,30 @@ def settle(text: bytes, size: int) -> tuple[bytes, int]:
             out.append(lines[j])
             remaining += 1
         else:
-            ours_lines, theirs_lines = sections["ours"], sections["theirs"]
-            for block in (ours_lines, theirs_lines):
+            # Every line of both insertions, ours first. Lines both sides inserted
+            # alike are not merged into one: two appended functions both end in `}`,
+            # and each needs its own.
+            for block in (sections["ours"], sections["theirs"]):
                 if block and not block[-1].endswith(b"\n"):
                     block[-1] += b"\n"
-            # diff3 does not factor out lines both sides inserted alike (a shared
-            # closing brace, the same import): write those once.
-            head = 0
-            while head < min(len(ours_lines), len(theirs_lines)) and ours_lines[head] == theirs_lines[head]:
-                head += 1
-            tail = 0
-            while (tail < min(len(ours_lines), len(theirs_lines)) - head
-                   and ours_lines[-1 - tail] == theirs_lines[-1 - tail]):
-                tail += 1
-            out.extend(ours_lines[:head])
-            out.extend(ours_lines[head:len(ours_lines) - tail])
-            out.extend(theirs_lines[head:len(theirs_lines) - tail])
-            out.extend(ours_lines[len(ours_lines) - tail:])
+                out.extend(block)
         i = j + 1
     return b"".join(out), remaining
 
 
+def unique_keys(pairs):
+    keys = [key for key, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise ValueError("duplicate key")
+    return dict(pairs)
+
+
 def parses(path: str, text: bytes) -> bool:
+    """A .json result must parse with no key twice in one object (both sides added the same
+    key); .toml rejects a repeated key itself."""
     try:
         if path.endswith(".json"):
-            json.loads(text)
+            json.loads(text, object_pairs_hook=unique_keys)
         elif path.endswith(".toml"):
             import tomllib
             tomllib.loads(text.decode("utf-8"))

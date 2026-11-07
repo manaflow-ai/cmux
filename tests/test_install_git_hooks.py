@@ -816,6 +816,17 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertEqual(log.read_text(), "# Log\n\n- first\n- lane entry\n- main entry\n")
         self.assertEqual(lib.read_text(), "pub mod a;\npub mod lane;\npub mod main;\n\nfn shared() {}\n")
 
+        # Two appended functions both end in `}`: each keeps its own.
+        self.git("checkout", "--quiet", "-b", "fn-a", base)
+        lib.write_text("pub mod a;\n\nfn shared() {}\nfn a() {\n    1\n}\n")
+        self.commit_all("fn a")
+        self.git("checkout", "--quiet", "-b", "fn-b", base)
+        lib.write_text("pub mod a;\n\nfn shared() {}\nfn b() {\n    2\n}\n")
+        self.commit_all("fn b")
+        merged = self.git("merge", "--no-edit", "fn-a", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(lib.read_text(), "pub mod a;\n\nfn shared() {}\nfn b() {\n    2\n}\nfn a() {\n    1\n}\n")
+
         # The same line changed two ways is still the author's conflict.
         self.git("checkout", "--quiet", "-b", "other", base)
         lib.write_text("pub mod a;\n\nfn shared() { other() }\n")
@@ -836,6 +847,18 @@ cat > node_modules/.bin/vp <<'VP'
         surfaces.write_text('{\n "a": 1\n}\n "c": 3\n')
         self.commit_all("json b")
         clash = self.git("merge", "--no-edit", "json-a", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertIn("<<<<<<<", surfaces.read_text())
+        self.git("merge", "--abort")
+
+        # Both sides adding the same key parses, but one value would silently win: a conflict.
+        self.git("checkout", "--quiet", "-b", "key-a", base)
+        surfaces.write_text('{\n "new": 1,\n "a": 1\n}\n')
+        self.commit_all("key a")
+        self.git("checkout", "--quiet", "-b", "key-b", base)
+        surfaces.write_text('{\n "new": 2,\n "a": 1\n}\n')
+        self.commit_all("key b")
+        clash = self.git("merge", "--no-edit", "key-a", check=False)
         self.assertNotEqual(clash.returncode, 0)
         self.assertIn("<<<<<<<", surfaces.read_text())
         self.git("merge", "--abort")
