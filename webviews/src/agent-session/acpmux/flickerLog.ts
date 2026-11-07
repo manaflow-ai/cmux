@@ -41,7 +41,9 @@ export class FlickerLog {
   constructor(
     private readonly send: Send,
     private readonly now: () => number = Date.now,
-    private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = setTimeout,
+    // Called through a closure: Chromium refuses `setTimeout` called as this object's method.
+    private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = (run, ms) =>
+      setTimeout(run, ms),
   ) {}
 
   record(kind: string, fields: Record<string, string | number | boolean> = {}): void {

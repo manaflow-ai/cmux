@@ -6551,6 +6551,11 @@ export class AcpmuxDirectClient {
     if (this.askedQuestions.has(permissionId)) this.repliedWhileAsked.add(permissionId);
   }
 
+  /// The decline for that reply failed: the question still waits, and a later Skip reads as one.
+  unmarkAnsweredInChat(permissionId: string): void {
+    this.repliedWhileAsked.delete(permissionId);
+  }
+
   /// The person wrote a prompt of their own: a question waiting now, or one declined just before it,
   /// was answered in the chat rather than on its card (Leo, 2026-11-07: "what happens if they respond
   /// to it in another way, right?"). The composer hat declines a waiting question for a typed reply
@@ -8468,7 +8473,9 @@ export class AcpmuxDirectClient {
     // to their saved originals (promptBudget.ts). The row and a Retry keep what the prompt carried:
     // such an image is its original's link, drawn as a file as acpmux's echo and a reload draw it.
     const carried = fitPromptBudget(input, sendAttachments, options);
-    if (carried !== sendAttachments) {
+    // A video sent without its frames (an agent that takes no images, or past the budget) is the
+    // file chip in the row its echo draws, not a tile (conversation/sentVideos.ts).
+    if (carried !== audible) {
       const linked = new Map(carried.map((chip) => [chip.id, chip]));
       attachments = attachments.map((chip) => linked.get(chip.id) ?? chip);
     }
@@ -10560,6 +10567,9 @@ export class AcpmuxDirectClient {
   /// Feedback on the person's click or action that belongs to the moment, not the chat (a Stop the
   /// agent refused, a take-over that failed): a toast, never a transcript line.
   transient(text: string): void {
+    // A closed client's late failure (a takeOver() that fails after a reconnect replaced it) is
+    // about a pane that is gone: neither the new pane's toasts nor a line.
+    if (this.closed) return;
     if (this.toastSink) this.toastSink(text);
     else this.notice(text);
   }
@@ -11434,6 +11444,7 @@ export class AcpmuxDirectClient {
     this.replayMode = false;
     this.fedMode = false;
     this.closed = true;
+    this.toastSink = undefined;
     this.promptIndex?.cancel?.();
 
     clearTimeout(this.hiddenDraw);

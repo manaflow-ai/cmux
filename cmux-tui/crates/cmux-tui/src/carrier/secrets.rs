@@ -208,6 +208,7 @@ pub(super) fn run(args: &[String]) -> i32 {
             source,
             identity,
             deadline: tokio::time::Instant::now() + args.deadline,
+            prefetched: Arc::new(answer::Prefetched::default()),
             // Route lines carry the machine id, the step and the time: no value.
             log: Arc::new(|line| {
                 let mut stderr = std::io::stderr().lock();
