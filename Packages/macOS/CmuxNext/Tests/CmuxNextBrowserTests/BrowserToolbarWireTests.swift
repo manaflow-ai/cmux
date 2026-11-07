@@ -220,6 +220,21 @@ struct BrowserToolbarWireTests {
         #expect(shown["kind"] as? String == "history" && shown["url"] as? String == "https://first.example/")
     }
 
+    @Test func tabBringsTheKeysToTheRowAndAClickDoesNot() throws {
+        func key(_ code: UInt16, _ flags: NSEvent.ModifierFlags = []) -> NSEvent? {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
+                             characters: "\t", charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: code)
+        }
+        #expect(BrowserToolbarWebView.isKeyboardNavigation(key(48)))
+        #expect(BrowserToolbarWebView.isKeyboardNavigation(key(48, .shift)))
+        #expect(!BrowserToolbarWebView.isKeyboardNavigation(key(48, .control)))
+        #expect(!BrowserToolbarWebView.isKeyboardNavigation(key(0)))
+        let click = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                       context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+        #expect(!BrowserToolbarWebView.isKeyboardNavigation(click))
+        #expect(!BrowserToolbarWebView.isKeyboardNavigation(nil))
+    }
+
     @Test func aSearchEngineChangeReachesAMountedRow() throws {
         let engine = OmniboxSuggestionEngine()
         let bar = BrowserToolbarWebView(suggestionEngine: engine)

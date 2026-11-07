@@ -261,3 +261,17 @@ test("a Markdown tab's row (navigation only) has nothing after the bar either", 
   expect(followingGroups(doc)).toEqual([]);
   expect(doc.querySelector(".bc-trailing")?.childNodes.length).toBe(0);
 });
+
+test("while the row holds the field's focus, its chip and buttons stay in the Tab order", () => {
+  const doc = render(toolbar([], {}, "off", true));
+  const controls = Array.from(doc.querySelectorAll<HTMLElement>(".bc-toolbar button"));
+  expect(controls.length).toBeGreaterThan(3);
+  for (const control of controls) expect(control.tabIndex).toBe(0);
+  // A press still keeps the field's focus: the mouse never moves it.
+  const back = doc.getElementById("browser.toolbar.back")!;
+  const down = new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
+  act(() => {
+    back.dispatchEvent(down);
+  });
+  expect(down.defaultPrevented).toBe(true);
+});

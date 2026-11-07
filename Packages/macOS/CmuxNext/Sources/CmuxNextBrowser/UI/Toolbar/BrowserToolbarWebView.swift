@@ -189,10 +189,18 @@ public final class BrowserToolbarWebView: NSView {
         }
     }
 
+    /// Whether `event` moves the keys by keyboard (Tab or Shift-Tab), not by a click.
+    nonisolated static func isKeyboardNavigation(_ event: NSEvent?) -> Bool {
+        guard let event, event.type == .keyDown else { return false }
+        return event.keyCode == 48 && event.modifierFlags.intersection([.command, .option, .control]).isEmpty
+    }
+
     private func makeContentIfNeeded() {
         guard content == nil, let made = makeWebContent() else { return }
         made.onMessage = { [weak self] kind, params in self?.received(kind, params) }
-        made.acceptsKeyFocus = { [weak self] in self?.allowsKeys ?? false }
+        // A click on a button leaves the keys where they are; Tab (the key view loop, Full Keyboard
+        // Access) brings them in, as the native chip and buttons took them.
+        made.acceptsKeyFocus = { [weak self] in (self?.allowsKeys ?? false) || Self.isKeyboardNavigation(NSApp.currentEvent) }
         made.onResignedKeys = { [weak self] in self?.keysResigned() }
         made.contextMenuEditor = { [weak self] menu in self?.editContextMenu(menu) }
         // A Finder file reaches the page with no path: the host takes it and hands the page its URL.
