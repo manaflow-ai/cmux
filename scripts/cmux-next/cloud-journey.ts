@@ -1216,8 +1216,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             // acpmux reads the login shell with a 3 s limit and caches only the names of secret values: how long the
             // shell takes here, and what the daemon's login-env cache says (names and age only), show which side lost it.
             `s=$(date +%s%N); bash -l -i -c true >/dev/null 2>&1 < /dev/null; echo "login-shell-ms=$(( ($(date +%s%N) - s) / 1000000 ))"`,
-            `for f in "$HOME/.acpmux/login-env.json" "$HOME/.cmux/acpmux/login-env.json"; do [ -f "$f" ] && python3 -I -c 'import json,sys,time; d=json.load(open(sys.argv[1])); print(sys.argv[1], "age_s=%s" % (int(time.time()) - int(d.get("saved_at") or 0)), "secret_names=%s" % ",".join(d.get("secret_names") or []))' "$f" 2>&1; done`,
-            `grep -hoE 'login (env|environment)[^"]{0,120}' "$HOME"/.acpmux/*.log "$HOME"/.acpmux/logs/*.log 2>/dev/null | tail -3`,
+            `for f in "$HOME/.acpmux/login-env.json" "$HOME/.cmux/acpmux/login-env.json"; do [ -f "$f" ] && python3 -I -c 'import json,sys,time; d=json.load(open(sys.argv[1])); print(sys.argv[1], "age_s=%s" % (int(time.time()) - int(d.get("savedAt") or 0)), "secret_names=%s" % ",".join(d.get("secretNames") or []))' "$f" 2>&1; done`,
+            `grep -hoE '(login shell env|login env|imported login shell environment)[^"]{0,160}' "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | tail -3`,
             `for p in $(pgrep -u "$(id -u)" -f 'cmux-tui|acpmux' | head -3); do echo "pid $p: $(tr '\\0' '\\n' < /proc/$p/environ 2>/dev/null | grep -E '^OPENAI_(BASE_URL|API_KEY)=' | sed 's/=.*/=set/' | tr '\\n' ' ')"; done`,
           ].join("; ");
           const d = await exec(probe).catch(() => null);
