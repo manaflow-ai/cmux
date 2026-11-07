@@ -287,7 +287,7 @@ public final class OverlaySurfaceView: NSView {
                 materialView?.layer?.borderColor = nil
                 return
             }
-            let veil = tone.style.map { Palette.veil(of: $0, isDark: themeTokens.isDark) }
+            let veil = tone.style.map { Palette.veil(of: $0) }
             switch material {
             case .liquidGlass:
                 (materialView as? GlassPanelView)?.tintColor = isClear ? nil : veil ?? overlayTint

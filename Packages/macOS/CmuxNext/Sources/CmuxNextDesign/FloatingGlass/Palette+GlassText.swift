@@ -25,18 +25,16 @@ extension Palette {
     }
 
     /// The veil a neutral glass style lays over its glass: the gray, or with
-    /// ``FloatingGlassStyle/veilTakesThemeTint`` the theme's glass tint at the same opacity. theme-scoped
-    /// - Parameters:
-    ///   - style: the neutral glass style.
-    ///   - isDark: the appearance.
+    /// ``FloatingGlassStyle/veilTakesThemeTint`` the theme's glass tint at the same opacity. It reads
+    /// the theme in effect, as ``toastText(_:reduceTransparency:)`` does, so the veil painted and the
+    /// ground the text is fitted to are one colour. theme-scoped
+    /// - Parameter style: the neutral glass style.
     /// - Returns: the colour to paint.
-    public static func veil(of style: FloatingGlassStyle, isDark: Bool) -> NSColor {
-        let look = style.look(isDark: isDark)
-        guard style.veilTakesThemeTint else { return look.veil.nsColor }
-        return glassTint.withAlphaComponent(look.veil.alpha)
+    public static func veil(of style: FloatingGlassStyle) -> NSColor {
+        veilRGB(of: style, tokens: ThemeContext.active ?? ThemeScope.app.tokens).nsColor
     }
 
-    /// ``veil(of:isDark:)`` as a colour value of `tokens`, for contrast checks.
+    /// ``veil(of:)`` as a colour value of `tokens`, for contrast checks.
     static func veilRGB(of style: FloatingGlassStyle, tokens: ThemeTokens) -> ThemeRGB {
         let veil = style.look(isDark: tokens.isDark).veil
         guard style.veilTakesThemeTint else {
