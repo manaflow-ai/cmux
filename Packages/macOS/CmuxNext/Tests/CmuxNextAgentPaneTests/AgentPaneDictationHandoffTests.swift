@@ -1,3 +1,4 @@
+import CmuxNextDictation
 import CmuxNextSettings
 import CoreGraphics
 import Foundation
@@ -152,5 +153,19 @@ import Testing
         #expect(handoff.handOff(setting(.cmux)) == .ownDictation)
         #expect(handoff.handOff(setting(.wisprFlow)) == .notInstalled)
         #expect(posted.stops == 2)
+    }
+
+    /// Home's or a terminal's dictation holds the microphone through the app's claims: the
+    /// hand-off's yield stops it too, keeping its words, and leaves the microphone to no one.
+    @Test func aYieldStopsWhoeverHoldsTheMicrophone() {
+        let claims = DictationMicrophoneClaims()
+        let home = NSObject()
+        var stopped = 0
+        claims.claim(home) { stopped += 1 }
+        claims.yield()
+        #expect(stopped == 1)
+        #expect(!claims.isHeld(by: home))
+        claims.yield()
+        #expect(stopped == 1)
     }
 }

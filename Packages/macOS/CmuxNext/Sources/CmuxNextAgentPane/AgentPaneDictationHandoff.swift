@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CmuxNextDictation
 import CmuxNextSettings
 
 /// The composer's mic when `agentPane.dictationSource` names an app the person already dictates
@@ -53,9 +54,12 @@ struct AgentPaneDictationHandoff {
         up.post(tap: .cghidEventTap)
         return true
     }
-    /// Ends cmux's own dictation wherever it runs (another pane's included), keeping its words: the
-    /// microphone goes to the app the mic hands off to, never to two listeners at once.
-    var stopOwnDictation: () -> Void = { DictationMicrophone.shared.stopListening() }
+    /// Ends cmux's own dictation wherever it runs (another pane's, Home's or a terminal's), keeping
+    /// its words: the microphone goes to the app the mic hands off to, never to two listeners at once.
+    var stopOwnDictation: () -> Void = {
+        DictationMicrophone.shared.stopListening()
+        DictationMicrophoneClaims.shared.yield()
+    }
     /// macOS Dictation, in the composer that has the keyboard.
     var systemDictation: () -> Void = { _ = NSApp.tryToPerform(AgentPaneDictationKey.action, with: nil) }
 
@@ -76,6 +80,9 @@ struct AgentPaneDictationHandoff {
     enum Failure: Error, Equatable {
         /// The source is cmux's own: the caller starts cmux's dictation.
         case ownDictation
+        /// Automation ran it (`cmux action run`, an agent): only a person's own press types into
+        /// another app.
+        case notPersons
         case notInstalled
         case noAccessibility
         case badShortcut
@@ -139,6 +146,7 @@ struct AgentPaneDictationHandoff {
     static func code(_ failure: Failure) -> String {
         switch failure {
         case .ownDictation: "dictation.own"
+        case .notPersons: "dictation.person_only"
         case .notInstalled: "dictation.app_not_installed"
         case .noAccessibility: "dictation.accessibility"
         case .badShortcut: "dictation.bad_shortcut"

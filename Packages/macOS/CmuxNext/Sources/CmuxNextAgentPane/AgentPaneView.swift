@@ -459,8 +459,9 @@ public final class AgentPaneView: NSView {
 
     /// Toggle Dictation (the shortcut, palette or menu). From a key press,
     /// holding the key past a moment makes it push-to-talk: dictation stops
-    /// when the key comes up.
-    public func toggleDictation(from event: NSEvent? = NSApp.currentEvent) {
+    /// when the key comes up. `byPerson` is false for automation's runs (`cmux action run`), which
+    /// never hand off: a hand-off types into whichever app is in front.
+    public func toggleDictation(from event: NSEvent? = NSApp.currentEvent, byPerson: Bool = true) {
         // A dictation app the person picked (`agentPane.dictationSource`) gets the press instead,
         // as the mic's click does (`dictation.handoff`). macOS Dictation writes where the keyboard
         // is, so the pane's page takes it first, in whichever engine shows it (the page keeps its
@@ -472,7 +473,8 @@ public final class AgentPaneView: NSView {
             dictation.toggle(from: event)
             return
         }
-        switch model.dictationHandoff.handOff(model.composer) {
+        let handOff = byPerson || model.composer.dictationSource == .cmux
+        switch handOff ? model.dictationHandoff.handOff(model.composer) : .notPersons {
         case nil: return
         case .ownDictation: dictation.toggle(from: event)
         case let failure?:

@@ -181,7 +181,7 @@ enum AgentHandlers {
                 if AgentPaneView.stopDictation() { return }
                 return context.refuse(MiscHandlerStrings.noAgentChat)
             }
-            view.toggleDictation()
+            view.toggleDictation(byPerson: invocation.isPersonsOwnRun)
         })
         // Its palette row says whether the dictation a run would end listens (read only, no refusal).
         registry.setDictationPaletteState(focusedTerminal: { if case .terminal = context.scope().pane?.currentContent { true } else { false } },
