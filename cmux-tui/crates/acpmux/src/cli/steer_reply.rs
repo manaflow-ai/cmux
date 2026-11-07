@@ -218,7 +218,19 @@ fn turn_end(m: &str, p: &Value) -> Option<(String, Result<Value>)> {
     };
     let end = if failed {
         let error = msg.get("error").and_then(Value::as_str).unwrap_or("the turn failed");
-        Err(anyhow!("{error}"))
+        // A typed failure keeps its kind and recovery (`recovery.rs`), as the turn's own
+        // prompt gets them, so the wait's error names them (`output::agent_error`).
+        let typed: serde_json::Map<String, Value> = ["errorKind", "recovery"]
+            .into_iter()
+            .filter_map(|k| msg.get(k).filter(|v| v.is_string()).map(|v| (k.to_owned(), v.clone())))
+            .collect();
+        if typed.is_empty() {
+            Err(anyhow!("{error}"))
+        } else {
+            let mut e = crate::rpc::RpcError::internal(error);
+            e.data = Some(Value::Object(typed));
+            Err(crate::client::DaemonError(e).into())
+        }
     } else {
         let stop = msg.get("stopReason").filter(|s| s.is_string()).cloned();
         let stop = stop.unwrap_or_else(|| json!("end_turn"));
