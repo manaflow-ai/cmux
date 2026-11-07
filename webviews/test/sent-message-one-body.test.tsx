@@ -140,6 +140,72 @@ test("Find does not count a text file's body, which draws only as its chip", asy
   expect(bubble.querySelector(".cv-user__more")).toBeNull();
 });
 
+test("a sent text file's chip opens to the body it stored, and closes again", () => {
+  // Its body went as a text block with no file behind it (no URI), so the chip is the reader's only
+  // way to see what was sent, restored messages included.
+  const body = "notes.txt\n```\nzanzibar rollout plan\n```";
+  const bubble = render({
+    id: "file-open",
+    version: 1,
+    at: Date.now(),
+    kind: "user",
+    text: `See the notes\n${body}`,
+    inlineParts: [
+      { kind: "text", text: "See the notes" },
+      { kind: "file", placed: true, name: "notes.txt", mimeType: "text/plain", size: 22, text: body },
+    ],
+  } as Row);
+  const opener = bubble.querySelector<HTMLButtonElement>("button.cv-user__file-open");
+  expect(opener).not.toBeNull();
+  expect(opener!.querySelector(".acpmux-file-chip")?.textContent).toContain("notes.txt");
+  expect(opener!.getAttribute("aria-expanded")).toBe("false");
+  expect(bubble.textContent).not.toContain("zanzibar rollout plan");
+  act(() => opener!.click());
+  expect(opener!.getAttribute("aria-expanded")).toBe("true");
+  const shown = bubble.querySelector(".cv-user__pasted");
+  expect(shown?.textContent).toBe(body);
+  // A file's body is no other agent's paste: no "Pasted from" line over it.
+  expect(bubble.querySelector(".cv-user__pasted-from")).toBeNull();
+  act(() => opener!.click());
+  expect(bubble.textContent).not.toContain("zanzibar rollout plan");
+});
+
+test("Find matches words across a paste's edge as the bubble draws them, and opens the fold", async () => {
+  // Typed "Please check " then a pasted "the upload…": the bubble reads "Please check the upload",
+  // so Find must find that, and its match in a collapsed bubble must open it.
+  const { findMatches, FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const { foldFind } = await import("../src/find/fold");
+  const pasted = `the upload ${FIRST} ${SECOND}`;
+  const inlineParts = [
+    { kind: "text", text: "Please check " },
+    { kind: "pasted", placed: true, text: pasted },
+  ];
+  const row = {
+    id: "find-edge",
+    version: 1,
+    at: Date.now(),
+    kind: "user",
+    text: `Please check \n${pasted}`,
+    inlineParts,
+  } as Row;
+  expect(findMatches([row], "check the upload").length).toBe(1);
+  resetTranscriptDisclosure();
+  act(() => root.render(<UserBubble row={row} text={row.text ?? ""} />));
+  const text = () => host.querySelector(".cv-user__text")!;
+  expect(text().classList.contains("is-clamped")).toBe(true);
+  expect(bodies(host.querySelector(".cv-user__bubble")!)[0]!.textContent).toContain("Please check the upload");
+  act(() =>
+    root.render(
+      <FindReveal.Provider
+        value={{ rowId: row.id, card: false, needle: foldFind("check the upload"), repaint: () => {} }}
+      >
+        <UserBubble row={row} text={row.text ?? ""} />
+      </FindReveal.Provider>,
+    ),
+  );
+  expect(text().classList.contains("is-clamped")).toBe(false);
+});
+
 test("a short message with a paste draws no fold and no card", () => {
   const typed = "Can you look at this?";
   const text = `${typed}\n${THIRD}`;

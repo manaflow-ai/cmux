@@ -322,16 +322,18 @@ function promptLinks(text: string): { start: number; end: number; value: string;
 /// A paste another agent wrote, apart from the message's body (promptCollapse.ts `agentPaste`): its characters on
 /// their own lines, literal, under the prompt's one fold, with a quiet "Pasted from <agent>" line over
 /// it so it never passes as the person's words (ask-fa4c523fa8). No card, no label to open and no
-/// fold of its own (ask-14d16a6247). A text file's body draws the same, with no line over it.
+/// fold of its own (ask-14d16a6247). A text file's body, its chip opened (InlinePromptContent.tsx
+/// PromptTextFile), draws the same, with no line over it (`file`).
 /// Folded, a long one draws only its head, far more than the fold shows (HUGE_PROMPT_HEAD_CHARS), so
 /// a megabyte lays out no more than a short one. model.ts estimates the same.
-export function PastedText({ text, collapsed }: { text: string; collapsed: boolean }) {
+export function PastedText({ text, collapsed, file }: { text: string; collapsed: boolean; file?: boolean }) {
   const t = useT();
   const from = useMemo(() => {
+    if (file) return undefined;
     const found = agentText(text);
     if (!found.signals.length) return undefined;
     return found.from ? t("transcript.pastedFrom", { name: found.from }) : t("transcript.pastedFromAgent");
-  }, [text, t]);
+  }, [text, t, file]);
   const shown = collapsed ? promptHead(text, HUGE_PROMPT_HEAD_CHARS) : text;
   return (
     <span className="cv-user__pasted" dir="auto">

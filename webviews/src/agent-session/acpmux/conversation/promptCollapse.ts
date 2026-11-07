@@ -222,12 +222,19 @@ export const recordedBody = (text: string, pasted: readonly PasteRange[], join: 
     "\n",
   );
 
-/// A prompt's text as its bubble draws it, joined by a newline as acpmux records it (hub/session.rs
-/// `prompt_text`): typed text and every paste, not a text file's body, which draws only as its
-/// chip. What Find searches and the fold measures, so a match never points at undrawn words.
-export function drawnPromptText(parts: readonly PromptContentPart[]): string {
-  return parts.flatMap((part) => (part.kind === "text" || part.kind === "pasted" ? (part.text ?? []) : [])).join("\n");
+/// The text of a body `drawnBody` gave, as the bubble draws it: each text part (the runs as
+/// `joinRuns` joined them) and each paste apart from it, a line break between two of them, where
+/// the bubble starts a new line (InlinePromptContent.tsx; a paste apart is a block of its own). An
+/// attachment draws only as its chip, so a text file's body is not in it.
+export function bodyText(body: readonly { kind: string; text?: string }[]): string {
+  return body.flatMap((part) => (part.kind === "text" || part.kind === "pasted" ? (part.text ?? []) : [])).join("\n");
 }
+
+/// A placed prompt's text as its bubble draws it (`bodyText` of its `drawnBody`), so typed words
+/// and a paste joined as the draft had them search as they read. What Find searches and the fold
+/// measures, so a match never points at undrawn words, nor misses one across a paste's edge.
+export const drawnPromptText = (parts: readonly PromptContentPart[], join: PasteJoin) =>
+  bodyText(drawnBody(parts, join));
 
 /** The text block a part went to the agent as (typed text, a pasted block, a text file's body), or
  * none for an attachment. */
@@ -246,7 +253,7 @@ export function isStripMedia(part: PromptContentPart): part is Exclude<PromptCon
 
 /** A part's text when it is part of the message's one body: typed text, or a paste of the
  * person's (not one another agent wrote, which stands apart with its "Pasted from" line). */
-function bodyText(part: PromptContentPart): string | undefined {
+function bodyPartText(part: PromptContentPart): string | undefined {
   if (part.kind === "text") return part.text;
   if (part.kind === "pasted" && part.text !== undefined && !agentPaste(part.text)) return part.text;
   return undefined;
@@ -256,7 +263,8 @@ function bodyText(part: PromptContentPart): string | undefined {
 /// typed words and the person's pastes between two attachments, as the draft read; a paste another
 /// agent wrote apart; each attachment (a text file too) its chip, its body undrawn. What the bubble
 /// draws and the row's height estimate measures (model.ts), so the two never disagree.
-export const drawnBody = (parts: readonly PromptContentPart[], join: PasteJoin) => oneBody(parts, bodyText, join, "");
+export const drawnBody = (parts: readonly PromptContentPart[], join: PasteJoin) =>
+  oneBody(parts, bodyPartText, join, "");
 
 /// The parts a recorded prompt draws in its bubble in their order (UserBubble.tsx `hasInterleaved`),
 /// or undefined when it keeps the legacy bands above a bubble of its recorded text. Placed: the pane

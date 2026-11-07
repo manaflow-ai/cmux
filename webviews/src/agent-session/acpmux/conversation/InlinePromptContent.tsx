@@ -4,13 +4,14 @@ import { attachmentPath, FileAttachment } from "../FileAttachment";
 import { PastedText, PromptText, PromptTyped } from "./PromptText";
 import {
   blockText,
+  bodyText,
   drawnBody,
-  drawnPromptText,
   HUGE_PROMPT_HEAD_CHARS,
   hasHugeTypedPart,
   headParts,
   isStripMedia,
 } from "./promptCollapse";
+import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { experimentArm } from "../../../experiments/experiment";
 import { sentPasteJoin } from "./sentPasteJoin.experiment";
 
@@ -39,12 +40,13 @@ export const InlinePromptContent = memo(function InlinePromptContent({
   return (
     <PromptText
       rowId={rowId}
-      // What Find searches and the fold measures: the words the bubble draws.
-      text={drawnPromptText(parts)}
+      // What Find searches and the fold measures: the words the bubble draws, from the same join
+      // (chatFind.ts reads `drawnPromptText`, the same text).
+      text={bodyText(body)}
       show={show}
       huge={hasHugeTypedPart(body)}
     >
-      {(_open, head, collapsed) => (
+      {(open, head, collapsed) => (
         <span className="cv-user__inline-content" data-inline-content="true">
           {/* A huge prompt collapsed draws only its head (PromptText.tsx): the clamp hides the rest. */}
           {(head ? headParts(body, HUGE_PROMPT_HEAD_CHARS, typedText) : body).map((part, index, shown) => {
@@ -55,7 +57,7 @@ export const InlinePromptContent = memo(function InlinePromptContent({
             return (
               <Fragment key={index}>
                 {separator}
-                {renderPart(part, index, collapsed)}
+                {renderPart(part, index, collapsed, open)}
               </Fragment>
             );
           })}
@@ -64,7 +66,7 @@ export const InlinePromptContent = memo(function InlinePromptContent({
     </PromptText>
   );
 
-  function renderPart(part: PromptContentPart, index: number, collapsed: boolean): ReactNode {
+  function renderPart(part: PromptContentPart, index: number, collapsed: boolean, open: () => void): ReactNode {
     if (part.kind === "text")
       return (
         <PromptTyped key={`text-${index}`} text={part.text} show={show} plain={"huge" in part && part.huge === true} />
@@ -76,9 +78,22 @@ export const InlinePromptContent = memo(function InlinePromptContent({
         </span>
       );
     // A paste another agent wrote: its own lines under its "Pasted from" line. A text file keeps
-    // its file chip, as every attachment does; its body is in the prompt's recorded text.
+    // its file chip, as every attachment does, and the chip opens to the body it went as.
     if (part.kind === "pasted" && part.text)
       return <PastedText key={`pasted-${index}`} text={part.text} collapsed={collapsed} />;
+    const stored = blockText(part);
+    if (part.kind === "file" && stored)
+      return (
+        <PromptTextFile
+          key={`file-${part.id ?? part.name}-${index}`}
+          rowId={rowId}
+          index={index}
+          part={part}
+          text={stored}
+          collapsed={collapsed}
+          onOpen={open}
+        />
+      );
     return renderFile?.(part) ?? <PromptFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />;
   }
 });
@@ -100,6 +115,45 @@ export function PromptFile({ part }: { part: Exclude<PromptContentPart, { kind: 
         }}
       />
     </span>
+  );
+}
+
+/** A text file sent with no file behind it (its body went as a text block, attachments.ts
+ * `promptText`): its file chip, which opens in place to the body it stored, as its paste card did
+ * (the same disclosure, `prompt:<row>:paste:<index>`, kept by the row's id), restored messages
+ * included. Opening it opens the prompt's fold, so the body shows whole. Find does not search the
+ * body (promptCollapse.ts `bodyText`): closed, it draws only the chip. */
+function PromptTextFile({
+  rowId,
+  index,
+  part,
+  text,
+  collapsed,
+  onOpen,
+}: {
+  rowId: string;
+  index: number;
+  part: Exclude<PromptContentPart, { kind: "text" | "image" }>;
+  text: string;
+  collapsed: boolean;
+  onOpen: () => void;
+}) {
+  const [open, setOpen] = useTranscriptDisclosure(`prompt:${rowId}:paste:${index}`);
+  return (
+    <>
+      <button
+        type="button"
+        className="cv-user__inline-file cv-user__file-open"
+        aria-expanded={open}
+        onClick={() => {
+          if (!open) onOpen();
+          setOpen(!open);
+        }}
+      >
+        <FileAttachment file={{ name: part.name, size: part.size, mimeType: part.mimeType, source: part.source }} />
+      </button>
+      {open && <PastedText text={text} collapsed={collapsed} file />}
+    </>
   );
 }
 
