@@ -438,7 +438,7 @@ fn a_record_in_the_swift_shape_round_trips() {
         "error": {"code": "cloud.provider.unavailable", "message": "no capacity", "at": 5, "text": "no capacity"},
         "pendingChange": "pausing", "pendingMutationID": "M-1", "servesDesktop": true,
     });
-    let machine: Machine = serde_json::from_value(swift.clone()).unwrap();
+    let machine: Machine = serde_json::from_value(swift).unwrap();
     assert_eq!(machine.created_by.as_deref(), Some("user_1"));
     assert!(machine.declared_capabilities.as_ref().is_some_and(|capabilities| capabilities.exec));
     assert_eq!(
