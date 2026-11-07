@@ -274,7 +274,7 @@ public final class SettingsController {
     /// Writes `browser.keepNeighborTabsAwake` (0...3) through `setSetting`;
     /// the default (1) removes the key.
     public func setKeepNeighborTabsAwake(_ radius: Int) async throws {
-        let value: JSONValue? = radius == BrowserHibernationSetting.defaultNeighborRadius ? nil : .number(Double(radius))
+        let value: JSONValue? = Double(radius) == BrowserHibernationSetting.neighborRadiusDefault ? nil : .number(Double(radius))
         try await setSetting(at: BrowserHibernationSetting.neighborRadiusPath, to: value, by: .currentRun())
     }
 
@@ -471,13 +471,13 @@ extension SettingsController {
                 }
             }
             self.sources = sources
-            let settingPath = ThemeFileSetting.path.joined(separator: ".")
+            let settingPath = ThemeFileSetting.configPath.joined(separator: ".")
             guard let name = ThemeFileSetting.name(in: root) else {
                 overlay = nil
                 activeSource = nil
                 goodSource = nil
                 applied = root
-                diagnostics = root.value(at: ThemeFileSetting.path).map { _ in
+                diagnostics = root.value(at: ThemeFileSetting.configPath).map { _ in
                     [SettingsDiagnostic(kind: .invalidValue, path: settingPath,
                                         message: "expected a theme file name, such as \"tokyo\" for themes/tokyo.json")]
                 } ?? []

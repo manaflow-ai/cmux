@@ -412,7 +412,7 @@ function CommandList({
             data-state={command.state}
             title={command.command}
           >
-            <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row className="acpmux-row-glyph" />
+            <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
             <span className="acpmux-session-info-task__command">{label}</span>
             {time !== undefined && <span className="acpmux-session-info-task__time">{time}</span>}
             {!running && <span className="acpmux-session-info-task__state">{t(COMMAND_STATE[command.state])}</span>}

@@ -42,10 +42,13 @@ import PackageDescription
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextBrowserHistory -> Browser, Daemon, Compat (a browser tab's saved history across relaunches; no UI)
 //   CmuxNextOnboarding -> Design, Icons, BrowserImport (first-run window; the App supplies OnboardingServices)
-//   CmuxNextHome -> Compat, Design, Dictation, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
+//   CmuxNextHomeModel -> DesignTokens, Icons, CmuxHomeCore, CmuxHomeRender (the Home models, tunables and their
+//     strings that code outside the Home views reads: Chief roster, avatars and engines, contacts, group and invite
+//     outcomes, pins, dock mode, chat colours; no views, no MessagesLab, no daemon)
+//   CmuxNextHome -> Compat, Design, Dictation, HomeModel, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
 //     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md),
 //     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam)
-//   CmuxNextHomeEngine -> AgentPane, Actions, Cloud, Compat, Daemon, Design, Home, Icons, Wakeups,
+//   CmuxNextHomeEngine -> AgentPane, Actions, Cloud, Compat, Daemon, Design, Home, HomeModel, Icons, Wakeups,
 //     CmuxHomeCore, CmuxHomeRender, CmuxAgentQuestion (Home sources, Chief host and migration, Home strings; the App
 //     supplies HomeService over AppServices)
 //   CmuxNextDaemonService -> Daemon, Actions, AgentPane, Apps, Compat, Control, Layout, Wakeups
@@ -102,9 +105,7 @@ import PackageDescription
 //     topology, and FocusMachine in the input router's cmux_input_* C ABI (FocusInput); no AppKit; cx-8w027.2)
 //   CmuxNextWindowRules -> CCmuxAppFFI, Daemon (the window handlers' rules, asked of cmux-window-rules over the
 //     app FFI's JSON channel, ops window_*: facts in, decisions out; no AppKit)
-//   CmuxNextTasks -> Design, Icons, CCmuxAppFFI (Tasks pane: list, board and inbox prototypes over a
-//     mirror + intent log of the Tasks owner, whose reducer previews pending intents over the FFI;
-//     no daemon; the App supplies the source; plans/cmux-next/tasks.md)
+//   CmuxNextChecklist (no deps): the workspace checklist's strings (the Todo page and its refusals)
 //   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
 //     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
 //   CmuxNextServer -> Design, Icons, Pages (server menubar panel, pairing, approver sheet and health prototypes,
@@ -261,6 +262,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDictation",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
+                "CmuxNextHomeModel",
                 "CmuxNextHostPressure",
                 "CmuxNextHibernation",
                 "CmuxNextChiefPetWiring",
@@ -345,7 +347,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentCursorVisibility",
                 "CmuxNextWorkspaceNaming",
                 "CmuxNextApps",
-                "CmuxNextTasks",
+                "CmuxNextChecklist",
                 "CmuxNextServer",
                 "CmuxNextServerHelper",
                 "CmuxNextFeed",
@@ -385,10 +387,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // The Chief pet's glue outside the App (code-quality SW14): its rows in the Chief Settings
-        // popover (Show Chief Pet, Pet Character) and the notice it makes from a daemon notification.
+        // popover (Show Chief Pet, Pet Character), the notice it makes from a daemon notification, the
+        // chat it stands for (Show in Mini, ChiefPetMini) and the sidebar Chief item's picture.
         .target(
             name: "CmuxNextChiefPetWiring",
-            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextFloating", "CmuxNextSettings"],
+            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign",
+                           "CmuxNextDesignTokens", "CmuxNextFloating", "CmuxNextSettings", "CmuxNextSidebar"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -604,13 +608,28 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(name: "CmuxNextMallocZone"),
         // QuartzCore's CALayerHost, declared for a typed call (layer-hosted Chromium pages).
         .target(name: "CmuxNextRemoteLayer", linkerSettings: [.linkedFramework("QuartzCore")]),
+        // The Home models (design/home.md): the types, tunables and strings that code outside the
+        // Home views reads (the engine, the App's HomeService, the Chief views, the sidebar's Chief),
+        // apart from the AppKit views so those can go without them.
+        .target(
+            name: "CmuxNextHomeModel",
+            dependencies: [
+                "CmuxNextDesignTokens", "CmuxNextIcons",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         // Home (plans/cmux-next/home.md section 3): the native conversation
         // renderer (paged window, prefix-sum layout, background raster,
         // render-server send motion), the conversation list and composer.
         .target(
             name: "CmuxNextHome",
             dependencies: [
-                "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextIcons", "CmuxNextWakeups",
+                "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextHomeModel", "CmuxNextIcons", "CmuxNextWakeups",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
@@ -629,7 +648,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextHomeEngine",
             dependencies: [
                 "CmuxNextAgentPane", "CmuxNextActions", "CmuxNextCloud", "CmuxNextCompat",
-                "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextIcons", "CmuxNextWakeups",
+                "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextHomeModel", "CmuxNextIcons", "CmuxNextWakeups",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
@@ -644,7 +663,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextHomeEngineTests",
             dependencies: [
-                "CmuxNextHomeEngine", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextTestSupport",
+                "CmuxNextHomeEngine", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextHomeModel",
+                "CmuxNextTestSupport",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
             ],
             swiftSettings: daemonSwiftSettings
@@ -1062,7 +1082,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
-                "CmuxNextHome",
+                "CmuxNextHomeModel",
                 "CmuxNextPages",
                 "CmuxNextSettings",
             ],
@@ -1082,7 +1102,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextAgentLanes",
             dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge",
                            "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextHomeEngine",
-                           "CmuxNextIcons", "CmuxNextPalette", "CmuxNextSidebar", "CmuxNextWakeups",
+                           "CmuxNextHomeModel", "CmuxNextIcons", "CmuxNextPalette", "CmuxNextSidebar", "CmuxNextWakeups",
                            .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Resources"),
@@ -1121,12 +1141,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // Tasks (plans/cmux-next/tasks.md): the pane over the team's Tasks
-        // owner (a Rust service: cmux-tui/crates/cmux-tasks). A projection:
-        // confirmed mirror + intent log; the App supplies the source.
+        // The workspace checklist's strings (the Todo page and its refusals), kept out of the App.
         .target(
-            name: "CmuxNextTasks",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI"],
+            name: "CmuxNextChecklist",
             resources: [
                 .process("Resources"),
             ],
@@ -1323,7 +1340,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextCloudUI",
             // Pages: the Cloud progress page's provider (CloudProgressPageProvider).
-            dependencies: ["CmuxNextCloud", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextActions", "CmuxNextCloud", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings"],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
@@ -1671,7 +1688,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextBrowser",
-            dependencies: ["CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer"],
+            dependencies: ["CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextPages", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer"],
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
             resources: [.copy("CEF/Shim/cmux_cef_shim.h"), .process("Resources")],
@@ -1805,6 +1822,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextBrowserHistory",
                 "CmuxNextBrowserImport",
                 "CmuxNextBrowserTabs",
+                "CmuxNextChecklist",
                 "CmuxNextChiefMemory",
                 "CmuxNextChiefPetWiring",
                 "CmuxNextChromiumRuntime",
@@ -1833,6 +1851,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHistoryDaemon",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
+                "CmuxNextHomeModel",
                 "CmuxNextHostedChief",
                 "CmuxNextImportCards",
                 "CmuxNextImportSuggestions",
@@ -1857,7 +1876,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSignposts",
                 "CmuxNextStash",
                 "CmuxNextTabs",
-                "CmuxNextTasks",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextTestExitTrace",
                 "CmuxNextTestSupport",
