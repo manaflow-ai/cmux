@@ -49,11 +49,10 @@ struct FloatingGlassStyleTests {
         #expect(surface.rimView == nil)
     }
 
-    /// The confirm dialog uses the same neutral glass and rim.
+    /// The confirm dialog's card (the sheet glass the dialog drawing puts under the overlay page)
+    /// uses the same neutral glass and rim.
     @Test func theDialogUsesTheSharedGlass() throws {
-        let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Restart cmux-tui?", lines: ["Terminals keep running."],
-                                                         buttons: [.cancel(), .ok("Restart")]))
-        let surface = try #require(dialog.surface)
+        let surface = Glass.makeSurface(.sheet, content: NSView())
         #expect(surface.tone == .neutral)
         if surface.material != .opaque { #expect(surface.rimView != nil) }
     }

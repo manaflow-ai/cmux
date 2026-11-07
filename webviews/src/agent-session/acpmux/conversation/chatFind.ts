@@ -256,6 +256,10 @@ export type ChatFind = {
 /** What a find bar (ChatFindBar) reads: the chat's find, or another view's (the changes view). */
 export type FindBarState = Omit<ChatFind, "matches"> & { matches: readonly unknown[] };
 
+/// No matches while the bar is closed: one value, so the find a closed bar hands the transcript
+/// keeps its identity as the rows change (VirtualTranscript skips a render its props do not change).
+const NO_MATCHES: FindMatch[] = [];
+
 /** The find state of a transcript of `rows`. */
 export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   const [open, setOpen] = useState(false);
@@ -264,7 +268,7 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   const [focusRequest, setFocusRequest] = useState(0);
   const matchesCache = useRef<FindMatchesCache | undefined>(undefined);
   const matches = useMemo(() => {
-    if (!open) return [];
+    if (!open) return NO_MATCHES;
     const result = findMatchesIncremental(rows, query, matchesCache.current);
     matchesCache.current = result.cache;
     return result.matches;
@@ -306,7 +310,10 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   );
   const next = useCallback(() => step(1), [step]);
   const previous = useCallback(() => step(-1), [step]);
-  return { open, query, matches, active: current, show, hide, setQuery, next, previous, focusRequest };
+  return useMemo(
+    () => ({ open, query, matches, active: current, show, hide, setQuery, next, previous, focusRequest }),
+    [open, query, matches, current, show, hide, setQuery, next, previous, focusRequest],
+  );
 }
 
 /** The transcript row that draws the current match (`id` and whether it is an edited-files card)
