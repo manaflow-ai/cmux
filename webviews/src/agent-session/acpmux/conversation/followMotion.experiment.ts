@@ -14,12 +14,12 @@ export const followMotion = defineExperiment({
     spring: {
       label: "Spring chase",
       description:
-        "Every move of the rows in view (a line, the prompt and live line arriving, the composer clearing) is drawn back and chased home on one critically damped spring (the 180 ms standard step), at most 450 px/s while it is within two lines, and a new move keeps the speed it has. New text lies at most a line under the composer; past that it moves at once.",
+        "Every move of the rows in view (a line, the prompt and live line arriving, the composer clearing) is drawn back and chased home on one critically damped spring (the 180 ms standard step), at most 450 px/s near home and faster as it nears two lines behind, and a new move keeps the speed it has. It never trails by more than two lines: what lands past that moves at once. New text lies at most a line under the composer; past that it moves at once.",
     },
     blocks: {
-      label: "Spring, blocks rise",
+      label: "Spring, passes under the composer",
       description:
-        "As the spring chase, and a block that lands at once (a code card, a table: over two lines) rises out from behind the composer whole, as a sent prompt does, instead of moving at once past a line under it.",
+        "As the spring chase, and new content (a line, a code card, a table) may pass under the glass composer while it settles, as a sent prompt does, instead of moving at once past a line under it. It still never trails by more than two lines.",
     },
     eased: {
       label: "Eased glide (before)",
@@ -33,7 +33,7 @@ export const followMotion = defineExperiment({
     linear: {
       label: "Steady chase",
       description:
-        "Every move of the rows in view is chased home at a constant 450 px/s (faster past two lines behind), then stops.",
+        "Every move of the rows in view is chased home at a constant 450 px/s (faster as it nears two lines behind), then stops.",
     },
     instant: { label: "At once", description: "Every move lands in the frame it happens, as with motion off." },
   },

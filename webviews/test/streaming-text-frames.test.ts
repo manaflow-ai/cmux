@@ -190,15 +190,18 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     // only the glide's scheduler gap is normalized. Layout, long-task and work budgets inspect the
     // same frames.
     // Since the follow chase (followChase.ts, Leo 2026-11-07: "what is satisfying at 120 hertz?")
-    // a block taller than the room no longer moves at once: it rises from behind the stack on the
-    // chase, which catches up with what trails past two lines faster than SNAP_PX a 60 Hz frame
-    // (8 px; 4 px at 120 Hz, test/send-stream-motion.test.ts). No frame moves half what stepped's
-    // largest did (CI-like host, 2026-11-07: 16-32 px eased, 96 px stepped), and fewer frames than
-    // stepped's go over SNAP_PX. The 95th percentile stays under 0.7 of a line (WebKit 14.2 px).
+    // a block rises from behind the stack on the chase, trailing at most two lines (cmux#37614):
+    // what lands past that moves at once, so the largest frame is no more than stepped's (2026-11-07:
+    // 73 px Chromium, 89-96 px WebKit, 96 px stepped) and about as many frames go over SNAP_PX as
+    // stepped's, but out of six times as many moving frames: under a quarter of stepped's share
+    // (12-17% eased, 97-100% stepped). The 95th percentile stays under 0.8 of a line (WebKit
+    // 13.7-16.7 px, Chromium 9 px).
     expect(eased.follow.p50).toBeLessThanOrEqual(SNAP_PX * 0.6);
-    expect(eased.follow.p95).toBeLessThan(LINE_PX * 0.7);
-    expect(eased.follow.max).toBeLessThan(stepped.follow.max / 2);
-    expect(eased.follow.overSnap).toBeLessThan(stepped.follow.overSnap * 0.75);
+    expect(eased.follow.p95).toBeLessThan(LINE_PX * 0.8);
+    expect(eased.follow.max).toBeLessThanOrEqual(stepped.follow.max);
+    expect(eased.follow.overSnap / eased.follow.moving).toBeLessThan(
+      stepped.follow.overSnap / stepped.follow.moving / 4,
+    );
     expect(eased.follow.moving).toBeGreaterThan(0);
     // A measured line lands in the live line's room, over the bottom stack. The frames under the
     // stack are the ones both runs have: a new block (a code card, a paragraph after a table) drawn

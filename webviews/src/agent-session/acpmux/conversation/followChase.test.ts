@@ -2,7 +2,8 @@
 // within the speed limit, never past its rest, and the frame loop ends at rest. The live browser
 // behaviour at 120 Hz is in test/send-stream-motion.test.ts.
 import { expect, test } from "bun:test";
-import { CHASE_MAX_SPEED, createFollowChase } from "./followChase";
+import { currentChatMetrics } from "../chatDisplay";
+import { CHASE_MAX_SPEED, chaseMaxTrail, createFollowChase } from "./followChase";
 import type { FollowMotionArm } from "./followMotion.experiment";
 
 /// A thread with a stand-in window whose frames the test runs one at a time (8.33 ms apart).
@@ -60,13 +61,15 @@ function fixture(motion: { off?: boolean; reduce?: boolean; token?: string; optO
 }
 
 test.each(["spring", "blocks", "chunk", "linear"] as FollowMotionArm[])(
-  "%s: a 132 px rise is drawn back, chased home within the speed limit, and the loop ends at rest",
+  "%s: a 132 px rise trails by at most two lines, chases home within the speed limit, and ends at rest",
   (arm) => {
     const chase = createFollowChase(arm);
     const { node, frame, drawn, pending } = fixture();
+    const line = currentChatMetrics().lineHeight;
+    expect(chaseMaxTrail()).toBeCloseTo(2 * line);
     expect(chase.shift(node, -132)).toBe(true);
-    // The rows stay where the reader saw them in the frame the move happened.
-    expect(drawn()).toBeCloseTo(132);
+    // Drawn back by the move up to the trail bound; the excess moved at once.
+    expect(drawn()).toBeCloseTo(chaseMaxTrail());
     let previous = drawn();
     let frames = 0;
     while (pending() > 0 && frames < 240) {
@@ -75,18 +78,18 @@ test.each(["spring", "blocks", "chunk", "linear"] as FollowMotionArm[])(
       // Never away from its rest, never past it.
       expect(at).toBeLessThanOrEqual(previous + 1e-9);
       expect(at).toBeGreaterThanOrEqual(0);
-      // The catch-up past two lines behind allows more than the limit, never more than a 120 Hz
-      // frame of (limit + what it trails past two lines over 150 ms). The fixed-duration arm keeps
-      // its own curve instead.
+      // The catch-up past a line behind allows more than the limit, never more than a 120 Hz frame
+      // of (limit + what it trails past a line over 150 ms). The fixed-duration arm keeps its own
+      // curve instead.
       if (arm !== "chunk")
-        expect(previous - at).toBeLessThanOrEqual((CHASE_MAX_SPEED + Math.max(0, previous - 46) / 0.15) / 120 + 1e-6);
+        expect(previous - at).toBeLessThanOrEqual((CHASE_MAX_SPEED + Math.max(0, previous - line) / 0.15) / 120 + 1e-6);
       previous = at;
     }
     expect(pending()).toBe(0);
     expect(drawn()).toBe(0);
     expect(chase.outstanding()).toBe(0);
-    // Home within 400 ms (a 132 px send at the chase's speed limit and its spring's settle).
-    expect(frames).toBeLessThanOrEqual(48);
+    // Home within 300 ms (two lines at the chase's speed limit and its spring's settle).
+    expect(frames).toBeLessThanOrEqual(36);
   },
 );
 
@@ -102,6 +105,17 @@ test("spring: a move while one plays continues from where the thread is drawn an
   expect(drawn()).toBeCloseTo(before - step + 22.75);
   const at = drawn();
   expect(at - frame()).toBeGreaterThanOrEqual(step - 1e-6);
+});
+
+test("a burst of lines never draws the thread more than two lines from its layout", () => {
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn } = fixture();
+  for (let index = 0; index < 40; index += 1) {
+    chase.shift(node, -currentChatMetrics().lineHeight, Number.POSITIVE_INFINITY);
+    expect(drawn()).toBeLessThanOrEqual(chaseMaxTrail() + 1e-6);
+    frame();
+    expect(drawn()).toBeLessThanOrEqual(chaseMaxTrail() + 1e-6);
+  }
 });
 
 test("motion off, Reduce Motion, a zero move token, the opt-out and the instant arm move at once", () => {
