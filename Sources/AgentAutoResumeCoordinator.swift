@@ -29,16 +29,10 @@ final class AgentAutoResumeCoordinator {
         AutomationCatalogSection().agentAutoResume.value(in: .standard)
     }
 
-    func observe(_ draft: AgentJournalEventDraft) {
+    func observe(_ draft: AgentJournalEventDraft, projected: AgentJournalEventDraft) {
         guard let surfaceId = draft.surfaceId else { return }
         let hadResumes = tracker.totalResumes(surfaceId: surfaceId) > 0
-        let action = tracker.observe(
-            kind: draft.kind,
-            surfaceId: surfaceId,
-            isSubagent: draft.isSubagent,
-            detail: draft.detail,
-            sessionId: draft.sessionId
-        )
+        let action = tracker.observe(draft, surfaceId: surfaceId, projected: projected)
         // The marker lasts until the agent finishes a turn on its own.
         if draft.kind == .sessionEnded || (hadResumes && tracker.totalResumes(surfaceId: surfaceId) == 0) {
             clearMarker(surfaceId: surfaceId, workspaceHint: draft.workspaceId)
