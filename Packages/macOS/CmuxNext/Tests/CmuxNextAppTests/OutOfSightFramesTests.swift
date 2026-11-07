@@ -119,7 +119,7 @@ struct OutOfSightFramesTests {
         #expect(window.isVisible)
         try await Task.sleep(for: .milliseconds(250))
         #expect(glide.ended, "the covered window's animation kept stepping")
-        #expect(!scheduler.hasLink, "a covered window holds a display link")
+        #expect(!scheduler.isRunning, "a covered window runs its display link")
 
         view.layoutSubtreeIfNeeded()
         let layouts = view.layouts
