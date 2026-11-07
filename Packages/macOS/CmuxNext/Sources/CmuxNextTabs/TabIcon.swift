@@ -16,6 +16,16 @@ public enum TabIcon: Hashable, Sendable {
     case agentMark(String)
 }
 
+public extension TabIcon {
+    /// A terminal tab's kind icon: the bare `>_` (`tab.terminal`), not the framed `terminal`.
+    /// Tab icons draw at 12 to 20 pt, where the frame crowds the prompt (Leo 2026-11-07).
+    nonisolated static let terminal = TabIcon.icon(.tabTerminal)
+    /// An exited terminal tab's kind icon (`tab.terminal.dead`).
+    nonisolated static let terminalDead = TabIcon.icon(.tabTerminalDead)
+    /// A browser tab's icon until its favicon loads: the globe with fewer lines (`tab.browser`).
+    nonisolated static let browser = TabIcon.icon(.tabBrowser)
+}
+
 /// A full-color tab image (favicon). Compared by identity so that updating
 /// a tab with the same image object does not redraw it.
 public final class TabImage: Hashable, @unchecked Sendable {
