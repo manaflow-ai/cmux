@@ -5,7 +5,7 @@
 //! - `tasks.snapshot {}` answers the owner's mirror bootstrap (the
 //!   `task.subscribe` snapshot as the local person sees it).
 //! - `tasks.<verb>` runs the owner op `task.<verb>` with the request's
-//!   idempotency key and origin `user`, and answers `{result, seq}`: `seq`
+//!   idempotency key and origin `user`, and answers `{result, seq, replay}`: `seq`
 //!   is the owner's committed sequence after the request, so a client keeps
 //!   its optimistic copy until its mirror reaches it.
 //!   `tasks.delegate` names its agent session `agent_session`: the router
@@ -162,9 +162,23 @@ fn mutate(
         Some(cmux_tasks_core::Origin::User),
         CALL_DEADLINE,
     ) {
-        Ok((result, seq)) => Ok(json!({"result": result, "seq": seq})),
+        Ok((reply, seq)) => Ok(routed_reply(reply, seq)),
         Err(error) => Err(owner_error(operation, &error_code(&error.code), error.message)),
     }
+}
+
+/// The routed mutation answer `{result, seq, replay}`: the owner's reply
+/// `{result, seq, replay}` with its op result at the top level, and `seq` the
+/// settled sequence the page waits for (not a second `result` wrapper).
+fn routed_reply(reply: Value, seq: u64) -> Value {
+    let (result, replay) = match reply {
+        Value::Object(mut fields) => (
+            fields.remove("result").unwrap_or(Value::Null),
+            fields.remove("replay").unwrap_or(Value::Bool(false)),
+        ),
+        other => (other, Value::Bool(false)),
+    };
+    json!({"result": result, "seq": seq, "replay": replay})
 }
 
 #[cfg(unix)]

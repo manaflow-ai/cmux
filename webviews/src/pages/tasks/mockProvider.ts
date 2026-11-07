@@ -35,7 +35,9 @@ export class MockTasksProvider implements PageClient {
   echoAfterReply = false;
   /** The next mutations fail, in order, with these errors (`owner` is the owner's code). With
    * `commit` the owner applies it first and its echo is lost (the reply never came back). */
-  readonly failNext: { code: string; owner?: string; commit?: boolean }[] = [];
+  readonly failNext: { code: string; owner?: string; commit?: boolean; echo?: boolean }[] = [];
+  /** The next snapshot reads fail, in order, with these errors (a slow or lost owner). */
+  readonly failSnapshots: { code: string; owner?: string }[] = [];
   /** How many `cmux.tasks.changed` subscribes fail before one works (a relay still recovering). */
   failSubscribes = 0;
   readonly page = new MockPageStreams();
@@ -62,13 +64,23 @@ export class MockTasksProvider implements PageClient {
       if (value !== undefined && value !== "current" && value !== "local")
         throw pageError("validation.invalid", "a routed operation runs on this daemon: the selector must be current");
     }
-    if (op === TasksOps.snapshot) return structuredClone(this.state) as R;
+    if (op === TasksOps.snapshot) {
+      const failure = this.failSnapshots.shift();
+      if (failure)
+        throw pageError(
+          failure.code,
+          "no answer",
+          true,
+          failure.owner ? { extra: { code: failure.owner } } : undefined,
+        );
+      return structuredClone(this.state) as R;
+    }
     const key = String(params.idempotency_key ?? "");
     if (!key) throw pageError("cmux.validation.invalid", "a Tasks mutation needs an idempotency_key");
     const failure = this.failNext.shift();
     if (failure) {
       if (failure.commit) {
-        this.muted = true;
+        this.muted = !failure.echo;
         try {
           this.commit(op, params, key);
         } finally {

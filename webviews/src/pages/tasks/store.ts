@@ -79,17 +79,25 @@ function unreachable(error: unknown): boolean {
 /** No answer the owner gave: the change may or may not have applied (the link broke, the call timed
  * out on either side, or the daemon refused a call without the person's gesture). The intent stays. */
 function uncertain(error: unknown): boolean {
-  if (unreachable(error)) return true;
-  if (ownerCode(error) === "tasks.timeout") return true;
-  return isPageError(error) && UNCERTAIN_CODES.has(error.code);
+  return transient(error) || gestureRefused(error);
 }
 
-const UNCERTAIN_CODES = new Set([
-  "cmux.protocol.timeout",
-  "cmux.protocol.unavailable",
-  "cmux.op.cancelled",
-  "origin.forbidden",
-]);
+/** The link broke or a call timed out: worth reading again on the backoff. */
+function transient(error: unknown): boolean {
+  if (unreachable(error)) return true;
+  if (ownerCode(error) === "tasks.timeout") return true;
+  return isPageError(error) && TRANSIENT_CODES.has(error.code);
+}
+
+/** The daemon refused a call that no gesture backs (the page relay prefixes `cmux.`). */
+function gestureRefused(error: unknown): boolean {
+  return isPageError(error) && (error.code === "cmux.origin.forbidden" || error.code === "origin.forbidden");
+}
+
+const TRANSIENT_CODES = new Set(["cmux.protocol.timeout", "cmux.protocol.unavailable", "cmux.op.cancelled"]);
+
+/** How many echo keys (`tx`) the store remembers, to settle a change whose reply was lost. */
+const ECHO_MEMORY = 256;
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -116,6 +124,8 @@ export class TasksStore {
   private readAgain = false;
   /** An event subscribe is in flight. */
   private subscribing = false;
+  /** The latest echo keys (`tx`) the mirror took, oldest first (at most ECHO_MEMORY). */
+  private readonly echoed = new Set<string>();
 
   constructor(
     private readonly client: PageClient | null,
@@ -252,7 +262,8 @@ export class TasksStore {
     } catch (error) {
       if (lifetime !== this.lifetime) return;
       this.early = null;
-      if (unreachable(error)) {
+      if (transient(error)) {
+        // A lost link or a slow owner: unreachable for now, read again on the backoff.
         this.set({ connection: "unreachable" });
         this.scheduleRetry();
       } else {
@@ -413,18 +424,22 @@ export class TasksStore {
     } catch (error) {
       if (lifetime !== this.lifetime) return;
       if (uncertain(error)) {
-        // Not the owner's refusal: the person's change stays, unsent, until it shows in the mirror or
-        // they retry or discard it. A gesture refusal says why; a broken link reads again.
-        const pending = this.snapshot.pending.map((candidate) =>
-          candidate.key === intent.key ? { ...candidate, unsent: true as const } : candidate,
-        );
+        // Not the owner's refusal. If its echo already came or the mirror holds its result, it
+        // committed: it settles. Else the person's change stays, unsent, until it shows in the mirror
+        // or they retry or discard it. A gesture refusal says why; a broken link or a timeout reads
+        // the snapshot again, which settles a change that did commit.
+        const done = this.echoed.has(intent.key) || committedIn(this.snapshot.mirror, intent.kind);
+        const pending = this.snapshot.pending.flatMap((candidate) => {
+          if (candidate.key !== intent.key) return [candidate];
+          return done ? [] : [{ ...candidate, unsent: true as const }];
+        });
         const lost = unreachable(error);
         this.recompute({
           pending,
           ...(lost ? { connection: "unreachable" as const } : {}),
-          ...(isPageError(error) && error.code === "origin.forbidden" ? { reject: message(error) } : {}),
+          ...(gestureRefused(error) ? { reject: message(error) } : {}),
         });
-        if (lost) void this.read();
+        if (!done && transient(error)) void this.read();
         return;
       }
       this.recompute({
@@ -473,6 +488,11 @@ export class TasksStore {
 
   /** A new mirror: settled intents it covers leave, then the visible rows are derived again. */
   private setMirror(mirror: Mirror, patch: Partial<TasksSnapshot> = {}, echoes: readonly string[] = []): void {
+    for (const tx of echoes) {
+      this.echoed.delete(tx);
+      this.echoed.add(tx);
+      if (this.echoed.size > ECHO_MEMORY) this.echoed.delete(this.echoed.values().next().value!);
+    }
     const pending = this.snapshot.pending.filter((intent) => {
       // An unsent change whose result or echo is in the mirror committed after all.
       if (intent.unsent) return !echoes.includes(intent.key) && !committedIn(mirror, intent.kind);

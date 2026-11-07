@@ -133,7 +133,8 @@ describe("TasksStore", () => {
 
   test("Retry sends the unsent change again with its original key", async () => {
     const { store, provider } = await started();
-    provider.failNext.push({ code: "cmux.operation.failed", owner: "tasks.timeout", commit: true });
+    // A timeout that never committed (a commit would settle on the read the timeout starts).
+    provider.failNext.push({ code: "cmux.operation.failed", owner: "tasks.timeout" });
     const id = store.createTask("Ship it")!;
     await tick();
     expect(store.retry("k1")).toBe(true);
@@ -146,7 +147,8 @@ describe("TasksStore", () => {
 
   test("a gesture refusal on Retry keeps the change unsent and says why", async () => {
     const { store, provider } = await started();
-    provider.failNext.push({ code: "cmux.protocol.closed" }, { code: "origin.forbidden" });
+    // The page relay's code for a call no gesture backs.
+    provider.failNext.push({ code: "cmux.protocol.closed" }, { code: "cmux.origin.forbidden" });
     store.archive("task_3");
     await tick();
     expect(store.unsent("task_3")?.key).toBe("k1");
@@ -201,6 +203,41 @@ describe("TasksStore", () => {
     });
     expect(store.getSnapshot().tasks.find((t) => t.id === task.id)?.title).toBe("From the CLI");
     expect(store.getSnapshot().selection).toBe("task_2");
+  });
+
+  test("a create whose echo came before its reply timed out settles; New Task is free again", async () => {
+    const { store, provider } = await started();
+    provider.failNext.push({ code: "cmux.protocol.timeout", commit: true, echo: true });
+    const id = store.createTask("Ship it")!;
+    await tick();
+    expect(store.createOutcome(id).state).toBe("done");
+    expect(store.unsentAll()).toEqual([]);
+    expect(provider.calls.filter((call) => call.op === TasksOps.create).length).toBe(1);
+  });
+
+  test("a status change that timed out after it committed settles on the snapshot read", async () => {
+    const { store, provider } = await started();
+    provider.failNext.push({ code: "cmux.operation.failed", owner: "tasks.timeout", commit: true });
+    store.setStatus("task_5", "st_done");
+    await tick();
+    await tick();
+    expect(store.unsent("task_5")).toBeUndefined();
+    expect(store.getSnapshot().mirror.tasks.get("task_5")?.status).toBe("st_done");
+  });
+
+  test("a snapshot read that times out is retried on the backoff", async () => {
+    const provider = new MockTasksProvider();
+    provider.failSnapshots.push(
+      { code: "cmux.protocol.timeout" },
+      { code: "cmux.operation.failed", owner: "tasks.timeout" },
+    );
+    const { store, timers } = await started(provider);
+    expect(store.getSnapshot().connection).toBe("unreachable");
+    expect(timers.queue.length).toBe(1);
+    await timers.fire();
+    expect(timers.queue.length).toBe(1);
+    await timers.fire();
+    expect(store.getSnapshot().connection).toBe("connected");
   });
 
   test("no owner: unreachable, retried on a backoff until it answers", async () => {

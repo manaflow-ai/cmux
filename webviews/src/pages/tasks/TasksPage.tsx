@@ -75,7 +75,15 @@ export function TasksPage({ store, strings, layout, copy }: TasksPageProps) {
         <div className="tasks-scope-bar">
           <Icon name="account" size={14} />
           <span>{t("inbox.mine")}</span>
-          <button type="button" className="tasks-link-button" onClick={() => store.setScope("all")}>
+          <button
+            type="button"
+            className="tasks-link-button"
+            onClick={() => {
+              store.setScope("all");
+              // Keep the route in step (no hashchange), so the host's next My Tasks changes it again.
+              if (typeof history !== "undefined") history.replaceState(null, "", "#/all");
+            }}
+          >
             {t("scope.showAll")}
           </button>
         </div>

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
-use super::{call, owner_params};
+use super::{call, owner_params, routed_reply};
 use crate::{Mux, MuxEvent, SurfaceOptions};
 
 struct Owner {
@@ -81,7 +81,12 @@ fn snapshot_then_mutation_reaches_subscribers_with_its_seq() {
         params(json!({"id": "task_page1", "title": "From the page", "idempotency_key": "k1"})),
     )
     .unwrap();
-    assert_eq!(created["seq"], 1, "{created}");
+    assert_eq!(created.get("seq"), Some(&json!(1)), "{created}");
+    assert_eq!(created.get("replay"), Some(&json!(false)), "{created}");
+    assert!(
+        created.get("result").is_some_and(|result| result.get("result").is_none()),
+        "{created}"
+    );
 
     let event = next_tasks_event(&events);
     assert_eq!(event["event"], "tasks-changed");
@@ -130,4 +135,14 @@ fn a_delegate_sends_its_agent_session_as_the_owner_session() {
     );
     let update = owner_params("update", params(json!({"task": "task_1", "agent_session": "x"})));
     assert_eq!(Value::Object(update), json!({"task": "task_1", "agent_session": "x"}));
+}
+
+#[test]
+fn a_routed_reply_has_the_op_result_at_the_top_level() {
+    let owner = json!({"result": {"id": "task_1"}, "seq": 3, "replay": true});
+    assert_eq!(
+        routed_reply(owner, 4),
+        json!({"result": {"id": "task_1"}, "seq": 4, "replay": true})
+    );
+    assert_eq!(routed_reply(json!(7), 2), json!({"result": 7, "seq": 2, "replay": false}));
 }

@@ -138,6 +138,8 @@ export interface TasksChanged {
 export interface MutationReply {
   result?: unknown;
   seq: number | string;
+  /** The key had already applied: this is its first reply again. */
+  replay?: boolean;
 }
 
 /** The layouts (user setting `tasks.layout`, decision T2). */
