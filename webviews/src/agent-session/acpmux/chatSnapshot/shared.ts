@@ -14,6 +14,9 @@ export const SNAPSHOT_VERSION = 1;
 export const SNAPSHOT_MAX_CHARS = 256 * 1024;
 /// The global the host's `__snapshot/chat.js` sets: the stored snapshot, or null.
 export const SNAPSHOT_GLOBAL = "__cmuxChatSnapshot";
+/// The global the host's `__snapshot/chat.js` sets: the key of the theme the page gets now (the
+/// host's `theme` event `key`, AgentPageEvent.swift).
+export const SNAPSHOT_THEME_GLOBAL = "__cmuxChatSnapshotTheme";
 /// The global the boot script sets once it drew one: when, in `performance.now()` time.
 export const SNAPSHOT_SHOWN_GLOBAL = "__cmuxChatSnapshotShown";
 /// The element the copy is drawn in (its shadow root holds the copy).
@@ -46,6 +49,10 @@ export type ChatSnapshot = {
   body: SnapshotAttributes;
   /// Adopted stylesheets of shadow roots in the markup, once each.
   sheets: string[];
+  /// The page's other sheets then (the person's theme.css, sheets a chunk added), in order.
+  styles: string[];
+  /// The key of the theme it was drawn in (the host's `theme` event `key`).
+  theme: string;
   /// When it was written (`Date.now()`).
   savedAt: number;
 };
@@ -66,7 +73,10 @@ export function isChatSnapshot(value: unknown): value is ChatSnapshot {
     snapshot.root !== null &&
     typeof snapshot.body === "object" &&
     snapshot.body !== null &&
-    Array.isArray(snapshot.sheets)
+    Array.isArray(snapshot.sheets) &&
+    Array.isArray(snapshot.styles) &&
+    typeof snapshot.theme === "string" &&
+    snapshot.theme.length > 0
   );
 }
 
@@ -77,34 +87,13 @@ export function attributesOf(element: Element): SnapshotAttributes {
   return out;
 }
 
-/// The `--cmux-*` custom properties of an inline style text, by name.
-export function themeVariables(style: string | undefined): Map<string, string> {
-  const out = new Map<string, string>();
-  if (!style) return out;
-  for (const declaration of style.split(";")) {
-    const colon = declaration.indexOf(":");
-    if (colon < 0) continue;
-    const name = declaration.slice(0, colon).trim();
-    if (name.startsWith("--cmux-")) out.set(name, declaration.slice(colon + 1).trim());
-  }
-  return out;
-}
-
-/// Whether `snapshot` was drawn for the document as it is now: the same viewport, and `<html>`'s
-/// look (its `data-*` attributes) and theme (its `--cmux-*` variables) as the host set them before
-/// any page code ran. What the host sets later (the agent theme's own variables) the snapshot carries.
+/// Whether `snapshot` was drawn for the document as it is now: the same viewport, and the theme the
+/// host gives the page now (its key, which the host's `__snapshot/chat.js` set). Colors, fonts and
+/// the look all come with the theme; markup laid out at another size would draw at the wrong places.
 export function fitsDocument(snapshot: ChatSnapshot, doc: Document): boolean {
   const view = doc.defaultView;
   if (!view) return false;
   if (Math.round(view.innerWidth) !== Math.round(snapshot.width)) return false;
   if (Math.round(view.innerHeight) !== Math.round(snapshot.height)) return false;
-  const html = doc.documentElement;
-  for (const attribute of Array.from(html.attributes)) {
-    if (!attribute.name.startsWith("data-")) continue;
-    if (snapshot.root[attribute.name] !== attribute.value) return false;
-  }
-  const saved = themeVariables(snapshot.root.style);
-  for (const [name, value] of themeVariables(html.getAttribute("style") ?? undefined))
-    if (saved.get(name) !== value) return false;
-  return true;
+  return (view as unknown as Record<string, unknown>)[SNAPSHOT_THEME_GLOBAL] === snapshot.theme;
 }

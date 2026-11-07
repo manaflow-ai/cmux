@@ -75,6 +75,13 @@ export function reportChatSnapshot(
   for (const name of events) window.addEventListener(name, end, { capture: true, passive: true });
 }
 
+/// The key of the theme the page draws in now (the host's `theme` event, pageHost.ts): a copy is
+/// drawn again only under the same one (shared.ts `fitsDocument`).
+let chatTheme = "";
+export function noteChatTheme(key: unknown): void {
+  if (typeof key === "string") chatTheme = key;
+}
+
 /// The quiet the transcript keeps before a write, and the least time between two writes: a
 /// streaming reply writes at most once per ``WRITE_GAP_MS``, never per frame or per delta.
 const QUIET_MS = 1_500;
@@ -99,8 +106,9 @@ export function watchChatSnapshot(
   let stopped = false;
   const write = () => {
     timer = undefined;
-    if (stopped) return;
-    const snapshot = captureSnapshot(doc);
+    // No theme heard yet: nothing to key a copy by, and the one kept stays.
+    if (stopped || !chatTheme) return;
+    const snapshot = captureSnapshot(doc, chatTheme);
     wroteAt = performance.now();
     // Too large to keep (or no chat drawn): the host forgets the older one, which no longer shows
     // what this chat is.

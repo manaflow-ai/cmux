@@ -116,11 +116,11 @@ export function paintSnapshot(doc: Document, snapshot: ChatSnapshot | null | und
   const live = doc.getElementById("root");
   if (!view || !live || !doc.body || !snapshot || !fitsDocument(snapshot, doc)) return false;
   const pageStyle = doc.getElementById(PAGE_STYLE_ID)?.textContent ?? "";
-  const styles = sheetOf(view, pageStyle);
+  const styles = [pageStyle, ...snapshot.styles].map((text) => sheetOf(view, text));
   const still = sheetOf(view, BASE + STILL);
-  if (!styles || !still) return false;
+  if (!still || styles.some((sheet) => !sheet)) return false;
   try {
-    rewrite(styles.cssRules);
+    for (const sheet of styles) rewrite(sheet!.cssRules);
   } catch {
     return false;
   }
@@ -131,7 +131,7 @@ export function paintSnapshot(doc: Document, snapshot: ChatSnapshot | null | und
     "position:fixed;inset:0;display:block;z-index:var(--layer-debug);pointer-events:none;contain:strict;margin:0;padding:0;border:0";
   const shadow = host.attachShadow({ mode: "open" });
   const sheets = snapshot.sheets.map((text) => sheetOf(view, text)).filter((s): s is CSSStyleSheet => !!s);
-  shadow.adoptedStyleSheets = [styles, still];
+  shadow.adoptedStyleSheets = [...(styles as CSSStyleSheet[]), still];
   const html = doc.createElement(SNAPSHOT_HTML_TAG);
   setAttributes(html, snapshot.root);
   html.classList.add(SNAPSHOT_ROOT_CLASS);

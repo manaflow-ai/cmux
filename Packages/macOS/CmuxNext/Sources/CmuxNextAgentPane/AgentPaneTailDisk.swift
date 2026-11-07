@@ -36,18 +36,18 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
     private let readQueued: @Sendable () -> Void
 
     /// - Parameters:
-    ///   - accepts: Whether a value read back is one this keeps: a chat tail by default; the chats'
+    ///   - accepts: Whether a value read back is one this keeps: a chat tail when nil; the chats'
     ///     drawn copies (``AgentPaneChatSnapshots``) keep theirs in a disk of their own.
     ///   - qos: The queue's class: utility for tails, user-initiated for a copy the next document
     ///     waits on before its first frame.
     public init(directory: URL, files: Int = AgentPaneTailCache.chats, bytes: Int = AgentPaneTailCache.bytes,
                 qos: DispatchQoS = .utility,
-                accepts: @escaping @Sendable (JSONValue) -> Bool = { AgentPaneTailCache.holds($0) },
+                accepts: (@Sendable (JSONValue) -> Bool)? = nil,
                 readQueued: @escaping @Sendable () -> Void = {}) {
         self.directory = directory
         limitFiles = files
         limitBytes = bytes
-        self.accepts = accepts
+        self.accepts = accepts ?? { AgentPaneTailCache.holds($0) }
         self.readQueued = readQueued
         queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.tail-disk", qos: qos)
     }

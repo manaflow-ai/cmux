@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -69,14 +70,16 @@ struct ChatSnapshotStoreTests {
             await disk.settled()
             var session: String? = "s-2"
             let resources = AgentPageResources(session: { session }, allowed: { true })
+            resources.themeKey = { "theme-1" }
             let script = try #require(await Self.served(resources))
             #expect(script.hasPrefix("self.__cmuxChatSnapshot={"))
             #expect(script.contains("<main>chat</main>"))
-            #expect(script.hasSuffix(";"))
+            // With the theme the page gets now: a copy drawn under another one is not drawn.
+            #expect(script.hasSuffix(";self.__cmuxChatSnapshotTheme=\"theme-1\";"))
             session = nil
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotTheme=\"theme-1\";")
             session = "other"
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotTheme=\"theme-1\";")
         }
     }
 
@@ -90,7 +93,7 @@ struct ChatSnapshotStoreTests {
             await disk.settled()
             #expect(try await Self.get("s-3", allowed: false) == .null)
             let resources = AgentPageResources(session: { "s-3" }, allowed: { false })
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotTheme=\"\";")
         }
     }
 
@@ -120,6 +123,16 @@ struct ChatSnapshotStoreTests {
             await disk.settled()
             #expect(await disk.read("s-5") == nil)
         }
+    }
+
+    /// The theme event carries a key of what it sets, the same for the same theme, which a copy is drawn under.
+    @Test func theThemeEventCarriesAStableKey() throws {
+        let tokens = ThemeTokens.unresolved
+        let first = try #require(AgentPageEvent.theme(tokens, surface: .agentPane))
+        let again = try #require(AgentPageEvent.theme(tokens, surface: .agentPane))
+        let key = try #require(first.value["key"]?.stringValue)
+        #expect(key.count == 32)
+        #expect(again.value["key"]?.stringValue == key)
     }
 
     /// The page's ops are the page host's (the contract both sides check).

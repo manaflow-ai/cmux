@@ -4,6 +4,7 @@
 // it forces at most the one layout the page already needs for its next frame.
 import {
   attributesOf,
+  PAGE_STYLE_ID,
   SNAPSHOT_MAX_CHARS,
   SNAPSHOT_SCROLL_ATTRIBUTE,
   SNAPSHOT_SHEETS_ATTRIBUTE,
@@ -66,12 +67,27 @@ function stripHandlers(root: Element): void {
       if (/^on/i.test(attribute.name)) element.removeAttribute(attribute.name);
 }
 
-/// The snapshot of `doc` as it shows now, or undefined when it shows no chat or the visible window
-/// is larger than ``SNAPSHOT_MAX_CHARS``.
-export function captureSnapshot(doc: Document): ChatSnapshot | undefined {
+/// The theme's own sheet (WebTheme's bootstrap), which `<html>` already carries under the copy.
+const THEME_STYLE_ID = "cmux-theme";
+
+/// The page's sheets beside its main one, in order: `<style>` elements (the person's theme.css,
+/// a chunk's rules) and the document's adopted sheets.
+function pageStyles(doc: Document): string[] {
+  const styles: string[] = [];
+  for (const style of Array.from(doc.querySelectorAll("style"))) {
+    if (style.id === PAGE_STYLE_ID || style.id === THEME_STYLE_ID || style.closest("#root")) continue;
+    if (style.textContent) styles.push(style.textContent);
+  }
+  for (const sheet of doc.adoptedStyleSheets ?? []) styles.push(sheetText(sheet));
+  return styles.filter((text) => text.length > 0);
+}
+
+/// The snapshot of `doc` as it shows now, drawn in the theme `theme` keys, or undefined when it
+/// shows no chat or the visible window is larger than ``SNAPSHOT_MAX_CHARS``.
+export function captureSnapshot(doc: Document, theme: string): ChatSnapshot | undefined {
   const view = doc.defaultView;
   const live = doc.getElementById("root");
-  if (!view || !live || !doc.body || live.childElementCount === 0) return undefined;
+  if (!theme || !view || !live || !doc.body || live.childElementCount === 0) return undefined;
   const viewHeight = view.innerHeight;
   const liveElements = Array.from(live.querySelectorAll("*"));
   const plans = liveElements.map((element) => planFor(element, viewHeight));
@@ -110,7 +126,8 @@ export function captureSnapshot(doc: Document): ChatSnapshot | undefined {
   stripHandlers(copy);
   const html = copy.outerHTML;
   const sheetTexts = Array.from(sheets.keys(), sheetText);
-  const total = html.length + sheetTexts.reduce((sum, text) => sum + text.length, 0);
+  const styles = pageStyles(doc);
+  const total = [html, ...sheetTexts, ...styles].reduce((sum, text) => sum + text.length, 0);
   if (total > SNAPSHOT_MAX_CHARS) return undefined;
   return {
     v: SNAPSHOT_VERSION,
@@ -120,6 +137,8 @@ export function captureSnapshot(doc: Document): ChatSnapshot | undefined {
     root: attributesOf(doc.documentElement),
     body: attributesOf(doc.body),
     sheets: sheetTexts,
+    styles,
+    theme,
     savedAt: Date.now(),
   };
 }

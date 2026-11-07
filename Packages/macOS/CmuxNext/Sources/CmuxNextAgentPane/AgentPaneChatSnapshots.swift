@@ -25,6 +25,8 @@ public final class AgentPaneChatSnapshots {
     public nonisolated static let bytes = 1024 * 1024
     /// The page's global the served script sets (chatSnapshot/shared.ts `SNAPSHOT_GLOBAL`).
     nonisolated static let global = "__cmuxChatSnapshot"
+    /// The page's global for the theme key it gets now (chatSnapshot/shared.ts `SNAPSHOT_THEME_GLOBAL`).
+    nonisolated static let themeGlobal = "__cmuxChatSnapshotTheme"
     /// The dynamic prefix the document loads it from.
     nonisolated static let prefix = "__snapshot"
 
@@ -99,13 +101,16 @@ public final class AgentPaneChatSnapshots {
 
     /// The script the document runs before its bundle: sets the page's global to chat
     /// `sessionId`'s copy, or to null when there is none (or no chat, or it may not be kept).
-    func script(for sessionId: String?, allowed: Bool) async -> Data {
+    func script(for sessionId: String?, allowed: Bool, themeKey: String? = nil) async -> Data {
         var text = "self.\(Self.global)="
         if allowed, let sessionId, !sessionId.isEmpty, let kept = await snapshot(for: sessionId) {
             kept.appendCompactText(to: &text)
         } else {
             text += "null"
         }
+        // The theme the page gets now: a copy drawn under another one is not drawn.
+        text += ";self.\(Self.themeGlobal)="
+        JSONValue.string(themeKey ?? "").appendCompactText(to: &text)
         text += ";"
         return Data(text.utf8)
     }

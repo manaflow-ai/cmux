@@ -91,6 +91,8 @@ public final class AgentPaneView: NSView {
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
     let page: PageWebView?
     let pageEvents: AgentPageProvider?
+    /// The page's generated resources (its media, its chat's drawn copy); nil on the old host.
+    private var pageResources: AgentPageResources?
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
     public let inputReadiness: PageInputReadiness
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
@@ -216,6 +218,7 @@ public final class AgentPaneView: NSView {
             let keepsSnapshots = { @MainActor [weak model] in model?.sendIsIncognito.map { !$0() } ?? false }
             provider.keepsChatSnapshots = keepsSnapshots
             let resources = AgentPageResources(session: { [weak model] in model?.sessionId }, allowed: keepsSnapshots)
+            pageResources = resources
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), testRoot: testRoot, provider: provider, renderRate: renderRate,
                                                                  chromium: chromium, panelProvider: panelProvider, resources: resources)
             else { return nil }
@@ -269,6 +272,10 @@ public final class AgentPaneView: NSView {
         self.webView = webView
         super.init(frame: .zero)
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
+        pageResources?.themeKey = { [weak self] in
+            guard let self else { return nil }
+            return performWithTheme { AgentPageEvent.theme(themeTokens, surface: surfaceKind)?.value["key"]?.stringValue }
+        }
         model.tabRow.supportsNativeTools = pageEvents != nil
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
             self?.invokeTabRowTool(id, menuItemID: menuItemID)

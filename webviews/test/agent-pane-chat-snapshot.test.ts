@@ -56,6 +56,8 @@ await requireBrowserLane("agent-pane-chat-snapshot.test.ts", async () => {
     ).join("");
     return `<div class="header">Chat title</div><div class="acpmux-scroll"><div class="acpmux-spacer">${rows}</div></div><div class="composer"><textarea></textarea></div>`;
   };
+  /// The person's theme.css, which the page adds once the host sends it (paneTheme.ts).
+  const USER_CSS = "#root .header { height: 52px; }";
   const HTML_ATTRIBUTES = `data-look="roomy" style="--cmux-surface: rgb(10, 20, 30);"`;
   const htmlDocument = (body: string) =>
     `<!doctype html><html ${HTML_ATTRIBUTES}><head><style id="cmux-pane-styles">${CSS}</style></head><body>${body}</body></html>`;
@@ -94,6 +96,9 @@ w.atBundle = host && copy ? {
   indent: getComputedStyle(copy.querySelector('[data-row-id="r60"]')!).left,
 } : { shown: false };
 const root = document.getElementById("root")!;
+const user = document.createElement("style");
+user.textContent = w.userCss;
+document.head.append(user);
 root.innerHTML = w.liveMarkup;
 document.documentElement.style.setProperty("--agent-indent", "20px");
 (root.querySelector("textarea") as HTMLTextAreaElement).value = "draft text";
@@ -129,8 +134,13 @@ requestAnimationFrame(() => {
     );
     await page.goto("http://chat.test/a.html");
     await page.addScriptTag({ content: capture });
+    await page.evaluate((css) => ((window as any).userCss = css), USER_CSS);
     return await page.evaluate(() => {
       document.documentElement.style.setProperty("--agent-indent", "20px");
+      const user = document.createElement("style");
+      user.id = "acpmux-user-theme";
+      user.textContent = (window as any).userCss;
+      document.head.append(user);
       document.querySelector("textarea")!.value = "draft text";
       document.querySelector(".acpmux-scroll")!.scrollTop = 2000;
       const box = (el: Element | null) => {
@@ -138,7 +148,7 @@ requestAnimationFrame(() => {
         return [r.x, r.y, r.width, r.height];
       };
       return {
-        snapshot: (globalThis as any).captureSnapshot(document),
+        snapshot: (globalThis as any).captureSnapshot(document, "theme-1"),
         header: box(document.querySelector(".header")),
         row: box(document.querySelector('[data-row-id="r60"]')),
         composer: box(document.querySelector(".composer textarea")),
@@ -147,7 +157,7 @@ requestAnimationFrame(() => {
   }
 
   /// The next launch's document, served the snapshot as the host serves it.
-  async function relaunched(page: Page, snapshot: unknown): Promise<void> {
+  async function relaunched(page: Page, snapshot: unknown, theme = "theme-1"): Promise<void> {
     await page.route("http://chat.test/**", (route) => {
       const url = new URL(route.request().url());
       if (url.pathname === "/b.html")
@@ -160,7 +170,7 @@ requestAnimationFrame(() => {
       if (url.pathname === "/__snapshot/chat.js")
         return route.fulfill({
           contentType: "text/javascript",
-          body: `self.__cmuxChatSnapshot=${JSON.stringify(snapshot)};self.liveMarkup=${JSON.stringify(MARKUP())};`,
+          body: `self.__cmuxChatSnapshot=${JSON.stringify(snapshot)};self.__cmuxChatSnapshotTheme=${JSON.stringify(theme)};self.liveMarkup=${JSON.stringify(MARKUP())};self.userCss=${JSON.stringify(USER_CSS)};`,
         });
       if (url.pathname === "/chat-snapshot.js") return route.fulfill({ contentType: "text/javascript", body: boot });
       if (url.pathname === "/pane.js") return route.fulfill({ contentType: "text/javascript", body: live });
@@ -185,6 +195,8 @@ requestAnimationFrame(() => {
     await relaunched(page, snapshot);
     const atBundle = (await page.evaluate(() => (window as any).atBundle)) as Record<string, unknown>;
     expect(atBundle.shown).toBe(true);
+    // The person's theme.css drew the header taller, and the copy draws it so too.
+    expect((before.header as number[])[3]).toBe(52);
     expect(atBundle.header).toEqual(before.header);
     expect(atBundle.row).toEqual(before.row);
     expect(atBundle.composer).toEqual(before.composer);
@@ -200,6 +212,15 @@ requestAnimationFrame(() => {
     expect(frames.findIndex((frame) => !frame.host)).toBe(1);
     const afterSwap = (await page.evaluate(() => (window as any).afterSwap)) as Record<string, unknown>;
     expect(afterSwap).toEqual({ header: before.header, row: before.row, composer: before.composer });
+    await context.close();
+  });
+
+  test("a copy drawn under another theme draws nothing", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const before = await written(await context.newPage());
+    const page = await context.newPage();
+    await relaunched(page, before.snapshot, "theme-2");
+    expect(await page.evaluate(() => (window as any).atBundle.shown)).toBe(false);
     await context.close();
   });
 

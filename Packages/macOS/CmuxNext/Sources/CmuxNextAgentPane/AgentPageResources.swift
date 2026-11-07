@@ -10,6 +10,9 @@ import Foundation
 final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSource {
     private let session: @MainActor () -> String?
     private let allowed: @MainActor () -> Bool
+    /// The theme key the page would get now (``AgentPageEvent/theme(_:surface:)``'s `key`), nil
+    /// until the pane sets it: the page draws its copy only under the theme it was drawn in.
+    var themeKey: @MainActor () -> String? = { nil }
 
     /// - Parameters:
     ///   - session: The chat the page shows now, nil for none.
@@ -21,7 +24,7 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
 
     func resource(for request: PageResourceRequest) async -> PageResource? {
         guard request.prefix == AgentPaneChatSnapshots.prefix, request.path == ["chat.js"] else { return nil }
-        return PageResource(data: await AgentPaneTailCache.shared.snapshots.script(for: session(), allowed: allowed()),
+        return PageResource(data: await AgentPaneTailCache.shared.snapshots.script(for: session(), allowed: allowed(), themeKey: themeKey()),
                             mimeType: "text/javascript")
     }
 
