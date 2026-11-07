@@ -12,17 +12,18 @@ import { agentKey } from "../../shared/agentKey";
 import { claudeTurnFold } from "./claudeTurnFold.experiment";
 
 export type TurnFoldStyle = {
-  /// A finished turn's work, and the interim chatter between it, goes under one closed "Worked for"
-  /// line with only the conclusion (its last reply after the last call) in sight, as ChatGPT and
-  /// Codex end a turn. False: no turn-level line; the work stays where it ran.
+  /// A finished turn's work, and the short notes between it, goes under one closed "Worked for" line,
+  /// as ChatGPT and Codex end a turn. Its replies to the person stay in sight, the conclusion and
+  /// every earlier one, with the work around each on its own closed line (turns.ts `aroundReplies`).
+  /// False: no turn-level line; the work stays where it ran.
   conclusion: boolean;
   /// A run that edited takes the short notes around it too, as other runs do (turns.ts
   /// `mergeShortNotes` `edits`), as Claude desktop draws a turn: inside an open "Worked for", or in
   /// place where the turn has none. Every family's runs of calls fold into their summary lines
   /// ("Ran 3 commands"); false only keeps an edit's short notes beside it.
   runs: boolean;
-  /// The closed line counts the fold's messages, "6 previous messages", when the agent's own
-  /// messages sit between its work, as Codex's header does. False: it always reads "Worked for Ns",
+  /// The closed line counts the fold's messages, "6 previous messages", when the agent's own short
+  /// notes sit between its work, as Codex's header does; a reply in sight is never one of them. False: it always reads "Worked for Ns",
   /// as ChatGPT's.
   countsMessages: boolean;
 };
