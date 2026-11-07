@@ -208,16 +208,17 @@ final class KeyboardPinTrace: NSObject {
             parts.append("field=-")
         }
         let line = parts.joined(separator: " ")
-        let summary = [
-            "fj=\(fieldSteps.jumps)",
-            String(format: "fjmax=%.1f", fieldSteps.largestJump),
-            "demo=\(demo)",
-            "kt=" + (taps.isEmpty ? "-" : taps.joined(separator: ",")),
-            "file=" + Self.traceURL.path.replacingOccurrences(of: " ", with: "%20"),
-            "fjlog=" + (fieldSteps.log.isEmpty ? "-" : fieldSteps.log.joined(separator: ",")),
-            "evlog=" + (events.isEmpty ? "-" : events.joined(separator: ",")),
-        ].joined(separator: " ")
-        probe.accessibilityValue = line + " " + summary
+        // Built a field at a time: one array literal of these is too slow to type-check.
+        func list(_ items: [String]) -> String { items.isEmpty ? "-" : items.joined(separator: ",") }
+        var summary: [String] = []
+        summary.append("fj=\(fieldSteps.jumps)")
+        summary.append(String(format: "fjmax=%.1f", fieldSteps.largestJump))
+        summary.append("demo=\(demo)")
+        summary.append("kt=" + list(taps))
+        summary.append("file=" + Self.traceURL.path.replacingOccurrences(of: " ", with: "%20"))
+        summary.append("fjlog=" + list(fieldSteps.log))
+        summary.append("evlog=" + list(events))
+        probe.accessibilityValue = line + " " + summary.joined(separator: " ")
         write(line)
     }
 
