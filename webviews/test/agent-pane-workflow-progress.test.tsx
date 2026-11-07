@@ -79,6 +79,8 @@ const mountApp = async (root: { render(node: unknown): void }) => {
 const { AgentProgressStore, markAgentProgressSource } =
   await import("../src/agent-session/acpmux/subagents/agentProgressSource");
 const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
+const { bindSessionInfoPane, setSessionInfoOpen } =
+  await import("../src/agent-session/acpmux/session-info/sessionInfoState");
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 const agents: Subagent[] = ["workflow-a", "workflow-b"].map((id) => ({
   id,
@@ -408,6 +410,11 @@ for (const surface of ["tray", "inspector"] as const)
     const root = createRoot(dom.window.document.getElementById("root")!);
     const container = () =>
       dom.window.document.querySelector(surface === "tray" ? ".acpmux-running-tray" : "aside.acpmux-session-info");
+    // Session Info starts closed in a new chat: opened before the chat binds, it is this chat's.
+    if (surface === "inspector") {
+      bindSessionInfoPane(undefined);
+      setSessionInfoOpen(true);
+    }
     try {
       await mountApp(root);
       await act(async () => receive(publish()));

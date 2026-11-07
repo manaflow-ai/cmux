@@ -51,7 +51,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.newAgentChat",
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
-                // Cmd-I moved to Open Chief Dock (user 2026-11-05: "make cmd + i open the chief dock from now
+                // Cmd-I moved to Show/Hide Chief (user 2026-11-05: "make cmd + i open the chief dock from now
                 // on"); New Agent Chat keeps the leader chord Cmd-J S (`LeaderLayer`) and the palette.
                 keywords: ["agent", "chat", "ai", "acpmux"],
                 category: .agents, symbol: "bubble.left.and.bubble.right",
