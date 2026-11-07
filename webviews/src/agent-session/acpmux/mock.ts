@@ -710,13 +710,21 @@ export class MockAcpmuxSocket {
         // Its words: every text block but a pasted block's (attachments.ts promptBlocks marks those,
         // and the prompt's text never carries them), in order. Attachments the composer placed in
         // the text split the words into blocks around them, so words after an attachment stay.
-        const text = (Array.isArray(params.prompt) ? params.prompt : [])
-          .filter(
-            (block: Record<string, any>) =>
-              block?.type === "text" && typeof block.text === "string" && block._meta?.cmux?.pasted !== true,
-          )
+        const blocks = (Array.isArray(params.prompt) ? params.prompt : []).filter(
+          (block: Record<string, any>) => block?.type === "text" && typeof block.text === "string",
+        );
+        const text = blocks
+          .filter((block: Record<string, any>) => block._meta?.cmux?.pasted !== true)
           .map((block: Record<string, string>) => block.text)
           .join("");
+        // What acpmux records (hub/session.rs prompt_text_parts): the pasted blocks' text too, each
+        // a range in it, so the sent row draws them as acpmux's echo does.
+        const recorded = { text: "", pasted: [] as { start: number; end: number }[] };
+        for (const block of blocks) {
+          const start = recorded.text.length;
+          recorded.text += block.text;
+          if (block._meta?.cmux?.pasted === true) recorded.pasted.push({ start, end: recorded.text.length });
+        }
         const promptId = params._meta?.acpmux?.promptId;
         // acpmux keeps each image once and names it in the prompt's user_message.
         const images = (Array.isArray(params.prompt) ? params.prompt : [])
@@ -733,7 +741,7 @@ export class MockAcpmuxSocket {
         const turn = this.queue
           .then(() => {
             if (queued) this.emit(target, { mux: "dequeued", msg: { promptId } });
-            return this.prompt(target, text, promptId, images);
+            return this.prompt(target, text, promptId, images, recorded.pasted.length ? recorded : undefined);
           })
           .finally(() => {
             this.pending -= 1;
@@ -871,6 +879,7 @@ export class MockAcpmuxSocket {
     prompt: string,
     promptId?: string,
     images: { id: string; mimeType: string; name?: string }[] = [],
+    recorded?: { text: string; pasted: { start: number; end: number }[] },
   ): Promise<unknown> {
     // A prompt queued behind a closed daemon never starts.
     if (this.closed) return { stopReason: "cancelled" };
@@ -888,7 +897,7 @@ export class MockAcpmuxSocket {
     const started = Date.now();
     this.emit(target, {
       mux: "user_message",
-      msg: { text: prompt, promptId, ...(images.length > 0 ? { images } : {}) },
+      msg: { ...(recorded ?? { text: prompt }), promptId, ...(images.length > 0 ? { images } : {}) },
     });
     this.emit(target, { mux: "turn_started" });
     const steps: MockScript["steps"] = this.script?.steps ?? mockTurn(prompt, this.turns);
