@@ -157,6 +157,30 @@ import os
         #expect(Self.centerAlpha(shown) == 0, "the last frame painted the pane's glass one opaque color")
     }
 
+    /// Review of #38056 (P1): a keeper write that lost the race to the quit's save could land at the other extension and
+    /// leave two files for one key (base had the same race on one name, where the last write won). The read takes the
+    /// newer file, the one written last, never one extension by rule.
+    @Test func twoFilesOfOneKeyShowTheNewer() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let size = pane.session.surfaceView.bounds.size, scale = pane.window.backingScaleFactor
+        // The quit's frame, opaque (a JPEG), written last.
+        let directory = try await Self.saved(["tab-1": Self.solid(size, scale: scale, red: 0.9, green: 0.1, blue: 0.1)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // The keeper's older frame of the same key, clear (a PNG).
+        let older = try #require(Self.frame(size, scale: scale).cgImage(forProposedRect: nil, context: nil, hints: nil)
+            .flatMap { NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:]) })
+        let png = directory.appending(path: "tab-1@\(Int(scale))x.png")
+        try older.write(to: png)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -60)], ofItemAtPath: png.path)
+        let frames = await Self.launch(directory)
+        #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        let shown = try #require(pane.held?.layer?.contents.flatMap { CFGetTypeID($0 as CFTypeRef) == CGImage.typeID ? unsafeDowncast($0 as AnyObject, to: CGImage.self) : nil })
+        #expect(Self.centerAlpha(shown) == 255, "the older file of the key showed, not the one written last")
+    }
+
     /// The alpha at the center of `image` (0...255).
     static func centerAlpha(_ image: CGImage) -> UInt8? {
         guard let crop = image.cropping(to: CGRect(x: image.width / 2, y: image.height / 2, width: 1, height: 1)),
