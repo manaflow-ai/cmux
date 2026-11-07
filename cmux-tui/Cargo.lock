@@ -1115,6 +1115,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-cloud-client",
+ "cmux-cloud-machine",
  "cmux-json",
  "reqwest",
  "rustls",
@@ -1168,6 +1169,7 @@ dependencies = [
 name = "cmux-cloud-handlers"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-start-core",
  "serde",
  "serde_json",
 ]
@@ -2328,6 +2330,14 @@ dependencies = [
  "libc",
  "tokio",
  "x25519-dalek",
+]
+
+[[package]]
+name = "cmux-window-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

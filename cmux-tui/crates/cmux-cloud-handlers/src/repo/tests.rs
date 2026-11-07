@@ -97,3 +97,11 @@ fn other_shapes_are_unrecognized() {
         assert_eq!(refused(spec), "repoUnrecognized", "{spec}");
     }
 }
+
+#[test]
+fn a_percent_encoded_url_is_read_as_the_app_reads_it() {
+    let repo = ok("https://github.com/o/n%2Egit");
+    assert_eq!(repo.spec, "o/n");
+    assert_eq!(repo.url, "https://github.com/o/n.git");
+    assert_eq!(ok("https://github.com/o/n%2Dx").name, "n-x");
+}
