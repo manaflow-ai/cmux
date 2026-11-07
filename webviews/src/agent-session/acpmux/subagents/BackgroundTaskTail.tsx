@@ -19,6 +19,7 @@ export function BackgroundTaskTail({
   owner,
   elapsed,
   onOpenTerminal,
+  onOpenOwner,
 }: {
   command: BackgroundCommand;
   open: boolean;
@@ -28,6 +29,8 @@ export function BackgroundTaskTail({
   owner?: string;
   elapsed?: string;
   onOpenTerminal?: () => void;
+  /// Opens the subagent that runs it (`owner`): an explicit button, never the row's click.
+  onOpenOwner?: () => void;
 }) {
   const t = useT();
   const read = useLiveBackgroundTaskOutput(command.toolCallId, command.processId, open && readOutput);
@@ -40,25 +43,39 @@ export function BackgroundTaskTail({
   return (
     <div className="acpmux-running-tray__tail" data-running={read.running || undefined}>
       <code className="acpmux-running-tray__command">{command.command}</code>
-      {(owner || elapsed) && (
-        <span className="acpmux-running-tray__meta">
-          {owner}
-          {owner && elapsed ? " · " : ""}
-          {elapsed}
-        </span>
-      )}
-      {readOutput && (output ? <pre ref={outputRef}>{output}</pre> : <span>{t("bgTask.state.running")}</span>)}
-      {link && (
-        <a href={link.url} target="_blank" rel="noreferrer">
-          <Icon name="link.external" size={12} row />
-          {t("commandRules.openLink")}
-        </a>
-      )}
-      {onOpenTerminal && (
-        <button type="button" onClick={onOpenTerminal}>
-          <TerminalSquare />
-          {t("shell.openInTerminal")}
-        </button>
+      {readOutput && output && <pre ref={outputRef}>{output}</pre>}
+      {/* One line under the command, on its left edge: its time, its state while there is no output yet
+          and its actions, all at the detail size on one centre line (Leo, 2026-11-07: "wildly misaligned
+          at the bottom"). */}
+      {(owner || elapsed || (readOutput && !output) || link || onOpenTerminal || onOpenOwner) && (
+        <div className="acpmux-running-tray__tail-foot">
+          {(owner || elapsed) && (
+            <span className="acpmux-running-tray__meta">
+              {owner}
+              {owner && elapsed ? " · " : ""}
+              {elapsed}
+            </span>
+          )}
+          {readOutput && !output && <span className="acpmux-running-tray__meta">{t("bgTask.state.running")}</span>}
+          {link && (
+            <a href={link.url} target="_blank" rel="noreferrer">
+              <Icon name="link.external" size={12} row />
+              {t("commandRules.openLink")}
+            </a>
+          )}
+          {owner && onOpenOwner && (
+            <button type="button" aria-label={t("subagents.open", { name: owner })} onClick={onOpenOwner}>
+              <Icon name="agent.chat" size={12} row />
+              {t("subsession.openChat")}
+            </button>
+          )}
+          {onOpenTerminal && (
+            <button type="button" onClick={onOpenTerminal}>
+              <TerminalSquare />
+              {t("shell.openInTerminal")}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

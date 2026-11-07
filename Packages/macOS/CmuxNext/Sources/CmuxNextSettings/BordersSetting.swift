@@ -3,8 +3,7 @@ public import CmuxNextDesign
 /// `appearance.borders` in cmux.json: "default" draws borders, hairlines
 /// and separators; "none" removes every one of them (`Borders`).
 public nonisolated enum BordersSetting {
-    public static let configPath = ["appearance", "borders"]
-    public static let fallback: BorderMode = .default
+    // The path and default are generated from schemas/settings/source/appearance.json.
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.
