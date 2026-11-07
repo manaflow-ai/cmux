@@ -96,11 +96,15 @@ impl Link {
             ),
             None => CallKind::Read,
         };
-        let params = match params {
-            Value::Object(map) => Value::Object(map),
-            _ => Value::Object(Map::new()),
+        let mut params = match params {
+            Value::Object(map) => map,
+            _ => Map::new(),
         };
-        self.client.call(operation, kind, params).map_err(|e| sdk_failed(e, self.given))
+        params.insert("machine".into(), json!("current"));
+        params.insert("session".into(), json!("current"));
+        self.client
+            .call(operation, kind, Value::Object(params))
+            .map_err(|e| sdk_failed(e, self.given))
     }
 
     /// Sends a raw session command (`conversation-agent-token`,
@@ -125,7 +129,8 @@ impl Link {
         tail: usize,
         sink: Sender<super::Input>,
     ) -> Result<EventsHandle, LinkError> {
-        let params = json!({"conversation": conversation, "tail": tail.min(500)});
+        let params = json!({"machine": "current", "session": "current",
+                            "conversation": conversation, "tail": tail.min(500)});
         let mut stream = self
             .client
             .subscribe("conversation.events", params)

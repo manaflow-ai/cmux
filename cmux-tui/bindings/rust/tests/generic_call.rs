@@ -5,7 +5,10 @@
 // Unix sockets; the Windows suite is separate.
 #![cfg(unix)]
 
-use cmux::{CallKind, Config, Error, MutationOptions, StreamEndReason, StreamPoll};
+use cmux::{
+    CallKind, ChatTarget, ChatTargetRefusal, Config, Error, MutationOptions, StreamEndReason,
+    StreamPoll,
+};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -58,10 +61,7 @@ fn an_operation_the_sdk_does_not_know_is_sent_and_its_refusal_decoded() {
         let known = request(&mut reader);
         assert_eq!(known["operation"], "future.thing.list");
         assert!(known.get("idempotency_key").is_none(), "{known}");
-        assert_eq!(
-            known["params"],
-            json!({"machine": "current", "session": "current", "limit": 2})
-        );
+        assert_eq!(known["params"], json!({"limit": 2}));
         respond(&mut stream, &known, json!({"ok": true, "result": {"items": [1, 2]}}));
         let unknown = request(&mut reader);
         assert_eq!(unknown["operation"], "future.thing.gone");
@@ -211,6 +211,34 @@ fn an_origin_claim_rides_on_every_request_of_its_handle_only() {
     agent.call("conversation.list", CallKind::Read, Value::Null).unwrap();
     client.call("conversation.list", CallKind::Read, Value::Null).unwrap();
     assert!(matches!(client.with_origin_claim("root"), Err(Error::InvalidArgument(_))));
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn a_chat_target_reads_the_catalog_on_every_call() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        for capabilities in [json!(["agent_session"]), json!(["terminal"])] {
+            let list = request(&mut reader);
+            assert_eq!(list["operation"], "machine.list");
+            assert_eq!(list["params"], json!({"catalog": true}));
+            let machines = json!({"machines": [{"id": "machine_box", "origin": "ssh",
+                "status": "running", "capabilities": capabilities}]});
+            respond(&mut stream, &list, json!({"ok": true, "result": machines}));
+        }
+    });
+
+    let client = connect(&path);
+    let target = client.chat_target("machine_box", false).unwrap();
+    assert_eq!(target, Ok(ChatTarget::Device { id: "machine_box".into(), local: false }));
+    // The device dropped agent sessions: the next call sees it.
+    let refused = client.chat_target("machine_box", false).unwrap();
+    assert_eq!(refused, Err(ChatTargetRefusal::NotPermitted { id: "machine_box".into() }));
     client.close().unwrap();
     server.join().unwrap();
     std::fs::remove_file(path).unwrap();

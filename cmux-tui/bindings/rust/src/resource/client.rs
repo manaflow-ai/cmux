@@ -461,13 +461,14 @@ impl Client {
     /// One generic `cmux.protocol/2` request for any daemon operation, by
     /// name: the escape hatch beside the typed methods, so a new daemon
     /// operation needs no SDK change. The caller states the operation's
-    /// kind instead of the SDK's table; the envelope (machine and session
-    /// default to `current`), the request and response limits, the
-    /// deadline and cancellation scope ([`Self::with_request_options`]) and
+    /// kind instead of the SDK's table; the envelope, the request and
+    /// response limits, the deadline and cancellation scope ([`Self::with_request_options`]) and
     /// the error decoding are the typed calls'. A [`CallKind::Mutation`]
     /// carries its idempotency key: reuse the same [`MutationOptions`] to
     /// retry a mutation whose outcome is unknown. `params` must be a JSON
-    /// object (or null for none). Returns the response's `result`.
+    /// object (or null for none) and is sent as given: name the `machine`
+    /// and `session` (`"current"`) when the operation takes them. Returns
+    /// the response's `result`.
     pub fn call(&self, operation: &str, kind: CallKind, params: Value) -> Result<Value> {
         let params = generic_params(operation, params)?;
         match kind {
@@ -499,6 +500,21 @@ impl Client {
     pub fn subscribe(&self, operation: &str, params: Value) -> Result<ResourceStream> {
         let params = generic_params(operation, params)?;
         self.open_stream(operation, params, accept_any_item)
+    }
+
+    /// Resolves a chat target selector (`cloud` or a machine id) against
+    /// the daemon's machine catalog, read now (`machine.list` with
+    /// `catalog: true`), and the caller's current cloud sign-in: see
+    /// [`crate::resolve_chat_target`]. The outer error is the read's; the
+    /// inner one is the refusal.
+    pub fn chat_target(
+        &self,
+        selector: &str,
+        signed_in: bool,
+    ) -> Result<std::result::Result<crate::ChatTarget, crate::ChatTargetRefusal>> {
+        let catalog =
+            self.call(ops::MACHINE_LIST, CallKind::Read, serde_json::json!({"catalog": true}))?;
+        Ok(crate::resolve_chat_target(selector, &catalog, signed_in))
     }
 
     fn open_stream(
@@ -830,26 +846,17 @@ enum ClassCheck {
     Stated(OperationClass),
 }
 
-/// A generic call's params: a JSON object (null is none) whose `machine`
-/// and `session` default to `current`; the operation name must be
-/// non-empty.
+/// A generic call's params: a JSON object (null is none), sent as given;
+/// the operation name must be non-empty.
 fn generic_params(operation: &str, params: Value) -> Result<Params> {
     if operation.trim().is_empty() {
         return Err(Error::InvalidArgument("operation name must not be empty".to_string()));
     }
-    let mut map = match params {
-        Value::Null => Map::new(),
-        Value::Object(map) => map,
-        _ => {
-            return Err(Error::InvalidArgument(format!(
-                "{operation} params must be a JSON object"
-            )));
-        }
-    };
-    for key in [super::wire::field::MACHINE, super::wire::field::SESSION] {
-        map.entry(key).or_insert_with(|| Value::String("current".to_string()));
+    match params {
+        Value::Null => Ok(Params::new()),
+        Value::Object(map) => Ok(Params::from_map(map)),
+        _ => Err(Error::InvalidArgument(format!("{operation} params must be a JSON object"))),
     }
-    Ok(Params::from_map(map))
 }
 
 /// A generic stream's items are the daemon's, passed through unchanged.
