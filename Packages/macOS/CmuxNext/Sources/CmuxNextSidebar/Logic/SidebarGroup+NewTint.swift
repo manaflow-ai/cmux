@@ -1,4 +1,4 @@
-import CmuxNextDesign
+public import CmuxNextDesign
 
 extension SidebarGroup {
     /// The color a new group takes (Leo 2026-11-06: "of course, like the automatic group colors"): under a palette the
