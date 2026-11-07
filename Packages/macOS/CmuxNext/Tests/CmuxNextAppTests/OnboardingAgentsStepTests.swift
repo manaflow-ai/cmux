@@ -143,6 +143,16 @@ import Testing
         #expect(await unavailable.agentSignIns(recheck: false).isEmpty)
     }
 
+    /// A read that found Claude Code missing, then a refresh whose list failed: the service is not
+    /// answering now, so the old answer offers no Install.
+    @Test func aFailedListAfterAMissingAgentOffersNoInstall() async {
+        let health = Health(#"{"harnesses":[{"id":"codex","path":"/opt/homebrew/bin/codex","auth":"signedIn"}]}"#)
+        let (harnesses, _) = await make(health: health)
+        #expect(await harnesses.agentSignIns(recheck: false).contains { !$0.installed })
+        health.listed = false
+        #expect(await !harnesses.agentSignIns(recheck: false).contains { !$0.installed })
+    }
+
     /// Install runs `acpmux harness install ID --json` and answers acpmux's error message.
     @Test func installRunsTheHarnessInstallAndAnswersItsError() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-onboarding-install-\(UUID().uuidString)")

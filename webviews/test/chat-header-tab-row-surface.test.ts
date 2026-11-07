@@ -99,7 +99,7 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
   });
 
   // Every pane header that draws these buttons: the floating chat's header and folded bar, the chat
-  // header's own row, and the chat header sharing the pane's tab row (chrome.tabs.rowTools, on by default).
+  // header's own row, and the chat header sharing the pane's tab row.
   const hosts = {
     "acpmux-floating-header": (button: string) => `<header class="acpmux-floating-header">${button}</header>`,
     "acpmux-floating-bar": (button: string) => `<header class="acpmux-floating-bar">${button}</header>`,

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 597,
+  "count": 599,
   "sections": [
     {
       "id": "general",
@@ -1220,6 +1220,19 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.newTabButtonPosition",
+          "title": "New Tab Position (+ Button)",
+          "help": "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T).",
+          "kind": "choice",
+          "default": "end",
+          "group": "Tabs",
+          "values": [
+            "afterCurrent",
+            "end",
+            "start"
+          ]
+        },
+        {
           "key": "tabs.newTabNowPlaying",
           "title": "Show Now Playing on New Tab",
           "help": "A player for what is playing, on the New Tab page.",
@@ -1229,8 +1242,8 @@
         },
         {
           "key": "tabs.newTabPosition",
-          "title": "New Tab Position",
-          "help": "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
+          "title": "New Tab Position (Cmd-T)",
+          "help": "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
           "kind": "choice",
           "default": "afterCurrent",
           "group": "Tabs",
@@ -1379,7 +1392,7 @@
         },
         {
           "key": "tabs.plusButton",
-          "title": "New Tab Button",
+          "title": "+ Button Visibility",
           "help": "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
           "kind": "choice",
           "default": "hover",
@@ -5549,6 +5562,19 @@
           "group": "Subagents"
         },
         {
+          "key": "chief.permissionMode",
+          "title": "Chief Permission Mode",
+          "help": "How the Chief's own turns handle permissions. Bypass runs every command without asking. Auto lets a safety check decide each command. Manual refuses each change that would need approval. Applies from the next turn.",
+          "kind": "choice",
+          "default": "bypassPermissions",
+          "group": "Engine",
+          "values": [
+            "bypassPermissions",
+            "auto",
+            "default"
+          ]
+        },
+        {
           "key": "chief.reactionClassifier.harness",
           "title": "Reaction Classifier Harness",
           "help": "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route.",
@@ -5709,7 +5735,7 @@
           "title": "Keep Chief Docked When Opening Workspaces",
           "help": "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Chief Dock"
         },
         {

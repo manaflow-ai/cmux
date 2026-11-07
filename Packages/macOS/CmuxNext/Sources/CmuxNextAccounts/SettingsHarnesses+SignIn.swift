@@ -21,7 +21,8 @@ extension SettingsHarnesses: AgentSignInSource {
         let listed: [OnboardingAgent] = rows.compactMap { row in
             guard row.kind != "terminal", row.problem == nil else { return nil }
             let health = health[row.id]
-            let missing = healthAnswered && health?["path"]?.stringValue == nil && health?["version"]?.stringValue == nil
+            // Missing only by a current answer: rows and health kept from before a failed read prove nothing now.
+            let missing = listAnswered && healthAnswered && health?["path"]?.stringValue == nil && health?["version"]?.stringValue == nil
             if missing, OnboardingAgent.installPages[row.id] == nil { return nil }
             let known = AgentBrandCatalog.agents.first { $0.id == row.id.lowercased() }
             return OnboardingAgent(id: row.id, name: row.name ?? known?.name ?? row.id,
