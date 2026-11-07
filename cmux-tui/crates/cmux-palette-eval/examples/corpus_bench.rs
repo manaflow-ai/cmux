@@ -13,7 +13,8 @@ use serde_json::Value;
 use std::time::Instant;
 
 fn main() -> Result<(), String> {
-    let passes: usize = std::env::args().nth(1).and_then(|arg| arg.parse().ok()).filter(|&n| n > 0).unwrap_or(30);
+    let passes: usize =
+        std::env::args().nth(1).and_then(|arg| arg.parse().ok()).filter(|&n| n > 0).unwrap_or(30);
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../cmux-palette-ranker/tests/corpus/palette-corpus.json"
