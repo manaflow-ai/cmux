@@ -47,6 +47,27 @@ async fn start_daemon(state: &Path) -> Daemon {
     Daemon { endpoint, websocket }
 }
 
+/// A daemon that accepts the session and then never answers it, so the
+/// client's workspace and route setup waits forever.
+async fn start_silent_daemon(state: &Path) -> Daemon {
+    let auth = AuthDatabase::load_or_create(state.join("daemon"), "dial-tcp", true).unwrap();
+    let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+    let websocket = serve_direct_websocket_with_options(
+        daemon,
+        "127.0.0.1:0".parse().unwrap(),
+        65_535,
+        DirectWebSocketOptions { trusted_carrier: true, ..Default::default() },
+    )
+    .await
+    .unwrap();
+    let endpoint = format!("ws://{}/v1/link", websocket.local_addr());
+    tokio::task::spawn_local(async move {
+        let _connection = accepted.recv().await;
+        std::future::pending::<()>().await;
+    });
+    Daemon { endpoint, websocket }
+}
+
 fn dial_tcp(fixture: &Path, endpoint: &str, host: &str, port: u16) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
     command
@@ -167,6 +188,37 @@ async fn dial_tcp_refuses_a_non_loopback_host() {
             })
             .await
             .expect("dial-tcp refusal timed out");
+        })
+        .await;
+}
+
+/// SIGTERM ends a dial whose setup never gets a reply, as it ends one that
+/// is streaming: a stalled ProxyCommand must not outlive its ssh.
+#[tokio::test(flavor = "current_thread")]
+async fn dial_tcp_exits_on_sigterm_during_setup() {
+    LocalSet::new()
+        .run_until(async {
+            tokio::time::timeout(Duration::from_secs(60), async {
+                let fixture = tempdir().unwrap();
+                let daemon = start_silent_daemon(fixture.path()).await;
+                let child =
+                    dial_tcp(fixture.path(), &daemon.endpoint, "127.0.0.1", 22).spawn().unwrap();
+                // Long enough to be past connect and waiting on setup.
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                let pid = child.id().expect("dial-tcp exited before setup").to_string();
+                let killed = Command::new("kill").args(["-TERM", &pid]).status().await.unwrap();
+                assert!(killed.success());
+                let output = tokio::time::timeout(STEP_TIMEOUT, child.wait_with_output())
+                    .await
+                    .expect("dial-tcp ignored SIGTERM during setup")
+                    .unwrap();
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                assert!(!output.status.success(), "stderr: {stderr}");
+                assert!(output.stdout.is_empty(), "stdout: {:?}", output.stdout);
+                daemon.websocket.shutdown().await.unwrap();
+            })
+            .await
+            .expect("dial-tcp setup cancellation timed out");
         })
         .await;
 }
