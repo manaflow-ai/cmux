@@ -24,12 +24,12 @@ class HistoryAdmission(unittest.TestCase):
 
     def test_zero_deletions_skips_history_but_unknown_still_fetches(self):
         history = self.steps["Fetch the base's recent history"]
-        # GitHub compares null as numeric zero. The explicit null arm is essential
-        # or a missing field would suppress the safety check.
+        # An expression coerces null to 0 in a comparison, so `deletions == null` is
+        # true for zero too and `deletions != 0` would skip a missing field. toJSON
+        # tells them apart as strings: '0' for zero, 'null' for missing.
         self.assertEqual(
             history["if"],
-            "${{ github.event.pull_request.deletions == null || "
-            "github.event.pull_request.deletions > 0 }}",
+            "${{ toJSON(github.event.pull_request.deletions) != '0' }}",
         )
         self.assertIn('git -C "$history" fetch', history["run"])
         self.assertIn('echo "BASE_HISTORY=$history"', history["run"])
