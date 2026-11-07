@@ -36,7 +36,6 @@
 .ci-text {
   display: flex;
   flex-direction: column;
-  gap: var(--grid-half-step, 2px);
   min-width: 0;
 }
 .ci-title {
