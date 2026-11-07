@@ -74,11 +74,12 @@ import Testing
     /// The pixel box of every pixel with ink.
     private static func inkBox(_ image: CGImage) -> CGRect? {
         let width = image.width, height = image.height
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = context.data else { return nil }
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
         var box: CGRect?
         for y in 0..<height {
             for x in 0..<width where pixels[(y * width + x) * 4 + 3] > 24 {
