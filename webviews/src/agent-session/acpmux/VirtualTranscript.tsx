@@ -2044,6 +2044,47 @@ export function VirtualTranscript({
   }, []);
   // Another chat starts with none (its first render already leaves it out, `keptEnd`).
   useLayoutEffect(() => dropFoldRoom(), [sessionId, dropFoldRoom]);
+  /// Pins the bottom for what closes under `line`, its row's disclosure: the content's end stays at
+  /// the view's end as the body shrinks, and the rows over it come down (the placement pass's
+  /// `bottomStacking`). A close at the very bottom starts it at the click (`beginBottomStackFold`);
+  /// a close a little over the end holds its line until the rows' end reaches the view's end, and
+  /// pins the bottom from that pass on (`folding` below), so the line comes down only as far as the
+  /// rest of the close would have left blank under the last row.
+  const startBottomStack = useCallback(
+    (node: HTMLElement, line: HTMLElement): boolean => {
+      const row = line.closest<HTMLElement>(".acpmux-row");
+      if (!row) return false;
+      followGlide.current?.stop();
+      stopJump();
+      // The body itself supplies the height: any room kept by an older collapse goes, so neither
+      // a second gap opens nor one stays after the close.
+      dropFoldRoom();
+      const drawn = new Map<Element, number>();
+      for (const each of thread.current?.children ?? []) drawn.set(each, each.getBoundingClientRect().top);
+      const stack: BottomStackFold = {
+        toggle: line,
+        row,
+        beforeTop: layoutScrollTop(node),
+        delta: 0,
+        from: 0,
+        drawn,
+        pinned: node.scrollTop,
+      };
+      bottomStackFold.current = stack;
+      // The gallery's shift gate reads this: the text above this row rises or falls on purpose.
+      row.setAttribute("data-bottom-stack-fold", "");
+      // The explicit toggle reacquires follow even a few pixels from the end. Streaming never does.
+      followRef.current(true);
+      stack.cleanupTimer = setTimeout(
+        () => {
+          if (bottomStackFold.current === stack) stopBottomStackFold();
+        },
+        Math.max(FOLD_HOLD_MIN_MS, foldMs(line) + FOLD_SETTLE_MS),
+      );
+      return true;
+    },
+    [dropFoldRoom, stopBottomStackFold, stopJump],
+  );
   /// The reader took the view (a wheel, a key, a drag up) from a fold at the very bottom: the fold
   /// lands at once and its row is placed at that height in this same task, so the browser clamps to
   /// the new end before the reader's scroll applies. What was left of a closing body's shrink never
@@ -2744,6 +2785,19 @@ export function VirtualTranscript({
       stack.pinned = node.scrollTop;
       scrollPacer.current?.cancel();
       setScrollAt(node.scrollTop);
+    } else if (
+      folding &&
+      node &&
+      foldAnchor.current &&
+      !bottomStackFold.current &&
+      foldRoomRef.current > Math.max(rowsEndRef.current, node.clientHeight) + 1 &&
+      rowsEndRef.current < node.scrollTop + node.clientHeight - 1
+    ) {
+      // A close a little over the end: its line held this far, and the rows now end above the
+      // view's end, so holding it on would leave blank room under the last row that nothing gives
+      // back (Leo, 2026-11-07: the closed ones "didn't have the wherewithal to ... remove the space
+      // at the bottom"). From here the bottom is pinned, as for a close at the very bottom.
+      startBottomStack(node, foldAnchor.current.toggle);
     } else if (folding && node) {
       // What opened pushed the latest row out of view, or what closed left room under it
       // (`foldRoom`): the view is the reader's now, not following, so a reply that streams on
@@ -3683,12 +3737,22 @@ export function VirtualTranscript({
     // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
     // opens it.
     // A turn fold still sliding rows lands first, and the offset takes up however far that moved the
-    // clicked line, so the hold keeps it on the pixel it was clicked at.
+    // clicked line, so the hold keeps it on the pixel it was clicked at. So does another line's close
+    // that pinned the bottom part way (`startBottomStack` from the placement pass): its thread slide
+    // lands with the rows it moves with, never cut short while they land.
     const settleFold = (line: HTMLElement) => {
-      if (!turnFold.current) return;
+      const playing = bottomStackFold.current;
+      const stack = playing?.animation && playing.toggle !== line ? playing : undefined;
+      if (!turnFold.current && !stack) return;
       const before = line.getBoundingClientRect().top;
-      settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
+      if (turnFold.current) settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
       turnFold.current = undefined;
+      if (stack) {
+        for (const held of stack.held ?? []) held.finish();
+        for (const cut of stack.cuts?.values() ?? []) cut.finish();
+        stack.animation?.finish();
+        stopBottomStackFold();
+      }
       const moved = line.getBoundingClientRect().top - before;
       if (node && Math.abs(moved) >= 0.5) node.scrollTop += moved;
     };
@@ -3717,37 +3781,9 @@ export function VirtualTranscript({
         stopBottomStackFold();
         return false;
       }
-      const row = line.closest<HTMLElement>(".acpmux-row");
-      if (!row) return false;
+      if (!line.closest(".acpmux-row")) return false;
       stopBottomStackFold();
-      followGlide.current?.stop();
-      stopJump();
-      // The body itself supplies the height: any room kept by an older collapse goes, so neither
-      // a second gap opens nor one stays after the close.
-      dropFoldRoom();
-      const drawn = new Map<Element, number>();
-      for (const each of thread.current?.children ?? []) drawn.set(each, each.getBoundingClientRect().top);
-      const stack: BottomStackFold = {
-        toggle: line,
-        row,
-        beforeTop: layoutScrollTop(node),
-        delta: 0,
-        from: 0,
-        drawn,
-        pinned: node.scrollTop,
-      };
-      bottomStackFold.current = stack;
-      // The gallery's shift gate reads this: the text above this row rises or falls on purpose.
-      row.setAttribute("data-bottom-stack-fold", "");
-      // The explicit toggle reacquires follow even a few pixels from the end. Streaming never does.
-      followIntent(true);
-      stack.cleanupTimer = setTimeout(
-        () => {
-          if (bottomStackFold.current === stack) stopBottomStackFold();
-        },
-        Math.max(FOLD_HOLD_MIN_MS, foldMs(line) + FOLD_SETTLE_MS),
-      );
-      return true;
+      return startBottomStack(node, line);
     };
     const holdClicked = (event: MouseEvent) => {
       const toggle = node ? foldToggleAt(event.target, node) : undefined;
@@ -3858,7 +3894,7 @@ export function VirtualTranscript({
       gutterRelease.current = undefined;
       gutter?.remove();
     };
-  }, [dropFoldRoom, landForReader, stopBottomStackFold, stopJump]);
+  }, [dropFoldRoom, landForReader, startBottomStack, stopBottomStackFold, stopJump]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
   // The chat's one Retry (turns.ts retryTargetIn, retryPlacement): the reply footer of the person's
