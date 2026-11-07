@@ -17,8 +17,8 @@ import os
 /// hands each one, as the daemon sent it, to the page streams that asked for it. After a reconnect
 /// or an `overflow` (events were lost) every listener gets `{resync: true}` and re-reads.
 ///
-/// Without `origin-claim-v1` calls go on the main connection, which nothing narrows: only on the
-/// person's own event (one call each) or sheet, else refused (cmux#37302: no click-free deletes).
+/// Without `origin-claim-v1` calls go on the main connection, which nothing narrows: only the page's
+/// spec reads, or its gesture/confirm ops on an event or sheet (``PageOperations``; cmux#37302).
 @MainActor
 final class PageRelayChannel {
     private static let logger = Logger(subsystem: "dev.cmux.next", category: "page-relay")
@@ -77,12 +77,12 @@ final class PageRelayChannel {
               context: PageCallContext) async throws -> CmuxNextDaemon.JSONValue {
         guard let service else { throw DaemonError.notConnected }
         let claims = DaemonClientRole.originClaimCapability
-        guard service.supports(claims) || context.isConfirmedUser || spendGesture(context) else { throw DaemonError.missingCapabilities([claims]) }
+        guard service.supports(claims) || PageOperations.allowsUnnarrowed(identity.page, operation, confirmed: context.isConfirmedUser, gesture: { spendGesture(context) }) else { throw DaemonError.missingCapabilities([claims]) }
         guard let main = service.connection else { throw DaemonError.notConnected }
         guard service.supports(claims) else {
             if !warned {
                 warned = true
-                Self.logger.warning("the daemon has no origin-claim-v1: page calls go through only on a gesture")
+                Self.logger.warning("the daemon has no origin-claim-v1: page calls follow the app's copy of the page spec")
             }
             return try await ResourceRelayClient(connection: main).send(operation: operation, params: params, idempotencyKey: idempotencyKey)
         }

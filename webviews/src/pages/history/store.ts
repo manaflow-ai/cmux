@@ -249,6 +249,9 @@ export class HistoryStore {
     if (!wasDown && (this.unsubscribe || this.changesUnsupported || this.subscribingChanges || this.starting)) return;
     if (wasDown) {
       this.linkEpoch += 1;
+      // The owner may have been replaced (an upgraded daemon): ask for the change stream again
+      // even when the old one did not have it.
+      this.changesUnsupported = false;
       // The old stream ended with the link; ask for a fresh one. The lost link's error would show
       // again as a banner while the re-read is on its way.
       this.unsubscribe?.();

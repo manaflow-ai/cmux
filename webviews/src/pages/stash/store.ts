@@ -196,6 +196,9 @@ export class StashStore {
     if (!wasDown && (this.changes || this.changesUnsupported || this.subscribingChanges || this.starting)) return;
     if (wasDown) {
       this.linkEpoch += 1;
+      // The owner may have been replaced (an upgraded daemon): ask for the change stream again
+      // even when the old one did not have it.
+      this.changesUnsupported = false;
       // The old stream ended with the link; ask for a fresh one.
       this.changes?.();
       this.changes = undefined;
