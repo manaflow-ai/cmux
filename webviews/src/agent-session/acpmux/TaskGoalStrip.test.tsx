@@ -113,6 +113,17 @@ test("an autonomous loop has no prompt to open; its tooltip says it is autonomou
   expect(html).not.toContain("<button");
 });
 
+test("an autonomous loop with a reason can open it", () => {
+  const html = renderToStaticMarkup(
+    <TaskGoalStrip
+      goal={{ kind: "loop", status: "active", objective: "", autonomous: true, reason: "waiting on CI" }}
+      command={never}
+    />,
+  );
+  expect(html.match(/<button/g)?.length).toBe(1);
+  expect(new JSDOM(html).window.document.body.textContent).toBe("Looping");
+});
+
 test("a Codex goal keeps its Pause and Clear", () => {
   const html = renderToStaticMarkup(
     <TaskGoalStrip goal={{ objective: "Ship the fix", status: "active" }} command={never} />,

@@ -68,7 +68,7 @@ function LoopStrip({ goal, now }: { goal: TaskGoal; now: () => number }) {
       : t("goal.loop");
   const prompt = goal.autonomous ? undefined : goal.objective.trim() || undefined;
   const tooltip = [prompt ?? t("goal.loopAutonomous"), goal.reason].filter(Boolean).join("\n\n");
-  const hasDetails = Boolean(prompt || goal.steps?.length || goal.detail);
+  const hasDetails = Boolean(prompt || goal.reason || goal.steps?.length || goal.detail);
   return (
     <section className="acpmux-goal" data-state={goal.status} data-kind="loop" aria-label={t("goal.label")}>
       <span className="acpmux-goal-copy" title={tooltip}>

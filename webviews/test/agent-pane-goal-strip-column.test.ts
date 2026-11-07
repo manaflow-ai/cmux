@@ -20,8 +20,9 @@ type Measured = { goal: Edges; composer: Edges; text: string; details: Edges | n
 await requireBrowserLane("agent-pane-goal-strip-column.test.ts", async () => {
   setDefaultTimeout(840_000);
   const ENTRY = "agent-pane.composer-look";
-  // A wide pane (the column is capped, so the gutters are wide), a normal one and a narrow one.
-  const WIDTHS = [1800, 900, 420];
+  // A wide pane (the column is capped, so the gutters are wide), a normal one, a narrow one and one
+  // under the composer's 298px narrow outset (--acpmux-stack-outset).
+  const WIDTHS = [1800, 900, 420, 300];
   const VARIANTS = ["loop-wakeup", "loop-wakeup-open", "loop-cron", "goal-stalled", "claude-loop-steps"];
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
@@ -88,7 +89,8 @@ await requireBrowserLane("agent-pane-goal-strip-column.test.ts", async () => {
               `${where}: goal ${m.goal.left}..${m.goal.right}, composer ${m.composer.left}..${m.composer.right}`,
             );
           if (variant.startsWith("loop-wakeup")) {
-            if (m.text !== "Checking back in 15 min.") offenders.push(`${where}: the chip reads "${m.text}"`);
+            // The gallery clock runs from GALLERY_NOW once the frame loads: a slow load can round to 14.
+            if (!/^Checking back in 1[45] min\.$/.test(m.text)) offenders.push(`${where}: the chip reads "${m.text}"`);
             if (/b2mqa7gwr|github\.com|Steps:/.test(m.text))
               offenders.push(`${where}: the wake prompt paints in the row`);
           }
