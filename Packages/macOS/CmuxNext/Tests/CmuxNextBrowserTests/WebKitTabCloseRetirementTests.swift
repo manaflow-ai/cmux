@@ -64,11 +64,11 @@ import CmuxNextTestSupport
     }
 }
 
-/// A Page Info window's page that reports a height for every state it is given.
+/// A Page Info window's page that reports a height for every state it is given, naming its revision.
 @MainActor private final class SizedWebContent: BrowserChromeWebContent {
     let view = NSView()
     var onMessage: ((String, [String: Any]) -> Void)?
-    func push(_ state: [String: Any]) { onMessage?("size", ["height": 240]) }
+    func push(_ state: [String: Any]) { onMessage?("size", ["height": 240, "revision": state["revision"] ?? 0]) }
     func focus() {}
     func close() { onMessage = nil }
 }
