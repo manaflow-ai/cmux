@@ -1,6 +1,8 @@
 //! `workspace create` from a cmux terminal against a daemon without
 //! `workspace-created-by-v1`: an older daemon refuses an unknown field, so
 //! the CLI drops `created_by` and the workspace goes where it did before.
+//! `wire::run_once` and the agents/MCP transport (`mcp/transport.rs`) both
+//! send through here.
 
 use std::io::BufReader;
 use std::path::Path;
@@ -12,7 +14,7 @@ use cmux_tui_core::server::WORKSPACE_CREATED_BY_CAPABILITY;
 
 /// Removes `created_by` from a `workspace.create` request the daemon cannot
 /// take; true when the request changed.
-pub(super) fn drop_unsupported(
+pub(in crate::cli) fn drop_unsupported(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     socket: &Path,
     request: &mut Value,

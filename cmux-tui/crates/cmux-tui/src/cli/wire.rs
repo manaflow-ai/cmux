@@ -1133,6 +1133,7 @@ mod socket;
 mod workspace_created_by;
 pub(super) use agent_roster::across as agent_roster_across;
 pub(super) use hints::connect_failure;
+pub(super) use workspace_created_by::drop_unsupported as drop_unsupported_created_by;
 #[cfg(test)]
 use human::human_text;
 use human::{append_table_row, human_cell, write_human};
