@@ -47,6 +47,11 @@ import Testing
         #expect(rules.tabByNumber(9, count: 4) == 3)
         #expect(rules.paneByNumber(5, count: 4) == nil)
         #expect(rules.moveToSplit(WindowRules.MoveToSplitFacts(direction: "up", group: true, chatDock: true))?.decision == "refuse")
+        // The dock splits only into a column after it: a lone docked chat, another edge, a tab that is not a chat refuse.
+        #expect(rules.moveToSplit(WindowRules.MoveToSplitFacts(direction: nil, group: false, tabsInPane: 2, chatDock: true, chat: true, dockColumn: true))?.decision == "columnAfterDock")
+        #expect(rules.moveToSplit(WindowRules.MoveToSplitFacts(direction: nil, group: false, tabsInPane: 1, chatDock: true, chat: true, dockColumn: true))?.decision == "refuse")
+        #expect(rules.moveToSplit(WindowRules.MoveToSplitFacts(direction: "down", group: false, tabsInPane: 2, chatDock: true, chat: true, dockColumn: true))?.decision == "refuse")
+        #expect(rules.moveToSplit(WindowRules.MoveToSplitFacts(direction: nil, group: false, tabsInPane: 2, chatDock: true, chat: false, dockColumn: true))?.decision == "refuse")
         #expect(rules.groupCollapse(nil, current: false) == true)
         #expect(rules.restartRefusal(pty: true, dead: false, failed: false).refusal == "tabNotDead")
         #expect(rules.iconUndo(user: true, previous: nil, icon: "star") == "set")

@@ -21,15 +21,15 @@ extension TabHandlers {
             let keepFocus = invocation["keepFocus"]?.boolValue == true
             // The chat dock never splits (ChatDockRules): a chat moved out of it to its right, when the
             // dock keeps another tab, gets a new column right after the dock, so a docked chat's
-            // subagents open beside it. A lone docked chat is still refused (the dock would close).
-            // The decision is Rust's (cmux-window-rules `tabs::move_to_split`).
+            // subagents open beside it. Every other split of the dock is refused, a lone docked chat's
+            // too (the dock would close). The decision is Rust's (cmux-window-rules `tabs::move_to_split`).
             let dock = ctx.services.columnHandle(containing: pane)
             let facts = WindowRules.MoveToSplitFacts(direction: invocation["direction"]?.stringValue, group: false, tabsInPane: pane.tabs.count,
                                                      chatDock: ChatDockRules.isChatDock(pane, services: ctx.services),
                                                      chat: ChatColumnPlacement.isChat(tab, services: ctx.services), dockColumn: dock != nil)
-            let move = WindowRules().moveToSplit(facts)
-            let edge = move?.edge.flatMap(PaneEdge.init(rawValue:)) ?? .right
-            if move?.decision == "columnAfterDock", let dock {
+            guard let move = WindowRules().moveToSplit(facts), move.decision != "refuse" else { return ctx.refuse(RefusalStrings.chatDockCannotSplit) }
+            let edge = move.edge.flatMap(PaneEdge.init(rawValue:)) ?? .right
+            if move.decision == "columnAfterDock", let dock {
                 let reveal = revealer(ctx, tab: tab, outcome: .newColumn(screenID: "", afterColumnID: ""), workspaceID: nil)
                 return TabMoves.toNewColumn(tab, anchor: pane, afterColumn: dock, services: ctx.services, keepFocus: keepFocus) { ok in
                     if !ok { ctx.services.restoreDetachedTab(tab.id) }
