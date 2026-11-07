@@ -8,6 +8,10 @@ import Testing
 /// (``AgentPaneDictationHandoff``): it posts that app's chord, never one the page names, and only
 /// for an app this Mac has, with Accessibility granted.
 @MainActor struct AgentPaneDictationHandoffTests {
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
     private final class Posted { var presses: [(CGKeyCode, CGEventFlags)] = []; var system = 0 }
 
     private func handoff(installed: Set<String> = ["com.openai.codex"], mayPost: Bool = true, posted: Posted) -> AgentPaneDictationHandoff {
@@ -120,5 +124,19 @@ import Testing
         let event = AgentPageEvent.dictationHandoff(failure: AgentPaneDictationHandoff.code(.noAccessibility))
         #expect(event.kind == "dictationHandoff")
         #expect(event.value.value(at: ["code"])?.stringValue == "dictation.accessibility")
+    }
+
+    /// The hand-off posts keys into the app in front: page script with no click or key in the pane
+    /// gets nothing posted; a real gesture goes through.
+    @Test func theHandoffNeedsAUserGesture() async {
+        let posted = Posted()
+        let model = AgentPaneModel(host: NoHost())
+        model.dictationHandoff = handoff(posted: posted)
+        model.composer = setting(.chatgpt)
+        let refused = await model.respond(to: .dictationHandoff, userGesture: false)
+        #expect(refused["ok"] as? Bool != true)
+        #expect(posted.presses.isEmpty)
+        _ = await model.respond(to: .dictationHandoff, userGesture: true)
+        #expect(posted.presses.count == 1)
     }
 }
