@@ -8,6 +8,7 @@ import {
   stripeBillingStatusForTeam,
   type BillingManagementKind,
 } from "./pro";
+import { resolveBillingTeam, type BillingTeamUserLike } from "./teamResolution";
 
 export type TeamPlanStatus = {
   readonly planId: typeof FREE_PLAN_ID | typeof TEAM_PLAN_ID;
@@ -15,6 +16,15 @@ export type TeamPlanStatus = {
   /** True for an operator team grant (`cmuxVmPlan`) with no subscription. */
   readonly granted: boolean;
 };
+
+/** The selected/default billing team's status, shared by REST and dashboard reads. */
+export async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPlanStatus> {
+  const team = await resolveBillingTeam(user);
+  if (!team?.id) {
+    return { planId: FREE_PLAN_ID, billingManagement: "none", granted: false };
+  }
+  return teamPlanStatusForTeam(team);
+}
 
 /** Team plan status from Stripe rows first, then an operator team grant. */
 export async function teamPlanStatusForTeam(team: {

@@ -9,8 +9,6 @@ import {
 } from "../../../../services/billing/pro";
 import {
   billingSeatsFromMetadata,
-  resolveBillingTeam,
-  type BillingTeamUserLike,
 } from "../../../../services/billing/teamResolution";
 import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 import {
@@ -20,13 +18,14 @@ import {
   type TeamBillingAccessUser,
 } from "../../../../services/billing/teamBillingAccess";
 import {
+  resolveTeamPlanStatus,
   teamPlanStatusForTeam,
-  type TeamPlanStatus,
 } from "../../../../services/billing/teamPlanStatus";
 
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
+/** Return personal and selected Team billing status for the authenticated viewer. */
 export async function GET(request: NextRequest) {
   if (!isStackConfigured()) {
     return jsonResponse({
@@ -136,12 +135,4 @@ async function explicitTeamPlanResponse(
     role: access.role,
     canManageBilling: access.canManageBilling,
   });
-}
-
-async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPlanStatus> {
-  const team = await resolveBillingTeam(user);
-  if (!team?.id) {
-    return { planId: FREE_PLAN_ID, billingManagement: "none", granted: false };
-  }
-  return teamPlanStatusForTeam(team);
 }

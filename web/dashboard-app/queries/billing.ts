@@ -17,7 +17,7 @@ export function teamBillingQuery(teamId: string) {
   return rpc.teams.billing.queryOptions({ input: { teamId } });
 }
 
-/** The viewer's personal plan: the account menu badge and upgrade prompts. */
+/** Personal status for the account badge; Team status also qualifies for Cloud. */
 export const planQuery = rpc.billing.current.queryOptions({ staleTime: 60_000 });
 
 /** What switching to `plan` costs; fetched when the switch dialog opens. */

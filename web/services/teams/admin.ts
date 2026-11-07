@@ -55,6 +55,24 @@ export async function createTeamForUser(
   return { id: team.id, displayName: team.displayName };
 }
 
+/**
+ * Select the team `userId` just bought Team for. Cloud, its upgrade prompt and
+ * the VM gate read the selected team, so a buyer who started from another team
+ * would otherwise keep being asked to upgrade. Throws when Stack refuses,
+ * including when the user is no longer a member; the caller decides what a
+ * failed selection means.
+ */
+export async function selectPurchasedTeam(
+  input: { readonly userId: string; readonly teamId: string },
+  dependencies: CreateTeamDependencies = {},
+): Promise<void> {
+  const stack = dependencies.stack ?? defaultTeamStackApp();
+  await withStackDeadline(async () => {
+    const user = await stack.getUser(input.userId);
+    await user?.update({ selectedTeamId: input.teamId });
+  });
+}
+
 export async function updateTeam(
   access: TeamAccess,
   update: { readonly displayName?: string; readonly profileImageUrl?: string | null },
