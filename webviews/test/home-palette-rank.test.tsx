@@ -218,6 +218,44 @@ test("Enter before the current query's answer waits for it and runs its top row"
   expect(closed).toBe(1);
 });
 
+test("a row clicked while an answer is on its way runs that row, not the answer's top row", async () => {
+  const ranker = heldRanker();
+  const ran: string[] = [];
+  const list = items.map((item) => ({ ...item, run: () => void ran.push(item.id) }));
+  root = createRoot(host);
+  await act(async () => root!.render(createElement(Palette, { items: list, rank: ranker.rank, strings, onClose() {} })));
+  await act(async () => ranker.asked[0]!.answer(reply(0, 1, 2)));
+  await type("release");
+  // The empty query's rows are still on screen; the person clicks "random" among them.
+  const random = [...host.ownerDocument.querySelectorAll<HTMLElement>("[role='option']")].find(
+    (row) => row.querySelector(".lg-palette-title")?.textContent === "random",
+  )!;
+  await act(async () => {
+    random.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 }));
+  });
+  expect(ran).toEqual(["c2"]);
+  await act(async () => ranker.asked[1]!.answer(reply(1)));
+  expect(ran).toEqual(["c2"]);
+});
+
+test("an edit after an early Enter cancels it: the new query's answer runs nothing", async () => {
+  const ranker = heldRanker();
+  const ran: string[] = [];
+  const list = items.map((item) => ({ ...item, run: () => void ran.push(item.id) }));
+  root = createRoot(host);
+  await act(async () => root!.render(createElement(Palette, { items: list, rank: ranker.rank, strings, onClose() {} })));
+  await act(async () => ranker.asked[0]!.answer(reply(0, 1, 2)));
+  await type("release");
+  const field = host.ownerDocument.querySelector<HTMLInputElement>(".lg-palette input")!;
+  await act(async () => {
+    field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  await type("ran");
+  await act(async () => ranker.asked[1]!.answer(reply(1)));
+  await act(async () => ranker.asked[2]!.answer(reply(2)));
+  expect(ran).toEqual([]);
+});
+
 test("the request is clipped to the daemon's byte caps on a character boundary", () => {
   expect(clipUtf8("short", 512)).toBe("short");
   const long = "é".repeat(300); // 600 bytes
