@@ -426,23 +426,18 @@ final class SidebarBridge {
 
     static func machine(for daemon: DaemonService, name: String, kind: SidebarMachine.Kind, live: Bool = true,
                         compatibility: DaemonCompatibility? = nil) -> SidebarMachine {
-        var status: SidebarMachine.Status = switch daemon.store.connectionState {
-        case .connected: .connected
-        case .connecting, .disconnected: live ? .connecting : .offline
-        case .failed: live ? .connecting : .offline
+        // Connected, else connecting while live; a remote machine's cmux-tui too old to connect (or limited) says Update
+        // Required (Available) instead (`SidebarBridgeRules.machineStatus`).
+        let connection = switch daemon.store.connectionState {
+        case .connected: "connected"
+        case .connecting: "connecting"
+        case .disconnected: "disconnected"
+        case .failed: "failed"
         }
-        // A remote machine keeps its own cmux-tui build: say when it is too
-        // old instead of showing it as connecting (or silently limited).
-        let compat = kind == .local ? nil : (compatibility ?? daemon.compatibility)
-        if let compat, live {
-            switch compat.level {
-            case .incompatible where daemon.startup.isUnavailable: status = .updateRequired
-            case .limited where status == .connected: status = .updateAvailable
-            default: break
-            }
-        }
-        let detail = (status == .updateRequired || status == .updateAvailable) ? compat.map(CloudStrings.compatibility) : nil
-        return SidebarMachine(id: MachineID(daemon.machineID), name: name, kind: kind, status: status, detail: detail)
+        let compat = compatibility ?? daemon.compatibility, header = SidebarBridgeRules().machineStatus(
+            kind: kind, connection: connection, live: live, compatibility: compat?.level.rawValue, startupUnavailable: daemon.startup.isUnavailable)
+        return SidebarMachine(id: MachineID(daemon.machineID), name: name, kind: kind, status: header?.status ?? (live ? .connecting : .offline),
+                              detail: header?.compatibilityDetail == true ? compat.map(CloudStrings.compatibility) : nil)
     }
 
     func contextMenu(for target: SidebarContextTarget) -> NSMenu? {
