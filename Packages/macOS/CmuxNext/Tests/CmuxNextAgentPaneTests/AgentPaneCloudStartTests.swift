@@ -228,13 +228,14 @@ struct AgentPaneCloudStartTests {
         model.onCloudSignedIn = { false }
         model.transport.gestures.record()
         let request = AgentPaneRequest(body: ["method": "cloud.signIn", "params": [
-            "task": "preserved prompt", "key": UUID().uuidString, "home": true, "cwd": folder,
+            "task": "preserved prompt", "key": UUID().uuidString, "cwd": folder,
         ]])
         let send = Task { ((await model.respond(to: request))["error"] as? [String: Any])?["code"] as? String }
         // The send runs up to its first folder check, off the main actor, and waits there.
         await Task.yield()
         #expect(await model.respond(to: AgentPaneRequest(body: ["method": "cloud.signInCancel"]))["ok"] as? Bool == true)
-        #expect(await send.value == "cloud_sign_in_cancelled")
+        let code = await send.value
+        #expect(code == "cloud_sign_in_cancelled", "answered \(code ?? "no code")")
         #expect(signIns == 0)
         #expect(starts.seen.isEmpty)
         #expect(model.transport.replacements.beginSandbox())
