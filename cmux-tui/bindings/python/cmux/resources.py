@@ -32,6 +32,7 @@ from .client_defaults import (
     env_socket_path,
 )
 from .errors import (
+    _DispatchTimeoutError,
     CancelledError,
     CmuxConnectionError,
     MutationTransportError,
@@ -2882,6 +2883,8 @@ class Client:
             )
         except (CmuxConnectionError, TimeoutError, CancelledError) as error:
             if isinstance(error, CancelledError) and not error.dispatched:
+                raise
+            if isinstance(error, _DispatchTimeoutError) and not error.write_started:
                 raise
             raise MutationTransportError(
                 operation.wire_name,
