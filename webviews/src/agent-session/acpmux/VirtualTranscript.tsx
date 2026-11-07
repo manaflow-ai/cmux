@@ -3737,12 +3737,22 @@ export function VirtualTranscript({
     // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
     // opens it.
     // A turn fold still sliding rows lands first, and the offset takes up however far that moved the
-    // clicked line, so the hold keeps it on the pixel it was clicked at.
+    // clicked line, so the hold keeps it on the pixel it was clicked at. So does another line's close
+    // that pinned the bottom part way (`startBottomStack` from the placement pass): its thread slide
+    // lands with the rows it moves with, never cut short while they land.
     const settleFold = (line: HTMLElement) => {
-      if (!turnFold.current) return;
+      const playing = bottomStackFold.current;
+      const stack = playing?.animation && playing.toggle !== line ? playing : undefined;
+      if (!turnFold.current && !stack) return;
       const before = line.getBoundingClientRect().top;
-      settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
+      if (turnFold.current) settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
       turnFold.current = undefined;
+      if (stack) {
+        for (const held of stack.held ?? []) held.finish();
+        for (const cut of stack.cuts?.values() ?? []) cut.finish();
+        stack.animation?.finish();
+        stopBottomStackFold();
+      }
       const moved = line.getBoundingClientRect().top - before;
       if (node && Math.abs(moved) >= 0.5) node.scrollTop += moved;
     };
