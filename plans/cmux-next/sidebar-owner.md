@@ -1,5 +1,18 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: the Updated card hidden mid-drag, review of #38020. Hiding the card mid-drag lays it out at its rest,
+  so it comes back there, and taking the card away (its page goes too) stops dropping drag messages, so the next
+  drag's first move is not lost. Leo, verbatim: "what if you could, like, drag around the updated to nightly, and
+  you can drag that up to the top if you wanted to?" Regression: `UpdatedCardDragTests`.
+- 2026-11-07: the Updated card drag and preview, review follow-ups of #37669, #37743, #37790, #37802 and #37894.
+  Taking the card away resets its settle, so it comes back at its rest. A card hidden mid-drag (a card of higher
+  priority took the slot) is not held when it comes back, and the page's late moves and release for that press
+  move nothing (`SidebarUpdatedCardHost.hideEndsDrag`). The place the host sends the page carries its zoom, so the
+  page reads the pointer's screen deltas in CSS px and the card stays under the pointer at any interface scale
+  (`PageCardDrag`). The card's rim and depth are the composer's glass material where the composer wears it; the
+  doodle-decorated card drags too. Leo, verbatim: "what if you could, like, drag around the updated to nightly, and
+  you can drag that up to the top if you wanted to?" Regression: `UpdatedCardDragTests`, webviews
+  `updated-card-drag.test.tsx`, `updated-card-hover-preview.test.tsx`, `updated-card-composer-material.test.ts`.
 - 2026-11-07: the Updated card drag, review of #37790. A drop settles from where the page let the card go (the
   release's offset plus the held base), not from the frame of the last move, so a release between moves does not
   jump back before it springs (`SidebarUpdatedCardHost.pageDragged`). A drag that starts with the hover preview open
@@ -252,6 +265,33 @@
   smaller than its own rows; it now takes `titleFont`'s size, semibold. The veil, rim and radius are the role's, owned
   with the other glass roles (real-glass-material, #36240); only the color's share is sidebar's. Gallery: `AANoColorGroupGalleryTests`
   (today and the three glass looks over a busy wallpaper). Regression: `GroupHeaderGlassTests`.
+- 2026-11-07: group colors come from a palette (`sidebar.groupPalette`): Glass (default), Theme, Wallpaper,
+  Grayscale, Vibrant. Leo, verbatim (2026-11-06): "if it's a choice between frumpy colors or no colors at all slash
+  black and white, you just pick black and white", "you pick this circle, right? And it's like this ball of colors
+  ... a smudged marble picker", "you're always able to pick the pure glass option. But then, like, in the other part
+  of the row, you're able to pick, say, a selection of colors" and "of course, like the automatic group colors". The
+  nine tokens stay what the daemon stores; each palette draws them its own way (`GroupColor.paletteRGB`), so a stored
+  color is never rewritten. Vibrant replaces the low-saturation set (which went brown and olive under a dark veil) as
+  the tokens' own colors and is what Glass draws a colored group in. The key is set from Settings, Cmd-Shift-P, the
+  CLI and MCP; the group editor's marble row (one smudged ball per palette, beside the dots) follows on the React
+  editor page (#37299, landed) in a follow-up. A
+  new group takes the palette's next color in `GroupColor.paletteOrder` (purple, orange, cyan, red, green, pink,
+  yellow: neighbors far apart, never blue, the unread dot's), the one the fewest groups have; under Glass none, so
+  "no colour the user didn't choose" stands for everyone who never picks a palette. Replaces Debug
+  `sidebar.groupColors` (fixed/theme). Gallery: lane group-colors' SVG sheets (palettes on dark and light glass, the
+  orange-header-over-blue-dots clash, three picker layouts; the two-row layout won). Regression: `GroupPaletteTests`,
+  `GroupAutomaticColorTests`, `SidebarGroupPaletteSettingTests`.
+  Every path that makes a group takes the palette's color: New Group, New Empty Group, a drop that groups two rows,
+  the space menu's New Group and New Subgroup (router review F3). The Wallpaper palette samples the desktop picture
+  on its own, with `appearance.wallpaperTint` off too, and the groups repaint when the picture changes
+  (`DesignSettings.groupWallpaperTint`, router review F2). Regression: `GroupAutomaticColorTests`
+  (`droppingARowOntoAnotherGroupsThemInThePalettesNextColor`), `WallpaperTintTests`
+  (`theWallpaperGroupPaletteSamplesWithTheWindowTintOff`). The header and the members' line read that color under
+  their observation, so a new picture repaints them at once (`GroupHeaderThemeLookTests.aNewWallpaperColorRepaintsTheHeaders`).
+  Commits on this branch whose sidebar code edits are recorded here: e68e2b567b7 (an access-level compile fix, no change
+  to the look), 82dc6cc213c (the marble's token read, a compile fix; the marble view later left this PR) and ba2549631bb
+  (the AppKit editor's dots in the chosen palette; that editor was replaced by the React page in #37299, whose dots now
+  draw the same way).
 - 2026-11-07: the no-color block's rim lights its top and corners only and fades out over the first row, so no
   hairline runs down a tall group's sides (`GlassRimView.fadeDepth`). Leo, with a screenshot of a hard line down the
   right of a group's rows: "we want to make sure probably that we don't have this right edge going on ... for the
@@ -1610,3 +1650,8 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   of workspace id to its place in the sidebar (top first), landed in 624581a6e3a3 (range 1a7a182ace6f..624e560418ba).
   Cmd-P ranks workspaces by it (bias 16·2^(-rank/6)). Sidebar-Look: no visual change. Keep it in step with how rows
   order; `CmdPSearchMemoryTests` covers it.
+- 2026-11-07 (lane/borderless-chrome, for a590): the Blocks window style (`appearance.chromeStyle` blocks) turns
+  `appearance.borders` to none. A glass group header's edge (`GroupHeaderRowView.paintBackground`) drew
+  `Metrics.dividerThickness` straight, so it stayed under borders none; it now goes through `Metrics.lineWidth`, and
+  the glass specular rim (`GlassRimView`) through `Borders.width`. Look change only under borders none: no group
+  header edge and no glass rim. Sidebar-Look: Leo 2026-11-07, "the blocky without border kinda vibe".

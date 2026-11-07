@@ -160,6 +160,7 @@ pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
+mod elevation;
 mod git_watch;
 mod github_owner;
 mod lane_report_reads;

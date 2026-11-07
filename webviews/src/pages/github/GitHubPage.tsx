@@ -14,6 +14,8 @@ import { lazy, Suspense, useEffect, useState, useSyncExternalStore, type CSSProp
 import { relativeTime } from "../../agent-session/acpmux/conversation/relativeTime";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import type { Strings } from "../shared/i18n";
+import { ChecksDashboard } from "./ChecksDashboard";
+import { withRollup } from "./checksModel";
 import { GitHubMarkdown } from "./GitHubMarkdown";
 import type { GitHubSnapshot, GitHubStore } from "./store";
 import type { ConversationEntry, FilePatch, LinkedPullRequest, PullRequestDetails } from "./types";
@@ -27,6 +29,13 @@ const GitHubFileDiff = lazy(() => import("./GitHubFileDiff").then((module) => ({
  * files in the rail too. `single`: one column at every width.
  */
 export type GitHubLayout = "split" | "rail" | "single";
+
+/**
+ * Where the checks go. `top` (shipped): the CI dashboard across the page's whole width under the
+ * header, where a long matrix and a log excerpt have room (Leo, 2026-11-07: "here's your big
+ * dashboard"). `rail`: in the rail, as before.
+ */
+export type ChecksPlacement = "top" | "rail";
 
 const STATES: Record<string, string> = {
   open: "github.state.open",
@@ -88,11 +97,13 @@ export function GitHubPage({
   strings,
   now = Date.now,
   layout = "split",
+  checksPlacement = "top",
 }: {
   store: GitHubStore;
   strings: Strings;
   now?: () => number;
   layout?: GitHubLayout;
+  checksPlacement?: ChecksPlacement;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const { t } = strings;
@@ -122,12 +133,27 @@ export function GitHubPage({
   const conversation = pr && (
     <Conversation details={details} strings={strings} now={now} open={open} more={() => store.openOnGitHub()} />
   );
-  const checks = pr && <Checks pr={pr} strings={strings} open={open} />;
+  // The dashboard once the host has the jobs; until then the cache's rollup, in the same place.
+  const checks =
+    pr &&
+    (snapshot.checks ? (
+      <ChecksDashboard
+        checks={withRollup(snapshot.checks, pr.checkList ?? [])}
+        rerun={snapshot.rerun}
+        store={store}
+        strings={strings}
+        now={now}
+        open={open}
+      />
+    ) : (
+      <Checks pr={pr} strings={strings} open={open} />
+    ));
   const reviewers = details && details.reviewers.length > 0 && <Reviewers details={details} strings={strings} />;
   const linked = details && details.linked.length > 0 && <Linked details={details} strings={strings} open={open} />;
   return (
     <main className="gh" data-layout={layout} aria-busy={waitingFirst}>
       <Header snapshot={snapshot} store={store} strings={strings} now={now} waitingFirst={waitingFirst} />
+      {pr && checksPlacement === "top" && <div className="gh-ci-band">{checks}</div>}
       {pr && (
         <div className="gh-body">
           <div className="gh-main">
@@ -136,7 +162,7 @@ export function GitHubPage({
             {conversation}
           </div>
           <aside className="gh-rail">
-            {checks}
+            {checksPlacement === "rail" && checks}
             {layout === "rail" && files}
             {reviewers}
             {linked}

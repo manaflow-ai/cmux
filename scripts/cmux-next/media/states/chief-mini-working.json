@@ -1,5 +1,5 @@
 {
-  "title": "Show in Mini, the chat working: the Chief pet draws the chat's turn (8 frames from debug.chief_pet; the pet's panels stay out of screen captures)",
+  "title": "Show in Mini, the chat working: the Chief pet looks left, right, up and down while its chat works (8 frames from debug.chief_pet, two in each look; motion runs as over an active cmux, since a capture app never is)",
   "fakeHarness": {
     "id": "fake",
     "name": "Coordinator"
@@ -93,108 +93,128 @@
       "wait": 0.2
     },
     {
-      "title": "Working frame 1",
+      "title": "Motion as over an active cmux (the capture app is never active, and the pet's frames stand still then); Reduce Motion still wins",
       "rpc": {
         "method": "debug.chief_pet",
         "params": {
-          "action": "snapshot",
-          "window": "pet",
-          "path": "{collect}"
+          "action": "motion",
+          "on": true
         }
       },
-      "collect": "working-01.png",
-      "wait": 0.4
+      "record": "file",
+      "wait": 0.1
     },
     {
-      "title": "Working frame 2",
+      "title": "Working, looking left: 2.3 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
       "rpc": {
         "method": "debug.chief_pet",
         "params": {
           "action": "snapshot",
           "window": "pet",
-          "path": "{collect}"
+          "path": "{collect}",
+          "at": 2.3
         }
       },
-      "collect": "working-02.png",
-      "wait": 0.4
+      "collect": "working-01-left.png",
+      "wait": 0.1
     },
     {
-      "title": "Working frame 3",
+      "title": "Working, looking left: 2.9 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
       "rpc": {
         "method": "debug.chief_pet",
         "params": {
           "action": "snapshot",
           "window": "pet",
-          "path": "{collect}"
+          "path": "{collect}",
+          "at": 2.9
         }
       },
-      "collect": "working-03.png",
-      "wait": 0.4
+      "collect": "working-02-left.png",
+      "wait": 0.1
     },
     {
-      "title": "Working frame 4",
+      "title": "Working, looking right: 5.5 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
       "rpc": {
         "method": "debug.chief_pet",
         "params": {
           "action": "snapshot",
           "window": "pet",
-          "path": "{collect}"
+          "path": "{collect}",
+          "at": 5.5
         }
       },
-      "collect": "working-04.png",
-      "wait": 0.4
+      "collect": "working-03-right.png",
+      "wait": 0.1
     },
     {
-      "title": "Working frame 5",
+      "title": "Working, looking right: 6.1 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
       "rpc": {
         "method": "debug.chief_pet",
         "params": {
           "action": "snapshot",
           "window": "pet",
-          "path": "{collect}"
+          "path": "{collect}",
+          "at": 6.1
         }
       },
-      "collect": "working-05.png",
-      "wait": 0.4
+      "collect": "working-04-right.png",
+      "wait": 0.1
     },
     {
-      "title": "Working frame 6",
+      "title": "Working, looking up: 8.7 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
       "rpc": {
         "method": "debug.chief_pet",
         "params": {
           "action": "snapshot",
           "window": "pet",
-          "path": "{collect}"
+          "path": "{collect}",
+          "at": 8.7
         }
       },
-      "collect": "working-06.png",
-      "wait": 0.4
+      "collect": "working-05-up.png",
+      "wait": 0.1
     },
     {
-      "title": "Working frame 7",
+      "title": "Working, looking up: 9.3 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
       "rpc": {
         "method": "debug.chief_pet",
         "params": {
           "action": "snapshot",
           "window": "pet",
-          "path": "{collect}"
+          "path": "{collect}",
+          "at": 9.3
         }
       },
-      "collect": "working-07.png",
-      "wait": 0.4
+      "collect": "working-06-up.png",
+      "wait": 0.1
     },
     {
-      "title": "Working frame 8",
+      "title": "Working, looking down: 11.9 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
       "rpc": {
         "method": "debug.chief_pet",
         "params": {
           "action": "snapshot",
           "window": "pet",
-          "path": "{collect}"
+          "path": "{collect}",
+          "at": 11.9
         }
       },
-      "collect": "working-08.png",
-      "wait": 0.4
+      "collect": "working-07-down.png",
+      "wait": 0.1
+    },
+    {
+      "title": "Working, looking down: 12.5 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "pet",
+          "path": "{collect}",
+          "at": 12.5
+        }
+      },
+      "collect": "working-08-down.png",
+      "wait": 0.1
     },
     {
       "title": "Stop the long turn",

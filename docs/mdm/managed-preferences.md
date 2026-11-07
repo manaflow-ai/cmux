@@ -50,7 +50,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `tabs.swapCmdTAndCmdN` | boolean | `false` |  | Swap Cmd-T and Cmd-N. When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused. |
 | `app.warnBeforeClosingTab` | boolean | `true` |  | Warn Before Closing a Running Program |
 | `app.warnBeforeClosingAgentSession` | boolean | `true` |  | Warn Before Closing a Working Agent |
-| `app.quitBehavior` | string | `"ask"` | `ask`, `keep`, `end-keep-layout`, `end-everything` | When Quitting. Terminals run in cmux-tui and keep running after cmux quits unless you end them. |
+| `app.quitBehavior` | string | `"keep"` | `keep`, `end-keep-layout`, `end-everything` | When Quitting. Terminals run in cmux-tui and keep running after cmux quits unless you end them. |
 | `layout.defaultColumnWidth` | real | `0.6666666666666666` | 0.1 to 1 | Fixed Column Width. A share of the window width, for Fixed Width new columns. |
 | `layout.centerFocusedColumn` | string | `"never"` | `never`, `always`, `on-overflow` | Center Focused Column |
 | `layout.stripScrollbar` | string | `"system"` | `system`, `auto`, `always`, `off` | Column Scroll Bar. A thin bar under the columns that shows and moves the visible range. |
@@ -198,7 +198,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.focusIndicator` | string | `"tabs"` | `border`, `tabs`, `both`, `none` | Focused Pane. How the focused pane stands out: its border, subtler tabs in the other panes, both or neither. |
 | `focus.inactiveTabStyle` | string | `"fade"` | `fade`, `tonal`, `quiet` | Unfocused Pane Tabs. How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill. |
 | `ui.animationSpeed` | string | `"fast"` | `fast`, `normal`, `off` | Animations |
-| `appearance.chromeStyle` | string | `"flat"` | `default`, `card`, `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating` | Window Style. The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them. |
+| `appearance.chromeStyle` | string | `"flat"` | `default`, `card`, `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating`, `blocks` | Window Style. The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them. |
 | `ui.paneAnimations` | boolean | `true` |  | Animate Panes. Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once. |
 | `ui.animations.newTab` | boolean | `true` |  | Animate New Tabs. A new tab grows into its place in the tab bar. Off shows it there at once. |
 | `ui.animations.newWorkspace` | boolean | `true` |  | Animate New Workspaces. A new workspace row opens in the sidebar. Off shows it there at once. |
@@ -393,6 +393,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.groupHeader.memberCount` | boolean | `false` |  | Show Group Member Count. A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner. |
 | `sidebar.groupHeader.unreadCount` | boolean | `false` |  | Show Group Unread Count. A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner. |
 | `sidebar.groupHeader.background` | string | `"auto"` | `auto`, `glass`, `solid` | Group Background. How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. |
+| `sidebar.groupPalette` | string | `"glass"` | `glass`, `theme`, `wallpaper`, `grayscale`, `vibrant` | Group Colors. Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. |
 | `sidebar.minimalMode` | string | `"off"` | `off`, `bottom`, `top`, `both` | Hide Bands Until Hover. Hides the chosen sections until the pointer is over the sidebar. |
 | `sidebar.cards.tips` | boolean | `true` |  | Show Tips. A "Did you know" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once. |
 | `sidebar.priorityView.enabled` | boolean | `false` |  | Priority View. A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle. |

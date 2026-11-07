@@ -182,8 +182,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-2d7a228cbd4e454d173e300a7fb90bc51a32514f/CCmuxAppFFI.xcframework.zip",
-    checksum: "9e8bcbba41bda423441d16f34c0241468cdcdf64f35656acc485004a9146cd79"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-62966ab0103b396662b8627c2eba55bfcd273025/CCmuxAppFFI.xcframework.zip",
+    checksum: "ca2652ac2ab415faec52c8a4a74efcc745c243cdaf9470a9a56303fd4bd5692e"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -545,6 +545,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 "CmuxNextDictation",
                 "CmuxNextPages",
                 "CmuxNextPagesTestSupport",
@@ -809,6 +810,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDictation",
                 "CmuxNextHomeModel",
                 "CmuxNextIcons",
+                "CmuxNextPages",
+                "CmuxNextSettings",
                 "CmuxNextWakeups",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
@@ -856,8 +859,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHomeModel",
+                "CmuxNextPages",
+                "CmuxNextSettings",
                 "CmuxNextTestSupport",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
