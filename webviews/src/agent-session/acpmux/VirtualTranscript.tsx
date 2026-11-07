@@ -41,6 +41,7 @@ import {
   isLineRow,
   isLiveStep,
   restRoom,
+  rowFrameKey,
 } from "./model";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
@@ -464,11 +465,12 @@ const RowFrame = React.memo(function RowFrame({
     const id = row.id;
     acpmuxPerf.rowMounted(id);
     return () => acpmuxPerf.rowUnmounted(id);
-    // A row keeps its id for its whole mount (its key).
+    // The id the frame mounted with: a message run's line can take over its first row's frame
+    // (model.ts `rowFrameKey`), so the count is closed under the id it opened with.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useLayoutEffect(() => {
-    if (entering) onEntered(row.id);
+    if (entering) onEntered(rowFrameKey(row));
     // Only the first mount enters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1567,7 +1569,8 @@ export function VirtualTranscript({
   /// The room above the rows for history not loaded yet, and the row it is held against.
   const olderRoom = useRef<OlderReserve | undefined>(undefined);
   // A switched chat starts over: its row ids are its own, and may repeat the last chat's.
-  if (knownRows.current === null || sessionChanged) knownRows.current = new Set(rows.map((row) => row.id));
+  // Keyed by frame (model.ts `rowFrameKey`): a row drawn in a frame already on screen is not new.
+  if (knownRows.current === null || sessionChanged) knownRows.current = new Set(rows.map(rowFrameKey));
   // Scroll frames render the same rows: only a new row list can bring new rows.
   else if (knownFor.current !== rows) {
     // Rows before the first one that changed were all there last time.
@@ -1580,24 +1583,25 @@ export function VirtualTranscript({
     // take a live row's entrance. They draw in place, as if they had always been there, unless the
     // page came late: the reader already reached the top of the loaded rows, and only then do they
     // fade in as they are first seen (Leo 2026-10-31: no fade unless it's the worst case).
-    const oldFirst = rows.findIndex((row) => knownRows.current!.has(row.id));
+    const oldFirst = rows.findIndex((row) => knownRows.current!.has(rowFrameKey(row)));
     const arrived: AcpmuxRow[] = [];
     let olderLate: boolean | undefined;
     for (let index = from; index < rows.length; index += 1) {
       const row = rows[index]!;
-      if (knownRows.current.has(row.id)) continue;
+      const key = rowFrameKey(row);
+      if (knownRows.current.has(key)) continue;
       if (index < oldFirst) {
         olderLate ??= readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0);
         if (olderLate) olderRows.current.add(row.id);
       } else arrived.push(row);
-      knownRows.current.add(row.id);
+      knownRows.current.add(key);
     }
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
     // before its first frame back, came while the user was away: it draws in place. WebKit
     // suspends a hidden page's animations, so its entrance would play on return (shared/pageReveal.ts).
     // The rows a "Worked for" the reader opened reveals fade in with its fold (turnFold.ts) instead.
     if (arrived.length <= LIVE_ROWS_PER_UPDATE && entranceAllowed() && !turnFold.current?.opening)
-      for (const row of arrived) enteringRows.current.add(row.id);
+      for (const row of arrived) enteringRows.current.add(rowFrameKey(row));
   }
   knownFor.current = rows;
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
@@ -4147,7 +4151,7 @@ export function VirtualTranscript({
                       row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
                     return (
                       <RowFrame
-                        key={`${sessionId ?? ""}:${row.id}`}
+                        key={`${sessionId ?? ""}:${rowFrameKey(row)}`}
                         row={row}
                         kind={kind}
                         joinsPrevious={
@@ -4175,7 +4179,7 @@ export function VirtualTranscript({
                         queueDrawn={queueDrawn}
                         // A session switch is a load, not a live arrival. The reset effect runs after
                         // this render, so gate it here as well to avoid a reused row id animating once.
-                        enter={!sessionChanged && enteringRows.current.has(row.id)}
+                        enter={!sessionChanged && enteringRows.current.has(rowFrameKey(row))}
                         onEntered={onEntered}
                         older={olderRows.current!.has(row.id) ? olderRows.current : undefined}
                         onOlderShown={onOlderShown}
