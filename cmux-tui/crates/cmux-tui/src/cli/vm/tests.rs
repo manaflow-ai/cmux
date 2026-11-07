@@ -753,6 +753,11 @@ fn device_runs_what_machine_runs_for_each_device_verb() {
         (&["device", "vault", "ls"], &["machine", "vault", "ls"]),
         (&["--json", "device", "rotate", "m_1"], &["--json", "machine", "rotate", "m_1"]),
         (&["device", "--json", "m", "show"], &["--json", "machine", "m", "show"]),
+        (&["device", "--jsonl", "doctor"], &["--jsonl", "machine", "doctor"]),
+        (&["device", "--quiet", "revoke", "m_1"], &["--quiet", "machine", "revoke", "m_1"]),
+        (&["device", "-q", "m", "show"], &["-q", "machine", "m", "show"]),
+        (&["device", "m", "show", "--jsonl"], &["--jsonl", "machine", "m", "show"]),
+        (&["device", "m", "show", "--", "-q"], &["machine", "m", "show", "--", "-q"]),
         (&["--session", "s", "device", "m", "show"], &["--session", "s", "machine", "m", "show"]),
     ] {
         assert_eq!(device_alias(&args(typed)), machine(expected), "{typed:?}");
