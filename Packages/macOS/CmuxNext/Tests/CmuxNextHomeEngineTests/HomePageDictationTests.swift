@@ -17,7 +17,7 @@ struct HomePageDictationTests {
         #expect(denied["permission"] == "microphone")
         #expect(denied["message"]?.stringValue == HomePageDictation.deniedMessage(.microphone))
         #expect(denied["settingsLabel"]?.stringValue == HomePageDictation.openSettingsTitle)
-        #expect(HomePageDictation.payload(DictationUpdate(phase: .failed(.audioCaptureFailed)))["state"] == "failed")
+        #expect(HomePageDictation.payload(DictationUpdate(phase: .failed(.audioCaptureFailed("no input"))))["state"] == "failed")
     }
 
     @Test func openSettingsOpensThePrivacyPaneAndAnUnknownMethodIsRefused() throws {
