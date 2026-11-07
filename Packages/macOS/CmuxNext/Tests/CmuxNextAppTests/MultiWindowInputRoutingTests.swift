@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextAppCore
 import CmuxNextFocusUI
 import Foundation
 import Testing
@@ -175,9 +176,9 @@ import CmuxNextTestSupport
     /// for an incognito window's workspace). That window, which may be on another macOS Space, does not come forward;
     /// only a window the claim just opened does. A request from elsewhere still brings its window forward.
     @Test func aSidebarPickNeverBringsAnotherOpenWindowForward() {
-        #expect(!WindowManager.raisesOwnerAfterClaim(from: .thisWindow, ownerWasOpen: true), "a click in window A raised window B")
-        #expect(WindowManager.raisesOwnerAfterClaim(from: .thisWindow, ownerWasOpen: false), "the window the claim opened stayed behind")
-        #expect(WindowManager.raisesOwnerAfterClaim(from: .anywhere, ownerWasOpen: true))
+        #expect(!ShowOrigin.thisWindow.raisesOwner(ownerWasOpen: true), "a click in window A raised window B")
+        #expect(ShowOrigin.thisWindow.raisesOwner(ownerWasOpen: false), "the window the claim opened stayed behind")
+        #expect(ShowOrigin.anywhere.raisesOwner(ownerWasOpen: true))
     }
 
     /// A request from elsewhere (a notification, the CLI) still shows the workspace where it lives.

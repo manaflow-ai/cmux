@@ -141,28 +141,18 @@ extension WindowManager {
             bringToFront(target)
             return
         }
-        let openBefore = Set(value.openWindows.map(\.id)), ownerBefore = value.owner(of: workspaceID)
+        // A sidebar pick never files a held normal Cloud workspace into another open window (cmux#37371).
+        if origin == .thisWindow, isHeldCloudWorkspace(workspaceID), value.isIncognito(state.id), !EphemeralWorkspaces.isEphemeral(workspaceID, self),
+           value.mostRecentOpen(incognito: false) != nil { return services.registry.refuse(RefusalStrings.incognitoMismatch) }
+        let openBefore = Set(value.openWindows.map(\.id))
         claim(workspaceID: workspaceID, in: state)
-        // An unowned ephemeral workspace went to its own incognito window: that window shows it. A pick in this
-        // window's sidebar brings forward only a window the claim just opened, never another open one: it could be
-        // on another macOS Space (cmux#37371). A held Cloud workspace the claim filed into another open window of
-        // its kind says why it did not show here (a claim that refused already said so).
+        // An unowned ephemeral workspace went to its own incognito window: that window shows it.
         if let owner = registry.value.owner(of: workspaceID), owner != state.id, let target = controller(for: owner) {
             target.showWorkspace(requested: target.state.workspaceID)
-            if Self.raisesOwnerAfterClaim(from: origin, ownerWasOpen: openBefore.contains(owner)) {
-                bringToFront(target)
-            } else if owner != ownerBefore {
-                services.registry.refuse(RefusalStrings.incognitoMismatch)
-            }
+            if origin.raisesOwner(ownerWasOpen: openBefore.contains(owner)) { bringToFront(target) }
             return
         }
         controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
-    }
-
-    /// Whether the window that holds a workspace after `show`'s claim, not the window asked, comes forward: always
-    /// for a request from elsewhere; for a pick in a window's own sidebar only a window the claim opened.
-    nonisolated static func raisesOwnerAfterClaim(from origin: ShowOrigin, ownerWasOpen: Bool) -> Bool {
-        origin == .anywhere || !ownerWasOpen
     }
 
     /// Shows `workspaceID` in window `windowID` (taking it there), as a pick in that window's own

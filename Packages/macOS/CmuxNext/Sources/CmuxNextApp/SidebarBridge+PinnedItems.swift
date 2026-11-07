@@ -17,9 +17,7 @@ extension SidebarBridge {
         reveal(tab, in: pane, workspace: workspace, state: state)
     }
 
-    /// Selects tab `tab` of `workspace`, a row listed under that workspace in this window's sidebar or its hover
-    /// card, in this window, as a pinned tab's click does: never in another window that lists the workspace, which
-    /// would come forward and could switch the macOS Space (cmux#37371). The tab is found on the workspace's machine.
+    /// A hover card's tab row clicked in this window: shown here, as a pinned tab (cmux#37371).
     func revealListedTab(_ tab: String, of workspace: String) {
         guard let state, let (_, daemon) = services.machines.workspace(id: workspace),
               let model = daemon.store.tab(idOrResource: tab), let pane = daemon.store.pane(holding: model) else { return }
@@ -91,6 +89,7 @@ extension SidebarBridge {
     /// else through this window's selection memory and focus. Showing the
     /// workspace switches space if needed.
     private func reveal(_ tab: TabModel, in pane: PaneModel, workspace: String, state: WindowState) {
+        if services.windows.registry.value.crossesIncognito([workspace], to: state.id) { return services.registry.refuse(RefusalStrings.incognitoMismatch) }
         state.selection.select(tab.id, in: pane.id)
         state.focus.send(.selectTab(pane: pane.id, tab: tab.id, workspace: workspace, source: .intent))
         services.paneController(for: pane)?.select(StripTabID(tab.id))

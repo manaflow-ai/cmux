@@ -64,9 +64,7 @@ extension SidebarBridge {
         }
     }
 
-    /// Runs `body` with this bridge's window as the active one (`WindowManager.dispatching(eventFrom:_:)`): an item
-    /// clicked here acts here even when it runs outside its click's dispatch, or while the key window record names
-    /// another window. Home in another window would come forward and could switch the macOS Space (cmux#37371).
+    /// Runs `body` with this sidebar's window as the active one: its items act here (cmux#37371).
     private func inThisWindow(_ body: () -> Void) {
         services.windows.dispatching(eventFrom: state.flatMap { services.windows.controller(for: $0.id)?.window }, body)
     }
