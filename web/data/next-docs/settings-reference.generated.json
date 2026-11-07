@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 599,
+  "count": 606,
   "sections": [
     {
       "id": "general",
@@ -29,6 +29,31 @@
           "values": [
             "context",
             "planUsage"
+          ]
+        },
+        {
+          "key": "agentPane.dictationShortcut",
+          "title": "Dictation App Shortcut",
+          "help": "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default.",
+          "kind": "text",
+          "default": "",
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.dictationSource",
+          "title": "Dictate With",
+          "help": "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut.",
+          "kind": "choice",
+          "default": "cmux",
+          "group": "Agent Chat",
+          "values": [
+            "cmux",
+            "macos",
+            "chatgpt",
+            "claude",
+            "gemini",
+            "wisprFlow",
+            "superwhisper"
           ]
         },
         {
@@ -278,6 +303,27 @@
           "kind": "toggle",
           "default": true,
           "group": "Guidance and Skills"
+        },
+        {
+          "key": "agents.hiddenChats.discard",
+          "title": "Release Hidden Agent Chats",
+          "help": "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Hibernation"
+        },
+        {
+          "key": "agents.hiddenChats.discardAfterMinutes",
+          "title": "Release Hidden Chats After",
+          "help": "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner.",
+          "kind": "number",
+          "default": 15,
+          "group": "Hibernation",
+          "range": {
+            "min": 1,
+            "max": 1440,
+            "unit": "minutes"
+          }
         },
         {
           "key": "agents.modelRouter.model",
@@ -551,6 +597,14 @@
             "top",
             "bottom"
           ]
+        },
+        {
+          "key": "chat.on",
+          "title": "Default Chat Target",
+          "help": "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here.",
+          "kind": "text",
+          "default": "",
+          "group": "Chats"
         },
         {
           "key": "computerUse.driver",
@@ -2271,7 +2325,7 @@
           "title": "Window Style",
           "help": "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
           "kind": "choice",
-          "default": "flat-sidebar-line",
+          "default": "flat",
           "group": "Panes",
           "values": [
             "default",
@@ -2282,7 +2336,8 @@
             "bare",
             "panes",
             "two-tone",
-            "floating"
+            "floating",
+            "blocks"
           ]
         },
         {
@@ -3598,6 +3653,21 @@
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.groupPalette",
+          "title": "Group Colors",
+          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+          "kind": "choice",
+          "default": "glass",
+          "group": "Sidebar",
+          "values": [
+            "glass",
+            "theme",
+            "wallpaper",
+            "grayscale",
+            "vibrant"
+          ]
         },
         {
           "key": "sidebar.hoverCards.delay",
@@ -5342,6 +5412,14 @@
           "group": "Opening Links"
         },
         {
+          "key": "browser.openPullRequestsInGitHubPage",
+          "title": "Open Pull Requests in cmux GitHub Page",
+          "help": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Opening Links"
+        },
+        {
           "key": "browser.openSignInPagesInCmux",
           "title": "Open Sign-In Pages in cmux Browser",
           "help": "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win.",
@@ -5735,7 +5813,7 @@
           "title": "Show Chief When Opening Workspaces",
           "help": "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Chief Dock"
         },
         {

@@ -4,8 +4,8 @@ use serde_json::{Value, json};
 
 use super::super::cloud_start_chat::Machine;
 use super::{
-    Parsed, Reads, Route, Start, TAKES_VALUE, cloud_words, global_words, here_words, parse, route,
-    start_words,
+    Parsed, Reads, Route, Start, TAKES_VALUE, cloud_words, global_words, here_words, parse,
+    parse_with, pick_target, route, setting_stream, start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -122,6 +122,49 @@ fn cmux_target_names_the_target_when_on_is_absent() {
     assert_eq!(with_env(&["hi"], "vm:dev").as_deref(), Some("vm:dev"));
     assert_eq!(with_env(&["--on", "here", "hi"], "vm:dev").as_deref(), Some("here"));
     assert_eq!(with_env(&["hi"], "  "), None);
+}
+
+/// `--on` > `CMUX_ON` > the `chat.on` setting > here; the setting is read only when both are absent.
+#[test]
+fn the_target_is_on_then_cmux_on_then_the_setting_then_here() {
+    let some = |text: &str| Some(text.to_owned());
+    let read = Cell::new(0);
+    let setting = |value: Option<&'static str>| {
+        let read = &read;
+        move || {
+            read.set(read.get() + 1);
+            value.map(str::to_owned)
+        }
+    };
+    assert_eq!(pick_target(some("box"), some("vm:dev"), setting(Some("cloud"))), some("box"));
+    assert_eq!(pick_target(None, some("vm:dev"), setting(Some("cloud"))), some("vm:dev"));
+    assert_eq!(read.get(), 0, "the setting is not read when --on or CMUX_ON names a target");
+    assert_eq!(pick_target(None, None, setting(Some(" cloud "))), some("cloud"));
+    assert_eq!(pick_target(None, some("  "), setting(Some("vm:new"))), some("vm:new"));
+    assert_eq!(pick_target(None, None, setting(Some(""))), None);
+    assert_eq!(pick_target(None, None, setting(None)), None);
+    assert_eq!(read.get(), 4);
+}
+
+#[test]
+fn cmux_chat_reads_the_setting_only_without_on_and_cmux_on() {
+    let read = Cell::new(false);
+    let on = |list: &[&str], env: Option<&str>| {
+        read.set(false);
+        let setting = || {
+            read.set(true);
+            Some("cloud".to_owned())
+        };
+        match parse_with(&words(list), env.map(str::to_owned), setting).unwrap() {
+            Parsed::Run(start) => (start.on, read.get()),
+            Parsed::Help => (None, read.get()),
+        }
+    };
+    assert_eq!(on(&["hi"], None), (Some("cloud".into()), true));
+    assert_eq!(on(&["--on", "here", "hi"], None), (Some("here".into()), false));
+    assert_eq!(on(&["hi"], Some("vm:dev")), (Some("vm:dev".into()), false));
+    assert_eq!(on(&["--help"], None), (None, false));
+    assert!(parse_with(&words(&["hi"]), None, || Some("vm:".into())).is_err());
 }
 
 #[test]
@@ -362,4 +405,33 @@ fn a_vm_target_signed_out_says_to_sign_in() {
         cloud_machines: || Ok(json!({"account": {"signed_in": false}, "machines": []})),
     };
     assert_eq!(code(route(Some("vm:dev"), reads)), "chat_target.signed_out");
+}
+
+/// `cmux config set on …` sets the key `cmux chat` reads: the `on` alias (cli/command/settings.rs,
+/// built on every platform) names [`super::TARGET_SETTING`].
+#[test]
+fn the_on_alias_is_the_chat_target_setting() {
+    assert_eq!(super::super::command::resolve_alias("on"), super::TARGET_SETTING);
+}
+
+/// `cmux chat --socket <daemon socket>` reads `chat.on` from the app that owns that daemon, the
+/// app the chat itself reaches, not nowhere: `--socket` naming a daemon is `socket.wrong_kind` to
+/// the app connection (#37485's review at ca9748e1, F1; #37663).
+#[test]
+fn a_daemon_socket_reads_the_setting_from_its_owning_app() {
+    let wrong_kind = || Err(json!({ "code": "socket.wrong_kind", "message": "a daemon socket" }));
+    let (owner, _app) = std::os::unix::net::UnixStream::pair().unwrap();
+    assert!(setting_stream(wrong_kind, || Ok(owner)).is_some());
+    // Another failure (no app, an unreachable socket) reads nothing; the owner is not asked.
+    let unreachable = || Err(json!({ "code": "socket.unreachable", "message": "gone" }));
+    assert!(
+        setting_stream(unreachable, || -> Result<_, String> { panic!("asked the owner") })
+            .is_none()
+    );
+    // A socket that is the app's is read as named.
+    let (named, _app) = std::os::unix::net::UnixStream::pair().unwrap();
+    assert!(
+        setting_stream(|| Ok(named), || -> Result<_, String> { panic!("asked the owner") })
+            .is_some()
+    );
 }

@@ -201,6 +201,13 @@
     },
     {
       "agent": "settable",
+      "why": "Cosmetic icon preference; the reserved Neko value currently falls back to default artwork",
+      "keys": [
+        "appearance.iconTheme"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "The app's one selected-text color (looks only)",
       "keys": [
         "appearance.highlightColor"
@@ -482,6 +489,13 @@
       "why": "Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.",
       "keys": [
         "agentPane.newChatsIn"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The default `cmux chat` target (`cmux config set on cloud`): where the CLI starts a chat when neither --on nor CMUX_ON names one; the person may ask an agent to set it.",
+      "keys": [
+        "chat.on"
       ]
     },
     {
@@ -824,6 +838,7 @@
         "agentPane.showContextUsage",
         "agentPane.composerRing",
         "agentPane.showDictation",
+        "agentPane.dictationSource",
         "agentPane.spellChecking",
         "agentPane.attachmentView",
         "agentPane.showMachineLoadWarnings"
@@ -887,6 +902,13 @@
       "keys": [
         "cloud.newWorkspacesInCloud",
         "cloud.newWorkspaceFolder"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "The key chord the dictation mic posts to another app: only the person picks what cmux types into other apps.",
+      "keys": [
+        "agentPane.dictationShortcut"
       ]
     },
     {
@@ -960,6 +982,14 @@
         "workspaces.freeing.idleMinutes",
         "workspaces.freeing.agents",
         "workspaces.freeing.runningCommands"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether hidden agent chats give back their memory: a lossless local memory policy, as browser.hibernation.",
+      "keys": [
+        "agents.hiddenChats.discard",
+        "agents.hiddenChats.discardAfterMinutes"
       ]
     },
     {
@@ -1067,6 +1097,13 @@
       "why": "Whether sign-in pages open in a browser agents can drive is the person's call alone.",
       "keys": [
         "browser.openSignInPagesInCmux"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.",
+      "keys": [
+        "browser.openPullRequestsInGitHubPage"
       ]
     },
     {

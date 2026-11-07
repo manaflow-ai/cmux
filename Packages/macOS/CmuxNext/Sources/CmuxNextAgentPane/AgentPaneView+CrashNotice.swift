@@ -20,6 +20,7 @@ extension AgentPaneView {
     /// reload policy kept by the page host.
     func pageCrashed(reloading: Bool) {
         model.sessionInfo.pageLoaded()
+        model.hostGlass.pageLoaded()
         guard !reloading else {
             dictation.handle(.cancel)
             return
@@ -29,6 +30,7 @@ extension AgentPaneView {
 
     private func contentEnded(_ termination: PageTermination) {
         model.sessionInfo.pageLoaded()
+        model.hostGlass.pageLoaded()
         // The composer that held the session's words is gone.
         dictation.handle(.cancel)
         let retries = crashRetry.ended(self)
@@ -82,6 +84,8 @@ extension AgentPaneView {
     func pageLoadedAgain() {
         // A new document starts with no toast band: it gets the current one (AgentPaneView+ToastRoom.swift).
         sendToastRoom(duration: 0, force: true)
+        // Every host's load lands here: a start's card is gone with the old document, so its question moves to a dialog.
+        model.cloudAsks.pageReloaded()
         // A page that came back before its owed retry ran needs none.
         crashRetry.cancel()
         guard let notice = crashNotice else { return }

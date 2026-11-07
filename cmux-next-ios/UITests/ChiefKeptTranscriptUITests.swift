@@ -26,13 +26,13 @@ final class ChiefKeptTranscriptUITests: XCTestCase {
         // The page is 5 s away: only the kept messages can show this soon.
         XCTAssertTrue(again.cells["conversation.message.msg_local_7"].waitForExistence(timeout: 2),
                       "the kept messages show at once\n\(again.debugDescription)")
-        XCTAssertFalse(again.activityIndicators["conversation.initialLoading"].exists, "no spinner over them")
+        XCTAssertFalse(again.descendants(matching: .any)["conversation.initialLoading"].exists, "no spinner over them")
         attach(again, "2-relaunch-kept")
         // Frames across the 5 s the page is held back and after it lands (the evidence video is
         // made of these: the fleet's simulator step records no screen video). The waits only pace
         // the captures; nothing waits on them.
         for frame in 0..<16 {
-            XCTAssertFalse(again.activityIndicators["conversation.initialLoading"].exists, "no spinner at frame \(frame)")
+            XCTAssertFalse(again.descendants(matching: .any)["conversation.initialLoading"].exists, "no spinner at frame \(frame)")
             attach(again, String(format: "frame-%02d", frame))
             _ = XCTWaiter().wait(for: [XCTestExpectation(description: "pace")], timeout: 0.5)
         }

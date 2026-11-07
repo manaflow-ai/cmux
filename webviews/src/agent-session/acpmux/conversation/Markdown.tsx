@@ -17,7 +17,8 @@ import { TableBlock } from "./TableBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
 import { renderFence } from "./renderCall";
-import { isRemoteMedia, RemoteMedia } from "../chips/ReplyMedia";
+import { RemoteMedia } from "../chips/ReplyMedia";
+import { isRemoteMedia } from "../chips/replyMediaModel";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
 import { ArxivMark, GitHubMark, Globe, ImageIcon } from "./icons";
@@ -28,11 +29,13 @@ import { fenceStep } from "./fenceRule";
 import { closesFence, codeSpans, fenceOpening } from "../slashCommands";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
-import { linkedText, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
+import { ForeignFileRef, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
+import { linkedText } from "../chips/linkedText";
 import { isBareFileName, ReplyFoldersContext, replyFolders } from "../chips/replyFolders";
-import { SoftBroken, softBreakNodes } from "./softBreaks";
+import { SoftBroken } from "./softBreaks";
+import { softBreakNodes } from "./softBreaksModel";
 import { BareReferenceChip } from "../chips/BareReferenceChip";
-import { codePath, isTemplatePath, linkPath, pathName, textLinks } from "../chips/paths";
+import { codePath, foreignFileId, isTemplatePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
@@ -44,7 +47,8 @@ import {
 } from "../../../githubReferences";
 import { imageOnlyItems, proseImages, type ThumbItem } from "./inlineMedia";
 import { acpmuxPerf } from "../perf";
-import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
+import { StartedSessionChip } from "../started/StartedSessionCard";
+import { useStartedMentions, type StartedMentions } from "../started/startedSessionCardModel";
 import { splitMentions } from "../started/startedSessions";
 import { splitSkillText } from "./skillWords";
 import { SkillWord } from "./SkillWord";
@@ -54,7 +58,8 @@ import { animateScroll } from "../threadMinimap/scrollMotion";
 import { SessionRefCode } from "./SessionRef";
 import { agentRef } from "./sessionRefs";
 import { JUMP_CURVE, jumpDuration } from "../threadMinimap/model";
-import { decorateTimes, splitTimeTokens, TimeHover } from "./timeHover";
+import { TimeHover } from "./timeHover";
+import { decorateTimes, splitTimeTokens } from "./timeHoverModel";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -518,11 +523,16 @@ function linkedGithubText(
   // transcript names its repository.
   const issues = githubReferences(text, repository ?? NO_REPOSITORY, "pull", true);
   const commits = quietCommits ? quietCommitReferences(text, issues, repository) : commitReferences(text, repository);
-  // A commit or a bare `#N` inside a URL or a path (`https://x.test/?q=#12`) is part of it.
-  const spans = commits.length || issues.some((issue) => issue.bare) ? textLinks(text) : [];
+  // A commit, a bare `#N` or a short name's `name#N` inside a URL or a path
+  // (`https://x.test/?q=#12`, `?repo=cmux#3`) is part of it.
+  const loose = (issue: GithubReference) => Boolean(issue.bare) || !issue.text.includes("/");
+  const spans = commits.length || issues.some(loose) ? textLinks(text) : [];
   const outside = (ref: { start: number; end: number }) =>
     !spans.some((span) => ref.start < span.end && span.start < ref.end);
-  const refs = [...issues.filter((issue) => !issue.bare || (bare && outside(issue))), ...commits.filter(outside)]
+  const refs = [
+    ...issues.filter((issue) => !loose(issue) || ((bare || !issue.bare) && outside(issue))),
+    ...commits.filter(outside),
+  ]
     .sort((a, b) => a.start - b.start)
     .filter((ref, index, all) => index === 0 || ref.start >= all[index - 1]!.end);
   if (!refs.length) return linkedText(text, key);
@@ -711,8 +721,12 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // An agent link or a `HOST/NAME` (sessionRefs.ts): a link to the session when it is the
       // reader's (Leo, 2026-11-03: "these links aren't clickable"); a name stays code until then.
       const ref = path ? undefined : agentRef(inner);
+      // A provider's file id in code is still one nobody here can open (chips/paths.ts).
+      const foreign = path || ref ? undefined : foreignFileId(inner);
       out.push(
-        ref ? (
+        foreign ? (
+          <ForeignFileRef key={k++} id={foreign} />
+        ) : ref ? (
           <SessionRefCode key={k++} text={inner} agentRef={ref} fallback={code} />
         ) : path ? (
           <PathChip key={k++} path={path} written={inner} label={lineLabel(path, inner)} />
@@ -896,6 +910,9 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
   if (src === OVERSIZED_DATA_URL || (INLINE_IMAGE.test(src) && src.length > MAX_DATA_URL_LENGTH))
     return <OversizedImage alt={alt} opts={opts} />;
   if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} thumb />;
+  // An image only its provider opens (`sediment://…`) is named as that, never a broken image.
+  const foreign = foreignFileId(src);
+  if (foreign) return <ForeignFileRef id={foreign} />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
   const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
   const href = safeHref(src);

@@ -69,6 +69,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "ls",
             "last",
             "info",
+            "machine_info",
             "team_send",
             "team_inbox",
             "team_ack",
@@ -87,15 +88,16 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "goal_get",
             "watch_add",
             "watch_ls",
-            "watch_rm"
+            "watch_rm",
+            "send_status"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
     assert!(send.contains("Message another agent session"), "{send}");
     assert!(send.contains("instead of running `acpmux send` in a shell"), "{send}");
     assert!(send.contains("batch them in one call with messages"), "{send}");
-    assert_eq!(tools[6]["inputSchema"]["required"], json!(["to", "body"]));
-    assert_eq!(tools[8]["inputSchema"]["required"], json!(["id"]));
+    assert_eq!(tools[7]["inputSchema"]["required"], json!(["to", "body"]));
+    assert_eq!(tools[9]["inputSchema"]["required"], json!(["id"]));
 }
 
 /// The first shape's fields are as they were (a snapshot): only new optional fields were added,
@@ -822,6 +824,36 @@ async fn send_goes_through_the_outbox_and_names_its_delivery() {
     assert_eq!(status["promptId"], r["structuredContent"]["promptId"], "{status} {r}");
 }
 
+/// `send_status` reads a send's receipt by its deliveryId with the CLI's line, or lists the
+/// chat's sent messages; with neither an id nor a chat it is refused before the daemon.
+#[tokio::test]
+async fn send_status_reads_a_delivery_by_id_or_lists_the_chats() {
+    assert_eq!(
+        send_status::request("chat-1", &json!({})).unwrap(),
+        json!({"list": true, "caller": "chat-1", "limit": 20})
+    );
+    assert_eq!(
+        send_status::request("", &json!({"deliveryId": "d1"})).unwrap(),
+        json!({"deliveryId": "d1"})
+    );
+    assert!(send_status::request("", &json!({})).is_err());
+    let (_hub, client, _dir) = daemon().await;
+    session(&client, "lane-s").await;
+    let r = call(&client, &tool("send", json!({"to": "lane-s", "text": "status?"}))).await;
+    let delivery = r["structuredContent"]["deliveryId"].as_str().unwrap_or_default().to_owned();
+    client
+        .request(method::MUX_SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 5000}))
+        .await
+        .unwrap();
+    let s = send_status::call(&client, "", &json!({"deliveryId": delivery})).await;
+    assert_eq!(s["isError"], false, "{s}");
+    assert!(text(&s).starts_with("delivered  "), "{s}");
+    assert!(text(&s).contains("  attempt 1"), "{s}");
+    assert_eq!(s["structuredContent"]["status"], "delivered", "{s}");
+    let unknown = send_status::call(&client, "", &json!({"deliveryId": "nope"})).await;
+    assert_eq!(unknown["isError"], true, "{unknown}");
+}
+
 /// `class` (`prompt_class.rs`) goes with the message; a class that is not one of the four is
 /// this call's error, sent nowhere.
 #[tokio::test]
@@ -1058,7 +1090,7 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
 }
 
 /// A Chief turn's `CMUX_MCP_TOOLS` reaches this server too (`agent_tools::scoped`): standalone,
-/// without a `cmux` server to fold into, it lists only the six coordinator tools, never `bg_*` or
+/// without a `cmux` server to fold into, it lists only the seven coordinator tools, never `bg_*` or
 /// `team_*` (#30082 review).
 #[test]
 fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
@@ -1066,7 +1098,10 @@ fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
     let all = tools();
     assert_eq!(names(&allowed(all.clone(), None)), names(&all));
     let chief = allowed(all.clone(), Some(crate::agent_tools::CHIEF_TURN_TOOLS));
-    assert_eq!(names(&chief), ["send", "inbox_read", "inbox_reply", "ls", "last", "info"]);
+    assert_eq!(
+        names(&chief),
+        ["send", "inbox_read", "inbox_reply", "ls", "last", "info", "send_status"]
+    );
     assert!(names(&allowed(all, Some("render,agents_wait"))).is_empty());
 }
 
@@ -1119,10 +1154,10 @@ fn who_else_is_listed_with_its_instruction_and_names_the_chat() {
 #[test]
 fn who_else_text_names_the_peers_it_could_not_ask() {
     let answer =
-        json!({"sessions": [], "unreached": [{"host": "big-red", "error": "no answer in 5 s"}]});
+        json!({"sessions": [], "unreached": [{"host": "my-vm", "error": "no answer in 5 s"}]});
     assert_eq!(
         who_else::text(&answer),
-        "No other session works on these.\n(not asked: big-red: no answer in 5 s)"
+        "No other session works on these.\n(not asked: my-vm: no answer in 5 s)"
     );
 }
 

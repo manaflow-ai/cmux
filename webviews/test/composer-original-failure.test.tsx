@@ -9,11 +9,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
+import { AttachmentStrip } from "../src/agent-session/acpmux/composer/attachmentIntake";
 import {
-  AttachmentStrip,
   useAttachmentIntake,
   type AttachmentIntakeOptions,
-} from "../src/agent-session/acpmux/composer/attachmentIntake";
+} from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { intakeFiles, type IntakeEvents } from "../src/agent-session/acpmux/composer/intakeFiles";
 
 const scope = globalThis as Record<string, unknown>;
@@ -199,8 +199,10 @@ test("a failed tile shows its kind and one retry glyph button; a streaming one s
     <AttachmentStrip
       attachments={[]}
       pending={[
-        { id: "video", name: "Screen Recording.mov", image: false, failed: "The upload timed out." },
-        { id: "shot", name: "shot.png", image: true, failed: "The disk is full." },
+        { id: "video", name: "Screen Recording.mov", image: false, failed: "The upload timed out.", retryable: true },
+        { id: "shot", name: "shot.png", image: true, failed: "The disk is full.", retryable: true },
+        // A file the composer refused fails the same way again: no Retry, only its x.
+        { id: "refused", name: "notes.heic", image: true, failed: "notes.heic can't be attached" },
         { id: "big", name: "big.mp4", image: false, uploading: true, progress: 0.42 },
       ]}
       onRemove={() => {}}
@@ -208,7 +210,8 @@ test("a failed tile shows its kind and one retry glyph button; a streaming one s
       onRetry={() => {}}
     />,
   );
-  // The file's name stays on its tile; each failed tile has exactly one retry button, a glyph.
+  // The file's name stays on its tile; each failed tile a Retry can make has exactly one retry
+  // button, a glyph, and the refused one has none.
   expect(html).toContain("Screen Recording.mov");
   expect(html.match(/class="acpmux-attachment-retry"/g)?.length).toBe(2);
   expect(html).not.toMatch(/class="acpmux-attachment-retry"[^>]*>Retry</);
@@ -267,6 +270,73 @@ test("Retry on a staged image uploads its original again; the preview sends mean
   expect(handle.current!.originalFailures).toEqual({});
   expect(uploaded).toEqual([["shot.png"], ["shot.png"]]);
   expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
+});
+
+// Review (Sol) at 04641cba: saving an image's original again is a real retry in a chat on this Mac
+// too (a prompt too large for one message goes with links to the originals only once they are
+// saved), so its Retry shows there, before and after a carry; and nothing uploads on its own, so a
+// key in another chat never sends this image to that chat's machine.
+test("an image whose original was not saved shows Retry in a local chat too, and nothing uploads on its own", async () => {
+  const uploads: string[] = [];
+  const options = (scope: string, localChat: boolean): AttachmentIntakeOptions => ({
+    allowImages: true,
+    pasteTarget: () => undefined,
+    scope,
+    carries: () => true,
+    localChat,
+    upload: async () => {
+      uploads.push(scope);
+      return { error: "The disk is full." };
+    },
+  });
+  const handle: { current: Intake | null } = { current: null };
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={options("local", true)} handle={handle} />));
+  await act(() => handle.current!.attach([png("shot.png")], true));
+  await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
+  expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
+  act(() => root!.render(<Harness options={options("cloud", false)} handle={handle} />));
+  for (const type of ["keydown", "pointerdown"]) document.dispatchEvent(new dom.window.Event(type, { bubbles: true }));
+  // An upload that should never start has no event to wait for; one task turn lets a listener's
+  // zero-delay try again run if one were armed.
+  // fixed-wait: waits on the absence of an upload, which no event signals.
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  expect(uploads).toEqual(["local"]);
+  expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
+});
+
+// Review (Astra) at 69987495: in a chat on this Mac, Retry over an image whose original was not
+// saved runs the same save again: it goes on success and comes back if the save fails again.
+test("a local chat's Retry saves the original again, and shows again only if that fails", async () => {
+  const answers: UploadResult[] = [
+    { error: "The disk is full." },
+    { error: "Still full." },
+    { paths: ["/Users/me/Chat Uploads/shot.png"] },
+  ];
+  const uploads: string[][] = [];
+  const options: AttachmentIntakeOptions = {
+    allowImages: true,
+    pasteTarget: () => undefined,
+    localChat: true,
+    upload: async (files) => {
+      uploads.push(files.map((file) => file.name));
+      return answers.shift();
+    },
+  };
+  const handle: { current: Intake | null } = { current: null };
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={options} handle={handle} />));
+  await act(() => handle.current!.attach([png("shot.png")], true));
+  const retry = () => host.querySelector<HTMLButtonElement>(".acpmux-attachment-original-retry");
+  await until(() => Boolean(retry()));
+  act(() => retry()!.click());
+  await until(() => uploads.length === 2 && Boolean(retry()));
+  expect(handle.current!.originalFailures[handle.current!.attachments[0]!.id]).toBe("Still full.");
+  act(() => retry()!.click());
+  await until(() => handle.current!.attachments[0]?.originalPath === "/Users/me/Chat Uploads/shot.png");
+  expect(uploads).toEqual([["shot.png"], ["shot.png"], ["shot.png"]]);
+  expect(handle.current!.originalFailures).toEqual({});
+  expect(retry()).toBeNull();
 });
 
 // Review (Astra): Retry's upload stops once its chip leaves the strip, also after the chip moved
