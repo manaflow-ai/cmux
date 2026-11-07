@@ -127,6 +127,17 @@ nonisolated enum AcpmuxPathPolicy {
                 params = fields
             }
         }
+        // The folder browser on another machine (`_acpmux/browse` with `peer`) names that
+        // machine's folder: its acpmux holds it to its own roots, so here only the shape is checked.
+        var peerPath: String?
+        if method == "_acpmux/browse", var fields = params as? [String: Any],
+           let peer = fields["peer"] as? String, !peer.isEmpty, let value = fields.removeValue(forKey: "path") {
+            guard let path = value as? String, isPeerFolder(path) else {
+                return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
+            }
+            peerPath = path
+            params = fields
+        }
         // Product rule 1: session/new (adopt too) without a cwd gets the pane's workspace root;
         // without one, the workspace's agent-home folder, made now. Never the home folder.
         // Do not work in a project (`_meta.acpmux.noProject`, the new chat's project picker,
@@ -183,8 +194,9 @@ nonisolated enum AcpmuxPathPolicy {
         var checked: Any
         do {
             checked = try rewrite(params, context: &context)
-            if peerCwd != nil || peerFolders != nil, var fields = checked as? [String: Any] {
+            if peerCwd != nil || peerFolders != nil || peerPath != nil, var fields = checked as? [String: Any] {
                 if let peerCwd { fields["cwd"] = peerCwd }
+                if let peerPath { fields["path"] = peerPath }
                 if let peerFolders { fields["additionalDirectories"] = peerFolders }
                 checked = fields
             }

@@ -41,4 +41,36 @@ struct AgentPaneFolderBrowseRelayTests {
         #expect(Set(entry.keys) == ["name", "path", "kind"])
         #expect((kept["truncated"] as? [String: Any])?.keys.sorted() == ["reason", "scanned"])
     }
+
+    static func browse(_ params: [String: Any]) throws -> String {
+        let frame: [String: Any] = ["jsonrpc": "2.0", "id": 3, "method": "_acpmux/browse", "params": params]
+        return String(decoding: try JSONSerialization.data(withJSONObject: frame, options: [.withoutEscapingSlashes]), as: UTF8.self)
+    }
+
+    /// Another machine's folder is that machine's to check (its acpmux holds it to its roots): a
+    /// path only it has goes as named, never read from this Mac's disk; only its shape is checked.
+    @Test func aPeersFolderGoesAsNamedAndOnlyItsShapeIsChecked() throws {
+        let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().path
+        let scope = AcpmuxPathPolicy.Scope(roots: [root], fillCwd: root, workspaceID: "0f8a2c1e-5b3d-4e6f-9a7b-1c2d3e4f5a6b")
+        for path in ["/home/devbox/projects/api-\(UUID().uuidString)", "/tmp"] {
+            guard case .success(let checked) = AcpmuxPathPolicy.checkNow(try Self.browse(["peer": "devbox", "path": path]), scope: scope) else {
+                Issue.record("the relay refused a peer's folder: \(path)")
+                continue
+            }
+            let params = try #require((try JSONSerialization.jsonObject(with: Data(checked.text.utf8)) as? [String: Any])?["params"] as? [String: Any])
+            #expect(params["path"] as? String == path)
+        }
+        for bad in ["relative/x", "/a\u{0}b", "/" + String(repeating: "x", count: AcpmuxPathPolicy.peerFolderMaxBytes + 1)] {
+            guard case .failure(let refusal) = AcpmuxPathPolicy.checkNow(try Self.browse(["peer": "devbox", "path": bad]), scope: scope) else {
+                Issue.record("the relay sent a malformed peer folder: \(bad.prefix(40))")
+                continue
+            }
+            #expect(refusal.error == .pathInvalid)
+        }
+        // This Mac's own folders stay held to the pane's roots.
+        guard case .failure = AcpmuxPathPolicy.checkNow(try Self.browse(["path": "/home/devbox/missing-\(UUID().uuidString)"]), scope: scope) else {
+            Issue.record("a local browse outside the roots went out")
+            return
+        }
+    }
 }

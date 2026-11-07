@@ -103,13 +103,23 @@ nonisolated extension AcpmuxPaneMethods {
         }
     }
 
+    /// The `data.reason` values a filtered reply's error keeps, so the page can tell a refusal
+    /// from a machine that is down (the folder browser's lines); any other reason is dropped.
+    static let keptErrorReasons: Set<String> = [
+        "browse.path", "browse.outside_roots", "browse.not_directory", "peer_unreachable", "peer.forward_refused",
+    ]
+
     /// A reply to a filtered request, rebuilt with the page's id (raw JSON) and its filtered
-    /// result. An error keeps only its code and message.
+    /// result. An error keeps only its code, its message and a reason ``keptErrorReasons`` lists.
     static func filteredReply(_ object: [String: Any], shape: ReplyShape, pageID: String) -> String {
         let id = (try? JSONSerialization.jsonObject(with: Data(pageID.utf8), options: [.fragmentsAllowed])) ?? NSNull()
         var reply: [String: Any] = ["jsonrpc": "2.0", "id": id]
         if let error = object["error"] as? [String: Any] {
-            reply["error"] = ["code": error["code"] as? Int ?? -32603, "message": error["message"] as? String ?? ""]
+            var kept: [String: Any] = ["code": error["code"] as? Int ?? -32603, "message": error["message"] as? String ?? ""]
+            if let reason = (error["data"] as? [String: Any])?["reason"] as? String, keptErrorReasons.contains(reason) {
+                kept["data"] = ["reason": reason]
+            }
+            reply["error"] = kept
         } else {
             reply["result"] = object["result"].flatMap { filtered($0, to: shape) } ?? [String: Any]()
         }

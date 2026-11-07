@@ -10382,6 +10382,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
                 <NewTabScreen
+                  browseFolders={browseFolders}
                   onSetup={(resume) => {
                     setupContinuation.current = resume;
                     setHarnessesOpen(true);

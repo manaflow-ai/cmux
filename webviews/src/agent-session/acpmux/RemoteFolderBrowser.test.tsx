@@ -152,3 +152,32 @@ test("a truncated listing shows the quiet line", async () => {
   }));
   expect(document.querySelector(".acpmux-browse-note")!.textContent).toBe(translate("composer.browseTruncated"));
 });
+
+test("⌘Return picks nothing while a folder loads or after it failed, as Use is disabled", async () => {
+  const commandReturn = () =>
+    act(async () => {
+      const input = document.querySelector<HTMLInputElement>(".acpmux-browse input")!;
+      input.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }));
+    });
+  // The machine's top lists Projects; opening it then hangs, or fails.
+  const top = async (): Promise<BrowseReply> => ({
+    path: null,
+    parent: null,
+    home: HOME,
+    entries: tree[""]!,
+    total: 1,
+    offset: 0,
+  });
+  const loading = await mount((params) => (params.path ? new Promise<BrowseReply>(() => undefined) : top()));
+  await click(rows()[0]!);
+  await commandReturn();
+  expect(loading.picked).toEqual([]);
+  await act(async () => root!.unmount());
+  root = undefined;
+  const failed = await mount((params) =>
+    params.path ? Promise.reject({ code: -32000, data: { reason: "peer_unreachable" } }) : top(),
+  );
+  await click(rows()[0]!);
+  await commandReturn();
+  expect(failed.picked).toEqual([]);
+});

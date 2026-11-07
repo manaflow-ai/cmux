@@ -16,7 +16,7 @@
     "_acpmux/harness/health", "_acpmux/side", "_acpmux/offer_respond", "_acpmux/start_mode",
     "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply", "_acpmux/watch_take_over",
     "_acpmux/process/list", "_acpmux/process/tail", "_acpmux/process/kill", "_acpmux/process/background",
-    "_acpmux/session/auth", "_acpmux/route/list", "_acpmux/chat/route.set", "_acpmux/forum/rules", "_acpmux/resolve", "_acpmux/set_tools",
+    "_acpmux/session/auth", "_acpmux/route/list", "_acpmux/chat/route.set", "_acpmux/forum/rules", "_acpmux/resolve", "_acpmux/browse", "_acpmux/set_tools",
     "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
     "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key", "_acpmux/agent_login/cancel"
   ],
@@ -115,6 +115,7 @@
     "_acpmux/harness/health": {"params": ["refresh", "rescan"], "acpmux": []},
     "_acpmux/forum/rules": {"params": [], "acpmux": []},
     "_acpmux/resolve": {"params": ["query"], "acpmux": []},
+    "_acpmux/browse": {"params": ["peer", "path", "hidden", "dirsOnly", "offset", "limit"], "acpmux": []},
     "_acpmux/side": {"params": ["sessionId", "chat"], "acpmux": []},
     "_acpmux/offer_respond": {"params": ["sessionId", "offerId", "outcome", "childSessionId"], "acpmux": []},
     "_acpmux/subagent_transcript": {"params": ["sessionId", "runId", "agentId", "before", "after", "limit"], "acpmux": []},
@@ -146,6 +147,7 @@
     "session/set_config_option": {"params": ["sessionId", "configId", "value", "_meta"], "acpmux": []}
   },
   "reply_shapes": {
+    "_acpmux/browse": {"object": {"path": "string", "parent": "string", "home": "string", "roots": {"list": "string"}, "peer": "string", "entries": {"list": {"object": {"name": "string", "path": "string", "kind": "string", "target": "string", "outside": "bool", "size": "number"}}}, "total": "number", "offset": "number", "nextOffset": "number", "truncated": {"object": {"reason": "string", "scanned": "number"}}}},
     "_acpmux/status": {"object": {"peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "state": "string", "lastSeen": "number", "attempts": "number", "health": {"object": {"unsupported": "bool", "load": {"list": "number"}, "cpus": "number", "ram": {"object": {"freeBytes": "number"}}, "pressure": {"object": {"cores": "number", "load_limit": "number", "ok": "bool", "over": {"list": "string"}}}}}}}}}},
     "_acpmux/peer_reconnect": {"object": {"peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "state": "string", "lastSeen": "number", "attempts": "number", "error": "string"}}}}},
     "_acpmux/peers": {"object": {"peers": {"list": {"object": {"name": "string", "state": "string", "lastSeen": "number", "error": "string"}}}}}

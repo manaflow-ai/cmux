@@ -102,6 +102,8 @@ export function RemoteFolderBrowser({
   const open = (entry: BrowseEntry) => {
     if (opensAsFolder(entry)) go(entry.path);
   };
+  // The folder shown can be used once it read: not at the machine's top, while it loads or after it failed.
+  const usable = Boolean(view.path) && !view.loading && !view.failure;
   const key = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -115,8 +117,9 @@ export function RemoteFolderBrowser({
     } else if (event.key === "Enter") {
       event.preventDefault();
       // ⌘Return uses the folder shown; Return opens the highlighted one.
-      if ((event.metaKey || event.ctrlKey) && view.path) onPick(view.path);
-      else if (rows[highlight]) open(rows[highlight]!);
+      if (event.metaKey || event.ctrlKey) {
+        if (usable && view.path) onPick(view.path);
+      } else if (rows[highlight]) open(rows[highlight]!);
     } else if (event.key === "Backspace" && filter === "") {
       event.preventDefault();
       up();
@@ -237,7 +240,7 @@ export function RemoteFolderBrowser({
       <button
         type="button"
         className="acpmux-menu-item acpmux-location-choose acpmux-browse-use"
-        disabled={!view.path || view.loading || Boolean(view.failure)}
+        disabled={!usable}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => view.path && onPick(view.path)}
       >
