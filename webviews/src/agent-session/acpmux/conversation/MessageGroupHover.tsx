@@ -126,7 +126,8 @@ export function MessageGroupHover({ list }: { list: GroupHoverList }) {
   return (
     <div className="cv-group-hover" data-look={look}>
       {listed.map((message, index) => {
-        const preview = look === "messages" ? hoverText(message.text) : messagePreview(withoutRelayLabelOfMessage(message.text));
+        const preview =
+          look === "messages" ? hoverText(message.text) : messagePreview(withoutRelayLabelOfMessage(message.text));
         return (
           <div key={`${message.msgId ?? ""}:${index}`} className="cv-group-hover__item">
             <div className="cv-group-hover__who">

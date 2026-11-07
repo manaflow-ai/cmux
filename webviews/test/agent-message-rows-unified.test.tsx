@@ -153,7 +153,9 @@ test("an older record whose broker label names a suffixed sender keeps its marke
   if (prompt?.kind !== "message") throw new Error("not a received message");
   expect(prompt.message.name).toBe("gcp-codex-swarm-05/cloud-start-matrix");
   expect(prompt.message.unverified).toBe(true);
-  const container = await render(<IncomingMessageLine id="m-old-label" message={prompt.message} onOpen={() => undefined} />);
+  const container = await render(
+    <IncomingMessageLine id="m-old-label" message={prompt.message} onOpen={() => undefined} />,
+  );
   expect(container.querySelector(".cv-unverified")).not.toBeNull();
   expect(container.textContent).toContain("gcp-codex-swarm-05/cloud-start-matrix");
   expect(container.innerHTML).not.toContain("self-declared");

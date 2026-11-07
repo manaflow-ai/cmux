@@ -207,9 +207,7 @@ export async function traceUpwardAnchors({
         driven.delete(paint);
         const current = read();
         if (pendingFold !== undefined) {
-          const toggle = scroller.querySelector<HTMLButtonElement>(
-            '[data-row-id="gap-incoming"] .cv-agentmsg__toggle',
-          );
+          const toggle = scroller.querySelector<HTMLButtonElement>('[data-row-id="gap-incoming"] .cv-agentmsg__toggle');
           foldTransitions.push({
             before: pendingFold,
             after: toggle?.getAttribute("aria-expanded") ?? null,
