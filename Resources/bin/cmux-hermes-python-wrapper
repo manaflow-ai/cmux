@@ -63,7 +63,8 @@ cmux_hermes_resolve_real_python() {
     # between, so take the nearest ancestor that is a Python interpreter.
     # The cmux `hermes` shim exports its pid as CMUX_HERMES_AGENT_PID right
     # before it execs Hermes, so that pid is the launcher: when it is set, a
-    # Python ancestor counts only if it is the launcher or below it. `comm`
+    # Python ancestor counts only if it is the launcher or below it, and the
+    # launcher itself wins over a frontend's own Python below it. `comm`
     # gives the interpreter without parsing a command line or assuming a
     # particular Hermes installation layout.
     launcher_marker="${CMUX_HERMES_AGENT_PID:-}"
@@ -71,7 +72,7 @@ cmux_hermes_resolve_real_python() {
     launcher_pid="$PPID"
     for (( hop = 0; hop < 8; hop++ )); do
         [[ "$launcher_pid" =~ ^[1-9][0-9]*$ && "$launcher_pid" != 1 ]] || break
-        if [[ -z "$nearest_python" ]]; then
+        if [[ -z "$nearest_python" || "$launcher_pid" == "$launcher_marker" ]]; then
             candidate="$(/bin/ps -ww -p "$launcher_pid" -o comm= 2>/dev/null || true)"
             candidate="${candidate#"${candidate%%[![:space:]]*}"}"
             candidate="${candidate%"${candidate##*[![:space:]]}"}"
