@@ -101,7 +101,19 @@
     {
       "agent": "settable",
       "keys": [
-        "tabs.newTabPosition",
+        "tabs.newTabPosition"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Where the + puts a tab; looks only, ends no work.",
+      "keys": [
+        "tabs.newTabButtonPosition"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs"
       ]

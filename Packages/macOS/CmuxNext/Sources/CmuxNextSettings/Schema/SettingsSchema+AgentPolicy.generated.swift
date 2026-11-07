@@ -42,7 +42,10 @@ extension SettingsSchema {
         "sidebar.style", "sidebar.spacesPosition", "sidebar.spacesVisibility", "tabs.newTabTemplate",
         // Which New Tab page draws; a look switch, ends no work.
         "tabs.nativeNewTabPage",
-        "tabs.newTabPosition", "newTerminal.opensWorkspace", "tabs.cmdWClosesPinnedTabs",
+        "tabs.newTabPosition",
+        // Where the + puts a tab; looks only, ends no work.
+        "tabs.newTabButtonPosition",
+        "newTerminal.opensWorkspace", "tabs.cmdWClosesPinnedTabs",
         // Dock icon and Cmd-Tab entry with no window open; ends no work.
         "app.hideDockIconWithoutWindows",
         // The menu bar item; looks only, ends no work.

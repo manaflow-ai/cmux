@@ -348,7 +348,26 @@ pub(crate) async fn approvals_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
         text(m, "id") == id && (fingerprint.is_empty() || text(m, "fingerprint") == fingerprint)
     });
     let phones = PhonePlan::of(&view, &listed);
+    // A daemon from before phone enrollment lists no phones at all (not an empty list): its
+    // phones are unknown, never up to date.
+    let old_daemon = !view.get("thisMacPhones").is_some_and(Value::is_array);
+    let too_old =
+        |state: StepState| {
+            step(
+            StepState::Warn,
+            format!(
+                "{} on {host}, but this Mac's acpmux is too old to enroll its paired phones there",
+                if state == StepState::Fixed { "enrolled this Mac" } else { "this Mac is enrolled" }
+            ),
+        )
+        .with_fix(format!(
+            "Update acpmux on this Mac, then run `acpmux machine doctor {name} --fix` again."
+        ))
+        };
     if enrolled && phones.is_empty() {
+        if old_daemon {
+            return too_old(StepState::Ok);
+        }
         return step(StepState::Ok, format!("{mac} may allow {host}'s prompts from the app"));
     }
     if !fix {
@@ -376,18 +395,10 @@ pub(crate) async fn approvals_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
             Err(e) => Err(e.to_string()),
         }
     };
-    if !enrolled && let Err(why) = add((id, key, label)) {
-        return step(StepState::Warn, format!("could not enroll {mac} on {host}: {why}"));
-    }
-    // The paired phones follow the Mac's own key: each one current, and none this Mac no longer
-    // pairs (a phone unpaired here stops counting there too).
+    // The paired phones follow the Mac's own key: none this Mac no longer pairs (a phone unpaired
+    // here stops counting there too), then each one current. Removals go first, so a peer whose
+    // list is full still makes room for the Mac and a newly paired phone.
     let mut failed = Vec::new();
-    for phone in &phones.add {
-        let entry = (text(phone, "id"), text(phone, "publicKey"), text(phone, "name"));
-        if let Err(why) = add(entry) {
-            failed.push(why);
-        }
-    }
     for id in &phones.remove {
         match ssh(&format!("host approvals rm {}", shell_quote(id))) {
             Ok(r) if r.ok => {}
@@ -395,8 +406,20 @@ pub(crate) async fn approvals_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
             Err(e) => failed.push(e.to_string()),
         }
     }
+    if !enrolled && let Err(why) = add((id, key, label)) {
+        return step(StepState::Warn, format!("could not enroll {mac} on {host}: {why}"));
+    }
+    for phone in &phones.add {
+        let entry = (text(phone, "id"), text(phone, "publicKey"), text(phone, "name"));
+        if let Err(why) = add(entry) {
+            failed.push(why);
+        }
+    }
     if let Some(why) = failed.first() {
         return step(StepState::Warn, format!("could not enroll {mac}'s phones on {host}: {why}"));
+    }
+    if old_daemon {
+        return too_old(StepState::Fixed);
     }
     let what = if phones.paired == 0 { mac } else { format!("{mac} and its paired phones") };
     step(StepState::Fixed, format!("{what} may now allow {host}'s prompts from the app"))
