@@ -16,10 +16,23 @@
 //! redirection. A command it does not know, or cannot parse, is
 //! [`CommandClass::Machine`]: forwarding to the machine is always safe.
 //!
+//! The same rule holds inside a known command: a flag, setting or program
+//! that can run something or write a file moves the command up unless the
+//! classifier can show it doesn't (`rg --pre`, `git -c core.fsmonitor=...`,
+//! a sed `e` or `w` command, an awk pipe, `curl -D file`, `curl localhost`).
+//!
+//! What it can't see: the repository's own configuration. A `.git/config`
+//! that sets `core.fsmonitor`, a pager, a diff driver or a hooks path makes
+//! a `git status` run a program; whatever runs these commands outside the
+//! machine has to run git with those settings off.
+//!
 //! Nothing calls this yet; it is the first step of the agent home.
 
 mod lex;
+mod net;
+mod programs;
 mod rules;
+mod tools;
 
 /// What a command needs, from least to most.
 ///

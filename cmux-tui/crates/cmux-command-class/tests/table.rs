@@ -114,7 +114,7 @@ fn git_local() {
         ("git ls-files", GitLocal, "git ls-files"),
         ("git cat-file -p HEAD", GitLocal, "git cat-file"),
         ("git -C ../other --no-pager log", GitLocal, "git log"),
-        ("git -c core.pager=cat diff", GitLocal, "git diff"),
+        ("git -c color.ui=always diff", GitLocal, "git diff"),
         ("git stash list", GitLocal, "git stash"),
         ("git worktree list", GitLocal, "git worktree"),
         ("git --version", GitLocal, "git"),
@@ -283,4 +283,161 @@ fn order_is_documented_order() {
     assert!(CommandClass::ALL.windows(2).all(|w| w[0] < w[1]));
     assert!(!FileWrite.needs_machine());
     assert!(GitHooks.needs_machine() && Machine.needs_machine());
+}
+
+/// Review of #37800: each of these reached the home when it needs the
+/// machine (or writes); the rows after each finding check its everyday
+/// form still classifies low.
+#[test]
+fn substitutions_and_heredocs_fail_closed() {
+    check(&[
+        // F1: `$((` that is two subshells, not arithmetic.
+        ("echo $((echo inner); (uname))", Machine, "uname"),
+        ("echo $((i + 1))", FileRead, "echo"),
+        ("echo $(( $(uname -r | wc -c) + 1 ))", Machine, "uname"),
+        // F2: a heredoc inside `$(...)` whose body holds a `)`.
+        ("echo \"$(cat <<EOF\n)\nEOF\nuname\n)\"", Machine, "uname"),
+        ("gh pr create --body \"$(cat <<'EOF'\nFixes a) and b)\nEOF\n)\"", Network, "gh"),
+        ("git commit -m \"$(cat <<'EOF'\nfix: x)\nEOF\n)\"", GitHooks, "git commit"),
+        ("echo \"$(cat <<EOF\nno end\n)\"", Machine, "unparsed"),
+        // F10: wrappers share the depth bound.
+        ("nice nice nice cat input", FileRead, "cat"),
+    ]);
+    let chain = format!("{}cat input", "nice ".repeat(200));
+    let got = classify(&chain);
+    assert_eq!((got.class, got.reason.as_str()), (Machine, "nesting"));
+}
+
+#[test]
+fn programs_that_run_or_write_fail_closed() {
+    check(&[
+        // F3: sed commands that run a process or write a file.
+        ("sed -n '1e uname' input", Machine, "sed e"),
+        ("sed 's/x/date/e' input", Machine, "sed s///e"),
+        ("sed 's/x/y/w changed.txt' input", FileWrite, "sed s///w"),
+        ("sed '/x/w changed.txt' input", FileWrite, "sed w"),
+        ("sed -e 'p' -e '$W out.txt' input", FileWrite, "sed w"),
+        ("sed -f prog.sed input", Machine, "sed -f"),
+        ("sed 'Q nonsense' input", Machine, "sed program"),
+        ("sed 's/hello/world/g; /we/d' input", FileRead, "sed"),
+        ("sed -n '/^fn /,/^}/p' src/lib.rs", FileRead, "sed"),
+        ("sed -E 's|a/(b)|\\1|' input", FileRead, "sed"),
+        // F4: awk destinations that are expressions.
+        ("awk 'BEGIN{cmd=\"uname\";print \"\"|cmd}'", Machine, "awk |"),
+        ("awk 'BEGIN{f=\"out\";print \"x\">f}'", FileWrite, "awk >"),
+        ("awk '{ \"date\" | getline d; print d }'", Machine, "awk |"),
+        ("awk '{printf(\"%s\", $1) >> $2}' list", FileWrite, "awk >"),
+        ("awk '{print $1 > \"/dev/stderr\"}' f", FileRead, "awk"),
+        ("awk '/a|b/ {print}' f", FileRead, "awk"),
+        ("awk '$1 > 3 || $2 < 1 {print ($1 > $2)}' f", FileRead, "awk"),
+        ("awk '{print \"unterminated}' f", Machine, "awk program"),
+        // F5: execution and output modes of name-based utilities.
+        ("rg --pre ./filter needle input", Machine, "rg --pre"),
+        ("rg --pre=./filter needle", Machine, "rg --pre"),
+        ("rg --pre-glob '*.gz' needle", FileRead, "rg"),
+        ("tar --checkpoint-action=exec=./hook -cf a.tar .", Machine, "tar program"),
+        ("tar -xIzstd -f a.tar.zst", Machine, "tar program"),
+        ("xxd input output", FileWrite, "xxd OUTPUT"),
+        ("xxd -l 64 input", FileRead, "xxd"),
+        ("uniq in.txt out.txt", FileWrite, "uniq OUTPUT"),
+        ("bat --pager=./pager file", Machine, "bat --pager"),
+        ("fd -e rs -x rustfmt", Machine, "rustfmt"),
+        ("fd -e rs -x wc -l", FileRead, "fd"),
+        ("tree -o tree.txt", FileWrite, "tree -o"),
+        ("yq -i '.a = 1' f.yaml", FileWrite, "yq -i"),
+        ("date -s '2026-01-01'", Machine, "date -s"),
+        // F12: attached and clustered sort outputs.
+        ("sort -osorted input", FileWrite, "sort -o"),
+        ("sort -uo out input", FileWrite, "sort -o"),
+        ("sort --output=out input", FileWrite, "sort -o"),
+        ("sort --compress-program=./z input", Machine, "sort --compress-program"),
+        ("sort -k2 -t, -n input", FileRead, "sort"),
+    ]);
+}
+
+#[test]
+fn git_and_gh_forms_fail_closed() {
+    check(&[
+        // F6: git settings and options that run a program.
+        ("git -c core.fsmonitor=./monitor status", Machine, "git -c"),
+        ("git -c core.pager=./pager log", Machine, "git -c"),
+        ("git -c diff.external=./d diff", Machine, "git -c"),
+        ("git -c core.fsmonitor=false status", GitLocal, "git status"),
+        ("git -c color.ui=always status", GitLocal, "git status"),
+        ("git --config-env=core.pager=PAGER log", Machine, "git --config-env"),
+        ("git clone --upload-pack=./x ../repo", Machine, "git clone"),
+        ("git clone -c core.hooksPath=h https://x/r", Machine, "git clone"),
+        ("git fetch --upload-pack ./x origin", Machine, "git fetch"),
+        ("git grep -Ovim TODO", Machine, "git grep"),
+        ("git diff --ext-diff", Machine, "git diff"),
+        ("git diff --output=change.patch", FileWrite, "git diff"),
+        ("git push ../mirror main", GitHooks, "git push"),
+        ("git push -u origin HEAD", Network, "git push"),
+        ("git rebase -i HEAD~3", Machine, "git rebase"),
+        ("git config user.name Leo", FileWrite, "git config"),
+        ("git config --unset user.name", FileWrite, "git config"),
+        ("git config --get user.name", GitLocal, "git config"),
+        ("git config user.name", GitLocal, "git config"),
+        ("git config --edit", Machine, "git config"),
+        ("git branch feature", FileWrite, "git branch"),
+        ("git branch -D old", FileWrite, "git branch"),
+        ("git branch --contains abc123", GitLocal, "git branch"),
+        ("git tag v1.0", FileWrite, "git tag"),
+        ("git tag -l 'v*'", GitLocal, "git tag"),
+        ("git remote add up https://x/r", FileWrite, "git remote"),
+        ("git remote -v", GitLocal, "git remote"),
+        // F8: gh's valued options before the action.
+        ("gh pr --repo owner/repo checkout 123", GitHooks, "gh pr checkout"),
+        ("gh -R owner/repo pr checkout 123", GitHooks, "gh pr checkout"),
+        ("gh pr --repo owner/repo view 123", Network, "gh"),
+        // F9: gh forms that create or change a local checkout.
+        ("gh gist clone abc123", FileWrite, "gh gist clone"),
+        ("gh repo create demo --public --clone", FileWrite, "gh repo create"),
+        ("gh repo fork owner/repo --clone", FileWrite, "gh repo fork"),
+        ("gh repo sync", GitHooks, "gh repo sync"),
+        ("gh repo sync -b main", GitHooks, "gh repo sync"),
+        ("gh repo sync owner/fork", Network, "gh"),
+        ("gh pr merge 1 --squash --delete-branch", GitHooks, "gh pr merge"),
+        ("gh pr merge 1 --squash", Network, "gh"),
+        ("gh issue develop 7 --checkout", GitHooks, "gh issue develop"),
+        ("gh repo create demo --public", Network, "gh"),
+    ]);
+}
+
+#[test]
+fn network_forms_fail_closed() {
+    check(&[
+        // F7: the machine's own loopback and local sockets.
+        ("curl http://localhost:3000/health", Machine, "curl localhost"),
+        ("curl -s 127.0.0.1:8080/metrics", Machine, "curl localhost"),
+        ("curl http://[::1]:3000/", Machine, "curl localhost"),
+        ("curl http://app.localhost/", Machine, "curl localhost"),
+        ("curl --unix-socket /var/run/docker.sock http://x/v1/info", Machine, "curl --unix-socket"),
+        ("curl -x localhost:8080 https://example.com", Machine, "curl localhost"),
+        ("curl --resolve example.com:443:127.0.0.1 https://example.com", Machine, "curl localhost"),
+        ("curl -H 'Host: localhost' https://example.com", Network, "curl"),
+        ("wget -qO- localhost:3000", Machine, "wget localhost"),
+        ("ssh localhost uptime", Machine, "ssh localhost"),
+        ("ssh -L 3000:localhost:3000 host", Machine, "ssh -L"),
+        ("ssh -o ProxyCommand=./proxy host", Machine, "ssh -o"),
+        ("ssh -p 2222 host uptime", Network, "ssh"),
+        ("scp file.txt user@localhost:/tmp/", Machine, "scp localhost"),
+        ("rsync -a src/ localhost:/srv/", Machine, "rsync localhost"),
+        ("rsync -e ./tunnel -a src/ host:/srv/", Machine, "rsync -e"),
+        ("rsync -a -e 'ssh -p 22' src/ host:/srv/", FileWrite, "rsync"),
+        // F11: `-` is a file to the shell and to tee.
+        ("echo hello > -", FileWrite, ">"),
+        ("tee -", FileWrite, "tee"),
+        ("ls >&-", FileRead, "ls"),
+        ("curl -o - https://example.com", Network, "curl"),
+        // F13: curl's other file outputs.
+        ("curl -D headers.txt https://example.com", FileWrite, "curl -o"),
+        ("curl -c cookies.txt https://example.com", FileWrite, "curl -o"),
+        ("curl --trace trace.log https://example.com", FileWrite, "curl -o"),
+        ("curl --stderr err.log https://example.com", FileWrite, "curl -o"),
+        ("curl -w '%output{out.txt}%{http_code}' https://example.com", FileWrite, "curl -o"),
+        ("curl -D - https://example.com", Network, "curl"),
+        ("curl -K curl.cfg", Machine, "curl -K"),
+        ("wget -o wget.log -O - https://example.com", FileWrite, "wget -o"),
+    ]);
 }
