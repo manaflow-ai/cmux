@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture commands and replies, not shipped UI.
-// A turn's preview card is for a local page the turn started or mentioned (previewUrl.ts). Leo
+// A turn's local page is one the turn started or mentioned (previewUrl.ts). Leo
 // (2026-10-19) got a card for `127.0.0.1:31415` under a stopped turn: that is the model gateway
 // the agent's environment points at (ANTHROPIC_BASE_URL), not a page, and its Load preview showed
 // nothing useful. A setting's value and an API route are not pages; a dev server's address is.

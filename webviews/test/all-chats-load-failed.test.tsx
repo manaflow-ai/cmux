@@ -157,7 +157,8 @@ test("the index scan completes to an empty state after a host push", async () =>
 test("a first page that never answers says it couldn't load past the ceiling, and Try again reads again", async () => {
   const { jest } = await import("bun:test");
   const { createRoot } = await import("react-dom/client");
-  const { AllChatsList, CHATS_READ_CEILING_MS } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const { CHATS_READ_CEILING_MS } = await import("../src/agent-session/acpmux/newtab/allChatsListModel");
   let calls = 0;
   const load = () => {
     calls += 1;
