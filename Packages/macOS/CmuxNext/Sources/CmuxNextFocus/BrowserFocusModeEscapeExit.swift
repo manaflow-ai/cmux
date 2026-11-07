@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Browser focus mode's exit gesture, ported from classic cmux
 /// (`BrowserPanel.handleBrowserFocusModeKeyEvent`): two plain Escapes in a row.
