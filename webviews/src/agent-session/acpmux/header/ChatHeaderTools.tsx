@@ -7,11 +7,12 @@
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
 // checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
 // renders from the first frame at its final size; data fills in place.
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
 import { useCountedRender } from "../perfRender";
+import { useStableProps } from "../stableProps";
 import {
   activityCue,
   morphIntoTab,
@@ -68,7 +69,21 @@ import {
   menuItemForShortcut,
 } from "./chatHeaderToolsModel";
 import { tooltipProps } from "../shortcuts";
-export function ChatHeaderTools({
+/// The header's tools, drawn again only when what the pane hands them changes. The pane renders on
+/// every snapshot (a running command's output update among them) and builds the header's callbacks,
+/// its native row's options, the Needs you button and the menu inline, so the header rendered once
+/// per output update with nothing in it changed (bench/delta-renders.bench.ts). Its props go through
+/// stableProps.ts: a callback is a stable function that calls the pane's newest one, an option object
+/// or element with the same parts is the one given before. The menu's rows and the summary button are
+/// read while the header renders, so they are read here on each pane render and hand over a change.
+export function ChatHeaderTools(props: ChatHeaderToolsProps) {
+  const stable = useStableProps(props, { menu: [[]], summary: [[true], [false]] });
+  return <ChatHeaderToolsMemo {...stable} />;
+}
+
+type ChatHeaderToolsProps = Parameters<typeof ChatHeaderToolsView>[0];
+
+function ChatHeaderToolsView({
   onTerminal,
   onSplitDown,
   onBrowser,
@@ -787,3 +802,5 @@ function ChatMenuChildRow({ child }: { child: ChatMenuChild }) {
     </MenuItem>
   );
 }
+
+const ChatHeaderToolsMemo = memo(ChatHeaderToolsView);
