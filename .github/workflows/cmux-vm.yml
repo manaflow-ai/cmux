@@ -877,10 +877,10 @@ jobs:
   # deploy-production dispatch with image_rollback this job sends). `auto-roll.ts settle` decides:
   #   roll      green (the product create booted the image) records it. Anything else (failed, cancelled, timed
   #             out, skipped) lands a rollback commit that takes the image out of both lists
-  #             (image-roll-push.sh rollback), unless the tip's first image is no longer this one: then a newer
-  #             roll or rollback commit owns production. A cancel alone is no supersede: the deploy queue never
-  #             cancels a running deploy, so a cancel is a person or a timeout and the image may be live.
-  #   rollback  verified when the product create booted the deployed first entry, not the rolled-back image.
+  #             (image-roll-push.sh rollback), first or not, so a newer roll's own rollback can never bring it
+  #             back; only an image already gone from both lists needs nothing. A cancel proves nothing: the
+  #             deploy queue never cancels a running deploy, so a cancel is a person or a timeout.
+  #   rollback  verified when the deployed list no longer has the image and the create booted its first entry.
   #             Otherwise it dispatches deploy-production again, at most ROLLBACK_DEPLOYS deploys in all, then
   #             records rollback_failed and comments on the cloud-image-roll issue. It never lands another
   #             rollback commit, so a rollback cannot loop.
