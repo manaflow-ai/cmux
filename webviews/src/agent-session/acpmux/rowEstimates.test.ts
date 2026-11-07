@@ -91,14 +91,12 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
     const live = turnView(source as never, new Set(), {
       now: 3_000,
       working: true,
-      lineBelow: true,
-      liveRuns: true,
       sessionStatus: true,
     });
     const settled = turnView(
       [...source, { id: "s", version: 1, at: 3_000, kind: "turnSummary", status: "completed", text }] as never,
       new Set(),
-      { now: 4_000, lineBelow: true, liveRuns: true, sessionStatus: true },
+      { now: 4_000, sessionStatus: true },
     );
     expect(live.at(-1)).toMatchObject({ below: true });
     expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
@@ -123,8 +121,6 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   const live = turnView(liveSource as never, new Set(), {
     now: 5_000,
     working: true,
-    lineBelow: true,
-    liveRuns: true,
     sessionStatus: true,
   });
   const settledSource = [
@@ -137,25 +133,12 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   ];
   const settled = turnView(settledSource as never, new Set(), {
     now: 6_000,
-    lineBelow: true,
-    liveRuns: true,
     sessionStatus: true,
   });
   expect(live.at(-1)).toMatchObject({ kind: "activityLine", below: true });
   expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
   expect(layoutConversation(live, 720).heights.at(-1)).toBe(TRANSCRIPT_FOOTER_CONTROL);
   expect(layoutConversation(settled, 720).heights.at(-1)).toBe(TRANSCRIPT_FOOTER_CONTROL);
-
-  const legacy = turnView(liveSource as never, new Set(), {
-    now: 5_000,
-    working: true,
-    lineBelow: false,
-    liveRuns: false,
-    sessionStatus: true,
-  });
-  expect(legacy.at(-1)).toMatchObject({ kind: "activityLine" });
-  expect(legacy.at(-1)?.below).toBeUndefined();
-  expect(layoutConversation(legacy, 720).heights.at(-1)).toBe(28);
 });
 
 test("the chat's last footer is placed again when a prompt follows it", () => {

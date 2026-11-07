@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 import unittest.mock
@@ -18,6 +19,8 @@ spec.loader.exec_module(excuse)
 # Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
 # their fakes only; SourceReads runs the real git reader against a local repository.
 REAL_GIT_TEXT = getattr(excuse, "git_text", None)
+# HEAD below is a placeholder ("a" * 40) that the fakes answer for; the CLI refuses one unless told a fixture does.
+os.environ["BASE_RED_EXCUSE_FIXTURE_SHA"] = "1"
 
 
 def setUpModule():
@@ -310,6 +313,43 @@ class NoFailureExitsZero(unittest.TestCase):
             code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD])
         self.assertEqual(code, 0)
         self.assertIn("no failure to excuse", out.getvalue())
+
+    # 2026-11-05: a gh-merge-green test's classifier, --sha aaaa... against a fake gh whose list never ended, outlived
+    # its test and ran three days on gcp-agent-lane-2 at 27.6 GB.
+    def test_main_refuses_a_placeholder_sha_before_reading_anything(self):
+        def unread(*a, **k):
+            raise AssertionError("nothing is read for a placeholder sha")
+        for sha in ("a" * 40, "0" * 40, "F" * 40):
+            err = io.StringIO()
+            with unittest.mock.patch.dict(os.environ, {"BASE_RED_EXCUSE_FIXTURE_SHA": ""}), \
+                    unittest.mock.patch.object(excuse, "judge", unread), \
+                    unittest.mock.patch.object(excuse, "GitHub", unread), contextlib.redirect_stderr(err):
+                code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", sha, "--check", "x"])
+            with self.subTest(sha=sha):
+                self.assertEqual(code, 1)
+                self.assertIn("is a placeholder, not a commit", err.getvalue())
+
+    def test_main_stops_at_its_deadline_even_inside_a_loop_that_takes_every_refusal(self):
+        import time
+
+        def endless(*a, **k):  # as a window read that catches Refused and reads on, with a list that never ends
+            while True:
+                try:
+                    time.sleep(0.05)
+                except Exception:  # noqa: BLE001
+                    pass
+        err = io.StringIO()
+        started = time.monotonic()
+        with unittest.mock.patch.dict(os.environ, {"BASE_RED_EXCUSE_DEADLINE_SECONDS": "1"}), \
+                unittest.mock.patch.object(excuse, "judge", endless), \
+                unittest.mock.patch.object(excuse, "GitHub", FakeGitHub), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None), \
+                contextlib.redirect_stderr(err):
+            code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", "1" * 39 + "2", "--check", "x"])
+        self.assertEqual(code, 1)
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertIn("ran past its 1 s deadline", err.getvalue())
+        self.assertEqual(excuse.signal.alarm(0), 0)  # no alarm left armed for the caller
 
     def test_a_named_run_with_no_failed_job_is_still_refused(self):
         github = FakeGitHub()
@@ -1643,6 +1683,30 @@ class StatusOnlyChecks(unittest.TestCase):
             self.judge()
 
 
+def pr_graphql(case, calls, paths, *, number, changed=None, page=100, base_oids=()):
+    """A fake GitHub.run for pr_paths' read: HEAD's PRs (another PR into feat-cmux-next with another head beside the
+    one into it with HEAD), with that PR's files PAGE at a time, the cursor being the next file's index. CHANGED: the
+    PR's changedFiles, when it is not how many files are listed; BASE_OIDS: its base commit on each page in turn. Each
+    call's argv goes to CALLS."""
+
+    def run(args):
+        calls.append(args)
+        case.assertEqual(args[:4], ["api", "graphql", "-f", f"query={excuse.PR_FILES_QUERY}"])
+        case.assertIn(f"oid={HEAD}", args)
+        after = args[-1].removeprefix("after=")
+        start = 0 if after == "null" else int(after)
+        more = start + page < len(paths)
+        base_oid = base_oids[len(calls) - 1] if base_oids else "b" * 40
+        pr = {"number": number, "baseRefName": "feat-cmux-next", "baseRefOid": base_oid, "headRefOid": HEAD,
+              "changedFiles": len(paths) if changed is None else changed,
+              "files": {"nodes": [{"path": path} for path in paths[start:start + page]],
+                        "pageInfo": {"hasNextPage": more, "endCursor": str(start + page) if more else None}}}
+        other = dict(pr, number=number + 1, headRefOid="0" * 40, files={"nodes": [], "pageInfo": {}})
+        return json.dumps({"data": {"repository": {"object": {"associatedPullRequests": {"nodes": [other, pr]}}}}})
+
+    return run
+
+
 class JoblessStatusChecks(unittest.TestCase):
     """Vercel posts a commit status no Actions job gave (cmuxterm-hq#7039, 2026-11-04: "Deployment rate limited —
     retry in 24 hours." on the head and on main's tip alike). It is excused only when the newest base commit with
@@ -1723,18 +1787,9 @@ class JoblessStatusChecks(unittest.TestCase):
     IGNORED = "Canceled by Ignored Build Step"
 
     def pr_files(self, *paths, number=7192, changed=None):
-        """The one GraphQL read pr_paths makes: the PR into feat-cmux-next whose head is HEAD and its files."""
+        """The GraphQL read pr_paths makes: the PR into feat-cmux-next whose head is HEAD and its files."""
         self.graphql: list[list[str]] = []
-        pr = {"number": number, "baseRefName": "feat-cmux-next", "headRefOid": HEAD,
-              "changedFiles": len(paths) if changed is None else changed,
-              "files": {"nodes": [{"path": path} for path in paths], "pageInfo": {"hasNextPage": False}}}
-
-        def run(args):
-            self.graphql.append(args)
-            assert args[:2] == ["api", "graphql"] and f"oid={HEAD}" in args, args
-            return json.dumps({"data": {"repository": {"object": {"associatedPullRequests": {"nodes": [pr]}}}}})
-
-        self.gh.run = run
+        self.gh.run = pr_graphql(self, self.graphql, paths, number=number, changed=changed)
 
     def test_rate_limited_vercel_is_no_result_when_the_base_skipped_its_build_and_web_is_untouched(self):
         self.base[self.TIP] = [dict(self.head, state="success", description=self.IGNORED)]
@@ -1961,6 +2016,37 @@ class RollupsFromNeeds(unittest.TestCase):
         import yaml  # noqa: F401,PLC0415 - deriving reads YAML; a host without it must not pass this silently
         self.assertEqual(json.loads(excuse.ROLLUPS_FILE.read_text()), excuse.derive_rollups(),
                          "run: python3 scripts/ci/base_red_excuse.py --write-rollups")
+
+    def test_a_host_without_pyyaml_derives_with_the_vendored_copy(self):
+        # merge_hold runs this script as `python3 -I` under Homebrew's Python, which has no PyYAML: every
+        # cmuxterm-hq rollup red was refused there with "no YAML parser" (2026-11-07, hq#7398). In a fresh
+        # interpreter whose `import yaml` fails, the rollups derive from the vendored copy, the same as with PyYAML.
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / "ci.yml").write_text(CI_YML)
+            (Path(root) / "ci-guards.yml").write_text(GUARDS_YML)
+            probe = (
+                "import importlib.abc, importlib.machinery, importlib.util, json, sys\n"
+                "from pathlib import Path\n"
+                "class OnlyVendoredYaml(importlib.abc.MetaPathFinder):\n"
+                "    def find_spec(self, name, path=None, target=None):\n"
+                "        if name != 'yaml':\n"
+                "            return None\n"
+                "        vendor = [p for p in sys.path if p.endswith('_vendor')]\n"
+                "        if not vendor:\n"
+                "            raise ImportError('no PyYAML on this host')\n"
+                "        return importlib.machinery.PathFinder.find_spec(name, vendor)\n"
+                "sys.meta_path.insert(0, OnlyVendoredYaml())\n"
+                "spec = importlib.util.spec_from_file_location('bre', sys.argv[1])\n"
+                "m = importlib.util.module_from_spec(spec)\n"
+                "spec.loader.exec_module(m)\n"
+                "print(json.dumps(m.derive_rollups(Path(sys.argv[2]))))\n"
+                "print(m.yaml_module().__file__)\n")
+            done = subprocess.run([sys.executable, "-I", "-c", probe, str(ROOT / "scripts/ci/base_red_excuse.py"), root],
+                                  capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        derived, where = done.stdout.strip().splitlines()
+        self.assertIn(str(Path("_vendor") / "yaml" / "__init__.py"), where)
+        self.assertEqual(json.loads(derived), self.derive())
 
     def test_needs_are_followed_and_named_as_actions_names_them(self):
         got = self.derive()
@@ -3648,6 +3734,156 @@ class SweepLimit(unittest.TestCase):
             third.judge(2)
             self.assertIn(f"repos/{REPO}/actions/runs/10035", third.targets)
             self.assertNotIn(f"repos/{REPO}/actions/runs/20035", third.targets)
+
+
+class StaleFfiPinOfAStepARustChange(unittest.TestCase):
+    """cmux#37292 (2026-11-06): a Rust-only change to the app FFI is red on "Check the app FFI pin" until its merge
+    publishes the release the re-pin names; the base is green on it, so only the rule for that error lets it land."""
+
+    JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+    PIN = "Check the app FFI pin"
+    ROLLUP = "Fail on any red check"
+    PINNED = "3c5c635f412c722d83d844a7f525b19caa3e87ed"
+
+    def pin_log(self, *extra):
+        # What scripts/cmux-next/check-app-ffi-pin.sh prints for a PR that changes the FFI sources, word for word,
+        # then the job's rollup step.
+        return "\n".join([
+            log(self.JOB, self.PIN, f"error: the app FFI sources changed since the pinned source {self.PINNED}:",
+                " cmux-tui/crates/cmux-layout-reducer/src/auto_archive.rs | 233 +++++",
+                " 1 file changed, 233 insertions(+)",
+                "Owning lane(s), which publish the release and update the pin:",
+                "  sidebar lane (cmux-layout-reducer, -ffi)",
+                "Commits since the pin:",
+                "  a9825b1005 Leo: cmux-layout-reducer: auto-archive planner in Rust",
+                "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run "
+                "says so), then pin the new URL and checksum in Package.swift in one commit, in the same push as the "
+                "source change when possible.", "##[error]Process completed with exit code 1."),
+            log(self.JOB, self.ROLLUP, f"##[error]red check: {self.PIN}", *extra,
+                "##[error]Process completed with exit code 1.")])
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=self.JOB, step=self.ROLLUP),
+                        2: dict(failed_job(2, 20, BASE_SHA, name=self.JOB, step=self.ROLLUP), conclusion="success")}
+        self.gh.logs = {1: self.pin_log(), 2: ""}
+        self.graphql: list[list[str]] = []
+
+    def pr_files(self, *paths, changed=None, page=100, base_oids=()):
+        self.gh.run = pr_graphql(self, self.graphql, paths, number=37292, changed=changed, page=page,
+                                 base_oids=base_oids)
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    RUST = ("cmux-tui/crates/cmux-layout-reducer/src/auto_archive.rs", "cmux-tui/crates/cmux-layout-reducer/src/lib.rs",
+            "cmux-tui/crates/cmux-layout-reducer-ffi/src/lib.rs")
+
+    def test_a_rust_only_ffi_change_is_excused_for_its_stale_pin(self):
+        self.pr_files(*self.RUST)
+        self.assertEqual(self.judge(), [
+            f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
+            "source\"), and #37292 changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: a "
+            "step-A Rust change, pinned by the release its merge publishes"])
+        self.assertEqual(len(self.graphql), 1)
+
+    def test_a_pr_of_more_than_one_page_of_files_is_read_to_its_last_file(self):
+        # cmux#37362 at 54470673 changes 108 files; GitHub lists at most 100 per page.
+        crates = tuple(f"cmux-tui/crates/cmux-actions/src/action_{i}.rs" for i in range(105))
+        self.pr_files(*crates, *self.RUST)
+        self.assertTrue(self.judge()[0].startswith(f"excused '{self.JOB}': only '{self.PIN}' is red"))
+        self.assertEqual([args[-2:] for args in self.graphql], [["-F", "after=null"], ["-f", "after=100"]])
+
+    def test_a_swift_file_past_the_first_page_is_still_refused(self):
+        crates = tuple(f"cmux-tui/crates/cmux-actions/src/action_{i}.rs" for i in range(150))
+        self.pr_files(*crates, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Actions.swift", page=50)
+        with self.assertRaisesRegex(excuse.Refused, r"#37292 changes Swift \(Packages/.*Actions.swift\)"):
+            self.judge()
+        self.assertEqual(len(self.graphql), 4)
+
+    def test_a_file_list_shorter_than_changed_files_is_refused(self):
+        crates = tuple(f"cmux-tui/crates/cmux-actions/src/action_{i}.rs" for i in range(108))
+        self.pr_files(*crates, changed=109)
+        with self.assertRaisesRegex(excuse.Refused, "GitHub listed 108 of its 109 changed files"):
+            self.judge()
+
+    def test_a_base_that_moves_between_pages_is_refused(self):
+        # Review of e97cfeac (F1): the base branch keeps its name when it advances, so pages could list two diffs.
+        crates = tuple(f"cmux-tui/crates/cmux-actions/src/action_{i}.rs" for i in range(108))
+        self.pr_files(*crates, base_oids=("b" * 40, "c" * 40))
+        with self.assertRaisesRegex(excuse.Refused, "#37292: its base moved"):
+            self.judge()
+
+    def test_a_change_that_also_changes_swift_is_refused(self):
+        self.pr_files(*self.RUST,
+                      "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/AutoArchive/AutoArchivePlanner.swift")
+        with self.assertRaisesRegex(excuse.Refused, r"#37292 changes Swift \(Packages/.*AutoArchivePlanner.swift\)"):
+            self.judge()
+
+    def test_a_change_that_moves_the_pin_is_refused(self):
+        self.pr_files(*self.RUST, "Packages/macOS/CmuxNext/Package.swift")
+        with self.assertRaisesRegex(excuse.Refused, "changes Packages/macOS/CmuxNext/Package.swift"):
+            self.judge()
+
+    def test_a_change_with_no_ffi_input_is_refused(self):
+        self.pr_files("docs/ci/app-ffi-release.md")
+        with self.assertRaisesRegex(excuse.Refused, "changes no app FFI input"):
+            self.judge()
+
+    def test_a_crash_exit_beside_the_pin_red_is_never_excused(self):
+        # Review F1 (9cac2029): the rule asks only after test_reds.read found no crash or cut-short run.
+        self.gh.logs[1] = self.pin_log("##[error]Process completed with exit code 134.")
+        self.pr_files(*self.RUST)
+        with self.assertRaisesRegex(excuse.Refused, "never a base red"):
+            self.judge()
+        self.assertEqual(self.graphql, [])
+
+    def test_another_failed_step_with_no_error_line_is_not_hidden(self):
+        # Review F2 (9cac2029): a step that failed without printing a recognized error still leaves the rule out.
+        self.gh.jobs[1]["steps"].insert(1, {"name": "Localized strings are complete", "status": "completed",
+                                            "conclusion": "failure"})
+        self.pr_files(*self.RUST)
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
+            self.judge()
+        self.assertEqual(len(self.graphql), 1)  # the path rule passed first
+
+    def test_a_swift_change_is_refused_even_when_another_red_is_shared_with_the_base(self):
+        # Review of d5c11dd8: beside a failing test the base shares, the base comparison sets error lines aside, so
+        # the pin's path rule is checked wherever the pin error shows.
+        name = "test_pin_paths (tests.test_x.T)"
+        shared = [f"FAIL: {name}", "Ran 1 test in 0.01s", "FAILED (failures=1)"]
+        self.gh.logs[1] = self.pin_log(*shared)
+        self.gh.jobs[2]["conclusion"] = "failure"
+        self.gh.logs[2] = log(self.JOB, self.ROLLUP, *shared)
+        self.pr_files(*self.RUST, "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarClient.swift")
+        with self.assertRaisesRegex(excuse.Refused, "its app FFI pin is red, and #37292 changes Swift"):
+            self.judge()
+
+    def test_other_reds_after_the_path_rule_passes_are_judged_as_before(self):
+        self.gh.logs[1] = self.pin_log("##[error]red check: Localized strings are complete")
+        self.pr_files(*self.RUST)
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
+            self.judge()
+        self.assertEqual(len(self.graphql), 1)
+
+    def test_a_rollup_that_never_named_the_pin_is_another_red(self):
+        # Review of 0e1e7204: the rollup failed before its "red check:" line, so something else broke it.
+        self.gh.logs[1] = self.pin_log().replace(f"##[error]red check: {self.PIN}", "Reading the step outcomes")
+        self.pr_files(*self.RUST)
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
+            self.judge()
+
+    def test_the_pin_step_itself_may_report_its_failure(self):
+        self.gh.jobs[1]["steps"].insert(1, {"name": self.PIN, "status": "completed", "conclusion": "failure"})
+        self.pr_files(*self.RUST)
+        self.assertTrue(self.judge()[0].startswith(f"excused '{self.JOB}': only '{self.PIN}' is red"))
+
+    def test_the_pin_error_in_another_job_is_not_this_rule(self):
+        self.gh.jobs[1]["name"] = self.gh.jobs[2]["name"] = SWIFT
+        self.pr_files(*self.RUST)
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+        self.assertEqual(self.graphql, [])
 
 
 if __name__ == "__main__":

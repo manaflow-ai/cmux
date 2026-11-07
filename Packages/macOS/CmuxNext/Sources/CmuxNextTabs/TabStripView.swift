@@ -115,6 +115,9 @@ public final class TabStripView: NSView {
     /// Every tab's and chip's target geometry (`TabPlace`); Core Animation shows the motion to it.
     var placed: [TabID: TabPlace] = [:]
     var dying: Set<TabID> = []
+    /// A closing tab's left neighbour when it closed (nil entry: it was the first tab); `pinClosingTabs`
+    /// pins the closing tab to that tab's slot, so a tab opened meanwhile cannot move it a slot.
+    var closingAnchors: [TabID: TabID?] = [:]
     /// Tabs in visual order, excluding dying and torn-out tabs.
     var displayed: [TabItem] = []
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0) {
@@ -141,7 +144,7 @@ public final class TabStripView: NSView {
     var scrollOffset: CGFloat = 0
     /// The last strip move's generation (`TabStripMove`).
     var moveGeneration = 0
-    /// When a closing group chip's last move ends: it goes then (`moveEnded`). A tab closes at once.
+    /// When a closing tab's or chip's last move ends: it goes then (`moveEnded`).
     var goesAt: [TabID: CFTimeInterval] = [:]
     /// Takes the scroll part of every move (a reveal's spring, a relayout that keeps the selected tab
     /// in view) and nothing else: what they add now is its presentation x minus its model x (`settleScroll`).

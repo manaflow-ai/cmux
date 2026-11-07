@@ -9,7 +9,7 @@ import Testing
 @testable import CmuxNextAgentPane
 
 /// Lawrence 2026-10-21 (msg 8412, "default behavior, show the tabs in agent chats"): with the chat's
-/// tools in the tab row (`chrome.tabs.rowTools`, on by default) the pane lays the chat over its tab
+/// tools in the tab row the pane lays the chat over its tab
 /// row, and since the chat shows in Chromium by default (`agent.chromium`) the chat is a child window
 /// above the whole pane: it covered the pane's native tabs and toolbar, so an agent chat showed no
 /// tabs. While the chat shares the row, its Chromium page leaves the tabs and the toolbar uncovered

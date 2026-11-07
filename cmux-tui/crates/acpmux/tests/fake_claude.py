@@ -1320,6 +1320,21 @@ while True:
                 for word in ("one ", "two ", "three "):
                     send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                           "delta": {"type": "text_delta", "text": req + " " + word}}})
+        # "auth-retry-probe": the model API refuses the sign-in (401). Claude Code retries it on
+        # its own backoff (0.5 s doubling to 32 s, 10 retries), then fails the turn with the 401.
+        # FAKE_CLAUDE_RETRY_SCALE scales the waits (default 0.01: the whole backoff in 1.6 s).
+        if said.strip() == "auth-retry-probe":
+            import time
+            scale = float(os.environ.get("FAKE_CLAUDE_RETRY_SCALE") or "0.01")
+            for attempt in range(1, 11):
+                delay = min(500 * 2 ** (attempt - 1), 32000)
+                send({"type": "system", "subtype": "api_retry", "attempt": attempt, "max_retries": 10,
+                      "retry_delay_ms": delay, "error_status": 401, "error": "authentication_failed"})
+                time.sleep(delay * scale / 1000)
+            send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1, "duration_api_ms": 5,
+                  "result": 'Failed to authenticate. API Error: 401 {"type":"error","error":'
+                            '{"type":"authentication_error","message":"invalid x-api-key"}}'})
+            continue
         # "api-retry-probe": the model gateway fails twice (Claude Code's system/api_retry
         # lines) before the request goes through and the reply streams.
         if said.strip() == "api-retry-probe":
