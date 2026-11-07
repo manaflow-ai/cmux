@@ -454,6 +454,56 @@ describe("the card", () => {
   // after the close (240 ms), so the native host shrank and moved the held card's view mid-drag.
   // Review F4 of #37790: the card with the theme's doodle decoration had no press listener, rest box or
   // anchor, so it could not be dragged.
+  // Review of #38020 at 2b1e9834: the press listener was attached to the card's node once, so a live
+  // theme switch between the plain card and the doodle one replaced the node and the new card did not drag.
+  test("a card that switches to the doodle decoration while shown still drags", async () => {
+    const moves: number[] = [];
+    const drag = {
+      place: () => ({ anchor: "bottom" as const, above: 400, below: 0 }),
+      move: (offset: { x: number; y: number }) => moves.push(offset.y),
+      drop: () => undefined,
+      dismiss: () => undefined,
+    };
+    const { host } = await render({ drag });
+    expect(host.querySelector(".wn-updated")).not.toBeNull();
+    // The theme switches live: the same card, now with the doodle decoration.
+    const { UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
+    const { createStrings } = await import("../src/pages/shared/i18n");
+    const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+    await act(async () =>
+      root!.render(
+        <UpdatedCard
+          data={data}
+          strings={createStrings(table)}
+          actions={{ openChangelog: () => undefined, dismiss: () => undefined }}
+          closeButton={false}
+          decoration="doodle"
+          animate={false}
+          drag={drag}
+        />,
+      ),
+    );
+    const card = host.querySelector<HTMLElement>('.wn-card[data-decoration="doodle"]')!;
+    expect(card).not.toBeNull();
+    const pointer = (type: string, y: number, target: EventTarget) => {
+      const event = new dom.window.MouseEvent(type, {
+        bubbles: true,
+        button: 0,
+        buttons: type === "pointerup" ? 0 : 1,
+        clientX: 100,
+        clientY: y,
+        screenX: 100,
+        screenY: y,
+      });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      target.dispatchEvent(event);
+    };
+    await act(async () => pointer("pointerdown", 60, card.querySelector(".wn-card-note")!));
+    await act(async () => pointer("pointermove", 20, dom.window));
+    expect(moves).toEqual([-40]);
+    await act(async () => pointer("pointerup", 20, dom.window));
+  });
+
   test("the doodle-decorated card drags too, and says where it rests", async () => {
     const moves: number[] = [];
     const drag = {

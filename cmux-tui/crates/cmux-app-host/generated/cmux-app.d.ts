@@ -1294,7 +1294,7 @@ interface CmuxGlobal {
     /** `project.sync` (mutation, scope `project:write`) */
     sync: CmuxOp<{ machine?: string; session?: string; existing?: Array<string>; gone?: Array<string> }, Cmux.MutationResult<Cmux.ProjectChange>>
     /** `project.update` (mutation, scope `project:write`) */
-    update: CmuxOp<{ machine?: string; session?: string; path: string; rename?: string | null; pinned?: boolean; hidden?: boolean; order?: number | null; worktree?: Cmux.WorktreeRecipe | null }, Cmux.MutationResult<Cmux.ProjectChange>>
+    update: CmuxOp<{ machine?: string; session?: string; path: string; rename?: string | null; pinned?: boolean; hidden?: boolean; order?: number | null; worktree?: Cmux.WorktreeRecipe | null; keep_saved_worktree?: boolean }, Cmux.MutationResult<Cmux.ProjectChange>>
   }
   push: {
     target: {

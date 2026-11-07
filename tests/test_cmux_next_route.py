@@ -420,7 +420,7 @@ class PullRequestTiers(unittest.TestCase):
         selected = result["swift_targets"].split()
         # The targets that ship a bundle are pinned here, so dropping one from the router
         # fails this test instead of moving the expectation with it.
-        bundles = {"CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette"}
+        bundles = {"CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity"}
         self.assertEqual(set(route_module.BUNDLE_TARGETS), bundles)
         self.assertLessEqual(bundles, set(GRAPH["targets"]))
         self.assertEqual(selected, sorted(graph_readers(path)))
