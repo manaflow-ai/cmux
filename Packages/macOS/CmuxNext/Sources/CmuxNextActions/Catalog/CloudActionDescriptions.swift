@@ -21,8 +21,8 @@ nonisolated enum CloudActionDescriptions {
             After 30 s it answers pending: true and the create goes on: check `cmux cloud list-machines` \
             before another. Options: --size small|medium|large|xlarge, --name, --persistent (no idle \
             pause), --bootstrap-script FILE (--bootstrap lane for a lane host), --machine-config FILE (a \
-            .cmux/machine.toml), answering bootstrap, machine_config and enrollment. An agent's create may \
-            ask the person first.
+            .cmux/machine.toml), --environment ID|NAME (boot in that Cloud environment), answering bootstrap, \
+            machine_config and enrollment. An agent's create may ask the person first.
             """,
         "palette.cloud.fork": """
             Forks the machine (--target machine:<id>) into a new machine. Answers at once with no id; the \

@@ -13,7 +13,7 @@ import { agentTone } from "../subagents/agentTones";
 import { TonedIcon } from "../subagents/TonedIcon";
 import { rowIconSize } from "../icons/iconSize";
 import type { StartedSession, StartedState } from "../started/startedSessions";
-import type { SubagentStatus } from "../summary/SubagentStatusList";
+import type { SubagentStatus } from "../summary/subagentStatusListModel";
 import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);

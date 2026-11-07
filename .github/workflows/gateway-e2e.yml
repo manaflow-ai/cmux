@@ -252,7 +252,8 @@ jobs:
     environment: cmux-next-vm-image-dev
     # Attempt 1 takes the runner job's owned label when it named one; a re-run takes Blacksmith macOS.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15)) }}
-    timeout-minutes: 45
+    # 30 of these may go to waiting for this commit's published client (below).
+    timeout-minutes: 75
     steps:
       - name: Refuse any ref but feat-cmux-next
         env:
@@ -284,7 +285,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          client_commit="$(scripts/ci/resolve-cmux-tui-client-commit.sh)"
+          # The client must be this commit's cmux-tui. A cmux-tui commit that landed just before this run is still
+          # being built by cmux-tui artifacts (runs 5, 6 and 8 failed here), so wait for its manifest on
+          # files.cmux.com, a minute apart, for at most 30 minutes.
+          deadline=$(( $(date +%s) + 1800 ))
+          until client_commit="$(scripts/ci/resolve-cmux-tui-client-commit.sh)"; do
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::no published cmux-tui client for this commit's cmux-tui after 30 minutes; run it again (edit .github/gateway-e2e/request) once cmux-tui artifacts has published"
+              exit 1
+            fi
+            sleep 60
+          done
           git diff --exit-code "$client_commit" HEAD -- cmux-tui
           client_bundle="$RUNNER_TEMP/cmux-tui-prebuilt"
           mkdir -p "$client_bundle/Contents"

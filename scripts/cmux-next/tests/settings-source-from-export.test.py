@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 EXPORT = ROOT / "schemas/settings/settings-schema.json"
 # Fields of a source row the export does not carry (Swift names, developer notes, legacy aliases).
-SOURCE_ONLY = {"name", "note", "swift_enum", "swift_owner", "aliases"}
+SOURCE_ONLY = {"name", "note", "swift_enum", "swift_owner", "aliases", "choices_from"}
 
 
 def load(name, path):
@@ -57,7 +57,11 @@ class SettingsSourceFromExportTests(unittest.TestCase):
                     source = {key: value for key, value in row.items() if key not in SOURCE_ONLY}
                     if "choices" in source:
                         source["choices"] = [{"value": c["value"], "title": c["title"]} for c in source["choices"]]
-                    self.assertEqual(source, DRAFT.draft_row(exported), "%s: %s" % (path, row["key"]))
+                    drafted = DRAFT.draft_row(exported)
+                    if "choices_from" in row:
+                        # The source lists the leading choices; the Swift member lists the rest.
+                        drafted["choices"] = drafted["choices"][:len(source["choices"])]
+                    self.assertEqual(source, drafted, "%s: %s" % (path, row["key"]))
                     self.assertEqual((entry["section"], entry["group"]), (exported["section"], exported["group"]), row["key"])
                     order.append(self.rows.index(exported))
                 self.assertEqual(order, list(range(order[0], order[0] + len(order))),
