@@ -34,7 +34,8 @@ import { showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
-import { BuildIcon, ContextRing, PlanIcon, type Choice } from "./ComposerPickers";
+import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
+import { type Choice } from "./composerPickerModel";
 import { SendSlotGlyph } from "./composer/SendSlotGlyph";
 import { newSlotMemory, type SlotMemory } from "./composer/sendSlotGlyphModel";
 import { isActive, type Dictation } from "./dictation";
@@ -56,6 +57,7 @@ import {
 } from "./mentionItems";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
+import type { Choice } from "./composerPickerModel";
 import type { FileSearchSource } from "./fileSearchModel";
 import {
   CMUX_PASS_THROUGH,

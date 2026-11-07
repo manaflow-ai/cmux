@@ -101,7 +101,7 @@ const pi = { id: "pi", name: "Pi", models: [], pickable: false, notInstalled: tr
 
 describe("harnesses this machine does not have", () => {
   test("the picker's face stays on an installed harness", async () => {
-    const { pickerFaceHarness } = await import("../src/agent-session/acpmux/ModelPicker");
+    const { pickerFaceHarness } = await import("../src/agent-session/acpmux/modelPickerModel");
     expect(pickerFaceHarness([gemini, pi, claude])).toBe("claude");
     expect(pickerFaceHarness([gemini, pi])).toBeUndefined();
   });

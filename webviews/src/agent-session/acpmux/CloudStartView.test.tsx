@@ -169,6 +169,30 @@ test("a start waiting on its browser sign-in says so, not starting or Thinking",
   expect(html).not.toContain("data-signing-in");
 });
 
+test("a plan refusal offers Upgrade, Run on This Mac and Not Now; other failures offer none", () => {
+  const refusal = { ...start, state: "failed" as const, code: "cloud_plan_required" };
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={refusal}
+      onUpgrade={() => undefined}
+      onRunHere={() => undefined}
+      onDismiss={() => undefined}
+    />,
+  );
+  expect(html).toContain('data-role="default">Upgrade</button>');
+  expect(html).toContain(">Run on This Mac</button>");
+  expect(html).toContain(">Not Now</button>");
+  const generic = renderToStaticMarkup(
+    <CloudStartView
+      start={{ ...refusal, code: "cloud_start_failed" }}
+      onUpgrade={() => undefined}
+      onRunHere={() => undefined}
+    />,
+  );
+  expect(generic).not.toContain(">Upgrade</button>");
+  expect(generic).not.toContain(">Run on This Mac</button>");
+});
+
 test("the startup checklist skips clone without a repository and explains a missing script", () => {
   const rows = startupChecklist({
     key: "k",

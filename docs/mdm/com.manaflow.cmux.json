@@ -4147,6 +4147,19 @@
       "title" : "Show Group Unread Count",
       "type" : "boolean"
     },
+    "sidebar.groupPalette" : {
+      "default" : "glass",
+      "description" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+      "enum" : [
+        "glass",
+        "theme",
+        "wallpaper",
+        "grayscale",
+        "vibrant"
+      ],
+      "title" : "Group Colors",
+      "type" : "string"
+    },
     "sidebar.hoverCards.delay" : {
       "default" : 400,
       "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",

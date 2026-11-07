@@ -4,7 +4,7 @@ import type { TaskGoal } from "./goal";
 import { usePaneLanguage, useT } from "./i18n";
 import { Expand, PauseCircle, PlayTriangle } from "./conversation/icons";
 import { formatDuration } from "./conversation/turns";
-import { useNow } from "./subagents/SubagentGroup";
+import { useNow } from "./subagents/subagentGroupModel";
 import "./TaskGoalStrip.css";
 import { loopNextText } from "./taskGoalStripModel";
 /** The harness's goal stays visible between turns and after reopening the chat. */

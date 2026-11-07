@@ -2,7 +2,7 @@ import { type ReactNode, useId, useState } from "react";
 import { DialogButton } from "../../ui/DialogButton";
 import { Notice } from "../../ui/Notice";
 import { HOST_ERROR_DEADLINE_MS } from "./hostRetry";
-import { useNow } from "./subagents/SubagentGroup";
+import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
 import { waitedText } from "./hostErrorModel";
 
