@@ -1155,6 +1155,8 @@ export type AcpmuxSnapshot = {
   chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
+  /// The current turn's daemon start time, in the session clock. Unset when no turn is running.
+  turnStartedAtMs?: number;
   /**
    * The agent's guess at the person's next prompt (acpmux's `prompt_suggestion` update, Claude
    * Code's prompt suggestions), for the composer's ghost text: set only between turns, while no
