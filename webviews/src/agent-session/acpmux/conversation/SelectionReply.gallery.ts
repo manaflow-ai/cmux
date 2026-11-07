@@ -77,13 +77,23 @@ const longRows = [
   summary(5.9, { id: "gallery-reply-summary", status: "completed" }),
 ];
 
-/// The text node in the long reply whose text starts with `start`.
+// A dense reply: ten lines with no gap, a bold word and inline code mid-paragraph. Every spot near
+// a short selection holds text, so the chip must measure each spot where it is.
+const DENSE =
+  "Each retry waits a little longer than the last one, so a busy server gets room to recover before the next request arrives. The helper keeps a count of attempts per request and gives up after the fifth, which keeps a stuck call from holding the queue. Statuses other than 429 and 503 fail at once, so a bad token or a missing route shows up in the first call instead of after a minute of retries. The wait between attempts is the **backoff**, and it doubles each time, starting at 250 ms and stopping at 4 s, with up to a quarter of jitter added so that many clients do not all retry in the same instant. A request the caller cancels stops its retries at once, and `fetchWithRetry` reports the last status it saw. Logs name the attempt number, the status and the wait, which is enough to tell a slow server from a broken one when you read them later. Tests cover each status, the cap, the jitter bounds and the cancel path, and they run in well under a second.";
+const denseRows = [
+  user("How should the fetch helper handle a failed request?", 6, { id: "gallery-reply-prompt" }),
+  assistant(DENSE, 5.9, { id: "gallery-reply-dense" }),
+  summary(5.9, { id: "gallery-reply-summary", status: "completed" }),
+];
+
+/// The text node in the long or dense reply whose text starts with `start`.
 function textNode(doc: Document, start: string): Text | undefined {
-  const body = doc.querySelector('[data-row-id="gallery-reply-long"] .cv-md');
-  if (!body) return undefined;
-  const walker = doc.createTreeWalker(body, 4);
-  for (let node = walker.nextNode(); node; node = walker.nextNode())
-    if (node.textContent?.startsWith(start)) return node as Text;
+  for (const body of Array.from(doc.querySelectorAll('[data-row-id^="gallery-reply-"] .cv-md'))) {
+    const walker = doc.createTreeWalker(body, 4);
+    for (let node = walker.nextNode(); node; node = walker.nextNode())
+      if (node.textContent?.startsWith(start)) return node as Text;
+  }
   return undefined;
 }
 
@@ -107,24 +117,24 @@ function lineEnds(doc: Document, node: Text): number[] {
   return ends;
 }
 
-/// Selects in the long reply as a drag would end, then waits for the chip to be placed. `pick` gets
-/// the paragraph's (or code span's) text node and its line ends and answers the range's two ends.
+/// Selects in the long or dense reply as a drag would end, then waits for the chip to be placed.
+/// `pick` gets the paragraph's (or code span's) text node and its line ends and answers the range's
+/// two ends; `backward` drags from the end to the start.
 async function selectIn(
   ctx: PlayContext,
   start: string,
   pick: (node: Text, ends: number[]) => { from: [Text, number]; to: [Text, number] },
+  backward = false,
 ) {
   const doc = ctx.document;
   await ctx.waitFor(() => !!textNode(doc, start));
   await doc.fonts?.ready;
   const node = textNode(doc, start)!;
   const { from, to } = pick(node, lineEnds(doc, node));
-  const range = doc.createRange();
-  range.setStart(...from);
-  range.setEnd(...to);
   const selection = doc.getSelection()!;
   selection.removeAllRanges();
-  selection.addRange(range);
+  if (backward) selection.setBaseAndExtent(to[0], to[1], from[0], from[1]);
+  else selection.setBaseAndExtent(from[0], from[1], to[0], to[1]);
   doc.dispatchEvent(new doc.defaultView!.PointerEvent("pointerup", { bubbles: true }));
   await ctx.waitFor(() => {
     const chip = doc.querySelector<HTMLElement>(".cv-selection-reply");
@@ -164,6 +174,32 @@ const midLine = (ctx: PlayContext) =>
     const to = node.data.indexOf(" ", node.data.indexOf(" ", from) + 1);
     return { from: [node, from], to: [node, to] };
   });
+
+/// Two short words mid-paragraph in the dense reply: text on every side for lines.
+const shortMid = (ctx: PlayContext) =>
+  selectIn(ctx, "Each retry", (node) => {
+    const at = node.data.indexOf("a minute");
+    return { from: [node, at], to: [node, at + "a minute".length] };
+  });
+/// "the backoff," across the bold word, so the range's boxes overlap (the bold element's and its
+/// text's).
+const boldMid = (ctx: PlayContext) =>
+  selectIn(ctx, "Each retry", (node) => {
+    const after = textNode(ctx.document, ", and it doubles")!;
+    return { from: [node, node.data.length - "the ".length], to: [after, 1] };
+  });
+/// From the dense reply's third line to its fifth, dragged backward: the pointer lets go at the
+/// start, and the end is two lines below it.
+const backwardMulti = (ctx: PlayContext) =>
+  selectIn(
+    ctx,
+    "Each retry",
+    (node, ends) => ({
+      from: [node, node.data.indexOf(" ", Math.floor((ends[1]! + ends[2]!) / 2)) + 1],
+      to: [node, Math.min(node.data.length, node.data.indexOf(" ", Math.floor((ends[3]! + (ends[4] ?? node.data.length)) / 2)))],
+    }),
+    true,
+  );
 
 const variant = (look: string, note: string, play: (ctx: PlayContext) => Promise<void>, snapshot = chat(rows)) => ({
   note,
@@ -238,6 +274,33 @@ export default agentPaneEntry({
         "Two words mid-paragraph, text all around: the chip takes the nearest spot with no text under it, or covers only the selection's own words.",
         midLine,
         chat(longRows),
+      ),
+      height: 640,
+    },
+    "chip-short-mid": {
+      ...variant(
+        "chip",
+        "Two words mid-paragraph in a dense reply: the chip measures every spot it tries, and takes one with no other text under it, or covers the least.",
+        shortMid,
+        chat(denseRows),
+      ),
+      height: 640,
+    },
+    "chip-bold-mid": {
+      ...variant(
+        "chip",
+        "A selection across a bold word, whose boxes overlap: the chip still covers none of the text around it.",
+        boldMid,
+        chat(denseRows),
+      ),
+      height: 640,
+    },
+    "chip-backward-multi-line": {
+      ...variant(
+        "chip",
+        "Three lines dragged backward: the chip goes over where the pointer let go when that is free, else near the end, measured there.",
+        backwardMulti,
+        chat(denseRows),
       ),
       height: 640,
     },

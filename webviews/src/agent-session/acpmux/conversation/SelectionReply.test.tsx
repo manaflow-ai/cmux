@@ -209,67 +209,104 @@ test("the chip never covers the Sent to line over the selected reply, nor the re
 });
 
 // The placement alone (selectionReplyPlace): a 72 x 28 chip, a selection whose last line is the
-// 22 px line from y 200, in a column from x 100 to x 820 of a 1040 x 700 pane. Text rects: the line
-// over it (178 to 196), the selection's line, the line under it (228 to 246).
+// 22 px line from y 200, in a column from x 100 to x 820 of a 1040 x 700 pane. The probe answers
+// the unselected text boxes crossing a spot, out of a fixed list: lines 18 px high, the line over
+// the selection's last at 178 and the one under it at 228.
+type Rect = { left: number; right: number; top: number; bottom: number };
 const SIZE = { width: 72, height: 28 };
 const PANE = { width: 1040, height: 700 };
 const COLUMN = { left: 100, right: 820 };
-const row = (top: number, right = 820) => ({ left: 100, right, top, bottom: top + 18 });
+const row = (top: number, right = 820, left = 100): Rect => ({ left, right, top, bottom: top + 18 });
 const OVER = row(178);
 const UNDER = row(228);
-const LINE = (right: number) => ({ left: 100, right, top: 200, bottom: 222 });
-/// A selection from the line's start to `right`.
-const at = (right: number) => ({
+/// The unselected rest of the selection's last line, from `from` to `to`.
+const rest = (from: number, to = 820): Rect => ({ left: from, right: to, top: 200, bottom: 222 });
+/// A selection from the line's start (or `start`) to `right`.
+const at = (right: number, start = 100) => ({
   text: "x",
   left: right,
   top: 200,
   bottom: 222,
   end: { right, top: 200, bottom: 222 },
-  lines: [LINE(right)],
+  lineStart: start,
   column: COLUMN,
 });
-const covers = (
-  place: { left: number; top: number },
-  rect: { left: number; right: number; top: number; bottom: number },
-) => place.left < rect.right && rect.left < place.left + 72 && place.top < rect.bottom && rect.top < place.top + 28;
+const hit = (a: Rect, b: Rect) =>
+  Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5;
+/// Every probe the placement makes is recorded, so a test can see it measured each spot it took.
+const probeOf = (text: readonly Rect[]) => (box: Rect) => text.filter((rect) => hit(box, rect));
+const chipBox = (place: { left: number; top: number }): Rect => ({
+  left: place.left,
+  top: place.top,
+  right: place.left + 72,
+  bottom: place.top + 28,
+});
+const covers = (place: { left: number; top: number }, rect: Rect) => hit(chipBox(place), rect);
 
 test("a clear spot over the selection's end keeps the chip there, centred on the end", () => {
-  expect(selectionReplyPlace(at(400), SIZE, PANE, [LINE(820)])).toEqual({ left: 364, top: 166 });
+  expect(selectionReplyPlace(at(400), SIZE, PANE, probeOf([rest(400)]))).toEqual({ left: 364, top: 166 });
 });
 
 test("a selection that ends its line, text over it: inline, just after the end and centred on the line", () => {
-  expect(selectionReplyPlace(at(400), SIZE, PANE, [OVER, LINE(400), UNDER])).toEqual({ left: 406, top: 197 });
+  expect(selectionReplyPlace(at(400), SIZE, PANE, probeOf([OVER, UNDER]))).toEqual({ left: 406, top: 197 });
 });
 
 test("a mid-line end with text over it and after it: just under the end when that is free", () => {
-  expect(selectionReplyPlace(at(400), SIZE, PANE, [OVER, LINE(820)])).toEqual({ left: 364, top: 228 });
+  expect(selectionReplyPlace(at(400), SIZE, PANE, probeOf([OVER, rest(400)]))).toEqual({ left: 364, top: 228 });
 });
 
 test("a mid-line end with a short line under it: the nearest free spot in that row", () => {
-  const place = selectionReplyPlace(at(400), SIZE, PANE, [OVER, LINE(820), row(228, 420)]);
+  const text = [OVER, rest(400), row(228, 420)];
+  const place = selectionReplyPlace(at(400), SIZE, PANE, probeOf(text));
   expect(place).toEqual({ left: 426, top: 228 });
-  for (const rect of [OVER, row(228, 420)]) expect(covers(place, rect)).toBe(false);
+  for (const rect of text) expect(covers(place, rect)).toBe(false);
 });
 
 test("a right-edge end mid-paragraph, no free spot near: over the selection's own last words, never others'", () => {
-  const text = [OVER, LINE(820), UNDER];
+  const text = [OVER, rest(810), UNDER];
   // The end is at x 810; "after" (816 to 888) would run past the column's 820.
-  const ownEnd = selectionReplyPlace(at(810), SIZE, PANE, text);
+  const ownEnd = selectionReplyPlace(at(810), SIZE, PANE, probeOf(text));
   expect(ownEnd).toEqual({ left: 738, top: 197 });
-  const ownStart = selectionReplyPlace(at(810), SIZE, PANE, text, "own-start");
+  const ownStart = selectionReplyPlace(at(810), SIZE, PANE, probeOf(text), "own-start");
   expect(ownStart).toEqual({ left: 100, top: 197 });
-  for (const place of [ownEnd, ownStart]) for (const rect of [OVER, UNDER]) expect(covers(place, rect)).toBe(false);
+  for (const place of [ownEnd, ownStart]) for (const rect of text) expect(covers(place, rect)).toBe(false);
   // Farther: two lines up is clear, so it goes there, at the column's edge nearest the end.
-  expect(selectionReplyPlace(at(810), SIZE, PANE, text, "farther")).toEqual({ left: 748, top: 144 });
+  expect(selectionReplyPlace(at(810), SIZE, PANE, probeOf(text), "farther")).toEqual({ left: 748, top: 144 });
 });
 
 test("the chip never leaves the visible transcript: on its first or last line", () => {
   // The last line: inline would end at 225, past the visible foot (226 less its 2 px).
-  const last = selectionReplyPlace(at(400), SIZE, { width: 1040, height: 226 }, [OVER, LINE(400)]);
+  const last = selectionReplyPlace(at(400), SIZE, { width: 1040, height: 226 }, probeOf([OVER]));
   expect(last.top + 28).toBeLessThanOrEqual(224);
   expect(covers(last, OVER)).toBe(false);
   // The first line: the spot over it is above the visible top (194 plus its 2 px).
-  const first = selectionReplyPlace(at(400), SIZE, { width: 1040, height: 700, top: 194 }, [LINE(820), UNDER]);
+  const first = selectionReplyPlace(at(400), SIZE, { width: 1040, height: 700, top: 194 }, probeOf([rest(400), UNDER]));
   expect(first.top).toBeGreaterThanOrEqual(196);
   expect(covers(first, UNDER)).toBe(false);
+  expect(covers(first, rest(400))).toBe(false);
+});
+
+// Review on #37507 (a0209697): a short selection at y 200 to 222 in dense text put the chip at
+// y 100, over two unselected lines that the placement had never measured.
+test("two short words in dense text: each spot measured where it is, never a far line taken as empty", () => {
+  // Text lines every 26 px from y 70 to 330 (an 8 px gap, less than the chip); the selection is
+  // 400 to 450 on the 200 line.
+  const text: Rect[] = [];
+  for (let k = -5; k <= 5; k += 1) if (k !== 0) text.push(row(200 + 26 * k));
+  text.push(rest(100, 400), rest(450));
+  const place = selectionReplyPlace(at(450, 400), SIZE, PANE, probeOf(text));
+  // No free spot within three lines: the spot covering least, over its own words and 22 px of the
+  // prefix on its own line, no other line.
+  expect(place).toEqual({ left: 378, top: 197 });
+  for (const rect of text.filter((rect) => rect.top !== 200)) expect(covers(place, rect)).toBe(false);
+});
+
+test("a backward multi-line drag: spots near its end are measured there, not near where it started", () => {
+  // Dragged from x 400 on the 200 line back to x 300 on the 156 line; the line between is selected.
+  const target = { ...at(400), left: 300, top: 156, bottom: 178 };
+  const text = [row(134), rest(400), UNDER, row(156, 300)];
+  const place = selectionReplyPlace(target, SIZE, PANE, probeOf(text));
+  for (const rect of text) expect(covers(place, rect)).toBe(false);
+  // Over the selected line between, nearest the end.
+  expect(place).toEqual({ left: 364, top: 166 });
 });

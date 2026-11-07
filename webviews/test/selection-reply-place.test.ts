@@ -208,6 +208,19 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
       placedWell(await placed("chip-paragraph-end", 1040, edge));
     });
 
+  test("two short words mid-paragraph in a dense reply: every spot measured where it is", async () => {
+    placedWell(await placed("chip-short-mid", 1040));
+  });
+
+  for (const width of [1040, 400])
+    test(`a selection across a bold word (overlapping boxes): no unselected text covered (${width} px)`, async () => {
+      placedWell(await placed("chip-bold-mid", width));
+    });
+
+  test("a backward multi-line drag: no unselected text covered near either end", async () => {
+    placedWell(await placed("chip-backward-multi-line", 1040));
+  });
+
   test("a selection with a clear spot over its end keeps the chip there, as before", async () => {
     const { chip, line } = await placed("chip-above", 1040);
     const width = chip.right - chip.left;
