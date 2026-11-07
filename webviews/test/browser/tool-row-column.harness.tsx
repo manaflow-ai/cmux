@@ -80,8 +80,6 @@ function App() {
       ? turnView(mixedToolTurnFixture(working), new Set(["worked-mixed-prompt"]), {
           agentFamily: params.get("harness") ?? "claude",
           working,
-          liveRuns: true,
-          lineBelow: true,
         }).find((row) => row.kind === "activity")
       : undefined;
   if (look) document.documentElement.dataset.toolStepsLook = look;

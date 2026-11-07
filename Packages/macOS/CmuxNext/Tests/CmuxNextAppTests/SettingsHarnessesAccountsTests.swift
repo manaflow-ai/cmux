@@ -19,6 +19,33 @@ import Testing
         let params: [String: String]
     }
 
+    /// Holds each usage read until released, and says when the first one started.
+    actor UsageGate {
+        private var held = true
+        private var started = false
+        private var starting: [CheckedContinuation<Void, Never>] = []
+        private var waiting: [CheckedContinuation<Void, Never>] = []
+
+        func pass() async {
+            started = true
+            starting.forEach { $0.resume() }
+            starting = []
+            guard held else { return }
+            await withCheckedContinuation { waiting.append($0) }
+        }
+
+        func untilStarted() async {
+            guard !started else { return }
+            await withCheckedContinuation { starting.append($0) }
+        }
+
+        func release() {
+            held = false
+            waiting.forEach { $0.resume() }
+            waiting = []
+        }
+    }
+
     private nonisolated static let accountsReply = Data("""
     {"accounts":[
       {"id":"codex-login","family":"codex","name":"ChatGPT","home":null,"shadowOf":null,"signedIn":true,
@@ -28,7 +55,12 @@ import Testing
     ]}
     """.utf8)
 
-    private func make(missing: Bool = false) async -> (harnesses: SettingsHarnesses, terminal: Terminal,
+    private nonisolated static let usageReply = Data("""
+    {"id":"codex-login","usageLimits":{"windows":[{"id":"session","usedPercent":22,"windowMins":300},
+      {"id":"weekly","usedPercent":41,"windowMins":10080,"resetsAt":1790500000}],"plan":"pro"}}
+    """.utf8)
+
+    private func make(missing: Bool = false, usageGate: UsageGate? = nil, refresh: Bool = true) async -> (harnesses: SettingsHarnesses, terminal: Terminal,
                                                        calls: OSAllocatedUnfairLock<[Call]>) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-settings-accounts-\(UUID().uuidString)")
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
@@ -38,7 +70,7 @@ import Testing
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in [.init(id: "codex", kind: "acp", source: "path")] },
             fetchHealth: { _, _ in Data(#"{"harnesses":[{"id":"codex","checkedAt":1700000000000}]}"#.utf8) },
-            openTerminal: { terminal.lines.append($0) },
+            openTerminal: { terminal.lines.append($0); return true },
             accountsCall: { _, method, params in
                 let flat = params.compactMapValues { value -> String? in
                     if let text = value as? String { return text }
@@ -48,10 +80,16 @@ import Testing
                 }
                 calls.withLock { $0.append(Call(method: method.rawValue, params: flat)) }
                 if missing { throw AcpmuxRPCError(code: -32601, message: "method not found") }
-                return method == .accounts ? Self.accountsReply : Data("{}".utf8)
+                switch method {
+                case .accounts: return Self.accountsReply
+                case .accountUsage:
+                    await usageGate?.pass()
+                    return Self.usageReply
+                default: return Data("{}".utf8)
+                }
             },
             userHome: URL(fileURLWithPath: "/Users/alex", isDirectory: true))
-        await harnesses.refresh()
+        if refresh { await harnesses.refresh() }
         return (harnesses, terminal, calls)
     }
 
@@ -71,6 +109,48 @@ import Testing
         #expect(accounts[1]["shadowOf"] == .string("~/.codex"))
         let row = try #require(h.harnesses.state["harnesses"]?.arrayValue?.first)
         #expect(row["checkedAt"] == .number(1_700_000_000_000))
+    }
+
+    /// Usage at rest (`_acpmux/account/usage`): asked once per signed-in Codex account when the page
+    /// refreshes, and passed under that account; a signed-out one is not asked and shows none.
+    @Test func refreshReadsEachSignedInCodexAccountsUsageAndPassesItInItsRow() async throws {
+        let h = await make()
+        let asked = h.calls.withLock { $0 }.filter { $0.method == "_acpmux/account/usage" }
+        #expect(asked.map { $0.params } == [["id": "codex-login"]])
+        let accounts = try #require(h.harnesses.state["accounts"]?.arrayValue)
+        let usage = try #require(accounts[0]["usage"])
+        #expect(usage["plan"] == .string("pro"))
+        #expect(usage["windows"]?.arrayValue?.map { $0["id"]?.stringValue } == ["session", "weekly"])
+        #expect(usage["windows"]?.arrayValue?.last?["resetsAt"] == .number(1_790_500_000))
+        #expect(accounts[1]["usage"] == .null)
+        #expect(SettingsHarnesses.usageLimits(Data(#"{"id":"x","usageLimits":null,"skipped":"keychain"}"#.utf8)) == .null)
+    }
+
+    /// An API-key Codex account has no plan limits (acpmux refuses the read): it is never asked.
+    @Test func anApiKeyCodexAccountsUsageIsNotRead() throws {
+        let rows: [JSONValue] = [
+            ["id": "codex-login", "family": "codex", "signedIn": true],
+            ["id": "codex-key", "family": "codex", "signedIn": true, "key": true],
+            ["id": "claude-login", "family": "claude", "signedIn": true],
+        ]
+        #expect(SettingsHarnesses.usageAccounts(rows.compactMap(SettingsProviderAccount.init)) == ["codex-login"])
+    }
+
+    /// A refresh while an account's usage read runs starts no second one (the daemon caches only
+    /// a finished read), and the running read still shows its answer when it ends.
+    @Test func aRefreshDuringAUsageReadStartsNoSecondReadForThatAccount() async throws {
+        let gate = UsageGate()
+        let h = await make(usageGate: gate, refresh: false)
+        let first = Task { await h.harnesses.refresh() }
+        await gate.untilStarted()
+        await h.harnesses.refresh()
+        await gate.release()
+        await first.value
+        let asked = h.calls.withLock { $0 }.filter { $0.method == "_acpmux/account/usage" }
+        #expect(asked.map { $0.params } == [["id": "codex-login"]])
+        let accounts = try #require(h.harnesses.state["accounts"]?.arrayValue)
+        #expect(accounts[0]["usage"]?["plan"] == .string("pro"))
+        #expect(h.harnesses.usageReading.isEmpty)
     }
 
     @Test func aDaemonWithoutAccountsLeavesThemOut() async {
@@ -110,6 +190,7 @@ import Testing
                                           context: script)
         }
         #expect(h.terminal.lines.isEmpty)
-        #expect(h.calls.withLock { $0 }.allSatisfy { $0.method == "_acpmux/accounts" })
+        // Only the refresh's reads: the list and the usage of each signed-in Codex account.
+        #expect(h.calls.withLock { $0 }.allSatisfy { ["_acpmux/accounts", "_acpmux/account/usage"].contains($0.method) })
     }
 }

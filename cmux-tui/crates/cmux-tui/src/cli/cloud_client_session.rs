@@ -23,6 +23,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use cmux_cloud_client::machine::{Machine, Scope};
 use serde_json::{Value, json};
 
 use super::{OutputMode, UsageError};
@@ -246,14 +247,11 @@ pub(super) fn run(
         .build()
         .map_err(|e| e.to_string())?;
     let io = |e: std::io::Error| e.to_string();
-    let minted = runtime.block_on(mint_session(
-        &client,
-        api,
-        credential,
-        command.team.as_deref(),
-        &command.machine,
-        command.ttl,
-    ));
+    // The machine is a handle on this backend and team from here on: no call below names the
+    // backend again (lens review 2026-11-05, finding 2).
+    let scope = Scope::new(api, command.team.as_deref()).map_err(|e| e.to_string())?;
+    let machine = scope.machine(&command.machine).map_err(|e| e.to_string())?;
+    let minted = runtime.block_on(mint_session(&client, &scope, credential, &machine, command.ttl));
     let session = match (minted, &command.verb) {
         (Ok(session), _) => session,
         // A provider with no client sessions (a VM API machine): exec runs through the cmux
@@ -267,10 +265,9 @@ pub(super) fn run(
         {
             let mut answer = runtime.block_on(exec_route(
                 &client,
-                api,
+                &scope,
                 credential,
-                command.team.as_deref(),
-                &command.machine,
+                &machine,
                 line,
                 *timeout_ms,
             ))?;
@@ -370,19 +367,19 @@ fn print_exec(
 /// `{ok: false, error: {code}}`; only a code from [`KNOWN_CODES`] is printed.
 async fn exec_route(
     client: &reqwest::Client,
-    api: &str,
+    scope: &Scope,
     credential: &str,
-    team: Option<&str>,
-    machine: &str,
+    machine: &Machine,
     command: &str,
     timeout_ms: u64,
 ) -> Result<ExecAnswer, String> {
+    let url = scope.route(machine, "/exec").map_err(|foreign| foreign.to_string())?;
     let mut request = client
-        .post(format!("{api}/v1/cloud/machines/{machine}/exec"))
+        .post(url)
         .bearer_auth(credential)
         .timeout(Duration::from_millis(timeout_ms).saturating_add(Duration::from_secs(15)))
         .json(&json!({ "command": command, "timeoutMs": timeout_ms }));
-    if let Some(team) = team {
+    if let Some(team) = scope.team() {
         request = request.header(TEAM_HEADER, team);
     }
     let response = request
@@ -451,24 +448,27 @@ pub(super) struct MintRefusal {
     pub(super) message: String,
 }
 
-/// `POST {api}/v1/cloud/machines/{machine}/client-session` as `credential` (in `team`), checked
-/// by [`checked_session`]. Shared by `cloud client-session` and `cloud machine-io`.
+/// `POST {api}/v1/cloud/machines/{machine}/client-session` as `credential` on `machine`'s own
+/// backend and team (a handle another scope named is refused before sending), checked by
+/// [`checked_session`]. Shared by `cloud client-session` and `cloud machine-io`.
 pub(super) async fn mint_session(
     client: &reqwest::Client,
-    api: &str,
+    scope: &Scope,
     credential: &str,
-    team: Option<&str>,
-    machine: &str,
+    machine: &Machine,
     ttl: Option<u64>,
 ) -> Result<Session, MintRefusal> {
     let refused =
         |status: u16, code: &'static str, message: String| MintRefusal { status, code, message };
+    let url = scope
+        .route(machine, "/client-session")
+        .map_err(|foreign| refused(0, "", foreign.to_string()))?;
     let mut request = client
-        .post(format!("{api}/v1/cloud/machines/{machine}/client-session"))
+        .post(url)
         .bearer_auth(credential)
         .timeout(MINT_TIMEOUT)
         .json(&ttl.map_or_else(|| json!({}), |ttl| json!({ "ttl_seconds": ttl })));
-    if let Some(team) = team {
+    if let Some(team) = scope.team() {
         request = request.header(TEAM_HEADER, team);
     }
     let response = request
@@ -497,7 +497,7 @@ pub(super) async fn mint_session(
         .map_err(|_| {
         refused(0, "", "the cmux API's answer is not a client session".to_owned())
     })?;
-    checked_session(session, machine, credential).map_err(|message| refused(0, "", message))
+    checked_session(session, machine.id(), credential).map_err(|message| refused(0, "", message))
 }
 
 /// The session when it is for `machine`, every field this command prints is plain (no secret can

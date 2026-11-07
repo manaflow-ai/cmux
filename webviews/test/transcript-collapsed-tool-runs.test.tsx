@@ -77,7 +77,7 @@ const live = (work: AcpmuxActivity[]) => [
   said("between"),
   row("now", "activity", { items: [command("git status"), command("bun test", { status: "in_progress" })] }),
 ];
-const shaped = (work: AcpmuxActivity[]) => turnView(live(work), new Set(), { working: true, liveRuns: true });
+const shaped = (work: AcpmuxActivity[]) => turnView(live(work), new Set(), { working: true });
 // Tags to spaces, then one space per gap: a row's verb sits in its own element (ToolVerb.tsx).
 const words = (entry: AcpmuxRow) =>
   renderToStaticMarkup(<ToolRows row={entry} />)
@@ -98,7 +98,7 @@ test("a run between two messages is one line naming its work in the order it cam
   const work = shaped(mixed).find((entry) => entry.id === "work")!;
   expect(work.foldRun).toBe(true);
   expect(toggles(work)).toBe(1);
-  expect(words(work)).toContain("Edited 2 files, read 2 files, ran a command");
+  expect(words(work)).toContain("Edited 2 files, ran a command, and performed 2 other actions");
   // Closed: none of its calls draws under the line.
   expect(words(work)).not.toContain("bun test net");
 });
@@ -125,19 +125,16 @@ test("opened, the line shows the rows it holds as they draw on their own", async
   resetTranscriptDisclosure();
   const work = shaped(mixed).find((entry) => entry.id === "work")!;
   const root: Root = createRoot(host);
-  try {
-    await act(async () => root.render(<ToolRows row={work} sessionId="collapsed" />));
-    const line = host.querySelector<HTMLButtonElement>(".cv-tools > .cv-tool.is-toggle")!;
-    expect(line.getAttribute("aria-expanded")).toBe("false");
-    await act(async () => line.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
-    expect(line.getAttribute("aria-expanded")).toBe("true");
-    // The same rows the run draws when it is not collapsed (Debug toggle codexToolRuns off).
-    const open = host.querySelector(".cv-tool-run")!.textContent;
-    const flat = words({ ...work, foldRun: false }).replace(/\s+/g, "");
-    expect(open?.replace(/\s+/g, "")).toBe(flat);
-  } finally {
-    act(() => root.unmount());
-  }
+  await act(async () => root.render(<ToolRows row={work} sessionId="collapsed" />));
+  const line = host.querySelector<HTMLButtonElement>(".cv-tools > .cv-tool.is-toggle")!;
+  expect(line.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => line.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
+  expect(line.getAttribute("aria-expanded")).toBe("true");
+  // The same rows the run draws when it is not collapsed (`foldRun` unset).
+  const open = host.querySelector(".cv-tool-run")!.textContent;
+  const flat = words({ ...work, foldRun: false }).replace(/\s+/g, "");
+  expect(open?.replace(/\s+/g, "")).toBe(flat);
+  act(() => root.unmount());
 });
 
 test("the run the agent works in keeps its call in flight out, on the live line", () => {
@@ -184,7 +181,6 @@ test("a delete or a move waiting for its permission stays in sight, live and in 
         row("s2", "turnSummary", { status: "completed", toolCount: 4 }),
       ],
       new Set(["worked-u2"]),
-      { liveRuns: true },
     ).find((entry) => entry.kind === "activity" && entry.id.startsWith("work2"))!;
     expect(ended.foldRun).toBe(true);
     expect(words(ended)).toContain(`${kind} old.ts`);
@@ -202,12 +198,11 @@ test("an edit waiting for its permission keeps its row in an ended turn's folded
       row("s3", "turnSummary", { status: "completed", toolCount: 3 }),
     ],
     new Set(["worked-u3"]),
-    { liveRuns: true },
   ).find((entry) => entry.kind === "activity" && entry.foldRun === true)!;
   // The opened Worked for's folded run itself, not the edited-files card after it: the edit keeps
   // its own row between the summary lines.
   expect(ended.id).toBe("work3:fold");
-  expect(words(ended)).toContain("Read a file, ran a command");
+  expect(words(ended)).toContain("Read a file and ran a command");
   expect(words(ended)).toContain("Edit src/a.ts");
 });
 
@@ -230,7 +225,6 @@ test("an edit waiting for its permission next to finished edits keeps its row", 
       row("s4", "turnSummary", { status: "completed", toolCount: 5 }),
     ],
     new Set(["worked-u4"]),
-    { liveRuns: true },
   ).find((entry) => entry.kind === "activity" && entry.foldRun === true)!;
   expect(words(ended)).toContain("Edit src/a.ts");
   // The finished edits on each side fold with the work around them.

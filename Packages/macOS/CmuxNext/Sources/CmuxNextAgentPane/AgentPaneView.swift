@@ -59,8 +59,14 @@ public final class AgentPaneView: NSView {
     var crashReloadCount = 0
     /// The automatic retries after the page's web content ended.
     let crashRetry = AgentPageCrashRetry()
+    /// Where the window's toasts rest (window coordinates), nil when none shows (AgentPaneView+ToastRoom.swift).
+    var toastsRect: NSRect?
+    /// The toast band the page last got, in CSS pixels.
+    var sentToastRoom: Double = 0
     /// The page ends of the app's agent panes, grouped by the termination that ended them.
     let terminations: AgentPageTerminations
+    /// The app's flicker ring file (``AgentPageFlickerLog``, made by the composition root); nil writes nothing (tests).
+    let flickerLog: AgentPageFlickerLog?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
@@ -183,12 +189,14 @@ public final class AgentPaneView: NSView {
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
     ///   - eventSources: The app's table of processes that post input (`AppServices.personInput.sources`); tests get their own.
+    ///   - flickerLog: The app's flicker ring file (``AgentPaneShared/flickerLog``); nil (tests) writes none.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                  pageHost: Bool = false, testRoot: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
                  panelProvider: (any PageProvider)? = nil,
                  openPanel: MadeAheadOpenPanel? = nil, terminations: AgentPageTerminations? = nil,
-                 eventSources: EventSourceProcesses = EventSourceProcesses()) {
+                 eventSources: EventSourceProcesses = EventSourceProcesses(), flickerLog: AgentPageFlickerLog? = nil) {
         self.terminations = terminations ?? Self.processGroups.terminations
+        self.flickerLog = flickerLog
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.openPanel = openPanel
         self.eventSources = eventSources
@@ -268,7 +276,7 @@ public final class AgentPaneView: NSView {
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
         }
         inputReadiness.attach(webView)
-        AgentPageFlickerLog.watchWindows()
+        flickerLog?.watchWindows()
         if let page {
             attachPage(page)
         } else {
@@ -430,6 +438,8 @@ public final class AgentPaneView: NSView {
         placeChromiumMove(at: frame)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()
+        // A pane resized or moved under shown toasts: its band follows at once.
+        if toastsRect != nil || sentToastRoom != 0 { sendToastRoom(duration: 0) }
         redraw.laidOut(self)
     }
 
@@ -550,6 +560,8 @@ public final class AgentPaneView: NSView {
         } else {
             // The composer's + > Attach files or images opens without making a panel (PageOpenPanel).
             openPanel?.warmWhenIdle()
+            // The toasts may have come or gone while the pane was out of the window.
+            if let window { CmuxToastAvoidance.reservingViewMoved(self, to: window) }
         }
         applyTheme()
     }

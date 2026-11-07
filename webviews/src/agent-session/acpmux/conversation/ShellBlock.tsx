@@ -31,7 +31,6 @@ export function ShellBlock({
   id,
   command,
   output,
-  copyOutput,
   exitCode,
   reveal,
   whole = false,
@@ -44,8 +43,6 @@ export function ShellBlock({
   reveal?: number;
   command?: string;
   output?: string;
-  /** Original response when the displayed output is condensed. */
-  copyOutput?: string;
   exitCode?: number;
   /** Never cut to a preview (a command a permission ask is about). */
   whole?: boolean;
@@ -63,15 +60,20 @@ export function ShellBlock({
   // The output's lines, though a long output draws only its end until opened (none to cut when whole).
   const preview = usePreview(whole ? 0 : lineCount(raw.text), reveal);
   const shown = previewedOutput(raw, preview);
-  const copyText = copyOutput ?? shown.text;
   const marked = shown.cut || Boolean(cut && shown.shown);
+  // `outputTail` returns a suffix, so keep the source line number alongside it. Without this,
+  // every memoized chunk appears to start at line zero whenever the live 400-line window slides.
+  const shownStartLine =
+    raw.text && shown.shown && shown.shown !== raw.text
+      ? raw.text.slice(0, raw.text.length - shown.shown.length).split("\n").length - 1
+      : 0;
   const body = useRef<HTMLPreElement>(null);
   useSidewaysEdge(body);
   // Following first, so the fade reads where the box ends up, not where it was.
   useFollowEnd(body, shown.shown, live && preview.cut);
   useMoreBelowOn(body, shown.shown);
   return (
-    <div className="cv-shell" id={id} ref={menuPartRef({ command, output: copyText })}>
+    <div className="cv-shell" id={id} ref={menuPartRef({ command, output: shown.text })}>
       <div className="cv-shell__label">
         <span className="cv-shell__title">
           {t("shell.label")}
@@ -90,7 +92,7 @@ export function ShellBlock({
           {/* One choice for every Shell block (blockWrap.ts): shown on this block's hover or focus only,
               so Verbose's open blocks don't repeat it; the chat menu's Transcript view has it at rest. */}
           <WrapButton kind="output" className="cv-codeblock__action cv-shell__wrap" />
-          {copyText && <CopyButton text={copyText} label={t("turn.copy")} />}
+          {shown.text && <CopyButton text={shown.text} label={t("turn.copy")} />}
         </span>
       </div>
       {rest && <ShellCommand command={rest} />}
@@ -118,7 +120,7 @@ export function ShellBlock({
         )}
         {shown.shown ? (
           <span className="cv-shell__output">
-            <Lines text={shown.shown} />
+            <Lines text={shown.shown} windowed={live && !preview.all} startLine={shownStartLine} />
           </span>
         ) : null}
       </pre>

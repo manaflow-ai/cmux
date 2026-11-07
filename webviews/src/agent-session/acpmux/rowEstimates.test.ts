@@ -23,7 +23,7 @@ import {
   type AcpmuxActivity,
 } from "./model";
 import { turnView } from "./conversation/turns";
-import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
+import { COLLAPSED_PROMPT_LINES, pasteChipHeight, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "./transcriptGrid";
 import { BUBBLE } from "./transcriptSpacing";
@@ -92,14 +92,12 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
     const live = turnView(source as never, new Set(), {
       now: 3_000,
       working: true,
-      lineBelow: true,
-      liveRuns: true,
       sessionStatus: true,
     });
     const settled = turnView(
       [...source, { id: "s", version: 1, at: 3_000, kind: "turnSummary", status: "completed", text }] as never,
       new Set(),
-      { now: 4_000, lineBelow: true, liveRuns: true, sessionStatus: true },
+      { now: 4_000, sessionStatus: true },
     );
     expect(live.at(-1)).toMatchObject({ below: true });
     expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
@@ -124,8 +122,6 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   const live = turnView(liveSource as never, new Set(), {
     now: 5_000,
     working: true,
-    lineBelow: true,
-    liveRuns: true,
     sessionStatus: true,
   });
   const settledSource = [
@@ -138,25 +134,12 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   ];
   const settled = turnView(settledSource as never, new Set(), {
     now: 6_000,
-    lineBelow: true,
-    liveRuns: true,
     sessionStatus: true,
   });
   expect(live.at(-1)).toMatchObject({ kind: "activityLine", below: true });
   expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
   expect(layoutConversation(live, 720).heights.at(-1)).toBe(TRANSCRIPT_FOOTER_CONTROL);
   expect(layoutConversation(settled, 720).heights.at(-1)).toBe(TRANSCRIPT_FOOTER_CONTROL);
-
-  const legacy = turnView(liveSource as never, new Set(), {
-    now: 5_000,
-    working: true,
-    lineBelow: false,
-    liveRuns: false,
-    sessionStatus: true,
-  });
-  expect(legacy.at(-1)).toMatchObject({ kind: "activityLine" });
-  expect(legacy.at(-1)?.below).toBeUndefined();
-  expect(layoutConversation(legacy, 720).heights.at(-1)).toBe(28);
 });
 
 test("the chat's last footer is placed again when a prompt follows it", () => {
@@ -360,15 +343,15 @@ test("a prompt of ten lines or fewer is estimated whole, with no Show more line"
   expect(short!).toBeLessThan(BUBBLE.oneLine - lineHeight + COLLAPSED_PROMPT_LINES * lineHeight + 28 + 8);
 });
 
-// A pasted block (`pasted` ranges, the chip in UserBubble.tsx) is one chip line, however long the
+// A pasted block (`pasted` ranges, the card in PromptText.tsx) is one closed card, however long the
 // paste, and the prompt's own words around it.
-test("a prompt with a 2,300-line paste is its typed line and one chip", () => {
+test("a prompt with a 2,300-line paste is its typed line and one card", () => {
   const typed = "Why does this fail?";
   const paste = Array.from({ length: 2300 }, (_, index) => `frame ${index}`).join("\n");
   const text = `${typed}\n${paste}`;
   const pasted = [{ start: typed.length + 1, end: text.length }];
   const [height] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
-  expect(height).toBeCloseTo(BUBBLE.oneLine + PASTE_CHIP_HEIGHT, 5);
+  expect(height).toBeCloseTo(BUBBLE.oneLine + pasteChipHeight(currentChatMetrics().lineHeight), 5);
 });
 
 // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx), so it is

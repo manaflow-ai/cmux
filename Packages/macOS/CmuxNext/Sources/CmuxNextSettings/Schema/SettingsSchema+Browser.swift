@@ -153,6 +153,16 @@ nonisolated enum BrowserSettingsSchema {
                 keywords: ["neighbor", "adjacent", "preload", "warm", "instant", "switch", "hibernation", "freeze"]
             ),
             SettingDescriptor(
+                BrowserHibernationSetting.wakesOnHoverPath, section: .browser, group: memory,
+                title: SettingsText.keyed("settings.browser.wakeTabsOnHover", "Wake Tabs on Hover"),
+                help: SettingsText.keyed(
+                    "settings.browser.wakeTabsOnHover.help",
+                    "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory."
+                ),
+                kind: .toggle, default: .bool(BrowserHibernationSetting.defaultWakesOnHover),
+                keywords: ["hover", "preload", "prerender", "warm", "instant", "hibernation", "sleep"]
+            ),
+            SettingDescriptor(
                 ["browser", "remoteLocalhost"], section: .browser, group: remote,
                 title: SettingsText.keyed("settings.browser.remoteLocalhost", "Open localhost on the Workspace's Machine"),
                 kind: .toggle, default: .bool(RemoteLocalhostSetting.fallback.enabled), keywords: ["ssh", "cloud", "port"]

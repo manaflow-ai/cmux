@@ -47,20 +47,6 @@ export function visibleToolItems(items: AcpmuxActivity[] | undefined, revealing 
   return result;
 }
 
-export function usefulMcpRequest(args: unknown): { command?: string; context?: string } {
-  if (!args || typeof args !== "object" || Array.isArray(args)) return {};
-  const values = args as Record<string, unknown>;
-  const command = [values.command, values.cmd].find(
-    (value): value is string => typeof value === "string" && !!value.trim(),
-  );
-  if (command) return { command };
-  const context = [values.paths ?? values.path ?? values.file_path ?? values.url, values.pattern ?? values.query]
-    .flatMap((value) => (Array.isArray(value) ? value : [value]))
-    .filter((value): value is string => typeof value === "string" && !!value.trim())
-    .join("\n");
-  return context ? { context } : {};
-}
-
 // A bare lifecycle placeholder isn't output. Restrict this to an exact whole response, so logs
 // containing the same words and genuine data are never shortened or discarded.
 export function usefulMcpResponse(text: string | undefined): string | undefined {

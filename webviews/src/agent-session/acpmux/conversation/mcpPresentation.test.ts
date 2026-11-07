@@ -1,11 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  isMcpLifecycleOutput,
-  isToolDiscoveryNoise,
-  visibleToolItems,
-  usefulMcpRequest,
-  usefulMcpResponse,
-} from "./mcpPresentation";
+import { isMcpLifecycleOutput, isToolDiscoveryNoise, visibleToolItems, usefulMcpResponse } from "./mcpPresentation";
 import { mixedToolRunFixture } from "./mixedToolRunFixture";
 
 test("only successful builtin discovery is hidden, never a similarly named operation or an error", () => {
@@ -32,11 +26,7 @@ test("only successful builtin discovery is hidden, never a similarly named opera
     ).toBe(false);
 });
 
-test("detail uses values and meaningful results instead of raw argument keys or lifecycle placeholders", () => {
-  expect(usefulMcpRequest({ paths: ["src/retry.ts"], pattern: "retry", repo: "app" })).toEqual({
-    context: "src/retry.ts\nretry",
-  });
-  expect(usefulMcpRequest({ command: "git status", timeout_ms: 1000 })).toEqual({ command: "git status" });
+test("a call's line uses meaningful results instead of lifecycle placeholders", () => {
   expect(usefulMcpResponse('{"matches":[{"path":"a.ts","line":12,"text":"retry()"}]}')).toBe("a.ts:12: retry()");
   for (const output of ["", "Waiting…", "Running...", '"Waiting…"', '{"content":[{"type":"text","text":"Pending"}]}'])
     expect(usefulMcpResponse(output)).toBeUndefined();

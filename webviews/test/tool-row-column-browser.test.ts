@@ -1,9 +1,10 @@
 // Tool rows share one column (Leo, 2026-10-31: "WHY IS THERE PRETOOLUSE", "WHY IS IT ALGINED SO
 // [...] SHIT", "WHY IS IT RENDERED SO SHIT", "why are these indented for no reason"): a commands
 // group holding a call a hook blocked, one that failed and one that went on in the background,
-// beside lone rows. Every row's glyph and words start at the same x, a line under a row starts at
-// its words, a verb is followed by one space, a hook's block reads "blocked by hook" with no
-// "PreToolUse" until it is opened, and no status word is cut. All displayed content is synthetic.
+// beside lone rows. Every row's glyph and words start at the same x, every step shows its glyph, a
+// verb is followed by one space, and a hook's block says "blocked by hook" with no "PreToolUse" until
+// it is opened. For Codex parity a status word and a cause line draw nothing: they stay for screen
+// readers only, out of the row's flow. All displayed content is synthetic.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -56,22 +57,18 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
               range.setStart(first!, first!.textContent!.search(/\S/));
               range.setEnd(first!, first!.textContent!.search(/\S/) + 1);
               const box = row.getBoundingClientRect();
-              const status = row.querySelector(".cv-command__failed, .cv-tool__failed");
-              const statusBox = status?.getBoundingClientRect();
+              const status = row.querySelector<HTMLElement>(".cv-command__failed, .cv-tool__failed");
+              const statusStyle = status && !status.querySelector("svg") ? getComputedStyle(status) : undefined;
               return {
                 text: row.textContent,
                 iconLeft: icon.left - column.left,
                 textLeft: range.getBoundingClientRect().left - column.left,
                 right: box.right - column.right,
                 status: status?.textContent?.trim(),
-                statusClipped: statusBox ? statusBox.right > box.right + 0.5 || statusBox.width < 1 : false,
-                wordsClipped: (() => {
-                  const statusParent = status?.closest(".cv-tool__text, .cv-command__text");
-                  return statusParent
-                    ? statusParent.scrollWidth > statusParent.clientWidth + 0.5 &&
-                        status!.getBoundingClientRect().right > statusParent.getBoundingClientRect().right + 0.5
-                    : false;
-                })(),
+                // A status word is read aloud and never drawn: out of the flow, clipped away whole.
+                statusShown: statusStyle
+                  ? !(statusStyle.position === "absolute" && statusStyle.clipPath === "inset(50%)")
+                  : false,
               };
             });
             // "Ran <command>": the command starts one space after the verb, never in a wide column.
@@ -86,10 +83,12 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
               range.setEnd(verb, ran.length);
               return [code.getBoundingClientRect().left - range.getBoundingClientRect().right];
             });
-            // A line under a row (a failure's cause) starts at the row's words.
+            // A line under a row (a failure's cause) is read aloud and never drawn.
             const under = [...document.querySelectorAll<HTMLElement>("[data-fixture-column] .cv-tool-error")].map(
-              (line) =>
-                line.getBoundingClientRect().left + parseFloat(getComputedStyle(line).paddingLeft) - column.left,
+              (line) => {
+                const style = getComputedStyle(line);
+                return style.position === "absolute" && style.clipPath === "inset(50%)";
+              },
             );
             return {
               guide: (() => {
@@ -126,9 +125,9 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
           });
           console.log(`TOOL_ROW_COLUMN ${JSON.stringify({ theme, width, ...m })}`);
           expect(errors).toEqual([]);
-          // An opened run draws as Claude Code desktop's (Leo, 2026-11-03: "we're not faithfully
-          // following how they're doing stuff"): no guide line, and its steps keep kind icons, their
-          // words still on the header's text column (checked with every row below).
+          // An opened run draws with no guide line (Leo, 2026-11-03), and its steps show their glyphs,
+          // as Codex draws them (Codex parity), their words on the header's text column (checked with
+          // every row below).
           expect(m.guide.content).toBe("none");
           expect(m.stepIcons.length).toBe(3);
           for (const visibility of m.stepIcons) expect(visibility).toBe("visible");
@@ -141,24 +140,23 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
             expect(Math.abs(row.iconLeft - icon), `icon x: ${row.text}`).toBeLessThanOrEqual(0.5);
             expect(Math.abs(row.textLeft - text), `text x: ${row.text}`).toBeLessThanOrEqual(0.5);
             expect(row.right, `right edge: ${row.text}`).toBeLessThanOrEqual(0.5);
-            expect(row.statusClipped, `status cut: ${row.text}`).toBe(false);
-            expect(row.wordsClipped, `status cut in its words: ${row.text}`).toBe(false);
+            expect(row.statusShown, `status drawn: ${row.text}`).toBe(false);
           }
           // A hook's block: its plain status on the row, no "PreToolUse" and no line of its words.
           expect(m.columnText).not.toContain("PreToolUse");
           expect(m.columnText).not.toContain("fixture guard");
           expect(m.rows.filter((row) => row.status === "blocked by hook").length).toBe(2);
-          // The failed calls keep their word, and the lone one its cause at the words' x.
+          // The failed calls keep their word for screen readers, and the lone one its cause.
           expect(m.rows.some((row) => row.status === "Exit 1")).toBe(true);
           expect(m.under.length).toBeGreaterThan(0);
-          for (const left of m.under) expect(Math.abs(left - text)).toBeLessThanOrEqual(0.5);
+          for (const hidden of m.under) expect(hidden).toBe(true);
           expect(m.verbGaps.length).toBeGreaterThan(0);
           for (const gap of m.verbGaps) {
             expect(gap).toBeGreaterThan(0);
             expect(gap).toBeLessThan(8);
           }
-          // A thought reads as Claude Code's: its text flush under its label, with no guide line or
-          // indent, opened and while it streams.
+          // A thought's text starts at its label's words, with no guide line, opened (under the brain
+          // glyph's row, on the tools' text column) and while it streams.
           await page.locator('[data-fixture-thoughts] button[aria-expanded="false"]').click();
           await page.locator("[data-fixture-thoughts] .cv-thought__body").waitFor();
           const thoughts = await page.evaluate(() => {

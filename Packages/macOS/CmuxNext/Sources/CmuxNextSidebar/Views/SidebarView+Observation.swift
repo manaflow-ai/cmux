@@ -42,8 +42,6 @@ extension SidebarViewComponents {
         var workspacesAsTabs: Bool
         /// Group by Status (`SidebarTunables.groupByStatus`, Debug, off by default).
         var groupsByStatus: Bool
-        /// The "Done (N)" fold (`SidebarTunables.doneFold`): turning it on or off lays the list out again.
-        var foldsDone: Bool
         /// The row limit (`SidebarTunables.groupRowLimit`): changing it lays the list out again.
         var rowLimit: Int
         /// Where group lines sit (`sidebar.groupLineLayout`): headers reach and lines move, so the list lays out again.
@@ -52,6 +50,9 @@ extension SidebarViewComponents {
         /// Whether a joined line runs out of its header's bar (`SidebarGroupLine.joinsBar`, the band header style)
         /// or starts after the cut: its frame moves, so the list lays out again.
         var groupLineJoinsBar: Bool
+        /// Whether a group with no color draws its block (`sidebar.noColorGroup` not plain) or nothing: the
+        /// group's line view changes kind, so the list lays out again.
+        var noColorBlocks: Bool
         /// Where leading glyphs sit in the icon column (`sidebar.leadingColumn`): every row lays out again.
         var leadingColumn: SidebarLeadingColumnLook
         init(_ model: SidebarModel, _ design: DesignSettings) {
@@ -79,11 +80,11 @@ extension SidebarViewComponents {
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabsOn
             groupsByStatus = SidebarTunables.groupByStatus.value
-            foldsDone = SidebarTunables.doneFold.value
             rowLimit = SidebarTunables.rowLimit
             groupLineLayout = SidebarGroupLineLayout.tunable.value
             groupChromeShape = SidebarStyle.groupChromeShape
             groupLineJoinsBar = SidebarGroupLine.joinsBar
+            noColorBlocks = SidebarNoColorGroupLook.tunable.value != .plain
             leadingColumn = SidebarLeadingColumnLook.tunable.value
         }
     }
@@ -96,6 +97,18 @@ extension SidebarViewComponents {
     }
     /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
     public func renderNow() { render(RenderState(model, design)) }
+
+    /// Draws the model in this turn's frame: the main run loop's block phase, before AppKit's display cycle and the
+    /// commit, once however many times the turn asks. An input's turn changes the model and leaves the view work to
+    /// the frame that shows it (Cmd-N's row, SWITCH STALL 6); a later `renderNow` in the turn draws it first.
+    public func renderInFrame() {
+        guard !renderQueued else { return }
+        renderQueued = true
+        MainRunLoopBlock.perform { [weak self] in
+            self?.renderQueued = false
+            self?.renderNow()
+        }
+    }
 
     /// Draws the model now and scrolls the selection into view, with the header
     /// and list top around it, even when it did not change: Cmd-`n`, Cmd-Ctrl-[ / ]
@@ -118,11 +131,11 @@ extension SidebarViewComponents {
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
             || lastState?.history != state.history
-            || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
+            || lastState?.workspacesAsTabs != state.workspacesAsTabs
             || lastState?.groupsByStatus != state.groupsByStatus
             || lastState?.rowLimit != state.rowLimit || lastState?.groupLineLayout != state.groupLineLayout
             || lastState?.groupChromeShape != state.groupChromeShape
-            || lastState?.groupLineJoinsBar != state.groupLineJoinsBar
+            || lastState?.groupLineJoinsBar != state.groupLineJoinsBar || lastState?.noColorBlocks != state.noColorBlocks
         let listChanged = rowsChanged || selectionChanged
         // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
         if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }

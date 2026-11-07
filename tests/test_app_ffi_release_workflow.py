@@ -415,5 +415,41 @@ class RePinPublication(unittest.TestCase):
                 self.assertNotIn("verified open", result.stdout)
 
 
+class BuildSpeedAndSupersede(unittest.TestCase):
+    """A newer FFI push supersedes an older build, and the build clones treeless.
+
+    The run-level group (cancel-in-progress: false) made a newer push wait for
+    the whole older run, whose pin could no longer land (#36262). The full
+    clone of every ref was 5 to 10 minutes of each build.
+    """
+
+    def setUp(self):
+        # yaml reads the `on:` key as True; only jobs and concurrency matter here.
+        self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.jobs = self.workflow["jobs"]
+
+    def test_no_run_level_group_queues_a_newer_push(self):
+        self.assertNotIn("concurrency", self.workflow)
+
+    def test_a_newer_build_cancels_the_older_build(self):
+        concurrency = self.jobs["build"]["concurrency"]
+        self.assertIn("${{ github.ref }}", concurrency["group"])
+        self.assertIs(concurrency["cancel-in-progress"], True)
+
+    def test_publish_is_never_cancelled_and_repins_run_one_at_a_time(self):
+        publish = self.jobs["publish"]["concurrency"]
+        self.assertEqual(publish["group"], "app-ffi-release-publish-${{ github.sha }}")
+        self.assertIs(publish["cancel-in-progress"], False)
+        repin = self.jobs["repin"]["concurrency"]
+        self.assertEqual(repin["group"], "app-ffi-repin")
+        self.assertIs(repin["cancel-in-progress"], False)
+
+    def test_build_checkout_is_treeless_with_full_history(self):
+        checkout = self.jobs["build"]["steps"][0]
+        self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
+        self.assertEqual(checkout["with"]["fetch-depth"], 0)
+        self.assertEqual(checkout["with"]["filter"], "tree:0")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,12 +1,13 @@
 // l10n-allow-file: public-safe regression fixture commands and paths, not shipped copy.
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { act, type ReactNode } from "react";
+import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { appendThought, mergeToolItem } from "../direct";
 import { SubagentFold } from "../subagents/subagentFold";
-import { ToolGroupRow } from "./ToolGroupRow";
+import { firstStepCount, stepProbe, ToolGroupRow } from "./ToolGroupRow";
+import { FindReveal, type FindRevealTarget } from "./chatFind";
 import { ToolRows } from "./TurnRows";
 import * as toolFailure from "./toolFailure";
 import * as thoughts from "./thoughts";
@@ -237,10 +238,10 @@ for (const [kind, toolKind] of GROUP_KINDS)
         return callback.call(context, value, at, array);
       }) as U[];
     });
-    const enabled = thoughtLayout.enabled;
-    const renderProbe = spyOn(thoughtLayout, "enabled").mockImplementation(() => {
+    const threshold = thoughtLayout.threshold;
+    const renderProbe = spyOn(thoughtLayout, "threshold").mockImplementation(() => {
       thoughtRenders += 1;
-      return enabled();
+      return threshold();
     });
     const thoughtParts = thoughts.thoughtParts;
     const thoughtProbe = spyOn(thoughts, "thoughtParts").mockImplementation((text) => {
@@ -337,7 +338,7 @@ test("a failed step of an opened command group opens to its command, Exit code 1
   expect(shellBlock.textContent).toContain("No such file or directory");
 });
 
-test("one mixed run exposes individual steps and drills into useful MCP detail without JSON plumbing", async () => {
+test("one mixed run exposes individual steps and drills into an MCP call's fields without JSON plumbing", async () => {
   const { mixedToolRunFixture } = await import("./mixedToolRunFixture");
   const row: AcpmuxRow = {
     id: "mixed-sheet",
@@ -350,7 +351,7 @@ test("one mixed run exposes individual steps and drills into useful MCP detail w
   };
   const container = await render(<ToolRows row={row} sessionId="mixed-sheet" />);
   const header = container.querySelector<HTMLButtonElement>("button.cv-tool")!;
-  expect(header.textContent).toContain("Ran 2 commands, used 3 tools");
+  expect(header.textContent).toContain("Ran 2 commands and used 3 tools");
   expect(container.querySelector("[data-mixed-tool-steps]")).toBeNull();
   await act(async () => header.click());
   const steps = container.querySelector("[data-mixed-tool-steps]")!;
@@ -363,15 +364,11 @@ test("one mixed run exposes individual steps and drills into useful MCP detail w
     button.textContent?.includes("Find the retry handler"),
   )!;
   await act(async () => grep.click());
-  expect(steps.textContent).toContain("src/retry.ts:12: retry(request)");
+  // An opened call is its arguments as labeled fields and its output (ToolDetail.tsx), never one JSON block.
+  const fields = [...steps.querySelectorAll(".cv-tool-detail__key")].map((node) => node.textContent);
+  expect(fields).toContain("pattern");
+  expect(steps.textContent).toContain('"line": 12');
   expect(steps.textContent).not.toContain('"pattern"');
-  expect(steps.textContent).not.toContain("mcp__repo__grep");
-  const raw = [...steps.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
-    button.textContent?.startsWith("Raw"),
-  )!;
-  await act(async () => raw.click());
-  expect(steps.textContent).toContain('"pattern"');
-  expect(steps.textContent).toContain("mcp__repo__grep");
   const waiting = [...steps.querySelectorAll<HTMLElement>(".cv-tool")].find((node) =>
     node.textContent?.includes("Read the retry context"),
   )!;
@@ -389,8 +386,6 @@ for (const agentFamily of ["claude", "codex"])
       const projected = turnView(mixedToolTurnFixture(working), new Set(["worked-mixed-prompt"]), {
         agentFamily,
         working,
-        liveRuns: true,
-        lineBelow: true,
       });
       const work = projected.find((row) => row.kind === "activity")!;
       expect(work).toBeDefined();
@@ -403,3 +398,84 @@ for (const agentFamily of ["claude", "codex"])
       expect(container.querySelectorAll("[data-mixed-tool-steps] > .cv-step")).toHaveLength(working ? 4 : 5);
       if (working) expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(true);
     });
+
+test("a click opens a long run with only a window's steps drawn, the rest reserved and drawn after the fold", async () => {
+  const items = Array.from({ length: 100 }, (_, at) => calls()[at % 13]!).map((item, at) => ({
+    ...item,
+    tool: { ...item.tool!, id: `execute-long-${at + 1}` },
+  }));
+  // The draws after the fold wait here until the test runs them, however soon their timer fires.
+  const held: (() => void)[] = [];
+  stepProbe.hold = (draw) => void held.push(draw);
+  try {
+    const container = await render(<ToolGroupRow kind="commands" items={items} disclosureKey="long-run" folded />);
+    const line = container.querySelector<HTMLButtonElement>('button[data-tool-group="long-run"]')!;
+    expect(line.getAttribute("aria-expanded")).toBe("false");
+    const first = firstStepCount(window.innerHeight);
+    expect(first).toBeLessThan(100);
+    await act(async () => line.click());
+    const steps = () => container.querySelectorAll('[data-tool-group-items="long-run"] > .cv-step').length;
+    // The click's frame draws a window's worth, and a box for the rest.
+    expect(steps()).toBe(first);
+    expect(container.querySelector("[data-steps-rest]")?.getAttribute("data-steps-rest")).toBe(String(100 - first));
+    // After the fold (none plays in a test DOM), a window's worth per draw until every step is drawn.
+    for (let tries = 0; tries < 100 && steps() < 100; tries++) {
+      const draw = held.shift();
+      if (draw) await act(async () => draw());
+      else await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+    }
+    expect(steps()).toBe(100);
+    expect(container.querySelector("[data-steps-rest]")).toBeNull();
+  } finally {
+    stepProbe.hold = undefined;
+  }
+});
+
+test("a run opened by itself (not a click) draws every step at once", async () => {
+  const items = Array.from({ length: 60 }, (_, at) => calls()[at % 13]!).map((item, at) => ({
+    ...item,
+    tool: { ...item.tool!, id: `execute-open-${at + 1}` },
+  }));
+  const container = await render(<ToolGroupRow kind="commands" items={items} disclosureKey="open-run" />);
+  expect(container.querySelectorAll('[data-tool-group-items="open-run"] > .cv-step').length).toBe(60);
+  expect(container.querySelector("[data-steps-rest]")).toBeNull();
+});
+
+test("Find into a click-opened run still drawing draws every step, its match past the first window", async () => {
+  const items = Array.from({ length: 100 }, (_, at) => calls()[at % 13]!).map((item, at) => ({
+    ...item,
+    tool: { ...item.tool!, id: `execute-find-${at + 1}` },
+  }));
+  let reveal: (target: FindRevealTarget | undefined) => void = () => {};
+  function Scene() {
+    const [target, setTarget] = useState<FindRevealTarget | undefined>(undefined);
+    reveal = setTarget;
+    return (
+      <FindReveal.Provider value={target}>
+        <ToolGroupRow kind="commands" items={items} disclosureKey="find-run" folded />
+      </FindReveal.Provider>
+    );
+  }
+  // The rows past the first window wait: the draws after the fold are held, not run.
+  const held: (() => void)[] = [];
+  stepProbe.hold = (draw) => void held.push(draw);
+  try {
+    const container = await render(<Scene />);
+    await act(async () => container.querySelector<HTMLButtonElement>('button[data-tool-group="find-run"]')!.click());
+    const steps = () => container.querySelectorAll('[data-tool-group-items="find-run"] > .cv-step').length;
+    const first = firstStepCount(window.innerHeight);
+    for (let tries = 0; tries < 20 && held.length === 0; tries++)
+      await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(held.length).toBeGreaterThan(0);
+    expect(steps()).toBe(first);
+    expect(container.querySelector('[data-tool-id="execute-find-80"]')).toBeNull();
+    await act(async () =>
+      reveal({ rowId: "find-run", card: false, needle: "", repaint: () => {}, toolId: "execute-find-80" }),
+    );
+    expect(steps()).toBe(100);
+    expect(container.querySelector('[data-tool-id="execute-find-80"]')).not.toBeNull();
+    expect(container.querySelector("[data-steps-rest]")).toBeNull();
+  } finally {
+    stepProbe.hold = undefined;
+  }
+});

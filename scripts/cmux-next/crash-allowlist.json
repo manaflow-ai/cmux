@@ -620,13 +620,6 @@
    "count": 1,
    "reason": "Debug-only trap of the main-thread blocking detector (CMUX_BLOCKING_TRAP=1 and its tests); compiled out of bench, Nightly and Release builds, and never for a contended Mutex wait",
    "reviewer": "independent review 4 (cmux-1c), 2026-10-24"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/CloudLinkLauncher.swift",
-   "class": "swift.index_subscript",
-   "count": 1,
-   "reason": "state.tasks[id] = Task { ... }: an assignment into State.tasks, declared [UUID: Task<Void, Never>] in this file; a dictionary write cannot trap. The ratchet reads the qualified state.tasks by the module's declarations, and since 4897e1224dca CmuxNextDaemon also declares an array named tasks (ConversationRunTool's spawn tasks: [String]?), so the name is no longer only a dictionary there.",
-   "reviewer": "review subagent (Claude Opus 5.5, independent read of the ratchet's module_collections/index_hits on this file) 2026-11-05: SHIP; only line 180 counts, State.tasks is [UUID: Task<Void, Never>], count pinned to 1"
   }
  ]
 }

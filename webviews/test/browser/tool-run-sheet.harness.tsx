@@ -13,6 +13,8 @@ import strings from "../../src/agent-session/acpmux/generated/strings.json";
 globalThis.__cmuxPaneStrings = { en: strings.en };
 document.documentElement.dataset.cmuxMotion = "off";
 const params = new URLSearchParams(location.search);
+// The sheet is the gallery's `ios-sheet` look (conversation.css), measured here unless `look` names another.
+document.documentElement.dataset.toolStepsLook = params.get("look") ?? "ios-sheet";
 const theme = params.get("theme") === "light" ? "light" : "dark";
 const items = mixedToolRunFixture();
 if (params.has("long")) {

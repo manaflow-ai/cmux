@@ -7,14 +7,13 @@
 //! child before enabling serving. The daemon's default remains deny-all.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use ring::signature;
 use serde::{Deserialize, Serialize};
 
 use crate::dial::Service;
+use crate::jws::{valid_jti, valid_keys};
 use crate::keyset::Keyset;
 use crate::stamp::LinkPeer;
 use crate::stream_lease::StreamLease;
@@ -138,14 +137,7 @@ pub struct NativeTokenVerifier {
     clock: Arc<Clock>,
     replay_capacity: usize,
     receiver_generation: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Header {
-    alg: String,
-    kid: String,
-    typ: String,
+    behind: OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
 
 #[derive(Deserialize)]
@@ -205,6 +197,7 @@ impl NativeTokenVerifier {
             clock: Arc::new(clock),
             replay_capacity,
             receiver_generation: None,
+            behind: OnceLock::new(),
         })
     }
 
@@ -224,6 +217,17 @@ impl NativeTokenVerifier {
         let mut verifier = Self::new(keys, clock, replay_capacity)?;
         verifier.receiver_generation = Some(generation);
         Ok(verifier)
+    }
+
+    /// Call `hook` when a token this verifier refused was signed by the
+    /// control plane for this receiver, host, epoch and team but names a peer
+    /// binding the current policy does not hold: the control plane minted it
+    /// against newer peer authority (an ACL or grant change) than this policy
+    /// has seen. The owner reads policy again early rather than refusing every
+    /// fresh token until its next scheduled read. The token is still refused;
+    /// the hook never admits anything. Set once; later calls are ignored.
+    pub fn on_policy_behind(&self, hook: impl Fn() + Send + Sync + 'static) {
+        let _ = self.behind.set(Box::new(hook));
     }
 
     /// The production clock; construction still installs no policy or listener.
@@ -385,43 +389,15 @@ impl TokenVerifier for NativeTokenVerifier {
             return Err(no(Invalid, "policy_host"));
         }
 
-        let mut parts = token.split('.');
-        let shape = || no(Invalid, "token_shape");
-        let h = parts.next().ok_or_else(shape)?;
-        let p = parts.next().ok_or_else(shape)?;
-        let s = parts.next().ok_or_else(shape)?;
-        if parts.next().is_some() {
-            return Err(shape());
-        }
-        let header: Header =
-            serde_json::from_slice(&decode(h).map_err(|k| no(k, "header_encoding"))?)
-                .map_err(|_| no(Invalid, "header_malformed"))?;
         let typ = if self.receiver_generation.is_some() {
             "cmux-native-link-v2+jwt"
         } else {
             "cmux-link+jwt"
         };
-        if header.alg != "EdDSA" {
-            return Err(no(Invalid, "header_alg"));
-        }
-        if header.typ != typ {
-            return Err(no(Invalid, "header_typ"));
-        }
-        if !kid(&header.kid) {
-            return Err(no(Invalid, "kid"));
-        }
-        let key =
-            state.keys.keys.get(&header.kid).ok_or(no(TokenRefused::UnknownKey, "unknown_kid"))?;
-        let sig = decode(s).map_err(|k| no(k, "signature"))?;
-        if sig.len() != 64 {
-            return Err(no(Invalid, "signature"));
-        }
-        let signed = token.get(..h.len() + 1 + p.len()).ok_or_else(shape)?;
-        signature::UnparsedPublicKey::new(&signature::ED25519, key)
-            .verify(signed.as_bytes(), &sig)
-            .map_err(|_| no(Invalid, "signature"))?;
-        let c: Claims = serde_json::from_slice(&decode(p).map_err(|k| no(k, "claims_encoding"))?)
-            .map_err(|_| no(Invalid, "claims_malformed"))?;
+        let crate::jws::SignedToken { kid, key, claims } =
+            crate::jws::verify_signed(token, typ, &state.keys)?;
+        let c: Claims =
+            serde_json::from_slice(&claims).map_err(|_| no(Invalid, "claims_malformed"))?;
         let receiving = match (&self.receiver_generation, &c.receiver) {
             (None, None) => true,
             (Some(expected), Some(receiver)) => {
@@ -452,13 +428,7 @@ impl TokenVerifier for NativeTokenVerifier {
             (c.iat == 0 || c.iat > MAX_SAFE_INTEGER || c.exp > MAX_SAFE_INTEGER, "claims_range"),
             (c.iat > now.unix_ms / 1000, "iat_in_future"),
             (c.exp <= c.iat || c.exp - c.iat > 300, "lifetime"),
-            (
-                URL_SAFE_NO_PAD
-                    .decode(&c.jti)
-                    .ok()
-                    .is_none_or(|b| b.len() != 16 || URL_SAFE_NO_PAD.encode(b) != c.jti),
-                "jti",
-            ),
+            (!valid_jti(&c.jti), "jti"),
         ];
         if let Some(reason) = checks.iter().find_map(|(failed, reason)| failed.then_some(*reason)) {
             return Err(no(Invalid, reason));
@@ -466,24 +436,36 @@ impl TokenVerifier for NativeTokenVerifier {
         if c.exp <= now.unix_ms / 1000 {
             return Err(no(Expired, "token_expired"));
         }
-        if c.svc.is_empty()
-            || c.svc.len() > 2
-            || c.svc.iter().any(|s| !matches!(s, Service::Daemon | Service::Ssh))
-            || matches!(c.svc.as_slice(), [first, second] if first == second)
-        {
+        if !policy::cloud_services(&c.svc) {
             return Err(no(Invalid, "services"));
         }
-        let peer = policy
-            .peers
-            .iter()
-            .find(|p| {
-                p.install == c.sub
-                    && p.binding == c.network
-                    && p.binding.key().as_ref() == Some(expected.peer_key)
-            })
-            .ok_or(no(Invalid, "peer_not_in_policy"))?;
+        let Some(peer) = policy.peers.iter().find(|p| {
+            p.install == c.sub
+                && p.binding == c.network
+                && p.binding.key().as_ref() == Some(expected.peer_key)
+        }) else {
+            // Signed and current in every other claim, bound to the WireGuard
+            // key this stream came in on, and only its binding differs from the
+            // policy's peer for that key: the policy is behind the control
+            // plane's. A token for another peer, or sent over another peer's
+            // session, never hints (the renewal loop also spaces early reads).
+            let newer = c.network.key().as_ref() == Some(expected.peer_key)
+                && policy.peers.iter().any(|p| {
+                    p.install == c.sub && p.binding.key().as_ref() == Some(expected.peer_key)
+                });
+            drop(state);
+            if newer && let Some(hook) = self.behind.get() {
+                hook();
+            }
+            return Err(no(Invalid, "peer_not_in_policy"));
+        };
         if !c.svc.contains(&expected.service) || !peer.services.contains(&expected.service) {
             return Err(no(TokenRefused::ServiceNotAllowed, "service_not_allowed"));
+        }
+        // The desktop is the creator's alone: besides the policy listing it
+        // only for the creator's peers, the token itself must say owner.
+        if expected.service == Service::Desktop && c.vmk != Some(crate::token::VmKind::Owner) {
+            return Err(no(TokenRefused::ServiceNotAllowed, "desktop_not_owner"));
         }
         let deadline = stream_deadline(policy, now).ok_or(no(Expired, "policy_expired"))?;
         let elapsed = elapsed_deadline(&state, policy).ok_or(no(Expired, "policy_expired"))?;
@@ -495,11 +477,7 @@ impl TokenVerifier for NativeTokenVerifier {
             team: policy.team.clone(),
             authority_version: policy.authority_version.clone(),
             peer: peer.clone(),
-            proof: StreamProof::Token {
-                service: expected.service,
-                kid: header.kid,
-                signing_key: *key,
-            },
+            proof: StreamProof::Token { service: expected.service, kid, signing_key: key },
             lease: control,
         };
         let verified = VerifiedToken {
@@ -533,14 +511,6 @@ impl Drop for NativeTokenVerifier {
     }
 }
 
-fn decode(value: &str) -> Result<Vec<u8>, TokenRefused> {
-    let bytes = URL_SAFE_NO_PAD.decode(value).map_err(|_| TokenRefused::Invalid)?;
-    if value.is_empty() || URL_SAFE_NO_PAD.encode(&bytes) != value {
-        return Err(TokenRefused::Invalid);
-    }
-    Ok(bytes)
-}
-
 fn id(value: &str, prefix: &str) -> bool {
     value.strip_prefix(prefix).is_some_and(|s| {
         s.len() == 20 && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
@@ -551,17 +521,4 @@ fn native_id(value: &str, prefix: &str) -> bool {
     value.strip_prefix(prefix).is_some_and(|s| {
         s.len() == 26 && s.bytes().all(|b| b"0123456789abcdefghjkmnpqrstvwxyz".contains(&b))
     })
-}
-
-fn kid(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 64
-        && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
-}
-
-fn valid_keys(keys: &Keyset) -> bool {
-    (1..=2).contains(&keys.keys.len())
-        && keys.keys.keys().all(|s| kid(s))
-        && keys.version.len() == 16
-        && keys.version.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }

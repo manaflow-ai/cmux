@@ -24,6 +24,7 @@ mod browser_provider;
 /// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
 pub mod first_party_dir;
 mod lock_rank;
+pub mod remote_host;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
 pub use cmux_tui_cloud_conversations as cloud_conversations;
 pub mod chief_brains;
@@ -103,6 +104,8 @@ pub mod store_schemas;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]
 mod holder_runtime;
+#[cfg(feature = "hotpatch")]
+pub mod hotpatch;
 mod surface;
 mod terminal_activity;
 #[cfg(unix)]

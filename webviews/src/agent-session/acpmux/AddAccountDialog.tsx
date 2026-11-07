@@ -16,8 +16,14 @@ const BRANDS: Record<string, { brand: StringKey; cli: StringKey; folder: string 
   codex: { brand: "picker.addBrand.codex", cli: "picker.addCli.codex", folder: "~/.codex" },
 };
 
-/** A route id from a name: lowercase letters, digits and `-` (routes.rs), unique among `taken`. */
-export function accountIdFor(name: string, fallback: string, taken: readonly string[]): string {
+/** The daemon's built-in routes (routes.rs `builtin_routes`, accounts.rs): `route/list` leaves them
+ * out, and a route file of their id replaces them, so a new account never takes one. */
+const BUILT_IN_IDS = ["cmux", "codex-login", "claude-login"];
+
+/** A route id from a name: lowercase letters, digits and `-` (routes.rs), unique among `taken` and
+ * the built-in routes. */
+export function accountIdFor(name: string, fallback: string, existing: readonly string[]): string {
+  const taken = [...existing, ...BUILT_IN_IDS];
   const slug = (text: string) =>
     text
       .normalize("NFKD")
@@ -63,7 +69,9 @@ export function AddAccountDialog({
   const sending = useRef(false);
   const [error, setError] = useState<string>();
   const brand = known ? t(known.brand) : family;
-  const cli = known ? t(known.cli) : t("picker.harnessLogin");
+  // The family's own name for a CLI cmux has no product name for ("gemini login"), never the
+  // generic "CLI login", which the sentences around it would double ("the CLI login login").
+  const cli = known ? t(known.cli) : family;
   // A second login is "ChatGPT 2", then 3, ...: the first number no route has taken.
   const nextName = () => {
     for (let n = 2; ; n++) {

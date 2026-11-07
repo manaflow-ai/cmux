@@ -1,7 +1,10 @@
-// MCP calls open to useful values, output, diffs or captures. Request/response plumbing stays
-// available behind Raw, including when Find reveals a match in the original call.
+// Calls to one MCP tool, drawn as one line that says what they did ("Sent 4 messages to
+// Coordination hub"). Several calls open to a row each; a call opens to its arguments as labeled
+// fields and its response (ToolDetail.tsx), or to its request and response pretty-printed
+// (mcpCalls.ts). A call with nothing to open beyond its line (a description and a lifecycle
+// note) is inert. Opening and closing play the transcript's fold (fold.ts).
 import { useFindReveal } from "./chatFind";
-import { memo, type ReactNode, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
@@ -18,7 +21,6 @@ import {
   mcpOutputResult,
   mcpRawName,
   prettyOutput,
-  prettyValue,
   type McpCall,
 } from "./mcpCalls";
 import { callLine, cmuxTitle, execParts, execView, isCmuxExec } from "./cmuxExec";
@@ -26,11 +28,11 @@ import { CODE_ROLE_COLOR, jsTokens, type CodeToken } from "./jsHighlight";
 import { RawToggle } from "./SentMessageLine";
 import { isFailed, isRunning } from "./toolGroups";
 import { ToolOutput } from "./ToolOutputBody";
-import { isMcpLifecycleOutput, usefulMcpRequest, usefulMcpResponse } from "./mcpPresentation";
-import { ShellBlock } from "./ShellBlock";
-import { toolFiles } from "../diff";
-import { EditDiff } from "./EditDiff";
+import { isMcpLifecycleOutput, usefulMcpResponse } from "./mcpPresentation";
+import { ToolDetail } from "./ToolDetail";
+import { argsSource, inputFields, requestText, type InputField } from "./toolInputFields";
 import { toolIcon, ToolImages } from "./ToolRow";
+import { ToolVisualRow } from "./ToolVisualPreview";
 import { VideoFramesCard } from "./VideoFramesCard";
 import { videoFrames } from "./videoFrames";
 import { useRowDisclosure, useTranscriptDisclosure } from "./transcriptDisclosure";
@@ -169,37 +171,45 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
     return () => observer.disconnect();
   }, [hasDetails, open, label, expandable]);
   const Row = expandable ? "button" : "div";
+  // An object of arguments opens as one labeled field each (ToolDetail.tsx); any other shape, and a
+  // hook's refusal, as the request and response it came as.
+  const fields = useMemo(
+    () => (fold.present ? inputFields(call.args, argsSource(tool)) : undefined),
+    [fold.present, call, tool],
+  );
   return (
     <>
-      <Row
-        type={expandable ? "button" : undefined}
-        className={`cv-tool${expandable ? " is-toggle is-whole-open" : ""}${running ? " is-live" : " is-strong"}`}
-        aria-expanded={expandable ? open : undefined}
-        aria-controls={hasDetails && open ? detailsId : undefined}
-        ref={fold.headerRef}
-        onClick={expandable ? fold.toggle : undefined}
-      >
-        <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
-        <span ref={labelRef} className="cv-tool__text" data-find-skip>
-          <ToolLabel text={label} />
-          {failure ? (
-            <span className="cv-tool__failed"> {failureWord(t, failure)}</span>
-          ) : (
-            outcome?.failed && <span className="cv-tool__failed"> {t("tools.failed")}</span>
-          )}
-          {summary && <span className="cv-tool__detail">{`  ${summary}`}</span>}
-          <InlineFailureCause failure={failure} />
-        </span>
-        {/* The person approved this call's ask: it says so on its row (ApprovedMark.tsx). */}
-        {tool.approved && (
-          <span className="cv-command__meta cv-tool__meta">
-            <ApprovedMark />
+      <ToolVisualRow sources={images} label={label}>
+        <Row
+          type={expandable ? "button" : undefined}
+          className={`cv-tool${expandable ? " is-toggle is-whole-open" : ""}${running ? " is-live" : " is-strong"}`}
+          aria-expanded={expandable ? open : undefined}
+          aria-controls={hasDetails && open ? detailsId : undefined}
+          ref={fold.headerRef}
+          onClick={expandable ? fold.toggle : undefined}
+        >
+          <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
+          <span ref={labelRef} className="cv-tool__text" data-find-skip>
+            <ToolLabel text={label} />
+            {failure ? (
+              <span className="cv-tool__failed"> {failureWord(t, failure)}</span>
+            ) : (
+              outcome?.failed && <span className="cv-tool__failed"> {t("tools.failed")}</span>
+            )}
+            {summary && <span className="cv-tool__detail">{`  ${summary}`}</span>}
+            <InlineFailureCause failure={failure} />
           </span>
-        )}
-        {expandable && (
-          <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
-        )}
-      </Row>
+          {/* The person approved this call's ask: it says so on its row (ApprovedMark.tsx). */}
+          {tool.approved && (
+            <span className="cv-command__meta cv-tool__meta">
+              <ApprovedMark />
+            </span>
+          )}
+          {expandable && (
+            <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+          )}
+        </Row>
+      </ToolVisualRow>
       <ToolFailureCause failure={failure} />
       {/* Captures and screenshots are part of the closed call's result, so keep the strip visible
           without requiring a disclosure click. */}
@@ -209,8 +219,19 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
         <div {...fold.bodyProps}>
           {exec && failure?.kind !== "hook" ? (
             <CmuxExecDetails id={detailsId} tool={tool} call={call} raw={raw} reveal={reveal} />
+          ) : fields && failure?.kind !== "hook" ? (
+            <McpCallFields
+              id={detailsId}
+              call={call}
+              raw={raw}
+              fields={fields}
+              output={video ? video.text : tool.output}
+              tool={tool}
+              strip={stripsEnvelopeImages(tool)}
+              reveal={reveal}
+            />
           ) : (
-            <UsefulMcpCallDetails
+            <McpCallDetails
               id={detailsId}
               call={call}
               raw={raw}
@@ -253,90 +274,6 @@ function requestPresentation(request: string, alternatives: Readonly<Record<stri
 /// The opened call: its request as a tight block, then its response in the same readable body as
 /// other tool outputs (ToolOutputBody.tsx: rendered Markdown or Raw, all lines on request); a part
 /// with nothing in it is left out. A sub-session card's Raw shows the same.
-function UsefulMcpCallDetails({
-  id,
-  call,
-  raw,
-  output,
-  tool,
-  strip,
-  reveal,
-  requestFindAlternatives = {},
-}: {
-  id: string;
-  call: McpCall;
-  raw: string;
-  output?: string;
-  /// The original call distinguishes a hook refusal from output that merely quotes one.
-  tool?: NonNullable<AcpmuxActivity["tool"]>;
-  /// Whether the call's strip shows its envelope's images, which its response then leaves out.
-  strip: boolean;
-  reveal: number;
-  /// Maps string arguments to their rendered data-find-primary identity.
-  requestFindAlternatives?: Readonly<Record<string, string>>;
-}) {
-  const t = useT();
-  const failure = useMemo(() => (tool ? toolFailure(tool) : undefined), [tool]);
-  const blocked = failure?.kind === "hook";
-  const shownOutput = blocked ? failure.output : output;
-  const original = useMemo(() => mcpOutputResult(shownOutput, strip, call.tool), [shownOutput, strip, call.tool]);
-  const useful = useMemo(
-    () => usefulMcpResponse(original?.text) ?? (failure ? original?.text : undefined),
-    [original, failure],
-  );
-  const response = useMemo(() => mcpOutputResult(useful, false, call.tool), [useful, call.tool]);
-  const primary = useMemo(() => usefulMcpRequest(call.args), [call]);
-  const files = useMemo(() => (tool?.diffs?.length ? toolFiles([tool]) : []), [tool]);
-  // Calls with no useful projection still need to show their identity when opened. Keeping Raw
-  // behind a second click would leave an otherwise empty disclosure body (and hides the only
-  // meaningful detail of lifecycle-style MCP calls).
-  const rawByDefault = !primary.command && !primary.context && !response && !files.length && !blocked;
-  const [rawOpen, setRawOpen] = useState(reveal > 0 || rawByDefault);
-  useEffect(() => {
-    if (reveal > 0) setRawOpen(true);
-  }, [reveal]);
-  return (
-    <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: original?.text })}>
-      <div data-find-skip={rawOpen || undefined}>
-        {blocked && (
-          <div className="cv-mcp-call__head" data-find-skip>
-            {t("tools.blockedByHook")}
-          </div>
-        )}
-        {files.map((file) => (
-          <EditDiff key={file.path} file={file} />
-        ))}
-        {primary.command ? (
-          <ShellBlock
-            command={primary.command}
-            output={useful}
-            copyOutput={original?.text}
-            exitCode={tool?.exitCode}
-            reveal={reveal}
-          />
-        ) : (
-          <>
-            {primary.context && <pre className="cv-mcp-call__body selectable">{primary.context}</pre>}
-            {response && <ToolOutput result={response} copyOutput={original?.text} reveal={reveal} />}
-          </>
-        )}
-      </div>
-      <RawToggle open={rawOpen} onOpenChange={setRawOpen}>
-        <McpCallDetails
-          id={`${id}-raw`}
-          call={call}
-          raw={raw}
-          output={output}
-          tool={tool}
-          strip={strip}
-          reveal={reveal}
-          requestFindAlternatives={requestFindAlternatives}
-        />
-      </RawToggle>
-    </div>
-  );
-}
-
 export function McpCallDetails({
   id,
   call,
@@ -360,7 +297,7 @@ export function McpCallDetails({
   requestFindAlternatives?: Readonly<Record<string, string>>;
 }) {
   const t = useT();
-  const request = useMemo(() => prettyValue(call.args), [call]);
+  const request = useMemo(() => requestText(call.args, tool && argsSource(tool)), [call, tool]);
   const failure = useMemo(() => (tool ? toolFailure(tool) : undefined), [tool]);
   const blocked = failure?.kind === "hook";
   const shownOutput = blocked ? failure.output : output;
@@ -390,6 +327,68 @@ export function McpCallDetails({
         </div>
       )}
     </div>
+  );
+}
+
+/// An opened call whose arguments are an object: its machine name, then Input as one labeled field
+/// per argument and Output with its copy button (ToolDetail.tsx); the request and response as they
+/// came stay behind Raw.
+function McpCallFields({
+  id,
+  call,
+  raw,
+  fields,
+  output,
+  tool,
+  strip,
+  reveal,
+}: {
+  id: string;
+  call: McpCall;
+  raw: string;
+  fields: readonly InputField[];
+  output?: string;
+  tool: NonNullable<AcpmuxActivity["tool"]>;
+  strip: boolean;
+  reveal: number;
+}) {
+  const response = useMemo(() => mcpOutputResult(output, strip, call.tool), [output, strip, call.tool]);
+  const [rawOpen, setRawOpen] = useState(false);
+  return (
+    <ToolDetail
+      id={id}
+      fields={fields}
+      result={response}
+      reveal={reveal}
+      head={
+        <code className="cv-mcp-call__name selectable" data-find-skip>
+          {raw}
+        </code>
+      }
+      after={
+        <div className="cv-cmux-exec__raw" data-find-skip>
+          <RawToggle
+            open={rawOpen}
+            onOpenChange={setRawOpen}
+            icon={
+              <span className="cv-tool__icon">
+                <CodeBrackets size={16} />
+              </span>
+            }
+          >
+            <McpCallDetails
+              id={`${id}-raw`}
+              call={call}
+              raw={raw}
+              output={output}
+              tool={tool}
+              strip={strip}
+              reveal={reveal}
+            />
+          </RawToggle>
+        </div>
+      }
+    />
   );
 }
 

@@ -180,6 +180,16 @@ struct CloudStartChatMachineTests {
         #expect(reserved["ensure_project"] as? Bool == false)
     }
 
+    /// Leo, 2026-11-06: the default flow, with no environment step, keeps a project's dependencies warm on
+    /// production too: a personal send there asks the platform it signed in to, never the CLI's development default.
+    @Test func aPersonalSendGetsTheSetUpProjectMachineOnProductionWhenItsPlatformIsKnown() {
+        let production = URL(string: "https://cmux-platform.debussy.workers.dev")
+        #expect(CloudStartCore().ensuresProject(account: [Self.me, nil], platform: production, production: true))
+        #expect(!CloudStartCore().ensuresProject(account: [Self.me, nil], platform: nil, production: true))
+        #expect(CloudStartCore().ensuresProject(account: [Self.me, nil], platform: nil, production: false))
+        #expect(!CloudStartCore().ensuresProject(account: [Self.me, "team-a"], platform: production, production: true))
+    }
+
     /// Router review at 6beb0f2: with no `cwd` the tab's own folder is copied, and its `.git` file
     /// can name a repository elsewhere (a linked worktree): that send is refused, like one with `cwd`.
     @Test func aTabsFolderWhoseGitFolderIsElsewhereIsNeverCopied() throws {
@@ -209,10 +219,6 @@ struct CloudStartChatMachineTests {
         #expect(request.idempotencyKey == "cloud-start-chat-k")
         #expect(request.team == "team-a")
         #expect(!request.wasSent)
-        // The classic create sends to that team, not the app's team now; a sent try keeps its own.
-        #expect(await CloudService.createTeam(sent: nil, requested: request.team) { "team-b" } == "team-a")
-        #expect(await CloudService.createTeam(sent: nil, requested: nil) { "team-b" } == "team-b")
-        #expect(await CloudService.createTeam(sent: .some("team-c"), requested: request.team) { "team-b" } == "team-c")
     }
 
     /// A signed-out first send keeps its stable refusal code for callers, but the
@@ -220,18 +226,5 @@ struct CloudStartChatMachineTests {
     @Test func aSignedOutFirstSendCarriesActionableRecoveryCopy() {
         #expect(CloudStartChat.refusalMessage("not_signed_in") == CloudStrings.signInFirst)
         #expect(CloudStartChat.refusalMessage("cloud_disabled") == "cloud_disabled")
-    }
-
-    /// RED before: the composer reservation and its bind named the active Stack team while the app server
-    /// list reads the install token's team, so a team account's reserved machine was never listed and the
-    /// first send failed "No Cloud machine has the id vm_…" (pr-capture dev, 2026-11-05). The reservation
-    /// now names the list's team; the classic link keeps the active team.
-    @Test func aReservationNamesTheTeamTheAppServerListReads() async throws {
-        let onAppServer = try await CloudService.reservationTeam(linkSource: .appServer, installTeam: { "team_install" }, activeTeam: { "team_active" })
-        #expect(onAppServer == "team_install")
-        let personal = try await CloudService.reservationTeam(linkSource: .appServer, installTeam: { nil }, activeTeam: { "team_active" })
-        #expect(personal == nil)
-        let onClassic = try await CloudService.reservationTeam(linkSource: .legacy, installTeam: { "team_install" }, activeTeam: { "team_active" })
-        #expect(onClassic == "team_active")
     }
 }

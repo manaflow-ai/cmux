@@ -269,8 +269,7 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
         rawInput: { file_path: "src/auth.ts" },
       }),
     ]);
-    // While it runs the read draws no row of its own (Debug toggle agentPane.debug.codexToolRuns,
-    // on by default): the live line at the turn's foot names it (Thinking.tsx), under the record.
+    // While it runs the read draws no row of its own: the live line at the turn's foot names it (Thinking.tsx), under the record.
     const live = page.locator(".cv-worked.is-below .cv-thinking", { hasText: "Read auth.ts" });
     await live.waitFor({ timeout: 5_000 });
     const line = await live.boundingBox();
