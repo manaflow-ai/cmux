@@ -24,7 +24,7 @@ Usage history (`FrecencyStore`: +1 per use, half-life 3 days, 500 keys) is recor
 ## 3. Eval set (measured, not guessed)
 
 - Fixture: `cmux-tui/crates/cmux-palette-eval/tests/eval/root-entries.json`, the exact ranker input of a tagged build's root page, written by `debug.palette.entries` (DEBUG socket verb) through `scripts/cmux-next/palette-eval-live.py`. `overlay.json` adds the workspace and tab rows a real session has (fresh builds have one workspace), in the providers' shape.
-- Cases: `cases.json`, 111 queries with expected rows (any listed id is correct; the first is the best): exact titles, partial words, concepts and synonyms, acronyms, typos, workspaces and tabs, Lawrence's real usage profile (aggregated read-only from the frecency keys of his dogfood builds; action ids only), and the empty query.
+- Cases: `cases.json`, 169 queries with expected rows (any listed id is correct; the first is the best): exact titles, partial words, concepts and synonyms, acronyms, typos, workspaces and tabs, Lawrence's real usage profile (aggregated read-only from the frecency keys of his dogfood builds; action ids only), and the empty query.
 - Metrics: top-1 rate, top-3 rate and MRR over the rows in display order (sections flattened as shown). `cargo run -p cmux-palette-eval --example eval` (in cmux-tui) prints the report and every miss; `-- --live FILE` scores rows a real build returned through `palette.query`. `cmux-palette-eval/tests/eval.rs` fails when a metric drops below the recorded floor, so every ranking change reports before and after numbers.
 
 ## 4. Research summary
