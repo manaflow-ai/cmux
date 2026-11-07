@@ -17,7 +17,7 @@ extension MainPaneGutterSuites {
     @MainActor struct MainPaneOneInsetTests {
         /// Runs `body` on the in-memory default chrome style, whose main pane is curved. The style is
         /// process-wide: a settings load in a suite that runs alongside leaves it at the file
-        /// default `flat-sidebar-line` (no card, ChromeStyleSetting.fallback), so pin it here.
+        /// default `flat` (no card, ChromeStyleSetting.fallback), so pin it here.
         func onCurvedMainPane<T>(_ body: () throws -> T) rethrows -> T {
             let design = DesignSettings.shared
             let before = design.chromeStyle
