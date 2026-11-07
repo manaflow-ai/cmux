@@ -259,9 +259,9 @@ mod opened {
     }
 
     #[cfg(not(unix))]
-    pub(super) use other::{Entries, Opened, open};
+    pub(super) use other::open;
     #[cfg(unix)]
-    pub(super) use unix::{Entries, Opened, open};
+    pub(super) use unix::open;
 
     #[cfg(unix)]
     mod unix {
