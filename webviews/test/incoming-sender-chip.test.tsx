@@ -154,6 +154,15 @@ test("a qualified remote sender reads by its session name in the line, its label
   expect(opened).toEqual([remote.sessionId]);
 });
 
+test("a sender with no recorded name reads by its session's name, not its raw address", async () => {
+  const child = entry({ sessionId: "child-3", name: "design-check", hostKind: "local" });
+  const { from, toggle } = await line({ name: "acp:child-3", sessionId: "child-3" }, [child]);
+  expect(from?.textContent).toBe("design-check");
+  expect(toggle.getAttribute("aria-label")).toBe(
+    t("message.collapsedLabel", { from: "design-check", preview: "Rebased; ready for review." }),
+  );
+});
+
 test("a sender found only by its name gains no child relationship", async () => {
   const { from } = await line({ name: remote.name! }, [remote]);
   expect(from?.textContent).toBe("pr-row");

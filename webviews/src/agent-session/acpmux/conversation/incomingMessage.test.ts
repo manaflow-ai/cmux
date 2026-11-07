@@ -449,6 +449,17 @@ test("recorded identity wins over signatures, which still leave the message text
     });
 });
 
+// With no recorded name, the sender's raw address is no name to show: its signature names the line,
+// as before, until the session metadata names it (IncomingMessageCard.tsx `useSenderSessionName`).
+test("a sender with no recorded name reads by its signature, not its raw address", () => {
+  const text = "[design-check] Ready.";
+  for (const kind of ["agent_message", "session_message"])
+    expect(incomingPrompt(text, { _meta: { provenance: { kind, from: "acp:child-3", to: "acp:p" } } })).toEqual({
+      kind: "message",
+      message: { name: "design-check", sessionId: "child-3", text: "Ready.", raw: text },
+    });
+});
+
 // Agent messages that waited for a busy chat go in as one turn (acpmux hub/digest.rs): the card
 // names every sender once, and the text is the prompt as the agent got it.
 test("an agent_digest is one card from its senders", () => {
