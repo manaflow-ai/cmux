@@ -30,7 +30,8 @@ struct CmuxToastPageGlassTests {
 
         let second = NSRect(x: 100, y: 72, width: 280, height: 44)
         view.placeGlass(resting: [(2, second)], fading: [(1, first)])
-        #expect(Set(glass().map(\.frame)) == [first, second])
+        // CGRect is Hashable only from macOS 15: compare the frames in order of y.
+        #expect(glass().map(\.frame).sorted { $0.minY < $1.minY } == [first, second])
         // The fade ended: the page no longer reports toast 1.
         view.placeGlass(resting: [(2, second)], fading: [])
         #expect(glass().map(\.frame) == [second])
