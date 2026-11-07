@@ -138,9 +138,6 @@ extension TabStripView {
                 removeTab(id)
             }
         }
-        // A departure ends when its tab left the model (shown or not: a torn-out tab has no cell).
-        if !model.departures.isEmpty { model.departures.formIntersection(modelOrdered.map(\.id)) }
-
         var added: Set<TabID> = []
         for item in ordered {
             if let cell = cells[item.id] {
@@ -161,6 +158,8 @@ extension TabStripView {
             }
         }
         added.formUnion(syncChips(ordered, animated: animated))
+        // A departure ends when its tab left the model (shown or not: a torn-out tab has no cell).
+        if !model.departures.isEmpty { model.departures.formIntersection(modelOrdered.map(\.id)) }
         if hasSynced, !added.isEmpty {
             // An insert ends closing mode (Chrome).
             closingModeWidth = nil

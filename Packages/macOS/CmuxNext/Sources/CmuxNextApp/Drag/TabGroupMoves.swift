@@ -15,8 +15,8 @@ enum TabGroupMoves {
         guard let daemon = owner(of: group, target: pane, services: services),
               !refusesIncognitoCrossing(group, to: pane, services: services),
               !ChatDockRules.refusesGroupMove(to: pane, services: services) else { return completion(false) }
-        let target = pane.handle
-        run("move-tab-group", daemon: daemon, completion: completion) { connection in
+        let target = pane.handle, departed = depart(group, services: services)
+        run("move-tab-group", daemon: daemon, completion: { departed($0); completion($0) }) { connection in
             _ = try await connection.moveTabGroup(group, to: target, index: index, transaction: transaction)
         }
     }
@@ -39,8 +39,8 @@ enum TabGroupMoves {
             services.registry.refuse(reason)
             return completion(false)
         }
-        let target = pane.handle, sizing = services.splitSizing(for: pane, edge: edge, emptying: emptying)
-        run("move-tab-group-to-split", daemon: daemon, completion: { ok in if ok { sizing() }; completion(ok) }) { connection in
+        let target = pane.handle, sizing = services.splitSizing(for: pane, edge: edge, emptying: emptying), departed = depart(group, services: services)
+        run("move-tab-group-to-split", daemon: daemon, completion: { ok in if ok { sizing() }; departed(ok); completion(ok) }) { connection in
             _ = try await connection.moveTabGroupToSplit(group, pane: target, edge: edge, transaction: transaction)
         }
     }
@@ -50,8 +50,8 @@ enum TabGroupMoves {
         guard let daemon = owner(of: group, target: pane, services: services),
               !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
         let target = pane.handle
-        let width = services.newColumnWidth(nextTo: pane)
-        run("move-tab-group-to-column", daemon: daemon, completion: completion) { connection in
+        let width = services.newColumnWidth(nextTo: pane), departed = depart(group, services: services)
+        run("move-tab-group-to-column", daemon: daemon, completion: { departed($0); completion($0) }) { connection in
             _ = try await connection.moveTabGroupToColumn(group, target: .pane(target), afterColumn: afterColumn, width: width,
                                                           transaction: transaction)
         }
@@ -62,7 +62,7 @@ enum TabGroupMoves {
                                transaction: ClientTransactionID) async -> WorkspaceKey? {
         guard let daemon = GroupOwnership.daemon(holdingTabGroup: group, machines: services.machines) else { return nil }
         let before = Set(daemon.store.workspaces.compactMap(\.key))
-        let name = newWorkspaceName(for: group, store: daemon.store, services: services)
+        let name = newWorkspaceName(for: group, store: daemon.store, services: services), departed = depart(group, services: services)
         let key = await daemon.request("move-tab-group-to-new-workspace") { connection -> WorkspaceKey? in
             let result = try await connection.moveTabGroupToNewWorkspace(group, workspaceGroup: workspaceGroup, index: index,
                                                                          transaction: transaction)
@@ -74,18 +74,30 @@ enum TabGroupMoves {
             if let created, let name { _ = try? await connection.renameWorkspace(created, to: name) }
             return created
         }
+        departed(key ?? nil != nil)
         return key ?? nil
     }
 
-    private static func newWorkspaceName(for group: TabGroupID, store: DaemonStore, services: AppServices) -> String? {
-        let model = store.tabGroup(group)
-        let first = model?.members.lazy.compactMap { member -> TabModel? in
+    /// The group's tabs leave their panes by this move, not a close (`TabMoves.depart`): their
+    /// strips drop them and the group's chip with no close.
+    @MainActor private static func depart(_ group: TabGroupID, services: AppServices) -> Completion {
+        guard let store = GroupOwnership.daemon(holdingTabGroup: group, machines: services.machines)?.store else { return { _ in } }
+        let departed = tabs(of: group, in: store).map { TabMoves.depart($0, closesPane: false, services: services) }
+        return { ok in departed.forEach { $0(ok) } }
+    }
+
+    private static func tabs(of group: TabGroupID, in store: DaemonStore) -> [TabModel] {
+        (store.tabGroup(group)?.members ?? []).compactMap { member in
             switch member {
             case .surface(let surface): store.tab(surface: surface)
             case .tab(let resource): store.tab(id: resource.rawValue)
             }
-        }.first
-        return NewWorkspaceName.forGroup(name: model?.name, firstTab: first.map { TabMoves.nameInput($0, services: services) })
+        }
+    }
+
+    private static func newWorkspaceName(for group: TabGroupID, store: DaemonStore, services: AppServices) -> String? {
+        let first = tabs(of: group, in: store).first
+        return NewWorkspaceName.forGroup(name: store.tabGroup(group)?.name, firstTab: first.map { TabMoves.nameInput($0, services: services) })
     }
 
     /// True (and refused with a message) when `group` would move between an
