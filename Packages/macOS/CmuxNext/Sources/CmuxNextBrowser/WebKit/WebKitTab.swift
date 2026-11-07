@@ -82,6 +82,8 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     /// WebKit's default; and the document count that keeps a late read from an earlier document out.
     @ObservationIgnored var pageBackdropARGB: UInt32?
     @ObservationIgnored var pageBackdropDocument = 0
+    /// The last read found no background of the document's own and a dark color scheme: WebKit paints its dark canvas.
+    @ObservationIgnored var pageCanvasDark = false
     /// The daemon's resolved emulation (`WebKitTab+DeviceEmulation`) and the user agent to restore after it.
     @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
     @ObservationIgnored var userAgentBeforeEmulation: String?
@@ -102,6 +104,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         super.init()
         inspectorWatch.attach(webView: webView, container: container)
         container.onPaneMotion = { [weak self] in self?.samplePageBackdrop() }
+        container.onAppearanceChange = { [weak self] in self?.samplePageBackdrop() }
 
         webView.owner = self
         webView.navigationDelegate = self

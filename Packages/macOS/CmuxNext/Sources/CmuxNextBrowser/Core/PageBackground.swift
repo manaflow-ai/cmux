@@ -30,6 +30,43 @@ nonisolated enum PageBackground {
     /// Chromium's white default, 0xAARRGGBB.
     static let engineDefaultARGB: UInt32 = 0xFFFF_FFFF
 
+    /// The canvas Chromium paints under a document with no background of its own whose color scheme is dark (Blink's
+    /// dark base background, rgb(18, 18, 18)); `CEFTab.pageBackdropScript` answers it for such a document.
+    static let chromiumDarkCanvasARGB: UInt32 = 0xFF12_1212
+    /// WebKit's canvas for the same document (the dark system control background, rgb(30, 30, 30)).
+    static let webKitDarkCanvasARGB: UInt32 = 0xFF1E_1E1E
+
+    /// A script expression, true when the document's canvas is dark: the root's used color scheme (its `color-scheme`,
+    /// else the `color-scheme` meta) allows dark, and either allows no light or the page prefers dark. Both engines' page
+    /// background reads use it for a document with no background of its own.
+    static let usesDarkCanvasScript = """
+    (() => {
+      let scheme = getComputedStyle(document.documentElement).colorScheme || 'normal';
+      if (scheme === 'normal') scheme = document.querySelector('meta[name="color-scheme" i]')?.content || 'normal';
+      const words = scheme.toLowerCase().replaceAll(',', ' ').split(' ');
+      if (!words.includes('dark')) return false;
+      return !words.includes('light') || matchMedia('(prefers-color-scheme: dark)').matches;
+    })()
+    """
+
+    /// The ground a closing page pane shows (CLOSE GROUND FIX, review of #37344): the color its page area paints, one
+    /// rule for both engines. Nil (the chrome's own ground) when the tab shows no real page; while a committed document
+    /// has not settled, the engine's loading base (nil where the engine paints none, WebKit's hold, so the chrome's
+    /// ground shows as it does in the page area); then the document's own background, else the engine's canvas
+    /// (`canvas`: white, or dark under a dark color scheme), never the window's color.
+    static func closingGroundARGB(realPage: Bool, settled: Bool, loading: UInt32?, document: UInt32?,
+                                  canvas: UInt32) -> UInt32? {
+        guard realPage else { return nil }
+        guard settled else { return loading }
+        return document ?? canvas
+    }
+
+    /// Opaque 0xAARRGGBB as an sRGB color.
+    static func cgColor(_ argb: UInt32) -> CGColor {
+        func channel(_ shift: UInt32) -> CGFloat { CGFloat((argb >> shift) & 0xFF) / 255 }
+        return CGColor(srgbRed: channel(16), green: channel(8), blue: channel(0), alpha: 1)
+    }
+
     /// The Chromium page background, in the order the page's own paint takes
     /// it over: the theme color until the tab's first real page, the theme
     /// color again while a committed document has not painted

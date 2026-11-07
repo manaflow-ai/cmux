@@ -19,6 +19,17 @@ import Testing
         return PageBackground.argb(srgb)
     }
 
+    /// The one rule both engines' closing ground and Chromium's resize gap use.
+    @Test func theSharedRule() {
+        let rule = PageBackground.closingGroundARGB
+        #expect(rule(false, true, nil, Self.navy, 0xFFFF_FFFF) == nil, "no real page: the chrome's ground")
+        #expect(rule(true, false, 0xFF22_2222, Self.navy, 0xFFFF_FFFF) == 0xFF22_2222, "not settled: the loading base")
+        #expect(rule(true, false, nil, Self.navy, 0xFFFF_FFFF) == nil, "not settled, no base painted: the chrome's ground")
+        #expect(rule(true, true, 0xFF22_2222, Self.navy, 0xFFFF_FFFF) == Self.navy, "settled: the document's own")
+        #expect(rule(true, true, nil, nil, PageBackground.webKitDarkCanvasARGB) == PageBackground.webKitDarkCanvasARGB,
+                "settled with no background of its own: the canvas, never nil (the window's color)")
+    }
+
     @Test func beforeTheFirstRealPageThePaneKeepsTheChromesGround() throws {
         let rig = try Rig()
         defer { rig.close() }
