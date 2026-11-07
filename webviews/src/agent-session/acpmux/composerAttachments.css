@@ -245,6 +245,15 @@
 .acpmux-attachment-file.acpmux-attachment-pending {
   gap: 4px;
 }
+/* A loading image whose header gave its size (composer/attachmentIntakeModel.ts imageShape): the
+   width its thumbnail will have (`.acpmux-attachment-image img`: its height, its shape, 48 to
+   128px wide), so a wide or tall screenshot's picture arriving moves nothing (Leo, 2026-11-07: "they
+   go up top above and then they land to where they should be"). In the strip and in the text. */
+:is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sized] {
+  width: auto;
+  min-width: 48px;
+  max-width: 128px;
+}
 /* A loading image's own picture (composer/attachmentIntake.tsx InstantPreview), there the moment it
    is pasted or dropped, filling its tile under the spinner until its chip takes the tile's place
    (Leo, 2026-11-07: "can't we make this all "appear" a lot faster"). */

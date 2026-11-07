@@ -17,7 +17,7 @@ import {
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { type StringKey, type Translate, useT } from "../i18n";
 import { keptThumb, keepThumb } from "./imagePool";
-import { imageSize, MAX_DECODE_PIXELS } from "./imageWork";
+import { imageSize, MAX_DECODE_PIXELS, thumbRatio } from "./imageWork";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { pastesPlaced } from "./composerCopy";
 import { attachSources } from "./attachmentSources";
@@ -155,7 +155,19 @@ export type PendingAttachment = {
   /// browser has read it, before its preview is scaled and encoded (Leo, 2026-11-07: "can't we make this all
   /// "appear" a lot faster").
   preview?: string;
+  /// An image's pixel size from its file's header, read at once: its loading tile takes the shape
+  /// its thumbnail will have, so the picture arriving moves nothing (Leo, 2026-11-07: "they go up top
+  /// above and then they land to where they should be").
+  size?: { width: number; height: number };
 };
+
+/// The style that gives a tile its image's thumbnail shape (`size`, the image's pixels; imageWork.ts
+/// thumbRatio): its CSS (composerAttachments.css `[data-sized]`) holds the height and the width bounds
+/// the thumbnail has, and the ratio picks the width within them, so a loading tile takes the slot its
+/// thumbnail ends in.
+export function imageShape(size: { width: number; height: number } | undefined): { aspectRatio: string } | undefined {
+  return size?.width && size.height ? { aspectRatio: String(thumbRatio(size.width, size.height)) } : undefined;
+}
 
 /// Past this many bytes a loading tile shows no picture of the file itself, only its preview once
 /// made: its `data:` URL is a string the page holds and parses on its main thread, and three 8 MB
@@ -360,6 +372,18 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
       const id = shown[index]!.id;
+      if (!isMadeFile(file) && isImageFile(file))
+        void imageSize(file)
+          .catch(() => undefined)
+          .then((size) => {
+            if (!size?.width || !size.height) return;
+            const { width, height } = size;
+            setPending((chips) =>
+              chips.some((chip) => chip.id === id && !chip.size)
+                ? chips.map((chip) => (chip.id === id ? { ...chip, size: { width, height } } : chip))
+                : chips,
+            );
+          });
       void instantPreview(file).then((preview) => {
         if (!preview) return;
         setPending((chips) =>
