@@ -1,0 +1,85 @@
+import Foundation
+
+/// Orders sibling file explorer nodes for a ``FileExplorerSortOptions``.
+///
+/// Name sorting keeps folders before files. Date sorting interleaves folders and files by timestamp, places entries without that timestamp last, and breaks ties by folders first and then name so the order is stable.
+struct FileExplorerNodeSorter {
+    /// The key and direction to apply.
+    let options: FileExplorerSortOptions
+
+    /// Returns `nodes` in display order. Only the given level is sorted; children keep their own order.
+    func sorted(_ nodes: [FileExplorerNode]) -> [FileExplorerNode] {
+        nodes.sorted { lhs, rhs in
+            isOrderedBefore(lhs, rhs)
+        }
+    }
+
+    /// Strict weak ordering for the configured key; date keys fall back to ``orderedByFallback(_:_:)`` when timestamps tie or are missing on both sides.
+    private func isOrderedBefore(
+        _ lhs: FileExplorerNode,
+        _ rhs: FileExplorerNode
+    ) -> Bool {
+        switch options.key {
+        case .name:
+            if lhs.isDirectory != rhs.isDirectory {
+                return lhs.isDirectory
+            }
+            return orderedByName(lhs, rhs, order: options.order)
+        case .dateCreated:
+            if let result = orderedByDate(lhs.creationDate, rhs.creationDate, order: options.order) {
+                return result
+            }
+            return orderedByFallback(lhs, rhs)
+        case .dateModified:
+            if let result = orderedByDate(lhs.modificationDate, rhs.modificationDate, order: options.order) {
+                return result
+            }
+            return orderedByFallback(lhs, rhs)
+        }
+    }
+
+    /// Orders two optional dates in `order`, placing a known date before a missing one. Returns `nil` when both are equal or both missing.
+    private func orderedByDate(_ lhs: Date?, _ rhs: Date?, order: FileExplorerSortOrder) -> Bool? {
+        switch (lhs, rhs) {
+        case let (lhs?, rhs?) where lhs != rhs:
+            return order == .ascending ? lhs < rhs : lhs > rhs
+        case (.some, nil):
+            return true
+        case (nil, .some):
+            return false
+        default:
+            return nil
+        }
+    }
+
+    /// Tie-breaker for date sorts: folders first, then names A to Z regardless of the chosen order.
+    private func orderedByFallback(_ lhs: FileExplorerNode, _ rhs: FileExplorerNode) -> Bool {
+        if lhs.isDirectory != rhs.isDirectory {
+            return lhs.isDirectory
+        }
+        return orderedByName(lhs, rhs, order: .ascending)
+    }
+
+    /// Case-insensitive name order in `order`, using the full path as a final tie-breaker so the result is deterministic.
+    private func orderedByName(
+        _ lhs: FileExplorerNode,
+        _ rhs: FileExplorerNode,
+        order: FileExplorerSortOrder
+    ) -> Bool {
+        switch lhs.name.localizedCaseInsensitiveCompare(rhs.name) {
+        case .orderedAscending:
+            return order == .ascending
+        case .orderedDescending:
+            return order == .descending
+        case .orderedSame:
+            switch lhs.path.localizedCaseInsensitiveCompare(rhs.path) {
+            case .orderedAscending:
+                return order == .ascending
+            case .orderedDescending:
+                return order == .descending
+            case .orderedSame:
+                return false
+            }
+        }
+    }
+}
