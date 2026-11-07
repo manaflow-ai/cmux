@@ -34,7 +34,7 @@ pub(crate) use host_hold::hold;
 #[cfg(test)]
 pub(crate) use host_lock::unfence;
 pub(crate) use host_lock::{LockLost, lock_to_install, lock_updates};
-use host_migrate::{MIGRATING, REFUSED, migrate, migrate_back};
+use host_migrate::{MIGRATING, REFUSED, UNIT_LINES, migrate, migrate_back, unit_back};
 pub(crate) use host_update::{
     CLOUD_VM_MARK, Caller, UpdateOptions, cloud_vm_check, self_update, update,
 };
@@ -702,7 +702,8 @@ const SYSTEMD_STARTED: &str = "ACPMUX_SYSTEMD_STARTED";
 /// When no daemon answers, `$u` is the one hand-written acpmux unit in
 /// `~/.config/systemd/user` (`acpmux*.service` but `acpmux.service` and
 /// `acpmux-update.service`) whose effective `ExecStart=` (the last one in the
-/// unit and its drop-ins, as the move reads it) runs `acpmux daemon run` for
+/// unit and its drop-ins, as the move reads it, [`UNIT_LINES`]; an empty one
+/// clears the command) runs `acpmux daemon run` for
 /// this home (its `ACPMUX_HOME`, if it sets one, is `~/.acpmux` or where it
 /// links to), with `$p` empty: a stopped or disabled unit is moved to
 /// `acpmux.service` too ([`migrate`]), so an update never leaves a daemon
@@ -718,10 +719,10 @@ if [ -n "$p" ]; then
   [ "$acpmux_main" = "$p" ] && u=acpmux.service
   if [ -z "$u" ] && [ -r "/proc/$p/cgroup" ]; then u=$(sed -n 's|.*/\(acpmux[^/]*\.service\)$|\1|p' "/proc/$p/cgroup" | head -1); fi
 else acpmux_c=
-  for acpmux_f in "$HOME"/.config/systemd/user/acpmux*.service; do
+  {UNIT_LINES}  for acpmux_f in "$HOME"/.config/systemd/user/acpmux*.service; do
     case "${{acpmux_f##*/}}" in acpmux.service|acpmux-update.service) continue;; esac
-    [ -f "$acpmux_f" ] && cat "$acpmux_f" "$acpmux_f.d/"*.conf 2>/dev/null | sed -n 's/^ExecStart=//p' | grep . | tail -1 | grep -q 'acpmux[^ ]* daemon run' || continue
-    acpmux_h=$(cat "$acpmux_f" "$acpmux_f.d/"*.conf 2>/dev/null | sed -n 's/^Environment=.*ACPMUX_HOME=\([^ "]*\).*/\1/p' | tail -1 | sed "s|%h|$HOME|g")
+    [ -f "$acpmux_f" ] && acpmux_unit_lines "$acpmux_f" | sed -n 's/^ExecStart=//p' | tail -1 | grep -q 'acpmux[^ ]* daemon run' || continue
+    acpmux_h=$(acpmux_unit_lines "$acpmux_f" | sed -n 's/^Environment=.*ACPMUX_HOME=\([^ "]*\).*/\1/p' | tail -1 | sed "s|%h|$HOME|g")
     [ -z "$acpmux_h" ] || [ "$(cd -P "$acpmux_h" 2>/dev/null && pwd)" = "$(cd -P {REMOTE_HOME} 2>/dev/null && pwd)" ] || continue
     acpmux_c="$acpmux_c ${{acpmux_f##*/}}"
   done
@@ -796,6 +797,28 @@ systemctl --user enable --now acpmux.service && acpmux_auto_update && echo {SYST
 else {detached}; fi",
         daemon_unit()
     )
+}
+
+/// Setup's (re)start on Linux ([`linux_restart`]), whose output on success.
+/// A move from a stopped hand-written unit ([`migrate`]) that changed
+/// something and then failed goes back to that unit, as an update's does
+/// ([`migrate_back`]), so a failed setup never leaves it disabled and renamed.
+pub(super) fn setup_restart(r: &dyn Remote, json: bool) -> Result<String> {
+    let out = r.exec(&linux_restart(true, json), None)?;
+    if out.ok {
+        return Ok(out.stdout.trim().to_owned());
+    }
+    let mut why = format!("ssh {} failed: {}", r.host(), out.stderr.trim());
+    if let Some(unit) = out.stdout.lines().find_map(|l| l.strip_prefix(MIGRATING)) {
+        match unit_back(unit).map(|back| run(r, &back)) {
+            Some(Ok(_)) => why.push_str(&format!("; the daemon was moved back to {unit}")),
+            Some(Err(e)) => {
+                why.push_str(&format!("; moving the daemon back to {unit} failed: {e}"))
+            }
+            None => why.push_str(&format!("; cannot move the daemon back to {unit}")),
+        }
+    }
+    Err(anyhow!(why))
 }
 
 /// The status after a Linux (re)start: read after a grace when systemd started it.
@@ -968,7 +991,7 @@ pub(crate) fn install_daemon(
     write_config(r, &serde_json::to_string_pretty(&cfg)?)?;
     let os = run(r, "uname -s")?;
     if os != "Darwin" {
-        let out = run(r, &linux_restart(true, json))?;
+        let out = setup_restart(r, json)?;
         let (out, auto_update_off) = host_auto_update::take_auto_update_off(&out);
         return Ok((linux_status(r, out, json)?, auto_update_off));
     }

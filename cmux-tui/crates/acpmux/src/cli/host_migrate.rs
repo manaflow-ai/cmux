@@ -8,6 +8,14 @@ use super::{
     SYSTEMD_UNIT,
 };
 
+/// Shell defining `acpmux_unit_lines FILE`: FILE and its drop-ins
+/// (`FILE.d/*.conf`, in systemd's order) with each `Key = value` read as
+/// `Key=value`. systemd ignores blanks before a key and around its `=`, so an
+/// indented ` Environment=ACPMUX_HOME=...` names a home like any other line;
+/// a reader that missed it would move another home's unit.
+pub(super) const UNIT_LINES: &str = r#"acpmux_unit_lines() { cat "$1" "$1.d/"*.conf 2>/dev/null | sed 's/^[[:space:]]*\([A-Za-z]*\)[[:space:]]*=[[:space:]]*/\1=/'; }
+"#;
+
 /// What a script prints before it refuses (exit 3) to move a hand-written
 /// unit, followed by the reason's code; the message goes to stderr.
 pub(super) const REFUSED: &str = "ACPMUX_REFUSED=";
@@ -36,7 +44,8 @@ pub(super) const MIGRATING: &str = "ACPMUX_MIGRATING=";
 /// refused. A unit whose daemon is not running (`$p` empty, a stopped or
 /// disabled unit) is read from its file and drop-ins instead: the last
 /// `ExecStart=` and every `Environment=` assignment, `%h` as the home. One
-/// that quotes or escapes a value, or reads an `EnvironmentFile=`, is refused:
+/// that quotes or escapes a value, continues a line with `\`, or reads an
+/// `EnvironmentFile=`, is refused:
 /// a value read wrong would move the daemon to another home.
 const MIGRATE_PLAN: &str = r#"d=~/.config/systemd/user; n=$d/acpmux.service.d; t=
 refuse() { [ -z "$t" ] || rm -rf "$t"; echo "ACPMUX_REFUSED=$1"; echo "$2" >&2; exit 3; }
@@ -46,9 +55,9 @@ unwritten() { refuse writeFailed "the files for moving the daemon from $u to acp
 t=$(mktemp -d) && mkdir "$t/d" || unwritten
 pe=/proc/$p/environ; pa=/proc/$p/cmdline
 if [ -z "$p" ]; then pe=$t/environ; pa=$t/cmdline
-! cat "$d/$u" "$d/$u.d/"*.conf 2>/dev/null | grep -q '^EnvironmentFile=\|^Environment=.*["'\''\\]' || refuse unitSettings "$u sets its environment in a way acpmux does not copy into a unit: move it to acpmux.service by hand"
-cat "$d/$u" "$d/$u.d/"*.conf 2>/dev/null | sed -n 's/^Environment=//p' | tr ' ' '\n' | sed "s|%h|$HOME|g" | tr '\n' '\000' > "$pe" || unwritten
-cat "$d/$u" "$d/$u.d/"*.conf 2>/dev/null | sed -n 's/^ExecStart=[-@:+!]*//p' | grep . | tail -1 | sed "s|%h|$HOME|g" | tr ' ' '\000' > "$pa" || unwritten
+! acpmux_unit_lines "$d/$u" | grep -q '^EnvironmentFile=\|^Environment=.*["'\''\\]\|\\$' || refuse unitSettings "$u sets its environment in a way acpmux does not copy into a unit: move it to acpmux.service by hand"
+acpmux_unit_lines "$d/$u" | sed -n 's/^Environment=//p' | tr ' ' '\n' | sed "s|%h|$HOME|g" | tr '\n' '\000' > "$pe" || unwritten
+acpmux_unit_lines "$d/$u" | sed -n 's/^ExecStart=[-@:+!]*//p' | tail -1 | sed "s|%h|$HOME|g" | tr ' ' '\000' > "$pa" || unwritten
 fi
 envof() { tr '\000' '\n' < "$pe" 2>/dev/null | sed -n "s/^$1=//p" | tail -1; }
 carry() { case "$2" in *[!A-Za-z0-9/._+@:-]*) refuse unitSettings "$u sets $1 to a value acpmux does not copy into a unit: move it to acpmux.service by hand";; esac; printf 'Environment=%s=%s\n' "$1" "$2" >> "$t/env" || unwritten; }
@@ -156,14 +165,21 @@ pub(super) fn migrate(dry: bool) -> String {
     };
     let old = super::old_unit_check();
     format!(
-        "if [ -n \"$u\" ] && [ \"$u\" != acpmux.service ]; then\ndh={REMOTE_HOME}\n{old}{MIGRATE_PLAN}cat > \"$t/acpmux.service\" <<'ACPMUX_UNIT' || unwritten\n{SYSTEMD_UNIT}ACPMUX_UNIT\n{MIGRATE_CONFLICTS}{apply}fi\n"
+        "if [ -n \"$u\" ] && [ \"$u\" != acpmux.service ]; then\ndh={REMOTE_HOME}\n{UNIT_LINES}{old}{MIGRATE_PLAN}cat > \"$t/acpmux.service\" <<'ACPMUX_UNIT' || unwritten\n{SYSTEMD_UNIT}ACPMUX_UNIT\n{MIGRATE_CONFLICTS}{apply}fi\n"
     )
 }
 
 /// Moves the daemon back to the hand-written `unit` and puts the previous
 /// binary back; None for a unit name that is not plain.
 pub(super) fn migrate_back(unit: &str) -> Option<String> {
+    unit_back(unit).map(|back| format!("{RESTORE_PREV}\n{back}"))
+}
+
+/// Moves the daemon back to the hand-written `unit`, the binary as it is:
+/// setup's undo of a move it started ([`super::setup_restart`]), which pushed
+/// no binary. None for a unit name that is not plain.
+pub(super) fn unit_back(unit: &str) -> Option<String> {
     let plain = unit.ends_with(".service")
         && unit.bytes().all(|b| b.is_ascii_alphanumeric() || b"@._-".contains(&b));
-    plain.then(|| format!("u={unit}\n{RESTORE_PREV}\n{MIGRATE_BACK}"))
+    plain.then(|| format!("u={unit}\n{MIGRATE_BACK}"))
 }

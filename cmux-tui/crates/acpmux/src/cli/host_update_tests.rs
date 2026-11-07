@@ -1135,6 +1135,49 @@ fn a_stopped_unit_is_moved_only_when_it_is_this_homes_one() {
     assert_eq!(up.outcome, Outcome::Failed, "{up:?}");
     assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
     assert!(!peer.exists(&format!("{UNITS}/acpmux.service")));
+    // systemd reads ` Key = value` as `Key=value`: an indented home is the
+    // unit's home all the same, and an indented `EnvironmentFile=` is refused.
+    let peer = FakePeer::new("stopped-indented-home");
+    peer.stopped_foreign_unit(false);
+    peer.write(
+        &format!("{UNITS}/{FOREIGN}.d/home.conf"),
+        "[Service]\n  Environment = ACPMUX_HOME=%h/other\n",
+    );
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(false);
+    assert_eq!(up.migrated_from, None, "{up:?}");
+    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
+    for (tag, conf) in [
+        ("stopped-indented-file", "[Service]\n\tEnvironmentFile=%h/env\n"),
+        ("stopped-continued", "[Service]\nEnvironment=NOTE=a \\\n  ACPMUX_HOME=%h/other\n"),
+    ] {
+        let peer = FakePeer::new(tag);
+        peer.stopped_foreign_unit(false);
+        peer.write(&format!("{UNITS}/{FOREIGN}.d/env.conf"), conf);
+        peer.offer(NEW, Some(NEW));
+        let up = peer.update(false);
+        assert_eq!(up.outcome, Outcome::Failed, "{tag}: {up:?}");
+        assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")), "{tag}");
+        assert!(!peer.exists(&format!("{UNITS}/acpmux.service")), "{tag}");
+    }
+}
+
+/// A setup whose move from a stopped hand-written unit fails to start
+/// `acpmux.service` puts that unit back, as an update does: never left
+/// disabled and renamed with nothing to run the daemon.
+#[test]
+#[cfg(unix)]
+fn a_failed_setup_move_restores_the_stopped_hand_written_unit() {
+    let peer = FakePeer::new("setup-stopped-fails");
+    peer.stopped_foreign_unit(false);
+    peer.exe(".local/bin/acpmux", &fake_acpmux(NEW, Some(NEW)));
+    peer.write("fails-acpmux.service", "");
+    let err = setup_restart(&peer, true).unwrap_err().to_string();
+    assert!(err.contains(&format!("moved back to {FOREIGN}")), "{err}");
+    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
+    assert!(!peer.exists(&format!("{UNITS}/{FOREIGN}.migrated")));
+    assert!(!peer.exists(&format!("run/systemd/user/{FOREIGN}.d/zzz-acpmux-migrate.conf")));
+    assert!(peer.take_calls().contains(&format!("systemctl --user enable --now {FOREIGN}")));
 }
 
 /// `binary` (a fake acpmux) whose daemon answers only at `socket`: a daemon
