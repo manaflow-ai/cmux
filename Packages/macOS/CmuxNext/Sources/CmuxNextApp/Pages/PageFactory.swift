@@ -216,11 +216,13 @@ struct PageFactory {
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
         let registry = services.registry
         provider.sectionActions = { section in
-            .array(SettingsSchema.actions(in: section).compactMap { id in
+            .array(SettingsSchema.actions(in: section).compactMap { id -> JSONValue? in
                 // An action a setting turns off (Import from Browser with `browser.import.enabled` off) leaves the page.
                 guard let descriptor = registry.descriptor(for: id), registry.settingOffReason(id) == nil else { return nil }
-                return ["id": .string(id.rawValue), "title": .string(descriptor.title),
-                        "enabled": .bool(registry.isAvailable(id))]
+                var row: [String: JSONValue] = ["id": .string(id.rawValue), "title": .string(descriptor.title),
+                                                "enabled": .bool(registry.isAvailable(id))]
+                if let hint = descriptor.hint { row["hint"] = .string(hint) }
+                return .object(row)
             })
         }
         provider.pickFolders = { [weak services] in

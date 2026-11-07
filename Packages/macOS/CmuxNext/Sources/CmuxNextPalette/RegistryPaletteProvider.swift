@@ -163,8 +163,9 @@ public final class RegistryPaletteProvider: PaletteProvider {
         }
         return RegistryPaletteRows.Face(
             title: title,
-            // A disabled row says why (Chromium without a CEF runtime).
-            subtitle: recovery?.note ?? (isEnabled ? nil : registry.unavailableReason(for: descriptor.id) ?? paletteReason),
+            // A disabled row says why (Chromium without a CEF runtime); one that runs, what it does when
+            // its title alone does not (``ActionDescriptor/hint``).
+            subtitle: recovery?.note ?? (isEnabled ? descriptor.hint : registry.unavailableReason(for: descriptor.id) ?? paletteReason),
             accessory: entry.isBound || overridden ? nil : unbound,
             // The icon becomes a check while on only in that style; the others draw a trailing badge.
             symbol: toggleStyle.replacesIcon && isOn == true ? "checkmark.circle.fill" : descriptor.symbol,
