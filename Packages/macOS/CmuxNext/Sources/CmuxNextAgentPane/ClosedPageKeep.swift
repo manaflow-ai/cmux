@@ -30,6 +30,9 @@ public final class ClosedPageKeeper<Page: AnyObject> {
         return true
     }
 
+    /// Every kept page, by the session it shows.
+    public var pages: [(session: String, page: Page)] { kept.pages }
+
     /// The kept page of closed chat `session`, taken back (nil when none is kept).
     public func take(_ session: String) -> Page? {
         // Low Power Mode since the close: nothing is used from the keep, and it empties now.
@@ -65,6 +68,7 @@ public struct ClosedPageKeep<Page: AnyObject> {
     public init(limit: Int) { self.limit = max(1, limit) }
 
     public var isEmpty: Bool { entries.isEmpty }
+    public var pages: [(session: String, page: Page)] { entries.map { ($0.session, $0.page) } }
     public var soonest: ContinuousClock.Instant? { entries.map(\.until).min() }
 
     /// Keeps `page` for `session` until `until`; returns the pages it pushed out (an older page

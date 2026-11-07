@@ -266,7 +266,7 @@ final class AgentTabStore {
     func relaunchWakeStates() async -> [String: AgentPaneWakeState] {
         onCollectingPages?(true)
         defer { onCollectingPages?(false) }
-        return await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab)
+        return await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) } + retirer.keptPages, live: isAgentTab)
     }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.

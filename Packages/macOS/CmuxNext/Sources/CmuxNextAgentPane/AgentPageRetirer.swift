@@ -20,6 +20,10 @@ public final class AgentPageRetirer {
         self.measure = measure
     }
 
+    /// The kept pages, under keys no tab has: a quit asks them too (``AgentPaneRelaunchWake/collect(held:pages:live:limit:)``),
+    /// so prompts they hold go into their chats' drafts.
+    public var keptPages: [(key: String, view: AgentPaneView)] { kept.pages.map { ("kept:\($0.session)", $0.page) } }
+
     /// The kept page of closed chat `session`, taken back.
     public func takeKept(_ session: String) -> AgentPaneView? { kept.take(session) }
 
@@ -51,11 +55,11 @@ public final class AgentPageRetirer {
 
 extension AgentPaneView {
     /// What a close ends that a kept closed page must not keep doing: its shell runs (commands that
-    /// change files) and read aloud. Prompts it holds for a folder trust answer go into their chats'
-    /// drafts now, as at a close, so a quit while it is kept loses none. The page stays loaded and drawn.
+    /// change files) and read aloud. Prompts it holds for a folder trust answer stay in it as they
+    /// were, so a reopen shows them unchanged; its teardown or a quit (``AgentPageRetirer/keptPages``)
+    /// puts them into their chats' drafts, as a close does. The page stays loaded and drawn.
     func quietForKeep() {
         model.shell.terminateAll()
         model.readAloud?.stop(owner: model)
-        releaseHeldPrompts { _ in } // the page is kept, not closed
     }
 }
