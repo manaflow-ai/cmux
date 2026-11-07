@@ -37,6 +37,10 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     let workspaceCount: Int
     /// Stored paired-Mac ids represented by this visible row.
     let aliasIDs: [String]
+    /// This row came from the current broker directory and has not completed
+    /// authenticated host admission yet. It is shown so its private path can
+    /// be configured before the first dial succeeds.
+    var isDirectoryOnly: Bool = false
     /// Whether a fresher row with the same computer name exists and this row is
     /// confirmed offline: almost always a stale pairing record from an older dev-build
     /// device id (pre-shared-device-id, cmux PR

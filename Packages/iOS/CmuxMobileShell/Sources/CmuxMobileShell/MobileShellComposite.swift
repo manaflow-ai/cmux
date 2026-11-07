@@ -1215,6 +1215,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Live same-account Iroh discovery. This is distinct from route refresh so
     /// only a current broker response may initiate a first pairing.
     let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
+    /// Broker-authorized Macs from the latest directory snapshot. These remain
+    /// ephemeral until an authenticated host connection persists them, but the
+    /// Computers screen must still render them so a user can configure a
+    /// private path before the first dial succeeds.
+    public internal(set) var discoveredIrohMacs: [MobileDiscoveredIrohMac] = []
+    var directoryCandidatesGeneration = 0
+    var directDialCandidatesByPairingID: [String: [CmxIrohDirectDialCandidate]] = [:]
     /// Revokes a hidden computer's account bindings when the user forgets it.
     /// Optional so tests and non-iOS hosts run without the transport graph; when
     /// `nil`, the Forget action is a no-op and the row stays put.
@@ -2438,6 +2445,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearStoredPairedMacCache()
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
+        discoveredIrohMacs = []
+        directDialCandidatesByPairingID.removeAll()
+        directoryCandidatesGeneration &+= 1
         pairedMacLoadState = .notLoaded
         pairedMacLoadGeneration &+= 1
         hiddenComputers = []
@@ -2583,6 +2593,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearStoredPairedMacCache()
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
+        discoveredIrohMacs = []
+        directDialCandidatesByPairingID.removeAll()
+        directoryCandidatesGeneration &+= 1
         pairedMacLoadState = .notLoaded
         pairedMacLoadGeneration &+= 1
         hiddenMacDeviceIDsByScope = [:]
@@ -3236,6 +3249,85 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .failed
         }
     }
+
+    /// Pairs a directory Mac using a saved, enabled private path. Disabled or
+    /// malformed drafts never acquire connection ownership or start a dial.
+    @discardableResult
+    public func connectDiscoveredIrohMac(using path: CmxIrohCustomPrivatePathDraft) async -> Bool {
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: path.macDeviceID,
+            instanceTag: path.instanceTag
+        )
+        guard path.isEnabled, !path.addresses.isEmpty,
+              path.addresses.count <= CmxIrohCustomPrivatePathDraft.maximumAddressCount else {
+            directDialCandidatesByPairingID.removeValue(forKey: pairingID)
+            return false
+        }
+        let sockets: [CmxIrohLocalSocketAddress]
+        do {
+            sockets = try path.addresses.map { try CmxIrohLocalSocketAddress($0) }
+        } catch {
+            return false
+        }
+        let candidates = sockets.map {
+            CmxIrohDirectDialCandidate(address: $0.address.value, port: $0.port)
+        }
+        directDialCandidatesByPairingID[pairingID] = candidates
+        let connected = await connectDiscoveredIrohMac(
+            macDeviceID: path.macDeviceID,
+            instanceTag: path.instanceTag,
+            directOnlyDialCandidates: candidates
+        )
+        if !connected {
+            directDialCandidatesByPairingID.removeValue(forKey: pairingID)
+        }
+        return connected
+    }
+
+    /// Connect a directory-only Mac after the user has supplied a private path.
+    /// Discovery rows are intentionally not persisted before host admission, so
+    /// this is the UI bridge from the Computers detail back into the same
+    /// authenticated first-pair path used by automatic recovery.
+    @discardableResult
+    func connectDiscoveredIrohMac(
+        macDeviceID: String,
+        instanceTag: String?,
+        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil
+    ) async -> Bool {
+        guard !Task.isCancelled, let scope = await currentScopeSnapshot() else { return false }
+        let canonicalDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        guard let candidate = discoveredIrohMacs.first(where: {
+            cmxCanonicalDeviceID($0.deviceID) == canonicalDeviceID
+                && ($0.instanceTag == (instanceTag ?? ""))
+        }) else {
+            return false
+        }
+        guard !Task.isCancelled, await currentScopeSnapshot() == scope else { return false }
+        let attemptID = beginPairingAttempt(method: "manual")
+        defer { finishConnectionOwningPairingAttempt(attemptID) }
+        let connected = await connectAccountDiscoveredIrohMac(
+            candidate,
+            accountID: scope.userID,
+            directOnlyDialCandidates: directOnlyDialCandidates,
+            ifStillCurrent: { [weak self] in
+                guard let self else { return false }
+                return !Task.isCancelled && self.isCurrentPairingAttempt(attemptID)
+                    && self.identityProvider?.currentUserID == scope.userID
+                    && self.secondaryAggregationScopeGeneration == scope.generation
+            }
+        )
+        guard !Task.isCancelled, isCurrentPairingAttempt(attemptID),
+              await currentScopeSnapshot() == scope else { return false }
+        if connected {
+            await loadPairedMacs(forceRefresh: true)
+            guard isCurrentPairingAttempt(attemptID) else { return false }
+            recordPairingSucceeded()
+        } else {
+            recordFailureForCurrentConnectionError(phase: "connect")
+        }
+        return connected
+    }
+
 
     /// On launch (after StackAuth has bootstrapped), call this to reconnect
     /// to the last-active paired Mac. Pulls (route, displayName, macDeviceID)
@@ -4303,6 +4395,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    /// Refresh the broker-authorized Iroh directory without dialing or
+    /// persisting any host. The Computers screen uses this to expose a Mac
+    /// before its first authenticated connection, which is required when a
+    /// relay-less host needs a user-entered private path.
+    public func refreshDirectoryCandidates() async {
+        guard let scope = await currentScopeSnapshot() else {
+            directoryCandidatesGeneration &+= 1
+            discoveredIrohMacs = []
+            return
+        }
+        await personalIrohDiscovery?.refreshDirectory()
+        _ = await loadDirectoryCandidates(scope: scope)
+    }
+
     /// The device-tree data source, honoring the registry's best-effort/fallback
     /// contract: the registry list when it loaded, otherwise the locally paired
     /// Macs synthesized into the same two-level shape.
@@ -4361,6 +4467,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     for await _ in discovery.directoryUpdates() {
                         guard let self, !Task.isCancelled, self.isSignedIn else { return }
                         if let scope = await self.currentScopeSnapshot() {
+                            _ = await self.loadDirectoryCandidates(scope: scope)
                             await self.recoverForgottenMacsFromDirectory(
                                 scope: scope,
                                 refreshDirectory: false
@@ -4672,6 +4779,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             clearStoredPairedMacCache()
             pairedMacAliasIDsByRepresentativeID = [:]
             pairedMacs = []
+            discoveredIrohMacs = []
+            directoryCandidatesGeneration &+= 1
             pairedMacLoadState = .failed
             hiddenComputers = []
             hasHiddenComputers = false
@@ -5906,6 +6015,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// so it must not clear ``hasKnownPairedMac``; hiding changes list visibility,
     /// not whether a stored paired Mac is known.
     package func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
+        if let connectedMacDeviceID {
+            directDialCandidatesByPairingID.removeValue(forKey: MobilePairedMac.pairingID(
+                macDeviceID: connectedMacDeviceID,
+                instanceTag: connectedMacInstanceTag
+            ))
+        }
         suppressNextConnectionOutageEdge = true
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
@@ -12391,7 +12506,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// A pairing that fails validation, fails to dial, or is cancelled tears
     /// down only a foreground it already retired. A live Mac the attempt never
     /// replaced stays connected.
-    private func releaseForegroundAfterPairingFailure() {
+    func releaseForegroundAfterPairingFailure() {
         guard !hasActiveMacConnection else { return }
         connectionState = .disconnected
         macConnectionStatus = .unavailable
