@@ -158,9 +158,33 @@ pub fn run(args: &[String], self_argv: Vec<String>) -> u8 {
     }
 }
 
+/// `run` flags that did something once and are now ignored, so a unit an older image wrote keeps
+/// starting after self-update replaces the binary (the updater never rewrites the unit).
+/// `--native-receiver` started the Native receiver, which the carrier replaced.
+const RETIRED_RUN_FLAGS: &[&str] = &["--native-receiver"];
+
+/// `rest` without the retired flags, and the retired flags it had (each once).
+fn drop_retired_run_flags(rest: &[String]) -> (Vec<String>, Vec<&'static str>) {
+    let mut kept = Vec::new();
+    let mut retired = Vec::new();
+    for arg in rest {
+        match RETIRED_RUN_FLAGS.iter().find(|flag| **flag == arg.as_str()) {
+            Some(flag) if !retired.contains(flag) => retired.push(*flag),
+            Some(_) => {}
+            None => kept.push(arg.clone()),
+        }
+    }
+    (kept, retired)
+}
+
 /// `run`: the roles-only loop (macOS, or `--roles-only`), else the Linux
 /// bind agent. `mode` is the units' `--mode`.
 fn run_verb(mode: Option<InstallMode>, rest: &[String], self_argv: Vec<String>) -> u8 {
+    let (rest, retired) = drop_retired_run_flags(rest);
+    for flag in retired {
+        eprintln!("cmux host run: {flag} is retired and ignored");
+    }
+    let rest = rest.as_slice();
     if cfg!(not(target_os = "linux")) || rest.iter().any(|a| a == "--roles-only") {
         if rest.iter().any(|a| a != "--roles-only") {
             return usage("run --roles-only takes only --mode");
@@ -498,3 +522,7 @@ fn rekey_verb(_args: &[String]) -> u8 {
     eprintln!("cmux host rekey: Linux only");
     code(4)
 }
+
+#[cfg(test)]
+#[path = "cli_tests.rs"]
+mod tests;
