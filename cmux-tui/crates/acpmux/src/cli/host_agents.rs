@@ -14,9 +14,9 @@
 //! machine works for sessions with no agent signed in on it.
 
 use crate::cli::host_steps::{Step, StepResult, StepState};
-use crate::cli::hosts::{self, DAEMON_BIN, Remote};
+use crate::cli::hosts::{self, DAEMON_BIN, REMOTE_HOME, Remote};
 use anyhow::{Result, anyhow, bail};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::process::{Command, Stdio};
 
 /// The agents this checks: id, display name, the vendor's install page.
@@ -33,7 +33,12 @@ const CODEX_LOGIN_PORT: u16 = 1455;
 /// in, 1 not) and `codex login status` (exit 0, or Codex's own "Not logged in"). Each check is
 /// bounded where the machine has `timeout`. One `agent\tID\tPATH\tSTATUS` line per agent:
 /// STATUS 0 signed in, 1 signed out, anything else unknown, empty when not installed.
-const PROBE: &str = r#"printf 'os\t%s\n' "$(uname -s)"; t=; command -v timeout >/dev/null 2>&1 && t="timeout 20"; for a in claude codex; do p=$(command -v "$a" 2>/dev/null); for c in "$HOME/.local/bin/$a" "$HOME/.acpmux/codex-runtime/current/$a"; do [ -z "$p" ] && [ -x "$c" ] && p=$c; done; s=; if [ -n "$p" ]; then case $a in claude) $t "$p" auth status </dev/null >/dev/null 2>&1; s=$? ;; codex) o=$($t "$p" login status </dev/null 2>&1); s=$?; if [ "$s" -ne 0 ]; then case $o in *"ot logged in"*) s=1 ;; *) s=9 ;; esac; fi ;; esac; fi; printf 'agent\t%s\t%s\t%s\n' "$a" "$p" "$s"; done"#;
+/// cmux's managed Codex lives in the machine's acpmux home, [`REMOTE_HOME`].
+fn probe_script() -> String {
+    format!(
+        r#"printf 'os\t%s\n' "$(uname -s)"; t=; command -v timeout >/dev/null 2>&1 && t="timeout 20"; for a in claude codex; do p=$(command -v "$a" 2>/dev/null); for c in "$HOME/.local/bin/$a" {REMOTE_HOME}/codex-runtime/current/"$a"; do [ -z "$p" ] && [ -x "$c" ] && p=$c; done; s=; if [ -n "$p" ]; then case $a in claude) $t "$p" auth status </dev/null >/dev/null 2>&1; s=$? ;; codex) o=$($t "$p" login status </dev/null 2>&1); s=$?; if [ "$s" -ne 0 ]; then case $o in *"ot logged in"*) s=1 ;; *) s=9 ;; esac; fi ;; esac; fi; printf 'agent\t%s\t%s\t%s\n' "$a" "$p" "$s"; done"#
+    )
+}
 
 /// One agent on the machine.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,7 +49,7 @@ pub(crate) struct Agent {
     pub signed_in: Option<bool>,
 }
 
-/// What [`PROBE`] found: the machine's kernel (`uname -s`) and its agents.
+/// What [`probe_script`] found: the machine's kernel (`uname -s`) and its agents.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Found {
     pub os: String,
@@ -77,7 +82,7 @@ pub(crate) fn parse(stdout: &str) -> Found {
 }
 
 pub(crate) fn probe(r: &dyn Remote) -> Result<Found> {
-    let out = r.exec(PROBE, None)?;
+    let out = r.exec(&probe_script(), None)?;
     if !out.ok {
         bail!("ssh {} failed: {}", r.host(), out.stderr.trim());
     }
@@ -98,19 +103,30 @@ fn installable(id: &str, os: &str) -> bool {
 /// runs, each only when the person starts it; `installPage` when acpmux cannot install it there).
 pub(crate) fn agent_json(machine: &str, os: &str, a: &Agent) -> Value {
     let (_, name, page) = AGENTS.iter().find(|(id, ..)| *id == a.id).copied().unwrap_or_default();
-    let mut v = json!({"id": a.id, "name": name, "installed": a.path.is_some(), "path": a.path,
-        "signedIn": a.signed_in});
+    let mut v = Map::new();
+    v.insert("id".into(), json!(a.id));
+    v.insert("name".into(), json!(name));
+    v.insert("installed".into(), json!(a.path.is_some()));
+    v.insert("path".into(), json!(a.path));
+    v.insert("signedIn".into(), json!(a.signed_in));
     let machine = crate::harness_health::channel::quote(machine);
     if a.path.is_none() {
         if installable(&a.id, os) {
-            v["install"] = json!(format!("acpmux machine agents {machine} --install {}", a.id));
+            let cmd = format!("acpmux machine agents {machine} --install {}", a.id);
+            v.insert("install".into(), json!(cmd));
         } else {
-            v["installPage"] = json!(page);
+            v.insert("installPage".into(), json!(page));
         }
     } else if a.signed_in != Some(true) {
-        v["login"] = json!(format!("acpmux machine agents {machine} --login {}", a.id));
+        let cmd = format!("acpmux machine agents {machine} --login {}", a.id);
+        v.insert("login".into(), json!(cmd));
     }
-    v
+    Value::Object(v)
+}
+
+/// One string field of an agent's JSON.
+fn field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+    v.get(key).and_then(Value::as_str)
 }
 
 /// Enroll's and doctor's `agents` step: ok when one agent is ready there, else a warning whose
@@ -138,7 +154,7 @@ fn step_of(machine: &str, found: &Found) -> StepResult {
         .iter()
         .zip(&agents)
         .map(|(a, v)| {
-            let name = v["name"].as_str().unwrap_or(&a.id);
+            let name = field(v, "name").unwrap_or(&a.id);
             match (a.path.is_some(), a.signed_in) {
                 (false, _) => format!("{name} not installed"),
                 (true, Some(true)) => format!("{name} signed in"),
@@ -155,11 +171,11 @@ fn step_of(machine: &str, found: &Found) -> StepResult {
     );
     if !ready {
         let offer = agents.iter().find_map(|v| {
-            let name = v["name"].as_str()?;
-            if let Some(cmd) = v["login"].as_str() {
+            let name = field(v, "name")?;
+            if let Some(cmd) = field(v, "login") {
                 return Some(format!("Sign in to {name} there: `{cmd}`."));
             }
-            v["install"].as_str().map(|cmd| format!("Install {name} there: `{cmd}`."))
+            field(v, "install").map(|cmd| format!("Install {name} there: `{cmd}`."))
         });
         result = result.with_fix(
             offer.unwrap_or_else(|| "Install Claude Code or Codex on the machine.".into()),
@@ -319,7 +335,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let out = Command::new("/bin/sh")
             .arg("-c")
-            .arg(PROBE)
+            .arg(probe_script())
             .env("HOME", home.path())
             .env("PATH", "/usr/bin:/bin")
             .output()
@@ -340,7 +356,7 @@ mod tests {
         }
         let out = Command::new("/bin/sh")
             .arg("-c")
-            .arg(PROBE)
+            .arg(probe_script())
             .env("HOME", home.path())
             .env("PATH", "/usr/bin:/bin")
             .output()

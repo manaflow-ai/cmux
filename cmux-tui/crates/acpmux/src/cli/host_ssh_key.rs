@@ -159,7 +159,9 @@ pub(crate) fn run(create_key: bool, json_out: bool) -> Result<()> {
         }
     };
     let mut value = key.to_json();
-    value["created"] = json!(created);
+    if let Some(fields) = value.as_object_mut() {
+        fields.insert("created".into(), json!(created));
+    }
     if json_out {
         println!("{value}");
     } else {
