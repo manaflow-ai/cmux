@@ -101,11 +101,19 @@ def main() -> int:
     receipt: dict = {"app_commit": hot.app_commit(app), "sha": args.sha, "checks": {}}
     t0 = time.monotonic()
     app_pid = int(Path(args.pid_file).read_text().strip())
-    # A fresh copy starts its terminal daemon with its first terminal: open a workspace for one.
+    # A fresh copy starts its terminal daemon with its first terminal. A new workspace opens on the
+    # New Tab page, which is native, so a terminal tab is asked for in it (as live-mode-swift.py seeds).
     control = wait_until("the copy's control socket", time.monotonic() + 120, lambda: control_socket(app_pid))
     opened = bench.rpc_at(control, "action.run", {"action": "workspace.newAtBottom"}, timeout=30)
-    receipt["checks"]["opened_workspace"] = not (isinstance(opened, dict) and "error" in opened)
-    receipt["opened_workspace_reply"] = opened
+    print(f"HAN workspace.newAtBottom answered {json.dumps(opened)[:400]}", file=sys.stderr, flush=True)
+    workspace = next((str(i) for i in (opened or {}).get("created") or [] if str(i).startswith("ws_")), None) \
+        if isinstance(opened, dict) else None
+    if workspace:
+        bench.rpc_at(control, "action.run", {"action": "goToWorkspace", "args": {"workspace": workspace}}, timeout=30)
+    surface = bench.rpc_at(control, "action.run", {"action": "newSurface"}, timeout=30)
+    print(f"HAN newSurface answered {json.dumps(surface)[:400]}", file=sys.stderr, flush=True)
+    receipt["checks"]["opened_terminal"] = not any(isinstance(r, dict) and "error" in r for r in (opened, surface))
+    receipt["opened_replies"] = {"workspace": opened, "terminal": surface}
     try:
         sock = wait_until("the copy's daemon", time.monotonic() + 180, lambda: hot.find_socket(app, cli))
     except TimeoutError:

@@ -331,6 +331,7 @@ impl ResourceStream {
             operation,
             self.control_params.clone().extend(params).into_value(),
             None,
+            None,
         );
         self.cancellation.write_envelope(&envelope, "stream connection control")?;
         loop {
@@ -363,7 +364,9 @@ impl ResourceStream {
         }
     }
 
-    pub(crate) fn recv_timeout(&mut self, timeout: Duration) -> Result<StreamPoll<StreamItem>> {
+    /// The next item within `timeout`: an item, the stream's end
+    /// ([`Self::end`] says why), or `TimedOut` with the stream still open.
+    pub fn recv_timeout(&mut self, timeout: Duration) -> Result<StreamPoll<StreamItem>> {
         if timeout.is_zero() {
             return Err(Error::InvalidArgument(
                 "stream poll timeout must be greater than zero".to_string(),

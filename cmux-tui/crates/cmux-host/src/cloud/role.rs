@@ -457,6 +457,12 @@ impl Role for CloudRole {
                 self.send("resume");
                 Ok(())
             }
+            // The late network attach lands about a second after the bind: a bind or relay token in flight over the
+            // old addresses would otherwise hang to its 20 s bound.
+            HostEvent::AddressesChanged => {
+                cmux_server::cloud_http::network_changed();
+                Ok(())
+            }
             // No request is held open into a snapshot.
             HostEvent::Parked { deadline } | HostEvent::Shutdown { deadline } => {
                 self.halt(*deadline)

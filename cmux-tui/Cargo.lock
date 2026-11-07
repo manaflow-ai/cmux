@@ -1880,6 +1880,7 @@ dependencies = [
  "cmux-rd-host",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
  "cmux-terminal-client",
