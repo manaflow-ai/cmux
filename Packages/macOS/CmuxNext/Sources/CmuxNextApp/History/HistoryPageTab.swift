@@ -31,7 +31,7 @@ final class HistoryPageTab: BrowserTab {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
-        var state = BrowserTabState(url: HistoryPageAddress.url, title: HistoryPageStrings.title)
+        var state = BrowserTabState(url: URL.historyPage, title: HistoryPageStrings.title)
         state.phase = .finished
         self.state = state
         self.webPage = webPage
@@ -39,7 +39,7 @@ final class HistoryPageTab: BrowserTab {
     }
 
     func load(_ url: URL) {
-        if HistoryPageAddress.matches(url) { return reload() }
+        if url.isHistoryPage { return reload() }
         onNavigate?(url)
     }
 

@@ -37,7 +37,7 @@ final class HistoryPageService {
     func open() {
         guard let window = services.windows.active else { return services.registry.refuse(RefusalStrings.noWindowOpen) }
         for pane in window.content?.panes.values.map({ $0 }) ?? [] {
-            if let tab = pane.pane.tabs.first(where: { HistoryPageAddress.matches($0.url.flatMap(URL.init(string:))) }) {
+            if let tab = pane.pane.tabs.first(where: { $0.url.flatMap(URL.init(string:))?.isHistoryPage == true }) {
                 pane.select(StripTabID(tab.id))
                 return
             }
@@ -48,7 +48,7 @@ final class HistoryPageService {
             services.cache.showHistoryPage(in: tab)
             return
         }
-        pane.newBrowserTab(url: HistoryPageAddress.url)
+        pane.newBrowserTab(url: URL.historyPage)
     }
 }
 
@@ -115,7 +115,7 @@ extension TabContentCache {
     }
 
     /// Replaces a page with the history page.
-    func showHistoryPage(in tab: TabModel) { showAppPage(HistoryPageAddress.url, in: tab) }
+    func showHistoryPage(in tab: TabModel) { showAppPage(URL.historyPage, in: tab) }
 
     /// Replaces a page with the app page at `url`.
     func showAppPage(_ url: URL, in tab: TabModel) {
@@ -124,7 +124,7 @@ extension TabContentCache {
     }
 
     static func isAppPage(_ url: URL?) -> Bool {
-        HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
+        url?.isHistoryPage == true || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
             || ScreenshotsPageAddress.matches(url) || VaultPageAddress.matches(url)
             || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url) || MachineBrowserRecord.matches(url)
     }

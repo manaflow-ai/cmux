@@ -7848,7 +7848,7 @@ CmuxNextHistory	struct	ClosedItem	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources
 CmuxNextHistory	struct	HistoryEntry	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryEntry.swift	Swift copy of history entry model
 CmuxNextHistory	struct	TerminalCommand	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryEntry.swift	from struct HistoryEntry:7: Swift copy of history entry model
 CmuxNextHistory	struct	HistoryLocation	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryLocation.swift	history location value copy
-CmuxNextHistory	enum	HistoryPageAddress	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageAddress.swift	from protocol HistoryPageSource:5: source seam 15; filter to kinds, reload generation, day grouping, selection move 110
+CmuxNextHistory	extension	URL	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageAddress.swift	from protocol HistoryPageSource:5: source seam 15; filter to kinds, reload generation, day grouping, selection move 110
 CmuxNextHistory	enum	HistoryRange	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryQuery.swift	from struct HistoryQuery:5: Swift copy of history query filter apply
 CmuxNextHistory	extension	HistoryEntry	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryQuery.swift	from struct HistoryQuery:5: Swift copy of history query filter apply
 CmuxNextHistory	struct	HistoryQuery	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryQuery.swift	Swift copy of history query filter apply

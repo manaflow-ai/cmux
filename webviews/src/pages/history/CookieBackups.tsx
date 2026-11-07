@@ -35,7 +35,7 @@ export function CookieBackupsPanel({
   const { backups } = state;
   return (
     <div className="history-sheet-scrim">
-      <dialog open className="history-sheet" aria-modal="true" aria-labelledby="cookie-backups-title" onKeyDown={keys}>
+      <dialog open className="ui-glass history-sheet" aria-modal="true" aria-labelledby="cookie-backups-title" onKeyDown={keys}>
         <h2 id="cookie-backups-title" className="history-sheet-title">
           {t("cookieBackups.title")}
         </h2>

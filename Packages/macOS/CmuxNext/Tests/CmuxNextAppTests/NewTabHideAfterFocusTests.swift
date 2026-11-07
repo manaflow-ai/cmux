@@ -18,7 +18,7 @@ import Testing
 @MainActor struct NewTabHideAfterFocusTests {
     private static func tree() -> DaemonTree {
         let tabs = [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~"),
-                    TabSnapshot(surface: SurfaceID(rawValue: 2), kind: .browser, url: HistoryPageAddress.string,
+                    TabSnapshot(surface: SurfaceID(rawValue: 2), kind: .browser, url: URL.historyPageString,
                                 browserRenderer: "frontend", browserEngine: "webkit")]
         let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: tabs)
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(PaneID(rawValue: 1)), panes: [pane])
