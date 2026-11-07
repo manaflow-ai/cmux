@@ -26,10 +26,11 @@ public final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
     /// Whether the word draws (tests).
     public var showsLabel: Bool { chip.alphaValue > 0 }
 
-    /// Whether the chip's word has its whole frame (glyphs and line padding) inside the badge (tests).
+    /// Whether the chip's word has its whole frame (glyphs and line padding), inside the badge while the chip
+    /// shows (tests). As the row's icon the faded chip may run past the square.
     public var wordFits: Bool {
         let frame = convert(label.frame, from: label.superview)
-        return frame.width + 0.5 >= label.naturalSize.width && frame.maxX <= bounds.maxX + 0.5
+        return frame.width + 0.5 >= label.naturalSize.width && (isCompact || frame.maxX <= bounds.maxX + 0.5)
     }
 
     /// The gap from the chip's glyph to its word's text (the label's alignment rect), in points (tests).
@@ -58,11 +59,18 @@ public final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
         chip.edgeInsets = NSEdgeInsets(top: 2, left: Metrics.space2, bottom: 2, right: Metrics.space2)
         chip.translatesAutoresizingMaskIntoConstraints = false
         addSubview(chip)
+        // The trailing and bottom pins give way below the chip's size (999): narrower than the chip, the badge is
+        // the row's icon and the faded chip keeps its own layout instead of squeezing its word into the square.
+        // The fitting size still comes from them.
+        let trailing = chip.trailingAnchor.constraint(equalTo: trailingAnchor)
+        let bottom = chip.bottomAnchor.constraint(equalTo: bottomAnchor)
+        trailing.priority = .init(999)
+        bottom.priority = .init(999)
         NSLayoutConstraint.activate([
             chip.leadingAnchor.constraint(equalTo: leadingAnchor),
-            chip.trailingAnchor.constraint(equalTo: trailingAnchor),
+            trailing,
             chip.topAnchor.constraint(equalTo: topAnchor),
-            chip.bottomAnchor.constraint(equalTo: bottomAnchor),
+            bottom,
         ])
         compactIcon.imageScaling = .scaleNone
         compactIcon.isHidden = true

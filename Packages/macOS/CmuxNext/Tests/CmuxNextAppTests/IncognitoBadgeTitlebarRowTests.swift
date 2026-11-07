@@ -61,6 +61,23 @@ import Testing
         // The glyph centers in the square at the toolbar buttons' glyph size.
         let glyph = try #require(badge.glyph)
         #expect(glyph.size.height == Metrics.smallIconSize)
+        // The faded chip keeps its own layout: its word is never squeezed into the square.
+        #expect(badge.wordFits)
+    }
+
+    /// Widening a narrow sidebar brings the chip back laid out as one made wide.
+    @Test func wideningANarrowSidebarBringsTheChipBackWhole() {
+        let (window, root, badge) = root()
+        defer { window.close() }
+        root.sidebar.restore(width: narrowWidth(root, badge: badge), presentation: .shown)
+        settle(root)
+        #expect(!badge.showsLabel)
+        root.sidebar.restore(width: 320, presentation: .shown)
+        settle(root)
+        #expect(badge.showsLabel)
+        #expect(badge.frame.size == badge.fittingSize)
+        #expect(badge.wordFits)
+        #expect(abs(badge.wordGap - Metrics.space1) <= 0.5)
     }
 
     @Test func aWideSidebarShowsTheChipCenteredOnThePlusButtonsLine() {
