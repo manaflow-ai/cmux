@@ -49,8 +49,10 @@ public nonisolated enum AgentPaneCapturePayload: Equatable, Sendable {
 
     /// The image types a capture is (``AgentPaneCapture/fit(_:)``).
     static let imageTypes: Set<String> = ["image/png", "image/jpeg"]
-    /// Bytes past this are not a capture this bridge made (``AgentPaneCapture/maxBytes``).
-    static let maxBytes = AgentPaneCapture.maxBytes
+    /// Bytes past this are refused before they are decoded. A capture is never refused for its
+    /// size (an over-cap one is the PNG as written), so this is a bound, not the capture cap; Copy
+    /// and Save still take only the pane's own shot (``AgentPaneRecorder/takeShot(_:for:)``).
+    static let maxBytes = 64 * 1024 * 1024
 
     init?(_ params: [String: Any]?) {
         if let path = params?["path"] as? String {

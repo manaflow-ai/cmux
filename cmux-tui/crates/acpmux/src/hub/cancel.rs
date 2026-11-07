@@ -153,7 +153,7 @@ impl Hub {
             // shows each as held by it (`views.rs` `held_by_stop`).
             queue
                 .iter_mut()
-                .filter(|q| q.run.agent.is_some())
+                .filter(|q| q.goes_in_by_itself())
                 .map(|q| {
                     // One sent now waits too: the Stop came after it.
                     (q.held, q.sent_now) = (true, false);
