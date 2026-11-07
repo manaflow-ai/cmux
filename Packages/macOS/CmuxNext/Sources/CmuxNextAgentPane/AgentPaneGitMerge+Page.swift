@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The GitHub page's Merge and its reads (CmuxNextGitHubViewer): the page shows one pull request by
 /// its link, with no checkout of its branch on this Mac, so its merge is pinned to the head the page
@@ -8,13 +8,13 @@ import Foundation
 /// queue) still decide; this refuses only what GitHub itself says cannot merge now.
 public extension AgentPaneGitPullRequest {
     /// What the page's Merge did.
-    enum PageMerge: Equatable, Sendable {
+    nonisolated enum PageMerge: Equatable, Sendable {
         /// Merged, or taken into the base branch's merge queue (`queued`).
         case merged(queued: Bool)
         case refused(String)
     }
 
-    static let pageMergeFields = "url,number,state,isDraft,mergeStateStatus,headRefOid"
+    nonisolated static let pageMergeFields = "url,number,state,isDraft,mergeStateStatus,headRefOid"
 
     /// Merges the pull request at `url` (an https pull request address) when GitHub still has it
     /// at `head`, the commit the page showed; nothing is pushed and no branch is deleted.
@@ -41,7 +41,7 @@ public extension AgentPaneGitPullRequest {
     /// can: it must be the pull request at `url`, open, not a draft, still at `head`, and GitHub's
     /// merge state must not say it is blocked, behind, conflicting or not worked out yet. A red
     /// check GitHub does not require (`UNSTABLE`) merges, as GitHub's own button lets it.
-    static func pageMergeRefusal(_ view: [String: Any], url: String, head: String) -> String? {
+    nonisolated static func pageMergeRefusal(_ view: [String: Any], url: String, head: String) -> String? {
         guard view["url"] as? String == url else { return mergeChangedMessage }
         guard (view["state"] as? String)?.uppercased() == "OPEN" else { return mergeNotOpenMessage }
         guard view["isDraft"] as? Bool != true else { return mergeNotReadyMessage }
@@ -55,7 +55,7 @@ public extension AgentPaneGitPullRequest {
     }
 
     /// A full commit id (SHA-1 or SHA-256).
-    static func isCommit(_ text: String) -> Bool {
+    nonisolated static func isCommit(_ text: String) -> Bool {
         (text.count == 40 || text.count == 64) && text.allSatisfy(\.isHexDigit)
     }
 
