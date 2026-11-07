@@ -88,10 +88,16 @@ fn a_burst_of_commits_is_one_report_and_free_joins() {
     assert!(reports[1]["scan_ms"].is_number());
 
     let id = "chrome:Default";
+    let generation = reports[1]["generation"].as_u64().expect("a generation");
     // SAFETY: a live handle and a readable id.
-    assert!(unsafe { cmux_cookie_sync_commit(sync, id.as_ptr(), id.len()) });
+    assert!(!unsafe { cmux_cookie_sync_commit(sync, id.as_ptr(), id.len(), generation + 1) });
     // SAFETY: as above.
-    assert!(!unsafe { cmux_cookie_sync_commit(sync, id.as_ptr(), id.len()) }, "nothing pending");
+    assert!(unsafe { cmux_cookie_sync_commit(sync, id.as_ptr(), id.len(), generation) });
+    // SAFETY: as above.
+    assert!(
+        !unsafe { cmux_cookie_sync_commit(sync, id.as_ptr(), id.len(), generation) },
+        "nothing pending"
+    );
 
     // The profile goes: one `gone`, then nothing more from it.
     drop(conn);
@@ -166,7 +172,7 @@ fn a_bad_config_or_no_callback_is_null() {
     // SAFETY: null is ignored.
     unsafe { cmux_cookie_sync_free(std::ptr::null_mut()) };
     // SAFETY: null handle is refused.
-    assert!(!unsafe { cmux_cookie_sync_commit(std::ptr::null(), b"a".as_ptr(), 1) });
+    assert!(!unsafe { cmux_cookie_sync_commit(std::ptr::null(), b"a".as_ptr(), 1, 1) });
 }
 
 #[test]

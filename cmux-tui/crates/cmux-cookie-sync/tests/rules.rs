@@ -7,8 +7,16 @@ use common::{MODERN, OLD, create, insert, insert_at};
 use std::path::{Path, PathBuf};
 
 fn changed(report: Option<Report>) -> (Vec<String>, Vec<String>, Reason) {
+    let (changed, removed, reason, _) = changed_at(report);
+    (changed, removed, reason)
+}
+
+/// A `changed` report's lists, reason and generation.
+fn changed_at(report: Option<Report>) -> (Vec<String>, Vec<String>, Reason, u64) {
     match report {
-        Some(Report::Changed { changed, removed, reason, .. }) => (changed, removed, reason),
+        Some(Report::Changed { changed, removed, reason, generation, .. }) => {
+            (changed, removed, reason, generation)
+        }
         other => panic!("expected a change, got {other:?}"),
     }
 }
@@ -191,7 +199,7 @@ fn the_first_scan_is_the_baseline_and_a_change_is_reported_until_committed() {
 
     let mut core = Core::new(&config);
     assert_eq!(scanned(core.check(0, Reason::Launch)), Reason::Baseline);
-    assert!(!core.commit("chrome:Default"), "nothing pending");
+    assert!(!core.commit("chrome:Default", 0), "nothing pending");
     assert_eq!(scanned(core.check(0, Reason::Watch)), Reason::Watch);
 
     // Chrome changed while the app was closed: the launch check reports it.
@@ -205,9 +213,10 @@ fn the_first_scan_is_the_baseline_and_a_change_is_reported_until_committed() {
 
     // Not committed: reported again on the next launch.
     let mut core = Core::new(&config);
-    assert_eq!(changed(core.check(0, Reason::Launch)).0, vec!["example.com"]);
-    assert!(!core.commit("chrome:Other"));
-    assert!(core.commit("chrome:Default"));
+    let (domains, _, _, generation) = changed_at(core.check(0, Reason::Launch));
+    assert_eq!(domains, vec!["example.com"]);
+    assert!(!core.commit("chrome:Other", generation));
+    assert!(core.commit("chrome:Default", generation));
     assert_eq!(scanned(core.check(0, Reason::Watch)), Reason::Watch);
 
     // Committed: the next launch has nothing to report.
@@ -217,11 +226,11 @@ fn the_first_scan_is_the_baseline_and_a_change_is_reported_until_committed() {
     // A later change that the next scan no longer sees is no longer pending.
     conn.execute("UPDATE cookies SET encrypted_value = x'03' WHERE host_key = '.example.com'", [])
         .unwrap();
-    assert_eq!(changed(core.check(0, Reason::Watch)).0, vec!["example.com"]);
+    let generation = changed_at(core.check(0, Reason::Watch)).3;
     conn.execute("UPDATE cookies SET encrypted_value = x'02' WHERE host_key = '.example.com'", [])
         .unwrap();
     assert_eq!(scanned(core.check(0, Reason::Watch)), Reason::Watch);
-    assert!(!core.commit("chrome:Default"));
+    assert!(!core.commit("chrome:Default", generation));
 
     let files: Vec<_> =
         std::fs::read_dir(&state).unwrap().map(|e| e.unwrap().file_name()).collect();
@@ -290,6 +299,7 @@ fn the_config_needs_absolute_paths_and_unique_ids() {
 fn reports_serialize_to_the_documented_json() {
     let report = Report::Changed {
         source: "chrome:Default".to_owned(),
+        generation: 7,
         changed: vec!["github.com".to_owned()],
         removed: vec![],
         rows: 3,
@@ -300,10 +310,41 @@ fn reports_serialize_to_the_documented_json() {
     };
     assert_eq!(
         serde_json::to_string(&report).unwrap(),
-        r#"{"kind":"changed","source":"chrome:Default","changed":["github.com"],"removed":[],"rows":3,"hosts":2,"scan_ms":1.5,"cpu_ms":null,"reason":"watch"}"#
+        r#"{"kind":"changed","source":"chrome:Default","generation":7,"changed":["github.com"],"removed":[],"rows":3,"hosts":2,"scan_ms":1.5,"cpu_ms":null,"reason":"watch"}"#
     );
     assert_eq!(
         serde_json::to_string(&Report::Gone { source: "a".to_owned() }).unwrap(),
         r#"{"kind":"gone","source":"a"}"#
     );
+}
+
+#[test]
+fn a_commit_of_an_earlier_report_does_not_save_a_later_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("state");
+    let (path, conn) = store(dir.path());
+    let config = config(&state, &path);
+    let mut core = Core::new(&config);
+    scanned(core.check(0, Reason::Launch));
+
+    conn.execute("UPDATE cookies SET encrypted_value = x'05' WHERE host_key = '.example.com'", [])
+        .unwrap();
+    let first = changed_at(core.check(0, Reason::Watch)).3;
+    // A second change is reported before the app commits the first.
+    conn.execute("UPDATE cookies SET encrypted_value = x'06' WHERE host_key = 'github.com'", [])
+        .unwrap();
+    let (domains, _, _, second) = changed_at(core.check(0, Reason::Watch));
+    assert_eq!(
+        domains,
+        vec!["example.com", "github.com"],
+        "a report holds every change since the baseline"
+    );
+    assert!(second > first);
+    assert!(!core.commit("chrome:Default", first), "the earlier report is not the latest");
+    // Its import failed, say: the next launch still reports both domains.
+    let mut relaunched = Core::new(&config);
+    assert_eq!(changed(relaunched.check(0, Reason::Launch)).0, vec!["example.com", "github.com"]);
+    assert!(core.commit("chrome:Default", second));
+    let mut relaunched = Core::new(&config);
+    assert_eq!(scanned(relaunched.check(0, Reason::Launch)), Reason::Launch);
 }
