@@ -434,6 +434,7 @@ public nonisolated struct AgentPaneTunables {
             suggestedTasks.descriptor,
             systemDictation.descriptor,
             terminalButtonAdds.descriptor,
+            headerControls.descriptor,
             headerMotion.descriptor,
             thoughtFoldThreshold.descriptor,
             thoughtHeader.descriptor,
