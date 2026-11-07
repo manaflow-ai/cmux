@@ -20,13 +20,31 @@ describe("trayLinger", () => {
     const ended = stepLinger(linger, { live: [], ended: [{ key: "command:c1" }], hold: false, now: 100, grace: GRACE });
     expect([...ended.kept.keys()]).toEqual(["command:c1"]);
     expect(ended.next).toBe(1_100);
-    const before = stepLinger(linger, { live: [], ended: [{ key: "command:c1" }], hold: false, now: 1_099, grace: GRACE });
+    const before = stepLinger(linger, {
+      live: [],
+      ended: [{ key: "command:c1" }],
+      hold: false,
+      now: 1_099,
+      grace: GRACE,
+    });
     expect(before.kept.has("command:c1")).toBe(true);
-    const after = stepLinger(linger, { live: [], ended: [{ key: "command:c1" }], hold: false, now: 1_100, grace: GRACE });
+    const after = stepLinger(linger, {
+      live: [],
+      ended: [{ key: "command:c1" }],
+      hold: false,
+      now: 1_100,
+      grace: GRACE,
+    });
     expect(after.kept.size).toBe(0);
     expect(after.next).toBeUndefined();
     // Gone stays gone while it stays ended.
-    const later = stepLinger(linger, { live: [], ended: [{ key: "command:c1" }], hold: false, now: 1_200, grace: GRACE });
+    const later = stepLinger(linger, {
+      live: [],
+      ended: [{ key: "command:c1" }],
+      hold: false,
+      now: 1_200,
+      grace: GRACE,
+    });
     expect(later.kept.size).toBe(0);
   });
 
