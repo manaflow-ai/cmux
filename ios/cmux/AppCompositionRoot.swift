@@ -6,6 +6,7 @@ import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import CmuxMobileTransport
 import CmuxPhonePush
 import CmuxSentryReporting
@@ -41,6 +42,7 @@ final class AppCompositionRoot {
     let billing: BillingModel?
     let featureFlags: MobileFeatureFlags
     let displaySettings: MobileDisplaySettings
+    let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     /// App-lifetime keyboard frame record, injected into the view tree via
     /// `\.mobileKeyboardFrameTracker` so terminal hosts created or reattached
     /// mid-conversation recover keyboard transitions they were not installed
@@ -70,16 +72,13 @@ final class AppCompositionRoot {
     /// of the process (closes Sentry + purges its stores if telemetry is
     /// turned off mid-session).
     let crashRevocationWatcher = MobileCrashReporter.RevocationWatcher()
-
     /// The bounded, structured connection log shared by the Iroh runtime and
     /// mobile shell. It is present in release builds, but its schema accepts
     /// only fixed categories and integer magnitudes, never terminal contents,
     /// credentials, peer identities, addresses, or free-form errors.
     let diagnosticLog: DiagnosticLog
-
     /// Owns UIKit lifecycle observers and removes them with the app graph.
     private let appLifecycleDiagnostics: MobileAppLifecycleDiagnostics
-
     /// The consolidated on-disk log pair: `cmux-app.log` (app-wide, including
     /// the mirrored string debug log) and `cmux-network.log` (network
     /// diagnostics). Fed by the diagnostic ring's event tap; always on, since
@@ -276,6 +275,7 @@ final class AppCompositionRoot {
         // services that emit lifecycle events, while display preferences use
         // their injected defaults store only.
         self.displaySettings = MobileDisplaySettings()
+        self.keyboardCorrectionPreference = MobileTerminalKeyboardCorrectionPreference()
         // Snapshot raw upgrade eligibility before either current-launch store is
         // constructed. The migration model persists pending/ineligible now and
         // never recomputes after onboarding or Settings writes. UI fixtures use
