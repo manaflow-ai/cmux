@@ -318,7 +318,7 @@ class Host implements GlassHost {
   }
 
   destroy() {
-    for (const id of [...this.entries.keys()]) this.close(id);
+    for (const id of this.entries.keys()) this.close(id);
     if (this.frame) this.view.cancelAnimationFrame(this.frame);
     this.frame = 0;
     if (this.live && this.sent !== "[]") void this.transport([]).catch(() => undefined);
