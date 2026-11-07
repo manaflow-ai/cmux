@@ -1,4 +1,4 @@
-//! The event log through one append-only journal (`store.journal`, R-DURABILITY S2;
+//! The event log through one append-only journal (R-DURABILITY S2;
 //! `handoff/rewrites/R-DURABILITY/DESIGN.md` 3.3b and 3.3c).
 //!
 //! Without it, no event-log append is synced: a line a client was told about reaches the disk at
@@ -31,7 +31,7 @@
 //!   takes over, so the first checkpoint after it syncs bytes this process wrote (a killed
 //!   daemon's writes may be in the page cache only, and a failed sync's dropped pages still read
 //!   back). A chat whose folder is gone is not written again. A log that moved on
-//!   without the journal (a run with the switch off, or an older build, after a crash) is left as
+//!   without the journal (an older build, after a crash) is left as
 //!   it is, and the journal's lines for it go to `<home>/journal-unapplied/`. A chat whose log
 //!   cannot be read or written now keeps its lines there in a repair file
 //!   (`<id>.<lsn>.repair.ndjson`), which the next open journals again and repairs the chat with;
@@ -40,8 +40,8 @@
 //! - Delete: a `forget` record (the replay then drops the chat's earlier journaled lines, so a
 //!   chat made again under the same id gets only its own), then the folder's removal, off the
 //!   appends' lock and without waiting for the record, then the chat's repair file.
-//! - With the switch off, [`catch_up`] runs this recovery once on a journal left by a run with it
-//!   on, so every acknowledged line is in the logs before they are written alone.
+//! - Without a daemon (the build adoption moves a home's chat folders), [`catch_up`] runs this
+//!   recovery once, so every acknowledged line is in the logs before they move.
 //!
 //! - Durability (S2c): [`Store::durability`] gives the last acknowledged LSN and the journal's
 //!   durable LSN, for which each connection's outbound gate waits (`server/durable_gate.rs`). A
@@ -260,6 +260,11 @@ struct Inner {
     stop: tokio::sync::watch::Sender<Option<String>>,
     /// The LSN of the last `Ack` record appended (`Store::durability`).
     acked: Arc<AtomicU64>,
+    /// The LSN of the last record of a kept change appended (`ShowAfter::Written`,
+    /// `Store::durability`).
+    kept: Arc<AtomicU64>,
+    /// The journal's written LSN, fed by its writer; closed when the writer ends.
+    written: tokio::sync::watch::Receiver<u64>,
     /// The durable LSN the outbound gate waits for: the journal's, fed by its writer, held below
     /// a new chat's record until its folder is synced ([`new_folders`]); closed when the writer
     /// ends.
@@ -410,6 +415,17 @@ impl JournalStore {
             let _owned = &ended;
             reported.journal_durable(lsn, &durable_tx);
         });
+        // Owned by the listener too: the watch closes when the writer ends.
+        let (written_tx, written) = tokio::sync::watch::channel(journal.stats().written_lsn);
+        journal.on_written(move |lsn| {
+            written_tx.send_if_modified(|was| {
+                let moved = lsn > *was;
+                if moved {
+                    *was = lsn;
+                }
+                moved
+            });
+        });
         let inner = Arc::new(Inner {
             local,
             journal,
@@ -427,6 +443,8 @@ impl JournalStore {
             wake: Condvar::new(),
             stop,
             acked: Arc::new(AtomicU64::new(0)),
+            kept: Arc::new(AtomicU64::new(0)),
+            written,
             durable,
             new_folders,
             ending,
@@ -494,7 +512,7 @@ impl JournalStore {
 }
 
 /// [`super::open`] with the journal on `storage` (a simulated file system in the crash tests) and
-/// its own limits, for `store.journal`.
+/// its own limits.
 #[cfg(test)]
 pub(crate) fn open_with_journal(
     config: &StoreConfig,
@@ -532,10 +550,9 @@ fn open_journal(
     }
 }
 
-/// With `store.journal` off: a journal that a run with it on left behind is replayed into the logs,
-/// checkpointed and retired first, so a crash with the switch on and a start with it off keep
-/// every acknowledged line, and turning it on again replays nothing old (DESIGN.md 3.3c, the
-/// catch-up of 3.6). Nothing to do when there is no journal.
+/// A journal a run left behind is replayed into the logs, checkpointed and retired, so the home's
+/// `sessions/` hold every acknowledged change on their own (`store::catch_up_journal`; DESIGN.md
+/// 3.3c, the catch-up of 3.6). Nothing to do when there is no journal.
 pub(super) fn catch_up(config: &StoreConfig, home: &Path) -> Result<()> {
     if std::fs::symlink_metadata(home.join(JOURNAL_DIR)).is_err() {
         return Ok(());
@@ -612,13 +629,19 @@ impl Store for JournalStore {
     }
     /// A `meta` record and the overlay; the checkpoint writes `session.json` ([`meta`]).
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        self.inner.save_meta(meta)
+        self.inner.save_meta(meta, ShowAfter::Durable)
+    }
+    /// A `Stream` `meta` record: written in the journal's next batch, synced after
+    /// ([`super::durability`]).
+    fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
+        self.inner.save_meta(meta, ShowAfter::Written)
     }
     /// The line to the log first, then its record ([module docs](self)).
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
-        let class = if streamed(record) { Class::Stream } else { Class::Ack };
+        let kind = record_class(record);
+        let class = if kind == RecordClass::Acked { Class::Ack } else { Class::Stream };
         let payload = encode_log(id, line.as_bytes());
         let inner = &self.inner;
         let mut order = inner.order.lock_or_recover();
@@ -634,10 +657,17 @@ impl Store for JournalStore {
         }
         // Refused only if the writer stopped since the check: the line is in the log without its
         // record, as after a crash between the two.
-        let lsn =
-            inner.journal.append(KIND_LOG, class, &payload).map_err(JournalStore::journal_error)?;
-        if class == Class::Ack {
-            inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
+        // A kept change's line is synced in the journal's idle time (`cmux_journal` crate docs).
+        let lsn = if kind == RecordClass::Kept {
+            inner.journal.append_kept(KIND_LOG, &payload)
+        } else {
+            inner.journal.append(KIND_LOG, class, &payload)
+        }
+        .map_err(JournalStore::journal_error)?;
+        match kind {
+            RecordClass::Acked => inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst),
+            RecordClass::Kept => inner.kept.store(lsn, std::sync::atomic::Ordering::SeqCst),
+            RecordClass::Stream => {}
         }
         order.applied = lsn;
         // A chat's first line in this process allocates its entry; every later one reuses it.
@@ -739,6 +769,8 @@ impl Store for JournalStore {
         Some(Durability {
             acked: Arc::clone(&self.inner.acked),
             durable: self.inner.durable.clone(),
+            kept: Arc::clone(&self.inner.kept),
+            written: self.inner.written.clone(),
             stalled: Arc::new(move |why: String| {
                 if let Some(inner) = inner.upgrade() {
                     inner.ask_to_stop(why);

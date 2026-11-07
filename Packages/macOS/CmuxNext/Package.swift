@@ -58,6 +58,7 @@ import PackageDescription
 //     launch, v2 helper and its disclaimed spawner, signed Unix peer checks, the cua helper manifest
 //     reader; setup stays in the App)
 //   CmuxNextHistory -> Design, Icons (history model, SQLite visit log, cmux://history page; no daemon)
+//   CmuxNextHistoryDaemon -> Daemon, History, Wakeups (the daemon history module's client, `history-v1`)
 //   CmuxNextStash -> Compat, Daemon, DaemonService, History (Stash on this Mac's daemon: the Stashed
 //     page's source; the App answers StashHost)
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
@@ -104,7 +105,8 @@ import PackageDescription
 //     no daemon; the App supplies the source; plans/cmux-next/tasks.md)
 //   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
 //     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
-//   CmuxNextServer -> Design, Icons (server menubar panel, pairing, approver sheet and health prototypes
+//   CmuxNextServer -> Design, Icons, Pages (server menubar panel, pairing, approver sheet and health prototypes,
+//     the Machines section page
 //     over a projection of `server.status`; no daemon; the App supplies the source;
 //     plans/cmux-next/server.md)
 //   CmuxNextRemoteView -> Design, Icons (remote desktop pane: decode, presenters, chrome, input capture;
@@ -348,6 +350,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextNowPlaying",
                 "CmuxNextFloating",
                 "CmuxNextStash",
+                "CmuxNextHistoryDaemon",
                 // The window focus rules (cmux-focus-core) run in-process over the app FFI.
                 "CCmuxAppFFI",
             ],
@@ -407,6 +410,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Stash (a native OneTab, cx-rws36): the Stashed page's source on this Mac's daemon.
         // The App only answers `StashHost`.
+        // The daemon history module's client (`history-v1`): visits, entries, clearing.
+        .target(
+            name: "CmuxNextHistoryDaemon",
+            dependencies: ["CmuxNextDaemon", "CmuxNextHistory", "CmuxNextWakeups"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextStash",
             dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextHistory"],
@@ -691,7 +700,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // reader. Setup (ComputerUseSetup) stays in the App.
         .target(
             name: "CmuxNextComputerUse",
-            dependencies: ["CmuxNextAgentActivity", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Resource usage for hover cards and `resources` (CPU and memory per
@@ -1207,7 +1216,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextServer",
             // CmuxNextWakeups: the joined rows' one-shot heartbeat deadline (JoinedMachineStore aging).
-            dependencies: ["CmuxNextCloud", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemote", "CmuxNextWakeups"],
+            // CmuxNextPages, CmuxNextSettings: the Machines section's React page host and its provider.
+            dependencies: ["CmuxNextCloud", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextPages", "CmuxNextRemote",
+                           "CmuxNextSettings", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -1303,13 +1314,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextCloudUI",
-            dependencies: ["CmuxNextCloud", "CmuxNextDesign"],
+            // Pages: the Cloud progress page's provider (CloudProgressPageProvider).
+            dependencies: ["CmuxNextCloud", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings"],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextCloudUITests",
-            dependencies: ["CmuxNextCloud", "CmuxNextCloudUI", "CmuxNextDesign", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextCloud", "CmuxNextCloudUI", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings", "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Machines reached over the user's own OpenSSH: destinations, the
@@ -1601,8 +1613,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             resources: [
                 .process("Resources"),
             ],
-            // The pinned FFI has the sidebar document mirror (cmux_sidebar_mirror_*, sidebar-doc-v1).
-            swiftSettings: uiSwiftSettings + [.define("CMUX_SIDEBAR_MIRROR_FFI")]
+            swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextSidebarTests",
@@ -1811,6 +1822,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHangReports",
                 "CmuxNextHibernation",
                 "CmuxNextHistory",
+                "CmuxNextHistoryDaemon",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHostedChief",

@@ -171,7 +171,8 @@ redrew only after the animation and the daemon echo.
   shrinking pane does not have its final size yet, and Ghostty's padding math is not visible to
   Swift) and reports it at once (`TerminalGridPolicy.finalSized`). A daemon IO takes every grid on the
   main actor (`TerminalIO.resizeOnMain`), so a final grid never races an older grid still in the
-  ordered input stream; `ResizeCoordinator.submitFinal` sends it in the caller's turn, and the
+  ordered input stream; `ResizeCoordinator.submitNow` sends it (and every other grid the view
+  reports, already coalesced, T-KEYS 4) in the caller's turn, and the
   one-in-flight echo rule keeps only the newest of a burst. The landing at the final grid reports
   nothing.
 - Presentation: no frame reflows. A pane that grows has its content held at the rest size, so the

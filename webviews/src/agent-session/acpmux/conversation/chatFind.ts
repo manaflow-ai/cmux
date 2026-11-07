@@ -14,6 +14,7 @@ import { agentMessage } from "./agentMessages";
 import { dispatchCall, dispatchDestination, type DispatchCall } from "./dispatchCalls";
 import { subsessionCall } from "./subsessionCalls";
 import { argsSource, fieldsText, inputFields, opensToFields, requestText } from "./toolInputFields";
+import { fileCard, fileCardText } from "./fileResults";
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
 import { callOutput, rowFailed, shellOutput, toolFailure } from "./toolFailure";
@@ -106,6 +107,10 @@ function drawnText(item: AcpmuxActivity): string {
   const called = shell ? undefined : callOutput(tool);
   const raw = called && withoutLinks(tool, called);
   const result = shell || !raw ? undefined : toolResult(raw, cleanText, strip, tool);
+  // A finished read or file search draws its card: a read's lines, a search's files and matching
+  // lines, never its input fields (FileResultCard.tsx).
+  const card = shell || rowFailed(tool) ? undefined : fileCard(tool, result?.text);
+  if (card) return [tool.title, fileCardText(card)].filter(Boolean).join("\n");
   const output = shell
     ? shellOutput(tool)
     : !result

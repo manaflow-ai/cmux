@@ -18,6 +18,11 @@ typealias SidebarListViewComponents = SidebarListView
 final class SidebarListView: NSView {
     let model: SidebarModel
     var displayed = SidebarLayout.empty
+    /// The model revision and options `displayed` is the full layout of (a plain reload): a one-row insert splices onto
+    /// it (`spliceInsertion`). Nil after any other apply.
+    var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
+    /// The row the apply running now splices in (`spliceInsertion`): its only new row, nothing else added or removed.
+    var splicedRow: SidebarRowKey?
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]

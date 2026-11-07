@@ -14,11 +14,11 @@ import { useContext, useLayoutEffect, useState, type FocusEvent, type PointerEve
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
-import { Folder, GitHubMark, Globe } from "../conversation/icons";
+import { Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { FileKindIcon } from "./FileKindIcon";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
-import { isDeniedPath, pathName, textLinks } from "./paths";
+import { foreignFileIds, isDeniedPath, pathName, textLinks } from "./paths";
 import { bareFileNames, useReplyFolders } from "./replyFolders";
 import { LinkHoverCard } from "./LinkHoverCard";
 import { pullRequestRef } from "./PullRequestCard";
@@ -272,8 +272,48 @@ export function linkedText(text: string, key: string): ReactNode[] {
   return out;
 }
 
+/// A file id only its provider opens (`foreignFileIds`): its id, shortened, and a note that it
+/// cannot be opened here. Never a link, a file chip or an image (Leo, 2026-11-06: "do we not have
+/// a good path for them sending images to you?"); an agent hands over an image with
+/// `acpmux send --attach`.
+export function ForeignFileRef({ id }: { id: string }) {
+  const t = useT();
+  const shown = id.length > 20 ? `${id.slice(0, 16)}…` : id;
+  return (
+    <span className="cv-foreign-file">
+      <Lock size={12} className="cv-foreign-file__icon" />
+      <span className="cv-foreign-file__id">{shown}</span>
+      <span className="cv-foreign-file__note">{t("message.foreignFile")}</span>
+    </span>
+  );
+}
+
+/// `text` with each foreign file id (`foreignFileIds`) as its `ForeignFileRef`, the rest drawn by
+/// `rest`.
+export function withForeignFiles(
+  text: string,
+  key: string,
+  rest: (piece: string, key: string) => ReactNode[],
+): ReactNode[] {
+  const ids = foreignFileIds(text);
+  if (!ids.length) return rest(text, key);
+  const out: ReactNode[] = [];
+  let at = 0;
+  ids.forEach((id, index) => {
+    if (id.start > at) out.push(...rest(text.slice(at, id.start), `${key}-${index}-text`));
+    out.push(<ForeignFileRef key={`${key}-${index}-foreign`} id={id.value} />);
+    at = id.end;
+  });
+  if (at < text.length) out.push(...rest(text.slice(at), `${key}-foreign-tail`));
+  return out;
+}
+
 /// Text between a reply's paths: each bare file name may be a file in a folder the reply names.
 function namedText(text: string, key: string): ReactNode[] {
+  return withForeignFiles(text, key, siblingText);
+}
+
+function siblingText(text: string, key: string): ReactNode[] {
   const names = bareFileNames(text);
   if (!names.length) return [text];
   const out: ReactNode[] = [];

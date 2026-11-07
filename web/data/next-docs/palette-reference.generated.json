@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1330,
+    "entries": 1329,
     "shortcuts": 189
   },
   "sections": [
@@ -6944,12 +6944,6 @@
           "title": "Share Machine Preview…",
           "shortcut": null,
           "command": "cmux cloud preview-share"
-        },
-        {
-          "id": "cloudShareMachine",
-          "title": "Share Machine…",
-          "shortcut": null,
-          "command": "cmux cloud share-machine"
         },
         {
           "id": "palette.auth.signIn",

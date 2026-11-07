@@ -230,6 +230,49 @@ def copy_chat(home, template, title):
     return session
 
 
+def subagent_template_fault(template, count):
+    """Why the subagent template would not draw its subagents as their own lines, or None. The page folds a
+    child's event into its subagent (subagentFold.ts ``ownerOf``) by its `acpmux.subagent` tag or by a session id
+    a `subagent_spawned` named before it; any other child event draws as the chat's own. A template seeded so
+    (2026-11-05: 328 KB instead of about 307 KB) drew every child's work inline with no subagent line to click,
+    so all 20 opens of a pair failed "no visible element matches" on both arms."""
+    lines = []
+    for name in sorted(template["events"]):
+        for raw in template["events"][name].splitlines():
+            try:
+                lines.append(json.loads(raw))
+            except ValueError:
+                continue
+    lines.sort(key=lambda line: line.get("seq") or 0 if isinstance(line, dict) else 0)
+    spawned, faults = [], []
+    for line in lines:
+        params = ((line.get("msg") or {}).get("params") or {}) if isinstance(line, dict) else {}
+        update = params.get("update")
+        if not isinstance(update, dict):
+            continue
+        session = params.get("sessionId")
+        tag = ((params.get("_meta") or {}).get("acpmux") or {}).get("subagent")
+        tag = tag.get("id") if isinstance(tag, dict) else tag
+        kind = update.get("sessionUpdate")
+        if kind == "subagent_spawned":
+            spawned.append(update.get("subagentSessionId"))
+            continue
+        # A child is chat_open_agent.py's `<chat>-sub-<k>` session, or whatever the hub tagged; any other session
+        # id is the chat's own, however acpmux named it.
+        owner = tag or (session if "-sub-" in str(session or "") else None)
+        if kind == "subagent_state_update":
+            continue
+        if owner is None:
+            if "-sub-" in str(update.get("toolCallId") or ""):
+                faults.append(f"a subagent's call {update.get('toolCallId')} is stored as the chat's own")
+            continue
+        if owner not in spawned:
+            faults.append(f"{owner}'s {kind} comes before its spawn")
+    if len(set(spawned)) != count:
+        faults.insert(0, f"spawned {len(set(spawned))} of {count} subagents")
+    return "; ".join(list(dict.fromkeys(faults))[:3]) or None
+
+
 def seed_templates(root):
     """The template chats, from the worker's seed cache (chat_open_seed_cache.py) when it has them,
     else written by acpmux on a seeding daemon and cached. Each entry is keyed by its own inputs and
@@ -244,12 +287,18 @@ def seed_templates(root):
     specs["store"] = {}  # the answered and closed chats seed_store copies, made last as before
     cache_root = None if opts.no_seed_cache else seed_cache.default_root()
     got, keys, result = {}, {}, {}
+    check = "ok"
     if cache_root:
         digest = seed_cache.source_digest(icl.bundled_acpmux(APP))
         for name, inputs in specs.items():
             keys[name] = seed_cache.entry_key(name, inputs, digest)
             got[name] = seed_cache.get(cache_root, keys[name])
             result[name] = "hit" if got[name] else "miss"
+        # A cached subagent template that would draw no subagent line is seeded again, never used.
+        fault = got.get("subagent") and subagent_template_fault(got["subagent"]["subagent"], SUBAGENTS)
+        if fault:
+            say(f"chat-open: the cached subagent template is unusable ({fault}); seeding it again")
+            got["subagent"], result["subagent"], check = None, "miss", f"cached one unusable: {fault}"
     else:
         result = {name: "off" for name in specs}
     missing = [name for name in specs if not got.get(name)]
@@ -277,6 +326,17 @@ def seed_templates(root):
             for name in missing:
                 made_at = time.monotonic()
                 got[name] = makers[name]()
+                # A seed whose subagents would draw inline is made once more, then stops the bench: its opens
+                # would all fail "no visible element matches" and say nothing about the app.
+                fault = name == "subagent" and subagent_template_fault(got[name]["subagent"], SUBAGENTS)
+                if fault:
+                    say(f"chat-open: the seeded subagent template is unusable ({fault}); seeding it again")
+                    got[name] = makers[name]()
+                    again = subagent_template_fault(got[name]["subagent"], SUBAGENTS)
+                    if again:
+                        raise SystemExit(f"chat-open: seed invalid: the subagent template would draw no subagent line, "
+                                         f"twice ({fault}; then {again})")
+                    check = f"seeded again: {fault}"
                 if cache_root:
                     seed_cache.put(cache_root, keys[name], specs[name], got[name], time.monotonic() - made_at)
         finally:
@@ -286,14 +346,14 @@ def seed_templates(root):
     templates = {}
     for entry in got.values():
         templates.update(entry)
-    return templates, time.monotonic() - started, result
+    return templates, time.monotonic() - started, result, check
 
 
 def seed(root):
     """Templates written by acpmux on the seeding daemon (or the worker's seed cache), then the
     app's store: --sessions short chats for the list and fresh copies of each shape for every cold
     open, under fresh ids in a fresh store every run."""
-    templates, seeded_s, cache_result = seed_templates(root)
+    templates, seeded_s, cache_result, subagent_check = seed_templates(root)
     small, sub = templates["small"], templates["subagent"]
     big, bloated = templates.get("big"), templates.get("bloated")
     answered, closed = templates["answered"], templates["closed"]
@@ -316,7 +376,8 @@ def seed(root):
     sizes = {name: sum(len(v) for v in t["events"].values()) for name, t in
              (("small", small), ("subagent", sub), ("big", big), ("bloated", bloated)) if t}
     return home, per, {"seed_s": round(seeded_s, 1), "store_s": round(time.monotonic() - stored_at, 1),
-                       "seed_cache": cache_result, "filler": filler, "template_bytes": sizes,
+                       "seed_cache": cache_result, "subagent_template": subagent_check, "filler": filler,
+                       "template_bytes": sizes,
                        "turns": opts.turns, "small_turns": opts.small_turns, "subagents": SUBAGENTS}
 
 
@@ -579,20 +640,30 @@ def click_subagent(run):
     return {**reply, "probe": subagent_probe(run)}
 
 
-# What a failed subagent click looks for, to say what the page shows instead (`probe` in the open's reply).
-PROBE_SELECTORS = ("button.cv-subagent-done", "button.acpmux-agent-line__button", ".acpmux-summary-agent__name",
-                   ".acpmux-tray-pull__tab", "[data-tray-status]", ".cv-tool")
+# A finished turn's subagents fold into their group (SubagentGroup.tsx), which starts open only while its agents
+# run: in the seeded chat, whose subagents all ended, their lines are not in the page until the group opens.
+GROUP_TOGGLE = 'button.cv-subagents[aria-expanded="false"]'
+
+
+def open_subagent_groups(run, limit=8):
+    """Opens each closed subagent group the chat shows, before the trace is armed (unmeasured), so the click finds
+    a subagent's line. Returns how many it opened."""
+    opened = 0
+    for _ in range(limit):
+        reply = run.rpc("debug.agent_pane", {"action": "click", "selector": GROUP_TOGGLE}) or {}
+        if reply.get("error"):
+            break
+        opened += 1
+        time.sleep(0.3)  # test script: the opened group's lines render
+    return opened
 
 
 def subagent_probe(run):
-    """Per `PROBE_SELECTORS`, whether the page shows one (a `hover`, which moves the pointer and clicks nothing)."""
-    found = {}
-    for selector in PROBE_SELECTORS:
-        reply = run.rpc("debug.agent_pane", {"action": "hover", "selector": selector}) or {}
-        found[selector] = reply.get("error") or "shown"
+    """What the page says it shows, for a subagent click that matched nothing (`probe` in the open's reply). No
+    selector test: `debug.agent_pane hover` takes a point, not a selector, so asking it by selector answered
+    "pass x and y" whatever the page showed."""
     state = run.rpc("debug.agent_pane", {"action": "chat_state"}) or {}
-    found["chat_state"] = json.dumps(state, default=str)[:1500]  # the summary card and what the page says it shows
-    return found
+    return {"chat_state": json.dumps(state, default=str)[:1500]}  # the summary card and what the page says it shows
 
 
 def workspace_id(row):
@@ -790,7 +861,10 @@ def measure_case(run, case, sessions, index):
         return traced(run, lambda: open_workspace(run, session))
     if case == "subagent":
         settle_open(run, session)
-        return traced(run, lambda: click_subagent(run))
+        groups = open_subagent_groups(run)
+        record = traced(run, lambda: click_subagent(run))
+        record["opened_groups"] = groups
+        return record
     raise ValueError(case)
 
 

@@ -893,12 +893,20 @@ impl Hub {
         };
         let (mut child, agent_sid) = match started {
             Ok(started) => started,
-            Err(e) => {
+            Err(mut e) => {
                 // A turn the shutdown settles writes no end of its own (`start_retry.rs`).
-                if !self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined)
-                    && self.hands_off(session)
-                {
+                let failed =
+                    self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined);
+                if !failed && self.hands_off(session) {
                     super::digest::forget_joined(Some(joined));
+                }
+                // Nor is it answered with what the shutdown did to its start (the agent it
+                // ended, a host detached before it answered: "no agent session"): the prompt
+                // hears the daemon is restarting, as one cut mid-turn does (chaos fault
+                // `daemon-restart-session-new`).
+                if !failed && self.shutting_down() && e.message != super::shutdown::SHUTTING_DOWN {
+                    tracing::info!(session = %session.id, "agent start ended by the shutdown: {e}");
+                    e = super::shutdown::shutting_down_error();
                 }
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
@@ -1450,6 +1458,11 @@ impl Hub {
         // acpmux ended a turn whose model said nothing for `stalledTurnEndMs`: it failed.
         let stalled = result.as_ref().ok().and_then(Self::stalled_error);
         if let Some(e) = stalled {
+            result = Err(e);
+        }
+        // acpmux ended a turn whose model API refused the agent's sign-in (`turn_retry.rs`).
+        let refused = result.as_ref().ok().and_then(Self::sign_in_refused_error);
+        if let Some(e) = refused {
             result = Err(e);
         }
         // Apply queued stderr before classifying a dead process (a limit never resumes).
@@ -2193,8 +2206,9 @@ impl Hub {
             m.name_given = true;
             std::mem::replace(&mut m.name, name.clone())
         };
+        // Both kept (`store/durability.rs`): the answer waits until they are written, not synced.
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
-        self.save_meta_answered(session)?;
+        self.save_meta_kept(session)?;
         // Its running Claude Code takes the name too (`live_name.rs`).
         self.rename_live_claude(session);
         Ok(())

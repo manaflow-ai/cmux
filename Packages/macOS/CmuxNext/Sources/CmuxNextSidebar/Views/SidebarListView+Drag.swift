@@ -491,6 +491,7 @@ extension SidebarListViewComponents {
     func showDragLayout() {
         let layout = displayLayout()
         displayed = layout
+        spliceBase = nil // the drag's look is no full layout of the model
         updateDocumentHeight()
         let realize = realizationRect()
         for row in layout.rows {

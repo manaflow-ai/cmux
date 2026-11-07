@@ -61,7 +61,7 @@ extension CloudStartChat {
         try await importKeptSends(cli)
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         let listed = cloud.listedMachineIDs
-        let ensureProject = (account.last ?? nil) == nil && !cloud.auth.configuration.isProductionAuth
+        let ensureProject = CloudStartCore().ensuresProject(account: account, platform: cloud.configuration.artifactsAPIBaseURL(), production: cloud.auth.configuration.isProductionAuth)
         let team = start.reservationKey != nil ? try await cloud.reservationTeam() : nil
         let access = try? await (ensureProject || start.reservationKey != nil ? cloud.auth.tokens().access : nil)
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,

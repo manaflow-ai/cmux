@@ -218,7 +218,7 @@ test("with no started chat, or one whose folder the host no longer lists, the ne
 });
 
 test("the New Tab context's started project reaches the page, a relative or home folder never", async () => {
-  const { newTabHost } = await import("../src/agent-session/acpmux/NewTabPage");
+  const { newTabHost } = await import("../src/agent-session/acpmux/newTabModel");
   expect(newTabHost({ newTab: { startedProject: PICKED } })?.startedProject).toBe(PICKED);
   expect(newTabHost({ newTab: { startedProject: "briefs/2026-10-20-gui-push" } })?.startedProject).toBeUndefined();
   expect(newTabHost({ newTab: { startedProject: HOME } })?.startedProject).toBeUndefined();

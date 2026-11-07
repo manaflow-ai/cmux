@@ -209,7 +209,7 @@ final class AppServices {
     let browserStores: BrowserSharedStores
     /// Chromium sign-in tabs: the engine's runtime and the sign-in windows share it.
     let signInCallbacks = CEFSignInCallbacks()
-    /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
+    /// Every terminal's grid sender: a view's reported grid in its turn, one in flight, a held one on a frame.
     let resizes = ResizeCoordinator()
     /// Browser tabs each pane also lists (`browser.page.mirror`): one live page shown in a second pane.
     let tabMirrors = TabMirrors()
@@ -356,7 +356,7 @@ final class AppServices {
     /// Sleepy Mode, the keep-awake screensaver (`palette.sleepyMode`); tests set one with fake seams.
     lazy var sleepyMode = SleepyModeController(
         keepAwake: SleepyKeepAwakeActivity(),
-        overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
+        overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.menuBarAgentsWorking ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
     /// Share Screen with Chief (docs/chief-screen-share.md), read by the Computer Use helper; journal in `optchat/screen`.
@@ -595,7 +595,7 @@ final class AppServices {
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), warmingOn: mainWork)
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
-        daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        daemon = DaemonService(echoesPlacementShift: true, mainWork: mainWork)
         // The automatic restart's toggle, and Restart cmux-tui over content while the daemon is gone (restore fuzz h2).
         daemon.installRecovery()
         self.launchReveal = launchReveal

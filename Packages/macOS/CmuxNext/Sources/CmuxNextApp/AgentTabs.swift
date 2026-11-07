@@ -145,8 +145,8 @@ final class AgentTabStore {
     /// Takes back a closed, untouched new tab page as the pool's spare
     /// (NewTabSparePool.recycle); false when the pool already has one.
     var recycle: ((AgentPaneView) -> Bool)?
-    /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
-    var takeSpare: (() -> AgentPaneView?)?
+    /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool); the next one follows as `refill` says.
+    var takeSpare: ((AgentPaneSpareRefill) -> AgentPaneView?)?
     /// The prewarmed page once it is connected and drawn, for a tab opening an existing chat of
     /// this Mac (``AgentPaneSpareAdoption``); nil leaves the spare in the pool.
     var takeConnectedSpare: (() -> AgentPaneView?)?
@@ -439,12 +439,12 @@ final class AgentTabStore {
            !linkedSessions.contains(key) {
             newTabPages[key] = firstPage(cwd: nil, token: firstPageToken(of: key, in: store))
         }
-        // A New Tab page made now (Cmd-N's first page, a restored page) adopts the prewarmed spare
-        // when there is one: no cold load and React mount on the open path (cx-ec99).
-        // (Its folder rides on the page context, `newTab.cwd`; a first page's seed holds only that.)
-        // A page with a kept composer (``wakeStates``) gets its own page: the spare's handshake is past.
-        if local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
-           seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?() {
+        // A New Tab page made now (Cmd-N's first page, a restored page) adopts the prewarmed spare when there is one: no cold
+        // load and React mount on the open path (cx-ec99); its folder rides on the page context (`newTab.cwd`). A page with a kept
+        // composer (``wakeStates``) gets its own page: the spare's handshake is past. A reserved Cmd-N page (`known`) asked the pool
+        // already as idle work (``reserveWorkspace(on:cwd:)``): a take here was a cold open on an empty pool, marking a launch's pool used.
+        if known == nil, local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
+           seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?(.now) {
             adoptSpare(spare, key: key, page: newTab.page)
             track(key, in: store)
             onPageBuilt?(key)

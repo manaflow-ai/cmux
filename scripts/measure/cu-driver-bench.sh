@@ -29,24 +29,38 @@
 # the image, never logged), and runs one `claude -p` with the bench's scrubbed environment. A 529 or
 # overloaded answer is retried with backoff and counted apart (vm.json route.retries). Exit 0 when the
 # guest's claude answered, else 4.
+#
+# suite=bench-v2 base_url=... gives the guest that route, then runs Cua Driver Bench v2 (trycua/cua
+# libs/cua-driver-bench, from its pinned source) in the guest's session with the drivers, through
+# cu-driver-eval.sh bench=: bench=preflight (the default) or bench=run, condition=background|foreground,
+# reps= runs per task, tasks=A,B, and waive=REGEX[;REGEX] (no spaces) for preflight checks that fit
+# only the bench's own builds. Its artifact and exit status are cu-driver-eval's, as for input-ab.
 set -uo pipefail
 started_at=$(date +%s)
-base_url="" suite=probe reps=3 drivers="cmux-cua,cua-driver-0.38.0"
+base_url="" suite=probe reps=3 drivers="cmux-cua,cua-driver-0.38.0" bench=preflight condition=background tasks="" waive=""
 for arg in "$@"; do
   case "$arg" in
     base_url=*) base_url="${arg#base_url=}" ;;
     suite=*) suite="${arg#suite=}" ;;
     reps=*) reps="${arg#reps=}" ;;
     drivers=*) drivers="${arg#drivers=}" ;;
+    bench=*) bench="${arg#bench=}" ;;
+    condition=*) condition="${arg#condition=}" ;;
+    tasks=*) tasks="${arg#tasks=}" ;;
+    waive=*) waive="${arg#waive=}" ;;
     *) echo "cu-driver-bench.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
-[[ "$suite" == probe || "$suite" == input-ab || "$suite" == route ]] || { echo "cu-driver-bench.sh: suite= is probe, input-ab or route" >&2; exit 2; }
+[[ "$suite" == probe || "$suite" == input-ab || "$suite" == route || "$suite" == bench-v2 ]] || { echo "cu-driver-bench.sh: suite= is probe, input-ab, route or bench-v2" >&2; exit 2; }
+[[ "$bench" == preflight || "$bench" == run ]] || { echo "cu-driver-bench.sh: bench= is preflight or run" >&2; exit 2; }
+[[ "$condition" == background || "$condition" == foreground ]] || { echo "cu-driver-bench.sh: condition= is background or foreground" >&2; exit 2; }
+[[ "$tasks" =~ ^[A-Z0-9,-]*$ ]] || { echo "cu-driver-bench.sh: tasks= is a comma list of task ids" >&2; exit 2; }
+[[ "$waive" =~ ^[^[:space:]\'\"]*$ ]] || { echo "cu-driver-bench.sh: waive= has no spaces or quotes" >&2; exit 2; }
 [[ "$reps" =~ ^[1-9][0-9]?$ ]] || { echo "cu-driver-bench.sh: reps= is 1..99" >&2; exit 2; }
 [[ "$drivers" =~ ^[a-z0-9.,-]*$ ]] || { echo "cu-driver-bench.sh: drivers= is a comma list of names" >&2; exit 2; }
 [[ -z "$base_url" || "$base_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "cu-driver-bench.sh: base_url=http://HOST[:PORT]" >&2; exit 2; }
 # The guest reaches the route through a TCP forward to a plain http:// URL on its own loopback.
-[[ "$suite" != route || "$base_url" =~ ^http://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "cu-driver-bench.sh: suite=route needs base_url=http://HOST[:PORT]" >&2; exit 2; }
+[[ ( "$suite" != route && "$suite" != bench-v2 ) || "$base_url" =~ ^http://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "cu-driver-bench.sh: suite=$suite needs base_url=http://HOST[:PORT]" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 here="$root/scripts/measure/cu-driver-eval"
@@ -78,7 +92,7 @@ EOF
   cat "$out/vm.json"
   tar -czf "$root/artifacts/cu-driver-bench.tgz" -C "$root/artifacts" cu-driver-bench
   # input-ab's artifact is cu-driver-eval.tgz; a run stopped before the A/B still leaves one.
-  if [[ "$suite" == input-ab && ! -d "$root/artifacts/cu-driver-eval" ]]; then
+  if [[ ( "$suite" == input-ab || "$suite" == bench-v2 ) && ! -d "$root/artifacts/cu-driver-eval" ]]; then
     mkdir -p "$root/artifacts/cu-driver-eval"
     cp "$out/vm.json" "$root/artifacts/cu-driver-eval/"
     tar -czf "$root/artifacts/cu-driver-eval.tgz" -C "$root/artifacts" cu-driver-eval
@@ -284,7 +298,7 @@ f.setdefault(sys.argv[2], {})[sys.argv[3]] = value
 print(json.dumps(f))' "$facts" "$@")
 }
 
-if [[ "$suite" == route ]]; then
+if [[ "$suite" == route || "$suite" == bench-v2 ]]; then
   note "STAGE route"
   # The guest's 127.0.0.1:4016 becomes the route, through this worker. Only this ssh is killed on exit.
   route_hostport=${base_url#http://}
@@ -335,15 +349,21 @@ if [[ "$suite" == route ]]; then
   setfact route answered "$([[ $answered == 1 ]] && echo true || echo false)"
   [[ $answered == 1 ]] || { head -c 2000 "$out/route-probe.txt"; finish "the guest's claude -p did not answer through the route (route-probe.txt)"; exit 4; }
   note "the guest's Claude Code $cc_version answered through the route"
-  finish
-  exit 0
+  if [[ "$suite" == route ]]; then
+    finish
+    exit 0
+  fi
 fi
 
-note "STAGE input-ab"
+note "STAGE $suite"
 rev=$(git rev-parse HEAD)
-git archive "$rev" scripts/measure/cu-driver-eval.sh scripts/measure/cu-driver-eval scripts/build-cmux-cua.sh |
+# The eval's arguments after reps and drivers: Bench v2's mode and selection (no Electron target).
+# Quoted for the guest's shell: a waive= regex may hold ; | ( or *.
+eval_args=""
+[[ "$suite" == bench-v2 ]] && eval_args=$(printf ' %q' electron=0 "bench=$bench" "condition=$condition" "tasks=$tasks" "waive=$waive")
+git archive "$rev" scripts/measure/cu-driver-eval.sh scripts/measure/cu-driver-eval scripts/build-cmux-cua.sh skills/cmux-cua |
   guest 'rm -rf ~/cu-eval && mkdir -p ~/cu-eval && tar -x -C ~/cu-eval' || { finish "could not copy the A/B into the guest"; exit 4; }
-guest_n "bash ~/cu-eval/scripts/measure/cu-driver-eval/guest-start.sh $rev $reps '$drivers'" >"$out/start.log" 2>&1 ||
+guest_n "bash ~/cu-eval/scripts/measure/cu-driver-eval/guest-start.sh $rev $reps '$drivers'$eval_args" >"$out/start.log" 2>&1 ||
   { cat "$out/start.log"; finish "could not start the A/B in the guest's session (start.log)"; exit 4; }
 cat "$out/start.log"
 note "the A/B is running in the guest"

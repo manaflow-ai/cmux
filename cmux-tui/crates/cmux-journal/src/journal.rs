@@ -47,6 +47,11 @@ pub(crate) struct State {
     pub(crate) pending_last: Lsn,
     pub(crate) pending_records: u64,
     pub(crate) pending_ack: bool,
+    /// The pending records hold a kept one ([`Journal::append_kept`]).
+    pub(crate) pending_kept: bool,
+    /// A waiter asked for the records written so far to be synced now ([`Journal::wait_durable`]):
+    /// a `Stream` record it waits for then does not wait out [`Config::stream_sync_delay`].
+    pub(crate) sync_asked: bool,
     /// No appends any more (a seal, a drop, or the writer stopped).
     pub(crate) closed: bool,
     /// The writer stops after one last attempt (drop).
@@ -64,6 +69,9 @@ pub(crate) struct Shared {
     /// Wakes waiters: the durable LSN moved, or the writer ended.
     pub(crate) durable: Condvar,
     pub(crate) listeners: Mutex<Vec<Listener>>,
+    /// Called with the new written LSN after each batch's write, before its sync
+    /// ([`Journal::on_written`]).
+    pub(crate) written_listeners: Mutex<Vec<Listener>>,
     /// The live segments, oldest first: recovery's, then each one the writer makes.
     pub(crate) segments: Mutex<Vec<LiveSegment>>,
 }
@@ -90,6 +98,17 @@ impl State {
         }
         Ok(())
     }
+}
+
+/// How an append joins the queue.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Admit {
+    /// [`Journal::append`]: refused past [`Config::max_pending_bytes`].
+    Limited,
+    /// [`Journal::append_kept`]: limited, and synced in idle time.
+    Kept,
+    /// [`Journal::append_control`]: never refused for the queue's size.
+    Control,
 }
 
 /// Why an append was refused. None of them waits for the disk.
@@ -227,6 +246,8 @@ impl Journal {
                 pending_last: 0,
                 pending_records: 0,
                 pending_ack: false,
+                pending_kept: false,
+                sync_asked: false,
                 closed: false,
                 stop: false,
                 ended: false,
@@ -241,6 +262,7 @@ impl Journal {
             wake: Condvar::new(),
             durable: Condvar::new(),
             listeners: Mutex::new(Vec::new()),
+            written_listeners: Mutex::new(Vec::new()),
             segments: Mutex::new(recovered.live),
         });
         let report = recovered.report;
@@ -266,7 +288,16 @@ impl Journal {
     /// Appends one record and returns its LSN. A memory copy: no I/O, no wait. The record is
     /// durable once [`Journal::durable_lsn`] reaches the LSN.
     pub fn append(&self, kind: u16, class: Class, payload: &[u8]) -> Result<Lsn, AppendError> {
-        self.append_admitted(kind, class, payload, true)
+        self.append_admitted(kind, class, payload, Admit::Limited)
+    }
+
+    /// Appends one kept record: a [`Class::Stream`] record (so recovery reads it back as one)
+    /// whose change a reply shows once it is written ([`Journal::on_written`]), as
+    /// [`Journal::append`] does otherwise. The writer syncs it in idle time
+    /// ([`Config::kept_sync_quiet`]) rather than with the next acked batch, which then syncs
+    /// only its own records ([crate docs](crate)).
+    pub fn append_kept(&self, kind: u16, payload: &[u8]) -> Result<Lsn, AppendError> {
+        self.append_admitted(kind, Class::Stream, payload, Admit::Kept)
     }
 
     /// Appends one control record as [`Journal::append`] does, except that a full queue never
@@ -279,7 +310,7 @@ impl Journal {
         class: Class,
         payload: &[u8],
     ) -> Result<Lsn, AppendError> {
-        self.append_admitted(kind, class, payload, false)
+        self.append_admitted(kind, class, payload, Admit::Control)
     }
 
     fn append_admitted(
@@ -287,8 +318,9 @@ impl Journal {
         kind: u16,
         class: Class,
         payload: &[u8],
-        limited: bool,
+        admit: Admit,
     ) -> Result<Lsn, AppendError> {
+        let limited = admit != Admit::Control;
         if payload.len() > MAX_PAYLOAD_LEN {
             return Err(AppendError::TooLarge);
         }
@@ -304,6 +336,7 @@ impl Journal {
         state.pending_last = lsn;
         state.pending_records = state.pending_records.saturating_add(1);
         state.pending_ack |= class == Class::Ack;
+        state.pending_kept |= admit == Admit::Kept;
         drop(state);
         if was_empty {
             self.shared.wake.notify_one();
@@ -355,6 +388,20 @@ impl Journal {
     pub fn on_durable(&self, listener: impl Fn(Lsn) + Send + Sync + 'static) {
         self.shared
             .listeners
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Arc::new(listener));
+    }
+
+    /// Calls `listener` with the new written LSN each time a batch is written, on the writer
+    /// thread, before the batch's sync: every record up to it is in the operating system's
+    /// cache, so a kill of any or all processes keeps it (an OS crash or a power loss may not,
+    /// until [`Journal::durable_lsn`] reaches it). For a reply that promises only that (a
+    /// `Stream` record's change, shown before it is durable). The rules of [`Journal::on_durable`]
+    /// hold: return quickly, never wait; dropped when the writer stops.
+    pub fn on_written(&self, listener: impl Fn(Lsn) + Send + Sync + 'static) {
+        self.shared
+            .written_listeners
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(Arc::new(listener));
@@ -438,11 +485,17 @@ impl Journal {
         state.stats.segments_retired = state.stats.segments_retired.saturating_add(retired);
     }
 
-    /// Blocks until record `lsn` is durable. For tests and tools: a daemon's request path
-    /// never blocks on the disk; it holds its reply until a listener says the LSN is durable.
+    /// Blocks until record `lsn` is durable. For tests, tools and background threads (a
+    /// checkpoint): a daemon's request path never blocks on the disk; it holds its reply until a
+    /// listener says the LSN is durable. A wait asks the writer to sync what it wrote at once, so
+    /// a `Stream` record it waits for does not wait out [`Config::stream_sync_delay`].
     pub fn wait_durable(&self, lsn: Lsn, timeout: Duration) -> Result<(), WaitError> {
         let deadline = Instant::now().checked_add(timeout);
         let mut state = self.shared.lock();
+        if state.stats.durable_lsn < lsn && lsn < state.stats.next_lsn && !state.sync_asked {
+            state.sync_asked = true;
+            self.shared.wake.notify_one();
+        }
         loop {
             if state.stats.durable_lsn >= lsn {
                 return Ok(());

@@ -6,7 +6,8 @@
 /// - `home.chiefDock.edge`: the edge Open Chief Dock (Cmd-I) and a link from the Chief dock it to: `left` (the
 ///   default), `right`, `top` or `bottom`.
 /// - `home.chiefDock.openBeside`: a workspace, tab or subagent link clicked in the Chief shows its workspace beside
-///   the docked Chief instead of in Home's place; on when unset.
+///   the docked Chief instead of in Home's place; off when unset (cmux#37365: the Chief is never pinned on screen
+///   unless the person docks it, with Cmd-I or this setting).
 public nonisolated struct ChiefDockSetting {
     public nonisolated init() {}
     /// `home.chiefDock.edge`.
@@ -17,8 +18,9 @@ public nonisolated struct ChiefDockSetting {
     public static let edges = ["left", "right", "top", "bottom"]
     /// Left: most people keep the Chief on the left.
     public static let defaultEdge = "left"
-    /// On: a link clicked in the Chief keeps the Chief on screen.
-    public static let defaultOpenBeside = true
+    /// Off (cmux#37365, "i dont want this by default"): a link clicked in the Chief shows its workspace in Home's
+    /// place, and the Chief docks only when the person asks (Open Chief Dock, Cmd-I) or turns this on.
+    public static let defaultOpenBeside = false
 
     /// The edge; one that is not an edge is the default plus a diagnostic.
     static func parseEdge(_ root: JSONValue) -> (String, SettingsDiagnostic?) {

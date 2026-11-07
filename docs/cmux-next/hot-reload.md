@@ -425,6 +425,34 @@ it after the merge. `apply` checks its sha256 and puts it on PATH as `cmux-NAME`
 The app, its daemon and its terminals are untouched. A `cmux` that is a link outside any app is
 repointed instead, and `undo` points it back.
 
+### A merged commit in the running app, before the nightly
+
+```sh
+scripts/cmux-next/hot-apply.py plan SHA                 # what of SHA can go in, and what needs a nightly
+scripts/cmux-next/hot-apply.py apply SHA                # put it in the running app
+scripts/cmux-next/hot-apply.py rollback                 # the build and overlay that ran before
+```
+
+`--app` names the app (default `/Applications/cmux NIGHTLY.app`). `apply` builds nothing: it takes
+what feat-cmux-next published for SHA and diffs it against the app's `CMUXCommit`:
+
+- **Rust:** the `cmux` binary of SHA's cmux-tui tree key, checked against the sha256 in its
+  `completion.json`, replaces the app's `bin/cmux`. The app's daemon then hands off to it as in
+  `cmux live start --rust`: same app pid, terminals kept. `bin/cmux` is also `cmux-tui` and `acpmux`,
+  so `cmux link`, the CLI in the app's terminals and acpmux daemons started after the swap run SHA's
+  build. A running acpmux daemon keeps its build until it restarts (`--acpmux-home H` restarts one).
+- **Web:** SHA's published web bundles go into the app's web overlay, as long as SHA's web ABI is
+  the app's.
+- **Neither:** Swift, resources, Rust the app links through FFI, and helpers such as
+  cmux-mobile-host still need the nightly. `plan` lists them under `left`.
+
+Each part is checked after it goes in: `bin/cmux` hashes to the published sha256 and a new daemon
+answers from it, and the overlay names SHA. A part that fails its check is put back. SHA must come
+after the app's commit, and the swap carries every change between the two. Swapping `bin/cmux`
+breaks the bundle's seal until `rollback` or the next update. The running app does not notice.
+`scripts/measure/hot-apply-nightly.sh` runs apply and rollback on a copy of the newest nightly on a
+fleet Mac.
+
 ## Every merge, no checkout
 
 Settings > Updates > **Web UI Updates**:

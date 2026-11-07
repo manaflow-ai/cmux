@@ -64,6 +64,8 @@ mod shutdown_scan_tests;
 #[cfg(test)]
 mod shutdown_tests;
 #[cfg(test)]
+mod startup_wait_tests;
+#[cfg(test)]
 mod transcript_seq_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
@@ -816,6 +818,9 @@ pub struct Hub {
     pub(super) auto_background_after: StdMutex<Option<std::time::Duration>>,
     /// The `<session>/<tool call>` shells a timer of `auto_background.rs` watches.
     pub(super) auto_background_armed: StdMutex<std::collections::HashSet<String>>,
+    /// How long a foreground call runs before the person's message waiting behind it moves it to
+    /// the background, None: never (`auto_background.rs`).
+    pub(super) message_background_after: StdMutex<Option<std::time::Duration>>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
     /// Which session each lane reports its turns to (`lane_reports.rs`).
@@ -1078,6 +1083,9 @@ impl Hub {
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             auto_background_after: StdMutex::new(auto_background::auto_background_from_env()),
             auto_background_armed: Default::default(),
+            message_background_after: StdMutex::new(Some(
+                auto_background::MESSAGE_BACKGROUND_AFTER,
+            )),
             offers: Default::default(),
             lane_reports: Default::default(),
             lane_report_reads: Default::default(),
@@ -1487,6 +1495,7 @@ impl Hub {
             open_tools: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
+            sign_in_refused_turn: StdMutex::new(None),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
@@ -2192,8 +2201,9 @@ impl Hub {
             "composer_draft",
             session.status() == SessionStatus::Closed,
         );
-        // Answered only once the draft is in `session.json`: "the one durable shared draft".
-        self.save_meta_answered(session)?;
+        // Answered once the draft is saved: "the one durable shared draft". A kept change: saved
+        // when written, synced with the next acked change or within a second (`meta_save.rs`).
+        self.save_meta_kept(session)?;
         Ok(draft)
     }
 

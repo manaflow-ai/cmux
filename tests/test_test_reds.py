@@ -1401,5 +1401,55 @@ class LostRunner(unittest.TestCase):
         self.assertEqual(done.returncode, 1, done.stderr)
         self.assertIn("a verdict", done.stdout)
 
+
+class ReadOncePerLog(unittest.TestCase):
+    """A log is parsed once per process, however often the judge reads it (2026-11-06, cmux#36356 at 2c9f6957):
+    base_red_excuse.py's window re-classified every log each time it grew, 50 reads of six 20 to 27 MB logs, 110 s
+    of CPU, and merge_hold's 120 s bound on the classifier refused the merge."""
+
+    def setUp(self):
+        reds._parsed.clear()
+        self.addCleanup(reds._parsed.clear)
+
+    def test_a_window_parses_each_log_once(self):
+        head, base = HEAD_26346.read_text(), BASE_26346.read_text()
+        older = base + "\n"  # another base run's log: another text
+        parsed = []
+        real = reds.parse_log
+
+        def counting(log, bun=True):
+            parsed.append(log)
+            return real(log, bun)
+
+        reds.parse_log = counting
+        self.addCleanup(setattr, reds, "parse_log", real)
+        # As compare_window does as the window grows: the newest, then the newest and an older one.
+        first = reds.classify_any(head, [("feat-cmux-next run 1", base)], "cmux-next swift test")
+        grown = reds.classify_any(head, [("feat-cmux-next run 1", base), ("feat-cmux-next run 2", older)],
+                                  "cmux-next swift test")
+        self.assertEqual([parsed.count(text) for text in (head, base, older)], [1, 1, 1])
+        reds.parse_log = real
+        reds._parsed.clear()
+        fresh = reds.classify_any(head, [("feat-cmux-next run 1", base), ("feat-cmux-next run 2", older)],
+                                  "cmux-next swift test")
+        self.assertEqual((grown.own, grown.reasons, grown.shared), (fresh.own, fresh.reasons, fresh.shared))
+        self.assertIsNotNone(first)
+
+    def test_a_kept_read_is_the_callers_own_copy(self):
+        log = HEAD_26346.read_text()
+        mine = reds.read(log)
+        mine.failed.add("a test that never ran")
+        mine.crashes.append("a crash that never happened")
+        again = reds.read(log)
+        self.assertNotIn("a test that never ran", again.failed)
+        self.assertNotIn("a crash that never happened", again.crashes)
+        self.assertEqual((again.failed, again.crashes), (reds.parse_log(log).failed, reds.parse_log(log).crashes))
+
+    def test_at_most_keep_parsed_logs_are_kept(self):
+        for n in range(reds.KEEP_PARSED + 3):
+            reds.read(f"✘ Test t{n}() failed after 0.1 seconds with 1 issue.\n")
+        self.assertEqual(len(reds._parsed), reds.KEEP_PARSED)
+
+
 if __name__ == "__main__":
     unittest.main()

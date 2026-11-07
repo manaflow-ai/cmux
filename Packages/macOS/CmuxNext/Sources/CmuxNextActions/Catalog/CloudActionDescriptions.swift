@@ -220,13 +220,6 @@ nonisolated enum CloudActionDescriptions {
             once, before the rename is done. Without --name it asks the person for the name in the app, so a \
             script or agent passes --name.
             """,
-        "cloudShareMachine": """
-            Shares app-started chats on a team machine (--target machine:<id>) with a teammate \
-            (--teammate <user id>), or takes the share back (--revoke). Only the machine's creator or a \
-            team admin may change shares. Without --teammate it answers the machine's teammates as \
-            `teammates` [{user_id, name, shared}]; in the app it opens a page of them, where Return \
-            shares or stops sharing.
-            """,
         "cloudKillMachine": """
             Deletes the machine (--target machine:<id>) and everything on it. Destructive: a CLI or agent \
             run needs --confirm. Answers at once, before the delete is done.
@@ -240,7 +233,7 @@ nonisolated enum CloudActionDescriptions {
             Returns no fields.
             """,
         "cloudCopyLink": """
-            Opens a port of the machine (--port) through cmux Cloud and copies its link to the clipboard. \
+            Makes the platform's expiring share link for a port of the machine (--port) and copies it to the clipboard. \
             Not a CLI verb.
             """,
         "cloudCopyPort": """

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { newTabHost } from "../NewTabPage";
+import { newTabHost } from "../newTabModel";
 import { injectedNewTabContext, sameNewTabScreen } from "./adoption";
 import { reconciledProject, startFromContext } from "./startHint";
 
