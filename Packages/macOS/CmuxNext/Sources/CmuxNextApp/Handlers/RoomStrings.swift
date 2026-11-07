@@ -68,7 +68,7 @@ enum RoomConfirmation {
     /// closes nothing and never asks (cmux-window-rules `workspaces::space_delete`). Nil runs without asking.
     @MainActor
     static func prompt(_ invocation: ActionInvocation, _ context: AppActionContext) async -> DestructiveConfirmation.Prompt? {
-        let warn = context.services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
+        let warn = context.services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.warnBeforeClosingTabDefault
         let room = try? context.room(invocation), moves = (try? context.optionalRoom(invocation["moveTo"])).flatMap { $0 } != nil
         let rules = WindowRules()
         let ask = { (programs: [String]?) in

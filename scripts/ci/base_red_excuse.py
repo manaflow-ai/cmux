@@ -1036,40 +1036,143 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # its own pin: its merge is what publishes the release the re-pin then names. That error alone, in the cmux-next checks
 # job, is excused when the PR changes FFI inputs, leaves Package.swift (the pin) alone and changes no Swift, so no app
 # code calls a symbol or op the pinned library lacks. Any other red in the job is judged as before.
+#
+# A published base pin (2026-11-07): step-A PRs change the FFI sources faster than releases publish, so a step-B PR (its
+# Swift, or a re-pin) could never pin a release built from its own sources. Any other PR with that error has it excused
+# when both hold: (a) the release its head pins (Package.swift's canonical CCmuxAppFFI block, app_ffi_pin.py: this
+# repository's own cmux-app-ffi-<sha> release download and its checksum; any other shape refuses; or, at a head that
+# has app-ffi-pin.json, that file read strictly with Package.swift holding only its one loader block, as cmux#37645
+# moves the pin, so this base classifier can judge that PR) is
+# published, its SOURCE_SHA names that sha, its SHA256SUMS carries that checksum for the archive, and that sha is on
+# the PR's base (an ancestor of the base tip); (b) the app compile check passed at the
+# PR's exact head (compile_pass_at). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
+# resolves the binary target from that URL and checksum, nothing else. Drift since the pinned source can then only be
+# other PRs' additive FFI changes, and the compile proves the symbols the app calls are in the pinned library.
 FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
 FFI_PIN_CHECK = "Check the app FFI pin"
 FFI_PIN_ROLLUP_STEP = "Fail on any red check"  # the job's last step, red when a continue-on-error check is
 FFI_PIN_ERROR = "error: the app FFI sources changed since the pinned source"
 FFI_PIN_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
+FFI_PIN_FILE = "Packages/macOS/CmuxNext/app-ffi-pin.json"
+FFI_PIN_PATHS = (FFI_PIN_FILE, FFI_PIN_MANIFEST)  # a PR changing either moves the pin
 FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh")
+FFI_RELEASE_SECONDS = 30
+FFI_ASSET = "CCmuxAppFFI.xcframework.zip"
+
+
+# The pin is read by scripts/ci/app_ffi_pin.py's fail-closed canonical match (2026-11-07), shared with the repin
+# picker and the repin script: no Swift is parsed, and anything but the canonical block refuses.
+_spec = importlib.util.spec_from_file_location("app_ffi_pin", Path(__file__).with_name("app_ffi_pin.py"))
+app_ffi_pin = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(app_ffi_pin)
+
+
+def ffi_binary_target(manifest: str, repo: str, pin_file: str | None = None) -> tuple[str | None, str | None, str]:
+    """(source sha, checksum, "") of the head's pin; else (None, None, why). With PIN_FILE (app-ffi-pin.json's text,
+    None when the head has none) it is that file's pin (app_ffi_pin.read_pin_file) and MANIFEST (Package.swift's text)
+    must hold only its loader block (app_ffi_pin.check_loader); without it, MANIFEST's canonical CCmuxAppFFI pin
+    (app_ffi_pin.read). Either way REPO's own cmux-app-ffi-<sha> release download and a 64-hex checksum."""
+    try:
+        if pin_file is not None:
+            sha, checksum = app_ffi_pin.read_pin_file(pin_file, repo)
+            app_ffi_pin.check_loader(manifest, checksum)
+        else:
+            sha, checksum, _ = app_ffi_pin.read(manifest, repo)
+    except app_ffi_pin.NotCanonical as why:
+        return None, None, str(why)
+    return sha, checksum, ""
+
+
+def ffi_pin_file_at(repo: str, sha: str, github) -> str | None:
+    """app-ffi-pin.json's text at SHA, or None when GitHub serves none there (the head is in the template form). A head
+    whose file is unread is read in the template form, which refuses a JSON-era Package.swift: never a looser read."""
+    try:
+        return source_text(repo, sha, FFI_PIN_FILE, github)
+    except Refused:
+        return None
+
+
+def ffi_release_file(repo: str, tag: str, name: str) -> str | None:
+    """File NAME of the published release TAG of REPO, read anonymously from its release download (no API quota), or
+    None when it is not published (404). Any other failure raises: an unread release is no answer."""
+    import urllib.error
+    import urllib.request
+    url = f"https://github.com/{repo}/releases/download/{tag}/{name}"
+    try:
+        with urllib.request.urlopen(url, timeout=FFI_RELEASE_SECONDS) as answer:  # noqa: S310 (a fixed https URL)
+            return answer.read(1 << 16).decode("utf-8", "replace")
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        raise Refused(f"{url}: HTTP {error.code}; the pinned release could not be read") from error
+    except (OSError, ValueError) as error:
+        raise Refused(f"{url}: {type(error).__name__}: {error}; the pinned release could not be read") from error
+
+
+def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str | None, str]:
+    """(audit, "") when the head SHA's app FFI pin (its one CCmuxAppFFI binary target) is a published release of REPO
+    built from a commit on BASE, its checksum the release's archive entry, and the app compile check passed at SHA
+    (the published base pin rule above); else (None, the part of that rule that does not hold)."""
+    pin, checksum, why = ffi_binary_target(source_text(repo, sha, FFI_PIN_MANIFEST, github), repo,
+                                           ffi_pin_file_at(repo, sha, github))
+    if pin is None:
+        return None, why
+    tag = f"cmux-app-ffi-{pin}"
+    source = ffi_release_file(repo, tag, "SOURCE_SHA")
+    sums = ffi_release_file(repo, tag, "SHA256SUMS") if source is not None else None
+    if source is None or sums is None:
+        return None, f"the pinned release {tag} is not published (its {'SOURCE_SHA' if source is None else 'SHA256SUMS'} is 404)"
+    if source.strip() != pin:
+        return None, f"the pinned release {tag} records SOURCE_SHA {source.strip()[:40]!r}, not {pin}"
+    if f"{checksum}  {FFI_ASSET}" not in sums.splitlines():
+        return None, f"the pinned checksum {checksum[:12]} is not {tag}'s SHA256SUMS entry for {FFI_ASSET}"
+    status = github.json(f"repos/{repo}/compare/{base}...{pin}?per_page=1").get("status")
+    if status not in ("behind", "identical"):
+        return None, f"the pinned release's source {pin[:12]} is not an ancestor of {base} (it is {status or 'unread'})"
+    proof = compile_pass_at(repo, sha, github)
+    if proof is None:
+        return None, (f"no app compile check passed at {sha} (cmux-next/compile, or the Release compile), so nothing "
+                      f"proves the app builds against {tag}")
+    return (f"pins {tag}, a published release built from {pin[:12]}, which is on {base}, and {proof} compiled {sha} "
+            "against that pin and passed"), ""
 
 
 def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], errors: set[str], tests: set[str],
                    log: str, github) -> str | None:
-    """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR (the
-    rule above). Wherever the pin error shows, the PR must be one the rule covers, whatever else is red: Refused
-    when it changes Swift or Package.swift or no FFI input, since the base comparison may set the error aside beside
-    another red the base shares (review of d5c11dd8). None when there is no pin error, or when something else is red
-    too (another failed step, a failing test, a crash, another error): that red is judged as before. The caller asks
-    only after test_reds.read found no crash or cut-short run."""
+    """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR, or of a
+    PR whose pin is a published base release its app compile passed against (the rules above). Wherever the pin error
+    shows, the PR must be one a rule covers, whatever else is red: Refused when it changes Swift or Package.swift or no
+    FFI input and its pin is not a published base release it compiled against, since the base comparison may set the
+    error aside beside another red the base shares (review of d5c11dd8). None when there is no pin error, or when
+    something else is red too (another failed step, a failing test, a crash, another error): that red is judged as
+    before. The caller asks only after test_reds.read found no crash or cut-short run."""
     pin, rollup = normalise_error(FFI_PIN_ERROR), normalise_error(f"red check: {FFI_PIN_CHECK}")
     if name != FFI_PIN_JOB or not any(error.startswith(pin) for error in errors):
         return None
     number, paths = pr_paths(repo, base, sha, github)
-    if FFI_PIN_MANIFEST in paths:
-        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes {FFI_PIN_MANIFEST}: a PR that moves "
-                      "the pin must pin a release built from its own sources")
-    if swift := [path for path in paths if path.endswith(".swift")]:
-        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes Swift ({'; '.join(swift[:5])}): "
-                      "app code may call what the pinned library lacks; land the Rust alone, then the Swift after "
-                      "the re-pin")
-    if not any(touches(path, read) for path in paths for read in FFI_INPUTS):
-        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes no app FFI input")
+    if moved := [path for path in FFI_PIN_PATHS if path in paths]:
+        why = (f"#{number} changes {moved[0]}: a PR that moves the pin must pin a release built from its own "
+               "sources")
+    elif swift := [path for path in paths if path.endswith(".swift")]:
+        why = (f"#{number} changes Swift ({'; '.join(swift[:5])}): app code may call what the pinned library lacks; "
+               "land the Rust alone, then the Swift after the re-pin")
+    elif not any(touches(path, read) for path in paths for read in FFI_INPUTS):
+        why = f"#{number} changes no app FFI input"
+    else:
+        why = None
+    published = None
+    if why is not None:
+        published, missing = ffi_published_base_pin(repo, base, sha, github)
+        if published is None:
+            raise Refused(f"'{name}': its app FFI pin is red, and {why}; nor is its pin a published base release it "
+                          f"compiled against: {missing}")
     others = {error for error in errors if not error.startswith(pin)} - {rollup}
     # The rollup must have named the pin as its red check: a rollup that failed before saying so is another red.
     if (tests or crash_signals(log) or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others
             or rollup not in errors):
         return None
+    if published is not None:
+        return f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{number} {published}"
     return (f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{number} changes app FFI "
             f"inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned by the release its merge "
             "publishes")
@@ -1613,7 +1716,46 @@ PACKAGE_JOBS = {
                   "cmux-tui/spec/full-access-modes.json", "schemas/deeplinks/agent-link.json"),
     },
 }
-SWIFT_PATH_PACKAGE = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
+SWIFT_PATH_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
+SWIFT_URL_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?(?:url|id):\s*"')
+SWIFT_PACKAGE_TOKEN = re.compile(r"\.package\b")
+
+
+def swift_without_comments(text: str) -> str | None:
+    """TEXT with its Swift comments (`//` to the line end, `/* */` nested as Swift nests them) blanked, plain string
+    literals kept whole (a url's `//` is not a comment); None when it has a raw (`#"`), multiline or interpolated
+    (`\\(`) literal, which this reader does not parse: an interpolation's own quotes would end the literal early."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        if text.startswith('"""', i) or text.startswith('#"', i):
+            return None
+        if text[i] == '"':
+            j = i + 1
+            while j < n and text[j] not in '"\n':
+                if text.startswith("\\(", j):
+                    return None
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            out.append(" ")
+        elif text.startswith("/*", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if text.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif text.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            out.append(" ")
+            i = j
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
 
 
 CARGO_DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
@@ -1621,7 +1763,7 @@ CARGO_MANIFESTS = 200  # a bound on the manifests one resolution reads
 
 
 def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
-    """{crate name: its directory} of every path crate the Cargo workspace beside LOCK builds at SHA: its members,
+    """{directory: its crate's name} of every path crate the Cargo workspace beside LOCK builds at SHA: its members,
     then each path dependency (a `path`, or `workspace = true` resolved in the crate's own workspace root, the nearest
     ancestor manifest with a [workspace]), read from the manifests at SHA, never from a declaration. Raises Refused
     when a manifest cannot be read or parsed, a member is a glob, or a path crate in LOCK resolves to no directory."""
@@ -1664,7 +1806,7 @@ def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
     if any(not isinstance(member, str) or any(c in member for c in "*?[") for member in members):
         raise Refused(f"{root}/Cargo.toml names its members by a glob")
     queue = [posixpath.normpath(posixpath.join(root, member)) for member in members] + [root]
-    crates: dict[str, str] = {}
+    crates: dict[str, str] = {}  # by directory: two path crates may share a name (an aliased dependency)
     seen: set[str] = set()
     while queue:
         where = queue.pop()
@@ -1676,7 +1818,7 @@ def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
         found = manifest(where, True) or {}
         package = found.get("package")
         if isinstance(package, dict) and isinstance(package.get("name"), str):
-            crates[package["name"]] = where
+            crates[where] = package["name"]
         home, workspace = workspace_of(where)
         shared = workspace.get("dependencies") if isinstance(workspace.get("dependencies"), dict) else {}
         tables = [found.get(name) for name in CARGO_DEPENDENCY_TABLES]
@@ -1700,7 +1842,7 @@ def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
     except (Refused, tomllib.TOMLDecodeError) as why:
         raise Refused(f"{lock} could not be read at {sha[:12]}: {why}") from None
     if missing := sorted({str(crate.get("name")) for crate in locked if isinstance(crate, dict)
-                          and "source" not in crate} - crates.keys()):
+                          and "source" not in crate} - set(crates.values())):
         raise Refused(f"{lock} has path crates its manifests do not reach: {', '.join(missing)}")
     return crates
 
@@ -1723,13 +1865,25 @@ def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]
             manifest = source_text(repo, sha, f"{where}/Package.swift", github)
         except Refused as why:
             raise Refused(f"{where}/Package.swift could not be read at {sha[:12]}: {why}") from None
-        for found in SWIFT_PATH_PACKAGE.finditer(manifest):
+        # Read with its comments blanked. Every `.package` token is then a path dependency read below or a url (or
+        # registry id) one: any other spelling (a variable path, a raw or multiline literal) could reach a package
+        # this rule cannot see, so it refuses.
+        code = swift_without_comments(manifest)
+        if code is None:
+            raise Refused(f"{where}/Package.swift has a raw, multiline or interpolated string literal, which this rule "
+                          "does not read")
+        known = {found.start() for pattern in (SWIFT_PATH_PACKAGE, SWIFT_URL_PACKAGE) for found in pattern.finditer(code)}
+        if unread := [found.start() for found in SWIFT_PACKAGE_TOKEN.finditer(code) if found.start() not in known]:
+            line = code.count("\n", 0, unread[0]) + 1
+            raise Refused(f"{where}/Package.swift:{line} declares a package dependency in a form this rule does not "
+                          "read; it could reach a package outside the declared reads")
+        for found in SWIFT_PATH_PACKAGE.finditer(code):
             path = posixpath.normpath(posixpath.join(where, found.group(1)))
             if path.startswith(".."):
                 raise Refused(f"{where}/Package.swift reaches {found.group(1)}, outside the repository")
             queue.append(path)
     crates = cargo_crates(repo, sha, package["cargo_lock"], github)
-    for crate, where in sorted(crates.items()):
+    for where, crate in sorted(crates.items()):
         if not any(touches(where + "/Cargo.toml", read) for read in reads + GUARD_READS_DEFAULT):
             raise Refused(f"its Rust crate {crate} at {where} is outside its declared reads (PACKAGE_JOBS)")
     return reads
@@ -1743,7 +1897,7 @@ def package_tests(package: dict, job: dict, head_log: str) -> list[str]:
         raise Refused(f"its failed step {other[0]!r} is not one of the job's test steps")
     if not steps:
         raise Refused("no failing test in its test steps")
-    by_step = step_lines(job, head_log)
+    by_step = step_lines(job, head_log, only=steps)
     if by_step is None:
         raise Refused("its log's lines cannot each be told to one step")
     failed: set[str] = set()
@@ -2019,10 +2173,13 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
         raise
 
 
-def step_lines(job: dict, head_log: str) -> dict[str, list[str]] | None:
+def step_lines(job: dict, head_log: str, only: set[str] | None = None) -> dict[str, list[str]] | None:
     """{step name: its log lines} of JOB's HEAD_LOG, or None when a line's step cannot be told. gh run view labels
-    steps, while the live job-log endpoint has only timestamps: use its step windows, refusing ambiguous lines."""
-    metadata = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
+    steps, while the live job-log endpoint has only timestamps: use its step windows, refusing ambiguous lines. With
+    ONLY, a line is placed among those steps' windows alone (a failed step's last second is also the first of the
+    steps after it, which ran no test)."""
+    metadata = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"
+                and (only is None or step.get("name") in only)]
     names = [step.get("name") for step in metadata]
     if len(set(names)) != len(names):
         return None
