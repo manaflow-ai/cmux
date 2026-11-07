@@ -36,6 +36,12 @@
       "reason": "debt: the NEXT Cloud REST client's machine calls still use classic /api/vm until cmux-platform's machine API replaces them"
     },
     {
+      "file": "cmux-tui/crates/cmux-cloud-tasks/src/follower.rs",
+      "pattern": "route:/api/runs",
+      "count": 1,
+      "reason": "keep: moved from SandboxRunFollower.swift (#37291, step A); the sandboxed-run follower's path label names the classic /api/runs wait the app still follows until Runs move to cmux-platform; step B keeps one Swift label"
+    },
+    {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/SandboxRunFollower.swift",
       "pattern": "route:/api/runs",
       "count": 1,
