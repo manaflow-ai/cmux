@@ -1121,14 +1121,22 @@ button.cv-subagent > :last-child {
    polls process/tail, and the terminal action remains in the same compact surface. */
 .acpmux-running-tray__tail {
   display: flex;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: var(--ds-space-1) var(--ds-space-2);
+  flex-direction: column;
+  gap: var(--ds-space-1);
   margin: 0 var(--ds-space-2) var(--ds-space-2) var(--ds-space-5);
   min-width: 0;
 }
+/* Its time, state and actions: one line at the detail size, every part on one centre line and the
+   first on the command's left edge, spaced as the header's time and Stop (--acpmux-tray-gap). */
+.acpmux-running-tray__tail-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--acpmux-tray-gap, var(--ds-space-1));
+  min-width: 0;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
 .acpmux-running-tray__tail pre {
-  flex: 1 1 240px;
   max-height: calc(var(--text-detail--line-height) * 10);
   min-width: 0;
   margin: 0;
@@ -1141,7 +1149,6 @@ button.cv-subagent > :last-child {
   overflow-wrap: anywhere;
 }
 .acpmux-running-tray__command {
-  flex: 1 1 100%;
   min-width: 0;
   color: var(--agent-muted);
   font-family: var(--cv-mono, ui-monospace, monospace);
@@ -1167,13 +1174,18 @@ button.cv-subagent > :last-child {
   gap: var(--ds-space-1);
   flex: none;
   border: 0;
-  padding: var(--ds-space-1) var(--ds-space-2);
+  padding: 0;
   color: var(--agent-muted);
   background: transparent;
+  font: inherit;
   cursor: default;
 }
 .acpmux-running-tray__tail a {
   text-decoration: none;
+}
+/* The actions stand a little apart from the time and state before them. */
+.acpmux-running-tray__tail-foot > :is(a, button):not(:first-child) {
+  margin-inline-start: var(--ds-space-2);
 }
 .acpmux-running-tray__tail a:hover,
 .acpmux-running-tray__tail a:focus-visible,
