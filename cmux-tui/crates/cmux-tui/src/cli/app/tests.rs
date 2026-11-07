@@ -1497,9 +1497,9 @@ fn on_is_the_default_chat_target_key() {
     assert_eq!(sent(&["config", "unset", "on"]), ("settings.unset", json!({ "path": "chat.on" })));
     // The key itself still works, and an alias never shadows a schema key.
     assert_eq!(sent(&["config", "get", "chat.on"]), ("settings.get", json!({ "path": "chat.on" })));
-    for (alias, key) in settings::KEY_ALIASES {
+    for (alias, key) in super::super::command::KEY_ALIASES {
         assert!(cmux_config::Schema::embedded().row(alias).is_none(), "{alias} is a key");
-        assert_eq!(settings::resolve_alias(alias), *key);
+        assert_eq!(super::super::command::resolve_alias(alias), *key);
         // The key is in the embedded export (settings-schema.json), which the CLI's list and
         // validate and MCP's settings_* tools read; agents may set it (agent-policy.json).
         let row = cmux_config::Schema::embedded().row(key);

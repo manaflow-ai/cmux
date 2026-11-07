@@ -13,7 +13,7 @@
 //!   file does not parse or a value is refused.
 //!
 //! A few keys have a short CLI name, read as the key by `get`, `set`, `reset` and `unset`
-//! ([`KEY_ALIASES`]): `cmux config set on cloud` sets `chat.on`, the default `cmux chat` target.
+//! ([`KEY_ALIASES`](super::super::command::KEY_ALIASES)): `cmux config set on cloud` sets `chat.on`, the default `cmux chat` target.
 //!
 //! A socket write of a user-only key (schema `agent_settable: false`) is
 //! refused with `setting_user_only`. `--confirm` sends `confirm: true`: the
@@ -69,7 +69,7 @@ fn print_document(document: &Value) -> i32 {
 }
 
 // The key aliases are the daemon parser's (cli/command/settings.rs), which builds on every platform.
-pub(super) use super::super::command::{KEY_ALIASES, resolve_alias};
+use super::super::command::resolve_alias;
 
 /// The app's refusal of a user-only key.
 const USER_ONLY: &str = "setting_user_only";

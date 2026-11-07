@@ -32,7 +32,9 @@ mod session_reset;
 pub(super) use session_reset::run_session_reset_state;
 mod server_ensure;
 mod settings;
-pub(super) use settings::{KEY_ALIASES, SettingsList, human_rows as settings_human_rows, resolve_alias};
+#[cfg(test)]
+pub(super) use settings::KEY_ALIASES;
+pub(super) use settings::{SettingsList, human_rows as settings_human_rows, resolve_alias};
 mod sidebar_doc;
 mod state;
 mod workspace;
