@@ -60,6 +60,14 @@ nonisolated enum BrowserSettingsSchema {
                 keywords: ["import", "cookies", "banner", "card", "sign in", "login", "chrome", "safari", "arc", "dismissed", "reset"]
             ),
             SettingDescriptor(
+                BrowserCookieSyncSetting().configPath, section: .browser, group: importGroup,
+                title: SettingsText.keyed("settings.browser.importCookieSync", "Keep Imported Cookies in Sync"),
+                help: SettingsText.keyed("settings.browser.importCookieSync.help",
+                                         "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it."),
+                kind: .toggle, default: .bool(BrowserCookieSyncSetting().fallback),
+                keywords: ["import", "cookies", "sync", "keep", "chrome", "sign in", "login", "signed in"]
+            ),
+            SettingDescriptor(
                 AgentCursorSetting().configPath, section: .browser, group: agentInput,
                 title: SettingsText.keyed("settings.browser.showAgentCursor", "Show Agent Cursor"),
                 help: SettingsText.keyed(
