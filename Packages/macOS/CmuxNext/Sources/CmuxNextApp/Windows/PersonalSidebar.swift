@@ -24,7 +24,7 @@ enum PersonalSidebar {
         let isHome = daemon === machines.local
         if machines.local.store.supportsPersonalMixedOrder {
             return mixedSections(workspaces, groups: groups, session: session, personal: personal, keepsEmptyGroups: isHome,
-                                 newRows: newRowsPlace(daemon, machines, doc))
+                                 newRows: newRows(daemon, machines, doc, session))
         }
         let rows = rows(of: session, personal)
         let ordered = order(workspaces, rows: rows, orderedRows: personal.workspacesInOrder)
@@ -51,7 +51,7 @@ enum PersonalSidebar {
         if machines.local.store.supportsPersonalMixedOrder {
             let groups = personal.groups.sorted { $0.index < $1.index }
             return mixedSections(daemon.store.workspaces, groups: groups, session: session, personal: personal, keepsEmptyGroups: false,
-                                 newRows: newRowsPlace(daemon, machines, doc))
+                                 newRows: newRows(daemon, machines, doc, session))
                 .flatMap(\.workspaces).map(\.id)
         }
         return order(daemon.store.workspaces, rows: rows(of: session, personal),
@@ -68,7 +68,7 @@ enum PersonalSidebar {
     /// `newRows`: where those workspaces list when they are creates whose row is on the way (this Mac's daemon
     /// writes one in every create): newest first, where the row will put them (sidebar-ordering-DESIGN.md).
     static func mixedSections(_ workspaces: [WorkspaceModel], groups: [WorkspaceGroupModel], session: String,
-                              personal: PersonalStore, keepsEmptyGroups: Bool, newRows: SidebarDocSections.NewRowsPlace = .last) -> [SidebarSection] {
+                              personal: PersonalStore, keepsEmptyGroups: Bool, newRows: NewRows = { _, _ in (.last, true) }) -> [SidebarSection] {
         let all = personal.workspacesInOrder // sorted once per change of the list, not on every pass
         let rows = rows(of: session, personal)
         let ordered = order(workspaces, rows: rows, orderedRows: personal.workspacesInOrder)
@@ -94,21 +94,22 @@ enum PersonalSidebar {
                 loose.append(workspace)
             }
         }
-        let fresh = ordered.filter { rows[rowKey($0)] == nil }
-        if newRows == .last { loose += fresh }
+        let fresh = ordered.filter { rows[rowKey($0)] == nil }, (place, newestFirst) = newRows(ordered, fresh)
+        if place == .last { loose += fresh }
         for group in groups where group.topIndex.map({ $0 >= all.count }) ?? true { emit(group) }
         if !loose.isEmpty || sections.isEmpty { sections.append(SidebarSection(group: nil, workspaces: loose)) }
-        if newRows != .last, !fresh.isEmpty {
+        if place != .last, !fresh.isEmpty {
             if sections.count == 1, sections[0].group == nil, sections[0].workspaces.isEmpty { sections = [] }
-            SidebarDocSections.insertNew(Array(fresh.reversed()), newRows, into: &sections, machineSections: sections.count)
+            SidebarDocSections.insertNew(newestFirst ? Array(fresh.reversed()) : fresh, place, into: &sections, machineSections: sections.count)
         }
         return sections
     }
 
     /// Where `daemon`'s workspaces without a personal row yet list: this Mac's daemon writes a row in every create, at
     /// its `workspaces.newPlacement` slot; another machine's does not, so its new rows list last.
-    private static func newRowsPlace(_ daemon: DaemonService, _ machines: MachineRegistry, _ doc: SidebarDocument) -> SidebarDocSections.NewRowsPlace {
-        daemon === machines.local ? doc.docSections.newRowsPlace() : .last
+    typealias NewRows = (_ ordered: [WorkspaceModel], _ fresh: [WorkspaceModel]) -> (place: SidebarDocSections.NewRowsPlace, newestFirst: Bool)
+    private static func newRows(_ daemon: DaemonService, _ machines: MachineRegistry, _ doc: SidebarDocument, _ session: String) -> NewRows {
+        { daemon === machines.local ? doc.docSections.newRows(session: session, ordered: $0, fresh: $1) : (.last, true) }
     }
 
     /// The personal order of every qualified workspace, as `session/key`.
@@ -136,8 +137,7 @@ enum PersonalSidebar {
         guard personal.isLoaded, let session = daemon.store.registryID else { return workspaces }
         let rows = rows(of: session, personal)
         let ordered = order(workspaces, rows: rows, orderedRows: personal.workspacesInOrder)
-        let place = newRowsPlace(daemon, machines, doc)
-        let fresh = ordered.filter { rows[rowKey($0)] == nil }
+        let fresh = ordered.filter { rows[rowKey($0)] == nil }, place = newRows(daemon, machines, doc, session)(ordered, fresh).place
         guard place != .last, !fresh.isEmpty else { return ordered }
         return SidebarDocSections.insertNew(fresh, place, into: ordered.filter { rows[rowKey($0)] != nil })
     }

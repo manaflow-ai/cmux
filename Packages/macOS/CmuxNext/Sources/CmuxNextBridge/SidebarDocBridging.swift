@@ -96,6 +96,29 @@ public final class SidebarDocSections {
 
     /// Whether new rows list first (`top`).
     public func placesNewRowsFirst() -> Bool { newRowsPlace() == .first }
+
+    /// The current workspaces seen per session, latest last (at most `currentsKept`): the anchor of a chain of creates.
+    private var currents: [String: [String]] = [:]
+    private static let currentsKept = 64
+
+    /// Where `session`'s new rows list for `place`, and whether newest first. Below a current workspace that lists,
+    /// newest first: the daemon put each right below it. When the current one is itself new (Cmd-N selects each new
+    /// workspace, so each went below the one before it), in the order made, below the latest current one that lists.
+    /// `lists`: whether a workspace lists already. Call it on every pass, so the anchor is known before a create.
+    public func newRows(_ place: NewRowsPlace, session: String, fresh: Set<String>,
+                        lists: (String) -> Bool) -> (place: NewRowsPlace, newestFirst: Bool) {
+        guard case .below(let current) = place else { return (place, true) }
+        var seen = currents[session, default: []]
+        if seen.last != current { seen.removeAll { $0 == current }; seen.append(current); currents[session] = seen.suffix(Self.currentsKept) }
+        guard fresh.contains(current) else { return (place, true) }
+        return (seen.last(where: lists).map(NewRowsPlace.below) ?? .first, false)
+    }
+
+    /// ``newRows(_:session:fresh:lists:)`` for ``newRowsPlace`` over a flat list: `ordered` lists, but not its `fresh` rows.
+    public func newRows(session: String, ordered: [WorkspaceModel], fresh: [WorkspaceModel]) -> (place: NewRowsPlace, newestFirst: Bool) {
+        let new = Set(fresh.map(\.id)), shown = Set(ordered.map(\.id)).subtracting(new)
+        return newRows(newRowsPlace(), session: session, fresh: new, lists: { shown.contains($0) })
+    }
     /// The app's own document store (its confirmed folds, its shown projection); nil before it starts.
     let document: @MainActor () -> SidebarDocStore?
 
@@ -183,15 +206,13 @@ public final class SidebarDocSections {
         }
         let placed = Set(projection.items.keys.filter { $0.sessionID == session }.map(\.workspaceID))
         let unplaced = workspaces.filter { w in !listed.contains(w.id) && !(w.resourceID.map { placed.contains($0.rawValue) } ?? false) }
-        if !unplaced.isEmpty {
-            let place = newRowsPlace()
-            if place == .last {
-                loose += unplacedOrder(unplaced)
-            } else {
-                // Newest first, as the daemon places them: the store lists a new workspace last, and its
-                // personal row comes with its item, so the unplaced ones have none to order them by yet.
-                Self.insertNew(unplacedOrder(Array(unplaced.reversed())), place, into: &sections, machineSections: machineSections)
-            }
+        let (place, newestFirst) = newRows(newRowsPlace(), session: session, fresh: Set(unplaced.map(\.id)), lists: { listed.contains($0) })
+        if place == .last {
+            loose += unplacedOrder(unplaced)
+        } else if !unplaced.isEmpty {
+            // As the daemon places them: the store lists a new workspace last, and its personal row comes with
+            // its item, so the unplaced ones have none to order them by yet.
+            Self.insertNew(unplacedOrder(newestFirst ? Array(unplaced.reversed()) : unplaced), place, into: &sections, machineSections: machineSections)
         }
         flush()
         if sections.isEmpty { sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [])) }

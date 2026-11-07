@@ -127,4 +127,23 @@ import Testing
         #expect(Self.order(doc.sections(Self.projection(), session: Self.session, workspaces: store.workspaces))
             == ["ws-home", "ws-1", "ws-2", "ws-3", "ws-a", "ws-b"])
     }
+
+    /// Rapid Cmd-N selects each new workspace before its item comes, so the current one is itself unplaced: each went
+    /// below the one before it, so they list in press order below the latest current workspace that lists, never
+    /// newest first at the top (RapidWorkspaceCreateTests.fiftyCmdNDrawEachRowAtItsPressInPressOrder).
+    @Test func aChainOfCreatesEachSelectedListsInPressOrderBelowWhereItStarted() throws {
+        let doc = SidebarDocSections(document: { nil })
+        let id = { (store: DaemonStore, key: String) in try #require(store.workspaces.first { $0.resourceID?.rawValue == key }).id }
+        let settled = Self.store(fresh: [])
+        let one = try id(settled, "ws-1")
+        doc.newRowsPlace = { .below(one) }
+        _ = doc.sections(Self.projection(), session: Self.session, workspaces: settled.workspaces)
+        let store = Self.store(fresh: ["ws-a", "ws-b"])
+        let a = try id(store, "ws-a"), b = try id(store, "ws-b")
+        doc.newRowsPlace = { .below(a) }
+        _ = doc.sections(Self.projection(), session: Self.session, workspaces: store.workspaces)
+        doc.newRowsPlace = { .below(b) }
+        #expect(Self.order(doc.sections(Self.projection(), session: Self.session, workspaces: store.workspaces))
+            == ["ws-home", "ws-1", "ws-a", "ws-b", "ws-2", "ws-3"])
+    }
 }
