@@ -23,7 +23,7 @@ export const mockPullRequest: LinkedPullRequest = {
   checkList: [
     { name: "build (macOS)", state: "passed" },
     { name: "unit tests", state: "failed", url: "https://github.com/example/app/actions/runs/1" },
-    { name: "lint", state: "failed", url: "https://github.com/example/app/actions/runs/2", onBase: true },
+    { name: "lint", state: "failed", url: "https://github.com/example/app/actions/runs/9001/job/21", onBase: true },
     { name: "web tests", state: "pending" },
     { name: "docs", state: "passed" },
     { name: "format", state: "passed" },

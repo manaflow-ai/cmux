@@ -121,18 +121,28 @@ export interface RollupCheck {
   readonly onBase?: boolean;
 }
 
+/** Whether `job` is the rollup's `check`: the Actions job its link names, else the same link; a
+ * check with no link (a bare commit status) by name, the only identity it has. */
+function isCheck(job: DashboardJob, check: RollupCheck): boolean {
+  if (!check.url) return job.name === check.name;
+  const id = /\/job\/(\d+)/.exec(check.url)?.[1];
+  return id != null && job.id !== 0 ? job.id === Number(id) : job.url === check.url;
+}
+
 /** `checks` with what only the rollup knows: a failed job that also fails on the base branch is
- * marked (by name), and when the host's read was cut short, the rollup's failing and pending
- * checks it lacks are added, so a failure past the read's window still shows. */
+ * marked, and when the host's read was cut short, the rollup's failing and pending checks it lacks
+ * are added, so a failure past the read's window still shows. A rollup check is matched to a job by
+ * its link, never by name alone: two workflows (or a shard past the window) share one name. */
 export function withRollup(checks: DashboardChecks, rollup: readonly RollupCheck[]): DashboardChecks {
-  const onBase = new Set(rollup.filter((check) => check.onBase).map((check) => check.name));
+  const onBase = rollup.filter((check) => check.onBase);
   const jobs = checks.jobs.map((job) =>
-    job.state === "failed" && onBase.has(job.name) ? { ...job, onBase: true } : job,
+    job.state === "failed" && onBase.some((check) => isCheck(job, check)) ? { ...job, onBase: true } : job,
   );
   if (checks.truncated) {
-    const names = new Set(jobs.map((job) => job.name));
+    const read = [...jobs];
     for (const check of rollup) {
-      if (names.has(check.name) || (check.state !== "failed" && check.state !== "pending")) continue;
+      if (check.state !== "failed" && check.state !== "pending") continue;
+      if (read.some((job) => isCheck(job, check))) continue;
       jobs.push({
         id: 0,
         name: check.name,

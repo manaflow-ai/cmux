@@ -45,7 +45,7 @@ export interface DashboardJob {
   expected?: number;
   /** A failed job's failing step and the end of its log, once read. */
   failure?: { step: string | null; excerpt: string };
-  /** It fails the same way at the base branch's tip (the rollup's `onBase`, by name). */
+  /** It fails the same way at the base branch's tip (the rollup's `onBase`). */
   onBase?: boolean;
 }
 

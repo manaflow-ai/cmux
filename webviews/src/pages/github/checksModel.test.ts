@@ -122,3 +122,34 @@ test("the rollup marks a failing job on the base, and fills a cut-short read's f
     ["docs", "running"],
   ]);
 });
+
+test("the rollup matches a check to its job by link, never by a shared name", () => {
+  const run = (id: number) => `https://github.com/o/r/actions/runs/9/job/${id}`;
+  const job = (id: number, workflow: string, state: DashboardJob["state"]): DashboardJob => ({
+    id,
+    name: "test",
+    workflow,
+    state,
+    startedAt: "",
+    completedAt: "",
+    url: run(id),
+  });
+  // A passing `test` was read; a failing `test` past the read's window still shows.
+  const cut = withRollup({ head: "abc", settled: false, truncated: true, jobs: [job(1, "unit", "passed")] }, [
+    { name: "test", state: "passed", url: run(1) },
+    { name: "test", state: "failed", url: run(2) },
+  ]);
+  expect(cut.jobs.map((each) => [each.name, each.state, each.url])).toEqual([
+    ["test", "passed", run(1)],
+    ["test", "failed", run(2)],
+  ]);
+  // Only the `test` that fails on the base is marked, not every failing `test`.
+  const both = withRollup({ head: "abc", settled: true, jobs: [job(3, "unit", "failed"), job(4, "e2e", "failed")] }, [
+    { name: "test", state: "failed", url: run(3), onBase: true },
+    { name: "test", state: "failed", url: run(4) },
+  ]);
+  expect(both.jobs.map((each) => [each.workflow, each.onBase ?? false])).toEqual([
+    ["unit", true],
+    ["e2e", false],
+  ]);
+});
