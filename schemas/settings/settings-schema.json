@@ -30,6 +30,7 @@
             "key" : "settings.group.tabs",
             "rows" : [
               "tabs.newTabPosition",
+              "tabs.newTabButtonPosition",
               "tabs.plusButton",
               "tabs.barPosition",
               "browser.toolbarPosition",
@@ -1399,7 +1400,8 @@
           {
             "key" : "settings.group.chiefEngine",
             "rows" : [
-              "home.chiefEngine"
+              "home.chiefEngine",
+              "chief.permissionMode"
             ],
             "title" : {
               "key" : "settings.group.chiefEngine",
@@ -4208,7 +4210,7 @@
       },
       "help" : {
         "key" : "settings.tabs.newTabPosition.help",
-        "text" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."
+        "text" : "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.newTabPosition",
@@ -4326,7 +4328,173 @@
       },
       "title" : {
         "key" : "settings.tabs.newTabPosition",
-        "text" : "New Tab Position"
+        "text" : "New Tab Position (Cmd-T)"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "afterCurrent",
+        "end",
+        "start"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newTabPositionAfterCurrent",
+            "text" : "After the Current Tab"
+          },
+          "value" : "afterCurrent"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabPositionEnd",
+            "text" : "At the End"
+          },
+          "value" : "end"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabPositionStart",
+            "text" : "At the Start"
+          },
+          "value" : "start"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "end",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabButtonPosition.help",
+        "text" : "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T)."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabButtonPosition",
+      "keywords" : [
+        "new tab",
+        "plus",
+        "+",
+        "button",
+        "position",
+        "order",
+        "right",
+        "end",
+        "after",
+        "start",
+        "first",
+        "last",
+        "insert"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabButtonPosition"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:tabs.newTabButtonPosition"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.tabs.newTabButtonPosition",
+        "text" : "New Tab Position (+ Button)"
       },
       "validation" : "portable"
     },
@@ -4477,7 +4645,7 @@
       },
       "title" : {
         "key" : "settings.tabs.plusButton",
-        "text" : "New Tab Button"
+        "text" : "+ Button Visibility"
       },
       "validation" : "portable"
     },
@@ -87919,6 +88087,168 @@
       "title" : {
         "key" : "settings.chief.reactionClassifier.prompt",
         "text" : "Reaction Classifier Instructions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "bypassPermissions",
+        "auto",
+        "default"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPermissionMode.bypass",
+            "text" : "Bypass"
+          },
+          "value" : "bypassPermissions"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPermissionMode.auto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPermissionMode.manual",
+            "text" : "Manual"
+          },
+          "value" : "default"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "bypassPermissions",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefEngine",
+        "text" : "Engine"
+      },
+      "help" : {
+        "key" : "settings.chief.permissionMode.help",
+        "text" : "How the Chief's own turns handle permissions. Bypass runs every command without asking. Auto lets a safety check decide each command. Manual refuses each change that would need approval. Applies from the next turn."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.permissionMode",
+      "keywords" : [
+        "chief",
+        "permission",
+        "mode",
+        "bypass",
+        "dangerously",
+        "skip",
+        "yolo",
+        "auto",
+        "manual",
+        "ask",
+        "approval"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "permissionMode"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:chief.permissionMode"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chief.permissionMode",
+        "text" : "Chief Permission Mode"
       },
       "validation" : "portable"
     },
