@@ -2841,7 +2841,7 @@
     },
     "home.chiefDock.edge" : {
       "default" : "left",
-      "description" : "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick.",
+      "description" : "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick.",
       "enum" : [
         "left",
         "right",
@@ -2852,9 +2852,9 @@
       "type" : "string"
     },
     "home.chiefDock.openBeside" : {
-      "default" : false,
-      "description" : "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.",
-      "title" : "Keep Chief Docked When Opening Workspaces",
+      "default" : true,
+      "description" : "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it.",
+      "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"
     },
     "home.chiefEngine" : {
@@ -4088,6 +4088,19 @@
       "description" : "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner.",
       "title" : "Show Group Unread Count",
       "type" : "boolean"
+    },
+    "sidebar.groupPalette" : {
+      "default" : "glass",
+      "description" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+      "enum" : [
+        "glass",
+        "theme",
+        "wallpaper",
+        "grayscale",
+        "vibrant"
+      ],
+      "title" : "Group Colors",
+      "type" : "string"
     },
     "sidebar.hoverCards.delay" : {
       "default" : 400,

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 599,
+  "count": 600,
   "sections": [
     {
       "id": "general",
@@ -3600,6 +3600,21 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.groupPalette",
+          "title": "Group Colors",
+          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+          "kind": "choice",
+          "default": "glass",
+          "group": "Sidebar",
+          "values": [
+            "glass",
+            "theme",
+            "wallpaper",
+            "grayscale",
+            "vibrant"
+          ]
+        },
+        {
           "key": "sidebar.hoverCards.delay",
           "title": "Hover Card Delay",
           "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
@@ -5735,7 +5750,7 @@
           "title": "Show Chief When Opening Workspaces",
           "help": "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Chief Dock"
         },
         {
