@@ -99,8 +99,9 @@ const SEARCH: SearchResult = {
   truncated: false,
 };
 
+// Longer than the thirty lines a sent prompt shows before it folds (promptCollapse.ts).
 const PROMPT = Array.from(
-  { length: 16 },
+  { length: 40 },
   (_, index) => `Line ${index + 1}: keep the transcript's cards one surface, and let the whole bottom row toggle.`,
 ).join("\n");
 
