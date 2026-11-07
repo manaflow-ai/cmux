@@ -6,16 +6,15 @@
 //! #32326 (TUL-F7), where a status commit held the session lock 452 ms across its registry write
 //! and a person's key waited. Its `expect` is the proof: if the lint stopped firing on that shape
 //! (a clippy upgrade, the lint dropped from the workspace table), `unfulfilled_lint_expectations`
-//! turns the clippy run red. `cfg_attr(clippy, ...)` keeps plain rustc, which does not run
-//! clippy's lints, from reporting the expectation as unfulfilled. The `*_fixed` twins are the
-//! shapes after the fix and must stay clean.
+//! turns the clippy run red (plain rustc does not judge clippy's expectations). The `*_fixed`
+//! twins are the shapes after the fix and must stay clean.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::pin;
 use std::sync::Mutex;
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Waker};
 
 #[derive(Default)]
 struct Session {
@@ -30,12 +29,9 @@ async fn commit_to_registry(value: &str) -> u64 {
     value.len() as u64
 }
 
-#[cfg_attr(
-    clippy,
-    expect(
-        clippy::await_holding_lock,
-        reason = "the pre-fix shape this test proves the lint catches"
-    )
+#[expect(
+    clippy::await_holding_lock,
+    reason = "the pre-fix shape this test proves the lint catches"
 )]
 async fn progress_pre_fix(session: &Mutex<Session>, id: &str) {
     let mut state = session.lock().unwrap();
@@ -52,12 +48,9 @@ async fn progress_fixed(session: &Mutex<Session>, id: &str) {
     session.lock().unwrap().revision = revision;
 }
 
-#[cfg_attr(
-    clippy,
-    expect(
-        clippy::await_holding_refcell_ref,
-        reason = "the pre-fix shape this test proves the lint catches"
-    )
+#[expect(
+    clippy::await_holding_refcell_ref,
+    reason = "the pre-fix shape this test proves the lint catches"
 )]
 async fn refcell_pre_fix(session: &RefCell<Session>, id: &str) {
     let mut state = session.borrow_mut();
