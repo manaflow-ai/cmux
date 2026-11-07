@@ -71,6 +71,17 @@ mod tests {
         assert_eq!(cache.get(), None);
     }
 
+    /// Review of #38002: a token read that finished after `stop` opened a tunnel anyway.
+    #[tokio::test]
+    async fn a_stopped_peer_opens_no_tunnel_and_reads_no_tokens() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = super::super::Peer::new("p", "ssh://box.invalid:7777", None, None, tx);
+        peer.stop();
+        assert_eq!(peer.open_tunnel().await.err().as_deref(), Some("peer stopped"));
+        assert!(peer.tunnel.lock().await.is_none(), "no ssh after stop");
+        assert_eq!(peer.connect_tokens().await.err().as_deref(), Some("peer stopped"));
+    }
+
     #[test]
     fn a_401_or_403_upgrade_is_a_refusal_and_nothing_else_is() {
         assert!(refused_status(401));

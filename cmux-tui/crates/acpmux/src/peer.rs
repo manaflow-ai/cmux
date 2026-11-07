@@ -592,6 +592,12 @@ impl Peer {
         String,
     > {
         let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
+        // Under the tunnel lock, which `stop` takes to end the tunnel: a stop before this point
+        // spawns nothing, and one while this holds the lock is seen below once the child is in.
+        let mut tunnel = self.tunnel.lock().await;
+        if self.stop.load(Ordering::SeqCst) {
+            return Err("peer stopped".to_owned());
+        }
         let mut child = self
             .ssh_command()
             .args(tunnel_argv(&host, remote_port))
@@ -605,7 +611,13 @@ impl Peer {
         let stdout = child.stdout.take().ok_or_else(|| "ssh stdout".to_owned())?;
         let stdin = child.stdin.take().ok_or_else(|| "ssh stdin".to_owned())?;
         // Replacing the previous channel ends its ssh process.
-        *self.tunnel.lock().await = Some(child);
+        *tunnel = Some(child);
+        if self.stop.load(Ordering::SeqCst) {
+            if let Some(mut child) = tunnel.take() {
+                let _ = child.start_kill();
+            }
+            return Err("peer stopped".to_owned());
+        }
         Ok((tokio::io::join(stdout, stdin), remote_port, errors))
     }
 
@@ -635,9 +647,17 @@ impl Peer {
             .spawn()
             .map_err(|e| format!("read remote config: {e}"))?;
         let errors = ssh_errors::Capture::start(child.stderr.take());
-        let read = child.wait_with_output();
-        let out = tokio::time::timeout(self.timings.connect, read)
-            .await
+        let read = tokio::time::timeout(self.timings.connect, child.wait_with_output());
+        // A stop ends the read (its ssh is killed on drop), so no tunnel follows it.
+        let out = tokio::select! {
+            out = read => out,
+            _ = self.stop_signal.notified() => {
+                // Put the permit back for `run` and `serve`, which wait on it too.
+                self.stop_signal.notify_one();
+                return Err("peer stopped".to_owned());
+            }
+        };
+        let out = out
             .map_err(|_| {
                 format!(
                     "reading the remote config timed out after {}s",
