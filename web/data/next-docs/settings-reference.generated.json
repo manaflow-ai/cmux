@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 602,
+  "count": 601,
   "sections": [
     {
       "id": "general",
@@ -5671,14 +5671,6 @@
           "kind": "toggle",
           "default": false,
           "group": "Hang Reports"
-        },
-        {
-          "key": "diagnostics.usageRecording",
-          "title": "Record Usage on This Mac",
-          "help": "Keeps a local record of how you use cmux: whether you are in a terminal, a browser or an agent chat, which commands run and whether from a key, a click or the CLI, how long they take, and counts of open windows, panes and tabs. It never includes file names, web addresses, titles, terminal or chat text, or anything you type. The record stays on this Mac.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Usage Recording"
         },
         {
           "key": "home.attachments.keepLocation",
