@@ -413,7 +413,7 @@ extension OnboardingPageState {
     }
 }
 
-private extension KeyedEncodingContainer {
+private nonisolated extension KeyedEncodingContainer {
     /// `value`, or JSON null when it is nil (never a missing key).
     mutating func encodeNullable<T: Encodable>(_ value: T?, forKey key: Key) throws {
         if let value { try encode(value, forKey: key) } else { try encodeNil(forKey: key) }
