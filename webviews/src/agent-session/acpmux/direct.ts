@@ -3837,7 +3837,9 @@ export class AcpmuxDirectClient {
     // From the frame the rows are drawn, not from the attach: a live record of the chat that comes
     // before it is asked (while the chat left detaches) is held too (`copyLive`).
     if (this.lastSeq > 0) this.copyLive = new Map();
-    return this.lastSeq;
+    // A copy's rows continue from how far it covers, which may be past its newest record
+    // (`drawPeerCopy`): an attach page that starts right after that is no gap.
+    return kept.peerCopy ? Math.max(this.lastSeq, kept.peerCopy.lastSeq) : this.lastSeq;
   }
 
   /// The established socket `socket` is gone (it closed, or the pane gave up on it in
