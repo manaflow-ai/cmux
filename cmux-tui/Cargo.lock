@@ -1166,6 +1166,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-tasks"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-cloud-wire"
 version = "0.1.0"
 dependencies = [
@@ -1888,6 +1896,7 @@ dependencies = [
  "cmux-rd-host",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
  "cmux-terminal-client",
