@@ -30,7 +30,7 @@ import Testing
         func rect(_ view: NSView) -> NSRect { view.convert(view.bounds, to: nil) }
 
         func tearDown() {
-            chrome.addressBar.dismissRows()
+            chrome.closePopupPanels()
             window.orderOut(nil)
             window.close()
             page.close()
@@ -80,22 +80,27 @@ import Testing
         #expect(find.minY == page.minY + FindPillMetrics.inset, "by the toolbar, not across the page from it")
     }
 
+    /// The toolbar page opens its suggestion list above the bar (`omnibar.upward`, which the
+    /// dropdown panel follows), and the bar keeps the row's gap from the row's bottom edge.
     @Test func suggestionsOpenAboveTheBar() throws {
         let view = Chrome(position: .bottom)
         defer { view.tearDown() }
-        let row = BrowserSuggestion(kind: .history, title: "Example", detail: "", url: URL(string: "https://example.com/")!, score: 1)
-        view.chrome.addressBar.showRows([row, row], highlighted: 0)
-        let card = try #require(view.chrome.addressBar.debugCard)
-        #expect(card.cardInWindow.minY == card.barInWindow.maxY, "flush above the bar")
-        #expect(card.cardInWindow.maxY <= view.rect(view.chrome).maxY)
+        let state = view.chrome.addressBar.wireState()
+        #expect((state["omnibar"] as? [String: Any])?["upward"] as? Bool == true)
+        let metrics = try #require(state["metrics"] as? [String: Any])
+        let barTop = try #require(metrics["barTop"] as? CGFloat)
+        let scale = view.window.backingScaleFactor
+        let row = view.chrome.addressBar.bounds.height
+        #expect(abs(row - barTop - ToolbarRowMetrics.barHeight - ToolbarRowMetrics.barTop(scale: scale)) <= 0.5,
+                "the bar sits the top row's distance above the row's bottom")
     }
 
     @Test func suggestionsStillOpenUnderATopBar() throws {
         let view = Chrome(position: .top)
         defer { view.tearDown() }
-        let row = BrowserSuggestion(kind: .history, title: "Example", detail: "", url: URL(string: "https://example.com/")!, score: 1)
-        view.chrome.addressBar.showRows([row], highlighted: 0)
-        let card = try #require(view.chrome.addressBar.debugCard)
-        #expect(card.isFlushUnderBar)
+        let state = view.chrome.addressBar.wireState()
+        #expect((state["omnibar"] as? [String: Any])?["upward"] as? Bool == false)
+        let metrics = try #require(state["metrics"] as? [String: Any])
+        #expect(metrics["barTop"] as? CGFloat == ToolbarRowMetrics.barTop(scale: view.window.backingScaleFactor))
     }
 }

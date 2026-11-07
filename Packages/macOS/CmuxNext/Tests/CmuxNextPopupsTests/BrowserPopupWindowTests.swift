@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextBrowser
+@testable import CmuxNextBrowser
 @testable import CmuxNextPopups
 import CmuxNextTestSupport
 import Foundation
@@ -129,12 +129,12 @@ import Testing
         let (popups, tab, window, _) = open("http://insecure.example.com/pay?id=1")
         defer { popups.closeAll() }
         tab.simulate(.securityChanged(.insecure))
-        try await waitUntil { window.addressBar.displayedText == "http://insecure.example.com/pay?id=1" }
-        #expect(window.addressBar.displayedText == "http://insecure.example.com/pay?id=1", "http:// stays, as in the omnibox")
+        try await waitUntil { window.addressBar.shownText == "http://insecure.example.com/pay?id=1" }
+        #expect(window.addressBar.shownText == "http://insecure.example.com/pay?id=1", "http:// stays, as in the omnibox")
         #expect(window.isToolbarShown)
         tab.load(URL(string: "https://www.example.com/done")!)
-        try await waitUntil { window.addressBar.displayedText == "example.com/done" }
-        #expect(window.addressBar.displayedText == "example.com/done")
+        try await waitUntil { window.addressBar.shownText == "example.com/done" }
+        #expect(window.addressBar.shownText == "example.com/done")
     }
 
     // MARK: One omnibar (user, 2026-10-19: "omnibar for popover web windows need to reuse the same omnibar code")
@@ -148,8 +148,8 @@ import Testing
     @Test func theLocationBarIsTheTabsOmnibar() {
         let (popups, _, window, _) = open("https://accounts.example.com/signin")
         defer { popups.closeAll() }
-        let bars = descendants(of: window.contentView).compactMap { $0 as? AddressBarView }
-        #expect(bars.count == 1, "the popup shows the browser tab's omnibar (AddressBarView), not a copy")
+        let bars = descendants(of: window.contentView).compactMap { $0 as? BrowserToolbarWebView }
+        #expect(bars.count == 1, "the popup shows the browser tab's omnibar (BrowserToolbarWebView), not a copy")
         // The window's chrome (everything but the page's own view tree).
         let page = window.page.contentView
         let otherFields = descendants(of: window.contentView).filter { view in
@@ -169,8 +169,10 @@ import Testing
     @Test func typingAnAddressInAPagePopupLoadsItInThePopup() async throws {
         let (popups, tab, window, _) = open("https://accounts.example.com/signin")
         defer { popups.closeAll() }
-        let bar = try #require(descendants(of: window.contentView).compactMap { $0 as? AddressBarView }.first)
-        #expect(bar.debugTypeAndCommit("https://www.example.org/next"))
+        let bar = try #require(descendants(of: window.contentView).compactMap { $0 as? BrowserToolbarWebView }.first)
+        // The toolbar page resolved the typed text and ended the session with a commit.
+        bar.handle(.effect(.began))
+        bar.handle(.effect(.ended(.commit(URL(string: "https://www.example.org/next")!))))
         try await waitUntil { tab.state.url?.absoluteString == "https://www.example.org/next" }
         #expect(tab.state.url?.absoluteString == "https://www.example.org/next", "Return loads the typed address in the popup's page, as in a tab")
     }
@@ -179,10 +181,13 @@ import Testing
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
         let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, activeLook: nil)
         defer { window.close() }
-        let bars = descendants(of: window.contentView).compactMap { $0 as? AddressBarView }
+        let bars = descendants(of: window.contentView).compactMap { $0 as? BrowserToolbarWebView }
         #expect(bars.count == 1, "the same omnibar view, read-only")
         #expect(window.addressBar.isReadOnly)
-        _ = window.addressBar.debugTypeAndCommit("https://evil.example.net/")
+        #expect((window.addressBar.wireState()["omnibar"] as? [String: Any])?["readOnly"] as? Bool == true, "the page takes no typing")
+        // Even a commit from the page never navigates a sign-in window.
+        window.addressBar.handle(.effect(.began))
+        window.addressBar.handle(.effect(.ended(.commit(URL(string: "https://evil.example.net/")!))))
         #expect(tab.state.url?.absoluteString == "https://accounts.example.com/signin", "typing and Return never navigate a sign-in window")
         #expect(!window.addressBar.commit(.newForegroundTab), "no Cmd-Return either")
     }
@@ -192,8 +197,11 @@ import Testing
         defer { popups.closeAll() }
         let host = IntentRecorder()
         tab.delegate = host
-        #expect(window.addressBar.debugTypeAndCommit("https://www.example.org/docs", commit: false))
+        // Editing (the page's status), then Cmd-Return's action: the host asks the page to commit
+        // to a background tab, and the page ends the session with that open.
+        window.addressBar.handle(.status(OmnibarStatus(wire: ["editing": true, "text": "https://www.example.org/docs"])))
         #expect(window.addressBar.commit(.newBackgroundTab))
+        window.addressBar.handle(.effect(.ended(.open(URL(string: "https://www.example.org/docs")!, .newBackgroundTab))))
         #expect(tab.state.url?.absoluteString == "https://accounts.example.com/signin", "the popup keeps its page")
         let opened = try #require(host.urls.first)
         #expect(opened.0.absoluteString == "https://www.example.org/docs")
@@ -208,8 +216,9 @@ import Testing
         #expect(!window.addressBar.isEditing)
         window.focusAddressBar()
         #expect(window.addressBar.isEditing, "Cmd-L puts the keyboard in the popup's omnibar")
-        let editor = try #require(window.firstResponder as? NSTextView)
-        #expect(editor.selectedRange() == NSRange(location: 0, length: (editor.string as NSString).length), "the whole address is selected")
+        // The page selects the whole address on a keyboard focus (`focusLocation`, toolbar/session.ts).
+        let events = (window.addressBar.wireState()["events"] as? [[String: Any]])?.compactMap { $0["event"] as? [String: Any] } ?? []
+        #expect(events.contains { $0["kind"] as? String == "focus" && $0["source"] as? String == "keyboard" })
     }
 
     @Test func aSignInWindowTakesCmdL() {
@@ -225,7 +234,11 @@ import Testing
         let (popups, tab, window, _) = open("https://accounts.example.com/signin")
         defer { popups.closeAll() }
         tab.omniboxKeywordsFake = [OmnibarKeyword(extensionID: "ext.notes", keyword: "nt", name: "Notes")]
-        #expect(window.addressBar.debugTypeAndCommit("nt buy milk"))
+        let keywords = (window.addressBar.wireState()["omnibar"] as? [String: Any])?["keywords"] as? [[String: Any]] ?? []
+        #expect(keywords.contains { $0["keyword"] as? String == "nt" }, "the page's resolver knows the extension's keyword")
+        // The page ran the keyword session and ended it with Return.
+        window.addressBar.handle(.effect(.began))
+        window.addressBar.handle(.effect(.ended(.keyword(extensionID: "ext.notes", text: "buy milk", disposition: .currentTab))))
         let entered = try #require(tab.enteredOmniboxKeywords.first)
         #expect(entered.extensionID == "ext.notes")
         #expect(entered.text == "buy milk")
@@ -237,7 +250,11 @@ import Testing
         let (popups, tab, window, _) = open("https://accounts.example.com/signin")
         defer { popups.closeAll() }
         tab.completesNavigationsImmediately = false
-        #expect(window.addressBar.debugTypeAndCommit("example.com"))
+        // The page upgraded the typed host to https and committed it (`typedHTTPSUpgrade`, then the end).
+        let typed = URL(string: "https://example.com")!
+        window.addressBar.handle(.effect(.began))
+        window.addressBar.handle(.effect(.typedHTTPSUpgrade(typed)))
+        window.addressBar.handle(.effect(.ended(.commit(typed))))
         let https = try #require(tab.commands.compactMap { if case .load(let url) = $0, url.host() == "example.com" { url } else { nil } }.last)
         #expect(https.scheme == "https")
         let id = tab.makeNavigationID()
@@ -310,4 +327,10 @@ private final class IntentRecorder: BrowserTabDelegate {
     func browserTab(_ tab: any BrowserTab, didRequest intent: BrowserTabIntent) {
         if case .openURL(let url, let disposition) = intent { urls.append((url, disposition)) }
     }
+}
+
+private extension BrowserToolbarWebView {
+    /// The text the page shows at rest: the pushed address, with the page's display rules
+    /// (`BrowserURLDisplay`, mirrored in browser-chrome/omnibox).
+    var shownText: String { reportedURL.map { BrowserURLDisplay.displayText(for: $0) } ?? "" }
 }

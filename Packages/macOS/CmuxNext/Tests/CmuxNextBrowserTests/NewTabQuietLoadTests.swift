@@ -32,13 +32,13 @@ import Testing
     @Test(arguments: [BrowserNewTabPage.chromiumURL, BrowserNewTabPage.blankURL])
     func theNewTabPageLoadsWithTheSettledToolbar(_ address: String) {
         let chrome = Self.chrome(loading: address)
-        #expect(chrome.reloadButton.accessibilityLabel() == Strings.reload, "Reload, not Stop, on the first frame")
+        #expect(!chrome.addressBar.navigation.loading, "Reload, not Stop, on the first frame")
         #expect(Self.progressBarOpacity(in: chrome) == 0, "no progress line sweeps under the toolbar")
     }
 
     @Test func aRealPageStillShowsItsLoad() {
         let chrome = Self.chrome(loading: "https://example.com/")
-        #expect(chrome.reloadButton.accessibilityLabel() == Strings.stop)
+        #expect(chrome.addressBar.navigation.loading)
         #expect(Self.progressBarOpacity(in: chrome) == 1)
     }
 
@@ -56,12 +56,12 @@ import Testing
         page.simulate(.committed(newTab, url: URL(string: BrowserNewTabPage.chromiumURL)))
         page.simulate(.finished(newTab))
         await Self.rendered()
-        #expect(chrome.reloadButton.accessibilityLabel() == Strings.reload)
+        #expect(!chrome.addressBar.navigation.loading)
 
         page.simulate(.started(page.makeNavigationID(), url: nil))
         #expect(page.state.isLoading)
         await Self.rendered()
-        #expect(chrome.reloadButton.accessibilityLabel() == Strings.stop, "Stop from the load's start")
+        #expect(chrome.addressBar.navigation.loading, "Stop from the load's start")
         #expect(Self.progressBarOpacity(in: chrome) == 1)
     }
 }
