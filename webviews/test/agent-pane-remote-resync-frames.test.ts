@@ -239,7 +239,7 @@ afterEach(() => {
 });
 
 /// The tab's chat open with its rows on screen; each new socket is a new `Daemon` on the same log.
-async function openChat() {
+async function openChat(log?: Daemon["log"]) {
   resetKeptTailsForTests();
   const daemons: Daemon[] = [];
   let state:
@@ -272,6 +272,8 @@ async function openChat() {
           keepLog: state.keepLog,
           ...(state.keepLog ? { log: state.log } : {}),
         });
+      // The machine's log, when the test names one: every socket reaches the same machine.
+      else if (log) daemon.log = log.slice();
       daemons.push(daemon);
       state = daemon;
       return daemon as unknown as WebSocket;
@@ -553,4 +555,26 @@ test("a newer gap read that lands keeps an older one's hole to read when the old
   await chat.reconnect();
   await until(() => JSON.stringify(chat.drawn.at(-1)?.rows).includes("missed 17."), "the hole read", 4_000);
   expect(JSON.stringify(chat.drawn.at(-1)!.rows)).toContain("missed 24.");
+});
+
+test("a chat with more older rows read than a kept tail holds keeps them all when listed again", async () => {
+  // 120 turns: past the 400 records a kept tail holds.
+  const log = Array.from({ length: 120 }, (_, turn) => [
+    prompt(turn * 4 + 1),
+    ...[2, 3, 4].map((part) => reply(turn * 4 + part, `turn ${turn} part ${part}. `)),
+  ]).flat();
+  const chat = await openChat(log);
+  while (await chat.client.loadOlder()) await flush();
+  await flush();
+  const shown = chat.drawn.at(-1)!;
+  expect(JSON.stringify(shown.rows)).toContain("turn 0 part 2.");
+  const from = chat.drawn.length;
+  chat.daemon().purge();
+  await flush(4);
+  chat.daemon().announce();
+  await flush();
+  const { empty, left } = frames(chat.drawn, from, shown);
+  expect(empty).toBe(0);
+  expect(left).toEqual([]);
+  expect(JSON.stringify(chat.drawn.at(-1)!.rows)).toContain("turn 0 part 2.");
 });
