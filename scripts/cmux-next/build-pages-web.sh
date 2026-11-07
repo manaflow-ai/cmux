@@ -25,7 +25,9 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-PAGES="history apps coderouter cloud overlay keybindings icon-picker group-editor settings passwords changelog files artifacts stats chief-usage chief-views github mobile-pairing machines chief-inspector home-channels home-messages debug-settings import-history cloud-progress"
+PAGES="history apps coderouter cloud keybindings icon-picker group-editor settings passwords changelog files artifacts stats chief-usage chief-views github mobile-pairing machines chief-inspector home-channels home-messages debug-settings import-history cloud-progress tasks"
+# What shows over a window's content (CmuxNextPages OverlayPage: dialogs).
+PAGES="$PAGES overlay"
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
 PAGES="$PAGES page-info"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the

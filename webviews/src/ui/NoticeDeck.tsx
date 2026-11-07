@@ -422,6 +422,10 @@ export function NoticeDeck({
             ? (card.at ?? { y: 0, scale: 1, height: 0 })
             : { ...placed[index]!, height: placed[index]!.height ?? 0 };
           if (!leaving) places.current.set(id, { y: place.y, scale: place.scale, height: place.height });
+          // Gathered, an older card is only a sliver behind the front one with its text faded out:
+          // nothing on it can be reached by Tab or read aloud until the deck spreads (focusing the
+          // front card spreads it).
+          const concealed = !leaving && !spread && index > 0;
           const style = {
             "--ui-notice-deck-y": `${place.y}px`,
             "--ui-notice-deck-scale": String(place.scale),
@@ -440,8 +444,8 @@ export function NoticeDeck({
               data-front={index === 0 ? "" : undefined}
               data-hidden={!leaving && placed[index]!.hidden ? "" : undefined}
               data-draggable={drag ? "" : undefined}
-              aria-hidden={leaving ? true : undefined}
-              inert={leaving}
+              aria-hidden={leaving || concealed ? true : undefined}
+              inert={leaving || concealed}
               style={style}
               onPointerDown={leaving ? undefined : (event) => press(id, event)}
               onTransitionEnd={(event) => {
