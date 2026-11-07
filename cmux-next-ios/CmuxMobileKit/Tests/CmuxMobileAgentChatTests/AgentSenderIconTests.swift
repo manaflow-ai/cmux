@@ -3,7 +3,7 @@ import Testing
 
 /// A sender's icon on the phone takes the same tone the Mac gives the same key (agentTones.ts
 /// `hashTone`), so a session reads in one color on both, and its family's mark from a harness id.
-@Suite struct AgentSenderIconTests {
+@MainActor @Suite struct AgentSenderIconTests {
     @Test func toneMatchesTheMacHash() {
         // The Mac's hashTone of the same strings (FNV-1a of the UTF-16 units, modulo five).
         #expect(AgentSenderIcon.hashTone("s-claude-13") == 0)

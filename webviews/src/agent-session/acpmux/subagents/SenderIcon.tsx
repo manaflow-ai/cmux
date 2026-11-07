@@ -9,8 +9,8 @@
 // A session with no family mark draws its badge glyph alone, big, in its tone; one with no tone (no
 // session to tell apart) or with the badge set to none draws the family's mark alone, as before.
 import { useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import { AgentMark, hasAgentMark } from "../../shared/AgentMark";
-import { harnessIconsSnapshot, subscribeHarnessIcons } from "../../shared/harnessIcons";
+import { AgentMark, agentBrand } from "../../shared/AgentMark";
+import { harnessIcon, harnessIconsSnapshot, subscribeHarnessIcons } from "../../shared/harnessIcons";
 import { Icon } from "../icons/Icon";
 import { TonedIcon } from "./TonedIcon";
 import { useSenderIconLook, type SenderIconBadge, type SenderIconCorner, type SenderIconLook } from "./senderIconLook";
@@ -62,6 +62,14 @@ function Toned({ tone, children }: { tone?: number; children: ReactNode }) {
   );
 }
 
+/// Whether `agent` draws a mark AgentMark can show: a known agent, or a harness icon other than a
+/// bare glyph (AgentMark draws nothing for a glyph with no brand behind it, review F3).
+function drawsMark(agent: string | undefined): boolean {
+  if (agentBrand(agent)) return true;
+  const icon = harnessIcon(agent);
+  return !!icon && icon.kind !== "glyph";
+}
+
 export function SenderIcon({
   harness,
   tone,
@@ -98,7 +106,7 @@ export function SenderIcon({
   // A profile's icon may arrive after this row mounts: whether there is a mark is asked again.
   useSyncExternalStore(subscribeHarnessIcons, harnessIconsSnapshot, harnessIconsSnapshot);
   const family = harness?.split(/[-_/]/)[0];
-  const mark = hasAgentMark(harness) ? harness : family && hasAgentMark(family) ? family : undefined;
+  const mark = drawsMark(harness) ? harness : family && drawsMark(family) ? family : undefined;
   const wrap = (node: ReactNode, badged?: boolean) => (
     <span
       className={`cv-sender-icon${className ? ` ${className}` : ""}`}
