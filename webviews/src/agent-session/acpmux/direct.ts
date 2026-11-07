@@ -64,6 +64,7 @@ import { PeerStateEvents } from "./peerStateEvents";
 import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
+import { resolvedTarget } from "./conversation/sessionRefs";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { sameUsageStats, type SessionUsageStats } from "./usageStats";
 import { usageLimitsOf } from "./usageLimits";
@@ -528,6 +529,12 @@ const MISSING_RECHECK_MS = 2000;
 /// The machine a chat ran on, from its kept summary (this page's, or the app host's). A summary
 /// with no `peer` says nothing: the attach of a peer's chat gives that daemon's own detail, which
 /// names none (acpmux server/peer_forward.rs adds `peer` to the reply, not to its session).
+/// The machine a `HOST/NAME` tab id names, else undefined (an id, a bare name).
+function namedMachine(id: string): string | undefined {
+  const slash = id.indexOf("/");
+  return slash > 0 && slash < id.length - 1 && !id.includes(" ") ? id.slice(0, slash) : undefined;
+}
+
 function keptPeer(sessionId: string): string | undefined {
   const peer = keptTail(sessionId)?.summary?.peer;
   return typeof peer === "string" && peer ? peer : undefined;
@@ -1969,6 +1976,11 @@ export class AcpmuxDirectClient {
   /// More than one listed chat goes by `missingSession` (`chatNamedBy`): the pane says the session
   /// no longer exists instead of waiting for a machine.
   private missingAmbiguous = false;
+  /// What acpmux's resolver (`_acpmux/resolve`) said `asked`, a missing tab id no listed chat goes
+  /// by, names: `session` when it named one, none when it named nothing (`resolveMissing`).
+  private missingResolved?: { asked: string; session?: string; done: boolean };
+  /// `missingPeer` was read from the tab's id (`HOST/NAME`), not from a chat this Mac saw.
+  private missingPeerNamed = false;
   /** The adopt acpmux refused because its chat is live elsewhere, until the user picks a way on. */
   private liveAdopt?: { adopt: AcpmuxAdopt; canFork: boolean; command?: string };
   /** Take Over refused because the watched chat's app still runs it, until the user picks a way on. */
@@ -2862,6 +2874,7 @@ export class AcpmuxDirectClient {
           this.noteMissing(this.selectedSessionId);
           this.missingReason = "notListedAtOpen";
           this.missingAmbiguous = named?.ambiguous === true;
+          if (!this.missingAmbiguous) this.resolveMissing(this.selectedSessionId);
         }
         const purging =
           this.selectedSessionId !== undefined &&
@@ -4002,8 +4015,35 @@ export class AcpmuxDirectClient {
       // reconnect), else what this page or the app host kept of it.
       const shown = this.summary?.sessionId === sessionId ? this.summary?.peer : undefined;
       this.missingPeer = typeof shown === "string" && shown ? shown : keptPeer(sessionId);
+      // A chip opened by `HOST/NAME` (a relayed sender this Mac never listed): the machine it names.
+      const machine = this.missingPeer === undefined ? namedMachine(sessionId) : undefined;
+      this.missingPeerNamed = machine !== undefined;
+      if (machine !== undefined) this.missingPeer = machine;
     }
     this.missingSession = sessionId;
+  }
+
+  /// A missing tab id that no listed chat goes by (a sender chip opened the tab before acpmux named
+  /// the chat: its proven session id, or the `HOST/NAME` it gave): acpmux's resolver is asked once,
+  /// and the chat it names opens and the tab is rebound to it, as a tab opened by a chat's name is
+  /// (`reopenMissing`). One it does not name stays missing, and the pane says why in the tab.
+  private resolveMissing(missing: string): void {
+    if (this.missingResolved?.asked === missing || this.closed) return;
+    const asked: { asked: string; session?: string; done: boolean } = { asked: missing, done: false };
+    this.missingResolved = asked;
+    void this.resolveSession(missing)
+      .then(resolvedTarget, () => null)
+      .then(async (target) => {
+        asked.done = true;
+        if (this.closed || this.missingSession !== missing || this.selectedSessionId !== undefined) return;
+        if (target) {
+          asked.session = target.sessionId;
+          if (!this.sessions.some((session) => session.sessionId === target.sessionId))
+            await this.refreshSessions().catch(() => undefined);
+          if (this.reopenMissing()) return;
+        }
+        if (!this.closed && !this.snapshotHold) this.emit();
+      });
   }
 
   /// The missing chat is listed again (its machine connected and acpmux listed its chats): it
@@ -4016,7 +4056,8 @@ export class AcpmuxDirectClient {
     // The chat the tab's id names, when it is a name or a harness's session id (`chatNamedBy`).
     const named = chatNamedBy(missing, this.sessions);
     this.missingAmbiguous = named.ambiguous;
-    const target = named.session ?? missing;
+    const resolved = this.missingResolved?.asked === missing ? this.missingResolved.session : undefined;
+    const target = named.session ?? resolved ?? missing;
     if (!this.sessions.some((session) => session.sessionId === target)) return false;
     const [reason, since, peer, ambiguous] = [
       this.missingReason,
@@ -4071,6 +4112,11 @@ export class AcpmuxDirectClient {
       waitedMs: Date.now() - this.missingSince,
       seenListed: this.missingReason === "leftListWhileShown",
       ambiguousName: this.missingAmbiguous,
+      peerNamed: this.missingPeerNamed,
+      resolvedNone:
+        this.missingResolved?.asked === this.missingSession &&
+        this.missingResolved.done &&
+        this.missingResolved.session === undefined,
     });
     if (unavailable.reason === "connecting" && this.missingRecheck === undefined && !this.closed)
       this.missingRecheck = setTimeout(() => {

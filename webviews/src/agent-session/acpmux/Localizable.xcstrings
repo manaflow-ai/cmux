@@ -235472,6 +235472,270 @@
         }
       }
     },
+    "unavailable.unreached.detail": {
+      "comment": "Agent pane: detail under the title when a sender chip named a chat on a machine this Mac's acpmux has no connection to. {machine} is the machine's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "‏{machine} ليس من الأجهزة التي يتصل بها جهاز Mac هذا، لذا لا يمكن فتح دردشاته هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} nije među računarima na koje se ovaj Mac povezuje, pa se njegovi razgovori ovdje ne mogu otvoriti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} er ikke en af de maskiner, denne Mac forbinder til, så dens chats kan ikke åbnes her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} gehört nicht zu den Rechnern, mit denen sich dieser Mac verbindet, daher lassen sich seine Chats hier nicht öffnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{machine} isn't one of the machines this Mac connects to, so its chats can't open here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} no es una de las máquinas a las que se conecta este Mac, así que sus chats no pueden abrirse aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} ne fait pas partie des machines auxquelles ce Mac se connecte : ses conversations ne peuvent pas s’ouvrir ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} non è tra le macchine a cui si collega questo Mac, quindi le sue chat non possono aprirsi qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} はこの Mac の接続先ではないため、そのチャットはここで開けません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} មិនមែនជាម៉ាស៊ីនដែល Mac នេះភ្ជាប់ទៅទេ ដូច្នេះការជជែករបស់វាមិនអាចបើកនៅទីនេះបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine}은(는) 이 Mac이 연결하는 머신이 아니므로 해당 채팅을 여기에서 열 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} er ikke en av maskinene denne Mac-en kobler til, så chattene derfra kan ikke åpnes her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} nie należy do maszyn, z którymi łączy się ten Mac, więc jego czatów nie można tu otworzyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} não é uma das máquinas às quais este Mac se conecta, então seus chats não podem abrir aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} не входит в число машин, к которым подключается этот Mac, поэтому его чаты здесь не открыть."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} ไม่ใช่เครื่องที่ Mac เครื่องนี้เชื่อมต่อ จึงเปิดแชตของเครื่องนั้นที่นี่ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine}, bu Mac'in bağlandığı makinelerden biri değil; bu yüzden sohbetleri burada açılamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} не належить до машин, до яких підключається цей Mac, тож його чати тут не відкрити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} không nằm trong số các máy mà Mac này kết nối, nên không thể mở các cuộc trò chuyện của máy đó ở đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} 不是此 Mac 连接的机器，因此无法在这里打开它的对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} 不是此 Mac 連線的機器，因此無法在這裡開啟它的對話。"
+          }
+        }
+      }
+    },
+    "unavailable.unreached.title": {
+      "comment": "Agent pane: title in place of a tab's chat that a sender chip named as MACHINE/NAME, when this Mac's acpmux has no connection to that machine. {machine} is the machine's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر الوصول إلى {machine} من هنا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} nije dostupan odavde"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke nå {machine} herfra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} ist von hier nicht erreichbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't reach {machine} from here"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se puede acceder a {machine} desde aquí"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible d’atteindre {machine} d’ici"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile raggiungere {machine} da qui"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ここからは {machine} に接続できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចភ្ជាប់ទៅ {machine} ពីទីនេះបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여기에서 {machine}에 연결할 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke nå {machine} herfra"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można połączyć się z {machine} stąd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não é possível acessar {machine} daqui"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет связи с {machine} отсюда"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เข้าถึง {machine} จากที่นี่ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} makinesine buradan ulaşılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає зв’язку з {machine} звідси"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể kết nối tới {machine} từ đây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法从此处连接到 {machine}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法從此處連線到 {machine}"
+          }
+        }
+      }
+    },
     "unavailable.session": {
       "comment": "Agent pane: under a deleted or unreachable chat's detail, which chat it was; {session} is the first 13 characters of its session id",
       "extractionState": "manual",
