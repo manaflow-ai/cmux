@@ -21,6 +21,8 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
         weak var window: NSWindow?
         weak var center: CmuxToastCenter?
         let page: PageWebView
+        /// What the overlay shows: the page, with the window's glass under each toast.
+        let view: CmuxToastPageView
         let provider: CmuxToastPageProvider
         var handle: OverlayHandle?
         var shown: [CmuxToastShown] = []
@@ -33,6 +35,7 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
         init(window: NSWindow, page: PageWebView, provider: CmuxToastPageProvider) {
             self.window = window
             self.page = page
+            view = CmuxToastPageView(page: page)
             self.provider = provider
         }
     }
@@ -84,9 +87,9 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
     private func present(_ stack: Stack, in window: NSWindow) {
         guard stack.handle == nil || stack.handle?.isDismissed == true else { return }
         let bounds = window.contentView?.bounds ?? .zero
-        stack.page.setFrameSize(Self.pageSize(in: bounds))
+        stack.view.setFrameSize(Self.pageSize(in: bounds))
         let options = OverlayOptions(kind: .toast, anchor: bounds, passesThroughClicks: false)
-        let handle = WindowOverlayHost.host(for: window).present(stack.page, options: options)
+        let handle = WindowOverlayHost.host(for: window).present(stack.view, options: options)
         // No clicks until the page says where its toasts are.
         handle.update(hitRegions: stack.rects)
         handle.onDismiss = { [weak self, weak window, weak stack] in
@@ -99,7 +102,7 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
         handle.onWindowGeometryChange = { [weak self, weak window, weak stack] in
             guard let self, let window, let stack, let handle = stack.handle else { return }
             let bounds = window.contentView?.bounds ?? .zero
-            stack.page.setFrameSize(Self.pageSize(in: bounds))
+            stack.view.setFrameSize(Self.pageSize(in: bounds))
             handle.update(anchor: bounds)
             self.publish(stack, in: window)
         }
@@ -144,8 +147,12 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
         case .layout(let rects, let fading):
             // Rects of toasts the center no longer shows take no clicks.
             let live = Set(stack.shown.map(\.serial))
-            stack.rects = rects.filter { live.contains($0.serial) }.map { windowRect($0, of: stack.page) }
-            stack.fading = (fading + rects.filter { !live.contains($0.serial) }).map { windowRect($0, of: stack.page) }
+            let resting = rects.filter { live.contains($0.serial) }
+            let leaving = fading + rects.filter { !live.contains($0.serial) }
+            stack.rects = resting.map { windowRect($0, of: stack.page) }
+            stack.fading = leaving.map { windowRect($0, of: stack.page) }
+            stack.view.placeGlass(resting: resting.map { ($0.serial, localRect($0, of: stack.page)) },
+                                  fading: leaving.map { ($0.serial, localRect($0, of: stack.page)) })
             stack.handle?.update(hitRegions: stack.rects)
             settled(stack, in: window, duration: Self.moveDuration)
             // The last toast faded: the page leaves the overlay (it stays warm for the next toast).
@@ -155,12 +162,17 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
 
     /// A CSS-px rect of the page (from its top left) in window coordinates.
     private func windowRect(_ rect: CmuxToastPageProvider.Rect, of page: PageWebView) -> NSRect {
+        let local = localRect(rect, of: page)
+        return page.window == nil ? local : page.convert(local, to: nil)
+    }
+
+    /// A CSS-px rect of the page (from its top left) in the page's own coordinates.
+    private func localRect(_ rect: CmuxToastPageProvider.Rect, of page: PageWebView) -> NSRect {
         let zoom = CGFloat(max(page.pageZoom, 0.01))
         let height = CGFloat(rect.h) * zoom
         let top = CGFloat(rect.y) * zoom
-        let local = NSRect(x: CGFloat(rect.x) * zoom, y: page.isFlipped ? top : page.bounds.height - top - height,
-                           width: CGFloat(rect.w) * zoom, height: height)
-        return page.window == nil ? local : page.convert(local, to: nil)
+        return NSRect(x: CGFloat(rect.x) * zoom, y: page.isFlipped ? top : page.bounds.height - top - height,
+                      width: CGFloat(rect.w) * zoom, height: height)
     }
 
     /// The window's last toast faded: its page leaves the overlay and goes back to the pool.
@@ -180,6 +192,7 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
         guard let stack = stacks.removeValue(forKey: ObjectIdentifier(window)) else { return }
         stack.provider.onReport = nil
         stack.provider.publish(CmuxToastPageProvider.state([], floor: 0))
+        stack.view.releasePage()
         pool.release(stack.page)
         pool.prewarm()
     }

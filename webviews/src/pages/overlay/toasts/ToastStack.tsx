@@ -31,6 +31,11 @@ export interface ToastStackProps {
   onHover(serial: number, hovered: boolean): void;
   /** Where the toasts rest (and where fading ones still draw), after every change. */
   onLayout(rects: ToastRect[], fading: ToastRect[]): void;
+  /**
+   * The app draws the window's glass under each toast (the overlay page, which cannot blur the window
+   * under it): the toast draws only its contents and its shadow. Off (the gallery): the page's own glass.
+   */
+  nativeGlass?: boolean;
 }
 
 const rectOf = (serial: number, place: { x: number; y: number; w: number; h: number }): ToastRect => ({
@@ -41,7 +46,16 @@ const rectOf = (serial: number, place: { x: number; y: number; w: number; h: num
   h: Math.round(place.h * 100) / 100,
 });
 
-export function ToastStack({ toasts, floor, words, onAction, onClose, onHover, onLayout }: ToastStackProps) {
+export function ToastStack({
+  toasts,
+  floor,
+  words,
+  onAction,
+  onClose,
+  onHover,
+  onLayout,
+  nativeGlass = false,
+}: ToastStackProps) {
   const list = useRef<HTMLDivElement>(null);
   const sent = useRef("");
   const leavingUndrawn = useRef(false);
@@ -89,12 +103,13 @@ export function ToastStack({ toasts, floor, words, onAction, onClose, onHover, o
     <div ref={list} className="cmux-toasts" style={{ bottom: `${floor}px` }} data-count={toasts.length}>
       {items.map((item) =>
         item.exiting ? (
-          <Toast key={item.key} toast={item.toast} words={words} exiting />
+          <Toast key={item.key} toast={item.toast} words={words} nativeGlass={nativeGlass} exiting />
         ) : (
           <Toast
             key={item.key}
             toast={item.toast}
             words={words}
+            nativeGlass={nativeGlass}
             onAction={onAction}
             onClose={onClose}
             onHover={onHover}
@@ -108,6 +123,7 @@ export function ToastStack({ toasts, floor, words, onAction, onClose, onHover, o
 function Toast({
   toast,
   words,
+  nativeGlass,
   exiting = false,
   onAction,
   onClose,
@@ -115,6 +131,7 @@ function Toast({
 }: {
   toast: ToastState;
   words: ToastWords;
+  nativeGlass: boolean;
   exiting?: boolean;
   onAction?(serial: number): void;
   onClose?(serial: number): void;
@@ -126,7 +143,8 @@ function Toast({
   const actionTitle = action?.revealsDetails && showsDetails ? words.t("overlay.toasts.hideDetails") : action?.title;
   return (
     <section
-      className="cmux-toast ui-glass"
+      className={nativeGlass ? "cmux-toast" : "cmux-toast ui-glass"}
+      data-native-glass={nativeGlass ? "true" : undefined}
       aria-label={toast.message}
       data-toast-serial={serial}
       data-toast-id={toast.id}

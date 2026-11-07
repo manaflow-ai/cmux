@@ -172,3 +172,23 @@ test("a toast message keeps its line breaks", () => {
   const rule = css.match(/\.cmux-toast-message \{([^}]*)\}/)?.[1] ?? "";
   expect(rule).toContain("white-space: pre-wrap;");
 });
+
+// Review 3 of #37289 (F1): on the overlay page the toast's own glass could not blur the window under the
+// panel, so terminal text read sharp through it. There the app draws the glass; the toast paints none.
+test("on the app's glass a toast paints no glass of its own", () => {
+  const doc = render(
+    <ToastStack
+      toasts={[toast(1)]}
+      floor={16}
+      words={words}
+      onAction={() => {}}
+      onClose={() => {}}
+      onHover={() => {}}
+      onLayout={() => {}}
+      nativeGlass
+    />,
+  );
+  const shown = doc.querySelector(".cmux-toast")!;
+  expect(shown.classList.contains("ui-glass")).toBe(false);
+  expect(shown.getAttribute("data-native-glass")).toBe("true");
+});

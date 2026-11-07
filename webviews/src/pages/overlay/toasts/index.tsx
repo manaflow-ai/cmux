@@ -36,7 +36,8 @@ function ToastsSurface({ client }: { client: PageClient }) {
       onLayout: (rects: ToastRect[], fading: ToastRect[]) => send(TOASTS_OPS.layout, { rects, fading }),
     };
   }, [client]);
-  return <ToastStack toasts={state.toasts} floor={state.floor} words={words} {...handlers} />;
+  // The app draws each toast's glass under the page (CmuxToastPageView): the page cannot blur the window.
+  return <ToastStack toasts={state.toasts} floor={state.floor} words={words} nativeGlass {...handlers} />;
 }
 
 /** Mounts the toast stack in `root`, talking to the app through `client`. */

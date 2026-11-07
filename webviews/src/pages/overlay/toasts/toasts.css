@@ -37,6 +37,12 @@
   user-select: none;
 }
 
+/* On the overlay page the app draws the window's glass under the toast (CmuxToastPageView), so the toast
+   paints no fill of its own: only its contents and the popups' one shadow. */
+.cmux-toast[data-native-glass] {
+  box-shadow: var(--glass-elevation);
+}
+
 /* Details on: the toast is never narrower than a paragraph of detail. */
 .cmux-toast[data-open] {
   min-width: min(380px, 100%);
