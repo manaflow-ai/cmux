@@ -7,7 +7,7 @@
 // files, ect generate directly through that chat"). Five rows show, then a whole-row Show more
 // (SessionInfoFold), as under Changes and Subagents.
 import { documentName, type Artifact } from "../conversation/artifactPreview";
-import { latestWrittenArtifacts } from "../conversation/writtenArtifacts";
+import { latestWrittenArtifacts } from "../conversation/writtenArtifactsModel";
 import { chatDocuments } from "../conversation/artifactVersions";
 import { renderPages } from "../conversation/renderCall";
 import type { OutputFile } from "./chatOutputs";

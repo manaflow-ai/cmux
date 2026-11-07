@@ -8,7 +8,7 @@ import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow"
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
 import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
-import { InStep } from "../src/agent-session/acpmux/conversation/ToolFailureCause";
+import { InStep } from "../src/agent-session/acpmux/conversation/toolFailureCauseModel";
 import { toolFailure } from "../src/agent-session/acpmux/conversation/toolFailure";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;

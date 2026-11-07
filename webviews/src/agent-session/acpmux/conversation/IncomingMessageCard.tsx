@@ -70,7 +70,7 @@ import { NoticeMark, SEVERITY_LABEL } from "./NoticeMark";
 import { noticeMarkdown } from "./agentNotice";
 import { useNoticeLook, type NoticeLook } from "./noticeLook";
 import { openSessionAttributes } from "./menuParts";
-import { useSessionRef } from "./SessionRef";
+import { useSessionRef } from "./sessionRefModel";
 import { useSessionHover } from "../started/useSessionHover";
 import { resolveSessionRef, senderRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
 

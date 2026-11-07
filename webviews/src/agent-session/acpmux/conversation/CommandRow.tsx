@@ -22,8 +22,10 @@ import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { rowFailed, toolFailure } from "./toolFailure";
-import { leadingVerb, ToolLabel } from "./ToolVerb";
-import { failureWord, InlineFailureCause, ToolFailureCause, useInStep } from "./ToolFailureCause";
+import { ToolLabel } from "./ToolVerb";
+import { leadingVerb } from "./toolVerbModel";
+import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, useInStep } from "./toolFailureCauseModel";
 
 // direct.ts replaces only the changed item. Keep every expanded sibling out of that stream's
 // render/output work; the row's own disclosure, Find and language subscriptions still update it.
