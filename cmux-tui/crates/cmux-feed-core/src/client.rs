@@ -23,7 +23,9 @@ mod row;
 mod view;
 
 pub use choice::{ChoiceIssue, Selection, issues as choice_issues, normalized as normalize_choice};
-pub use cloud::{CloudAction, CloudStream, FEED_WIRE_PATH, Frame, op_params, reject};
+pub use cloud::{
+    CloudAction, CloudStream, FEED_WIRE_PATH, Frame, MAX_INTENT_IDS, op_params, reject,
+};
 pub use filter::{Category, Connection as FilterConnection, Filter, Matcher, fold, is_github};
 pub use intent::{Intent, IntentKind};
 pub use item::{FeedItem, Poster, Priority, State};

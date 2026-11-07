@@ -473,8 +473,10 @@ impl FeedClient {
         let items = || {
             let ids = strings(params.get("items"))
                 .ok_or_else(|| invalid("items must be a list of item ids"))?;
-            if ids.is_empty() || ids.len() > 500 {
-                return Err(invalid("items takes 1 to 500 item ids"));
+            // The cloud owner takes at most 256 ids per op (FeedWireEncode), so the intent does too:
+            // a longer one would show every id changed and send only the first 256.
+            if ids.is_empty() || ids.len() > cmux_feed_core::client::MAX_INTENT_IDS {
+                return Err(invalid("items takes 1 to 256 item ids"));
             }
             Ok(ids)
         };

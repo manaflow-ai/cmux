@@ -292,6 +292,9 @@ fn an_intent_is_checked_before_it_is_logged() {
     assert!(invalid(json!({"kind": "answer", "item": "nope", "answer": "x"})));
     assert!(invalid(json!({"kind": "answer", "item": "fi_1"})));
     assert!(invalid(json!({"kind": "read", "items": []})));
+    // More ids than one cloud op carries is refused, never shown changed and sent cut short.
+    let many: Vec<String> = (0..=256).map(|n| format!("fi_{n}")).collect();
+    assert!(invalid(json!({"kind": "read", "items": many})));
     assert!(invalid(json!({"kind": "snooze", "items": ["fi_1"]})));
     // Nothing left to send settles at once (an open request is not archivable).
     assert!(matches!(

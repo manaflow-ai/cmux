@@ -120,8 +120,12 @@ pub fn reject(code: &str, message: &str, details: Option<&Value>) -> Reject {
 /// `None` when it has nothing to send. Mark All Read sends the owner's
 /// `all` (it also reads an item posted between the click and the commit),
 /// and only while an unread item posted by `before` is known.
+/// Most item ids one read, archive or snooze intent carries (the cloud owner's limit); `feed.intent`
+/// refuses more, so the overlay never shows an id the owner was not sent.
+pub const MAX_INTENT_IDS: usize = 256;
+
 pub fn op_params(intent: &Intent, unread_before: impl Fn(i64) -> bool) -> Option<Value> {
-    let first = |items: &[String]| items.iter().take(256).cloned().collect::<Vec<_>>();
+    let first = |items: &[String]| items.iter().take(MAX_INTENT_IDS).cloned().collect::<Vec<_>>();
     match &intent.kind {
         IntentKind::Answer { item, value } => Some(json!({"item": item, "answer": value})),
         IntentKind::Decline { item } => Some(json!({"item": item, "reason": "declined"})),
