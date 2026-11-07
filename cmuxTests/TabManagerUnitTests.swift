@@ -4426,7 +4426,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
             return
         }
 
-        var closedSnapshot: ClosedBrowserPanelRestoreSnapshot?
+        var closedSnapshot: LegacyClosedBrowserPanelRestoreSnapshot?
         workspace.onClosedBrowserPanel = { snapshot in
             closedSnapshot = snapshot
         }
@@ -4434,9 +4434,9 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertTrue(workspace.splitTabBar(workspace.bonsplitController, shouldCloseTab: tab, inPane: paneId))
         workspace.splitTabBar(workspace.bonsplitController, didCloseTab: tabId, fromPane: paneId)
 
-        XCTAssertEqual(closedSnapshot?.workspaceId, workspace.id)
-        XCTAssertEqual(closedSnapshot?.url, expectedURL)
-        XCTAssertEqual(closedSnapshot?.originalPaneId, paneId.id)
+        XCTAssertEqual(closedSnapshot?.fallbackSnapshot.workspaceId, workspace.id)
+        XCTAssertEqual(closedSnapshot?.fallbackSnapshot.url, expectedURL)
+        XCTAssertEqual(closedSnapshot?.fallbackSnapshot.originalPaneId, paneId.id)
     }
 
     func testTemporaryDiffViewerTabCloseDoesNotStageRestoreSnapshot() throws {
@@ -4450,7 +4450,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
             return
         }
 
-        var closedSnapshot: ClosedBrowserPanelRestoreSnapshot?
+        var closedSnapshot: LegacyClosedBrowserPanelRestoreSnapshot?
         workspace.onClosedBrowserPanel = { snapshot in
             closedSnapshot = snapshot
         }
@@ -4490,7 +4490,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, reopenedPanelId)
     }
 
-    func testReopenClosedItemFallsBackToLegacyClosedBrowserStack() {
+    func testReopenClosedItemFallsBackToLegacyClosedBrowserStack() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -4502,11 +4502,41 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 
         let manager = TabManager()
         let expectedURL = URL(string: "https://example.com/self-close-item-fallback")
+        let backURL = "https://example.com/self-close-item-fallback-back"
+        let forwardURL = "https://example.com/self-close-item-fallback-forward"
         guard let workspace = manager.selectedWorkspace,
               let closedBrowserId = manager.openBrowser(url: expectedURL),
               let browserPanel = workspace.panels[closedBrowserId] as? BrowserPanel else {
             XCTFail("Expected browser panel setup")
             return
+        }
+        XCTAssertTrue(browserPanel.setPageZoomFactor(1.4))
+        guard browserPanel.setMuted(true) else {
+            throw XCTSkip("WKWebView page-audio mute selector is unavailable")
+        }
+        XCTAssertTrue(browserPanel.setChromeVisibility(.hidden))
+        browserPanel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [backURL],
+            forwardHistoryURLStrings: [forwardURL],
+            currentURLString: expectedURL?.absoluteString
+        )
+        XCTAssertTrue(browserPanel.canGoBack)
+        XCTAssertTrue(browserPanel.canGoForward)
+
+        let recordClosedBrowserPanel = workspace.onClosedBrowserPanel
+        var didDropHistoryEntry = false
+        var expectedFallbackProfileID: UUID?
+        var expectedFallbackPaneID: UUID?
+        workspace.onClosedBrowserPanel = { snapshot in
+            didDropHistoryEntry = snapshot.historyEntry != nil
+            expectedFallbackProfileID = snapshot.fallbackSnapshot.profileID
+            expectedFallbackPaneID = snapshot.fallbackSnapshot.originalPaneId
+            recordClosedBrowserPanel?(
+                LegacyClosedBrowserPanelRestoreSnapshot(
+                    fallbackSnapshot: snapshot.fallbackSnapshot,
+                    historyEntry: nil
+                )
+            )
         }
 
         drainMainQueue()
@@ -4514,16 +4544,23 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         drainMainQueue()
 
         XCTAssertNil(workspace.panels[closedBrowserId])
+        XCTAssertTrue(didDropHistoryEntry, "The test must force the true legacy fallback path")
         XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
 
         XCTAssertTrue(appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: manager))
         drainMainQueue()
 
-        guard let reopenedPanel = workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first else {
-            XCTFail("Expected reopened browser panel")
+        guard let reopenedPanel = workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first,
+              let expectedFallbackProfileID,
+              let expectedFallbackPaneID else {
+            XCTFail("Expected reopened browser panel and captured compatibility fields")
             return
         }
+        // This compatibility snapshot retains URL, profile, and split placement.
+        // Full interaction-state preservation is covered by the history-entry path.
         XCTAssertEqual(reopenedPanel.currentURL, expectedURL)
+        XCTAssertEqual(reopenedPanel.profileID, expectedFallbackProfileID)
+        XCTAssertEqual(workspace.paneId(forPanelId: reopenedPanel.id)?.id, expectedFallbackPaneID)
     }
 
     func testReopenClosedItemUsesNewerLegacyBrowserBeforeOlderClosedStore() throws {
@@ -4674,6 +4711,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         let panelIdsBeforeReopen = Set(workspace1.panels.keys)
         let workspace2 = manager.addWorkspace()
         XCTAssertEqual(manager.selectedTabId, workspace2.id)
+        let staleFocusRestoreTransactionId = workspace1.focusRestoreTransactionId
 
         XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
         guard let reopenedPanelId = singleNewPanelId(in: workspace1, comparedTo: panelIdsBeforeReopen) else {
@@ -4683,7 +4721,10 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 
         // Simulate one delayed stale focus callback from the panel that was focused before reopen.
         DispatchQueue.main.async {
-            workspace1.focusPanel(preReopenPanelId)
+            workspace1.focusPanel(
+                preReopenPanelId,
+                expectedFocusRestoreTransactionId: staleFocusRestoreTransactionId
+            )
         }
 
         drainMainQueue()
@@ -4709,6 +4750,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         drainMainQueue()
 
         let panelIdsBeforeReopen = Set(workspace.panels.keys)
+        let staleFocusRestoreTransactionId = workspace.focusRestoreTransactionId
         XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
         guard let reopenedPanelId = singleNewPanelId(in: workspace, comparedTo: panelIdsBeforeReopen) else {
             XCTFail("Expected reopened browser panel ID")
@@ -4717,7 +4759,10 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 
         // Simulate one delayed stale focus callback from the panel that was focused before reopen.
         DispatchQueue.main.async {
-            workspace.focusPanel(preReopenPanelId)
+            workspace.focusPanel(
+                preReopenPanelId,
+                expectedFocusRestoreTransactionId: staleFocusRestoreTransactionId
+            )
         }
 
         drainMainQueue()
