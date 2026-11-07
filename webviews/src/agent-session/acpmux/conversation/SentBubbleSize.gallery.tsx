@@ -325,6 +325,11 @@ export default componentEntry<Props>({
         ],
       },
     },
+    "short-head-paste": {
+      note: "A paste whose first 4,000 characters are one line (zero-width spaces) and whose rest is 50 lines: it folds once under Show more and stays folded.",
+      height: 640,
+      props: { prompts: [{ text: "Can you look at this?", paste: "x" + "\u200b".repeat(4000) + "\nline".repeat(50) }] },
+    },
     "long-text": {
       note: "A 15-line prompt draws whole; a 40-line one opens on its first lines, fading out, over Show more.",
       height: 1100,
