@@ -502,6 +502,8 @@ import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversa
 import { callsToHold, foldsToHold, linedCallOf, withHeldFolds, withoutHeldCalls } from "./conversation/turnEndHold";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
+import { createPaneToasts, paneNotices } from "./paneToasts";
+import { ToastLayer } from "./ToastLayer";
 import { AutoResumeNotice } from "./AutoResumeNotice";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
@@ -1455,6 +1457,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const catalogClientId = useRef(0);
 
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  /// The pane's toasts (paneToasts.ts): feedback on a click goes there, never into the transcript.
+  const [paneToasts] = useState(createPaneToasts);
+  /// Where the toasts' top anchors are drawn (ToastLayer.tsx).
+  const [toastTop, setToastTop] = useState<HTMLDivElement | null>(null);
+  const notices = useMemo(
+    () => paneNotices({ transcript: () => directClient.current, toasts: paneToasts }),
+    [paneToasts],
+  );
   /// The pane's connected clients, one after another: a prompt a connection lost waits on the next
   /// one for the host's journal to send it again there (lostPrompt.ts).
   const [connectedClients] = useState(() => clientWaiter<AcpmuxDirectClient>());
@@ -1912,10 +1922,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => ({
       addCredits: () =>
         void callNative("action.run", { id: ACCESS_ACTIONS.addCredits }).catch(() =>
-          directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("access.addCredits") })),
+          notices.transient(translate("composer.offloadNotRun", { action: translate("access.addCredits") })),
         ),
     }),
-    [],
+    [notices],
   );
   // A page without a session checks its own selected target (NewTabScreen); never a guessed one here.
   const [authRouteVersion, setAuthRouteVersion] = useState(0);
@@ -2472,10 +2482,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       store: subsessionStore.current!,
       open: openOfferChat,
       openSender: openSenderChat,
-      // A sender chip whose name acpmux resolves to no chat says so, in a notice line.
-      senderMissing: (name: string) => directClient.current?.notice(translate("message.senderNotFound", { name })),
+      // A sender chip whose name acpmux resolves to no chat says so, in a toast.
+      senderMissing: notices.senderMissing,
     }),
-    [],
+    [notices],
   );
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
@@ -3808,12 +3818,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The + menu's Search chats and Search pages (Leo: "the chatgpt desktop app, let's do their +
   // symbol's capabiliities for our composer"): the command palette's chats page and its History
   // search page, both app actions the pane may run (AgentPaneModel.paletteActions). A refusal is
-  // said as the composer's notice, never dropped.
+  // said in a toast, never dropped.
   const plusSearchExtensions = useMemo(() => composerPlusSearchExtensions(t), [t]);
   const runPlusSearch = (id: string) => {
     const name = id === PLUS_SEARCH_ACTIONS.pages ? t("composer.plusSearchPages") : t("sidebar.search");
     void callNative("action.run", { id }).catch(() =>
-      directClient.current?.notice(translate("composer.offloadNotRun", { action: name })),
+      notices.transient(translate("composer.offloadNotRun", { action: name })),
     );
   };
   // New Tab shows no transcript, so the page says a refusal itself (NewTabScreen plusRefused).
@@ -3823,12 +3833,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const connectMachine = (kind: ConnectKind) =>
     void callNative("action.run", { id: CONNECT_ACTIONS[kind] }).catch(() => undefined);
   // Move to Cloud and Bring Back Local report their own progress and failures as the app's toasts;
-  // the notice says only that the app did not start the move (turned off, or not for this chat).
+  // the pane's toast says only that the app did not start the move (turned off, or not for this chat).
   /// `session`, when given (the title menu), binds the move to the chat whose menu offered it: the
   /// host runs it only while the tab still shows that chat (AgentPaneModel+Actions.swift).
   const offloadChat = (kind: OffloadKind, session?: string) => {
     const notRun = () =>
-      directClient.current?.notice(
+      notices.transient(
         translate("composer.offloadNotRun", {
           action: translate(kind === "move" ? "composer.moveToCloud" : "composer.bringBackLocal"),
         }),
@@ -3846,7 +3856,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// never moves the newly selected chat.
   const moveChatToMachine = (machine: string, session: string | undefined) => {
     const notRun = () =>
-      directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.moveToCloud") }));
+      notices.transient(translate("composer.offloadNotRun", { action: translate("composer.moveToCloud") }));
     if (!session || directClient.current?.selectedSession !== session) {
       notRun();
       return;
@@ -4071,7 +4081,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }
       setCloudStart((current) => cloudStartEnded(current, key, answer));
       if (!answer.ok && !cloudStartSaid(answer))
-        directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
+        notices.transient(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
     });
     return started;
   };
@@ -5399,7 +5409,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const name = translate("dictation.recording");
       const recording = recordingAttachment(audio, name, chatIsLocal.current);
       if (recording) composerHandle.current?.attach(recording);
-      else if (!audio.path) directClient.current?.notice(translate(recordingLeftOutNotice("tooLarge")));
+      else if (!audio.path) notices.transient(translate(recordingLeftOutNotice("tooLarge")));
       // A chat on another computer: the host sends its file there. Until it answers, the recording
       // is a pending chip that a send (Return, Send, the auto-send) waits for, as for a dropped
       // file still uploading; one that fails says so on its chip, with Retry. A chip made after the
@@ -5413,9 +5423,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           () => void callNative("dictation.recording.cancel", { path: audio.path }).catch(() => {}),
         );
     },
-    omitted: (reason) => directClient.current?.notice(translate(recordingLeftOutNotice(reason))),
+    omitted: (reason) => notices.transient(translate(recordingLeftOutNotice(reason))),
     chat: () => sessionIdRef.current,
-    elsewhere: () => directClient.current?.notice(translate("dictation.recordingOtherChat")),
+    elsewhere: () => notices.transient(translate("dictation.recordingOtherChat")),
   });
   // The composer's mic, the same element while the dictation is (dictation.ts keeps it while its state is).
   const composerMic = useMemo(() => <DictationMic dictation={dictation} strip={false} />, [dictation]);
@@ -6606,6 +6616,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         acpmuxPerf.markLaunch("connected");
         connectingClient = client;
         directClient.current = client;
+        client.toastSink = notices.transient;
         connectedClients.connected(client);
         // connect() may have delivered its first snapshot before returning. Associate that
         // already-renderable snapshot only after the client binding exists (avoids a TDZ read).
@@ -7205,11 +7216,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   detail?: unknown;
                   reason?: unknown;
                 } | null;
-                if (typeof refused?.detail === "string") client.notice(refused.detail);
+                if (typeof refused?.detail === "string") notices.transient(refused.detail);
                 else if (refused?.reason === "harness.prompt_unavailable")
-                  client.notice(translate("harnesses.enableUnavailable"));
+                  notices.transient(translate("harnesses.enableUnavailable"));
                 else if (refused?.code !== "transport.harness_not_confirmed")
-                  client.notice(errorMessage(error) || String(error));
+                  notices.transient(errorMessage(error) || String(error));
                 return undefined;
               },
             ),
@@ -7315,14 +7326,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           },
           // Fork Conversation from the app (the palette's step, the chat's right-click menu, its
           // shortcut): a fork through the chat's latest finished turn, or of a working chat as it is
-          // now, opened where the app names (`placement`). A chat that cannot fork says why in its
-          // transcript.
+          // now, opened where the app names (`placement`). A chat that cannot fork says why in a
+          // toast (paneToasts.ts).
           "chat.forkTo": async ({ placement }) => {
             const shown = snapshotRef.current;
             const refusal = shown ? forkRefusal(shown) : "unavailable";
             const target = shown ? forkToTarget(shown) : undefined;
             if (refusal || target === undefined) {
-              client.notice(
+              notices.transient(
                 refusal === "nothingYet" ? translate("notice.forkNothingYet") : translate("notice.forkFailed"),
               );
               return undefined;
@@ -7841,6 +7852,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     restartGate,
     sandbox,
     cloudTypingPrewarm,
+    notices,
   ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
@@ -8019,7 +8031,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const failed = lastFailedTurn(transcriptRows);
     const recovery = failed && errorRecovery(failed, turnActions.route, turnActions);
     // A refusal (busy, nothing failed any more) says why, as the card's note does.
-    const notice = (text: string) => ignoreFailure(openClient().then((client) => client.notice(text)));
+    const notice = (text: string) => notices.transient(text);
     if (!recovery) notice(t("turn.nothingToContinue"));
     else
       void recovery.run().then(
@@ -10453,6 +10465,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // into the transcript, and restyle the composer each time.
           data-asks={hasBottomAsk ? "" : undefined}
         >
+          <div ref={setToastTop} className="acpmux-toasts-top" />
           {!harnessesOpen && showNewTab && !newTab.history && (
             // The page's dots, under it: Claude Minimal, Claude Minimal with the quick actions, Codex
             // Minimal (newtab/tabDots.ts, from the look and Minimal's actions widget), then with the
@@ -11005,6 +11018,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 )}
               </div>
               <div ref={setDock} className="acpmux-dock">
+                {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
+                <ToastLayer queue={paneToasts} topHost={toastTop} />
                 {asks}
                 {/* Between the hero and the docked composer. */}
                 {/* A Sandboxed send holds the new chat: no recent chat replaces it while it is out.
