@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42360962671",
+  "recorded_at": "2026-11-07T09:50:34Z",
+  "reason": "cmux-tui e1a7317468a2 changes the image's cmux-tui (pinned ba632892698a)",
+  "dry_run": false,
+  "cmux_tui": "e1a7317468a2739448cf22cc3b235e9595a89149",
+  "fixes": [
+    {
+      "sha": "2b82666d187bf0127f1d4f3a4b5eeaf6adce7a82",
+      "mergedAt": "2026-11-07T09:30:43Z",
+      "subject": "automations: bounded watch cleanup, condition pipes, queued and manual guards (#37557 follow-ups) (#37661)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T09:50:34Z",
+    "snapshot_id": "sh-d723f63adddf45f4872769dba6a31601",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42360962671): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3aac0b55b414572dccefa503c39d16e005faec29",
+    "image": "cloud-native-auto-e1a73174-42360962671-1",
+    "revision": "ci-42360962671-1",
+    "at": "2026-11-07T09:50:34Z"
+  },
+  "rolled_back": false
+}
