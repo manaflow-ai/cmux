@@ -33,7 +33,7 @@ struct DividerCursorUnderDockTests {
             ])
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: "p1")
             // A pinned style with divider lines (`borders`): the live one follows the process-wide
-            // DesignSettings, which a settings test leaves at the app's defaults (flat-sidebar-line, whose
+            // DesignSettings, which a settings test may leave at another style (flat-sidebar-line's
             // `none` separation draws no hover line) when it runs earlier in the same process.
             model.followsDesignMetrics = false
             root = LayoutRootView(model: model, contentProvider: provider)

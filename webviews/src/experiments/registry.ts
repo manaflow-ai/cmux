@@ -10,9 +10,11 @@ import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.expe
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
+import { selectionReplyWrap } from "../agent-session/acpmux/conversation/selectionReplyWrap.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
+import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
 import { backgroundHintRoom } from "../agent-session/acpmux/conversation/backgroundHintRoom.experiment";
@@ -37,6 +39,7 @@ import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
+import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
@@ -89,9 +92,11 @@ export const EXPERIMENTS: readonly Experiment[] = [
   questionPreviewLayout,
   toolErrorLook,
   tableActionsPlace,
+  selectionReplyWrap,
   backgroundReactionLook,
   cloudStartLook,
   cloudProgressLook,
+  cloudStartAskLook,
   agentStartLook,
   liveLineTokens,
   backgroundHintRoom,
@@ -99,6 +104,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayRowLook,
   trayStopLook,
   trayMotionLook,
+  composerHatLook,
   trayHeadLook,
   trayFoldHeadLook,
   trayHeadKindsLook,
