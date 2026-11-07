@@ -64,6 +64,8 @@ public final class PageInfoController {
 
     /// A bubble fading out counts as closed: the button opens it again.
     public var isShown: Bool { popup.isShown }
+    /// Shown, or waiting for the page's size to show: state changes go to the page either way.
+    var isOpen: Bool { isShown || presentsOnSize }
 
     var tab: (any BrowserTab)? { tabSource() }
     var provider: (any PageInfoProviding)? { tab as? any PageInfoProviding }
@@ -191,6 +193,7 @@ public final class PageInfoController {
             let size = CGSize(width: PageInfoStyle.bubbleWidth, height: ceil(height))
             let changed = size != cardSize
             cardSize = size
+            // Every state push brings a report (the page's layout effect); only a change resizes.
             if presentsOnSize {
                 presentsOnSize = false
                 present()

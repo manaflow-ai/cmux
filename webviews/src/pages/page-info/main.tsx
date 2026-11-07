@@ -3,7 +3,7 @@
 // BrowserChromeWebHost). The host pushes the bubble's state on `cmux.page-info.state`; the page
 // sends each control's command and the height its content needs, which places the panel.
 import "../shared/desktop";
-import { useSyncExternalStore } from "react";
+import { useLayoutEffect, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { setDocumentLanguage } from "../shared/i18n";
@@ -30,21 +30,27 @@ export function mountPageInfoPage(root: HTMLElement, client: PageClient): () => 
     for (const listener of listeners) listener();
   });
   const send = (command: PageInfoCommand) => void client.call("cmux.page-info.command", command);
-  // Every content height goes to the host, which grows or shrinks the panel in place.
-  let reported = 0;
-  const sizes = new ResizeObserver(() => {
+  // The host places the panel from the height of each state it pushed (a reopen with the same
+  // height too), and resizes an open panel when the content changes height by itself.
+  const report = () => {
     const height = Math.ceil(root.getBoundingClientRect().height);
-    if (height === 0 || height === reported) return;
-    reported = height;
-    void client.call("cmux.page-info.size", { height });
-  });
+    if (height > 0) void client.call("cmux.page-info.size", { height });
+  };
+  const sizes = new ResizeObserver(report);
   sizes.observe(root);
 
   const strings = pageInfoStrings();
   setDocumentLanguage(strings.language);
   function Bubble() {
     const current = useSyncExternalStore(store.subscribe, store.get);
-    return current ? <PageInfoBubble model={current} onCommand={send} strings={strings} /> : null;
+    // After each committed state: report its height, and keep the keys in the card.
+    useLayoutEffect(() => {
+      if (!current) return;
+      report();
+      const card = root.querySelector<HTMLElement>(".pi-bubble");
+      if (card && !card.contains(document.activeElement)) card.focus();
+    }, [current]);
+    return current ? <PageInfoBubble model={current} onCommand={send} strings={strings} glass={false} /> : null;
   }
   const react = createRoot(root);
   react.render(

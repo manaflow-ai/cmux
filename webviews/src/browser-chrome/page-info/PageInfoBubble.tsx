@@ -41,6 +41,8 @@ export type PageInfoBubbleProps = {
   onCommand: (command: PageInfoCommand) => void;
   look?: PageInfoLook;
   strings?: Strings;
+  /** Draws its own glass card. Off in the app, where the native panel's card is the glass. */
+  glass?: boolean;
 };
 
 type Accessory = "chevron" | "external" | { toggle: boolean; onToggle: (on: boolean) => void };
@@ -516,6 +518,7 @@ export function PageInfoBubble({
   onCommand,
   look = "parity",
   strings = pageInfoStrings(),
+  glass = true,
 }: PageInfoBubbleProps) {
   const page = model.page;
   const props = { model, strings, send: onCommand };
@@ -541,7 +544,7 @@ export function PageInfoBubble({
     // The host's popup window is the dialog; this is its card. Its keys move between rows, go back and close.
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex
     <section
-      className="pi-bubble ui-popup ui-glass"
+      className={glass ? "pi-bubble ui-popup ui-glass" : "pi-bubble"}
       data-look={look}
       data-page={page.type}
       aria-label={model.site.displayName}
