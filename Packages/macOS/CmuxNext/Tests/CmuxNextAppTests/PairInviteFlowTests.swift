@@ -397,7 +397,9 @@ import Testing
         let card = CountingCard(PairInviteCardProvider.route)
         let mouse = try Mouse(card)
         let panel = mouse.panel
-        // The page asks for a shorter card (Confirm moves on screen with the panel), and the panel moves.
+        // Confirm has stayed put a long time; then the page asks for a shorter card (Confirm moves on
+        // screen with the panel), and the panel moves.
+        panel.rearm(at: 0)
         panel.pageResized(card: card.card, width: 460, height: 100)
         panel.setFrame(NSRect(x: panel.frame.minX + 40, y: panel.frame.minY + 80, width: panel.frame.width,
                               height: 100 + WebCardSurface.inset * 2 + panel.personButton.fittingSize.height), display: false)
