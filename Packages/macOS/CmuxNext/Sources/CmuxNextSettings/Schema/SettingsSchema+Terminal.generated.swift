@@ -104,6 +104,8 @@ nonisolated enum TerminalSettingsSchema {
         ]
     }
 
-    /// Every row of the section's lists, in order.
-    static var descriptors: [SettingDescriptor] { fontRows + linkRows + compatibilityRows }
+    /// Every list of schemas/settings/source/terminal.json, in order.
+    static var descriptors: [SettingDescriptor] {
+        [fontRows, linkRows, compatibilityRows].flatMap { $0 }
+    }
 }
