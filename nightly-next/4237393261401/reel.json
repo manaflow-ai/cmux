@@ -1,0 +1,221 @@
+{
+  "version": 1,
+  "build": "4237393261401",
+  "notes": "notes/4237393261401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 37766,
+      "title": "Shared chats: a link guest (no account) is always view-only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37779,
+      "title": "gateway-e2e: say what the chat machine's Codex had when a gateway chat fails",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37759,
+      "title": "cmux NEXT: a close whose rules do not answer still obeys each warning setting",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37788,
+      "title": "docs: modding kit lists the runtime budgets; design lessons name their guards",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37748,
+      "title": "docs: follow-ups from the simplify-pass deletion reviews",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37208,
+      "title": "secrets-v1: the machine's daemon opens HPKE-sealed secrets and harness logins",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37684,
+      "title": "bench(agent-pane): one wheel tick's frame cost in a small chat vs a huge one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37306,
+      "title": "Move the Codex access holder for Cloud machines to Rust",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37770,
+      "title": "cmux-host: the relay ticket command is the cmux host entry, not the session host binary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37784,
+      "title": "cmux-vm: the roll record's smoke_done_at is when the product create ran the image",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34423,
+      "title": "acpmux: add machine_info agent tool",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37749,
+      "title": "bench(agent-pane): agent-pane-idle MEMORY=1 says what a settled chat page holds (heap by kind and name)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37633,
+      "title": "Prompt rail: the hover card is a one-line title over a regular-weight reply, wider, and opens to more lines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37771,
+      "title": "cmux NEXT: menus, popovers, comboboxes and hover cards float on the App's own glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37609,
+      "title": "cmux next: tabs draw a bare >_ and a lighter globe",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37786,
+      "title": "cu arena: rename the desktop helper's pause(), bound its ScreenCaptureKit wait",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37706,
+      "title": "ci(base-red): judge a ci.yml web shard against cmux-next web's base runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37600,
+      "title": "GlassHost: a self-contained package for native glass under a web page (draft library)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37768,
+      "title": "acpmux: a refused Claude sign-in ends its turn typed at the second retry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37720,
+      "title": "cu arena: screenshot through ScreenCaptureKit, fetch engines without origin, report every compile error",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37370,
+      "title": "cmux-sdk-ffi: the SDK's daemon client as the app's C ABI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37587,
+      "title": "settings: the machines and accounts rows as data (schemas/settings/source/machines.json)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37753,
+      "title": "test(group-editor): check the page holds the keyboard, not that the panel is key",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37715,
+      "title": "webviews: runtime perf budgets in dev (layout shift, DOM breadth, live intervals, long frames, React commits)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37744,
+      "title": "Settings > Privacy and Security > Shared Links: see and revoke every shared chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37708,
+      "title": "webviews: lint layout reads interleaved with writes, on save and before push",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37674,
+      "title": "Composer: a pasted attachment loads where the caret or selection was, as dim glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37626,
+      "title": "Agent pane: a sender chip opens its chat's tab at once, and says why when it can't",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37746,
+      "title": "gateway-e2e: run again after cmux#37721",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37585,
+      "title": "cmux NEXT: Session Info floats on the App's own glass, through a shared host glass path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37531,
+      "title": "base red (cmux-next checks): process-scan rows, scrollbars under the ceiling, and the gate reads a new row's files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37740,
+      "title": "acpmux: read ~/.claude.json again when a rewrite tore it, so trust.pending never comes from a torn file",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36988,
+      "title": "Agent chat: View Prompt opens a Context screen with the chat's whole prompt and editable guidance",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37718,
+      "title": "Agent chat diagnostics: a page change counts in one frame interval, not two",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37741,
+      "title": "perf(next): the layout root's pass reads the model unobserved (RESIZE P0 5)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
