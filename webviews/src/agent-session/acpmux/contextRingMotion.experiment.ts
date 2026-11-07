@@ -21,11 +21,6 @@ export const contextRingMotion = defineExperiment({
       label: "CSS ease-out, percent jumps",
       description: "The same eased arc, but the percent shows the new value at once while the arc is still moving.",
     },
-    waapi: {
-      label: "Web Animations ease-out",
-      description:
-        "A script-started Web Animation of the same property, 600 ms ease-out; a reading mid-way restarts from the drawn value.",
-    },
     spring: {
       label: "Spring",
       description: "The shared spring curve over 600 ms: a quicker start and a slight settle past the new value.",

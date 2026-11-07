@@ -1,6 +1,6 @@
 /* The context ring eases between readings (contextRingMotion.experiment.ts; Leo, 2026-11-07, of a
    compaction: "I feel like that should, like, play a cute little, like, eased animation that goes
-   down"). The share used is one registered number, so a transition or a Web Animation interpolates
+   down"). The share used is one registered number, so a transition interpolates
    it and the arc and the percent both read it. The ring and the caption are keyed by chat in
    ContextRing, so opening or switching chats mounts them at the new value with nothing to ease. */
 @property --acpmux-ring-used {

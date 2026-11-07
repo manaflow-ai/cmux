@@ -193,7 +193,7 @@ await requireBrowserLane("context-ring-motion-browser.test.ts", async () => {
         }
       });
 
-      for (const motion of ["ease", "waapi", "spring"])
+      for (const motion of ["ease", "spring"])
         run(`the percent beside the ring counts with the arc (${motion})`, async () => {
           const page = await open(engine);
           try {
@@ -242,7 +242,7 @@ await requireBrowserLane("context-ring-motion-browser.test.ts", async () => {
         }
       });
 
-      for (const motion of ["ease", "waapi", "spring"])
+      for (const motion of ["ease", "spring"])
         run(`under Reduce Motion a new reading is drawn in one frame (${motion})`, async () => {
           const page = await open(engine, { reducedMotion: "reduce" });
           try {
