@@ -15,7 +15,7 @@ import type { IncomingMessage } from "./incomingMessage";
 import { useInboxNoticeLook } from "./inboxNoticeLook";
 import { useMessageLineLook } from "./messageLineLook";
 import { Tooltip } from "../../../ui/Tooltip";
-import { MessageGroupHover } from "./MessageGroupHover";
+import { MessageGroupHover, type GroupHoverList } from "./MessageGroupHover";
 import "./AgentMessageRow.css";
 import "./MessageGroupHead.css";
 
@@ -69,10 +69,10 @@ export function MessageGroupHead({
   /// The glyph in place of the sender's: a fold of tools' notices shows its strongest severity's
   /// (LaneNoticeBatch.tsx), so a fire is never folded out of sight.
   mark?: ReactNode;
-  /// The group's messages, newest first: its hover lists them (MessageGroupHover.tsx) in place of
+  /// The group's messages, newest first, and how many it holds: its hover lists them (MessageGroupHover.tsx) in place of
   /// the senders' names (Leo, 2026-11-07: "the hover preview when you receive a lot of messages,
   /// this is not useful").
-  messages?: readonly IncomingMessage[];
+  messages?: GroupHoverList;
 }) {
   const look = useInboxNoticeLook();
   // Single (the default, messageLineLook.ts): the senders after the count on its line. Stacked (a
@@ -81,7 +81,7 @@ export function MessageGroupHead({
   const lineLook = useMessageLineLook();
   const below = lineLook === "stacked" && look !== "group-count" && !open ? senders : undefined;
   const inline = lineLook === "single" ? senders : undefined;
-  const hover = messages?.length ? <MessageGroupHover messages={messages} /> : undefined;
+  const hover = messages?.messages.length ? <MessageGroupHover list={messages} /> : undefined;
   const head = (
     <button
       type="button"

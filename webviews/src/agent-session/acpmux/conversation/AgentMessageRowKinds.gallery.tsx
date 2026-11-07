@@ -176,7 +176,7 @@ export default componentEntry<Props>({
                 >
                   {hover ? (
                     <div className="ui-card ui-glass ui-tooltip cv-group-hover__popup" style={{ position: "static" }}>
-                      <MessageGroupHover messages={group} />
+                      <MessageGroupHover list={group} />
                     </div>
                   ) : (
                     <>

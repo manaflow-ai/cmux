@@ -21,6 +21,7 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
       ...(message.promptId ? { promptId: message.promptId } : {}),
       ...(message.unverified ? { unverified: message.unverified } : {}),
       ...(message.harness ? { harness: message.harness } : {}),
+      ...(message.sender?.session ? { session: message.sender.session } : {}),
     }));
     const sender = messages?.at(-1)?.sender ?? thread.from.at(-1) ?? "inbox";
     const preview = messages?.at(-1)?.text ?? thread.preview;
@@ -31,7 +32,10 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
       ...(messages?.length ? { messages } : {}),
       ...(thread.label ? { label: thread.label } : {}),
       ...(thread.promptIds.length ? { promptIds: thread.promptIds } : {}),
-      ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
+      // The thread's session, else its sender record's (acpmux may name it only there).
+      ...((thread.fromSession ?? thread.sender?.session)
+        ? { fromSession: thread.fromSession ?? thread.sender?.session }
+        : {}),
       ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
       ...(thread.unverified ? { unverified: thread.unverified } : {}),
       count: thread.count,
@@ -168,7 +172,11 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
             raw: delivery.text,
             threadId: thread.id,
             ...(delivery.promptId ? { msgId: delivery.promptId } : {}),
-            ...(thread.fromSession && delivery.sender === thread.sender ? { sessionId: thread.fromSession } : {}),
+            ...(delivery.session
+              ? { sessionId: delivery.session }
+              : thread.fromSession && delivery.sender === thread.sender
+                ? { sessionId: thread.fromSession }
+                : {}),
             ...(delivery.harness
               ? { harness: delivery.harness }
               : thread.fromHarness && delivery.sender === thread.sender

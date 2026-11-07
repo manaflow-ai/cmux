@@ -27,7 +27,7 @@ import type { IncomingMessage } from "./incomingMessage";
 import { inboxCounts, inboxThreadKey, type InboxMessage, type InboxNotice, type InboxThread } from "./inboxNotice";
 import { foldsThreads, useInboxNoticeLook } from "./inboxNoticeLook";
 import { Markdown } from "./Markdown";
-import { hoverMessages } from "./MessageGroupHover";
+import { inboxHover } from "./MessageGroupHover";
 import { withoutRelayEnvelope } from "./relayEnvelope";
 import { bareSender } from "./senderIdentity";
 import "./InboxNoticeCard.css";
@@ -109,16 +109,19 @@ function InboxThreadLine({
   }, [wanted, own, fetched, readFor, readThread, thread]);
   const name = newestSender(thread);
   const newest = messages?.at(-1);
+  // Its session: the thread's, else its sender record's (an acpmux that names the sender's session
+  // only there), so the name resolves and opens its chat.
+  const senderSession = thread.fromSession ?? newest?.sender?.session ?? thread.sender?.session;
   const sender = useMemo<IncomingMessage>(
     () => ({
       name,
       text: "",
       raw: "",
-      ...(thread.fromSession && { sessionId: thread.fromSession }),
+      ...(senderSession && { sessionId: senderSession }),
       ...((thread.fromHarness ?? newest?.harness) && { harness: thread.fromHarness ?? newest?.harness }),
       ...((thread.unverified || newest?.unverified) && { unverified: true as const }),
     }),
-    [name, thread.fromSession, thread.fromHarness, thread.unverified, newest?.harness, newest?.unverified],
+    [name, senderSession, thread.fromHarness, thread.unverified, newest?.harness, newest?.unverified],
   );
   const whole = messages?.map((m) => m.text).join("\n\n") ?? thread.preview;
   const repository = githubRepository ?? mentionedRepository(whole);
@@ -261,7 +264,9 @@ export function InboxNoticeCard({
             name: newestSender(thread) || senders[0]!,
             text: "",
             raw: "",
-            ...(thread.fromSession && { sessionId: thread.fromSession }),
+            ...((thread.fromSession ?? thread.sender?.session) && {
+              sessionId: thread.fromSession ?? thread.sender?.session,
+            }),
             ...(thread.fromHarness && { harness: thread.fromHarness }),
           })),
         )
@@ -277,16 +282,7 @@ export function InboxNoticeCard({
         bodyId={bodyId}
         onToggle={() => show(!open)}
         className="cv-inbox__head"
-        messages={hoverMessages(
-          notice.threads.map((thread) => ({
-            name: newestSender(thread),
-            text: thread.messages?.at(-1)?.text ?? thread.preview,
-            raw: "",
-            ...(thread.fromHarness && { harness: thread.fromHarness }),
-            ...(thread.fromSession && { sessionId: thread.fromSession }),
-            ...(thread.unverified && { unverified: true as const }),
-          })),
-        )}
+        messages={inboxHover(notice.threads)}
       />
       {open && (
         <div id={bodyId} className="cv-inbox__body">

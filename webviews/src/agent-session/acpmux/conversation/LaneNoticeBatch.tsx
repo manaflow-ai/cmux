@@ -111,6 +111,8 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
           // Its hover lists the messages, newest first, not a wall of names (MessageGroupHover.tsx).
           messages={hoverMessages(
             batch.rows.map((member) => (member.incoming?.kind === "message" ? member.incoming.message : undefined)),
+            // A delivery that held only its thread's preview stands for the thread's whole count.
+            batch.rows.map((member) => member.inboxThread?.count),
           )}
         />
       ) : (

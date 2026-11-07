@@ -20,6 +20,8 @@ export type LaneNoticeDelivery = {
   readonly unverified?: true;
   /// Its sender's harness family, from its sender record.
   readonly harness?: string;
+  /// Its sender's session, from its sender record (the thread's may name another sender's).
+  readonly session?: string;
 };
 export type LaneNoticeThread = {
   readonly id: string;
