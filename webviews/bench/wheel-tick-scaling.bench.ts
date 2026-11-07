@@ -69,11 +69,13 @@ async function tickRun({
   rounds,
   session,
   live,
+  pagingMs,
 }: {
   rounds: number;
   session: string;
   live: boolean;
-}): Promise<Omit<SizeResult, "turns" | "rows" | "open_ms"> | { error: string }> {
+  pagingMs: number;
+}): Promise<Omit<SizeResult, "turns" | "open_ms"> | { error: string }> {
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
   if (!scroller) return { error: "no transcript" };
   const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
@@ -94,15 +96,28 @@ async function tickRun({
   type IntentModule = typeof import("../src/agent-session/acpmux/conversation/userScroll");
   const { userScrollIntent } = (await import(/* @vite-ignore */ intentUrl)) as IntentModule;
 
-  // Into the history as a reader goes there: a few viewports up, then still frames while older pages land.
+  // Into the history as a reader goes there: up to the top of what is loaded, again and again, so older
+  // pages land, until the chat's rows stop growing (each row says how many the transcript holds:
+  // aria-setsize) or the paging deadline passes. Then the ticks run from the middle of the loaded rows,
+  // where a reader who scrolled back through a long chat is.
+  const loaded = () =>
+    Number(scroller.querySelector<HTMLElement>(".acpmux-row[aria-setsize]")?.getAttribute("aria-setsize") ?? 0);
   const requested = userScrollIntent(scroller).request();
   scroller.scrollTop = scroller.scrollHeight;
   for (let index = 0; index < 20; index += 1) await frame();
-  for (let step = 0; step < 6; step += 1) {
-    if (requested()) scroller.scrollTop = Math.max(0, scroller.scrollTop - scroller.clientHeight);
-    for (let index = 0; index < 20; index += 1) await frame();
+  const pagingEnds = performance.now() + pagingMs;
+  let still = 0;
+  let rows = loaded();
+  while (still < 40 && performance.now() < pagingEnds) {
+    if (requested()) scroller.scrollTop = Math.max(0, scroller.scrollTop - scroller.clientHeight * 4);
+    await frame();
+    const now = loaded();
+    still = now === rows ? still + 1 : 0;
+    rows = now;
   }
+  if (requested()) scroller.scrollTop = Math.round((scroller.scrollHeight - scroller.clientHeight) / 2);
   for (let index = 0; index < 60; index += 1) await frame();
+  const loadedRows = loaded();
 
   const longTasks: number[] = [];
   let observer: PerformanceObserver | undefined;
@@ -227,6 +242,7 @@ async function tickRun({
   });
   const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize;
   return {
+    rows: loadedRows,
     frames: work.length,
     work: summary(work),
     over_120: work.filter((ms) => ms > 1000 / 120).length,
@@ -271,7 +287,12 @@ function printProfile(turns: number, profile: { nodes: ProfileNode[]; samples: n
     console.log(`  ${(Math.round(ms * 10) / 10).toString().padStart(8)} ms ${((ms / total) * 100).toFixed(1).padStart(5)}%  ${key}`);
 }
 
+// React's production build, as the app ships it: its development build spends most of a frame on its own
+// checks (jsxDEV), which says nothing about the app. CMUX_TICK_DEV=1 keeps the development build.
+const DEV = process.env.CMUX_TICK_DEV === "1";
+if (!DEV) process.env.NODE_ENV = "production";
 const vite = await createServer({
+  mode: DEV ? "development" : "production",
   configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
   server: { port: 0, host: "127.0.0.1", strictPort: false },
   logLevel: "error",
@@ -298,17 +319,22 @@ try {
       await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
       await cdp.send("Profiler.start");
     }
-    const run = await page.evaluate(tickRun, { rounds: ROUNDS, session: seeded.session, live: MODE === "live" });
+    const run = await page.evaluate(tickRun, {
+      rounds: ROUNDS,
+      session: seeded.session,
+      live: MODE === "live",
+      pagingMs: 120_000,
+    });
     if (cdp) printProfile(turns, (await cdp.send("Profiler.stop")).profile);
     await page.close();
     if ("error" in run) throw new Error(`wheel-tick-scaling: ${turns} turns: ${run.error}`);
     if (run.response_frames.p50 === 0 || run.frames < ROUNDS * 4)
       throw new Error(`wheel-tick-scaling: ${turns} turns: the ticks did not move the transcript ${JSON.stringify(run)}`);
-    const result = { turns, rows: seeded.rows, open_ms: seeded.open_ms, ...run };
+    const result = { turns, open_ms: seeded.open_ms, ...run };
     results.push(result);
     const pick = ({ p50, p95, max }: Summary) => `${p50}/${p95}/${max}`;
     console.log(
-      `wheel-tick-scaling ${ENGINE} ${MODE} turns=${turns} rows=${result.rows} frames=${result.frames} ticks=${result.ticks} ` +
+      `wheel-tick-scaling ${ENGINE} ${MODE}${DEV ? " dev" : ""} turns=${turns} rows=${result.rows} frames=${result.frames} ticks=${result.ticks} ` +
         `work=${pick(result.work)} over_120=${result.over_120} over_60=${result.over_60} ` +
         `react=${pick(result.react)} layout=${pick(result.layout)} response_frames=${pick(result.response_frames)} ` +
         `stalls=${result.stalls} long_tasks=${result.long_tasks} long_task_max=${result.long_task_max} ` +
