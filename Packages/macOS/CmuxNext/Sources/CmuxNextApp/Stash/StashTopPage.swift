@@ -40,8 +40,8 @@ final class StashTopPage: InternalPageProvider {
     /// one already open is told to.
     func openImport(show: () throws -> String) rethrows {
         importOnOpen = true
+        defer { importOnOpen = false }
         let key = try show()
         if importOnOpen, let page = pages[key] { page.send(command: "open", arguments: ["text": .string("import")]) }
-        importOnOpen = false
     }
 }

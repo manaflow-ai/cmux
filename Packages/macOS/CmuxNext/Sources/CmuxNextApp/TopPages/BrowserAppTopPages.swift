@@ -39,7 +39,7 @@ final class HistoryTopPage: InternalPageProvider {
         return page.contentView
     }
 
-    func tabClosed(_ key: String) { pages[key] = nil }
+    func tabClosed(_ key: String) { pages.removeValue(forKey: key)?.close() }
 }
 
 /// The Bookmarks manager as a top page, over the bookmarks of the window's
