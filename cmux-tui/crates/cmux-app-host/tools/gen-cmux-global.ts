@@ -43,8 +43,52 @@ const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attac
 // own Import from Conductor only.
 const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$)/
 
+/** The daemon's Cloud API calls carry the person's own access token in their params; the app's own Cloud code only. */
+const CLOUD_API_CALLS = [
+  "cloud.machine.io",
+  "cloud.owner.acpmux_keyed_start",
+  "cloud.owner.acpmux_person_holds",
+  "cloud.owner.fork_run",
+  "cloud.owner.github_app",
+  "cloud.owner.handoff_begin_turn",
+  "cloud.owner.handoff_open",
+  "cloud.owner.handoff_wait",
+  "cloud.owner.handoffs",
+  "cloud.owner.harness_login_copy",
+  "cloud.previews.create_link",
+  "cloud.previews.refresh",
+  "cloud.previews.revoke_link",
+  "cloud.runs.cancel",
+  "cloud.runs.create",
+  "cloud.runs.sandbox",
+  "cloud.runs.start",
+  "cloud.runs.wait",
+  "cloud.vm.delete_snapshot",
+  "cloud.vm.domains",
+  "cloud.vm.firewall_create",
+  "cloud.vm.firewall_delete",
+  "cloud.vm.firewall_get",
+  "cloud.vm.firewall_list",
+  "cloud.vm.fork",
+  "cloud.vm.networks",
+  "cloud.vm.provision_api",
+  "cloud.vm.publication_api_keys",
+  "cloud.vm.publications",
+  "cloud.vm.resize",
+  "cloud.vm.restore",
+  "cloud.vm.revoke_publication_api_key",
+  "cloud.vm.scp_endpoint",
+  "cloud.vm.snapshot",
+  "cloud.vm.snapshots",
+  "cloud.vm.tunnel_attach",
+  "cloud.vm.tunnel_detach",
+  "cloud.vm.tunnel_enroll",
+  "cloud.vm.tunnel_revoke",
+  "cloud.vm.tunnel_rotate_key",
+]
+
 /** Ops no app may call, whatever their risk (cloud.machine.link_token mints dial tokens). */
-export const NEVER_OPS = new Set(["cloud.machine.link_token"])
+export const NEVER_OPS = new Set(["cloud.machine.link_token", ...CLOUD_API_CALLS])
 
 const readJSON = (p: string) => JSON.parse(readFileSync(join(repo, p), "utf8"))
 

@@ -353,6 +353,39 @@ async fn the_running_wait_bounds_every_try() {
     assert!(began.elapsed() <= RUNNING_HANDSHAKE_WAIT, "{:?}", began.elapsed());
 }
 
+/// A link token the broker could not mint ("the Cloud broker is
+/// unavailable", 2026-11-06) is asked again a few times before the dial is
+/// refused; a mint that then answers connects.
+#[tokio::test(start_paused = true)]
+async fn an_unavailable_token_mint_is_asked_again_before_the_dial_is_refused() {
+    let unavailable =
+        || Err(ConnectInfoError::Unavailable("the Cloud broker is unavailable".into()));
+    let overlay: &'static CloudOverlay = Box::leak(Box::default());
+    let resolver: &'static CloudResolver<FakeSource> = Box::leak(Box::new(CloudResolver::new(
+        FakeSource::with(vec![Ok(record("running", &["daemon"]))]).tokens(vec![
+            unavailable(),
+            unavailable(),
+            Ok(grant("t1", HOST, &["daemon"])),
+        ]),
+    )));
+    let reply = spawn_dial(overlay, resolver).await.unwrap();
+    assert_eq!(reply, "{\"ok\":true,\"path_state\":\"tunnel\",\"relay_available\":false}\n");
+    assert_eq!(*resolver.source.mints.lock().unwrap(), 3);
+
+    let overlay = CloudOverlay::default();
+    let resolver = CloudResolver::new(
+        FakeSource::with(vec![Ok(record("running", &["daemon"]))]).tokens(vec![
+            unavailable(),
+            unavailable(),
+            unavailable(),
+            unavailable(),
+        ]),
+    );
+    let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
+    assert!(reply.contains("link_token: "), "{reply}");
+    assert_eq!(*resolver.source.mints.lock().unwrap(), 4, "three retries, then refused");
+}
+
 /// Only a running record gets the wait: a starting, pausing or failed one is
 /// reported after the refetch, as before.
 #[tokio::test(start_paused = true)]

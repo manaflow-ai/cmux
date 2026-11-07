@@ -56,7 +56,9 @@ members = [
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
     "crates/cmux-cloud-handlers",
+    "crates/cmux-window-rules",
     "crates/cmux-cloud-client",
+    "crates/cmux-cloud-api",
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
     "crates/cmux-pty",
@@ -150,7 +152,9 @@ default-members = [
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
     "crates/cmux-cloud-handlers",
+    "crates/cmux-window-rules",
     "crates/cmux-cloud-client",
+    "crates/cmux-cloud-api",
     "crates/cmux-pty",
     "crates/cmux-process",
     "crates/cmux-remote-protocol",
@@ -253,7 +257,9 @@ cmux-cloud-machine = { path = "crates/cmux-cloud-machine" }
 cmux-cloud-tasks = { path = "crates/cmux-cloud-tasks" }
 cmux-cloud-config = { path = "crates/cmux-cloud-config" }
 cmux-cloud-handlers = { path = "crates/cmux-cloud-handlers" }
+cmux-window-rules = { path = "crates/cmux-window-rules" }
 cmux-cloud-client = { path = "crates/cmux-cloud-client" }
+cmux-cloud-api = { path = "crates/cmux-cloud-api" }
 cmux-cloud-environment = { path = "crates/cmux-cloud-environment" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
