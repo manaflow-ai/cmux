@@ -39,8 +39,12 @@ mod billing;
 mod caller_browser;
 mod capability_cache;
 #[cfg(unix)]
+mod chat_start;
+#[cfg(unix)]
 mod chief;
 mod chief_target;
+#[cfg(unix)]
+mod cloud_api;
 #[cfg(unix)]
 mod cloud_automation_relay;
 #[cfg(unix)]
@@ -77,6 +81,8 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+#[cfg(unix)]
+mod inference_gateway;
 mod internal;
 mod launch_credential;
 mod lifecycle;
@@ -509,6 +515,31 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `login` and `logout` are `vm sign-in` and `vm sign-out`, which the Cloud alias below runs.
+    #[cfg(unix)]
+    let account_args;
+    #[cfg(unix)]
+    let args = match auth_token::account_alias(args) {
+        Some(rewritten) => {
+            account_args = rewritten;
+            account_args.as_slice()
+        }
+        None => args,
+    };
+    // `vm VERB` is `cloud VERB` for every Cloud verb (`cmux cloud` is now `cmux vm`).
+    #[cfg(unix)]
+    let cloud_args;
+    #[cfg(unix)]
+    let args = match vm::cloud_alias(args) {
+        Some(rewritten) => {
+            cloud_args = rewritten;
+            cloud_args.as_slice()
+        }
+        None => {
+            vm::cloud_rename_note(args);
+            args
+        }
+    };
     // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
     #[cfg(unix)]
     let list_args;
@@ -535,15 +566,18 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         None => args,
     };
     #[cfg(unix)]
-    if let Some(code) = mcp::run_if_requested(args)
+    if let Some(code) = chat_start::run_if_requested(args)
+        .or_else(|| mcp::run_if_requested(args))
         .or_else(|| workflow::run_if_requested(args))
         .or_else(|| agents::run_if_requested(args))
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| inference_gateway::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
+        .or_else(|| auth_token::whoami_if_requested(args))
         .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
@@ -554,6 +588,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
+        .or_else(|| cloud_api::run_if_requested(args))
         .or_else(|| cloud_hands::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))

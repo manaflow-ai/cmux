@@ -94,6 +94,4 @@ nonisolated enum OmnibarLookSettingsSchema {
             ),
         ]
     }
-
-    static var agentSettableKeys: Set<String> { Set(descriptors.map(\.id)) }
 }
