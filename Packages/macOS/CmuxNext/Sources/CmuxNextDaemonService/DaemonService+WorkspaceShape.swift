@@ -17,4 +17,9 @@ extension DaemonService {
         }
         return try await connection.listWorkspaces().workspaces.first { $0.key == key }.map(WorkspaceShape.init)
     }
+
+    /// Names tab `surface` of workspace `key`.
+    public func renameTab(_ surface: SurfaceID, to name: String, in key: WorkspaceKey, on connection: DaemonConnection) async throws {
+        try await connection.renameTab(surface, to: name)
+    }
 }
