@@ -1,3 +1,5 @@
+import CmuxSettings
+import CmuxSettingsUI
 import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
@@ -90,7 +92,7 @@ final class DevicesPanelViewModel {
     /// The control-bar status line for the presence connection.
     var statusText: String? {
         if registryError != nil, knownDeviceCount == 0 {
-            return String(localized: "devices.status.registryUnreachable", defaultValue: "Device list unreachable \u{2014} retrying")
+            return DeviceListEmptyStatusCopy.unreachable
         }
         switch presenceState {
         case .stopped:
@@ -114,5 +116,14 @@ final class DevicesPanelViewModel {
         if registryError != nil, knownDeviceCount == 0 { return true }
         if case .retrying = presenceState { return true }
         return false
+    }
+
+    /// Whether the sidebar may say the account has no other Macs.
+    /// A missing directory or a read still in flight is discovery, not an
+    /// empty result. A registry failure with nothing to show is the failure.
+    var deviceListPhase: DeviceListDiscoveryPhase {
+        if registryError != nil, knownDeviceCount == 0 { return .unreachable }
+        if hasLoadedDirectory { return .resolved }
+        return .discovering
     }
 }
