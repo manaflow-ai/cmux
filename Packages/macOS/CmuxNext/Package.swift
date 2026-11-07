@@ -1494,7 +1494,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Wakeups: the main-thread task board, where an action run is published as a span so the
             // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor). CCmuxAppFFI: the
             // action catalog (cmux-action-catalog, module CCmuxActionCatalogFFI, RustActionCatalog).
-            dependencies: ["CmuxNextSignposts", "CmuxNextWakeups", "CCmuxAppFFI"],
+            dependencies: ["CmuxNextSignposts", "CmuxNextWakeups"],
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),

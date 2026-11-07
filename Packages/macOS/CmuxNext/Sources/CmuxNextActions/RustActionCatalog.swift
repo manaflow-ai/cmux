@@ -1,5 +1,4 @@
 public import AppKit
-import CCmuxActionCatalogFFI
 import Foundation
 import os
 
@@ -33,14 +32,8 @@ nonisolated struct RustActionCatalog: Sendable {
 
     /// The catalog JSON for `language` from the Rust library.
     static func json(language: String) -> Data? {
-        var pointer: UnsafePointer<UInt8>?
-        var length = 0
-        let status = Array(language.utf8).withUnsafeBufferPointer { tag in
-            cmux_action_catalog_json(tag.baseAddress, tag.count, &pointer, &length)
-        }
-        guard status == 0, let pointer else { return nil }
-        // The library keeps these bytes for the life of the process.
-        return Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: pointer), count: length, deallocator: .none)
+        _ = language
+        return nil // THROWAWAY compile stub: no FFI until the release is pinned
     }
 
     static func load(language: String) -> RustActionCatalog {
