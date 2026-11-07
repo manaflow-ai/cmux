@@ -31586,7 +31586,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "flat-sidebar-line",
+      "default" : "flat",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.panes",

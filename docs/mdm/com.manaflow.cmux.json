@@ -957,7 +957,7 @@
       "type" : "string"
     },
     "appearance.chromeStyle" : {
-      "default" : "flat-sidebar-line",
+      "default" : "flat",
       "description" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
       "enum" : [
         "default",
