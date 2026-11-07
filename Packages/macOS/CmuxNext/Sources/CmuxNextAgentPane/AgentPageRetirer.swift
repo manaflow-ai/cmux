@@ -70,6 +70,9 @@ public final class AgentPageRetirer {
         view.autoresizingMask = []
         parking.addSubview(view)
         view.frame = CGRect(origin: .zero, size: size)
+        // The pane hid the page when it let it go (`PaneContentView.retire`): hidden, Chromium drops its frame.
+        view.isHidden = false
+        PageWebView.syncChromiumVisibility(in: view)
     }
 
     /// Removes the parkings no kept page waits in any more (taken back into a pane, or torn down).
