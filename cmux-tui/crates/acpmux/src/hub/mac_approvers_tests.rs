@@ -469,7 +469,8 @@ fn a_macs_paired_phone_enrolled_here_allows_one_prompt_and_never_raises_a_policy
 #[test]
 fn info_reports_the_options_an_enrolled_signature_may_count() {
     // A tool's ask: only the one-time allow, and only with no answers.
-    let (once, answered) = may_allow_options(&tool_ask());
+    let ask = tool_ask();
+    let (once, answered) = may_allow_options(&ask);
     assert_eq!(once, ["yes"]);
     assert!(answered.is_empty());
     // A mode switch or a plan: nothing, either way.
