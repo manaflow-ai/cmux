@@ -8,7 +8,8 @@
 //!
 //! - no `--on` (and no `CMUX_ON`), or `--on here`: right here, as `cmux agents chat new`
 //!   starts it (a chat tab in the app, in this machine's acpmux);
-//! - `--on cloud`: cmux Cloud, today a new Cloud VM;
+//! - `--on cloud`: my cmux Cloud: my one Cloud VM (or the one running of several), a new one
+//!   when I have none (`my_cloud`);
 //! - `--on vm:new`: a new Cloud VM; `--on vm:ID|NAME`: the app's existing Cloud VM with that id,
 //!   or the one VM with that title, never one made for it. Both are the run `cmux cloud
 //!   start-chat` does (cloud_start_chat.rs), which stays as that run's old name;
@@ -54,7 +55,7 @@ usage: cmux chat [--on TARGET] [--agent AGENT] [--model MODEL] [--cwd DIR]
 Starts an agent chat, right here unless --on names another target:
 
   --on here          This machine, as a tab in the cmux app (the default)
-  --on cloud         cmux Cloud (a new Cloud VM)
+  --on cloud         Your Cloud VM, or a new one when you have none
   --on vm:new        A new Cloud VM
   --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm list-machines`)
   --on DEVICE        A connected device by its id or name (`cmux machine list`);
@@ -255,10 +256,11 @@ where
         return Ok(Route::Here);
     }
     if on == "cloud" {
-        return match cmux::resolve_chat_target("cloud", &Value::Null, (reads.signed_in)()) {
-            Ok(_) => Ok(Route::Cloud(Machine::New)),
-            Err(refusal) => Err(refused(&refusal)),
-        };
+        if let Err(refusal) = cmux::resolve_chat_target("cloud", &Value::Null, (reads.signed_in)())
+        {
+            return Err(refused(&refusal));
+        }
+        return my_cloud(&(reads.cloud_machines)()?).map(Route::Cloud);
     }
     if let Some(vm) = on.strip_prefix("vm:") {
         if vm == "new" {
@@ -311,6 +313,54 @@ where
             )),
         },
     }
+}
+
+/// The VM statuses `--on cloud` does not reuse: a VM that is failing or going away.
+const NOT_REUSED: &[&str] = &["failed", "deleting", "deleted", "destroyed"];
+
+/// `--on cloud`, "my Cloud" (Leo's CLI walkthrough, 2026-11-07): the one VM of yours the app
+/// lists, a new one when you have none, or the one running VM of several. Several VMs and not
+/// one running is refused with their names, never guessed; a paused VM resumes when the chat
+/// starts on it (the app's `start-chat --target`).
+fn my_cloud(listed: &Value) -> Result<Machine, Value> {
+    if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
+        return Err(refused(&ChatTargetRefusal::SignedOut));
+    }
+    if listed.get("loaded") == Some(&Value::Bool(false)) {
+        let mut error = refusal(
+            "chat_target.unavailable",
+            "the cmux app has not loaded your Cloud VMs yet".to_owned(),
+            "run this command again in a moment",
+            json!({}),
+        );
+        error["retryable"] = json!(true);
+        return Err(error);
+    }
+    let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    let usable: Vec<&Value> = rows
+        .iter()
+        .filter(|row| !text(row, "status").is_some_and(|status| NOT_REUSED.contains(&status)))
+        .collect();
+    let running: Vec<&Value> =
+        usable.iter().copied().filter(|row| text(row, "status") == Some("running")).collect();
+    let id = match (usable.as_slice(), running.as_slice()) {
+        ([], _) => return Ok(Machine::New),
+        ([only], _) | (_, [only]) => text(only, "machine_id"),
+        _ => None,
+    };
+    if let Some(id) = id {
+        return Ok(Machine::Target(id.to_owned()));
+    }
+    let names: Vec<&str> = usable
+        .iter()
+        .map(|row| text(row, "title").or(text(row, "machine_id")).unwrap_or(""))
+        .collect();
+    Err(refusal(
+        "chat_target.which_vm",
+        format!("you have {} Cloud VMs: {}", usable.len(), names.join(", ")),
+        "name one with --on vm:NAME (`cmux vm list-machines`), or use --on vm:new",
+        json!({"names": names}),
+    ))
 }
 
 /// The app's existing Cloud VM with machine id `id`, else the one VM titled `name`, from its
