@@ -23,8 +23,8 @@ use std::time::Duration;
 use serde_json::Value;
 
 use super::cloud_client_session::{secure_origin, valid_machine};
-use super::cloud_machine_io::{Op, Request, RouteChoice, perform};
 use super::inference_gateway::{TokenSource, backend_token};
+use cmux_cloud_api::machine_io::{Op, Request, RouteChoice, perform};
 
 const PLACEHOLDER: &str = "cmux-vm-edge-placeholder";
 /// How long the person has to approve the device login (Codex's code lives 15 minutes).
@@ -252,6 +252,8 @@ impl Machine<'_> {
             cache_dir: None,
             route: RouteChoice::Auto,
             app_version: None,
+            local_only: false,
+            max_bytes: None,
         };
         let (_, answer) = perform(&self.http, &request, now_ms).await;
         if !(200..300).contains(&answer.status) {
