@@ -1,6 +1,7 @@
 // The agent pane on the shared page host (`cmux-page://cmux.agent/`, CmuxNextAgentPane
 // AgentPageProvider): the old `agentSession` methods become `cmux.agent.*` pane-protocol calls, and
 // the scripts the old host evaluated become events of the stream `cmux.agent.host.events`.
+import { setOutsideDictation } from "./outsideDictation";
 import { createPageClient, isPageError, type PageClient } from "../../pages/shared/pageClient";
 import { NativeError } from "./nativeError";
 import { receiveTransportEvent, type TransportEvent } from "./bridgeSocket";
@@ -169,6 +170,9 @@ export function applyHostEvent(event: HostEvent): void {
       return setFloatingState(event.value);
     case "dictation":
       return bridge?.dictation?.(value);
+    case "micActivity":
+      // Another app's use of the microphone (outsideDictation.ts), while a composer watches.
+      return setOutsideDictation(event.value);
     case "designSelection":
       return bridge?.designSelection?.(value);
     case "cloudStartProgress":
