@@ -32,43 +32,6 @@ const PLACEHOLDER: &str = "cmux-vm-edge-placeholder";
 const DEVICE_WAIT: Duration = Duration::from_secs(15 * 60);
 const POLL: Duration = Duration::from_secs(3);
 const LOG: &str = "$HOME/.cache/cmux/inference-login-codex.log";
-/// The Codex model provider the gateway path gives the chat machine (CODEX_EDGE_PROVIDER).
-const EDGE_PROVIDER: &str = "cmux-gateway";
-/// Points the machine's Codex at the edge name with the public placeholder bearer, which the edge replaces with the
-/// gateway machine token: a `[model_providers.cmux-gateway]` table and the top-level `model_provider` naming it, in
-/// `~/.codex/config.toml`. Every other setting stays; a second run replaces its own table. acpmux starts Codex itself
-/// (not through the image's /etc/cmux/codex launcher), so this config, not a login shell's model-plane values, is
-/// what a chat on the machine uses. No secret is written: the placeholder is public.
-const CODEX_EDGE_PROVIDER: &str = r#"python3 -I - <<'CMUX_CODEX_EDGE'
-import os, pathlib, re, tempfile
-p = pathlib.Path(os.environ.get('HOME', '/home/cmux')) / '.codex' / 'config.toml'
-lines = p.read_text().splitlines() if p.exists() else []
-header = re.compile(r'\s*\[\s*([^\]]+?)\s*\]\s*(#.*)?$')
-out, table = [], None
-for line in lines:
-    m = header.match(line)
-    if m:
-        table = m.group(1).strip('"')
-        if table in ('model_providers.cmux-gateway', 'model_providers."cmux-gateway"'):
-            continue
-        out.append(line)
-        continue
-    if table in ('model_providers.cmux-gateway', 'model_providers."cmux-gateway"'):
-        continue
-    if table is None and re.match(r'\s*model_provider\s*=', line):
-        continue
-    out.append(line)
-out = ['model_provider = "cmux-gateway"'] + out + ['', '[model_providers.cmux-gateway]', 'name = "cmux gateway"',
-    'base_url = "https://coderouter.cmux.internal/v1"', 'wire_api = "responses"',
-    'experimental_bearer_token = "cmux-vm-edge-placeholder"']
-p.parent.mkdir(parents=True, exist_ok=True)
-fd, tmp = tempfile.mkstemp(dir=p.parent, prefix='.config.toml.')
-with os.fdopen(fd, 'w') as f:
-    f.write('\n'.join(out) + '\n')
-os.chmod(tmp, (p.stat().st_mode & 0o777) if p.exists() else 0o600)
-os.replace(tmp, p)
-print('codex-edge-ready')
-CMUX_CODEX_EDGE"#;
 
 const HELP: &str = "\
 cmux inference setup: choose and check how a Cloud machine's Codex reaches a model.
@@ -530,20 +493,13 @@ async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
     if status != "200" {
         return Err(format!("the machine's model call through the gateway answered HTTP {status}"));
     }
-    let (code, out) = machine.exec(CODEX_EDGE_PROVIDER, 30_000).await?;
-    if code != 0 || !out.contains("codex-edge-ready") {
-        return Err(
-            "the gateway answered, but the machine's Codex could not be pointed at it".into()
-        );
-    }
     let holds = machine.exec(login_present(), 30_000).await?.0 == 0;
     say(&format!(
-        "Path: gateway ({}). The machine's model call went machine -> edge -> cmux -> gateway -> provider and answered 200. \
-         Codex on the machine uses the `{EDGE_PROVIDER}` provider in ~/.codex/config.toml.",
+        "Path: gateway ({}). The machine's model call went machine -> edge -> cmux -> gateway -> provider and answered 200.",
         if kind == "machine" { "the team's gateway machine" } else { "a person's own computer" }
     ));
     say(if holds {
-        "Note: this machine also has its own Codex login (~/.codex/auth.json); Codex uses the gateway provider instead."
+        "Note: this machine also has its own Codex login (~/.codex/auth.json); its own-login mode uses that instead."
     } else {
         "This machine holds no Codex login."
     });
@@ -740,12 +696,6 @@ mod tests {
             .is_err()
         );
         assert!(parse(&args(&["--api", "https://a.dev"]), &none).is_err());
-        // The gateway path's Codex provider sends only the public placeholder, to the edge name the probe checked.
-        assert!(
-            CODEX_EDGE_PROVIDER.contains(&format!("experimental_bearer_token = \"{PLACEHOLDER}\""))
-        );
-        assert!(CODEX_EDGE_PROVIDER.contains(&format!("model_provider = \"{EDGE_PROVIDER}\"")));
-        assert!(CODEX_EDGE_PROVIDER.contains("base_url = \"https://coderouter.cmux.internal/v1\""));
         // Through the dispatch, --machine stays setup's own: the global scan once took it (gateway-e2e run 42363310378).
         let rest = setup_args(&args(&[
             "inference",
