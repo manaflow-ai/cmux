@@ -98,7 +98,12 @@ struct SidebarBottomCardSlot {
         nowPlaying.isHidden = shown != .nowPlaying
         nowPlaying.frame = frame(.nowPlaying, height: nowPlaying.nowPlaying.map(SidebarNowPlayingCardView.height(for:)) ?? 0)
         updated.isHidden = shown != .updated
-        updated.frame = frame(.updated, height: updated.height)
+        // The Updated card's open hover preview stands over the list above the slot, never past the
+        // sidebar's top; the slot's room (and so the list) stays the card's own.
+        let updatedFrame = frame(.updated, height: updated.height)
+        let rise = min(max(0, updated.frameHeight - updatedFrame.height), max(0, updatedFrame.minY - Metrics.space2))
+        updated.frame = updatedFrame == .zero ? .zero
+            : NSRect(x: updatedFrame.minX, y: updatedFrame.minY - rise, width: updatedFrame.width, height: updatedFrame.height + rise)
         // A card playing its exit (``SidebarCardPresence``) keeps its place until it has gone.
         if shown == .update || !update.isLeaving {
             update.frame = frame(.update, height: update.card.map(SidebarUpdateCardView.height(for:)) ?? 0)

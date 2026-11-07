@@ -182,12 +182,12 @@ struct PaneContentPolicyTests {
         #expect(off.isEmpty, "\(off.count) frames showed a surface off its pane's size: \(off.prefix(3))")
         let windows = TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
         #expect(TerminalSurfaceView.gridReports - reportsBefore <= UInt64(panes.count * windows),
-                "more grid reports than one per terminal per 25 ms window (\(windows)) for one press")
+                "more grid reports than one per terminal per refresh (\(windows)) for one press")
         for pane in panes {
             let grids = try await Self.grids(pane, rig)
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             #expect(grids.count <= windows && grids.last == final,
-                    "\(pane) asked its PTY for \(grids), not at most one grid per 25 ms window (\(windows)) ending at its final grid \(final)")
+                    "\(pane) asked its PTY for \(grids), not at most one grid per refresh (\(windows)) ending at its final grid \(final)")
             #expect((sizes[pane] ?? []).count > 3, "\(pane)'s surface took \(sizes[pane]?.count ?? 0) sizes in a \(frames)-frame spring: its text did not follow its pane")
         }
     }
@@ -549,7 +549,7 @@ struct PaneContentPolicyTests {
         let sent = atJoin + atSecond + afterLanding
         let windows = TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
         #expect(sent.count <= windows,
-                "the PTY got \(sent.count) grids, more than one per 25 ms window (\(windows)): join \(atJoin), second press \(atSecond), landing \(afterLanding)")
+                "the PTY got \(sent.count) grids, more than one per refresh (\(windows)): join \(atJoin), second press \(atSecond), landing \(afterLanding)")
         #expect(sent.last == final, "the PTY got \(sent), not ending at the final grid \(final) (\(atLanding))")
         let afterFinal = sent.drop(while: { $0 != final }).dropFirst()
         #expect(afterFinal.isEmpty, "the PTY got \(Array(afterFinal)) after the final grid \(final): \(sent)")
