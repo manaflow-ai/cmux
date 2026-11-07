@@ -1,0 +1,116 @@
+// l10n-allow-file: browser fixture labels and diagnostics, not shipped UI.
+// cmux-web-test-timeout: 300
+//
+// The capture bar (agent-pane.capture-bar, CaptureBar.gallery.ts) in real Chromium on the gallery frame,
+// light and dark: every arm's bar fits the pane with nothing cut off, the recording line shows its time
+// and Stop, and the play (shortcut, a Window screenshot into the composer, Record then Stop) lands two
+// chips. Every state's still goes to $FAST_CHECKS_OUT for the PR. Leo, 2026-11-07: "could we also have
+// a more native screenshot/screensharer (ergonomic one)/video recording of the app type thing/route?"
+// CI fails the file when Chromium cannot launch (requireBrowserLane).
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+
+await requireBrowserLane("capture-bar-gallery-browser.test.ts", async () => {
+  setDefaultTimeout(240_000);
+  const ENTRY = "agent-pane.capture-bar";
+  const WIDTH = 720;
+  const HEIGHT = 300;
+  const out = process.env.FAST_CHECKS_OUT;
+  const webviews = path.resolve(import.meta.dir, "..");
+  const { createServer } = await import("vite");
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+
+  beforeAll(async () => {
+    vite = await createServer({
+      configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, ENTRY, { browser, params: { variant: "band" } });
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+  });
+
+  async function open(variant: string, colorScheme: "light" | "dark", width = WIDTH): Promise<Page> {
+    const page = await browser!.newPage({ viewport: { width, height: HEIGHT } });
+    const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
+    await page.goto(base + galleryFrame(ENTRY, { variant, colorScheme, width, height: HEIGHT }));
+    await page.waitForFunction(
+      () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
+      undefined,
+      { timeout: 90_000 },
+    );
+    expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
+    return page;
+  }
+
+  /// Every control of the bar inside the bar's box, and the bar inside the viewport.
+  async function clipped(page: Page): Promise<string[]> {
+    await page.locator(".acpmux-capture__body").waitFor();
+    // The height eases on open: read once it settles.
+    await page.waitForFunction(() => {
+      const bar = document.querySelector<HTMLElement>(".acpmux-capture");
+      return !!bar && bar.getAnimations().every((animation) => animation.playState !== "running");
+    });
+    return page.evaluate(() => {
+      const body = document.querySelector(".acpmux-capture")!.getBoundingClientRect();
+      const problems: string[] = [];
+      if (body.right > window.innerWidth + 0.5) problems.push(`bar past the viewport (${body.right})`);
+      for (const control of document.querySelectorAll<HTMLElement>(".acpmux-capture button, .acpmux-capture label")) {
+        const box = control.getBoundingClientRect();
+        if (box.bottom > body.bottom + 0.5 || box.right > body.right + 0.5 || box.top < body.top - 0.5)
+          problems.push(`${control.className || control.tagName}: ${control.textContent} cut off`);
+      }
+      return problems;
+    });
+  }
+
+  describe("capture bar arms", () => {
+    for (const variant of ["band", "segmented", "chip", "recording"])
+      for (const scheme of ["light", "dark"] as const)
+        test(`${variant} in ${scheme}`, async () => {
+          const page = await open(variant, scheme);
+          try {
+            expect(await clipped(page)).toEqual([]);
+            if (variant === "recording") {
+              expect(await page.locator(".acpmux-capture__elapsed").textContent()).toMatch(/^0:1\d$/);
+              await page.locator(".acpmux-capture__stop").waitFor();
+            }
+            if (out) await page.screenshot({ path: path.join(out, `capture-bar-${variant}-${scheme}.png`) });
+          } finally {
+            await page.close();
+          }
+        });
+
+    test("the band wraps in a narrow pane, nothing cut off", async () => {
+      const page = await open("band", "dark", 420);
+      try {
+        expect(await clipped(page)).toEqual([]);
+        if (out) await page.screenshot({ path: path.join(out, "capture-bar-band-narrow-dark.png") });
+      } finally {
+        await page.close();
+      }
+    });
+
+    test("play: the shortcut, a Window screenshot, then Record and Stop land two chips", async () => {
+      const page = await open("play", "dark");
+      try {
+        await page.waitForFunction(() => document.querySelectorAll("[data-stage-chip]").length === 2, undefined, {
+          timeout: 60_000,
+        });
+        expect(await page.locator("[data-stage-phase]").textContent()).toBe("closed");
+        if (out) await page.screenshot({ path: path.join(out, "capture-bar-play-dark.png") });
+      } finally {
+        await page.close();
+      }
+    });
+  });
+});
