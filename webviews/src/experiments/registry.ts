@@ -64,6 +64,7 @@ import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLo
 import { composerDeeplinkLook } from "../agent-session/acpmux/composer/deeplinkLook.experiment";
 import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgentLook.experiment";
 import { pastedBlockLook } from "../agent-session/acpmux/conversation/pastedBlockLook.experiment";
+import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
@@ -144,6 +145,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerDeeplinkLook,
   pastedAgentLook,
   pastedBlockLook,
+  sentMessageLook,
   contextRingLook,
   contextRingMotion,
   planUsageLook,
