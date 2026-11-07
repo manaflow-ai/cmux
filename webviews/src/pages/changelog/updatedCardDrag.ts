@@ -106,6 +106,10 @@ export function pressCard(
     y: start.y + next.screenY - screen.y,
   });
   const target = event.currentTarget instanceof HTMLElement ? event.currentTarget : card;
+  // The press listens on the page's window until it ends, so a release off the card before the slop
+  // still ends it (review of #37669); the pointer is captured only once the press is a drag, so a
+  // plain click and a selection across the words stay the page's own.
+  const events: EventTarget = target.ownerDocument?.defaultView ?? target;
   let near: CardRow | undefined;
   let shown: Point = { x: 0, y: 0 };
   const move = (next: PointerEvent) => {
@@ -133,9 +137,9 @@ export function pressCard(
     host.move(shown);
   };
   const stop = () => {
-    target.removeEventListener("pointermove", move);
-    target.removeEventListener("pointerup", up);
-    target.removeEventListener("pointercancel", cancel);
+    events.removeEventListener("pointermove", move as EventListener);
+    events.removeEventListener("pointerup", up as EventListener);
+    events.removeEventListener("pointercancel", cancel as EventListener);
   };
   const end = (last: PointerEvent, cancelled: boolean) => {
     stop();
@@ -154,7 +158,7 @@ export function pressCard(
   };
   const up = (last: PointerEvent) => end(last, false);
   const cancel = (last: PointerEvent) => end(last, true);
-  target.addEventListener("pointermove", move);
-  target.addEventListener("pointerup", up);
-  target.addEventListener("pointercancel", cancel);
+  events.addEventListener("pointermove", move as EventListener);
+  events.addEventListener("pointerup", up as EventListener);
+  events.addEventListener("pointercancel", cancel as EventListener);
 }
