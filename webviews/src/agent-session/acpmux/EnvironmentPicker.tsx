@@ -562,6 +562,9 @@ export function EnvironmentPicker({
   // The row Base UI highlighted by itself (reason "none"), not by the arrow keys or the pointer.
   const autoHighlighted = useRef<string | undefined>(undefined);
   const submit = (value: string) => {
+    // A row on its way out (rowPresence.ts) keeps its place in the list but is no pick. It is not
+    // a disabled suggestion: Combobox moves those to the end, so the row would jump while it goes.
+    if (presence.motion(value) === "leave") return;
     const action = actions.find((candidate) => candidate.value === value);
     // A machine still connecting or down is listed, greyed, in its place, but is no pick: the list
     // stays open.
@@ -785,7 +788,6 @@ export function EnvironmentPicker({
         {listRows === "run" && <div className="acpmux-env-heading">{t("composer.whereRun")}</div>}
         <Combobox
           suggestions={presence.rows}
-          isItemDisabled={(value) => presence.motion(value) === "leave"}
           // A short list has no search: the field only carries the arrows, Return and Escape.
           onQuery={searchable ? setQuery : () => undefined}
           onSubmit={submit}

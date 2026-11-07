@@ -152,6 +152,35 @@ const pickerRows = () =>
     row.querySelector(".acpmux-env-row:not(.acpmux-env-new)"),
   );
 
+test("only the signed-in answer is kept across pages, never the account's machines", async () => {
+  const cloud = await import("../src/agent-session/acpmux/cloudMachines");
+  const storage = dom.window.localStorage;
+  scope.localStorage = storage;
+  try {
+    await cloud.refreshCloudMachines(async () => ({ signedIn: true, loaded: true, machines: account }));
+    expect(storage.getItem("cmux.acpmux.cloud.signedIn")).toBe("true");
+    const kept = JSON.stringify(Object.fromEntries(Object.entries(storage)));
+    for (const machine of account) {
+      expect(kept).not.toContain(machine.id);
+      expect(kept).not.toContain(machine.name);
+    }
+    // A later page (another account, maybe) starts with no machines until its own reply.
+    cloud.reloadKeptCloudAccountForTest();
+    const { createRoot } = await import("react-dom/client");
+    let seen: readonly unknown[] = ["unset"];
+    function Probe() {
+      seen = cloud.useCloudMachines();
+      return null;
+    }
+    root = createRoot(host);
+    await act(async () => root!.render(<Probe />));
+    expect(seen).toEqual([]);
+  } finally {
+    storage.clear();
+    delete scope.localStorage;
+  }
+});
+
 // Leo, 2026-11-07, of the menu showing Cloud and Sign in for Cloud and then dropping the sign-in
 // row: "The thing becomes just one state instead of rapidly switching to another." One row, never two.
 test("signed out, the Cloud row is Sign in for Cloud: one row, never Cloud and sign-in together", async () => {
@@ -200,7 +229,7 @@ test("with the account state kept from an earlier page, the menu's first rows ar
   try {
     for (const signedIn of [true, false]) {
       // An earlier page's answer, kept; this page loads from it before any reply of its own.
-      storage.setItem("cmux.acpmux.cloud.account", JSON.stringify({ signedIn, machines: [] }));
+      storage.setItem("cmux.acpmux.cloud.signedIn", String(signedIn));
       cloud.reloadKeptCloudAccountForTest();
       let answer: (value: unknown) => void = () => undefined;
       const replied = new Promise((resolve) => (answer = resolve));
