@@ -207,6 +207,7 @@ fn byte_count(value: Option<&Value>) -> Option<u64> {
 /// to its declared size. Progress is the fraction of all pieces' bytes sent,
 /// capped below 1 until the commit answers. A piece read shorter than its
 /// declared size ends at its EOF and the commit refuses it (`incomplete`).
+/// Sizes whose sum does not fit in a `u64` are refused as invalid.
 pub fn upload_plan(
     attachment: &Value,
     needs: Option<&[String]>,
@@ -230,7 +231,11 @@ pub fn upload_plan(
             _ => return Err(RuleReject::UnknownPiece),
         });
     }
-    let total = sized.iter().map(|(_, size)| size).sum::<u64>().max(1) as f64;
+    let total = sized
+        .iter()
+        .try_fold(0u64, |sum, (_, size)| sum.checked_add(*size))
+        .ok_or(RuleReject::Invalid)?
+        .max(1) as f64;
     let mut sent = 0u64;
     Ok(sized
         .into_iter()
@@ -253,7 +258,8 @@ pub fn upload_plan(
 }
 
 /// After one chunked read reply: the next offset, or None when the owner's
-/// eof ended the read. A reply that moves no bytes before eof is an error.
+/// eof ended the read. A reply that moves no bytes before eof is an error,
+/// and so is one whose next offset would not fit in a `u64`.
 pub fn read_next(offset: u64, received: u64, eof: bool) -> Result<Option<u64>, RuleReject> {
     if eof {
         return Ok(None);
@@ -261,7 +267,7 @@ pub fn read_next(offset: u64, received: u64, eof: bool) -> Result<Option<u64>, R
     if received == 0 {
         return Err(RuleReject::NoProgress);
     }
-    Ok(Some(offset + received))
+    offset.checked_add(received).map(Some).ok_or(RuleReject::Invalid)
 }
 
 // ---- Run steps and parts ----
