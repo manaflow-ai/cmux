@@ -12,26 +12,19 @@ import CmuxNextWakeups
 /// New Tab page turns into takes the page's slot.
 @MainActor
 enum NewTabSlot {
-    /// How long the move waits for the pane to list the new tab.
+    /// How long the move waits for its tab's answer and for the pane to list the tab.
     static let listLimit: Duration = .seconds(10)
 
     /// A slot other than the end (the end is nil: the daemon appends).
     enum Target: Equatable {
-        /// Right after this tab, after its tab group.
-        case after(TabModel)
-        /// First after the pinned tabs of the pane this tab is in.
-        case start(TabModel)
+        case after(TabModel) // right after this tab, after its tab group
+        case start(TabModel) // first after the pinned tabs of the pane this tab is in
 
         /// The tab that names the pane.
-        var anchor: TabModel {
-            switch self { case .after(let tab), .start(let tab): tab }
-        }
+        var anchor: TabModel { switch self { case .after(let tab), .start(let tab): tab } }
 
         static func == (lhs: Target, rhs: Target) -> Bool {
-            switch (lhs, rhs) {
-            case (.after(let a), .after(let b)), (.start(let a), .start(let b)): a === b
-            default: false
-            }
+            switch (lhs, rhs) { case (.after(let a), .after(let b)), (.start(let a), .start(let b)): a === b; default: false }
         }
     }
 
@@ -64,10 +57,10 @@ enum NewTabSlot {
         guard let target else { return then }
         let pane = home(of: target.anchor, services)
         let open = pane.flatMap { begin(target, in: $0, services: services) } // shown in its slot at once
+        let placed = place(in: { [weak pane] in home(of: target.anchor, services) ?? pane }, services: services, find: { pane, surface in pane.tabs.first { $0.surface == surface } }) { [weak pane] in slot(for: target, in: $0, pane: pane, open: open, services: services) }
         return { [weak pane] surface in
             if let pane { NewTabSuccession.made(surface, in: pane, by: open) }
-            then?(surface)
-            place(in: { home(of: target.anchor, services) ?? pane }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { slot(for: target, in: $0, pane: pane, open: open, services: services) }
+            then?(surface); placed(surface)
         }
     }
 
@@ -77,12 +70,8 @@ enum NewTabSlot {
         guard let target else { return then }
         let pane = home(of: target.anchor, services)
         let open = pane.flatMap { begin(target, in: $0, services: services) } // shown in its slot at once
-        return { [weak pane] key in
-            then?(key)
-            place(in: { home(of: target.anchor, services) ?? pane }, services: services, find: { pane in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }) {
-                slot(for: target, in: $0, pane: pane, open: open, services: services)
-            }
-        }
+        let placed = place(in: { [weak pane] in home(of: target.anchor, services) ?? pane }, services: services, find: { pane, key in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }) { [weak pane] in slot(for: target, in: $0, pane: pane, open: open, services: services) }
+        return { key in then?(key); placed(key) }
     }
 
     @discardableResult
@@ -106,44 +95,54 @@ enum NewTabSlot {
         }
         guard index + 1 < pane.tabs.count else { return then } // the last tab: the new one appends beside it
         let before = index > 0 ? pane.tabs[index - 1] : nil
-        return { surface in
-            then(surface)
-            place(in: { [weak pane] in pane }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { [weak pane] others in
-                guard let before else { return others.prefix { $0.pinned }.count }
-                return others.firstIndex { $0 === before }.map { $0 + 1 } ?? pane.flatMap { NewTabSuccession.rebasedSlot(in: $0, by: open, among: others) }
-            }
+        let placed = place(in: { [weak pane] in pane }, services: services, find: { pane, surface in pane.tabs.first { $0.surface == surface } }) { [weak pane] others in
+            guard let before else { return others.prefix { $0.pinned }.count }
+            return others.firstIndex { $0 === before }.map { $0 + 1 } ?? pane.flatMap { NewTabSuccession.rebasedSlot(in: $0, by: open, among: others) }
         }
+        return { surface in then(surface); placed(surface) }
     }
 
     /// The pane `tab` is in, on any machine (surface ids are per daemon, so a new tab is looked for in this pane only).
     private static func home(of tab: TabModel, _ services: AppServices) -> PaneModel? { services.locateTab(model: tab)?.1 }
 
-    /// Moves the tab `find` returns from `pane` to the final index `index` gives (from the pane's other tabs) once the pane
-    /// lists it, and once the pane's previous new tab moved: a burst's second Cmd-T goes right after the first new tab, which
-    /// sat at the end until its own move, so a slot read before that kept the second there (`a b 1 c 2`).
-    private static func place(in pane: @escaping @MainActor () -> PaneModel?, services: AppServices,
-                              find: @escaping @MainActor (PaneModel) -> TabModel?, index: @escaping @MainActor ([TabModel]) -> Int?) {
-        let locate = { @MainActor () -> (TabModel, PaneModel)? in pane().flatMap { pane in find(pane).map { ($0, pane) } } }
+    /// The `then` that moves the tab `find` names by its answer from `pane` to the final index `index` gives (from the pane's
+    /// other tabs) once the pane lists it. Started at the press: a pane's moves run in its presses' order, each after the
+    /// last landed. A burst's second Cmd-T goes right after the first new tab, at the end until its own move; read before
+    /// that (or answered first), the second stayed at the end (`a b 1 c 2`).
+    private static func place<Answer: Sendable>(in pane: @escaping @MainActor () -> PaneModel?, services: AppServices, find: @escaping @MainActor (PaneModel, Answer) -> TabModel?,
+                                                index: @escaping @MainActor ([TabModel]) -> Int?) -> @MainActor (Answer) -> Void {
+        let (answers, continuation) = AsyncStream.makeStream(of: Answer.self, bufferingPolicy: .bufferingNewest(1)), answer = Answering(continuation)
         let controller = pane().flatMap { services.paneController(for: $0) }, earlier = controller?.lastPlacement
         let placement: ActionWork = Task { @MainActor in
-            let listed = Task { @MainActor () -> Bool in
-                for await found in ObservationStream({ locate() != nil }) where found { return true }
-                return false
+            _ = await earlier?.value // the press before: its answer and list wait, then its move's reply
+            let listed = Task { @MainActor () -> (TabModel, PaneModel)? in
+                guard let made = await answers.first(where: { _ in true }) else { return nil }
+                let locate = { pane().flatMap { pane in find(pane, made).map { ($0, pane) } } }
+                for await found in ObservationStream({ locate() != nil }) where found { return locate() }
+                return nil
             }
-            let bound = DemandTimer(owner: "NewTabSlot.listed")
-            bound.schedule(after: listLimit) { @MainActor in
-                listed.cancel()
-            }
-            let found = await listed.value
-            bound.cancel()
-            _ = await earlier?.value // its own list wait, then its move's reply
-            guard found, let located = locate(), case let (tab, pane) = located, let final = index(pane.tabs.filter { $0 !== tab }),
+            let bound = DemandTimer(owner: "NewTabSlot.listed") // the answer and the listing
+            bound.schedule(after: listLimit) { @MainActor in listed.cancel() }
+            defer { bound.cancel() }
+            let located = await listed.value
+            guard let located, case let (tab, pane) = located, let final = index(pane.tabs.filter { $0 !== tab }),
                   pane.tabs.firstIndex(where: { $0 === tab }) != final else { return nil }
             await withCheckedContinuation { landed in TabMoves.move(tab, to: pane, index: final, services: services) { _ in landed.resume() } }
             return nil
         }
         controller?.lastPlacement = placement
-        services.registry.track(placement)
+        return { made in
+            answer.continuation.yield(made)
+            answer.continuation.finish()
+            services.registry.track(placement)
+        }
+    }
+
+    /// A placement's answer; a `then` dropped unanswered (a refused create) ends the placement, so the pane's next waits no more.
+    private final class Answering<Answer: Sendable> {
+        let continuation: AsyncStream<Answer>.Continuation
+        init(_ continuation: AsyncStream<Answer>.Continuation) { self.continuation = continuation }
+        nonisolated deinit { continuation.finish() }
     }
 
     /// The final index for `target` among `others` (the pane's tabs but the new one); an after-anchor that was a stand-in
