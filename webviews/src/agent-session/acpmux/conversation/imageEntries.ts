@@ -188,6 +188,10 @@ export function loadSentImage(
   return load;
 }
 
+/// The bytes of each image the pane is priming, by the id acpmux names it by, from the moment its
+/// hash is known until it is kept: only while it decodes, so this holds no image for long.
+const digested = new Map<string, string>();
+
 /// The pane is the producer of an image it sends: it keeps each one under the id acpmux will name
 /// it by (the SHA-256 of its bytes, hub/prompt_images.rs), with its size, so the sent bubble draws
 /// it at its own shape in the frame acpmux's echo arrives, without reading it back.
@@ -205,8 +209,14 @@ export async function primeSentImages(attachments: readonly ComposerAttachment[]
         const id = Array.from(hash, (byte) => byte.toString(16).padStart(2, "0")).join("");
         if (entries.has(id)) return;
         const src = `data:${attachment.mimeType};base64,${attachment.data}`;
-        const { size, decoded } = await decodeImage(src);
-        if (!entries.has(id)) keep(id, { src, ...(size && { size }), ...(decoded && { decoded }) });
+        // Known by its id from here, while it decodes: acpmux's echo pairs it by id (withSentShapes).
+        digested.set(id, src);
+        try {
+          const { size, decoded } = await decodeImage(src);
+          if (!entries.has(id)) keep(id, { src, ...(size && { size }), ...(decoded && { decoded }) });
+        } finally {
+          if (digested.get(id) === src) digested.delete(id);
+        }
       } catch {
         // Not base64 or not an image: the bubble reads it from acpmux as before.
       }
@@ -215,26 +225,61 @@ export async function primeSentImages(attachments: readonly ComposerAttachment[]
 }
 
 /// The images acpmux's echo of a prompt names (by the SHA-256 of their bytes, with no bytes or
-/// size of their own), each matched in order to the image the pane's own row drew for it (`sent`,
-/// the composer's bytes) by its type and name, keeping those bytes and their size. The echo then
-/// draws each image in the frame it lands, at the shape the pane's row drew it, never a square
-/// slot that reshapes once the pane's priming or acpmux's read lands (Leo, 2026-11-07: "know
-/// beforehand the size we're going to go for rather than say, like, Oh wait, well now we're going
-/// to expand"). An image with no match (a video's frame, a preview sent as its original's link)
-/// stays as acpmux named it.
+/// size of their own), each given the bytes and size the pane's own row drew it with (`sent`, the
+/// composer's bytes). The echo then draws each image in the frame it lands, at the shape the
+/// pane's row drew it, never a square slot that reshapes once the pane's priming or acpmux's read
+/// lands (Leo, 2026-11-07: "know beforehand the size we're going to go for rather than say, like,
+/// Oh wait, well now we're going to expand").
+///
+/// An echoed image takes the pane's bytes only by its identity, never by its position: the echo
+/// adds a video's note and frames, so its images do not line up with the row's, and two
+/// screenshots are often both `image.png`. See `matchSentImages`. An image with no sure match (a
+/// video's frame, a preview sent as its original's link, two alike) keeps no `src` and is read by
+/// its id, which always draws its own bytes.
 export function withSentShapes<
-  Image extends { mimeType: string; name?: string; width?: number; height?: number; src?: string },
+  Image extends { id: string; mimeType: string; name?: string; width?: number; height?: number; src?: string },
 >(named: readonly Image[], sent: readonly { mimeType: string; name?: string; src?: string }[] | undefined): Image[] {
   if (!sent?.length) return [...named];
-  let next = 0;
-  return named.map((image) => {
-    const own = sent[next];
-    if (!own?.src || own.mimeType !== image.mimeType || (own.name && image.name && own.name !== image.name))
-      return image;
-    next += 1;
-    const size = image.width && image.height ? undefined : knownImageSize(own.src);
-    return { ...image, src: own.src, ...(size && { width: size.width, height: size.height }) };
+  return matchSentImages(named, sent).map((match, index) => {
+    const image = named[index]!;
+    if (!match) return image;
+    const size = image.width && image.height ? undefined : knownImageSize(match.src);
+    return { ...image, src: match.src, ...(size && { width: size.width, height: size.height }) };
   });
+}
+
+/// For each echoed image (`named`), the pane's bytes for it and which of `sent` they are:
+/// - by its id: the bytes the pane is priming or keeps under that id are that image's, whatever its
+///   name or place (primeSentImages names them by the same SHA-256);
+/// - else by type and name, only when exactly one unclaimed sent image fits it and it is the only
+///   echoed image without bytes that fits that one;
+/// - else none.
+export function matchSentImages(
+  named: readonly { id: string; mimeType: string; name?: string }[],
+  sent: readonly { mimeType: string; name?: string; src?: string }[],
+): ({ src: string; sent?: number } | undefined)[] {
+  const claimed = new Set<number>();
+  const matches: ({ src: string; sent?: number } | undefined)[] = named.map((image) => {
+    const src = digested.get(image.id) ?? entries.get(image.id)?.src;
+    if (!src) return undefined;
+    const own = sent.findIndex((candidate, at) => !claimed.has(at) && candidate.src === src);
+    if (own < 0) return { src };
+    claimed.add(own);
+    return { src, sent: own };
+  });
+  const fits = (image: { mimeType: string; name?: string }, own: { mimeType: string; name?: string }) =>
+    own.mimeType === image.mimeType && (!own.name || !image.name || own.name === image.name);
+  const open = sent.flatMap((own, at) => (own.src && !claimed.has(at) ? [at] : []));
+  const unmatched = named.flatMap((image, at) => (matches[at] ? [] : [at]));
+  for (const at of unmatched) {
+    const image = named[at]!;
+    const candidates = open.filter((own) => fits(image, sent[own]!));
+    if (candidates.length !== 1) continue;
+    const own = candidates[0]!;
+    if (unmatched.filter((other) => fits(named[other]!, sent[own]!)).length !== 1) continue;
+    matches[at] = { src: sent[own]!.src!, sent: own };
+  }
+  return matches;
 }
 
 /// What an image source is: a data URL the page already has (a reply's image), or a sent image
@@ -346,6 +391,7 @@ export function clearImageEntries(): void {
   sizes.clear();
   drawn.clear();
   headless.clear();
+  digested.clear();
 }
 
 // --- Image headers -----------------------------------------------------------------------------
