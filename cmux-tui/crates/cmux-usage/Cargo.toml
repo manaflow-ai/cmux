@@ -1,0 +1,19 @@
+[package]
+name = "cmux-usage"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Opt-in local usage recording for cmux NEXT: the event schema (interaction shape only, never content), the size-bounded append-only files on the person's own machine, and the report `cmux usage report` prints"
+
+[lints]
+workspace = true
+
+[dependencies]
+chrono.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
