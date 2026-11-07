@@ -189,6 +189,13 @@ public final class BrowserToolbarWebView: NSView {
         }
     }
 
+    /// A pane that parks this tab hides its chrome in the window: the card, a child window, goes with
+    /// it, or it would float over the pane shown in its place and act on the hidden tab.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        popup.dismiss()
+    }
+
     /// Whether `event` moves the keys by keyboard (Tab or Shift-Tab), not by a click.
     nonisolated static func isKeyboardNavigation(_ event: NSEvent?) -> Bool {
         guard let event, event.type == .keyDown else { return false }

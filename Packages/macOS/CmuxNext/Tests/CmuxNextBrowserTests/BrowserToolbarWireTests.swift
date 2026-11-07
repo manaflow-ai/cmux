@@ -235,6 +235,25 @@ struct BrowserToolbarWireTests {
         #expect(!BrowserToolbarWebView.isKeyboardNavigation(nil))
     }
 
+    @Test func aClickInTheCardsShadowMarginGoesToTheWindowBelow() throws {
+        let parent = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 800, height: 600), styleMask: [], backing: .buffered, defer: true)
+        let card = OmniboxPopupWindow()
+        card.setFrame(NSRect(x: 300, y: 300, width: 224, height: 200), display: false)
+        card.placeCard(margin: (top: 0, right: 12, bottom: 12, left: 12), upward: false, cornerRadius: 8)
+        func click(at point: NSPoint, _ type: NSEvent.EventType = .leftMouseDown) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0, windowNumber: card.windowNumber,
+                               context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        // On a row: the card's.
+        #expect(OmniboxPopupWindow.forwarded(click(at: NSPoint(x: 100, y: 100)), outside: card.cardRect, from: card, to: parent) == nil)
+        // In the side margin, over Reload: the window below's, at the same spot on screen.
+        let moved = try #require(OmniboxPopupWindow.forwarded(click(at: NSPoint(x: 4, y: 150)), outside: card.cardRect, from: card, to: parent))
+        #expect(moved.type == .leftMouseDown)
+        #expect(parent.convertPoint(toScreen: moved.locationInWindow) == NSPoint(x: 304, y: 450))
+        // A move is never handed on.
+        #expect(OmniboxPopupWindow.forwarded(click(at: NSPoint(x: 4, y: 150), .mouseMoved), outside: card.cardRect, from: card, to: parent) == nil)
+    }
+
     @Test func aSearchEngineChangeReachesAMountedRow() throws {
         let engine = OmniboxSuggestionEngine()
         let bar = BrowserToolbarWebView(suggestionEngine: engine)

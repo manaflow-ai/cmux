@@ -283,6 +283,8 @@ final class OmniboxPopupWindow: NativePopupPanel {
     /// Clips the glass's corners on the bar's side, so the card meets the bar square.
     private let clip = NSView()
     private let glass = Glass.makeOverlayPanel(cornerRadius: ToolbarRowMetrics.cornerRadius)
+    /// The card in the content view; around it is only the shadow margin.
+    private(set) var cardRect = NSRect.zero
 
     init() {
         super.init(identifier: "cmux.omniboxPopup")
@@ -294,6 +296,29 @@ final class OmniboxPopupWindow: NativePopupPanel {
     }
 
     override var canBecomeKey: Bool { false }
+
+    /// A click in the shadow margin is the window's below: the margin overlaps the toolbar's buttons
+    /// beside the bar (Reload, the extensions), which the card must not cover.
+    override func sendEvent(_ event: NSEvent) {
+        if let parent, let forwarded = Self.forwarded(event, outside: cardRect, from: self, to: parent) {
+            parent.sendEvent(forwarded)
+            return
+        }
+        super.sendEvent(event)
+    }
+
+    /// `event` moved to `target` when it is a mouse press, drag or release outside `card` (in
+    /// `source`'s content view); nil keeps it in `source`.
+    static func forwarded(_ event: NSEvent, outside card: NSRect, from source: NSWindow, to target: NSWindow) -> NSEvent? {
+        let mouse: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .rightMouseUp,
+                                             .otherMouseDown, .otherMouseUp]
+        guard mouse.contains(event.type), let content = source.contentView,
+              !card.contains(content.convert(event.locationInWindow, from: nil)) else { return nil }
+        let screen = source.convertPoint(toScreen: event.locationInWindow)
+        return NSEvent.mouseEvent(with: event.type, location: target.convertPoint(fromScreen: screen), modifierFlags: event.modifierFlags,
+                                  timestamp: event.timestamp, windowNumber: target.windowNumber, context: nil,
+                                  eventNumber: event.eventNumber, clickCount: event.clickCount, pressure: event.pressure)
+    }
 
     /// Puts the card's page over the glass, filling the panel.
     func host(_ view: NSView) {
@@ -310,6 +335,7 @@ final class OmniboxPopupWindow: NativePopupPanel {
         let size = contentView?.bounds.size ?? frame.size
         let card = NSRect(x: m.left, y: m.bottom, width: max(0, size.width - m.left - m.right),
                           height: max(0, size.height - m.top - m.bottom))
+        cardRect = card
         if clip.frame != card { clip.frame = card }
         glass.cornerRadius = cornerRadius
         let rect = NSRect(x: 0, y: upward ? -cornerRadius : 0, width: card.width, height: card.height + cornerRadius)
