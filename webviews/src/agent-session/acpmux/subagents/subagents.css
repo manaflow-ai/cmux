@@ -1292,16 +1292,16 @@ button.cv-subagent > :last-child {
   flex: none;
   opacity: 0;
 }
-/* They fade as a message's hover row does (conversation.css --cv-actions-*, #23769). */
+/* They follow the pointer's dwell as a message's hover row does (conversation.css --cv-actions-*). */
 @media (prefers-reduced-motion: no-preference) {
   .cv-subagent-done__actions {
-    transition: opacity var(--cv-actions-out, 80ms) var(--cv-actions-ease, ease-out);
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-subagent-done-row:hover .cv-subagent-done__actions {
-    transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out) var(--cv-actions-in-delay, 100ms);
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
   .cv-subagent-done__actions:focus-within {
-    transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out);
+    transition: none;
   }
 }
 .cv-subagent-done-row:hover .cv-subagent-done__actions,
@@ -1598,11 +1598,6 @@ button.cv-subagent > :last-child {
   letter-spacing: var(--text-detail--letter-spacing);
   white-space: nowrap;
 }
-.acpmux-agent-line__name-link {
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
-  text-underline-offset: 2px;
-}
 /* What a running agent did last (AgentLine.tsx `latest`, trayLatest.experiment.ts): one quiet
    line under the title, cut with an ellipsis, so a new step changes its words and never the
    line's height. The state, time and Stop centre on the two lines (Leo, 2026-11-03: "Tray only,
@@ -1813,7 +1808,7 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__tuck > svg,
 .acpmux-tray-pull__hat > svg {
   position: relative;
-  transition: color var(--cv-actions-in) var(--cv-actions-ease);
+  transition: color var(--cmux-motion-micro, 120ms) var(--cv-actions-ease);
 }
 /* Only the hat's top 8px band takes the tuck's clicks: the button starts 12px above the hat, whose clip
    hides that part, and its chevron sits at its foot. A click on the header's middle (its row is 24px or
@@ -1829,7 +1824,7 @@ button.cv-subagent > :last-child {
   opacity: 0;
   pointer-events: none;
   /* The transcript's shared hover-reveal fade (transcript-hover-fade.test.ts). */
-  transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
 }
 /* At the foot the glyph's stroke met the hat's top edge and was cut there; 2px down it sits whole
    inside the hat, under the edge, and the click band stays the same. */
@@ -1841,7 +1836,7 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__tuck:focus-visible {
   opacity: 1;
   pointer-events: auto;
-  transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
 }
 .acpmux-running-tray__tuck:hover,
 .acpmux-tray-pull__tab:hover {
@@ -1894,7 +1889,7 @@ button.cv-subagent > :last-child {
   background: var(--glass-tint, color-mix(in srgb, var(--glass-surface, Canvas) 18%, transparent));
   box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge));
   transform: translateY(calc(-1 * var(--acpmux-tray-pull-lift)));
-  transition: background-color var(--cv-actions-in) var(--cv-actions-ease), box-shadow var(--cv-actions-in) var(--cv-actions-ease);
+  transition: background-color var(--cmux-motion-micro, 120ms) var(--cv-actions-ease), box-shadow var(--cmux-motion-micro, 120ms) var(--cv-actions-ease);
 }
 /* A quiet bridge ties the hat to the composer's hairline: one device pixel in the shared glass edge,
    8px out from each side of the pill, so the resting hat is visible without becoming a second card.
@@ -1909,7 +1904,7 @@ button.cv-subagent > :last-child {
   height: var(--cmux-hairline);
   background: var(--glass-edge, color-mix(in srgb, var(--agent-muted) 45%, transparent));
   transform: translateY(-50%);
-  transition: background-color var(--cv-actions-in) var(--cv-actions-ease), opacity var(--cv-actions-in) var(--cv-actions-ease);
+  transition: background-color var(--cmux-motion-micro, 120ms) var(--cv-actions-ease), opacity var(--cmux-motion-micro, 120ms) var(--cv-actions-ease);
   opacity: 0.85;
 }
 .acpmux-tray-pull__hat::before {

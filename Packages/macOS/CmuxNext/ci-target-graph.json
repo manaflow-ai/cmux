@@ -187,6 +187,7 @@
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextDictation",
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
@@ -726,6 +727,7 @@
         "CmuxNextAgentPane",
         "CmuxNextBridge",
         "CmuxNextCompat",
+        "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
@@ -1310,6 +1312,8 @@
         "CmuxNextDictation",
         "CmuxNextHomeModel",
         "CmuxNextIcons",
+        "CmuxNextPages",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -1349,10 +1353,13 @@
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextHomeModel",
+        "CmuxNextPages",
+        "CmuxNextSettings",
         "CmuxNextTestSupport"
       ],
       "packages": [
-        "CmuxHomeCore"
+        "CmuxHomeCore",
+        "CmuxHomeRender"
       ],
       "reads": []
     },

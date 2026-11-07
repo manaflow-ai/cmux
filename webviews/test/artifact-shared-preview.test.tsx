@@ -107,7 +107,7 @@ test("exact agent and artifacts page origins have native rendering; other origin
 
 for (const url of trusted) {
   test(`${url} keeps passive markup scriptless and requires Run for every new document`, async () => {
-    const { ranRenders } = await import("../src/agent-session/acpmux/conversation/RenderCard");
+    const { ranRenders } = await import("../src/agent-session/acpmux/conversation/renderCardModel");
     ranRenders.clear();
     locate(url);
     await draw("<p>passive</p>");

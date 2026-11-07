@@ -98,7 +98,8 @@ import {
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";
-import { AgentIdentity, foreignHarness, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { AgentIdentity } from "./AgentIdentity";
+import { foreignHarness, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { harnessFamily } from "./agentRuns";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
@@ -106,7 +107,8 @@ import { useAgentProgress } from "./agentProgressStore";
 import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { TrayAgentDetail, TrayLineFold } from "./TrayLineDetail";
-import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
+import { StopButton } from "./SubagentGroup";
+import { elapsed, SubagentHarnessContext, useNow } from "./subagentGroupModel";
 import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
 import { attentionFirst, type TrayCard } from "./trayAttention";
 import { latestLine, toolDetail } from "./trayDetail";
@@ -123,7 +125,8 @@ import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { hatChevronLook, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
 import { DoneMark } from "./DoneMark";
-import { Tick, useTrayMotion } from "./trayMotion";
+import { Tick } from "./trayMotion";
+import { useTrayMotion } from "./trayMotionModel";
 import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
@@ -131,6 +134,7 @@ import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
+import { earlierPlanHead, planHead } from "./subagentTrayModel";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -159,6 +163,7 @@ export const SubagentTray = memo(function SubagentTray({
   onOpen,
   onOpenCommand,
   canReadTail = false,
+  canOpenTerminal = true,
   onOpenSession,
   onOpenPanel,
   stop,
@@ -187,6 +192,10 @@ export const SubagentTray = memo(function SubagentTray({
   onOpenCommand?: (command: BackgroundCommand) => void;
   /// A connected local process source is available for the expanded tail.
   canReadTail?: boolean;
+  /// The host opens a command's terminal (App.tsx `opensProcessTerminal`). Where it does not, the
+  /// expanded tail shows no Open in terminal: there it would only reveal the command's call, and the
+  /// tail already shows the command.
+  canOpenTerminal?: boolean;
   /// Opens a chat the agent started (App.tsx `openOfferChat`).
   onOpenSession?: (sessionId: string) => void;
   /// Opens the chat's Background tasks panel (App.tsx `openBackgroundPanel`): the header expands in
@@ -901,9 +910,6 @@ export const SubagentTray = memo(function SubagentTray({
               latestAt={latestPlacement}
               latestCode
               via={ownerParent ? subagentTaskLabel(t, ownerParent) : undefined}
-              nameLink={
-                item.owner ? { href: `#subagent:${item.owner.id}`, open: () => onOpen(item.owner!.id) } : undefined
-              }
               title={item.command.command}
               chevron
               icon={read.icon}
@@ -945,7 +951,11 @@ export const SubagentTray = memo(function SubagentTray({
               elapsed={commandElapsed}
               // The row expands in place, so its terminal (or, where none opens, its call: App.tsx
               // `openTrayCommand`) is this explicit button now, never the row's click.
-              onOpenTerminal={onOpenCommand && (() => onOpenCommand(item.command))}
+              onOpenTerminal={canOpenTerminal && onOpenCommand ? () => onOpenCommand(item.command) : undefined}
+              // A subagent's command: the whole line, its title included, expands it, and the way to the
+              // subagent is this explicit Open chat (Leo, 2026-11-07: "me clicking this, the entire box, it
+              // just feels like, okay, I would be expanding this").
+              onOpenOwner={item.owner && (() => onOpen(item.owner!.id))}
             />
           </TrayLineFold>
         </>
@@ -1140,21 +1150,6 @@ function stackMarks(
 /// chat bubble, which reads as a message, and never the spinner, which each working line keeps.
 const HEAD_ICON = "app.sample.runningagents";
 
-/// The header's plan part: "2 of 5 · Write the tests", the step at work (else the next one waiting)
-/// after the progress; a list all done reads only its progress.
-export function planHead(t: Translate, plan: readonly AcpmuxPlanEntry[]): string {
-  const done = plan.filter((entry) => entry.status === "completed").length;
-  const progress = t("plan.hat", { done, total: plan.length });
-  const step = plan.find((entry) => entry.status === "in_progress") ?? plan.find((entry) => entry.status === "pending");
-  return step ? `${progress} · ${step.content}` : progress;
-}
-
-/// The header's plan part for an earlier turn's list: "Earlier plan · 2 of 5", naming no step, as
-/// none is at work in this turn.
-export function earlierPlanHead(t: Translate, plan: readonly AcpmuxPlanEntry[]): string {
-  const done = plan.filter((entry) => entry.status === "completed").length;
-  return `${t("plan.earlier.short")} · ${t("plan.hat", { done, total: plan.length })}`;
-}
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_ARRIVALS: ReadonlySet<string> = new Set();
 /// A line leaving the open list: its last card, and its place among the lines drawn then.
