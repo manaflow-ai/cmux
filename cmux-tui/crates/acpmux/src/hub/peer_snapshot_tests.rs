@@ -1343,11 +1343,12 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
         Store::new(disk::root(dir.path()), Arc::default(), Arc::new(StdMutex::new(Some(hook))));
     store.scan();
     let outbox = crate::hub::outbox::Outbox::default();
+    let now = crate::store::now_ms();
     let delivery = |id: &str, prompt: &str| -> crate::hub::outbox::Delivery {
         serde_json::from_value(json!({
             "id": id, "target": format!("{PEER}/m1"),
             "request": {"sessionId": format!("{PEER}/m1"), "_meta": {"acpmux": {"promptId": prompt}}},
-            "state": "delivered", "openOnPeer": true, "createdAt": 1, "updatedAt": 1,
+            "state": "delivered", "openOnPeer": true, "createdAt": now, "updatedAt": now,
             "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
         }))
         .unwrap()
@@ -1393,11 +1394,13 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     // Released only by a later link whose journal holds it, of its generation.
     let d1 = outbox.get("d1").unwrap();
     let ends = |g: u64, last: u64| HashMap::from([("m1".to_owned(), (g, last))]);
-    assert_eq!(od::step(&d1, 2, (1, 2), &ends(7, 3)), od::Step::Wait);
-    assert_eq!(od::step(&d1, 2, (1, 1), &ends(7, 9)), od::Step::Wait);
-    assert_eq!(od::step(&d1, 2, (1, 2), &ends(7, 9)), od::Step::Check);
+    assert_eq!(od::step(&d1, now, (1, 2), &ends(7, 3)), od::Step::Wait);
+    assert_eq!(od::step(&d1, now, (1, 1), &ends(7, 9)), od::Step::Wait);
+    assert_eq!(od::step(&d1, now, (1, 2), &ends(7, 9)), od::Step::Check);
     assert_eq!(od::checked(Some(true)), od::Step::Release);
     assert_eq!(od::checked(Some(false)), od::Step::Lost);
-    assert_eq!(od::step(&d1, 2, (1, 2), &ends(8, 9)), od::Step::Stale);
-    assert_eq!(od::step(&outbox.get("d2").unwrap(), 2, (1, 2), &ends(7, 9)), od::Step::Again);
+    assert_eq!(od::step(&d1, now, (1, 2), &ends(8, 9)), od::Step::Stale);
+    let lapsed = now + crate::hub::outbox::OPEN_ON_PEER_FOR_MS;
+    assert_eq!(od::step(&d1, lapsed, (1, 2), &ends(7, 9)), od::Step::Lapse);
+    assert_eq!(od::step(&outbox.get("d2").unwrap(), now, (1, 2), &ends(7, 9)), od::Step::Again);
 }
