@@ -1327,7 +1327,8 @@
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextHome",
-        "CmuxNextHomeEngine"
+        "CmuxNextHomeEngine",
+        "CmuxNextTestSupport"
       ],
       "packages": [
         "CmuxHomeCore"
