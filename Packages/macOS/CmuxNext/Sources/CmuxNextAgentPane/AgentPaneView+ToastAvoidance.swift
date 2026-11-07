@@ -17,10 +17,13 @@ extension AgentPaneView: CmuxToastAvoiding {
                                            zoom: max(0.25, CGFloat(uiPointerPageZoom)), flipped: isFlipped)
     }
 
-    /// The stack or the pane moved: the window's shown toasts move clear of where it is now. Says
-    /// nothing when its window rect is unchanged, so a layout pass with no move costs no toast work.
+    /// The stack or the pane moved, or the pane was hidden or shown (a workspace switch hides an
+    /// ancestor and leaves every frame as it was): the window's shown toasts move clear of where it
+    /// is now. A hidden pane avoids nothing, so a toast shown while it was away moves up when it comes
+    /// back. Says nothing when its window rect is unchanged, so a layout pass with no move costs no
+    /// toast work.
     func toastAvoidanceMoved() {
-        let rect = window == nil ? NSRect.zero : convert(toastAvoidanceRect, to: nil)
+        let rect = window == nil || isHiddenOrHasHiddenAncestor ? NSRect.zero : convert(toastAvoidanceRect, to: nil)
         guard rect != lastToastAvoidance else { return }
         lastToastAvoidance = rect
         if let window { CmuxToastAvoidance.avoidanceChanged(in: window) }
