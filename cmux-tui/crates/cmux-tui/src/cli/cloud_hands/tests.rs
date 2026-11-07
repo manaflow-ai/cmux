@@ -504,3 +504,26 @@ async fn an_old_starts_call_is_ignored_after_a_restart() {
     let text = app.call("allow_text", json!({"key": key(), "environment": "e"})).await;
     assert_eq!(text["ok"], true, "the request still waits: {text}");
 }
+
+#[tokio::test]
+async fn a_hand_whose_read_fails_keeps_the_requests_of_the_hands_read_before_it() {
+    let (api, _) = owner(|seen| {
+        if seen.line.starts_with("GET /v1/hands ") {
+            ok(json!([
+                {"hand": HAND, "name": "Build box", "pending_approvals": 1},
+                {"hand": IDLE, "name": "Other", "pending_approvals": 1},
+            ]))
+        } else if seen.line.starts_with(&format!("GET /v1/hands/{IDLE}/approvals ")) {
+            refused(500, "internal")
+        } else {
+            hands_owner(seen)
+        }
+    });
+    let mut app = App::new(Some("tok"));
+    app.start(&api);
+    let reply = app.call("refresh", json!({})).await;
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(app.next("pending").await["approval"]["key"], key());
+    let text = app.call("allow_text", json!({"key": key(), "environment": "e"})).await;
+    assert_eq!(text["ok"], true, "{text}");
+}

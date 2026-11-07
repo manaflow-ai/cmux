@@ -234,3 +234,15 @@ fn stopping_settles_every_request_and_drops_the_hands() {
     assert_eq!(t.clear().len(), 2);
     assert!(t.hands().is_empty() && t.pending().is_empty());
 }
+
+#[test]
+fn a_read_that_failed_part_way_adds_what_it_got_and_drops_nothing() {
+    let mut t = Tracker::default();
+    t.add(approval(ID2), 1);
+    t.settle(&approval("2f6c2a9e-1b2c-4d5e-8f90-123456789abc").key, None, 2);
+    let changes =
+        t.partly_read(vec![approval(ID), approval("2f6c2a9e-1b2c-4d5e-8f90-123456789abc")], 3);
+    assert_eq!(changes.len(), 1, "only the new request, never an ended one: {changes:?}");
+    assert!(t.approval(&approval(ID).key).is_some());
+    assert!(t.approval(&approval(ID2).key).is_some(), "the unread hand's request stays");
+}

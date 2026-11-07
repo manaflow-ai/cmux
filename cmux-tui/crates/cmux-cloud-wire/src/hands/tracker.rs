@@ -86,6 +86,16 @@ impl Tracker {
         self.hands = hands;
     }
 
+    /// The rows of a read that failed part way: each is added (unless it ended), and
+    /// nothing is taken away, since the read did not see every hand.
+    pub fn partly_read(&mut self, listed: Vec<HandApproval>, now: u64) -> Vec<Change> {
+        listed
+            .into_iter()
+            .filter(|approval| !self.ended.contains_key(&approval.key))
+            .filter_map(|approval| self.add(approval, now))
+            .collect()
+    }
+
     /// A list read that began at `began` listed `listed`.
     pub fn refreshed(&mut self, began: u64, listed: Vec<HandApproval>, now: u64) -> Vec<Change> {
         let mut changes = Vec::new();

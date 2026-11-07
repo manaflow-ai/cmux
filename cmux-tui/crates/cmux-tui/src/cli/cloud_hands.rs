@@ -93,7 +93,9 @@ enum Internal {
     Subscribed(u64),
     Frame(u64, hands::HandFrame),
     Hands(u64, Vec<HandSummary>),
-    Listed(u64, u64, Result<Vec<HandApproval>, Failure>),
+    /// A read of `generation` (its sequence, when it began) ended: the rows it got, and
+    /// its failure when it stopped part way.
+    Listed(u64, u64, u64, Vec<HandApproval>, Option<Failure>),
     /// A route call of `generation` (its id) ended.
     Done(u64, u64, Result<Value, Failure>, Option<(String, Option<HandOutcome>, String)>),
 }
@@ -109,6 +111,8 @@ struct Engine<E> {
     generation: u64,
     socket: Option<JoinHandle<()>>,
     read: Option<JoinHandle<()>>,
+    /// The sequence of the newest read: an earlier one's end is ignored.
+    reads: u64,
     /// `refresh` calls that wait for the next read to end.
     refreshes: Vec<u64>,
     tokens: HashMap<u64, oneshot::Sender<Option<String>>>,
@@ -135,6 +139,7 @@ pub(super) async fn serve(
         generation: 0,
         socket: None,
         read: None,
+        reads: 0,
         refreshes: Vec::new(),
         tokens: HashMap::new(),
         next_token: 0,
@@ -265,11 +270,13 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
                 (self.emit)(json!({ "event": "hands", "hands": listed }));
                 self.tracker.set_hands(listed);
             }
-            Internal::Listed(generation, began, listed) if generation == self.generation => {
+            Internal::Listed(generation, read, began, listed, failed)
+                if generation == self.generation && read == self.reads =>
+            {
                 self.read = None;
-                let result = match listed {
-                    Ok(listed) => {
-                        let now = self.now();
+                let now = self.now();
+                let result = match failed {
+                    None => {
                         let changes = self.tracker.refreshed(began, listed, now);
                         self.show(changes);
                         self.log(format!(
@@ -279,7 +286,10 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
                         ));
                         Ok(json!({}))
                     }
-                    Err(failure) => {
+                    Some(failure) => {
+                        // The hands read before the failure still show their requests.
+                        let changes = self.tracker.partly_read(listed, now);
+                        self.show(changes);
                         self.log(format!("refresh failed: {failure}"));
                         Err(failure)
                     }
@@ -379,9 +389,12 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
         if let Some(read) = self.read.take() {
             read.abort();
         }
-        let (generation, internal, began) = (self.generation, self.internal.clone(), self.now());
+        self.reads = self.reads.wrapping_add(1);
+        let (generation, read, internal, began) =
+            (self.generation, self.reads, self.internal.clone(), self.now());
         self.read = Some(tokio::spawn(async move {
             // A fresh token for each route call: one that rotates or expires mid-read never fails the rest.
+            let mut waiting = Vec::new();
             let listed = async {
                 let credential = token(&internal).await;
                 let value =
@@ -389,7 +402,6 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
                 let hands = HandSummary::list(&value)
                     .ok_or_else(|| Failure::new("decoding", "hands is not a list of hands"))?;
                 let _ = internal.send(Internal::Hands(generation, hands.clone()));
-                let mut waiting = Vec::new();
                 for hand in Tracker::hands_to_read(&hands) {
                     let path = format!("/v1/hands/{hand}/approvals");
                     if !hands::is_hand_id(&hand) {
@@ -400,10 +412,10 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
                         http::call(&api, credential.as_deref(), Method::GET, &path, None).await?;
                     waiting.extend(HandApproval::list(&rows, &hand, wall_ms()));
                 }
-                Ok(waiting)
+                Ok::<(), Failure>(())
             }
             .await;
-            let _ = internal.send(Internal::Listed(generation, began, listed));
+            let _ = internal.send(Internal::Listed(generation, read, began, waiting, listed.err()));
         }));
     }
 
