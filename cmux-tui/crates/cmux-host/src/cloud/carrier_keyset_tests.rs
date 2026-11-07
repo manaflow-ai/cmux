@@ -18,8 +18,7 @@ fn jwk(kid: &str) -> Value {
 }
 
 fn keyset(version: &str, kids: &[&str]) -> Value {
-    let keys: serde_json::Map<String, Value> =
-        kids.iter().map(|kid| ((*kid).to_owned(), jwk(kid))).collect();
+    let keys: Map<String, Value> = kids.iter().map(|kid| ((*kid).to_owned(), jwk(kid))).collect();
     json!({"version": version, "keys": keys})
 }
 
@@ -216,7 +215,7 @@ fn the_refresher_fetches_at_bind_and_stops_on_drop() {
     std::fs::write(&file, carrier_text(keyset("0000000000000001", &["k1"]))).unwrap();
     let rotated = keyset("0000000000000002", &["k2"]);
     let http = Keysets::answering(vec![ok(rotated.clone())]);
-    let refresher = Refresher::spawn(paths.clone(), |_| {}).unwrap();
+    let refresher = Refresher::spawn(paths, |_| {}).unwrap();
     refresher.bound(*client(http.clone()));
     drop(refresher);
     assert_eq!(http.gets(), 1);

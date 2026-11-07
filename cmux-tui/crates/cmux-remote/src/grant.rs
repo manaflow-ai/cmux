@@ -523,7 +523,7 @@ mod tests {
         }
 
         /// Writes `file` the way the host does: a temp file, then a rename.
-        fn put(file: &std::path::Path, text: &str) {
+        fn put(file: &Path, text: &str) {
             let tmp = file.with_extension("tmp");
             std::fs::write(&tmp, text).unwrap();
             std::fs::rename(&tmp, file).unwrap();
