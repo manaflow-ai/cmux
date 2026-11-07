@@ -125,7 +125,6 @@ if [[ "$remote_commit" != "$commit" ]]; then
 fi
 
 request_id="${commit:0:12}-$(date +%s)-$$"
-run_title="cmux-tui $mode $request_id @ $commit"
 
 echo "Dispatching $mode verification for $commit"
 # return_run_details makes the dispatch answer with the run it created, so
@@ -145,18 +144,18 @@ if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
 fi
 
 # Re-read the run before accepting it so a branch/ref race cannot make us
-# watch a run for a different revision.
+# watch a run for a different revision. The dispatch named this run, so its
+# title (run-name, with request_id) is not checked: GitHub renders it a moment
+# after the dispatch, and a run read sooner is titled only "cmux-tui".
 run_identity="$(gh run view --repo "$REPO" "$run_id" \
-  --json headSha,headBranch,event,displayTitle \
-  --jq '[.headSha, .headBranch, .event, .displayTitle] | @tsv')"
-IFS=$'\t' read -r run_head_sha run_head_branch run_event run_display_title <<< "$run_identity"
+  --json headSha,headBranch,event \
+  --jq '[.headSha, .headBranch, .event] | @tsv')"
+IFS=$'\t' read -r run_head_sha run_head_branch run_event <<< "$run_identity"
 if [[ "$run_head_sha" != "$commit" || "$run_head_branch" != "$remote_branch" || \
-      "$run_event" != "workflow_dispatch" || "$run_display_title" != "$run_title" ]]; then
-  echo "error: discovered workflow run identity changed; refusing non-exact run" >&2
-  printf 'expected: sha=%s branch=%s event=workflow_dispatch title=%s\n' \
-    "$commit" "$remote_branch" "$run_title" >&2
-  printf 'actual:   sha=%s branch=%s event=%s title=%s\n' \
-    "$run_head_sha" "$run_head_branch" "$run_event" "$run_display_title" >&2
+      "$run_event" != "workflow_dispatch" ]]; then
+  echo "error: dispatched workflow run $run_id is not this revision; refusing it" >&2
+  printf 'expected: sha=%s branch=%s event=workflow_dispatch\n' "$commit" "$remote_branch" >&2
+  printf 'actual:   sha=%s branch=%s event=%s\n' "$run_head_sha" "$run_head_branch" "$run_event" >&2
   exit 1
 fi
 
