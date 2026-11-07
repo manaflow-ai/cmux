@@ -463,7 +463,8 @@
 }
 /* The trailing glyphs, Send (and Stop in its slot) and the mic, one size and one line weight in
    both looks and on New Tab (newtab/screen.css restates the tokens). */
-:is(.acpmux-composer, .nt-composer) :is(.acpmux-send, .acpmux-mic) > .acpmux-icon {
+:is(.acpmux-composer, .nt-composer) :is(.acpmux-send, .acpmux-mic) > .acpmux-icon,
+:is(.acpmux-composer, .nt-composer) .acpmux-send > .acpmux-send-layer > .acpmux-icon {
   width: var(--acpmux-composer-trail-glyph);
   height: var(--acpmux-composer-trail-glyph);
   stroke-width: var(--acpmux-composer-trail-stroke);

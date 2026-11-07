@@ -1,5 +1,6 @@
 import { experimentArm } from "../../experiments/experiment";
 import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
+import { permissionCardHeight } from "./permissions/cardHeight";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -1155,6 +1156,8 @@ export type AcpmuxSnapshot = {
   chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
+  /// The current turn's daemon start time, in the session clock. Unset when no turn is running.
+  turnStartedAtMs?: number;
   /**
    * The agent's guess at the person's next prompt (acpmux's `prompt_suggestion` update, Claude
    * Code's prompt suggestions), for the composer's ghost text: set only between turns, while no
@@ -2005,8 +2008,8 @@ function fallbackRowHeight(
   }
   // The render card: its 36px head over the frame before it reports a height, and 8px below.
   if (row.kind === RENDER) return finish(36 + RENDER_FRAME_MIN_HEIGHT + 8);
-  // Card padding and border, title, button row.
-  if (row.kind === "permission") return finish(87);
+  // Permission and question cards have different frames and content at the grid padding.
+  if (row.kind === "permission") return finish(permissionCardHeight(row.permission, width, chromeScale));
   // A suggested tasks card (offer/SuggestedTasks.tsx): its 28px heading, about 84px per open task
   // and 30px per started one, in 8px of margins.
   if (row.kind === "sessionOffer" && row.offers) {
