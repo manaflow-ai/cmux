@@ -135,7 +135,8 @@ def compact(row) -> str:
 
 
 def split_rows(text: str):
-    """Rows by key (every field but `values`), or None when a line is not such a row in compact form."""
+    """Rows by key (every field but `values`), or None when a line is not such a row in compact
+    form or two rows share a key (one would silently replace the other's counts)."""
     rows = {}
     for line in text.splitlines():
         if not line.strip():
@@ -148,6 +149,8 @@ def split_rows(text: str):
                 or compact(row) != line):
             return None
         key = compact({name: value for name, value in row.items() if name != "values"})
+        if key in rows:
+            return None
         rows[key] = row
     return rows
 
