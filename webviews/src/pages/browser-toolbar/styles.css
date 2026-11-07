@@ -1,0 +1,25 @@
+/* The toolbar row over the native chrome: no page background; the host sizes the web view and
+   the row sits at the bar's top (`metrics.barTop`), the bar's height. */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  cursor: default;
+}
+
+#root {
+  position: relative;
+  display: block;
+  height: 100%;
+}
+
+.btp-row {
+  position: absolute;
+  inset-inline: 0;
+}
+
+.btp-row > .bc-toolbar {
+  height: 100%;
+}

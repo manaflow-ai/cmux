@@ -1,0 +1,320 @@
+// The toolbar page's pure parts: keys, dispositions, tab slots, event seqs, layout diffs, the
+// runner's queue and status, and the chip mapping.
+import { describe, expect, test } from "bun:test";
+import type { OmnibarFieldSurface } from "../omnibox/effect-applier";
+import { initialOmnibarState } from "../omnibox/state";
+import { testResolver } from "../omnibox/testing";
+import type { TextRange } from "../omnibox/types";
+import { resolveLayout, TOOLBAR_METRICS } from "../ui/toolbarModel";
+import { OmnibarRunner } from "./controller";
+import { freshEvents } from "./events";
+import { admitsKey, dispositionFor, editKindFor, omnibarKeyFor, type KeyPress } from "./keys";
+import { indexAtX, layoutChanged, wireRect, wordRangeAt, type LayoutReport } from "./layout";
+import { TabSlotStore } from "./slots";
+import { chipFor, emphasisFor, starFor, wireCommand } from "./view";
+import type { ToolbarPageCommand } from "./wire";
+
+const press = (key: string, modifiers: Partial<KeyPress> = {}): KeyPress => ({
+  key,
+  meta: false,
+  shift: false,
+  alt: false,
+  ctrl: false,
+  ...modifiers,
+});
+const closed = { popupOpen: false, caretAtStart: false };
+const open = { popupOpen: true, caretAtStart: false };
+
+describe("dispositions (Disposition(flags))", () => {
+  test("modifiers pick where a commit opens", () => {
+    expect(dispositionFor({ meta: false, shift: false, alt: false })).toBe("currentTab");
+    expect(dispositionFor({ meta: true, shift: false, alt: false })).toBe("newBackgroundTab");
+    expect(dispositionFor({ meta: true, shift: true, alt: false })).toBe("newForegroundTab");
+    expect(dispositionFor({ meta: false, shift: false, alt: true })).toBe("newForegroundTab");
+    expect(dispositionFor({ meta: false, shift: true, alt: false })).toBe("newWindow");
+    expect(dispositionFor({ meta: true, shift: false, alt: true })).toBe("newBackgroundTab");
+  });
+});
+
+describe("keys (OmnibarFieldEditor, doCommandBy)", () => {
+  test("Return with modifiers and Control-Return", () => {
+    expect(omnibarKeyFor(press("Enter"), closed)).toEqual({ kind: "enter", disposition: "currentTab" });
+    expect(omnibarKeyFor(press("Enter", { meta: true }), closed)).toEqual({
+      kind: "enter",
+      disposition: "newBackgroundTab",
+    });
+    expect(omnibarKeyFor(press("Enter", { shift: true }), closed)).toEqual({ kind: "enter", disposition: "newWindow" });
+    expect(omnibarKeyFor(press("Enter", { ctrl: true }), closed)).toEqual({
+      kind: "enterAddingTLD",
+      disposition: "currentTab",
+    });
+  });
+
+  test("arrows, Tab, Escape, Home", () => {
+    expect(omnibarKeyFor(press("ArrowDown"), closed)).toEqual({ kind: "down" });
+    expect(omnibarKeyFor(press("ArrowUp"), closed)).toEqual({ kind: "up" });
+    expect(omnibarKeyFor(press("ArrowDown", { shift: true }), closed)).toBeNull();
+    expect(omnibarKeyFor(press("ArrowUp", { meta: true }), closed)).toBeNull();
+    expect(omnibarKeyFor(press("Tab"), closed)).toEqual({ kind: "tab" });
+    expect(omnibarKeyFor(press("Tab", { shift: true }), closed)).toEqual({ kind: "backTab" });
+    expect(omnibarKeyFor(press("Escape"), closed)).toEqual({ kind: "escape" });
+    expect(omnibarKeyFor(press("Home"), closed)).toEqual({ kind: "home", extend: false });
+    expect(omnibarKeyFor(press("Home", { shift: true }), closed)).toEqual({ kind: "home", extend: true });
+  });
+
+  test("Cmd-A, undo and redo, Shift-Delete", () => {
+    expect(omnibarKeyFor(press("a", { meta: true }), closed)).toEqual({ kind: "selectAll" });
+    expect(omnibarKeyFor(press("z", { meta: true }), closed)).toEqual({ kind: "undo" });
+    expect(omnibarKeyFor(press("Z", { meta: true, shift: true }), closed)).toEqual({ kind: "redo" });
+    expect(omnibarKeyFor(press("Delete", { shift: true }), closed)).toEqual({ kind: "deleteSuggestion" });
+    expect(omnibarKeyFor(press("Delete"), closed)).toBeNull();
+    expect(omnibarKeyFor(press("a"), closed)).toBeNull();
+  });
+
+  test("Backspace only at the start", () => {
+    expect(omnibarKeyFor(press("Backspace"), closed)).toBeNull();
+    expect(omnibarKeyFor(press("Backspace"), { popupOpen: false, caretAtStart: true })).toEqual({
+      kind: "backspaceAtStart",
+    });
+    expect(omnibarKeyFor(press("Backspace", { alt: true }), { popupOpen: false, caretAtStart: true })).toBeNull();
+  });
+
+  test("Ctrl-N/P/J/K move the open list only", () => {
+    expect(omnibarKeyFor(press("n", { ctrl: true }), open)).toEqual({ kind: "down" });
+    expect(omnibarKeyFor(press("j", { ctrl: true }), open)).toEqual({ kind: "down" });
+    expect(omnibarKeyFor(press("p", { ctrl: true }), open)).toEqual({ kind: "up" });
+    expect(omnibarKeyFor(press("k", { ctrl: true }), open)).toEqual({ kind: "up" });
+    expect(omnibarKeyFor(press("n", { ctrl: true }), closed)).toBeNull();
+  });
+
+  test("a read-only bar admits only the keys that select or leave", () => {
+    expect(admitsKey({ kind: "escape" }, true)).toBe(true);
+    expect(admitsKey({ kind: "selectAll" }, true)).toBe(true);
+    expect(admitsKey({ kind: "focusLocation" }, true)).toBe(true);
+    expect(admitsKey({ kind: "home", extend: true }, true)).toBe(true);
+    expect(admitsKey({ kind: "enter", disposition: "currentTab" }, true)).toBe(false);
+    expect(admitsKey({ kind: "undo" }, true)).toBe(false);
+    expect(admitsKey({ kind: "undo" }, false)).toBe(true);
+  });
+
+  test("edit kinds from inputType", () => {
+    expect(editKindFor("insertText")).toBe("insert");
+    expect(editKindFor("insertFromPaste")).toBe("paste");
+    expect(editKindFor("deleteContentBackward")).toBe("delete");
+    expect(editKindFor("deleteByCut")).toBe("delete");
+    expect(editKindFor("insertCompositionText")).toBe("insert");
+  });
+});
+
+describe("tab slots", () => {
+  test("stores, forgets and evicts the least recently used", () => {
+    const store = new TabSlotStore(2);
+    const a = initialOmnibarState("https://a.example/");
+    const b = initialOmnibarState("https://b.example/");
+    const c = initialOmnibarState("https://c.example/");
+    store.set("a", a);
+    store.set("b", b);
+    expect(store.get("a")).toBe(a);
+    store.set("c", c);
+    expect(store.has("b")).toBe(false);
+    expect(store.get("a")).toBe(a);
+    expect(store.get("c")).toBe(c);
+    store.delete("a");
+    expect(store.get("a")).toBeUndefined();
+    expect(store.size).toBe(1);
+  });
+});
+
+describe("host events", () => {
+  test("each seq once, in order", () => {
+    const events = [
+      { seq: 3, event: "c" },
+      { seq: 1, event: "a" },
+      { seq: 2, event: "b" },
+    ];
+    const first = freshEvents(events, 0);
+    expect(first.fresh.map((entry) => entry.event)).toEqual(["a", "b", "c"]);
+    expect(first.lastSeq).toBe(3);
+    const again = freshEvents([...events, { seq: 4, event: "d" }], first.lastSeq);
+    expect(again.fresh.map((entry) => entry.event)).toEqual(["d"]);
+    expect(freshEvents(events, 3)).toEqual({ fresh: [], lastSeq: 3 });
+  });
+});
+
+describe("layout", () => {
+  const report = (rects: LayoutReport["rects"], collapse = 0): LayoutReport => ({
+    rects,
+    showsForward: true,
+    visiblePinned: 0,
+    collapse,
+  });
+
+  test("sends only when something moved", () => {
+    const base = report({ back: wireRect(2, 0, 28, 28) });
+    expect(layoutChanged(null, base)).toBe(true);
+    expect(layoutChanged(base, report({ back: wireRect(2.01, 0, 28, 28) }))).toBe(false);
+    expect(layoutChanged(base, report({ back: wireRect(3, 0, 28, 28) }))).toBe(true);
+    expect(layoutChanged(base, report({ back: wireRect(2, 0, 28, 28), star: wireRect(0, 0, 20, 20) }))).toBe(true);
+    expect(layoutChanged(base, report({ back: wireRect(2, 0, 28, 28) }, 1))).toBe(true);
+  });
+
+  test("resolveLayout takes the host's metrics and resolved buttons", () => {
+    const buttons = [
+      { id: "designMode", collapseLevel: 1 },
+      { id: "downloads", collapseLevel: 2 },
+      { id: "overflow", collapseLevel: null },
+    ];
+    expect(resolveLayout(1000, buttons, 0, false).collapse).toBe(0);
+    const narrow = resolveLayout(250, buttons, 0, false);
+    expect(narrow.collapse).toBe(2);
+    const big = { ...TOOLBAR_METRICS, button: 40, minimumAddress: 300 };
+    expect(resolveLayout(500, buttons, 0, false).collapse).toBe(0);
+    expect(resolveLayout(500, buttons, 0, false, big).collapse).toBe(2);
+  });
+
+  test("the caret index under a point", () => {
+    const measure = (prefix: string) => prefix.length * 10;
+    expect(indexAtX("example.com", -5, measure)).toBe(0);
+    expect(indexAtX("example.com", 34, measure)).toBe(3);
+    expect(indexAtX("example.com", 36, measure)).toBe(4);
+    expect(indexAtX("example.com", 500, measure)).toBe(11);
+  });
+
+  test("the word at a caret", () => {
+    const text = "docs.example.com/guide";
+    expect(wordRangeAt(text, 7)).toEqual({ location: 5, length: 7 });
+    expect(wordRangeAt(text, 0)).toEqual({ location: 0, length: 4 });
+    expect(wordRangeAt(text, 16)).toEqual({ location: 13, length: 3 });
+    expect(wordRangeAt("", 0)).toBeNull();
+  });
+});
+
+class FakeField implements OmnibarFieldSurface {
+  isFieldEditorActive = false;
+  currentText = "";
+  currentSelection: TextRange = { location: 0, length: 0 };
+  hasMarkedText = false;
+  write(text: string): void {
+    this.currentText = text;
+  }
+  select(range: TextRange): void {
+    this.currentSelection = range;
+  }
+}
+
+describe("runner (OmnibarController)", () => {
+  function make() {
+    const field = new FakeField();
+    const sent: ToolbarPageCommand[] = [];
+    const runner = new OmnibarRunner(initialOmnibarState("https://example.com/"), {
+      field,
+      post: (command) => sent.push(command),
+      resolver: () => testResolver(),
+      upward: () => false,
+    });
+    return { field, sent, runner };
+  }
+
+  test("a step applies the field, then sends its effects in order, then the status", () => {
+    const { field, sent, runner } = make();
+    field.isFieldEditorActive = true;
+    runner.send({ type: "focusGained", source: "keyboard" });
+    expect(field.currentText).toBe("https://example.com/");
+    expect(sent.map((command) => command.type)).toEqual(["effect", "status"]);
+    expect(sent[0]).toEqual({ type: "effect", effect: { type: "began" } });
+    const status = sent[1] as Extract<ToolbarPageCommand, { type: "status" }>;
+    expect(status.phase).toBe("focused");
+    expect(status.selection).toEqual([0, "https://example.com/".length]);
+  });
+
+  test("no status when nothing it carries changed", () => {
+    const { sent, runner } = make();
+    runner.send({ type: "focusLost" });
+    expect(sent.filter((command) => command.type === "status")).toHaveLength(1);
+    runner.send({ type: "focusLost" });
+    expect(sent.filter((command) => command.type === "status")).toHaveLength(1);
+  });
+
+  test("inputs sent during a step queue behind it", () => {
+    const field = new FakeField();
+    const order: string[] = [];
+    let runner: OmnibarRunner | null = null;
+    runner = new OmnibarRunner(initialOmnibarState("https://example.com/"), {
+      field,
+      post: (command) => {
+        if (command.type === "effect") {
+          order.push(command.effect.type);
+          // A began effect that blurs at once (a re-entrant focus change).
+          if (command.effect.type === "began") expect(runner?.send({ type: "focusLost" })).toBe(false);
+        }
+      },
+      resolver: () => testResolver(),
+      upward: () => false,
+    });
+    runner.send({ type: "focusGained", source: "keyboard" });
+    expect(order).toEqual(["began", "ended"]);
+    expect(runner.state.phase).toBe("idle");
+  });
+
+  test("rows go to the host as a popup command", () => {
+    const { field, sent, runner } = make();
+    field.isFieldEditorActive = true;
+    runner.send({ type: "focusGained", source: "keyboard" });
+    field.currentText = "exa";
+    field.currentSelection = { location: 3, length: 0 };
+    runner.send({
+      type: "fieldChanged",
+      field: { text: "exa", selection: { location: 3, length: 0 } },
+      kind: "insert",
+    });
+    const query = sent.find((command) => command.type === "effect" && command.effect.type === "query");
+    expect(query).toBeDefined();
+    const generation = runner.state.generation;
+    runner.send({
+      type: "suggestions",
+      generation,
+      rows: [{ kind: "navigate", title: "example.com", detail: "", url: "https://example.com/", score: 1000 }],
+    });
+    const popup = [...sent].reverse().find((command) => command.type === "popup");
+    expect(popup).toMatchObject({ type: "popup", highlighted: 0, upward: false });
+    runner.send({ type: "key", key: { kind: "escape" } });
+    expect([...sent].reverse().find((command) => command.type === "popup")).toMatchObject({ rows: [] });
+  });
+});
+
+describe("view", () => {
+  const secure = { kind: "web", connection: "secure", displayName: "example.com" } as const;
+
+  test("the chip for each presentation", () => {
+    expect(chipFor(secure, { kind: "page" }).icon).toBe("browser.omnibox.pageinfo");
+    expect(chipFor(secure, { kind: "input", symbol: "globe" }).icon).toBe("browser");
+    expect(chipFor(secure, { kind: "input", symbol: "browser.omnibox.search" }).triggerable).toBe(false);
+    expect(chipFor(secure, { kind: "keyword", name: "Notes" }).label).toEqual({ keyword: "Notes" });
+    expect(chipFor(null, { kind: "engineKeyword", label: "Search YouTube" })).toMatchObject({
+      icon: "browser.omnibox.search",
+      label: { keyword: "Search YouTube" },
+    });
+  });
+
+  test("the star hides while editing", () => {
+    expect(starFor("on", "editing")).toBe("hidden");
+    expect(starFor("on", "focused")).toBe("on");
+  });
+
+  test("the resting emphasis is the host", () => {
+    const base = { selection: null, rows: [], highlighted: null, hasFocus: false, chip: { kind: "page" } } as const;
+    expect(
+      emphasisFor({
+        ...base,
+        text: "example.com/path",
+        style: { kind: "compactURL", url: "https://example.com/path" },
+      }),
+    ).toEqual([0, 11]);
+    expect(emphasisFor({ ...base, text: "typed", style: { kind: "plain" } })).toBeNull();
+  });
+
+  test("commands go to the host as they are", () => {
+    expect(wireCommand({ type: "goBack" })).toEqual({ type: "goBack" });
+    expect(wireCommand({ type: "focusAddressBar" })).toBeNull();
+  });
+});
