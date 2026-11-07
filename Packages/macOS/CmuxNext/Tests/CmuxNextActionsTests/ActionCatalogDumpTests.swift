@@ -19,7 +19,9 @@ import Testing
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("plans/cmux-next/action-catalog.json")
 
-    /// The English catalog decodes to the Swift catalog's dump, byte for byte.
+    /// The English catalog decodes to the Swift catalog's dump, byte for byte. The dump is a Debug
+    /// build's, so a Release test build, which drops the Debug-only entries, does not compare it.
+    #if DEBUG
     @Test func decodedCatalogEqualsTheSwiftDump() throws {
         let english = RustActionCatalog.load(language: "en")
         let current = try Self.json(english)
@@ -29,6 +31,7 @@ import Testing
         let stored = try String(contentsOf: Self.url, encoding: .utf8)
         #expect(stored == current, "the decoded catalog differs from action-catalog.json")
     }
+    #endif
 
     /// The dump never falls back to a value's description: every leaf is a known kind.
     @Test func dumpHasNoOpaqueValues() throws {
@@ -47,7 +50,11 @@ import Testing
         #expect(kept.compactMap { $0["id"] as? String } == ["a", "c"])
         let viewer = (kept.last?["arguments"] as? [[String: Any]])?.first?["kind"] as? [String: Any]
         #expect((viewer?["enumeration"] as? [[String: Any]])?.compactMap { $0["value"] as? String } == ["rd"])
+        #if DEBUG
         #expect(ActionCatalog.all.contains { $0.id == "home.agentMessagePlayground" }, "a Debug test build keeps its playgrounds")
+        #else
+        #expect(!ActionCatalog.all.contains { $0.id == "home.agentMessagePlayground" }, "a Release test build drops the playgrounds")
+        #endif
     }
 
     /// Japanese titles come back translated, from each title's own string table.
