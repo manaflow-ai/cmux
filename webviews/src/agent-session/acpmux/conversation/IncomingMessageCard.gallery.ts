@@ -141,7 +141,7 @@ const minimalChat = chat([
   assistant("Merged cmux/grid-fix into this branch.", 4.5),
   summary(4.5, { status: "completed" }),
 ]);
-const PREVIEW = ".cv-received__preview, .cv-received > .cv-disclosure__below";
+const PREVIEW = ".cv-received__preview, .cv-received > :is(.cv-agentmsg__below, .cv-disclosure__below)";
 const linesDrawn: Play = async (ctx) => {
   await openReceivedRow(ctx);
   // A line's first line: on the line (`single`) or under it (stacked, messageLineLook.ts).
@@ -181,7 +181,7 @@ const fadeCount = alternate(
 );
 /// C: no mark and no separate name; the sender's name in bold starts the preview.
 const inlineName = alternate(
-  `.cv-received .cv-received__from, .cv-received .cv-disclosure__icon { display: none; }
+  `.cv-received .cv-received__from, .cv-received :is(.cv-agentmsg__icon, .cv-disclosure__icon) { display: none; }
 .cv-received__preview > b { color: var(--cv-text); font-weight: 600; margin-right: 6px; }`,
   (preview, _text, name) => {
     const bold = preview.ownerDocument.createElement("b");
