@@ -5,13 +5,16 @@
 // (`useLiveToolRow`). Leo, 2026-11-04: "It should just never, ever ... be [freaking] acceptable
 // for there to be some sort of linear time growth degradation".
 import { afterEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, memo } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OrderedRows } from "./direct";
 import { liveToolOutput, toolOutputOnly, useLiveToolRow } from "./liveToolOutput";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { markOneRowChange, oneRowChange } from "./rowChanges";
+import { ToolActivityRow } from "./rows/ToolActivityRow";
+import type { RowProps } from "./rows/rowProps";
+import { RowContent } from "./VirtualTranscript";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -73,8 +76,11 @@ test("anything else goes through the pane", () => {
       call("ok\nqueued\n", { command: "acpmux send lane-a 'hi'" }),
     ],
   ];
-  for (const [name, before, after] of cases)
-    expect(toolOutputOnly(update(before, after).previous, update(before, after).next), name).toBeUndefined();
+  for (const [name, before, after] of cases) {
+    // One pair per case: a previous and next from two pairs are unlinked and say nothing.
+    const pair = update(before, after);
+    expect(toolOutputOnly(pair.previous, pair.next), name).toBeUndefined();
+  }
   // Another snapshot field changed with it.
   const { previous, next } = update(call("pass 1\n"), call("pass 1\npass 2\n"));
   expect(toolOutputOnly(previous, { ...next, isWorking: true })).toBeUndefined();
@@ -176,5 +182,56 @@ test("the row that draws the call alone renders its newer output, until the pane
   // A transcript that is not the pane's live one (a replay) keeps its own rows.
   draw(drawn, false);
   expect(text()).toBe("pass 1\n");
+  liveToolOutput.settle(liveToolOutput.redraw());
+});
+
+test("a client's change record holds no earlier snapshot, however many updates it makes", () => {
+  const rows = new OrderedRows();
+  rows.current = 1;
+  rows.set(prompt.id, prompt);
+  rows.current = 2;
+  let output = "pass 0\n";
+  rows.set("activity-1", activity(call(output)));
+  const published: AcpmuxRow[][] = [rows.sorted()];
+  for (let tick = 1; tick <= 50; tick += 1) {
+    rows.current = 2 + tick;
+    output += `pass ${tick}\n`;
+    rows.set("activity-1", activity(call(output), 1 + tick), false);
+    published.push(rows.sorted());
+  }
+  const newest = published.at(-1)!;
+  const earlier = new Set<unknown>(published.slice(0, -1));
+  // Everything the newest snapshot's record reaches: a chain of earlier snapshots kept every one of
+  // them alive (5,000 rows and 1,000 updates kept 1,001 arrays).
+  const seen = new Set<unknown>();
+  const walk = (value: unknown): void => {
+    if (value === null || typeof value !== "object" || seen.has(value)) return;
+    seen.add(value);
+    for (const key of Object.keys(value)) walk((value as Record<string, unknown>)[key]);
+  };
+  expect(oneRowChange(newest)).toBeDefined();
+  walk(oneRowChange(newest));
+  expect([...seen].filter((value) => earlier.has(value)).length).toBe(0);
+});
+
+test("a running command's row drawn by its memoized renderer shows the newest output on every update", () => {
+  const container = mount();
+  // ToolActivityRow's own comparator (id, version, session): the one the transcript draws with.
+  const Probe = memo(function Probe({ row }: RowProps) {
+    return <pre>{row.items?.[0]?.tool?.output}</pre>;
+  }, (ToolActivityRow as unknown as { compare: (a: RowProps, b: RowProps) => boolean }).compare);
+  root = createRoot(container);
+  let output = "pass 1\n";
+  const row = activity(call(output), 10);
+  act(() =>
+    root!.render(<RowContent Component={Probe} liveTools row={row} onToggleActivity={() => {}} expanded={false} />),
+  );
+  expect(container.textContent).toBe(output);
+  for (let tick = 2; tick <= 5; tick += 1) {
+    const before = output;
+    output += `pass ${tick}\n`;
+    act(() => liveToolOutput.set("call-1", output, before));
+    expect(container.textContent, `update ${tick - 1}`).toBe(output);
+  }
   liveToolOutput.settle(liveToolOutput.redraw());
 });
