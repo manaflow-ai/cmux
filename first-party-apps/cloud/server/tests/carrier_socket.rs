@@ -128,7 +128,9 @@ fn the_real_carrier_carries_a_stream_over_the_socket_the_app_answered() {
     BufReader::new(stream.try_clone().unwrap()).read_line(&mut answer).expect("answer");
     assert_eq!(answer, "echo {\"cmd\":\"identify\",\"id\":1}\n");
     drop(stream);
-    s.handle(&Request::new("cloud.machine.disconnect", json!({ "machine": "vm-alpha01" })))
-        .expect("disconnect");
+    s.handle(
+        &Request::new("cloud.machine.disconnect", json!({ "machine": "vm-alpha01" })).key("d-1"),
+    )
+    .expect("disconnect");
     std::fs::remove_dir_all(dir).unwrap();
 }
