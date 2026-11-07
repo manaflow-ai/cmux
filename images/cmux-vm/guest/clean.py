@@ -12,6 +12,10 @@ ITEMS = {
     "tmp": ["/tmp/*", "/tmp/.[!.]*", "/var/tmp/*"],
     "shell-history": ["/root/.bash_history", "/home/cmux/.bash_history", "/root/.python_history", "/root/.lesshst"],
     "claude-json-seed": ["/root/.claude.json", "/home/cmux/.claude.json"],
+    # acpmux's login-shell cache is one machine's: it holds the bake's environment, and its fingerprint (the startup
+    # files) cannot see the model-plane file they source at boot, so a clone kept the bake's copy and never read its
+    # own login shell (Codex started without the edge's placeholder key; gateway-e2e run 42382330319).
+    "acpmux-login-env": ["/root/.acpmux/login-env.json", "/home/cmux/.acpmux/login-env.json"],
     # A clone gets its own kind at its bind or team enroll (cmux-host VM_KIND_FILE).
     "vm-kind": ["/etc/cmux/vm-kind"],
 }

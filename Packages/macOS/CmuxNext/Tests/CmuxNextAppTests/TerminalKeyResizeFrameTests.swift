@@ -101,7 +101,7 @@ struct TerminalKeyResizeFrameTests {
         #expect(unsized.isEmpty, "\(unsized.count) frames showed a terminal at a size its pane had not had yet: \(unsized.prefix(8))")
         #expect(stretched.isEmpty, "\(stretched.count) frames showed a terminal's frame stretched: \(stretched.prefix(8))")
         #expect(landed.isEmpty, "after the landing a terminal does not show its pane's size: \(landed)")
-        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per 25 ms (\(windows) windows): \(resizes)")
+        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per refresh (\(windows) refreshes): \(resizes)")
         let ends = Self.ptyEndsAtItsViewsGrid(screen)
         #expect(ends.isEmpty, "a PTY does not end at its view's grid: \(ends)")
         #expect(changes.allSatisfy { $0 > 3 }, "a terminal took a new size in only \(changes) of \(steps) spring frames: it did not follow its pane")
@@ -209,7 +209,7 @@ struct TerminalKeyResizeFrameTests {
         let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }
         let grids = screen.ios[0].resizes.suffix(resizes[0]).map { "\($0.columns)x\($0.rows)" }
         let windows = Self.coalescingWindows(since: pressed)
-        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per 25 ms (\(windows) windows): \(resizes) (p1: \(grids))")
+        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per refresh (\(windows) refreshes): \(resizes) (p1: \(grids))")
         let ends = Self.ptyEndsAtItsViewsGrid(screen)
         #expect(ends.isEmpty, "a PTY does not end at its view's grid: \(ends)")
     }
@@ -336,7 +336,7 @@ struct TerminalKeyResizeFrameTests {
         #expect(unshown.isEmpty, "\(unshown.count) frames' sizes never showed their own frames: \(unshown.prefix(6))")
         #expect(rested.isEmpty, "after the landing: \(rested)")
         let windows = Self.coalescingWindows(since: pressed)
-        #expect(resizes.allSatisfy { $0 <= windows }, "the presses resized a terminal's program more than once per 25 ms (\(windows) windows): \(resizes)")
+        #expect(resizes.allSatisfy { $0 <= windows }, "the presses resized a terminal's program more than once per refresh (\(windows) refreshes): \(resizes)")
     }
 
     /// One terminal after a frame's sizes landed: its surface's frame and its area (host points: the host's area under
@@ -520,11 +520,12 @@ struct TerminalKeyResizeFrameTests {
 
     static func text(_ size: CGSize) -> String { "\(size.width)x\(size.height)" }
 
-    /// The most grids one terminal's PTY may get from `start` to now under m18's coalescing: one per 25 ms window
-    /// (``TerminalGridReportCoalescer/defaultInterval``) begun in that time, plus the landing's flush.
+    /// The most grids one terminal's PTY may get from `start` to now under m18's coalescing: one per display refresh
+    /// (RESIZE P0 6: a window ends at the next refresh; 120 Hz, the fastest a fleet display runs, so the bound holds at
+    /// any rate) begun in that time, plus the landing's flush.
     static func coalescingWindows(since start: ContinuousClock.Instant) -> Int {
         let ms = Self.ms(start.duration(to: .now))
-        return Int((ms / 25).rounded(.up)) + 1
+        return Int((ms / (1000.0 / 120)).rounded(.up)) + 1
     }
 
     /// The terminals whose PTY's last grid (as their IO recorded it) is not the grid their view fits now.
@@ -638,12 +639,12 @@ nonisolated final class AnnouncingTerminalIO: TerminalIO {
     }
 
     /// Every grid the view reported, in order, with the main-thread time of the report
-    /// (``resizeOnMain(cols:rows:final:window:)``: the session calls it in the report's turn, before the ordered input
+    /// (``resizeOnMain(cols:rows:window:)``: the session calls it in the report's turn, before the ordered input
     /// stream delivers ``resize(cols:rows:pixelWidth:pixelHeight:)``).
     let reports = Mutex<[Report]>([])
 
     /// Records the report and lets it go on through the ordered input stream (returns false).
-    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool {
+    @MainActor func resizeOnMain(cols: Int, rows: Int, window: NSWindow?) -> Bool {
         reports.withLock { $0.append(Report(grid: TerminalGridSize(columns: cols, rows: rows), at: .now)) }
         return false
     }

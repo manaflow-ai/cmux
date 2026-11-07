@@ -18,6 +18,5 @@ public nonisolated struct StatusBehaviorSettings: Hashable, Sendable {
 
     public init() {}
 
-    public static let inferAfterRange: ClosedRange<Double> = 0...600
     public static let runNotifyRange: ClosedRange<Double> = 0...3600
 }

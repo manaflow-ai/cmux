@@ -9,7 +9,7 @@ import { awaitsOwnWork, SUBAGENTS, type Subagent } from "../src/agent-session/ac
 import { finishedTrayItems, trayItems, withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import { lastSaidLine, latestLine } from "../src/agent-session/acpmux/subagents/trayDetail";
 import { elapsed, groupElapsed, ticking } from "../src/agent-session/acpmux/subagents/SubagentGroup";
-import { subagentStatus, subagentStateText } from "../src/agent-session/acpmux/summary/SubagentStatusList";
+import { subagentStatus, subagentStateText } from "../src/agent-session/acpmux/summary/subagentStatusListModel";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { attentionFirst, type TrayCard } from "../src/agent-session/acpmux/subagents/trayAttention";

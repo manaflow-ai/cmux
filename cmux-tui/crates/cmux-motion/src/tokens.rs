@@ -140,8 +140,8 @@ pub enum MotionTween {
     /// (`ui.animations.newTab`).
     TabOpen,
     /// A closing tab shrinking with its left edge pinned, its neighbours
-    /// closing the gap, and the resize when mouse closing mode ends
-    /// (`ui.animations.newTab`).
+    /// closing the gap, and the resize when mouse closing mode ends. Not
+    /// under a kind switch (close case A, cmux-ad m49).
     TabClose,
     /// Tabs moving in a reorder or crowding change and a dragged tab
     /// settling on release. A gesture: not under a kind switch.
@@ -157,11 +157,14 @@ impl MotionTween {
     }
 
     /// The `ui.animations.*` switch that turns this tween on (an off kind
-    /// applies the change at once), or none for a gesture.
+    /// applies the change at once), or none when only the category, speed
+    /// and Reduce Motion gate it: a gesture, and a tab's close (close case A,
+    /// Lawrence cmux-ad m49 "A: animate the tab strip"; `newTab` is "A new tab
+    /// grows into its place" and says nothing about a close).
     pub const fn kind(self) -> Option<MotionKind> {
         match self {
-            Self::TabOpen | Self::TabClose => Some(MotionKind::NewTab),
-            Self::TabMove => None,
+            Self::TabOpen => Some(MotionKind::NewTab),
+            Self::TabClose | Self::TabMove => None,
         }
     }
 }

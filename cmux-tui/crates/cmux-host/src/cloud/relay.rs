@@ -51,6 +51,11 @@ use super::client::{CloudClient, Http};
 pub const PROTOCOL: &str = "cmux.machine-relay/1";
 const PING_EVERY: Duration = Duration::from_secs(20);
 const DEAD_AFTER: Duration = Duration::from_secs(60);
+/// The keepalive, byte for byte the frame the platform's runtime answers with a pong (MachineRelay.ts,
+/// `setWebSocketAutoResponse`). `json!` sorts its keys (`{"t":"ping","v":1}`), which matched nothing, so no pong
+/// came and the host dropped a live socket [`DEAD_AFTER`] after the last frame down: a chat quiet that long ended
+/// `cloud.relay.host_gone` (cmuxterm-hq cloud chaos, token-rejected, run 42135490481).
+const PING: &str = r#"{"v":1,"t":"ping"}"#;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// Chats run at once; the platform holds at most 8 per machine.
 const MAX_CHATS: usize = 8;
@@ -566,7 +571,8 @@ fn run<H: Http>(
         return log("relay: no relay URL for this machine");
     };
     let mut platform = Platform { client, url, runner, now_wall_ms };
-    relay_loop(&rt, &mut platform, log, &mut stop, &mut resumes, detached);
+    let network = cmux_server::cloud_http::network_watch();
+    relay_loop(&rt, &mut platform, log, &mut stop, &mut resumes, &network, detached);
     // Dropping the runtime drops every chat task left, which kills its acpmux children (kill_on_drop).
 }
 
@@ -577,6 +583,7 @@ fn relay_loop(
     log: fn(&str),
     stop: &mut watch::Receiver<bool>,
     resumes: &mut watch::Receiver<u64>,
+    network: &watch::Receiver<u64>,
     detached: Arc<AtomicBool>,
 ) {
     let mut backoff = Duration::from_secs(1);
@@ -590,6 +597,7 @@ fn relay_loop(
             seen = *resumes.borrow();
             dial.reset_transport();
         }
+        let changes = *network.borrow();
         let Some(outcome) = dial.serve(rt, stop, &mut link, resumes, seen) else { break };
         match outcome {
             Ok(Ended::Resumed) => {
@@ -605,6 +613,12 @@ fn relay_loop(
                 if e != last_error {
                     log(&format!("relay: {e}"));
                     last_error = e;
+                }
+                // The machine's addresses changed during the attempt (a fresh machine's network attach lands about
+                // a second after its bind) and failed it: the next one goes at once, on a fresh connection.
+                if *network.borrow() != changes {
+                    backoff = Duration::from_secs(1);
+                    continue;
                 }
                 backoff = (backoff * 2).min(Duration::from_secs(30));
             }
@@ -763,7 +777,7 @@ async fn serve(
                     let _ = sink.close().await;
                     return Ok(Ended::Dropped);
                 }
-                if sink.send(Message::text(json!({"v": 1, "t": "ping"}).to_string())).await.is_err() {
+                if sink.send(Message::text(PING)).await.is_err() {
                     return Ok(Ended::Dropped);
                 }
             }

@@ -496,3 +496,9 @@ fn a_chat_counts_as_running_until_its_task_ends_or_is_aborted() {
         assert_eq!(COUNT.load(Ordering::SeqCst), 0);
     });
 }
+
+#[test]
+fn the_ping_is_the_exact_frame_the_platform_answers() {
+    // MachineRelay.ts: setWebSocketAutoResponse matches the text exactly, key order included.
+    assert_eq!(PING, r#"{"v":1,"t":"ping"}"#);
+}

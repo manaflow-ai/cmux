@@ -21,6 +21,11 @@
 //!   [`Journal::on_written`] reports each batch's write, before its sync: a reply that promises
 //!   only that a kill of every process keeps its change (a daemon's kept class) waits for that,
 //!   and [`Journal::wait_durable`] asks for the sync at once instead of the delay.
+//! - **Kept records.** [`Journal::append_kept`] appends a `Stream` record that a reply has shown
+//!   once written (a daemon's kept change: a draft, a name). The writer syncs it in idle time:
+//!   once no record came for [`Config::kept_sync_quiet`], or with the next acked batch, or after
+//!   the stream sync delay, whichever comes first. So the next acked batch (a prompt) syncs only
+//!   its own records, not a burst of kept ones before it.
 //!
 //! Sync levels ([`SyncLevel`]): an acked batch is synced with `F_BARRIERFSYNC` on macOS
 //! (`fdatasync` on Linux, `FlushFileBuffers` on Windows), so an acknowledged change survives a
@@ -136,6 +141,9 @@ pub struct Config {
     pub full_sync_interval: Duration,
     /// How long written `Stream` records may stay unsynced when no acked batch comes.
     pub stream_sync_delay: Duration,
+    /// How long the journal must be quiet (no record taken) before written kept records
+    /// ([`Journal::append_kept`]) are synced.
+    pub kept_sync_quiet: Duration,
     /// After a failed write or sync, the first and the longest wait before the writer tries again.
     pub retry_min: Duration,
     pub retry_max: Duration,
@@ -148,6 +156,7 @@ impl Default for Config {
             max_pending_bytes: 64 * 1024 * 1024,
             full_sync_interval: Duration::from_secs(1),
             stream_sync_delay: Duration::from_secs(1),
+            kept_sync_quiet: Duration::from_millis(10),
             retry_min: Duration::from_millis(100),
             retry_max: Duration::from_secs(5),
         }
