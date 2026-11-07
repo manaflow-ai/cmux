@@ -568,7 +568,10 @@ class TerminalController {
         mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
         mobileTaskModelDiscovery: MobileTaskModelDiscovery = .live(
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
-            shellPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+            shellPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh",
+            customClaudePath: {
+                AgentIntegrationSettingsStore(defaults: .standard).customClaudePath
+            }
         ),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore? = nil,

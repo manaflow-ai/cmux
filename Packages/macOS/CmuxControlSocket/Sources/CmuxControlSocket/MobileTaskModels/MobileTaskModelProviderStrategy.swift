@@ -42,10 +42,15 @@ public struct MobileTaskModelProviderStrategy: Sendable {
     /// local debug catalog with an owned cache fallback, and OpenCode exposes
     /// `opencode models`. No product-owned list participates in this result.
     ///
-    /// - Parameter provider: Provider whose model list is requested.
+    /// - Parameters:
+    ///   - provider: Provider whose model list is requested.
+    ///   - claudeExecutable: Host-configured Claude executable, passed as one
+    ///     shell argument. Defaults to login-shell lookup of claude and is
+    ///     ignored for other providers.
     /// - Returns: Models plus the strategy source.
     public func models(
-        for provider: MobileTaskModelProvider
+        for provider: MobileTaskModelProvider,
+        claudeExecutable: String = "claude"
     ) async -> MobileTaskModelListResult {
         switch provider {
         case .openCode:
@@ -84,8 +89,9 @@ public struct MobileTaskModelProviderStrategy: Sendable {
             }
             return discovered(models, defaultModel: defaultModel)
         case .claude:
+            let executable = "'" + claudeExecutable.replacingOccurrences(of: "'", with: "'\\''") + "'"
             let output = await commandRunner(
-                Self.claudeModelListCommand,
+                Self.claudeModelListCommand(executable: executable),
                 .seconds(30)
             )
             let models = output.map(parser.claudeModels(from:)) ?? []
@@ -93,7 +99,8 @@ public struct MobileTaskModelProviderStrategy: Sendable {
             guard !models.isEmpty || defaultModel != nil else {
                 return await failedDiscovery(
                     for: provider,
-                    commandReturnedOutput: output != nil
+                    commandReturnedOutput: output != nil,
+                    executable: executable
                 )
             }
             return discovered(models, defaultModel: defaultModel)
@@ -102,14 +109,15 @@ public struct MobileTaskModelProviderStrategy: Sendable {
 
     private func failedDiscovery(
         for provider: MobileTaskModelProvider,
-        commandReturnedOutput: Bool
+        commandReturnedOutput: Bool,
+        executable: String? = nil
     ) async -> MobileTaskModelListResult {
         let error: MobileTaskModelListError
         if commandReturnedOutput {
             error = .queryFailed
         } else {
             let availability = await commandRunner(
-                "command -v \(provider.rawValue)",
+                "command -v \(executable ?? provider.rawValue)",
                 .seconds(2)
             )
             error = availability == nil ? .providerUnavailable : .queryFailed
@@ -146,8 +154,10 @@ public struct MobileTaskModelProviderStrategy: Sendable {
         return models.first { $0.id == configuredID }
     }
 
-    private static let claudeModelListCommand = #"""
-    set -o pipefail
-    /usr/bin/printf '%s\n' '{"type":"control_request","request_id":"cmux-list-options","request":{"subtype":"list_models"}}' | /usr/bin/env CLAUDE_CODE_ENTRYPOINT=cmux-task-models claude -p --input-format stream-json --output-format stream-json --include-partial-messages --verbose
-    """#
+    private static func claudeModelListCommand(executable: String) -> String {
+        #"""
+        set -o pipefail
+        /usr/bin/printf '%s\n' '{"type":"control_request","request_id":"cmux-list-options","request":{"subtype":"list_models"}}' | /usr/bin/env CLAUDE_CODE_ENTRYPOINT=cmux-task-models \#(executable) -p --input-format stream-json --output-format stream-json --include-partial-messages --verbose
+        """#
+    }
 }
