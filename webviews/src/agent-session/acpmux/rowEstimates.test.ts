@@ -353,6 +353,22 @@ test("a prompt with a 2,300-line paste is its typed line and one card", () => {
   expect(height).toBeCloseTo(BUBBLE.oneLine + pasteChipHeight(currentChatMetrics().lineHeight), 5);
 });
 
+// Only an oversized paste folds (pastedText.ts isLargePaste); an ordinary one reads as the prompt's
+// own text (ask-792a64a12f), so it is estimated as that text, not as a card.
+test("a prompt with an ordinary paste is estimated as the same prompt typed", () => {
+  const typed = "Why does this fail?";
+  const paste = ["error: retry budget exhausted", "  at upload (uploader.ts:88:7)", "  at main (index.ts:12:3)"].join(
+    "\n",
+  );
+  const text = `${typed}\n${paste}`;
+  const pasted = [{ start: typed.length + 1, end: text.length }];
+  const [asPasted, asTyped] = heightsOf([
+    { id: "p", version: 1, at: 0, kind: "user", text, pasted },
+    { id: "t", version: 1, at: 0, kind: "user", text },
+  ]);
+  expect(asPasted).toBeCloseTo(asTyped!, 5);
+});
+
 // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx), so it is
 // estimated at 0, and a row drawn at 0 is placed at 0. Before: 10px and 26px per thought, kept as
 // blank space even after the row mounted, since a drawn 0 was read as "not laid out" (Leo,
