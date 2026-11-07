@@ -330,6 +330,7 @@ export function ComposerBox({
               const plan = pastePlan(event.clipboardData, inline.known);
               if (!plan || (!onPasteFiles && plan.some((part) => "file" in part))) return false;
               pastesPlaced.add(event);
+              const files: File[] = [];
               for (const part of plan) {
                 if ("text" in part) prompt.current?.insertText(part.text);
                 // An attachment the prompt still has comes back as a copy of it; one cut from it, as itself.
@@ -337,8 +338,9 @@ export function ComposerBox({
                   prompt.current?.insertInline([
                     staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id,
                   ]);
-                else onPasteFiles?.([part.file]);
+                else files.push(part.file);
               }
+              if (files.length) onPasteFiles?.(files);
               return true;
             }}
             onChange={(markdown, caret) => {
