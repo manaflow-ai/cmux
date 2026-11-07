@@ -206,7 +206,13 @@ export function chipRemoved(state: {
 }
 
 /// Reads `given` into chips (useAttachmentIntake's `attach`); `again`, a failed chip's Retry.
-type Intake = (given: (File | MadeFile)[], uploads?: boolean, kind?: SourceKind, again?: string) => Promise<void>;
+type Intake = (
+  given: (File | MadeFile)[],
+  uploads?: boolean,
+  kind?: SourceKind,
+  again?: string,
+  dedupeContent?: boolean,
+) => Promise<void>;
 
 /// How many cancelled loading chips keep their file for an undo (`revive`).
 const PARKED_MAX = 16;
@@ -219,7 +225,13 @@ type PendingSource =
 
 /// A file chip's source. `name` and `type` too, for a file whose bytes are still being made (a
 /// promise): an undo can read it again as the MadeFile it came as (`revive`).
-type FileSource = { file: File | Promise<File>; uploads: boolean; name: string; type: string };
+type FileSource = {
+  file: File | Promise<File>;
+  uploads: boolean;
+  name: string;
+  type: string;
+  dedupeContent?: boolean;
+};
 
 /// A file whose bytes are still being made (pastedText.ts pastedTextFile): its tile shows at once,
 /// by its name and type, and it is read once `file` settles.
@@ -327,7 +339,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// the file input (`choose`), which the host asks only where its files came from. `again`: the
   /// failed chip whose file `given` is, read again under its id (Retry): it keeps its place in the
   /// strip and in the text, and its node there draws what the read makes.
-  const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again) => {
+  const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again, dedupeContent = true) => {
     if (given.length === 0) return;
     // When the page took the gesture: the host answers its source only from a record made before
     // it (composer/attachmentSources.ts).
@@ -351,7 +363,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // source now settles it, so an older read still running never takes or drops the newer one's.
     const owned = shown.map((chip, index): FileSource => {
       const file = files[index]!;
-      const source = { file: isMadeFile(file) ? file.file : file, uploads, name: file.name, type: file.type };
+      const source = {
+        file: isMadeFile(file) ? file.file : file,
+        uploads,
+        name: file.name,
+        type: file.type,
+        dedupeContent,
+      };
       sources.current.set(chip.id, source);
       return source;
     });
@@ -449,7 +467,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       staged.add(attachment.id);
       setAttachments((staged) => {
         const at = staged.findIndex((chip) => (places.current.get(chip.id) ?? -1) > place);
-        if (at < 0 || staged.some((chip) => chip.id === attachment.id)) return appendAttachments(staged, [attachment]);
+        if (at < 0 || staged.some((chip) => chip.id === attachment.id))
+          return appendAttachments(staged, [attachment], { dedupeContent });
         return [...staged.slice(0, at), attachment, ...staged.slice(at)];
       });
     };
@@ -612,8 +631,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   });
   const [attach] = useState(
     () =>
-      (given: (File | MadeFile)[], uploads = false, kind?: SourceKind) =>
-        intake(given, uploads, kind),
+      (given: (File | MadeFile)[], uploads = false, kind?: SourceKind, dedupeContent = true) =>
+        intake(given, uploads, kind, undefined, dedupeContent),
   );
   /// A chip the host makes from something of its own (a long dictation recording it sends to the
   /// chat's machine): its tile shows at once, drawn before this returns so a send made in the same
@@ -694,7 +713,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     if (!source || "make" in source) return false;
     parked.current.delete(id);
     const { file, name, type } = source;
-    void intake(["then" in file ? { name, type, file } : file], source.uploads, undefined, id);
+    void intake(["then" in file ? { name, type, file } : file], source.uploads, undefined, id, source.dedupeContent);
     return true;
   });
   /// A staged image's Retry for its original: the original uploads again, its preview staying staged.
@@ -752,7 +771,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // A file whose bytes were never made (making them failed) has nothing to retry.
     if (!source || !file || "then" in file) return;
     // Without the paste's kind: the host's record of where its files are was for that gesture only.
-    void intake([file], source.uploads, undefined, id);
+    void intake([file], source.uploads, undefined, id, source.dedupeContent);
   });
   retryRef.current = retry;
   // A try again still waiting (its timer, its key and click listeners) goes with the composer.
