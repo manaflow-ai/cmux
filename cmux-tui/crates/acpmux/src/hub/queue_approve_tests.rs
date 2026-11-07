@@ -557,3 +557,57 @@ async fn a_restart_keeps_a_continuations_goal_mark_and_an_edit_drops_it() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A subagent retry the person rewrote in the queue is their prompt now: a restart keeps it.
+/// The retry's own control state goes with the edit, so the load that drops an old daemon's
+/// unsent retries (`subagent_retry.rs` `drop_unsent_subagent_retries`) never takes the person's
+/// words with it (Codex review of #37497: the edit kept `kind: subagent_retry`, and the restart
+/// deleted the rewritten prompt).
+#[tokio::test]
+async fn a_restart_keeps_a_subagent_retry_the_person_rewrote() {
+    let dir = std::env::temp_dir().join(format!("acpmux-edited-retry-{}", uuid::Uuid::now_v7()));
+    let durable = || {
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+            "defaultHarness": "fake"
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Local;
+        let store = crate::store::open(&cfg.store, &dir).unwrap();
+        Hub::new(cfg, store)
+    };
+    let hub = durable();
+    let new = crate::hub::NewRequest {
+        cwd: Some(std::env::temp_dir()),
+        ..crate::hub::NewRequest::default()
+    };
+    let session = hub.new_session(new).await.unwrap();
+    let id = session.id.clone();
+    let retry = json!({"kind": super::super::subagent_retry::PROVENANCE_KIND,
+        "subagentId": "s/t9", "agentId": "agent-s/t9", "attempt": 1});
+    insert(&hub, &session, "rewritten", Some(&retry));
+    let edit =
+        json!({"sessionId": id, "promptId": "rewritten", "op": "update", "text": "Do this instead"});
+    hub.queue_edit(&session, &edit, Control::Local, false, None).await.unwrap();
+    hub.shutdown_all().await;
+    drop((session, hub));
+
+    let hub = durable();
+    let session = hub.resolve(&id).unwrap();
+    hub.load_session_log(&session);
+    let left: Vec<(String, String, bool)> = session
+        .queue()
+        .into_iter()
+        .map(|q| {
+            let retry = super::super::subagent_retry::is_retry(q.run.provenance.as_ref());
+            (q.prompt_id, q.preview, retry)
+        })
+        .collect();
+    assert_eq!(
+        left,
+        [("rewritten".to_owned(), "Do this instead".to_owned(), false)],
+        "the person's rewritten retry after a restart"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
