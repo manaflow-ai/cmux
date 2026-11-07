@@ -98,7 +98,7 @@ fn a_rotated_keyset_rewrites_carrier_json_and_the_same_one_does_not() {
     let old = keyset("0000000000000001", &["k1"]);
     let rotated = keyset("0000000000000002", &["k1", "k2"]);
     let text = carrier_text(old.clone());
-    let http = Keysets::answering(vec![ok(rotated.clone()), ok(old.clone())]);
+    let http = Keysets::answering(vec![ok(rotated.clone()), ok(rotated.clone())]);
     let client = client(http.clone());
     let now = Instant::now();
     let mut schedule =
