@@ -73,7 +73,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextFeed/FeedTunables.swift:FeedTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Model/FeedChoiceValidation.swift:FeedChoiceValidation
 Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/WhichKey/WhichKeyRow.swift:WhichKeyStrings
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/AgentSession.swift:AgentResume
-Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageModel.swift:HistoryPageAddress
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefAppLinks.swift:ChiefAppLinks
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHostStop.swift:ChiefHostStop
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefMigration.swift:ChiefMigration

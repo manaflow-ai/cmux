@@ -197,6 +197,14 @@ pub enum MuxEvent {
     /// (page-router.json `events`); other connections hear it as apps
     /// clients after their first `apps-*` command.
     AppsChanged(Arc<Value>),
+    /// A `stash.*` mutation committed (`stash-v1`): the state revision it
+    /// committed at. Consumers re-read `stash.list`. Clients of
+    /// `session.events` also see it as a `stash` resource change; this one
+    /// is for a page relay (page-router.json `events`: the Stashed Tabs
+    /// page).
+    StashChanged {
+        revision: u64,
+    },
     /// Every workspace is gone.
     Empty,
 }
