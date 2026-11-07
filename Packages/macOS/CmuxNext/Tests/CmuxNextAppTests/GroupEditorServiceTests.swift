@@ -150,6 +150,22 @@ import Testing
         #expect(first?["id"]?.stringValue == "", "a reload after the close drew the closed editor again")
     }
 
+    /// Review of #37299 at a9e3400 (F1): the page's controls are fixed CSS sizes that follow only the Interface Size,
+    /// so the card's width does not shrink with the density (Ultra-compact cut off the dots, Custom Color and Set Icon).
+    @Test func theCardKeepsItsWidthAtEveryDensity() {
+        let design = DesignSettings.shared
+        let saved = design.densityTokens
+        defer { design.densityTokens = saved }
+        let widths = design.availableDensities.map { density in
+            design.densityTokens = density
+            return (density.id, SidebarGroupEditor.width)
+        }
+        let standard = 240 * Typography.userScale
+        for (id, width) in widths {
+            #expect(abs(width - standard) <= 0.5, "the editor is \(width) wide at density \(id); its controls need \(standard)")
+        }
+    }
+
     /// Review of #37299 at efa6302 (F1): the page scales its controls by the Interface Size (`Typography.userScale`,
     /// its `--cmux-interface-scale`), so the card widens with it and the swatch row and icon button stay whole.
     @Test func theCardWidensWithTheInterfaceSize() {
