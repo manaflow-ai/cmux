@@ -64,6 +64,30 @@ impl Hub {
             }
         }
     }
+
+    /// Restore the highest transfer fencing epoch before a session can accept a resumed move.
+    /// Epochs live in transfer events rather than session metadata so old stores remain readable.
+    pub(super) fn restore_ownership_epoch(&self, session: &Session) -> anyhow::Result<()> {
+        let mut epoch = 0;
+        let mut malformed = false;
+        self.store.scan_kinds_strict(
+            &session.id,
+            &["transfer_out", "transferred", "transferred_in", "transfer_aborted"],
+            &mut |record| {
+                if let Some(value) = record.msg.get("epoch") {
+                    if let Some(value) = value.as_u64() {
+                        epoch = epoch.max(value);
+                    } else {
+                        malformed = true;
+                    }
+                }
+                true
+            },
+        )?;
+        anyhow::ensure!(!malformed, "transfer event contains a malformed ownership epoch");
+        session.restore_ownership_epoch(epoch);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -111,6 +135,110 @@ mod tests {
         fn delete(&self, id: &str) -> anyhow::Result<()> {
             self.inner.delete(id)
         }
+    }
+
+    /// Once armed: says the next event read began, then waits for its release.
+    type Hold = Arc<StdMutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>>;
+
+    /// Holds the first event read after it is armed (a move's export) until the test lets it go.
+    struct HeldRead {
+        inner: Box<dyn Store>,
+        hold: Hold,
+    }
+
+    impl Store for HeldRead {
+        fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
+            self.inner.list()
+        }
+        fn load(&self, id: &str) -> anyhow::Result<Option<SessionMeta>> {
+            self.inner.load(id)
+        }
+        fn save(&self, meta: &SessionMeta) -> anyhow::Result<()> {
+            self.inner.save(meta)
+        }
+        fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+            self.inner.append(id, record)
+        }
+        /// An export reads the log with `scan`, which reads `events`.
+        fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+            let held = self.hold.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((entered, release)) = held {
+                let _ = entered.send(());
+                let _ = release.recv();
+            }
+            self.inner.events(id, after, limit)
+        }
+        fn scan_strict(
+            &self,
+            id: &str,
+            after: u64,
+            visit: &mut dyn FnMut(EventRecord) -> bool,
+        ) -> anyhow::Result<()> {
+            self.inner.scan_strict(id, after, visit)
+        }
+        fn delete(&self, id: &str) -> anyhow::Result<()> {
+            self.inner.delete(id)
+        }
+    }
+
+    /// The watch a restart starts once every chat log is read (`watch_transfers`, `log_load.rs`)
+    /// leaves a move whose begin is still making its bundle: a client may begin one as soon as
+    /// the daemon is ready, and that begin watches its move itself. The startup watch found no
+    /// `alive` stamp yet, took the move for one idle a whole lease, aborted it and removed its
+    /// bundle under the begin, which then failed with "transfer: read approval snapshot: No such
+    /// file or directory" (a base red of `durable_agents`
+    /// `transfer_authority_survives_restart_and_abort_restores_the_live_root` under load).
+    #[test]
+    fn the_startup_watch_leaves_a_move_whose_begin_is_making_its_bundle() {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let hold: Hold = Arc::new(StdMutex::new(None));
+        let hub = Hub::new(config, Box::new(HeldRead { inner, hold: hold.clone() }));
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "begin-mid-export", "name": "mid",
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        let (entered_tx, entered) = std::sync::mpsc::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        *hold.lock().unwrap() = Some((entered_tx, release_rx));
+        let begin = std::thread::spawn({
+            let (hub, id) = (hub.clone(), session.id.clone());
+            move || {
+                let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build();
+                runtime.unwrap().block_on(async {
+                    hub.transfer_request("_acpmux/transfer_begin", &json!({"sessionId": id})).await
+                })
+            }
+        });
+        // The begin is in its export: the chat frozen under the move, its bundle directory made.
+        entered
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the begin never reached its export");
+        let transfer = session.moving().expect("the begin froze the chat");
+        let dir = super::super::transfer_out::transfers_dir().join(&transfer);
+        assert!(dir.join(&session.id).is_dir(), "the begin had not made its bundle yet");
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            hub.watch_transfers();
+            // A watch it started runs to its first wait (or its end) before this goes on.
+            tokio::task::yield_now().await;
+        });
+        let moving = session.moving();
+        release.send(()).unwrap();
+        let begun = begin.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(moving.as_deref(), Some(transfer.as_str()), "the startup watch ended the move");
+        assert!(begun.is_ok(), "the begin failed under the startup watch: {begun:?}");
     }
 
     #[test]
@@ -308,7 +436,7 @@ mod tests {
             .transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session.id}))
             .await
             .unwrap();
-        let params = json!({"sessionId": session.id, "transferId": begun["transferId"]});
+        let params = json!({"sessionId": session.id, "transferId": begun["transferId"], "epoch": begun["epoch"]});
         hub.transfer_request("_acpmux/transfer_abort", &params).await.unwrap();
         assert_eq!(
             *moving_at_abort.lock().unwrap(),
@@ -381,7 +509,8 @@ mod tests {
             .await
             .unwrap();
         let transfer = begun["transferId"].as_str().unwrap().to_owned();
-        let params = json!({"sessionId": session.id, "transferId": transfer});
+        let params =
+            json!({"sessionId": session.id, "transferId": transfer, "epoch": begun["epoch"]});
         let aborted = hub.transfer_request("_acpmux/transfer_abort", &params).await;
         let _ = std::fs::remove_dir_all(super::transfer_out::transfers_dir().join(&transfer));
         assert!(aborted.is_err(), "an abort reported done without its record: {aborted:?}");
@@ -432,8 +561,9 @@ mod tests {
         assert!(here.resolve("import-receipt").is_err(), "the failed import left its chat");
     }
 
-    /// A begin whose bundle fails ends its move only once that end is logged: otherwise the
-    /// chat stays frozen, as its durable `transfer_out` says.
+    /// A bundle failure before `transfer_out` is durable has no transfer authority to restore:
+    /// the in-memory move stays frozen until its abort is logged, but a restart still sees this
+    /// chat as local because no move was ever offered.
     #[tokio::test]
     async fn a_failed_bundle_whose_abort_is_not_logged_keeps_the_chat_frozen() {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
@@ -462,7 +592,7 @@ mod tests {
         let begun =
             hub.transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session.id})).await;
         assert!(begun.is_err(), "the bundle was made: {begun:?}");
-        assert_eq!(session.transfer_blocked(), Some(true));
+        assert_eq!(session.transfer_blocked(), Some(false));
         assert!(session.moving().is_some(), "it unfroze without a logged abort");
     }
 }

@@ -202,6 +202,8 @@ jobs:
     # always succeeds and the Mac job (which needs it) runs on any miss. A hit counts only once its
     # changed exports are uploaded: a failed upload is a miss too.
     outputs:
+      deferred: ${{ steps.carrier.outputs.mac_busy }}
+      deferred_run: ${{ steps.carrier.outputs.mac_busy_run }}
       hit: ${{ steps.lookup.outputs.hit == 'true' && (steps.lookup.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
       exports: ${{ steps.lookup.outputs.exports }}
       made_at: ${{ steps.lookup.outputs.made_at }}
@@ -227,9 +229,27 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-actions: read
 
+      # The first admission read uses github.token and fails open. Recheck with the token this
+      # job already minted before starting another 45-minute lookup. Only an older carrier counts,
+      # so simultaneous candidates cannot all defer to one another. Unknown still takes the fallback.
+      - name: Recheck the export carrier with the read token
+        id: carrier
+        if: steps.checkout.outcome == 'success' && steps.read-token.outputs.token != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          COALESCE: ${{ vars.CMUX_NEXT_BASE_EXPORTS_COALESCE }}
+        run: |
+          if [[ "$COALESCE" == '0' ]]; then
+            echo 'mac_busy=false' >> "$GITHUB_OUTPUT"
+          else
+            bash scripts/cmux-next/base-autofix-mac-busy.sh "$GITHUB_RUN_ID" "$GITHUB_REF_NAME" --older-only >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Take this push's packed exports
         id: lookup
-        if: steps.checkout.outcome == 'success'
+        if: steps.checkout.outcome == 'success' && steps.carrier.outputs.mac_busy != 'true'
         continue-on-error: true
         timeout-minutes: 50
         env:
@@ -255,19 +275,21 @@ jobs:
           retention-days: 1
 
   # This run left its exports to another run's queued or running pushed-exports or Mac job, and looked
-  # for no pack itself (pushed-exports is skipped). It ends green, and base-autofix-since.sh passes
-  # over a run with this job, so the next run still covers its changes.
+  # for no pack itself (pushed-exports is skipped or deferred after its App-token recheck). It ends
+  # green, and base-autofix-since.sh passes over it, so the next run still covers its changes.
   mac-exports-deferred:
     name: Mac exports deferred
-    needs: action-areas
-    if: needs.action-areas.outputs.mac_busy == 'true'
+    needs: [action-areas, pushed-exports]
+    if: >-
+      ${{ !cancelled() && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) &&
+          (needs.action-areas.outputs.mac_busy == 'true' || needs.pushed-exports.outputs.deferred == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 2
     permissions: {}
     steps:
       - name: Name the run that carries the exports
         env:
-          BUSY_RUN: ${{ needs.action-areas.outputs.mac_busy_run }}
+          BUSY_RUN: ${{ needs.action-areas.outputs.mac_busy_run || needs.pushed-exports.outputs.deferred_run }}
           SERVER: ${{ github.server_url }}/${{ github.repository }}
         run: |
           echo "Mac exports left to run $SERVER/actions/runs/$BUSY_RUN, whose pushed-exports or Mac job was already queued or running; the next run's changes include this run's." | tee -a "$GITHUB_STEP_SUMMARY"
@@ -279,7 +301,7 @@ jobs:
   action-exports:
     name: action exports (Mac)
     needs: [action-areas, pushed-exports]
-    if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.hit != 'true'
+    if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true'
     # No concurrency group: a queued job keeps its place. Cancelling a running one meant that with
     # merges minutes apart no Mac export ever finished (2026-10-19), and replacing a pending one did
     # the same once the Mac runners were saturated: each job waited minutes for a runner and the next

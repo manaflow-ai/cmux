@@ -17,7 +17,7 @@ public enum ConversationConnectionState: Sendable, Equatable {
 
 /// What changed, so the transcript can anchor scrolling correctly.
 public enum ConversationStoreChange: Sendable, Equatable {
-    /// The whole window was replaced (first load, lagged rebase).
+    /// The whole window was replaced (first load, trimming old history).
     case reset
     /// Older history was inserted above everything loaded.
     case prepended
@@ -161,6 +161,10 @@ public final class ConversationStore {
     var indexByID: ConversationMessagePositions = [:]
     private var eventTask: Task<Void, Never>?
     private var olderTask: Task<Void, Never>?
+    /// Bumps on each lagged reconnect. An older page asked for before it (by
+    /// the pager or `loadThrough`) carries what the server had then, below the
+    /// window recovery refreshes, so its reply is dropped and asked for again.
+    private var olderGeneration = 0
     private var newestTask: Task<Void, Never>?
     private var typingExpiry: [String: Task<Void, Never>] = [:]
     private var olderWanted = false
@@ -170,6 +174,19 @@ public final class ConversationStore {
     private var localTyping = false
     private var localTypingTask: Task<Void, Never>?
     private var bufferedLive: [ConversationMessage] = []
+    /// While a reconnect recovers: each kept row as history last gave it (the
+    /// window at reconnect, plus older pages that land meanwhile). A row whose
+    /// current value still equals it takes the recovered revision; one a live
+    /// event or local edit changed since keeps that change.
+    private var recoveryBaseline: [String: ConversationMessage]?
+    /// Rows outside that baseline that a live event touched while recovery
+    /// fetches. The live stream is whole again after reconnect, so their
+    /// live copy is at least as new as any page; a page never overwrites it.
+    private var liveDuringRecovery: Set<String> = []
+    /// The backend's own polls at reconnect, before local intent. A server
+    /// poll that differs from it by the time history lands came live and is
+    /// newer than the page.
+    private var recoveryPollBaseline: [String: ConversationPoll]?
     /// Bumps on every list state change so a stale reply or rollback never
     /// overwrites a newer state.
     private var listStateGeneration = 0
@@ -327,7 +344,14 @@ public final class ConversationStore {
         // page that contains it will carry its current state.
         if indexByID[incoming.id] == nil, let seq = incoming.seq,
            let oldest = messages.first(where: { $0.seq != nil })?.seq, seq < oldest {
+            // While a reconnect recovers, the window itself may be stale: a
+            // reset backend restarts its sequence below it. Hold the row and
+            // judge it against the recovered window instead.
+            if recoveryBaseline != nil { bufferedLive.append(incoming) }
             return
+        }
+        if recoveryBaseline?[incoming.id] == nil, recoveryBaseline != nil {
+            liveDuringRecovery.insert(incoming.id)
         }
         let isNew = upsert(incoming)
         if isNew {
@@ -369,7 +393,10 @@ public final class ConversationStore {
             }
         }
         if let index = indexByID[incoming.id] {
-            changingMessages(from: index) { messages[index] = merged(existing: messages[index], incoming: incoming) }
+            changingMessages(from: index) {
+                messages[index] = merged(existing: messages[index], incoming: incoming)
+                relayerPendingEdit(at: index)
+            }
             return false
         }
         if let clientID = incoming.clientMessageID,
@@ -556,15 +583,60 @@ public final class ConversationStore {
 
     private func loadNewest(rebase: Bool) {
         newestTask?.cancel()
+        // A reconnect keeps the loaded window visible. Remember its values so
+        // a history reply cannot overwrite a live update or local edit that
+        // lands while the missing pages are being fetched.
+        let retained = rebase && hasLoadedNewest
+            ? Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) }) : nil
+        let overlap = retained?.values.compactMap(\.seq).min()
+        recoveryBaseline = retained
+        liveDuringRecovery = []
+        recoveryPollBaseline = retained == nil ? nil : polls.server
+        if rebase {
+            olderGeneration += 1
+            olderTask?.cancel()
+            olderTask = nil
+            // Still wanted (olderWanted is kept): recovery asks for the page
+            // again once it lands, or a scroll asks for it sooner.
+            switch older {
+            case .loading, .retrying:
+                older = .idle
+                notify(.older)
+            case .idle, .exhausted: break
+            }
+        }
         newestTask = Task { [weak self] in
             var attempt = 0
             while !Task.isCancelled {
                 guard let self else { return }
                 do {
-                    let page = try await self.backend.history(beforeSeq: nil, limit: self.pageSize)
-                    self.applyNewest(page, rebase: rebase)
+                    var page = try await self.backend.history(beforeSeq: nil, limit: self.pageSize)
+                    try Task.checkCancellation()
+                    var pages = [page]
+                    // More than one page may have arrived while disconnected.
+                    // Refresh the entire retained window: missed edits/unsends
+                    // can affect its oldest row, and live arrivals during an
+                    // earlier cancelled recovery need not be contiguous. A live
+                    // row that lands during this fetch, older than anything
+                    // kept (an empty window admits any seq), moves the anchor
+                    // down: fetch through it so no gap sits above it.
+                    while retained != nil, page.hasMore,
+                          let anchor = [overlap, self.oldestLoadedSeq].compactMap({ $0 }).min() {
+                        guard let first = page.messages.compactMap(\.seq).min() else {
+                            throw ConversationBackendError(code: -1, message: "History made no progress while reconnecting")
+                        }
+                        guard first > anchor else { break }
+                        page = try await self.backend.history(beforeSeq: first, limit: self.pageSize)
+                        try Task.checkCancellation()
+                        guard let next = page.messages.compactMap(\.seq).min(), next < first else {
+                            throw ConversationBackendError(code: -1, message: "History made no progress while reconnecting")
+                        }
+                        pages.append(page)
+                    }
+                    self.applyNewest(pages, retained: retained.map { self.recoveryBaseline ?? $0 })
                     return
                 } catch {
+                    guard !Task.isCancelled else { return }
                     attempt += 1
                     try? await self.clock.sleep(for: Self.backoff(attempt))
                 }
@@ -572,24 +644,151 @@ public final class ConversationStore {
         }
     }
 
-    private func applyNewest(_ page: ConversationHistoryPage, rebase: Bool) {
-        if rebase || !hasLoadedNewest {
-            let pending = messages.filter { $0.seq == nil }
+    private func applyNewest(_ pages: [ConversationHistoryPage], retained: [String: ConversationMessage]?) {
+        guard let newest = pages.first else { return }
+        var inserted: [String] = []
+        let reset = retained.map { Self.historyWasReset(pages, retained: $0) } ?? false
+        if reset {
+            // Pages asked for against the stale window are meaningless now.
+            olderGeneration += 1
+            olderTask?.cancel()
+            olderTask = nil
+        }
+        if let retained, !reset {
+            // The oldest kept row: the reconnect snapshot's, or a live row
+            // that landed below it while the pages were fetched (the fetch
+            // loop read the same window synchronously before this call).
+            let oldestRetained = [retained.values.compactMap(\.seq).min(), oldestLoadedSeq].compactMap { $0 }.min()
+            for page in pages.reversed() {
+                for message in page.messages {
+                    // The last fetched page may extend before the kept window.
+                    // Leave that history to its existing pager and scroll path.
+                    if let oldestRetained, let seq = message.seq, seq < oldestRetained { continue }
+                    // Current state changed after this fetch began: it wins
+                    // over the snapshot, including a send acknowledged live.
+                    var incoming = message
+                    if retained[message.id] == nil, liveDuringRecovery.contains(message.id),
+                       self.message(id: message.id) != nil {
+                        continue
+                    }
+                    if let live = self.message(id: message.id), let kept = retained[message.id] {
+                        // Local state is layered over the server's copy, not
+                        // a newer revision of it: a URL card loaded here, a
+                        // receipt (delivery only moves forward), and whatever
+                        // a local action changed (a reaction, a poll vote or
+                        // choice, an edit, an unsend), in flight or refused.
+                        // Each holds back only its own fields; the page
+                        // brings the rest. Anything else that changed since
+                        // reconnect came live and is newer than the page.
+                        var current = live
+                        current.linkPreview = kept.linkPreview
+                        current.delivery = kept.delivery
+                        // A reaction is per participant: mine (pending or
+                        // refused here) comes from the live row, and everyone
+                        // else's from the page unless theirs changed live.
+                        if current.reactions != kept.reactions {
+                            current.reactions = kept.reactions
+                            if !incoming.isUnsent {
+                                let others = { (marks: [ConversationReactionMark]) in marks.filter { $0.participantID != self.meID } }
+                                let othersChangedLive = others(live.reactions) != others(kept.reactions)
+                                incoming.reactions = (othersChangedLive ? others(live.reactions) : others(incoming.reactions))
+                                    + live.reactions.filter { $0.participantID == self.meID }
+                            }
+                        }
+                        // upsert layers my unconfirmed votes and choices over
+                        // the page's poll; a server poll that changed live
+                        // since reconnect beats the page's.
+                        if current.poll != kept.poll {
+                            current.poll = kept.poll
+                            if !incoming.isUnsent, let livePoll = polls.server[message.id],
+                               livePoll != recoveryPollBaseline?[message.id] {
+                                incoming.poll = livePoll
+                            }
+                        }
+                        // upsert layers a pending edit back over the page's
+                        // revision, and a refusal rolls back to that revision.
+                        if pendingEdits[message.id] != nil {
+                            current.text = kept.text
+                            current.textRuns = kept.textRuns
+                            current.mentions = kept.mentions
+                            current.editedAt = kept.editedAt
+                            current.editCount = kept.editCount
+                        }
+                        // An unsend here is final (merged keeps it); the page
+                        // becomes the original Try Again acts on.
+                        if unsendOriginals[message.id] != nil, live.isUnsent, !kept.isUnsent {
+                            current.unsentAt = kept.unsentAt
+                            current.text = kept.text
+                            current.attachments = kept.attachments
+                            current.reactions = kept.reactions
+                            current.unsendFailed = kept.unsendFailed
+                            if !incoming.isUnsent { unsendOriginals[message.id] = incoming }
+                        }
+                        if current != kept { continue }
+                    }
+                    if upsert(incoming) { inserted.append(incoming.rowID) }
+                }
+            }
+            sortAndReindex()
+            // The pager belongs to the oldest kept message, not the newest
+            // fetched page. In particular, an in-flight older page still owns
+            // its loading/retrying state and may land normally after this.
+            if oldestRetained == nil {
+                switch older {
+                case .idle, .exhausted:
+                    older = newest.hasMore ? .idle : .exhausted
+                case .loading, .retrying: break
+                }
+            } else if older == .exhausted, let oldestRetained, let oldestPage = pages.last,
+                      oldestPage.hasMore || oldestPage.messages.contains(where: { ($0.seq ?? oldestRetained) < oldestRetained }) {
+                // An initially empty window may receive an isolated live row
+                // before recovery is replaced. The previous exhausted marker
+                // no longer proves there is no history before that row.
+                older = .idle
+            }
+        } else if reset || !hasLoadedNewest {
+            // A first load, or a backend whose history no longer holds the
+            // kept window (restarted or reset): the fetched pages become the
+            // transcript. Unsent local sends stay, and so do rows that arrived
+            // live from the new history while it was fetched (they are newer).
+            let kept = messages.filter { $0.seq == nil || liveDuringRecovery.contains($0.id) }
             messages = []
             indexByID = [:]
-            for message in page.messages { upsert(message) }
-            for message in pending { upsert(message) }
+            for page in pages.reversed() {
+                for message in page.messages where !liveDuringRecovery.contains(message.id) { upsert(message) }
+            }
+            for message in kept { upsert(message) }
             sortAndReindex()
+            older = (pages.last ?? newest).hasMore ? .idle : .exhausted
         }
         hasLoadedNewest = true
+        recoveryBaseline = nil
+        liveDuringRecovery = []
+        recoveryPollBaseline = nil
         let buffered = bufferedLive
         bufferedLive = []
         for message in buffered { ingestBuffered(message) }
-        older = page.hasMore ? .idle : .exhausted
-        notify(.reset)
+        notify(retained == nil || reset ? .reset : .live(insertedRowIDs: inserted, sentByMe: false))
         refreshReadState()
         if olderWanted { loadOlder() }
     }
+
+    /// Whether recovered history no longer contains the kept window, as after
+    /// a backend restart or reset. Its sequence went backwards below the
+    /// newest kept row, or the fetch reached the kept range (or the start of
+    /// history) without returning any kept row. The recovery loop fetches
+    /// down to the oldest kept row unless history ends first, so a backend
+    /// that still holds the window always returns some of it.
+    private static func historyWasReset(_ pages: [ConversationHistoryPage], retained: [String: ConversationMessage]) -> Bool {
+        guard let keptNewest = retained.values.compactMap(\.seq).max() else { return false }
+        let fetched = pages.flatMap(\.messages)
+        guard let fetchedNewest = fetched.compactMap(\.seq).max() else { return true }
+        if fetchedNewest < keptNewest { return true }
+        return !fetched.contains { retained[$0.id]?.seq != nil }
+    }
+
+    /// The lowest server sequence in the loaded window, if any.
+    private var oldestLoadedSeq: Int? { messages.compactMap(\.seq).min() }
 
     /// Requests the page above the oldest loaded message. Safe to call on
     /// every scroll tick; it coalesces and retries with backoff on failure.
@@ -607,19 +806,23 @@ public final class ConversationStore {
         }
         older = .loading
         notify(.older)
+        let generation = olderGeneration
         olderTask = Task { [weak self] in
             var attempt = 0
             while !Task.isCancelled {
                 guard let self else { return }
                 do {
                     let page = try await self.backend.history(beforeSeq: oldestSeq, limit: self.pageSize)
+                    guard self.olderGeneration == generation else { return }
                     self.applyOlder(page, expectedOldest: oldestSeq)
                     return
                 } catch {
+                    guard self.olderGeneration == generation else { return }
                     attempt += 1
                     self.older = .retrying(attempt: attempt)
                     self.notify(.older)
                     try? await self.clock.sleep(for: Self.backoff(attempt))
+                    guard self.olderGeneration == generation else { return }
                     guard self.olderWanted else {
                         self.older = .idle
                         self.notify(.older)
@@ -643,6 +846,11 @@ public final class ConversationStore {
             olderMessages.append(message)
         }
         if !olderMessages.isEmpty { prependOlder(olderMessages) }
+        // A recovery in flight may fetch these rows again: history, not a live
+        // change, so its newer revision of them applies.
+        if recoveryBaseline != nil {
+            for message in olderMessages { recoveryBaseline?[message.id] = message }
+        }
         older = page.hasMore ? .idle : .exhausted
         notify(.prepended)
         refreshReadState()
@@ -897,6 +1105,7 @@ public final class ConversationStore {
             if let clientID = message.clientMessageID { deletedClientIDs.insert(clientID) }
             failedAnchorSeq[message.id] = nil
             unsendOriginals[message.id] = nil
+            pendingEdits[message.id] = nil
         }
         messages.removeAll { rowIDs.contains($0.rowID) }
         sortAndReindex()
@@ -1132,23 +1341,38 @@ public final class ConversationStore {
         guard !trimmed.isEmpty, let index = indexByID[messageID],
               messages[index].text != trimmed || messages[index].textRuns != runs,
               canEdit(messages[index]) else { return }
-        let original = messages[index]
-        changingMessages(from: index) {
-            messages[index].text = trimmed
-            messages[index].textRuns = runs
-            messages[index].mentions = ConversationMentionEditing.surviving(original.mentions, oldText: original.text, newText: trimmed)
-            messages[index].editedAt = Date()
-            messages[index].editCount += 1
-        }
+        nextEditToken += 1
+        let token = nextEditToken
+        // A second edit before the first is confirmed keeps the server copy
+        // as its base, not the first edit's optimistic text.
+        pendingEdits[messageID] = PendingEdit(
+            token: token, text: trimmed, textRuns: runs, editedAt: Date(),
+            editCount: messages[index].editCount + 1,
+            base: pendingEdits[messageID]?.base ?? messages[index]
+        )
+        changingMessages(from: index) { layerPendingEdit(at: index) }
         notify(.live(insertedRowIDs: [], sentByMe: false))
         Task { [weak self] in
             guard let self else { return }
             do {
                 let updated = try await self.backend.edit(messageID: messageID, text: trimmed, textRuns: runs)
+                if self.pendingEdits[messageID]?.token == token { self.pendingEdits[messageID] = nil }
                 self.upsert(updated)
             } catch {
+                // A later edit owns the row now; its own reply settles it.
+                guard let pending = self.pendingEdits[messageID], pending.token == token else { return }
+                self.pendingEdits[messageID] = nil
                 guard let index = self.indexByID[messageID] else { return }
-                self.messages[index] = original
+                // Back to the server's latest copy of the edited fields, which
+                // a reconnect may have refreshed since the edit began.
+                let base = pending.base
+                self.changingMessages(from: index) {
+                    self.messages[index].text = base.text
+                    self.messages[index].textRuns = base.textRuns
+                    self.messages[index].mentions = base.mentions
+                    self.messages[index].editedAt = base.editedAt
+                    self.messages[index].editCount = base.editCount
+                }
             }
             self.notify(.live(insertedRowIDs: [], sentByMe: true))
         }
@@ -1160,6 +1384,46 @@ public final class ConversationStore {
     public func canUnsend(_ message: ConversationMessage, now: Date = Date()) -> Bool {
         message.senderID == meID && message.seq != nil && !message.isNotice
             && now.timeIntervalSince(message.sentAt) < Self.undoSendWindow
+    }
+
+    /// My edits the backend has not confirmed: the intent, and the server's
+    /// copy under it (updated as server copies land), which a refusal restores.
+    private struct PendingEdit {
+        var token: Int
+        var text: String
+        var textRuns: [ConversationTextRun]
+        var editedAt: Date
+        /// The count the row showed with this edit applied (earlier
+        /// unconfirmed edits included).
+        var editCount: Int
+        var base: ConversationMessage
+    }
+    private var pendingEdits: [String: PendingEdit] = [:]
+    private var nextEditToken = 0
+
+    /// A server copy just merged at `index`: it is the new base under my
+    /// pending edit, which goes back on top unless that copy already carries
+    /// the edit (its echo beat the reply).
+    private func relayerPendingEdit(at index: Int) {
+        let server = messages[index]
+        guard let pending = pendingEdits[server.id] else { return }
+        pendingEdits[server.id]?.base = server
+        guard server.text != pending.text || server.textRuns != pending.textRuns else { return }
+        layerPendingEdit(at: index)
+    }
+
+    /// Puts my pending edit over the row, counted from the server copy under
+    /// it. Never over an unsent message.
+    private func layerPendingEdit(at index: Int) {
+        guard let pending = pendingEdits[messages[index].id] else { return }
+        let base = pending.base
+        guard !base.isUnsent else { return }
+        messages[index].text = pending.text
+        messages[index].textRuns = pending.textRuns
+        messages[index].mentions = ConversationMentionEditing.surviving(base.mentions, oldText: base.text, newText: pending.text)
+        messages[index].editedAt = pending.editedAt
+        // Edits made elsewhere since count too.
+        messages[index].editCount = max(pending.editCount, base.editCount + 1)
     }
 
     /// The pre-unsend message, kept until the backend confirms (and after a
@@ -1336,13 +1600,18 @@ public final class ConversationStore {
             if oldest <= target || older == .exhausted { return true }
             older = .loading
             notify(.older)
+            let generation = olderGeneration
             do {
                 // A few messages of context above the target, as Messages shows.
                 let limit = min(200, max(pageSize, oldest - target + 8))
                 let page = try await backend.history(beforeSeq: oldest, limit: limit)
+                // Asked before a lagged reconnect: stale below the recovered
+                // window. Drop it and ask again from the current window.
+                guard olderGeneration == generation else { continue }
                 applyOlder(page, expectedOldest: oldest)
                 attempt = 0
             } catch {
+                guard olderGeneration == generation else { continue }
                 attempt += 1
                 older = .idle
                 notify(.older)

@@ -9,14 +9,15 @@ import { JSDOM } from "jsdom";
 // Exercise the production callback with React's real priority queues, without mounting the
 // whole agent pane. In particular, an updater is not interchangeable with its eager result.
 const source = readFileSync(
-  process.env.CMUX_TEST_DRAWN_SOURCE ?? new URL("../src/agent-session/acpmux/App.tsx", import.meta.url),
+  process.env.CMUX_TEST_DRAWN_SOURCE ?? new URL("../src/agent-session/acpmux/VirtualTranscript.tsx", import.meta.url),
   "utf8",
 );
 const comparison = source.slice(source.indexOf("function sameDrawn("), source.indexOf("/// RowFrame redraws"));
-const productionCallback = source.slice(
-  source.indexOf("  const flushDrawn = useCallback("),
-  source.indexOf("  const observer = useMemo(", source.indexOf("  const flushDrawn = useCallback(")),
-);
+// flushDrawn alone, up to its own `}, []);`: other callbacks (reportRow, placeRowNow) sit between it and
+// the observer and need the pane's other refs.
+const flushStart = source.indexOf("  const flushDrawn = useCallback(");
+const flushEnd = "\n  }, []);\n";
+const productionCallback = source.slice(flushStart, source.indexOf(flushEnd, flushStart) + flushEnd.length);
 // The mutation run must fail the priority regression: rendered state alone misses queued work.
 const callback =
   process.env.CMUX_TEST_NAIVE_DRAWN_GUARD === "1"

@@ -168,7 +168,9 @@ export function markScrolling(element: Element, timers: ScrollTimers = defaultTi
     element.removeAttribute(SCROLLING_ATTRIBUTE);
     return;
   }
-  element.setAttribute(SCROLLING_ATTRIBUTE, "");
+  // Set once per scroll, not on every step: each set is a DOM change that restyles the scroller and
+  // wakes every observer of the mark (Session Info's body took one per frame while it scrolled).
+  if (!element.hasAttribute(SCROLLING_ATTRIBUTE)) element.setAttribute(SCROLLING_ATTRIBUTE, "");
   pending.set(
     element,
     timers.set(() => {
@@ -656,6 +658,16 @@ export const CARD_SCROLLER_CSS = `
 [${CARD_SCROLL_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb {
   border-width: 0.5px;
   background-color: var(--cmux-scroller-thumb-near);
+}
+/* Picker columns opt out of hover-only reveal: the thumb appears only during a scroll. */
+:root [${CARD_SCROLL_ATTRIBUTE}][data-cmux-scroll-only] {
+  --cmux-card-scroll-only-thumb: transparent;
+}
+:root [${CARD_SCROLL_ATTRIBUTE}][data-cmux-scroll-only][${SCROLLING_ATTRIBUTE}] {
+  --cmux-card-scroll-only-thumb: var(--cmux-scroller-thumb);
+}
+:root [${CARD_SCROLL_ATTRIBUTE}][data-cmux-scroll-only]::-webkit-scrollbar-thumb {
+  background-color: var(--cmux-card-scroll-only-thumb);
 }
 [${CARD_SCROLL_ATTRIBUTE}][${MORE_BELOW_ATTRIBUTE}] {
   --cmux-card-mask: linear-gradient(to bottom, #000 calc(100% - var(--cmux-card-fade)), transparent);

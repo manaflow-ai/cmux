@@ -55,6 +55,8 @@ FIRST_PARTY_GPL = {
     "cmux-tasks-core",
     "cmux-bookmarks-core",
     "cmux-cloud-start-core",
+    "cmux-cloud-config",
+    "cmux-cloud-tasks",
     "cmux-palette-ranker",
     "cmux-remote-browser",
 }

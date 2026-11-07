@@ -15,14 +15,17 @@
 //! the pane a Close Tab press is aimed at after a close emptied a pane
 //! (`PaneCloseAim`, `cmux_focus_pane_moved` and its siblings).
 
-use cmux_focus_core::close_aim::{PaneCloseAim, Press};
-use cmux_focus_core::event::{DragOutcome, FocusEffect, FocusEvent, Responder, Source};
-use cmux_focus_core::omnibar_memory::OmnibarFocusMemory;
-use cmux_focus_core::reducer;
-use cmux_focus_core::state::{
-    CloseFocusPolicy, Context, ExpectationKey, FocusState, Overlay, Resolved, Target,
-};
-use cmux_focus_core::topology::{Column, Kind, Pane, Tab, Topology};
+mod codec;
+mod reply;
+
+pub(crate) use codec::{decode_event, decode_topology};
+pub use reply::FocusReply;
+
+use cmux_focus_core::close_aim::Press;
+use cmux_focus_core::event::{FocusEffect, FocusEvent};
+use cmux_focus_core::state::{CloseFocusPolicy, FocusState};
+use cmux_focus_core::topology::Topology;
+use cmux_focus_core::window::WindowFocus;
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -168,398 +171,113 @@ pub struct CmuxFocusStrings {
     pub bytes_len: u32,
 }
 
-/// What the reply describes, to tell whether a reduction changed it.
-#[derive(Clone, PartialEq, Default)]
-struct Summary {
-    pane: Option<String>,
-    workspace: Option<String>,
-    target: Option<Target>,
-    overlays: Vec<Overlay>,
-    flags: [bool; 5],
-    generation: u64,
-    expectation: Option<(ExpectationKey, Target, Option<String>, u64)>,
-    derived: Option<cmux_focus_core::state::Derived>,
-}
-
-impl Summary {
-    fn of(state: &FocusState) -> Summary {
-        Summary {
-            pane: state.pane.clone(),
-            workspace: state.topology.workspace.clone(),
-            target: Some(state.target),
-            overlays: state.overlays.clone(),
-            flags: [
-                state.window_key,
-                state.app_active,
-                state.sidebar_hidden,
-                state.drag.is_some(),
-                state.derived.browser_focus_mode_active,
-            ],
-            generation: state.generation,
-            expectation: state
-                .expectation
-                .as_ref()
-                .map(|e| (e.key.clone(), e.target, e.away_from.clone(), e.generation)),
-            derived: Some(state.derived.clone()),
-        }
-    }
-}
-
-/// One window's focus machine and the reply it last wrote.
+/// One window's focus machine ([`WindowFocus`], the type the input router
+/// holds per window too) and the reply it last wrote.
 pub struct Focus {
-    state: FocusState,
-    omnibar: OmnibarFocusMemory,
-    close_aim: PaneCloseAim,
+    window: WindowFocus,
     effects: Vec<FocusEffect>,
-    summary: Summary,
-    strings: Vec<u8>,
-    overlays: Vec<u8>,
-    c_effects: Vec<CmuxFocusEffect>,
-    reply: CmuxFocusReply,
-    list: Vec<CmuxFocusStr>,
-    list_bytes: Vec<u8>,
-    list_reply: CmuxFocusStrings,
-}
-
-const fn empty_resolved() -> CmuxFocusResolved {
-    CmuxFocusResolved {
-        kind: 13,
-        overlay: 0,
-        reserved: [0; 6],
-        pane: CmuxFocusStr::ABSENT,
-        tab: CmuxFocusStr::ABSENT,
-    }
+    out: FocusReply,
 }
 
 impl Focus {
     pub fn new() -> Focus {
-        let mut focus = Focus {
-            state: FocusState::default(),
-            omnibar: OmnibarFocusMemory::new(),
-            close_aim: PaneCloseAim::new(),
-            effects: Vec::new(),
-            summary: Summary::default(),
-            strings: Vec::new(),
-            overlays: Vec::new(),
-            c_effects: Vec::new(),
-            reply: CmuxFocusReply {
-                ok: 0,
-                changed: 0,
-                window_key: 0,
-                app_active: 0,
-                sidebar_hidden: 0,
-                target: 0,
-                target_keyboard: 0,
-                context: 0,
-                browser_focus_mode_active: 0,
-                dragging: 0,
-                has_expectation: 0,
-                expectation_key: 0,
-                expectation_target: 0,
-                expectation_target_keyboard: 0,
-                omnibar_return: 0,
-                returns_to_omnibar: 0,
-                generation: 0,
-                expectation_generation: 0,
-                pane: CmuxFocusStr::ABSENT,
-                workspace: CmuxFocusStr::ABSENT,
-                expectation_id: CmuxFocusStr::ABSENT,
-                expectation_away_from: CmuxFocusStr::ABSENT,
-                resolved: empty_resolved(),
-                underlying: empty_resolved(),
-                overlays: std::ptr::null(),
-                effects: std::ptr::null(),
-                strings: std::ptr::null(),
-                overlay_count: 0,
-                effect_count: 0,
-                strings_len: 0,
-                reserved2: 0,
-                typing_tab: CmuxFocusStr::ABSENT,
-            },
-            list: Vec::new(),
-            list_bytes: Vec::new(),
-            list_reply: CmuxFocusStrings {
-                items: std::ptr::null(),
-                bytes: std::ptr::null(),
-                count: 0,
-                bytes_len: 0,
-            },
-        };
-        focus.state.derive();
-        focus.summary = Summary::of(&focus.state);
-        focus.write_reply(true);
-        focus
+        let window = WindowFocus::new();
+        let out = FocusReply::new(window.state());
+        Focus { window, effects: Vec::new(), out }
     }
 
     pub fn state(&self) -> &FocusState {
-        &self.state
+        self.window.state()
+    }
+
+    /// The reply the last call wrote.
+    pub fn reply(&self) -> &CmuxFocusReply {
+        self.out.reply()
     }
 
     /// Reduces `event`; the reply says whether the focus changed, and what
     /// the address bar memory asks for.
     pub fn send(&mut self, event: &FocusEvent) -> &CmuxFocusReply {
-        let returns = self.omnibar.take_return(event);
-        let before = self.state.derived.resolved.clone();
-        let ran = reducer::reduce(&mut self.state, event, &mut self.effects);
-        self.finish(ran);
-        let queue = self.omnibar.note(event, &before, &self.state.derived.resolved);
-        self.reply.omnibar_return = u8::from(queue);
-        self.reply.returns_to_omnibar = u8::from(returns);
-        &self.reply
+        let reduction = self.window.send(event, &mut self.effects);
+        self.out.finish(reduction.ran, self.window.state(), &self.effects);
+        self.out.set_omnibar(reduction.omnibar_return, reduction.returns_to_omnibar);
+        self.out.reply()
     }
 
     /// A topology report; an equal topology returns at once.
     pub fn set_topology(&mut self, topology: Topology) -> &CmuxFocusReply {
-        let before = self.state.derived.resolved.clone();
-        let ran = reducer::set_topology(&mut self.state, topology, &mut self.effects);
-        self.finish(ran);
-        // A topology change is a way back to a tab (a workspace switch).
-        let queue = self.omnibar.note_reduction(true, &before, &self.state.derived.resolved);
-        self.reply.omnibar_return = u8::from(queue);
-        self.reply.returns_to_omnibar = 0;
-        &self.reply
+        let reduction = self.window.set_topology(topology, &mut self.effects);
+        self.out.finish(reduction.ran, self.window.state(), &self.effects);
+        self.out.set_omnibar(reduction.omnibar_return, false);
+        self.out.reply()
     }
 
     /// The focused pane moved from `from` to the pane the state focuses now.
     /// Returns the move's serial, for [`Focus::frame_presented`].
     pub fn pane_moved(&mut self, from: Option<&str>) -> u64 {
-        let to = self.state.pane.clone();
-        self.close_aim.pane_moved(from, to.as_deref())
+        self.window.pane_moved(from)
     }
 
     /// The frame that shows move `serial` was presented at `time` (seconds
     /// of system uptime).
     pub fn frame_presented(&mut self, serial: u64, time: f64) {
-        self.close_aim.presented(serial, time);
+        self.window.frame_presented(serial, time);
     }
 
     /// `press` closed the last tab of `pane`.
     pub fn pane_emptied(&mut self, pane: &str, press: Press) {
-        self.close_aim.pane_emptied(pane, press);
+        self.window.pane_emptied(pane, press);
     }
 
     /// Whether `press` is aimed at a pane a close emptied, not at the
     /// focused pane: it closes nothing, and the app shows why.
     pub fn aims_at_emptied_pane(&mut self, press: Press) -> bool {
-        let focused = self.state.pane.clone();
-        self.close_aim.aims_at_emptied_pane(press, focused.as_deref())
+        self.window.aims_at_emptied_pane(press)
     }
 
     pub fn set_close_focus(&mut self, policy: CloseFocusPolicy) {
-        self.state.close_focus = policy;
+        self.window.set_close_focus(policy);
     }
 
     /// Replaces the state with a journal checkpoint.
     pub fn import(&mut self, json: &[u8]) -> bool {
-        match FocusState::import(json) {
-            Ok(state) => {
-                self.state = state;
-                self.effects.clear();
-                self.summary = Summary::of(&self.state);
-                self.write_reply(true);
-                true
-            }
-            Err(_) => false,
+        if !self.window.import(json) {
+            return false;
         }
+        self.effects.clear();
+        self.out.reset(self.window.state());
+        true
     }
 
     /// The current reply (no event): after `import`, or on creation.
     pub fn current(&mut self) -> &CmuxFocusReply {
         self.effects.clear();
-        self.summary = Summary::of(&self.state);
-        self.write_reply(true);
-        self.reply.omnibar_return = 0;
-        self.reply.returns_to_omnibar = 0;
-        &self.reply
+        self.out.current(self.window.state())
     }
 
     /// A reduction panicked part way: the state may have changed. Re-derive
     /// it (the fast paths read `derived`) and report it as it is now, with
     /// `ok` 0 and no effects.
     fn recover(&mut self) -> &CmuxFocusReply {
-        self.state.derive();
-        self.current();
-        self.reply.ok = 0;
-        self.reply.omnibar_return = 0;
-        self.reply.returns_to_omnibar = 0;
-        &self.reply
+        self.window.rederive();
+        self.effects.clear();
+        self.out.recovered(self.window.state())
     }
 
     pub fn fail(&mut self) -> &CmuxFocusReply {
-        self.reply.ok = 0;
-        self.reply.omnibar_return = 0;
-        self.reply.returns_to_omnibar = 0;
-        self.reply.changed = 0;
-        self.reply.effect_count = 0;
-        &self.reply
-    }
-
-    fn finish(&mut self, ran: bool) -> &CmuxFocusReply {
-        if !ran {
-            // Nothing changed: the last reply's fields still hold.
-            self.reply.ok = 1;
-            self.reply.changed = 0;
-            self.reply.effect_count = 0;
-            return &self.reply;
-        }
-        let summary = Summary::of(&self.state);
-        let changed = summary != self.summary;
-        if changed || !self.effects.is_empty() {
-            self.summary = summary;
-            self.write_reply(changed);
-        } else {
-            self.reply.ok = 1;
-            self.reply.changed = 0;
-            self.reply.effect_count = 0;
-        }
-        &self.reply
-    }
-
-    fn write_reply(&mut self, changed: bool) {
-        self.strings.clear();
-        self.overlays.clear();
-        self.c_effects.clear();
-        let state = &self.state;
-        let strings = &mut self.strings;
-        let mut put = |text: Option<&str>| -> CmuxFocusStr {
-            match text {
-                None => CmuxFocusStr::ABSENT,
-                Some(text) => {
-                    let offset = strings.len() as u32;
-                    strings.extend_from_slice(text.as_bytes());
-                    CmuxFocusStr { offset, len: text.len() as u32 }
-                }
-            }
-        };
-        let pane = put(state.pane.as_deref());
-        let workspace = put(state.topology.workspace.as_deref());
-        let typing_tab = put(state.typing_tab());
-        let resolved = encode_resolved(&state.derived.resolved, &mut put);
-        let underlying = encode_resolved(&state.derived.underlying, &mut put);
-        let (expectation_id, expectation_away_from) = match &state.expectation {
-            Some(e) => {
-                let id = match &e.key {
-                    ExpectationKey::Surface { id } | ExpectationKey::Tab { id } => id.as_str(),
-                };
-                (put(Some(id)), put(e.away_from.as_deref()))
-            }
-            None => (CmuxFocusStr::ABSENT, CmuxFocusStr::ABSENT),
-        };
-        for effect in &self.effects {
-            let mut out = CmuxFocusEffect {
-                kind: 0,
-                context: 0,
-                active: 0,
-                reserved: [0; 5],
-                pane: CmuxFocusStr::ABSENT,
-                tab: CmuxFocusStr::ABSENT,
-                resolved: empty_resolved(),
-            };
-            match effect {
-                FocusEffect::Select { pane, tab } => {
-                    out.pane = put(Some(pane));
-                    out.tab = put(Some(tab));
-                }
-                FocusEffect::RevealPane { pane } => {
-                    out.kind = 1;
-                    out.pane = put(Some(pane));
-                }
-                FocusEffect::MoveResponder { resolved } => {
-                    out.kind = 2;
-                    out.resolved = encode_resolved(resolved, &mut put);
-                }
-                FocusEffect::PublishContext { context } => {
-                    out.kind = 3;
-                    out.context = context_bits(*context);
-                }
-                FocusEffect::BrowserFocusMode { tab, active } => {
-                    out.kind = 4;
-                    out.tab = put(Some(tab));
-                    out.active = u8::from(*active);
-                }
-            }
-            self.c_effects.push(out);
-        }
-        self.overlays.extend(state.overlays.iter().map(|o| overlay_code(*o)));
-        let (target, target_keyboard) = target_code(state.target);
-        let expectation = state.expectation.as_ref();
-        let reply = &mut self.reply;
-        reply.ok = 1;
-        reply.changed = u8::from(changed);
-        reply.window_key = u8::from(state.window_key);
-        reply.app_active = u8::from(state.app_active);
-        reply.sidebar_hidden = u8::from(state.sidebar_hidden);
-        reply.target = target;
-        reply.target_keyboard = target_keyboard;
-        reply.context = context_bits(state.derived.context);
-        reply.browser_focus_mode_active = u8::from(state.derived.browser_focus_mode_active);
-        reply.dragging = u8::from(state.drag.is_some());
-        reply.has_expectation = u8::from(expectation.is_some());
-        reply.expectation_key =
-            expectation.map_or(0, |e| u8::from(matches!(e.key, ExpectationKey::Tab { .. })));
-        let (expectation_target, expectation_target_keyboard) =
-            expectation.map_or((0, 0), |e| target_code(e.target));
-        reply.expectation_target = expectation_target;
-        reply.expectation_target_keyboard = expectation_target_keyboard;
-        reply.expectation_generation = expectation.map_or(0, |e| e.generation);
-        reply.generation = state.generation;
-        reply.pane = pane;
-        reply.workspace = workspace;
-        reply.expectation_id = expectation_id;
-        reply.expectation_away_from = expectation_away_from;
-        reply.resolved = resolved;
-        reply.underlying = underlying;
-        reply.overlays = self.overlays.as_ptr();
-        reply.overlay_count = self.overlays.len() as u32;
-        reply.effects = self.c_effects.as_ptr();
-        reply.effect_count = self.c_effects.len() as u32;
-        reply.strings = self.strings.as_ptr();
-        reply.strings_len = self.strings.len() as u32;
-        reply.typing_tab = typing_tab;
+        self.out.fail()
     }
 
     /// The focus history of `workspace` (none: the shown one), newest first.
     pub fn recent_panes(&mut self, workspace: Option<&str>) -> &CmuxFocusStrings {
-        self.list.clear();
-        self.list_bytes.clear();
-        let state = &self.state;
-        let recent = match workspace {
-            Some(workspace) => state.history.get(workspace).map_or(&[][..], Vec::as_slice),
-            None => state.recent_panes(),
-        };
-        for pane in recent {
-            push(&mut self.list, &mut self.list_bytes, pane);
-        }
-        self.finish_list()
+        self.out.recent_panes(self.window.state(), workspace)
     }
 
     /// The last focused pane of each workspace: workspace, pane, workspace,
     /// pane, ... (a window record save; not per event).
     pub fn remembered(&mut self) -> &CmuxFocusStrings {
-        self.list.clear();
-        self.list_bytes.clear();
-        for (workspace, pane) in &self.state.remembered {
-            push(&mut self.list, &mut self.list_bytes, workspace);
-            push(&mut self.list, &mut self.list_bytes, pane);
-        }
-        self.finish_list()
+        self.out.remembered(self.window.state())
     }
-
-    fn finish_list(&mut self) -> &CmuxFocusStrings {
-        self.list_reply = CmuxFocusStrings {
-            items: self.list.as_ptr(),
-            bytes: self.list_bytes.as_ptr(),
-            count: self.list.len() as u32,
-            bytes_len: self.list_bytes.len() as u32,
-        };
-        &self.list_reply
-    }
-}
-
-fn push(list: &mut Vec<CmuxFocusStr>, bytes: &mut Vec<u8>, text: &str) {
-    let offset = bytes.len() as u32;
-    bytes.extend_from_slice(text.as_bytes());
-    list.push(CmuxFocusStr { offset, len: text.len() as u32 });
 }
 
 impl Default for Focus {
@@ -568,286 +286,12 @@ impl Default for Focus {
     }
 }
 
-// MARK: Codes
-
-fn context_bits(context: Context) -> u8 {
-    u8::from(context.terminal) | (u8::from(context.browser) << 1) | (u8::from(context.agent) << 2)
-}
-
-fn overlay_code(overlay: Overlay) -> u8 {
-    match overlay {
-        Overlay::Palette => 0,
-        Overlay::Sheet => 1,
-        Overlay::Rename => 2,
-        Overlay::GroupEditor => 3,
-    }
-}
-
-fn overlay_of(code: u8) -> Option<Overlay> {
-    Some(match code {
-        0 => Overlay::Palette,
-        1 => Overlay::Sheet,
-        2 => Overlay::Rename,
-        3 => Overlay::GroupEditor,
-        _ => return None,
-    })
-}
-
-fn target_code(target: Target) -> (u8, u8) {
-    match target {
-        Target::Content {} => (0, 0),
-        Target::AddressBar {} => (1, 0),
-        Target::FindBar {} => (2, 0),
-        Target::DevTools {} => (3, 0),
-        Target::Sidebar { keyboard } => (4, u8::from(keyboard)),
-        Target::SidebarField {} => (5, 0),
-        Target::TextField {} => (6, 0),
-        Target::None {} => (7, 0),
-    }
-}
-
-fn target_of(code: u8, keyboard: u8) -> Option<Target> {
-    Some(match code {
-        0 => Target::Content {},
-        1 => Target::AddressBar {},
-        2 => Target::FindBar {},
-        3 => Target::DevTools {},
-        4 => Target::Sidebar { keyboard: keyboard != 0 },
-        5 => Target::SidebarField {},
-        6 => Target::TextField {},
-        7 => Target::None {},
-        _ => return None,
-    })
-}
-
-fn source_of(code: u8) -> Option<Source> {
-    Some(match code {
-        0 => Source::Mouse,
-        1 => Source::Keyboard,
-        2 => Source::Cli,
-        3 => Source::Palette,
-        4 => Source::Programmatic,
-        _ => return None,
-    })
-}
-
-fn kind_of(code: u32) -> Option<Kind> {
-    Some(match code {
-        0 => Kind::Terminal,
-        1 => Kind::Browser,
-        2 => Kind::Agent,
-        3 => Kind::Page,
-        4 => Kind::Conversation,
-        5 => Kind::Other,
-        _ => return None,
-    })
-}
-
-fn encode_resolved(
-    resolved: &Resolved,
-    put: &mut impl FnMut(Option<&str>) -> CmuxFocusStr,
-) -> CmuxFocusResolved {
-    let mut out = empty_resolved();
-    let (kind, pane, tab): (u8, Option<&str>, Option<&str>) = match resolved {
-        Resolved::Terminal { pane, tab } => (0, Some(pane), Some(tab)),
-        Resolved::BrowserPage { pane, tab } => (1, Some(pane), Some(tab)),
-        Resolved::AddressBar { pane, tab } => (2, Some(pane), Some(tab)),
-        Resolved::FindBar { pane, tab } => (3, Some(pane), Some(tab)),
-        Resolved::DevTools { pane, tab } => (4, Some(pane), Some(tab)),
-        Resolved::AgentPage { pane, tab } => (5, Some(pane), Some(tab)),
-        Resolved::Page { pane, tab } => (6, Some(pane), Some(tab)),
-        Resolved::Conversation { pane, tab } => (7, Some(pane), Some(tab)),
-        Resolved::EmptyPane { pane } => (8, Some(pane), None),
-        Resolved::Sidebar {} => (9, None, None),
-        Resolved::SidebarField {} => (10, None, None),
-        Resolved::TextField {} => (11, None, None),
-        Resolved::Overlay { overlay } => {
-            out.overlay = overlay_code(*overlay);
-            (12, None, None)
-        }
-        Resolved::None {} => (13, None, None),
-    };
-    out.kind = kind;
-    out.pane = put(pane);
-    out.tab = put(tab);
-    out
-}
-
-// MARK: Decoding
-
-/// The request's string bytes.
-struct Strings<'a>(&'a [u8]);
-
-impl Strings<'_> {
-    fn get(&self, range: CmuxFocusStr) -> Result<Option<String>, ()> {
-        if range.offset == NONE {
-            return Ok(None);
-        }
-        let start = range.offset as usize;
-        let end = start.checked_add(range.len as usize).ok_or(())?;
-        let bytes = self.0.get(start..end).ok_or(())?;
-        std::str::from_utf8(bytes).map(|text| Some(text.to_owned())).map_err(|_| ())
-    }
-
-    fn required(&self, range: CmuxFocusStr) -> Result<String, ()> {
-        self.get(range)?.ok_or(())
-    }
-}
-
-/// `count` items at `ptr` (null only with a zero count).
-///
-/// # Safety
-///
-/// `ptr` points to `count` readable items, or `count` is 0.
-unsafe fn items<'a, T>(ptr: *const T, count: u32) -> Result<&'a [T], ()> {
-    if count == 0 {
-        return Ok(&[]);
-    }
-    if ptr.is_null() {
-        return Err(());
-    }
-    // SAFETY: guaranteed by the C caller.
-    Ok(unsafe { std::slice::from_raw_parts(ptr, count as usize) })
-}
-
-/// # Safety
-///
-/// The event's `list` points to `list_count` items (or the count is 0).
-unsafe fn decode_event(event: &CmuxFocusEvent, strings: &[u8]) -> Result<FocusEvent, ()> {
-    let s = Strings(strings);
-    let source = || source_of(event.source).ok_or(());
-    let target = || target_of(event.target, event.target_keyboard).ok_or(());
-    let list = || -> Result<Vec<String>, ()> {
-        // SAFETY: the caller's contract.
-        let ranges = unsafe { items(event.list, event.list_count) }?;
-        ranges.iter().map(|r| s.required(*r)).collect()
-    };
-    Ok(match event.kind {
-        0 => FocusEvent::FocusPane {
-            pane: s.required(event.a)?,
-            workspace: s.get(event.c)?,
-            source: source()?,
-        },
-        1 => FocusEvent::SelectTab {
-            pane: s.required(event.a)?,
-            tab: s.required(event.b)?,
-            workspace: s.get(event.c)?,
-            source: source()?,
-        },
-        2 => FocusEvent::FocusTarget { target: target()?, source: source()? },
-        3 => {
-            let pane = || s.required(event.a);
-            let responder = match event.value {
-                0 => Responder::Content { pane: pane()? },
-                1 => Responder::AddressBar { pane: pane()? },
-                2 => Responder::FindBar { pane: pane()? },
-                3 => Responder::DevTools { pane: pane()? },
-                4 => Responder::Sidebar {},
-                5 => Responder::SidebarField {},
-                6 => Responder::TextField {},
-                7 => Responder::WindowOrNone {},
-                _ => return Err(()),
-            };
-            FocusEvent::Responder { responder, source: source()? }
-        }
-        4 => FocusEvent::WindowKey { key: event.value != 0 },
-        5 => FocusEvent::AppActive { active: event.value != 0 },
-        6 => FocusEvent::OverlayOpened { overlay: overlay_of(event.value).ok_or(())? },
-        7 => FocusEvent::OverlayClosed { overlay: overlay_of(event.value).ok_or(())? },
-        8 => FocusEvent::BeginIntent {},
-        9 => {
-            let id = s.required(event.a)?;
-            let key = match event.value {
-                0 => ExpectationKey::Surface { id },
-                1 => ExpectationKey::Tab { id },
-                _ => return Err(()),
-            };
-            FocusEvent::Expect {
-                key,
-                target: target()?,
-                away_from: s.get(event.b)?,
-                generation: event.generation,
-            }
-        }
-        10 => FocusEvent::DragBegan { tabs: list()?, pane: s.required(event.a)? },
-        11 => {
-            let outcome = match event.value {
-                0 => DragOutcome::Cancelled {},
-                1 => DragOutcome::Dropped { tabs: list()?, away_from: s.get(event.b)? },
-                2 => DragOutcome::MovedAway {},
-                _ => return Err(()),
-            };
-            FocusEvent::DragEnded { outcome }
-        }
-        12 => FocusEvent::ContentPresented { pane: s.required(event.a)? },
-        13 => FocusEvent::ToggleBrowserFocusMode { tab: s.get(event.a)? },
-        14 => FocusEvent::SidebarVisibility { hidden: event.value != 0 },
-        15 => {
-            FocusEvent::RestoredPane { pane: s.required(event.a)?, workspace: s.required(event.c)? }
-        }
-        _ => return Err(()),
-    })
-}
-
-/// # Safety
-///
-/// Every pointer of `topology` points to its count of readable items (or the
-/// count is 0).
-unsafe fn decode_topology(topology: &CmuxFocusTopology, strings: &[u8]) -> Result<Topology, ()> {
-    let s = Strings(strings);
-    // SAFETY: the caller's contract.
-    let (panes, tabs, columns, column_panes) = unsafe {
-        (
-            items(topology.panes, topology.pane_count)?,
-            items(topology.tabs, topology.tab_count)?,
-            items(topology.columns, topology.column_count)?,
-            items(topology.column_panes, topology.column_pane_count)?,
-        )
-    };
-    let mut out_panes = Vec::with_capacity(panes.len());
-    for pane in panes {
-        let start = pane.tab_start as usize;
-        let end = start.checked_add(pane.tab_count as usize).ok_or(())?;
-        let pane_tabs = tabs.get(start..end).ok_or(())?;
-        let mut out_tabs = Vec::with_capacity(pane_tabs.len());
-        for tab in pane_tabs {
-            out_tabs.push(Tab {
-                id: s.required(tab.id)?,
-                surface: s.get(tab.surface)?,
-                kind: kind_of(tab.kind).ok_or(())?,
-            });
-        }
-        out_panes.push(Pane {
-            id: s.required(pane.id)?,
-            tabs: out_tabs,
-            selected: s.get(pane.selected)?,
-        });
-    }
-    // A screen holds at least one column, but an empty screen is allowed:
-    // bound the count so a bad one cannot make a huge allocation.
-    if topology.screen_count > topology.column_count.saturating_add(64) {
-        return Err(());
-    }
-    let mut screens: Vec<Vec<Column>> = (0..topology.screen_count).map(|_| Vec::new()).collect();
-    for column in columns {
-        let start = column.pane_start as usize;
-        let end = start.checked_add(column.pane_count as usize).ok_or(())?;
-        let ids = column_panes.get(start..end).ok_or(())?;
-        let panes = ids.iter().map(|r| s.required(*r)).collect::<Result<Vec<_>, _>>()?;
-        screens
-            .get_mut(column.screen as usize)
-            .ok_or(())?
-            .push(Column { id: s.required(column.id)?, panes });
-    }
-    Ok(Topology::new(s.get(topology.workspace)?, out_panes, screens))
-}
-
 // MARK: C ABI
 
 /// # Safety
 ///
 /// `ptr` points to `len` readable bytes, or `len` is 0.
-unsafe fn bytes<'a>(ptr: *const u8, len: usize) -> Option<&'a [u8]> {
+pub(crate) unsafe fn bytes<'a>(ptr: *const u8, len: usize) -> Option<&'a [u8]> {
     if len == 0 {
         return Some(&[]);
     }
@@ -903,7 +347,7 @@ pub unsafe extern "C" fn cmux_focus_send(
         Ok::<(), ()>(())
     }));
     match result {
-        Ok(Ok(())) => &focus.reply,
+        Ok(Ok(())) => focus.reply(),
         Ok(Err(())) => focus.fail(),
         Err(_) => focus.recover(),
     }
@@ -935,7 +379,7 @@ pub unsafe extern "C" fn cmux_focus_set_topology(
         Ok::<(), ()>(())
     }));
     match result {
-        Ok(Ok(())) => &focus.reply,
+        Ok(Ok(())) => focus.reply(),
         Ok(Err(())) => focus.fail(),
         Err(_) => focus.recover(),
     }

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import JavaScriptCore
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// Session Info drawn by the App (AgentPaneSessionInfo.swift, AgentPaneView+SessionInfo.swift): the
 /// page's model makes, updates and removes the floating panel, the panel runs the pane's full height,
 /// and its clicks go back to the page.
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 @MainActor
 struct AgentPaneNativeSessionInfoTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -58,6 +59,20 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(AgentPaneSessionInfoModel.decode(Self.info(width: .infinity)) == nil)
         #expect(AgentPaneSessionInfoModel.decode(Self.info(width: 9000)) == nil)
         #expect(AgentPaneSessionInfoModel.decode(["open": true]) == nil)
+    }
+
+    /// A short pane's popover lies over the transcript and sends no `foot`: it still gets the glass,
+    /// so the chat and the panel's sections never show through each other (the faint copy of Session
+    /// Info over the transcript). Over the gutter it stands on nothing, as before.
+    @Test func aPanelOverTheChatGetsItsGlassEvenWithoutAFoot() throws {
+        var popover = Self.info()
+        popover["overChat"] = true
+        #expect(AgentPaneSessionInfoPanel.liesOverChat(try Self.model(popover)))
+        var aboveComposer = Self.info()
+        aboveComposer["foot"] = 120
+        #expect(AgentPaneSessionInfoPanel.liesOverChat(try Self.model(aboveComposer)))
+        #expect(!AgentPaneSessionInfoPanel.liesOverChat(try Self.model(Self.info())))
+        #expect(!AgentPaneSessionInfoPanel.liesOverChat(nil))
     }
 
     @Test func fractionalRowIndentAndRevealRevisionAreAcceptedAndRounded() throws {
@@ -112,7 +127,7 @@ struct AgentPaneNativeSessionInfoTests {
         raw["sections"] = [[
             "id": "subagents", "group": "running", "title": "Subagents", "open": true, "foldable": true,
             "rows": [[
-                "id": "agent-1", "title": "Retrying agent", "working": true,
+                "id": "agent-1", "title": "Retrying agent", "working": true, "identityTone": 3,
                 "wave": ["index": 2, "periodMs": 1_200, "stepMs": 120],
                 "progress": "2 queued / 1 failed", "tone": "running",
             ]],
@@ -120,6 +135,7 @@ struct AgentPaneNativeSessionInfoTests {
         let decoded = try Self.model(raw)
         let row = try #require(decoded.sections[0].rows.first)
         #expect(row.working == true)
+        #expect(row.identityTone == 3)
         #expect(row.wave == .init(index: 2, periodMs: 1_200, stepMs: 120))
         #expect(row.progress == "2 queued / 1 failed")
         guard case .line(let line) = decoded.items.last else {
@@ -127,6 +143,7 @@ struct AgentPaneNativeSessionInfoTests {
             return
         }
         #expect(line.working)
+        #expect(line.identityTone == 3)
         #expect(line.wave == row.wave)
         #expect(line.progress == row.progress)
         #expect(!line.spins)
@@ -476,6 +493,7 @@ struct AgentPaneNativeSessionInfoTests {
         store.send = { sent.append($0) }
         let panel = AgentPaneSessionInfoPanel(store: store)
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let host = try #require(window.contentView)
         let page = NSTextView(frame: CGRect(x: 0, y: 0, width: 80, height: 600))
         host.addSubview(page)
@@ -741,6 +759,7 @@ struct AgentPaneNativeSessionInfoTests {
         let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
                                                         windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let host = try #require(window.contentView)
         for line in [
             SessionInfoLine(id: "changes", kind: .header, title: "Changes", unfolded: true, reorderable: true, action: "fold:changes:0"),

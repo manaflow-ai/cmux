@@ -76,7 +76,8 @@ extension DaemonConnection {
 
     /// ``closeWorkspace(_:endTerminals:reason:ifEmpty:)`` answered by the daemon: its reply or refusal, the connection's
     /// end (``LineTransport`` fails every pending request on close), or `bound` (``closeReplyBound``) with no answer
-    /// (`DaemonError.timedOut`), never the 2 s client deadline. A busy daemon still commits a close it answers late (a
+    /// (`DaemonError.timedOut`), never the client request deadline (2 s then, 30 s since #35075). A busy daemon still
+    /// commits a close it answers late (a
     /// batch of 50 under load took 11.7 s), so a close that gave up on the 2 s clock called a closed workspace refused:
     /// its row came back, "The workspace could not be closed." showed, and Undo missed it. Sent once: a close waiting on
     /// a slow daemon adds no re-sends to its load.

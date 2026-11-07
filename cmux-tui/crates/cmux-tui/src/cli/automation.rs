@@ -16,6 +16,7 @@ use cmux_automations::{
     Automation, AutomationSpec, Body, CatchUp, Run, RunState, RunnerLock, Store, StoreError,
     Trigger, Zone, recover_orphans, start_manual, tick,
 };
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::OutputMode;
@@ -95,8 +96,12 @@ pub(super) fn run_json(
 /// human text into the MCP server's stdout.
 pub(super) struct Out {
     pub(super) mode: OutputMode,
-    captured: Option<std::cell::RefCell<Option<Result<Value, (Value, bool)>>>>,
+    captured: Option<std::cell::RefCell<Option<CapturedResult>>>,
 }
+
+/// What `Out` holds while captured: the result, or the error value and whether
+/// it is a usage error.
+type CapturedResult = Result<Value, (Value, bool)>;
 
 impl Out {
     pub(super) fn printing(mode: OutputMode) -> Out {
@@ -1331,10 +1336,10 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Out
                 Ok(id) => {
                     let mut params = json!({"automation": id});
                     if let Some(name) = a.value("name") {
-                        params["name"] = json!(name);
+                        params.set("name", json!(name));
                     }
                     if a.flag("paused") {
-                        params["enabled"] = json!(false);
+                        params.set("enabled", json!(false));
                     }
                     team_fields(&a, &mut params)?;
                     cloud_out(
@@ -1373,7 +1378,9 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Out
             match a.words.as_slice() {
                 [] => {}
                 [_] => match target(&a)? {
-                    Ok(id) => params["automation"] = json!(id),
+                    Ok(id) => {
+                        params.set("automation", json!(id));
+                    }
                     Err(done) => return done,
                 },
                 [_, extra, ..] => {

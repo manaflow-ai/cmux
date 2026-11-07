@@ -29,7 +29,10 @@ export type ComposerBoxHandle = {
   plainPaste(): void;
   place(chips: readonly PendingAttachment[]): void;
   /// Attachments `ids` went with a prompt: gone from the text for good (composer/inlineAttachments.tsx).
+  /// The draft's remembered pastes went with it too.
   sent(ids: Iterable<string>): void;
+  /// The pastes that went into the draft as text, newest last (composer/pasteMarks.ts).
+  pastes(): readonly string[];
 };
 
 export type ComposerBoxProps = {
@@ -141,7 +144,8 @@ export function ComposerBox({
   inert = false,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css). Both
-  // looks lay +, the prompt, the mic and Send out as Claude's in the box's grid (composerLook.ts).
+  // looks use the same controls and prompt. Codex's gives the prompt its own full-width line,
+  // with + and the trailing actions on the lower row (composerLook.css).
   // The mode, model, effort and ring are the quiet row: under the box in Claude's look, inside it
   // under the prompt in Codex's (Leo 2026-10-30: "the bypass/context/model picker stuff should
   // literally be inside the composer box"; 2026-11-02: "switching to the codex view in the middle of
@@ -191,11 +195,18 @@ export function ComposerBox({
   useImperativeHandle(
     handle,
     () => ({
-      plainPaste: () => plainPaste.current(),
+      plainPaste: () => {
+        plainPaste.current();
+        prompt.current?.plainPaste();
+      },
       place: (chips) => inline.place(chips, "paste"),
-      sent: (ids) => inline.sent(ids),
+      sent: (ids) => {
+        inline.sent(ids);
+        pastedChips.pastes.current = [];
+      },
+      pastes: () => pastedChips.pastes.current,
     }),
-    [inline],
+    [inline, pastedChips.pastes],
   );
   const placed = new Set(inlineTokenIds(field.value, inline.known));
   const { onBeforeInput, onKeyDown } = field;
@@ -258,7 +269,7 @@ export function ComposerBox({
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
       <div
         ref={attachBox}
-        className="ui-glass ui-glass-floats acpmux-composer-box"
+        className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
@@ -376,8 +387,8 @@ export function ComposerBox({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
-          {/* The compact box grid for +, the prompt, the mic and Send, with the model group in
-              ComposerFoot, in both looks. The granted-permission status gets no slot of its own
+          {/* The box grid for +, the prompt, the mic and Send, with the model group in
+              ComposerFoot. The granted-permission status gets no slot of its own
               (hq#1957 item 15 compact row): grants are revoked from the chat menu (header/grantsMenu.ts). */}
           <div
             className="acpmux-composer-bar acpmux-composer-inner"

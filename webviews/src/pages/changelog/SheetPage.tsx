@@ -15,8 +15,13 @@
 // New, a check for Fixed, a shield for Security, nothing for Improved, so a day is not one run of
 // the same mark (Leo 2026-11-02). Model.ts readableItem joins a line that is the rest of its title
 // back into the title, and a line that repeats it becomes the title.
+// Each day's header has "Versions" (Leo 2026-11-05: "Like literally with a click to a past nightly
+// ... through the What's New page, you can just get back to a prior version if you wanted to"): its
+// builds, each with its commit, its changes since the build before, and Install, which asks once,
+// then has the app download that build, check its signature and team, and restart into it.
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
+import { Button } from "../../ui/Button";
 import type { Strings } from "../shared/i18n";
 import { areaOf, byArea, type AreaKey } from "./areas";
 import { dayLabel, groupByDay, isFiller, mergedView, rowKind, type ReleaseView } from "./model";
@@ -77,6 +82,7 @@ function SheetDay({
   const pending = builds.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
   const rows = sheetRows(mergedView(loaded, strings.language), strings);
   const installed = builds.some((b) => b.build === s.current);
+  const [versions, setVersions] = useState(false);
   return (
     <section
       className="clj-section cls-day"
@@ -86,7 +92,18 @@ function SheetDay({
       <h2 className="cls-date">
         <time dateTime={day}>{dayLabel(day, strings.language)}</time>
         {installed && <span className="cl-installed">{strings.t("changelog.page.current")}</span>}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="cls-versions-toggle"
+          aria-expanded={versions}
+          onClick={() => setVersions(!versions)}
+        >
+          {strings.t("changelog.build.versions")}
+          <span className="cl-count">{builds.length}</span>
+        </Button>
       </h2>
+      {versions && <SheetBuilds builds={builds} all={s.builds} s={s} store={store} strings={strings} />}
       {pending && rows.length === 0 ? (
         <div
           className="clj-placeholder"
@@ -106,6 +123,68 @@ function SheetDay({
         ))
       )}
     </section>
+  );
+}
+
+const COMMITS = "https://github.com/manaflow-ai/cmux";
+
+/** A day's builds, newest first: version, commit, changes since the build before it (the next
+    older listed one), and Install (Installed for the running build). Install asks once ("Restart
+    into it"); a refusal stays under its build. */
+export function SheetBuilds({
+  builds,
+  all,
+  s,
+  store,
+  strings,
+}: {
+  builds: IndexEntry[];
+  all: IndexEntry[];
+  s: ChangelogSnapshot;
+  store: ChangelogStore;
+  strings: Strings;
+}) {
+  const [asking, setAsking] = useState<string>();
+  return (
+    <ul className="cls-builds">
+      {builds.map((b) => {
+        const before = all[all.findIndex((x) => x.build === b.build) + 1];
+        const failed = s.installFailed?.build === b.build ? s.installFailed.message : undefined;
+        return (
+          <li className="cls-build" key={b.build} data-build={b.build}>
+            <span className="cls-build-version">{b.shortVersion}</span>
+            {b.head && (
+              <a className="cls-build-link" href={`${COMMITS}/commit/${b.head}`} rel="noreferrer">
+                {b.head.slice(0, 7)}
+              </a>
+            )}
+            {b.head && before?.head && (
+              <a className="cls-build-link" href={`${COMMITS}/compare/${before.head}...${b.head}`} rel="noreferrer">
+                {strings.t("changelog.build.changes")}
+              </a>
+            )}
+            <span className="cls-build-action">
+              {b.build === s.current ? (
+                <span className="cl-installed">{strings.t("changelog.page.current")}</span>
+              ) : !s.installs ? null : s.installing === b.build ? (
+                <Button size="sm" variant="ghost" disabled aria-busy="true">
+                  {strings.t("changelog.build.installing")}
+                </Button>
+              ) : asking === b.build ? (
+                <Button size="sm" disabled={!!s.installing} onClick={() => void store.install(b.build)}>
+                  {strings.t("changelog.build.confirm")}
+                </Button>
+              ) : (
+                <Button size="sm" variant="ghost" disabled={!!s.installing} onClick={() => setAsking(b.build)}>
+                  {strings.t("changelog.build.install")}
+                </Button>
+              )}
+            </span>
+            {failed && <span className="cls-build-failed">{failed}</span>}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -142,10 +221,10 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
         ))}
       </ul>
       {shown.length < rows.length && (
-        <button type="button" className="cl-more cls-more" onClick={() => setOpen(true)}>
+        <Button size="sm" variant="ghost" className="cl-more cls-more" onClick={() => setOpen(true)}>
           {strings.t("changelog.page.showMore")}
           <span className="cl-count">{rows.length - shown.length}</span>
-        </button>
+        </Button>
       )}
     </section>
   );

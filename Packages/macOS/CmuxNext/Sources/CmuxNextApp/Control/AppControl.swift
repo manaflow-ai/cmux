@@ -8,6 +8,8 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
+import CmuxNextImportCards
+import CmuxNextMacScreen
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -26,7 +28,7 @@ final class AppControl {
     private let frames: FrameBatcher
     private let frameProbe = DebugFrameProbe()
     private let mainCPUProbe = DebugMainCPUProbe()
-    private let terminalDisplayProbe = DebugTerminalDisplayProbe()
+    private let terminalDisplayProbe = TerminalDisplayProbe()
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     private let motionCommitProbe = MotionCommitProbe()
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -71,8 +73,8 @@ final class AppControl {
     }
 
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
-        let service = try ControlService.start(registry: registry, settings: settings, launch: launch,
-                                               frameSource: frames, watchdog: watchdog)
+        let service = try ControlService.start(registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog,
+                                               sessionHandoff: .forNightly(launch: launch, productionAuth: services.cloud.configuration.isProductionAuth, session: services.cloud.auth.storedSession))
         self.service = service
         let budget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                           overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
@@ -97,6 +99,7 @@ final class AppControl {
                 .map { ($0.socketPath, $0.home.path) }
         }])
         service.router.register(SettingsControl.methods(services: services))
+        service.router.register(services.cmuxRemoteActions.controlMethods())
         service.router.register(TerminalLinkOpenControl.methods(services: services))
         service.router.register(PermissionsControl.methods(services: services))
         service.router.register(NotificationsControl.methods(services: services))
@@ -125,15 +128,17 @@ final class AppControl {
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
         ])
-        // Diagnostics for tagged DEV builds; a release build registers no debug.* method
-        // (ControlRouter drops them too: Configuration.allowsDebugMethods).
+        // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
-        // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
-        service.router.register([budget.method(registry: registry)])
+        // The newest action runs and the over-budget counters (zero-latency.md, the budget contract), and the import note's capture stand-in.
+        service.router.register([budget.method(registry: registry), .mainActor("debug.import_note") { call in .value(ImportSuggestionsCenter.shared.debugImportNote(call.params)) }])
         service.router.register(DebugHibernationControl.methods(services))
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
+        terminalDisplayProbe.terminals = { [weak services] in services?.cache.terminals.map { ($0.key, $0.value.session) } ?? [] }
         service.router.register([
-            .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
+            .mainActor("debug.frames") { [probe = frameProbe] call in
+                .value(CmuxNextSettings.JSONValue(foundation: probe.handle(action: call.params["action"]?.stringValue, raw: call.params["raw"]?.boolValue == true)) ?? .null)
+            },
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
             BlockingControl(detector: services.blocking).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.
@@ -144,8 +149,12 @@ final class AppControl {
             },
             // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
             .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },
-            // Main-thread time in Ghostty's display passes (bench-terminal-resize.py).
-            .mainActor("debug.terminal_display") { [probe = terminalDisplayProbe] call in .value(probe.handle(call.params)) },
+            // Main-thread time in Ghostty's display passes, and whether each shown terminal changes size with its pane in
+            // every frame (bench-terminal-resize.py).
+            .mainActor("debug.terminal_display") { [probe = terminalDisplayProbe] call in
+                let report = probe.handle(action: call.params["action"]?.stringValue)
+                return .value((try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: JSONEncoder().encode(report))) ?? .null)
+            },
             // Measured animation spans (plans/cmux-next/motion.md).
             .mainActor("debug.motion") { [weak services, probe = motionCommitProbe] call in
                 .value(DebugMotion.handle(call.params, services, commitProbe: probe))
@@ -382,9 +391,9 @@ final class AppControl {
             .mainActor("debug.home_native_fixture.open") { [weak services] call in
                 guard let services else { return .value(.null) }
                 let attachments = call.params["attachments"]?.boolValue ?? false
-                // `new`: one more fixture tab, also when the window lists one already.
+                // `new`: one more fixture tab, also when the window lists one already; `compose`: under the chat column's compose button.
                 let fresh = call.params["new"]?.boolValue ?? false
-                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, fresh: fresh))
+                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, compose: call.params["compose"]?.boolValue ?? false, fresh: fresh))
             },
             // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
             // files enter the shown Home composer through the same intake as
@@ -433,8 +442,8 @@ final class AppControl {
                 guard let services else { return .null }
                 do {
                     let result = try await BrowserRetirementProbe(engine: services.cache.cef).run { page in
-                        let entry = BrowserEntry(tab: page)
-                        return (entry, entry.chrome)
+                        let entry = BrowserEntry(tab: page), pane = BrowserPaneChrome()
+                        return ((entry, pane) as AnyObject, pane.bind(page, state: entry.state))
                     }
                     return .object(result.mapValues(JSONValue.bool))
                 } catch {
@@ -463,6 +472,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugPointerHover.run(call.params, services: services))
             },
+            .async("debug.pointer_sweep") { [weak services] call in
+                guard let services else { return .null }
+                return await DebugPointerHover.sweep(call.params, services: services)
+            }.withDeadline(.fixed(.seconds(60))),
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },

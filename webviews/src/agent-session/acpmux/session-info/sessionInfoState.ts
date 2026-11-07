@@ -3,10 +3,11 @@
 // other side too when you do one... they should all be individual per pane"): a toggle, a drag or a
 // fold in one pane never reaches another. Every chat pane is its own page, so the page's copy is the
 // pane's; it is kept in localStorage under the chat's session (``bindSessionInfoPane``) so the pane
-// shows it again after a relaunch, and no page listens for another's writes. The last choice made in
-// any pane is the default for a pane with none of its own yet (a new chat), so Session Info still
-// opens for a first chat and stays off for new chats once closed (Leo, 2026-10-20). With no storage
-// (a private window, a test) the page's own copy holds them.
+// shows it again after a relaunch, and no page listens for another's writes. A chat with no state of
+// its own yet (a new chat) opens it, whatever another chat chose (Lucas, 2026-11-06: "If you close it:
+// that choice is remembered per chat. New chats still default to open"); its width and folds are the
+// last ones set in any pane. Where the pane has no room for it, it starts closed (SessionInfo.tsx
+// `sessionInfoFits`). With no storage (a private window, a test) the page's own copy holds them.
 //
 // A chat opened in a split beside another chat (a subagent's pane, a chat its agent started) starts
 // with Session Info closed: it does not inherit the parent's or the last choice (Leo, 2026-11-03: "i
@@ -15,6 +16,14 @@
 // "like if they want it open they can just do it on the right split one but otherwise it really
 // doesn't have that much space pretty often"). Such a pane keeps its state under its own key
 // (``sessionInfoPaneKey``), so opening it there sticks for that pane and never reaches the parent's.
+//
+// One chat can be open in two tabs at once (Leo, 2026-11-03: "i feel like right split is fine on click
+// by default (extra view doesn't really affect anything), and you can riht click to go to it. but of
+// course we just have to be prepared to mitigate oddities"), so a pane that knows its tab (the host's
+// handshake `tab`, or `acpmux-pane-tab` for a page a tab adopted later: ``setTab``) keeps its state
+// under that tab's key (``tabEntry``): one tab's toggle or reload never takes the other's state. Each
+// save writes the chat's key too, so the chat's key holds its latest state in any tab: what a tab with
+// no state of its own shows (a tab opened on the chat later, a chat saved before keys were per tab).
 import { useSyncExternalStore } from "react";
 
 export type SessionInfoSectionId =
@@ -25,35 +34,45 @@ export type SessionInfoSectionId =
   | "changes"
   | "sources"
   | "servers"
+  | "progress"
   | "subagents"
   | "tasks"
+  | "alsoHere"
   | "outputs"
+  /// Not a section: the panel's Show more line, an item of the order (sectionOrder.ts `MORE_LINE`).
+  | "more"
   | `app:${string}#${string}`;
-export type BuiltInSessionInfoSectionId = Exclude<SessionInfoSectionId, `app:${string}#${string}`>;
+export type BuiltInSessionInfoSectionId = Exclude<SessionInfoSectionId, `app:${string}#${string}` | "more">;
 export type SessionInfoSections = Readonly<Record<BuiltInSessionInfoSectionId, boolean>> &
   Partial<Record<SessionInfoSectionId, boolean>>;
 
 /// The width a drag can give it, in px, and the width it opens at the first time.
 export const SESSION_INFO_WIDTH = { min: 260, max: 560, fallback: 320 } as const;
 
-/// Usage and Connectors start folded to their one-line values (as in Claude Code desktop); the rest
-/// start open, Context too (Leo, 2026-11-01: "context tho is pretty good i think to keep expanded by
-/// default? it seemed like it was collapsed initially").
+/// Usage and Connectors start folded to their one-line values (as in Claude Code desktop). What runs
+/// (Subagents, Background tasks) and what it made (Outputs) start open; what it read (Sources) starts
+/// folded to its count (Lucas, 2026-11-05: "subagents and background tasks auto expanded", then
+/// "outputs should always be expanded (by default)").
 export const DEFAULT_SECTIONS: SessionInfoSections = {
   environment: true,
-  context: true,
+  // One line, its meter and tokens; a click unfolds the breakdown (Lucas, 2026-11-06).
+  context: false,
   usage: false,
   connectors: false,
   changes: true,
-  sources: true,
+  sources: false,
   servers: true,
+  progress: true,
   subagents: true,
   tasks: true,
+  alsoHere: true,
   outputs: true,
 };
 
-/// The last choice made in any pane: the defaults for a pane with no state of its own. These were
-/// the one shared state before 2026-10-25, so an old install's choice is the default too.
+/// The last width and folds set in any pane: the defaults for a pane with no state of its own. These
+/// were the one shared state before 2026-10-25, so an old install's choice is the default too. The open
+/// choice once was too (OPEN_KEY); since 2026-11-06 a new chat opens whatever it said, and it is only
+/// cleared.
 const OPEN_KEY = "cmux.agentPane.inspector.open";
 const WIDTH_KEY = "cmux.agentPane.inspector.width";
 const SECTIONS_KEY = "cmux.agentPane.inspector.sections";
@@ -73,6 +92,13 @@ const PANE_DAYS = 30;
 
 /// The prefix of a split pane's key (``sessionInfoPaneKey``).
 const SPLIT_PREFIX = "split:";
+/// The prefix of a tab's own key (``tabEntry``).
+const TAB_PREFIX = "tab:";
+
+/// The entry tab `tab` keeps chat key `pane` (``sessionInfoPaneKey``) under; with no tab, the chat's.
+export function tabEntry(pane: string, tab: string | undefined): string {
+  return tab ? `${TAB_PREFIX}${tab}:${pane}` : pane;
+}
 
 /// The key pane state is saved under for chat `sessionId`: the chat's own, or (`split`: a pane opened
 /// beside another chat) one of its own, which starts closed. A subagent's pane shows its chat's
@@ -104,18 +130,21 @@ const clampWidth = (width: number) =>
 const widthOf = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? clampWidth(value) : SESSION_INFO_WIDTH.fallback;
 
-/// The saved sections' version. Before 2 every chat saved Context folded because that was the
-/// default (each chat saves its whole state when a pane first shows it), not because the viewer folded
-/// it, so a saved Context from before 2 gives way to today's default.
-const SECTIONS_VERSION = 2;
+/// The saved sections' version. Each chat saves its whole state when a pane first shows it, so a
+/// saved value matching an old default is that default, not the viewer's choice. A section whose
+/// default changed reads a saved value only from the version that changed it: Context from 2
+/// (before 2 every chat saved it folded), Sources from 3 (it starts folded since 3), Outputs from 4
+/// (folded in 3, open again since 4), Context again from 5 (one line since 5, its breakdown a fold).
+const SECTIONS_VERSION = 5;
+const SINCE: Partial<Record<SessionInfoSectionId, number>> = { context: 5, sources: 3, outputs: 4 };
 
 function sectionsOf(value: unknown): SessionInfoSections {
   if (!value || typeof value !== "object") return DEFAULT_SECTIONS;
   const stored = value as Partial<Record<SessionInfoSectionId | "v", unknown>>;
+  const version = typeof stored.v === "number" ? stored.v : 1;
   const sections = { ...DEFAULT_SECTIONS };
   for (const id of Object.keys(DEFAULT_SECTIONS) as SessionInfoSectionId[])
-    if (typeof stored[id] === "boolean" && (id !== "context" || stored.v === SECTIONS_VERSION))
-      sections[id] = stored[id];
+    if (typeof stored[id] === "boolean" && version >= (SINCE[id] ?? 0)) sections[id] = stored[id];
   return sections;
 }
 
@@ -177,9 +206,9 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
       return [];
     }
   };
-  /// Open unless the viewer closed it: a first chat shows it.
+  /// Open: a new chat shows it (its closing is the chat's own, never the next chat's).
   const defaults = (): State => ({
-    open: read(OPEN_KEY) !== "0",
+    open: true,
     width: widthOf(Number(read(WIDTH_KEY))),
     sections: sectionsOf(parse(read(SECTIONS_KEY))),
     sourcesAll: false,
@@ -216,16 +245,17 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
   /// another pane's index write loses delays its pruning, and a chat another pane saved after this
   /// pane read the index is never dropped (each chat's key carries its own time); neither loses a
   /// chat's state.
+  /// A tab's pane (``setTab``) saves under the tab's entry and the chat's (the default for a tab with
+  /// none of its own); both are entries of the index, kept and pruned alike.
   const save = (sessionId: string, next: State) => {
     const now = Date.now();
-    write(
-      SESSION_INFO_PANE_PREFIX + sessionId,
-      JSON.stringify({ ...next, sections: savedSections(next.sections), at: now }),
-    );
+    const ids = tab ? [tabEntry(sessionId, tab), sessionId] : [sessionId];
+    const value = JSON.stringify({ ...next, sections: savedSections(next.sections), at: now });
+    for (const id of ids) write(SESSION_INFO_PANE_PREFIX + id, value);
     const others = adoptStrays(indexOf())
-      .filter(([id]) => id !== sessionId)
+      .filter(([id]) => !ids.includes(id))
       .sort((a, b) => b[1] - a[1]);
-    const kept: [string, number][] = [[sessionId, now]];
+    const kept: [string, number][] = ids.map((id) => [id, now]);
     for (const [id, at] of others) {
       if (kept.length < PANES_KEPT && now - at < PANE_DAYS * 86_400_000) {
         kept.push([id, at]);
@@ -246,20 +276,36 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
   };
 
   let pane: string | undefined;
+  /// The tab this page is (``setTab``); none (an older host, a page no tab adopted yet, a test): by chat.
+  let tab: string | undefined;
   let state: State | undefined;
   /// The last saved state `shownFor` read for a chat the pane does not show yet, so the snapshot
   /// stays the same object while nothing changed.
   let peeked: { key: string; raw: string | null; state: State | undefined } | undefined;
   const listeners = new Set<() => void>();
   const current = (): State => (state ??= defaults());
-  /// What a pane with no saved state of its own starts with: what it shows now, closed for a split
-  /// pane. The same object while `current()` is, so a snapshot read stays stable.
-  let closedOf: { from: State; state: State } | undefined;
+  /// Chat key `key`'s saved state for this pane: its tab's own, else the chat's (``tabEntry``), with
+  /// the raw value it was read from (``shownFor``'s cache).
+  const savedFor = (key: string): { raw: string | null; state: State | undefined } => {
+    if (tab) {
+      const raw = read(SESSION_INFO_PANE_PREFIX + tabEntry(key, tab));
+      const own = storedState(raw);
+      if (own) return { raw, state: own };
+    }
+    const raw = read(SESSION_INFO_PANE_PREFIX + key);
+    return { raw, state: storedState(raw) };
+  };
+  /// What a pane with no saved state of its own starts with: what it shows now, open (a new chat),
+  /// closed for a split pane. The same object while `current()` is, so a snapshot read stays stable.
+  /// A choice made before the chat had a session (``setOpen`` with no pane bound) is that chat's.
+  let freshOf: { from: State; open: boolean; state: State } | undefined;
+  let unboundChoice = false;
   const fresh = (key: string): State => {
     const now = current();
-    if (!key.startsWith(SPLIT_PREFIX) || !now.open) return now;
-    if (closedOf?.from !== now) closedOf = { from: now, state: { ...now, open: false } };
-    return closedOf.state;
+    const open = unboundChoice ? now.open : !key.startsWith(SPLIT_PREFIX);
+    if (now.open === open) return now;
+    if (freshOf?.from !== now || freshOf.open !== open) freshOf = { from: now, open, state: { ...now, open } };
+    return freshOf.state;
   };
   const update = (next: State, persist: boolean) => {
     if (persist && pane) save(pane, next);
@@ -267,7 +313,7 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
     state = next;
     if (changed) for (const listener of listeners) listener();
   };
-  return {
+  const store = {
     current,
     /// Claims the initial Connect reveal before changing any fold; no storage still remembers per page.
     claimIMessageReveal(): boolean {
@@ -281,9 +327,9 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
     /// state, else what the pane shows now (a new chat inherits it).
     shownFor(sessionId: string | undefined): State {
       if (!sessionId || sessionId === pane) return current();
-      const key = SESSION_INFO_PANE_PREFIX + sessionId;
-      const raw = read(key);
-      if (peeked?.key !== key || peeked.raw !== raw) peeked = { key, raw, state: storedState(raw) };
+      const key = tabEntry(sessionId, tab);
+      const saved = savedFor(sessionId);
+      if (peeked?.key !== key || peeked.raw !== saved.raw) peeked = { key, raw: saved.raw, state: saved.state };
       return peeked.state ?? fresh(sessionId);
     },
     subscribe(listener: () => void) {
@@ -299,14 +345,27 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
       if (sessionId === pane) return;
       pane = sessionId || undefined;
       if (!pane) return;
-      const saved = storedState(read(SESSION_INFO_PANE_PREFIX + pane));
+      const saved = savedFor(pane).state;
+      const start = saved ?? fresh(pane);
+      unboundChoice = false;
       if (saved) return update(saved, false);
-      const start = fresh(pane);
       save(pane, start);
       update(start, false);
     },
+    /// The page is tab `next`'s (the handshake's `tab`, `acpmux-pane-tab`): its state is kept under the
+    /// tab's own key from here, and the chat it shows is read again under it.
+    setTab(next: string | undefined) {
+      next = next || undefined;
+      if (next === tab) return;
+      tab = next;
+      peeked = undefined;
+      const shown = pane;
+      pane = undefined;
+      if (shown) store.bind(shown);
+      else for (const listener of listeners) listener();
+    },
     setOpen(open: boolean) {
-      write(OPEN_KEY, open ? "1" : "0");
+      if (!pane) unboundChoice = true;
       update({ ...current(), open }, true);
     },
     /// A drag's width; `persist` stores it (at the drag's end, not on every step).
@@ -342,13 +401,16 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
         write(key, null);
       swept = false;
       imessageRevealed = false;
+      unboundChoice = false;
       pane = undefined;
+      tab = undefined;
       state = undefined;
       peeked = undefined;
-      closedOf = undefined;
+      freshOf = undefined;
       update(defaults(), false);
     },
   };
+  return store;
 }
 
 /// This page's pane.
@@ -367,6 +429,8 @@ export const useSessionInfoOpen = (sessionId?: string): boolean => {
 };
 /// Keys this pane's state by the chat it shows (useSessionInfo, from the snapshot's session).
 export const bindSessionInfoPane = page.bind;
+/// Keys this pane's state by the tab the page is (App.tsx, from the handshake and `acpmux-pane-tab`).
+export const setSessionInfoTab = page.setTab;
 export const setSessionInfoOpen = page.setOpen;
 export const setSessionInfoWidth = page.setWidth;
 export const setSessionInfoSection = page.setSection;

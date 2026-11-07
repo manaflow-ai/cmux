@@ -134,7 +134,10 @@ def run(kind):
     teardown = TagTeardown(bundle)
     teardown.install()
     log = open(os.path.join(opts.out, f"app-{kind}.log"), "a")
-    process = subprocess.Popen([os.path.join(bundle, "Contents/MacOS/cmux DEV")], env=env,
+    # -ApplePersistenceIgnoreState: the crashes this gate causes are crash history, so a later launch on the same
+    # runner opened AppKit's modal "reopen windows?" alert before the debug socket, and the gate read a freeze
+    # (cmux#37269's run 42315815296: both launches' main threads in promptToIgnorePersistentStateWithCrashHistory).
+    process = subprocess.Popen([os.path.join(bundle, "Contents/MacOS/cmux DEV"), "-ApplePersistenceIgnoreState", "YES"], env=env,
                                stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     pid = process.pid
     print(f"crash-ends-app-gate: {kind}: launched {tag} pid {pid}", flush=True)

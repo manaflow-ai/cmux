@@ -60,7 +60,7 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// This build orders sidebar rows from the sidebar document only, so the
     /// connection echoes `placement-shift-v1` with `sidebar-doc-v1` and the daemon
     /// sends no `workspace_placement` restatement. The App's composition root sets it
-    /// (`SidebarMirror.isLinked`) on the connections that feed the sidebar; off by default.
+    /// on the connections that feed the sidebar; off by default.
     public var echoesPlacementShift = false
     /// Records each request's send-to-reply time (``DaemonRequestLatency``; Debug and bench builds read
     /// it through `debug.daemon_requests`). Nil: not measured. The local ``DaemonService`` sets its own.
@@ -80,7 +80,7 @@ public struct DaemonConnectionConfiguration: Sendable {
         healthyAfter: Duration = .seconds(10),
         retryWake: RetryWake? = nil,
         requestTimeout: Duration? = DaemonConnection.defaultRequestTimeout,
-        snapshotTimeout: Duration? = .seconds(10),
+        snapshotTimeout: Duration? = DaemonConnection.defaultRequestTimeout,
         spawnTimeout: Duration? = DaemonConnection.defaultSpawnTimeout,
         terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.instance.shared(),
         resolvesShellIntegration: Bool = false,

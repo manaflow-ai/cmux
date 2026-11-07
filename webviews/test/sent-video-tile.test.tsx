@@ -263,6 +263,98 @@ try {
       proto.play = original;
     }
   });
+
+  /// A sent video placed in its prompt, on a host that grants `src` for it.
+  async function grantedVideo(id: string, path: string, src: string) {
+    const name = path.split("/").pop()!;
+    const note = `Frames from the video ${name} (0:10, 1576×1114), in order, at: 0:02.0.`;
+    const frame = { id: "e".repeat(64), mimeType: "image/jpeg", name: `${name} frame at 0:02.0` };
+    setChipHost(async (method, params) => {
+      calls.push({ method, params });
+      return method === "media.load" && params.src === path ? { src } : null;
+    });
+    await render({
+      id,
+      version: 1,
+      at: 0,
+      kind: "user",
+      text: `look\n\n${note}\n${frame.name}`,
+      images: [frame],
+      inlineParts: [
+        { kind: "text", text: "look" },
+        { kind: "file", name, uri: `file://${encodeURI(path)}` },
+        { kind: "text", text: note },
+        { kind: "text", text: frame.name },
+        { kind: "image", ...frame },
+      ],
+    } as AcpmuxRow);
+    return host.querySelector<HTMLElement>(".cv-user__video")!;
+  }
+  const settle = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+  // Leo, 2026-11-03: "i can neither preview a vid in place nor have it pop up anymore". The host
+  // granted the recording, the pane's player could not play it, and the tile came back with
+  // nothing shown (#32697): every click did nothing.
+  test("a granted video the pane's player cannot play opens in Quick Look on the same click", async () => {
+    const path = "/Users/dev/Desktop/Screen Recording 2026-11-03 at 6.32.47 PM.mov";
+    const tile = await grantedVideo("user-7", path, "cmux-agent://pane/__media/0badc0de0badc0de.mov");
+    const proto = dom.window.HTMLMediaElement.prototype;
+    const original = proto.play;
+    proto.play = () => Promise.resolve();
+    try {
+      calls.length = 0;
+      await act(async () => tile.click());
+      await settle();
+      const player = host.querySelector<HTMLVideoElement>(".cv-user__video-player video");
+      expect(player).not.toBeNull();
+      await act(async () => {
+        player!.dispatchEvent(new dom.window.Event("error"));
+      });
+      expect(calls.map((call) => call.method)).toEqual(["media.load", "video.quickLook"]);
+      expect(calls[1]!.params).toEqual({ src: path });
+      // The tile is back, ready for the next click.
+      expect(host.querySelector(".cv-user__video")).not.toBeNull();
+      expect(host.querySelector(".cv-user__video-player")).toBeNull();
+    } finally {
+      proto.play = original;
+    }
+  });
+
+  test("a double-click on a sent video opens it large over the pane, playing, and Close brings the tile back", async () => {
+    const path = "/Users/dev/Desktop/expand-demo.mov";
+    const src = "cmux-agent://pane/__media/abcdefabcdefabcd.mov";
+    const tile = await grantedVideo("user-8", path, src);
+    const played: HTMLMediaElement[] = [];
+    const proto = dom.window.HTMLMediaElement.prototype;
+    const original = proto.play;
+    proto.play = function (this: HTMLMediaElement) {
+      played.push(this);
+      return Promise.resolve();
+    };
+    try {
+      await act(async () => {
+        tile.dispatchEvent(new dom.window.MouseEvent("dblclick", { bubbles: true }));
+      });
+      await settle();
+      const viewer = dom.window.document.querySelector<HTMLVideoElement>(".acpmux-image-viewer video");
+      expect(viewer).not.toBeNull();
+      expect(viewer!.getAttribute("src")).toBe(src);
+      expect(viewer!.hasAttribute("controls")).toBe(true);
+      expect(played).toEqual([viewer!]);
+      // The poster stays in the bubble behind it; nothing plays in place at the same time.
+      expect(host.querySelector(".cv-user__video")).not.toBeNull();
+      expect(host.querySelector(".cv-user__video-player")).toBeNull();
+      const close = dom.window.document.querySelector<HTMLElement>(".acpmux-image-viewer-action")!;
+      await act(async () => close.click());
+      expect(dom.window.document.querySelector(".acpmux-image-viewer")).toBeNull();
+      expect(host.querySelector(".cv-user__video")).not.toBeNull();
+    } finally {
+      proto.play = original;
+    }
+  });
 } finally {
   afterAll(() => {
     setChipHost(undefined);

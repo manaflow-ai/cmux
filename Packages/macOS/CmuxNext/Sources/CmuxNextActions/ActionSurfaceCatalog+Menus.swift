@@ -42,6 +42,11 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.closeWorkspacesBelow": [p(.workspaceRow, .close, 502, folder: .close)],
         "palette.closeWorkspacesAbove": [p(.workspaceRow, .close, 503, folder: .close)],
         "workspace.closeAll": [p(.workspaceRow, .close, 505, folder: .close)],
+        // Their archive counterparts, in the same order, in the row menu's Archive folder after Close (#37107).
+        "workspace.archiveOtherWorkspaces": [p(.workspaceRow, .close, 600, folder: .archive)],
+        "workspace.archiveOthersInGroup": [p(.workspaceRow, .close, 601, folder: .archive)],
+        "workspace.archiveWorkspacesBelow": [p(.workspaceRow, .close, 602, folder: .archive)],
+        "workspace.archiveWorkspacesAbove": [p(.workspaceRow, .close, 603, folder: .archive)],
         "palette.toggleWorkspacePin": [p(.workspaceRow, .identity, 110)],
         // In More: the row menu keeps 12 top-level rows (ContextMenuEssentialsTests).
         "workspace.toggleArchive": [p(.workspaceRow, .identity, 113)],
@@ -105,6 +110,7 @@ nonisolated extension ActionSurfaceCatalog {
         // rows are top-level, Options ▸ holds icon, read state, collapse-all and config, and Move ▸
         // holds the other moves and the group-only sorts (at most 12 top-level rows).
         "workspaceGroup.collapseOthers": [p(.workspaceGroup, .identity, 122, folder: .options, label: ObjectMenuLabels.collapseOtherGroups)],
+        "workspaceGroup.setSort": [p(.workspaceGroup, .move, 319, .choices, folder: .move, label: ObjectMenuLabels.sortOrder)],
         "workspaceGroup.sortByName": [p(.workspaceGroup, .move, 320, folder: .move, label: ObjectMenuLabels.sortByName)],
         "workspaceGroup.sortByLastUsed": [p(.workspaceGroup, .move, 321, folder: .move, label: ObjectMenuLabels.sortByLastUsed)],
         "workspaceGroup.sortByDirectory": [p(.workspaceGroup, .move, 322, folder: .move, label: ObjectMenuLabels.sortByDirectory)],
