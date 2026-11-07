@@ -143,8 +143,9 @@ pub fn repo_key(remote: &str) -> Option<String> {
         }
         (host, path.to_owned())
     } else if let Some(colon) = text.find(':').filter(|_| !text.starts_with('/')) {
-        let authority = &text[..colon];
-        (authority.rsplit('@').next().unwrap_or(authority).to_owned(), text[colon + 1..].to_owned())
+        let (authority, rest) = text.split_at_checked(colon)?;
+        let rest = rest.strip_prefix(':').unwrap_or(rest);
+        (authority.rsplit('@').next().unwrap_or(authority).to_owned(), rest.to_owned())
     } else {
         return None;
     };

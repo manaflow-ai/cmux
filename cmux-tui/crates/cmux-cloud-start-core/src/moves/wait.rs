@@ -124,7 +124,7 @@ pub fn runs_to_drop(kept: &[KeptRun], keeping: usize) -> Vec<u64> {
     // Oldest first: the largest age.
     live.sort_by(|a, b| b.age_ms.cmp(&a.age_ms).then(a.id.cmp(&b.id)));
     let over = live.len().saturating_sub(keeping);
-    expired.iter().chain(&live[..over]).map(|run| run.id).collect()
+    expired.iter().chain(live.iter().take(over)).map(|run| run.id).collect()
 }
 
 /// Whether a loaded Cloud machine list still answers for `account`: loaded for it, less than

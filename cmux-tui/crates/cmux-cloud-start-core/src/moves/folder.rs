@@ -46,7 +46,7 @@ fn parent(folder: &str) -> Option<&str> {
     }
     match folder.rfind('/') {
         Some(0) => Some("/"),
-        Some(index) => Some(&folder[..index]),
+        Some(index) => folder.get(..index),
         None => None,
     }
 }
@@ -66,7 +66,7 @@ pub fn move_folder(folder: &str, has_git: impl Fn(&str) -> bool) -> Option<MoveF
     if start != root && !start.starts_with(&prefix) {
         return None;
     }
-    let subpath = start[root.len()..].trim_matches('/').to_owned();
+    let subpath = start.get(root.len()..).unwrap_or("").trim_matches('/').to_owned();
     Some(MoveFolder { remote_name: remote_name(&root), root, subpath, git })
 }
 

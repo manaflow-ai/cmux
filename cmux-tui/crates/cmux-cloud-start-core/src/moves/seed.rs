@@ -28,7 +28,7 @@ pub struct Progress {
 
 fn int(fields: &Map<String, Value>, key: &str) -> Option<i64> {
     // A number of any form, truncated, as the app's NSNumber read it.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, reason = "the app read these as NSNumber and truncated")]
     fields
         .get(key)
         .and_then(|value| value.as_i64().or_else(|| value.as_f64().map(|value| value as i64)))
