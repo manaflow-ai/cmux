@@ -286,6 +286,24 @@ test("a paste under the limit goes into the prompt as text, no chip", async () =
   expect(field().textContent).toContain("short line 5");
 });
 
+// ask-14d16a6247 (Leo, 2026-11-07, of a dictated message pasted in three parts: "Like just don't
+// separate these out."): a dictation app pastes its text, 200 to 3,000 characters a run and more
+// for a long one. Every such paste is the person's words and stays inline text in the prompt.
+test("a dictation-length paste stays inline text, never a Pasted text chip", async () => {
+  const sentence =
+    "Okay so the thing I keep noticing is that when I send a long message it gets split into pieces, and it should just read as one message. ";
+  const dictation = (chars: number) => sentence.repeat(Math.ceil(chars / sentence.length)).slice(0, chars).trim();
+  // A short run, the top of the usual range, and a long ten-minute dictation (about 1,400 words).
+  for (const chars of [218, 3_000, 8_000]) {
+    const composer = await openComposer();
+    const text = dictation(chars);
+    await paste(text);
+    expect(chips(composer)).toEqual([]);
+    expect(placed()).toEqual([]);
+    expect(field().textContent).toContain(text.slice(-40));
+  }
+});
+
 test("Paste as Plain Text (⌘⇧V) keeps a large paste as raw text in the prompt", async () => {
   const composer = await openComposer();
   await act(async () => {
