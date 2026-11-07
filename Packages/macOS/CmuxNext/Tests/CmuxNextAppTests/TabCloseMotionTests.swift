@@ -171,6 +171,18 @@ import Testing
         }
     }
 
+    /// A pane's last tab is never a strip close (cases B, C, D: its pane or its workspace closes as one): it goes in
+    /// the close's frame and starts no strip move.
+    @Test func aPanesLastTabStartsNoStripMotion() throws {
+        try Self.withMotion(reduce: false) {
+            let rig = Self.rig(Self.tabs(1), selected: TabID("tab0"))
+            rig.model.tabs.removeAll()
+            rig.strip.sync(fromModel: true)
+            #expect(rig.strip.cells.isEmpty, "the pane's last tab stayed on the strip to shrink out")
+            #expect(Self.moveKeys(rig.strip).isEmpty, "the last tab's close started strip moves")
+        }
+    }
+
     /// A second close during the slide (two quick Cmd-W) starts from where every tab shows: no tab jumps in the
     /// second close's frame, and the strip slides on to the new places.
     @Test func aSecondCloseDuringTheSlideStartsWhereTheTabsShow() throws {
