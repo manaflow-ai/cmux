@@ -32,6 +32,7 @@ import {
   offersRetry,
   retryPlacement,
   workedLabel,
+  workedMessagesText,
 } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
@@ -77,7 +78,8 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   const t = useT();
   if (row.previous !== undefined || row.durationMs === undefined) return workedLabel(t, row);
   const key = row.status === "cancelled" ? "turn.stopped" : "turn.worked";
-  return <TimedLabel text={(time) => t(key, { time })} time={row.durationMs} />;
+  const messages = workedMessagesText(t, row);
+  return <TimedLabel text={(time) => t(key, { time }) + messages} time={row.durationMs} />;
 }
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls. It says the time alone,

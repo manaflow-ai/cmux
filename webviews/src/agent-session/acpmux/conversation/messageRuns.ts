@@ -14,7 +14,14 @@
 // keeps its own estimate and the scroll never jumps. A run of other agents' lines alone is no
 // message run: it is the turn's "Received N messages" row (laneNoticeBatches.ts; Leo, 2026-11-02:
 // "can't we simply just display most of these as recieved x messages").
-import { isLineRow, MESSAGE_RUN, type AcpmuxActivity, type AcpmuxMessageRun, type AcpmuxRow } from "../model";
+import {
+  isLineRow,
+  MESSAGE_RUN,
+  rowFrameKey,
+  type AcpmuxActivity,
+  type AcpmuxMessageRun,
+  type AcpmuxRow,
+} from "../model";
 import type { Translate } from "../i18n";
 import { inboxCounts } from "./inboxNotice";
 import { joinsReceivedRow } from "./laneNoticeBatches";
@@ -149,8 +156,14 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
     const opened = run.rows.find((rowId) => expanded.has(messageRunRowId(rowId)));
     const id = messageRunRowId(opened ?? first.id);
     const open = opened !== undefined;
+    // The line draws in its first row's frame: the run on screen becomes the line in place, with no
+    // unmount and no second entrance (Leo, 2026-11-07, on a run whose steered message the agent
+    // read: "the tool call of this thing that got sent in, that came in, flickered a bit"). While
+    // open, that first row draws under the line in a frame of its own.
+    const frame = rowFrameKey(first);
     out.push({
       id,
+      frame,
       // Moves with every member's version and the open state: the memoized line and the height
       // cache compare versions only.
       version: members.reduce((sum, row) => (sum * 31 + row.version) % 1_000_003, members.length) * 2 + (open ? 1 : 0),
@@ -160,7 +173,7 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
       messageRun: run,
       ...(first.settled && { settled: true }),
     });
-    if (open) out.push(...members);
+    if (open) out.push({ ...first, frame: `${frame}:${MESSAGE_RUN}` }, ...members.slice(1));
     index = end;
   }
   return out ?? rows;

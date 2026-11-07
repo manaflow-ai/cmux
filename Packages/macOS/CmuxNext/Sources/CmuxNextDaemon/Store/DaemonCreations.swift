@@ -63,6 +63,15 @@ import Foundation
         return pane.tabs.first { $0.surface == surface }
     }
 
+    /// Whether stand-in tab `id` stands for a creation still under way: neither closed by the person (cancelled) nor answered
+    /// (a confirmed reply or echo named its tab). A new tab placed right after it keeps it as its anchor while it is out of the records (`NewTabSuccession`).
+    public func isUnderway(standIn id: String) -> Bool {
+        store.intentLog.entries.contains { entry in
+            guard !entry.closeWhenCreated, !entry.standInClosed, !entry.createdConfirmed, case .createTab(_, let provisional) = entry.kind else { return false }
+            return provisional.tabResourceID?.rawValue == id
+        }
+    }
+
     /// Whether tab `id` is still a pending creation's provisional tab (a close cancels it).
     public func isPending(tab id: String) -> Bool { CancelledCreation.transaction(showingTab: id, in: store) != nil }
 

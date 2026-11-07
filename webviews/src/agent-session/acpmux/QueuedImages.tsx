@@ -16,7 +16,7 @@ import type { Translate } from "./i18n";
 import { imageLabel } from "./imageLabel";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { isVideoFrameName } from "./composer/videoPrompt";
-import { formatDuration } from "./chips/ReplyMedia";
+import { formatDuration } from "./chips/replyMediaModel";
 import { PlayTriangle } from "./conversation/icons";
 import { RemoveGlyph } from "./composer/RemoveGlyph";
 

@@ -1,18 +1,24 @@
 import AppKit
 import CmuxNextDesign
 
-/// The "cmux Updated!" card's slot view: the sidebar cards' glass, the updated
-/// surface over it, sized to the page's height, and the card's x. Hidden without
-/// a card or a surface.
+/// The "cmux Updated!" card's slot view: the updated surface, sized to the page's
+/// height, and the card's x. Hidden without a card or a surface.
 ///
-/// The glass is native (``CardSurfaceView``, the Update Ready, Now Playing and
-/// notice cards' own), under the transparent page, which draws only the words
-/// (Leo 2026-10-30: "I don't like the non-glassness"). A web page's CSS glass
-/// sees nothing of the sidebar behind its view, so the page alone could paint
-/// only a flat fill. Under Reduce Transparency the surface is the opaque
-/// elevated fill, as every card's. Its veil takes the theme's glass tint
-/// (``CardSurfaceView/takesThemeTint``): over a themed sidebar the neutral
-/// gray read as an unthemed card (Leo 2026-11-02).
+/// The page paints the card's glass: the agent composer's material and one-line
+/// height (webviews `ui/glass/composerMaterial.css`), so the card beside the
+/// composer has its edge, fill and height (Leo 2026-11-07: "the border styles, the
+/// glass intensity is different. For two, it's like the heights never match up
+/// with anything"). The fill is translucent over the sidebar's own glass, as the
+/// sidebar cards' native veil was (Leo 2026-10-30: "I don't like the
+/// non-glassness"), and opaque only under Reduce Transparency.
+///
+/// Resting on the card opens its hover preview, a scrollable list of the update's
+/// changes in the same glass (Leo 2026-11-07: "a quick access scroll through of
+/// what's new. Right in that bottom left of the sidebar area"). The page decides
+/// when (it hears the pointer from this view's tracking area,
+/// ``SidebarSurfaceIsland/setPointerInside(_:)``) and asks for the room above the
+/// card (``overlayHeight``); the view then grows upward over the sidebar's list,
+/// without moving the list, and the page's card stands on its bottom edge.
 ///
 /// The x is native, over the page's top right, shown while the pointer is on
 /// the card (Lawrence 2026-10-23: "i cant X this out anymore even when hovering
@@ -29,10 +35,9 @@ final class SidebarUpdatedCardHost: NSView {
     var onHeightChange: (() -> Void)?
     /// The card's x (u2441): the slot sends `.dismissUpdated`, as every card's x sends its intent.
     var onDismiss: (() -> Void)?
-    /// The card's glass, under the page.
-    let surface = CardSurfaceView()
-    /// The x: shown while the pointer is on the card.
-    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
+    /// The x: shown while the pointer is on the card. A step larger than the other cards' (Leo
+    /// 2026-11-07: "maybe you could even make the close button a bit bigger").
+    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 10 }, label: "")
     /// The pointer is on the card: its x shows.
     private(set) var isHovered = false
     private var hoverArea: NSTrackingArea?
@@ -55,20 +60,39 @@ final class SidebarUpdatedCardHost: NSView {
             addSubview(island.view, positioned: .below, relativeTo: closeButton)
             island.onHeightChange = { [weak self] in self?.pageDidReportHeight() }
             island.onDismiss = { [weak self] in self?.onDismiss?() }
+            island.onDrag = { [weak self] in self?.pageDragged($0) }
         }
     }
+
+    /// Where the card rests (``SidebarUpdatedCardHost+Drag``), kept across launches.
+    var anchor = SidebarUpdatedCardHost.rememberedAnchor
+    /// How far the page holds the card from its rest while it is dragged; nil when not held.
+    var heldOffset: CGPoint?
+    /// Where the card was shown, from its rest, when the drag took it: a press while it still sprang to
+    /// its place (review F2 of #37669). The page's offset counts from the press, so it adds to this.
+    var heldBase = CGPoint.zero
+    /// Where the card's view was when it was let go, until the next layout springs it from there.
+    var droppedAt: CGPoint?
+    /// The dropped card's way from where it was let go to its rest (each springs to 0).
+    let settleX = SidebarCardSlotMotion(), settleY = SidebarCardSlotMotion()
 
     /// The height the card's page last reported, kept across launches: a relaunch after an update
     /// lays the card out at it in its first frame instead of making room once the page has drawn
     /// (Leo 2026-11-04: "i feel like the restarted after nightly update does too many layout
     /// shifts/flicker renderings"). The card's words and its shape change little between builds, so
     /// the previous build's height is the guess when this build's card has not drawn yet.
-    static let rememberedHeightKey = "cmux.sidebar.updatedCard.height"
+    ///
+    /// The keys are the composer-height card's own (`.v2`): the two-line card before it remembered 64 and
+    /// 77 pt, which held a tall view around the 48 pt card after the upgrade (review F1 of #37615). The old
+    /// keys are read by nothing and removed at the first write (``legacyHeightKeys``).
+    static let rememberedHeightKey = "cmux.sidebar.updatedCard.height.v2"
     /// The heights the card's page last reported at each card width, newest first (`[width, height]`
     /// pairs, at most ``rememberedWidthsLimit``). Windows with sidebars of different widths wrap the
     /// card's words on different lines (the relaunch bench at 7ed8d1ffedd: 77 pt at 196 pt wide, 64 pt
     /// at 300), so one height for every window moved the other window's card after its first frame.
-    static let rememberedHeightsKey = "cmux.sidebar.updatedCard.heights"
+    static let rememberedHeightsKey = "cmux.sidebar.updatedCard.heights.v2"
+    /// The keys the card before the composer-height one wrote its heights under.
+    static let legacyHeightKeys = ["cmux.sidebar.updatedCard.height", "cmux.sidebar.updatedCard.heights"]
     static let rememberedWidthsLimit = 8
 
     /// The height the page last reported at `width` (whole points), else the last one at any width
@@ -85,6 +109,7 @@ final class SidebarUpdatedCardHost: NSView {
 
     private static func remember(height: CGFloat, width: CGFloat) {
         let defaults = UserDefaults.standard
+        for key in legacyHeightKeys where defaults.object(forKey: key) != nil { defaults.removeObject(forKey: key) }
         if Double(height) != defaults.double(forKey: rememberedHeightKey) { defaults.set(Double(height), forKey: rememberedHeightKey) }
         guard width > 0 else { return }
         let key = Double(width.rounded())
@@ -154,9 +179,6 @@ final class SidebarUpdatedCardHost: NSView {
     /// The card's sizes at the sidebar's density (Lawrence 2026-11-01: "the card must reflect my
     /// compactness level"): the page reads the same ones (`--cmux-sidebar-card-*`, WebTheme).
     static var metrics: SidebarCardMetrics { SidebarRowTokens.current.card }
-    /// The card's corner: the page's own card radius, so the glass keeps the card's shape.
-    static var cornerRadius: CGFloat { metrics.cornerRadius }
-
     /// The x's side and its inset from the card's top right: on the title line, inside the padding.
     static var closeSide: CGFloat { metrics.closeSide }
     static var closeInset: NSSize {
@@ -168,9 +190,6 @@ final class SidebarUpdatedCardHost: NSView {
         super.init(frame: frame)
         isHidden = true
         setAccessibilityElement(false)
-        // The theme's surface, not the neutral gray (Leo 2026-11-02: "why is the update thing unthemed").
-        surface.takesThemeTint = true
-        addSubview(surface)
         closeButton.showsLabelToolTip = false
         closeButton.takesKeyFocus = true
         closeButton.takesFirstClick = true
@@ -202,6 +221,7 @@ final class SidebarUpdatedCardHost: NSView {
                 self.island = nil
             }
             (heldHeight, holdArmed, pendingRememberedHeight) = (0, false, nil)
+            (heldOffset, heldBase, droppedAt) = (nil, .zero, nil)
             // A card that comes back starts without its x until the pointer moves onto it.
             isHovered = false
             setHoverShown(closeButton, false, fades: false)
@@ -223,22 +243,62 @@ final class SidebarUpdatedCardHost: NSView {
         return content > 0 ? max(content, heldHeight) : 0
     }
 
-    /// Shows the x while the pointer is on the card, with the hover-reveal fade (instant under Reduce Motion).
+    /// Shows the x while the pointer is on the card, with the hover-reveal fade (instant under Reduce
+    /// Motion), and tells the page, which opens the hover preview after the dwell.
     func setHovered(_ hovered: Bool) {
         guard hovered != isHovered else { return }
         isHovered = hovered
         setHoverShown(closeButton, hovered && card != nil, fades: window != nil)
+        island?.setPointerInside(hovered && card != nil)
+    }
+
+    /// A hidden card is not under the pointer: hidden by the slot (a card of higher priority took it)
+    /// or with no card, its x hides and the page hears the pointer leave, so it closes the preview and
+    /// hands the room back, and the card comes back closed (review F3 of #37615).
+    override var isHidden: Bool {
+        didSet { if isHidden, !oldValue { pointerLeft() } }
+    }
+
+    private func pointerLeft() {
+        guard isHovered else { return }
+        isHovered = false
+        setHoverShown(closeButton, false, fades: false)
+        island?.setPointerInside(false)
+    }
+
+    /// The room the open hover preview needs from the card's resting edge (the card and the preview's
+    /// rows): above the bottom slot's bottom, or below the top place's top; 0 while it is closed.
+    var overlayHeight: CGFloat {
+        guard card != nil, let island else { return 0 }
+        return island.overlayHeight
+    }
+
+    /// The view's height in the slot: the card's, or the open preview's room when that is taller. The
+    /// slot keeps only ``height`` of room; the rest stands over the list.
+    var frameHeight: CGFloat { max(height, overlayHeight) }
+
+    /// The x's top: centered on the card's title line (the first of its two centered lines), inside
+    /// the card's own height: at the bottom of the view, or at its top for a card resting at the top
+    /// (its open preview grows downward).
+    var closeTop: CGFloat {
+        let m = Self.metrics, card = height > 0 ? height : bounds.height
+        let titleCenter = card / 2 - (m.gap + m.noteSize * 1.3) / 2
+        return (anchor == .top ? 0 : bounds.height - card) + max(Self.closeInset.height, (titleCenter - Self.closeSide / 2).rounded())
     }
 
     /// Whether the x shows now (proofs).
     var closeShown: Bool { !closeButton.isHidden && closeButton.alphaValue > 0 }
 
+    // The open preview's room grows the view upward: the x keeps its place on the card's title line.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
-        surface.frame = bounds
-        surface.cornerRadius = Self.cornerRadius
         let side = Self.closeSide
-        closeButton.frame = NSRect(x: bounds.width - Self.closeInset.width - side, y: Self.closeInset.height,
+        closeButton.frame = NSRect(x: bounds.width - Self.closeInset.width - side, y: closeTop,
                                    width: side, height: side).integral
     }
 
