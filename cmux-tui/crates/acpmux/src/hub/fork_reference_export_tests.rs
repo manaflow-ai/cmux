@@ -82,6 +82,7 @@ async fn a_delete_refused_for_a_fork_being_made_leaves_the_chat_usable() {
     let hub = memory_hub();
     hub.store.save(&meta("chat", None)).unwrap();
     let chat = hub.make_session(meta("chat", None));
+    hub.sessions.lock().unwrap().insert(chat.id.clone(), chat.clone());
     hub.append(&chat, "mux", "user_message", json!({"text": "before"}));
     let reference =
         crate::store::HistoryRef { session: "chat".into(), through_seq: chat.meta().last_seq };
