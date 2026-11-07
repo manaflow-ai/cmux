@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::super::cloud_client_session::TEAM_HEADER;
 use super::{Answer, Op, Request};
+use crate::session::TEAM_HEADER;
 
 const SHORT: Duration = Duration::from_secs(20);
 const FILE: Duration = Duration::from_secs(120);

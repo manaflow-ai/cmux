@@ -122,6 +122,10 @@ pub(super) fn handle_connection_frame(
     if let Some(keep_open) = cloud_repos::try_handle(mux, client, message, writer) {
         return keep_open;
     }
+    #[cfg(unix)]
+    if let Some(keep_open) = cloud_api::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
     let mut request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
         Err(error) => return send_bad_request(writer, message, &error),

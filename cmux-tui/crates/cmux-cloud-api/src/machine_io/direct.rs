@@ -21,8 +21,8 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::super::cloud_client_session::{ExecAnswer, IDENTITY_HEADER, exec_answer};
 use super::{Answer, Op, Request, Spool, directory, private_spool, storage_error};
+use crate::session::{ExecAnswer, IDENTITY_HEADER, exec_answer};
 
 /// The program's exit codes (44 to 47 as the cmux API's file routes use them).
 const NOT_FOUND: i32 = 44;

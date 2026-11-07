@@ -7965,6 +7965,41 @@ refusals preserve their code; invalid fields fail before an HTTP call. Neither
 this command nor its reads change focus. CLI/MCP use requires the person's own
 API authorization; this native forwarding command never grants it to agents.
 
+### cloud.vm.*, cloud.runs.*, cloud.owner.*, cloud.previews.*, cloud.machine.io
+
+| Field | Value |
+| --- | --- |
+| name | `cloud.<call>`, one per name of `cmux_cloud_api::CALLS` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-api-v1` |
+
+The Cloud API calls of the `cmux-cloud-api` crate, on the local socket: classic
+cmux.com's `/api/vm` and `/api/runs` routes (`cloud.vm.resize`, `cloud.vm.snapshots`,
+the tunnel, firewall, domain and publication calls, `cloud.runs.create|start|wait|cancel|sandbox`),
+the API Worker's person routes (`cloud.owner.handoffs`, `cloud.owner.handoff_wait`,
+`cloud.owner.handoff_open`, `cloud.owner.handoff_begin_turn`, `cloud.owner.fork_run`,
+`cloud.owner.acpmux_person_holds`, `cloud.owner.acpmux_keyed_start`,
+`cloud.owner.harness_login_copy`, `cloud.owner.github_app`), cmux-platform's previews
+(`cloud.previews.refresh|create_link|revoke_link`) and a machine's files and exec
+(`cloud.machine.io`). `cmux cloud api` sends its stdin request here.
+
+Fields: `cmd`, `api` (the base URL: https, or http to loopback; no user, query or
+fragment), `auth` (`stack`, `owner` or `worker`), `access_token`, and optionally
+`refresh_token`, `team`, `app_version`, `local_only`, `args` (the call's object) and
+`key_base64` (the keyed start's person key). Any other field is refused with
+`invalid_request`, which never echoes the frame. `credential` stays the launch
+credential. The daemon keeps no credential and grants none: the call runs with the
+frame's own. Only a local socket client may call (`remote_denied` otherwise), so a
+remote device cannot reach the Mac's loopback services through it. Redirects are
+not followed.
+
+Each call runs on a worker thread (32 at most; `cloud.busy` past that). The reply is
+`{"id", "ok": true, "data": BODY}`, or `{"id", "ok": false, "error_code":
+"cloud.<kind>", "error", "failure"}` with `failure.kind` one of `timed_out`,
+`transport`, `no_backend`, `http`, `plan_required` and `decoding`. A refusal carries
+neither credential back. A reply over the connection's 32 MiB control reserve is a
+`transport` failure instead.
+
 ### cloud-conversation-thread
 
 | Field | Value |

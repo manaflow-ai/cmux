@@ -1,0 +1,24 @@
+[package]
+name = "cmux-cloud-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "NEXT Cloud's API calls (classic /api/vm and /api/runs, the API Worker's person routes, previews, machine files and exec): one library the cmux daemon's cloud.* ops and the cmux CLI share"
+
+[dependencies]
+base64.workspace = true
+bytes.workspace = true
+cmux-cloud-client.workspace = true
+reqwest = { workspace = true, features = ["stream"] }
+rustls.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2.workspace = true
+tempfile = "3"
+tokio = { workspace = true, features = ["time", "rt"] }
+zeroize.workspace = true
+
+[lints]
+workspace = true

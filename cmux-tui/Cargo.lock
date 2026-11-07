@@ -1093,6 +1093,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-api"
+version = "1.0.0"
+dependencies = [
+ "base64",
+ "bytes",
+ "cmux-cloud-client",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-cloud-cli"
 version = "0.1.0"
 
@@ -1855,6 +1872,7 @@ dependencies = [
  "cmux-automations",
  "cmux-build-identity",
  "cmux-chat-index",
+ "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-config",
  "cmux-cloud-environment",
@@ -1960,6 +1978,7 @@ dependencies = [
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-bookmarks-core",
+ "cmux-cloud-api",
  "cmux-conductor-import",
  "cmux-config",
  "cmux-conversation",

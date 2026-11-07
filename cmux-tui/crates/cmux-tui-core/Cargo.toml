@@ -83,6 +83,8 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
 [target.'cfg(unix)'.dependencies]
+# The Cloud API calls the daemon's cloud.* ops answer (server/cloud_api.rs).
+cmux-cloud-api.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 tokio.workspace = true
