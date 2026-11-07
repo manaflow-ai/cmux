@@ -7763,15 +7763,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           "chat.btw": ({ question }) => client.btw(String(question ?? "")),
           // New side chat and `/side [prompt]`: `live` forks a working chat as it is now, its own
           // turn going on; `prompt` goes to the side chat once the app opened it (#38042).
+          // Resolves once the side chat is open, not when its prompt's turn ends; rejects when no
+          // side chat opened (the composer keeps `/side <prompt>` and says why).
           "chat.side": async ({ throughSeq, live, prompt }) => {
             // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
             const chat = client.selectedSession;
             const sessionId = await client.forkAside(live === true ? "live" : Number(throughSeq));
-            if (!sessionId || !chat) return;
-            // acpmux marks it the chat's side chat; the app only opens it beside the chat.
-            await client.markSide(sessionId, chat);
-            await postNative("chat.sideChat", { sessionId });
-            if (typeof prompt === "string" && prompt.trim()) await client.promptSide(sessionId, prompt.trim());
+            if (!sessionId || !chat) throw new Error("");
+            try {
+              // acpmux marks it the chat's side chat; the app only opens it beside the chat.
+              await client.markSide(sessionId, chat);
+              await postNative("chat.sideChat", { sessionId });
+            } catch (error) {
+              client.takeBackSide(sessionId);
+              throw error;
+            }
+            const text = typeof prompt === "string" ? prompt.trim() : "";
+            if (!text) return;
+            void client.promptSide(sessionId, text).catch((error: unknown) => {
+              // acpmux's own refusal shows in the side chat; one the host made never reached it.
+              const code = (error as { code?: unknown } | null)?.code;
+              if (typeof code === "string" && code.startsWith("transport."))
+                notices.transient(translate("prompt.notSent", { reason: errorMessage(error) || code }));
+            });
           },
           // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
           // `worktree`: the task's Options > Worktree, else the agent's ask; `harness`, `model`,
@@ -8389,10 +8403,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const target = forkToTarget(snapshot);
       if (!target) return t("notice.forkNothingYet");
       const prompt = args?.trim();
-      void callNative("chat.side", { ...target, ...(prompt ? { prompt } : {}) }).catch(() =>
-        notices.transient(translate("notice.forkFailed")),
-      );
-      return true;
+      return callNative("chat.side", { ...target, ...(prompt ? { prompt } : {}) }).catch((error: unknown) => {
+        const reason = errorMessage(error);
+        throw new CmuxCommandRefused(
+          reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
+        );
+      });
     }
     if (command.action === "fork") {
       ignoreFailure(callNative("chat.fork", { throughSeq: forkSeq }));

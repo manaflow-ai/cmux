@@ -63,6 +63,8 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
   const sides: Record<string, unknown>[] = [];
   const prompts: Record<string, any>[] = [];
   const cancels: Record<string, unknown>[] = [];
+  /// acpmux refuses the fork.
+  let refuseFork = false;
   let mainSocket: { send(data: string): void } | undefined;
 
   function answer(method: string, params: Record<string, any>): { result?: unknown; error?: unknown } {
@@ -84,7 +86,9 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
         return { result: { events: [], hasMore: false, lastSeq: params.sessionId === MAIN ? seq : 0 } };
       case "acp.session.fork":
         forks.push(params);
-        return { result: { sessionId: FORK } };
+        return refuseFork
+          ? { error: { code: -32000, message: "the agent is busy compacting" } }
+          : { result: { sessionId: FORK } };
       case "_acpmux/side":
         sides.push(params);
         return { result: null };
@@ -256,6 +260,23 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
       expect(prompts).toEqual([]);
       expect(cancels).toEqual([]);
       await page.close();
+    });
+
+    test("a refused fork keeps /side <prompt> in the composer and says why", async () => {
+      refuseFork = true;
+      try {
+        const page = await openChat(MAIN);
+        await type(page, `/side ${PROMPT}`);
+        await page.locator(".acpmux-attachment-note").getByText("the agent is busy compacting").waitFor();
+        expect(await composerText(page)).toBe(`/side ${PROMPT}`);
+        expect(sides).toEqual([]);
+        expect(await sideChats(page)).toEqual([]);
+        expect(prompts).toEqual([]);
+        expect(cancels).toEqual([]);
+        await page.close();
+      } finally {
+        refuseFork = false;
+      }
     });
 
     test("an idle chat's /side forks through its latest turn", async () => {
