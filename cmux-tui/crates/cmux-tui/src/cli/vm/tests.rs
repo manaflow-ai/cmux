@@ -732,6 +732,25 @@ fn cloud_names_its_new_spelling() {
     assert!(rename_note(Some("list-machines"), true).contains("cmux vm"));
 }
 
+/// The rewritten words parse as `machine …` with the output each flag asks for.
+#[test]
+fn device_output_flags_reach_the_global_options() {
+    for (flag, mode) in [
+        ("--json", OutputMode::Json),
+        ("--jsonl", OutputMode::JsonLines),
+        ("--quiet", OutputMode::Quiet),
+        ("-q", OutputMode::Quiet),
+    ] {
+        let Some(DeviceRoute::Machine(rewritten)) =
+            device_alias(&args(&["device", flag, "m", "show"]))
+        else {
+            panic!("{flag}");
+        };
+        let (global, command) = super::super::parse_globals(&rewritten).ok().unwrap();
+        assert_eq!((global.output, command), (mode, args(&["machine", "m", "show"])), "{flag}");
+    }
+}
+
 /// cmuxterm-hq#7487 item 6: `device` is the noun for devices, `machine` its old name. Every device
 /// verb `machine` has runs as `machine …` under `device`; the verbs devices/mod.rs owns
 /// (`list`, `remove`, `add`, …) and `device add` (the app's Add Device) are not rewritten.
@@ -753,6 +772,11 @@ fn device_runs_what_machine_runs_for_each_device_verb() {
         (&["device", "vault", "ls"], &["machine", "vault", "ls"]),
         (&["--json", "device", "rotate", "m_1"], &["--json", "machine", "rotate", "m_1"]),
         (&["device", "--json", "m", "show"], &["--json", "machine", "m", "show"]),
+        (&["device", "--jsonl", "doctor"], &["--jsonl", "machine", "doctor"]),
+        (&["device", "--quiet", "revoke", "m_1"], &["--quiet", "machine", "revoke", "m_1"]),
+        (&["device", "-q", "m", "show"], &["--quiet", "machine", "m", "show"]),
+        (&["device", "m", "show", "--jsonl"], &["--jsonl", "machine", "m", "show"]),
+        (&["device", "m", "show", "--", "-q"], &["machine", "m", "show", "--", "-q"]),
         (&["--session", "s", "device", "m", "show"], &["--session", "s", "machine", "m", "show"]),
     ] {
         assert_eq!(device_alias(&args(typed)), machine(expected), "{typed:?}");

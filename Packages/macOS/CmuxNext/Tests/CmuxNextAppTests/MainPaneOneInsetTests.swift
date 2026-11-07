@@ -15,15 +15,8 @@ extension MainPaneGutterSuites {
     /// With the gutter at 0 (the Debug Settings flush opt-in, 2026-10-14) the pane meets the window
     /// edges and the sidebar.
     @MainActor struct MainPaneOneInsetTests {
-        /// Runs `body` on the in-memory default chrome style, whose main pane is curved. The style is
-        /// process-wide: a settings load in a suite that runs alongside leaves it at the file
-        /// default `flat-sidebar-line` (no card, ChromeStyleSetting.fallback), so pin it here.
         func onCurvedMainPane<T>(_ body: () throws -> T) rethrows -> T {
-            let design = DesignSettings.shared
-            let before = design.chromeStyle
-            design.chromeStyle = .default
-            defer { design.chromeStyle = before }
-            return try body()
+            try MainPaneGutterSuites.onCurvedMainPane(body)
         }
 
         func root(sidebarHidden: Bool) -> (NSWindow, WindowRootView) {
