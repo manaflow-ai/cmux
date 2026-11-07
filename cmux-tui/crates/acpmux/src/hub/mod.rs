@@ -544,6 +544,7 @@ pub(super) struct StreamState {
 pub(super) type InlineBtwOwner = (String, std::collections::BTreeMap<String, String>);
 
 pub struct Hub {
+    pub(super) hub_ref: std::sync::OnceLock<std::sync::Weak<Hub>>,
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
@@ -601,6 +602,24 @@ pub struct Hub {
     /// started (`peer_lease.rs`); never saved. Lock order: this, then
     /// `peers`; never `peers` first.
     pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
+    /// Per-peer cache writers; held through the atomic rename so removal cannot be followed by
+    /// an older snapshot landing on disk. Entries are removed with the peer.
+    pub(super) peer_cache_writers: StdMutex<HashMap<String, Arc<StdMutex<()>>>>,
+    /// Bounds concurrent cache serialization/fsync work; notice application never waits on it.
+    pub(super) cache_write_gate: Arc<StdMutex<()>>,
+    #[cfg(test)]
+    pub(super) cache_test_writes: AtomicU64,
+    #[cfg(test)]
+    pub(super) cache_test_write_delay_ms: AtomicU64,
+    #[cfg(test)]
+    pub(super) cache_test_write_started: AtomicBool,
+    #[cfg(test)]
+    pub(super) cache_test_delay_peer: StdMutex<Option<String>>,
+    #[cfg(test)]
+    pub(super) cache_test_flush_pause:
+        StdMutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    #[cfg(test)]
+    pub(super) peer_notice_projection_hook: StdMutex<Option<Arc<peers::PeerNoticeProjectionHook>>>,
     /// Moves on with each `peer_add` (under the config lock): a reload whose file read began
     /// before one leaves the saved peers' boundaries and GitHub lending as that add left them.
     pub(super) peer_config_gen: std::sync::atomic::AtomicU64,
@@ -619,6 +638,8 @@ pub struct Hub {
     pub(super) peer_notices_rx:
         Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
     pub(super) peer_notices_stop: tokio::sync::watch::Sender<bool>,
+    pub(super) peer_notices_finished: AtomicBool,
+    pub(super) peer_notices_done: Arc<Notify>,
     /// Models each agent has advertised, keyed by agent profile name. Filled
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
@@ -916,6 +937,7 @@ impl Hub {
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
         let hub = Arc::new(Self {
+            hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
             usage_limits,
             wireguard,
@@ -946,6 +968,20 @@ impl Hub {
             mesh_book: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
+            peer_cache_writers: StdMutex::new(HashMap::new()),
+            cache_write_gate: Arc::new(StdMutex::new(())),
+            #[cfg(test)]
+            cache_test_writes: AtomicU64::new(0),
+            #[cfg(test)]
+            cache_test_write_delay_ms: AtomicU64::new(0),
+            #[cfg(test)]
+            cache_test_write_started: AtomicBool::new(false),
+            #[cfg(test)]
+            cache_test_delay_peer: StdMutex::new(None),
+            #[cfg(test)]
+            cache_test_flush_pause: StdMutex::new(None),
+            #[cfg(test)]
+            peer_notice_projection_hook: StdMutex::new(None),
             peer_config_gen: std::sync::atomic::AtomicU64::new(0),
             github_owners: Default::default(),
             github_app: Default::default(),
@@ -953,6 +989,8 @@ impl Hub {
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             peer_notices_stop: tokio::sync::watch::channel(false).0,
+            peer_notices_finished: AtomicBool::new(false),
+            peer_notices_done: Arc::new(Notify::new()),
             known_models: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
@@ -1071,6 +1109,7 @@ impl Hub {
             tailnet_controller: std::sync::OnceLock::new(),
             briefs,
         });
+        let _ = hub.hub_ref.set(Arc::downgrade(&hub));
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
         }

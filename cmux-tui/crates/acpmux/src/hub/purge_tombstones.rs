@@ -73,6 +73,12 @@ impl PurgeTombstones {
         link.listed = true;
         std::mem::take(&mut link.purged)
     }
+
+    /// Reads the current tombstones without consuming them. A full-list projection may have to
+    /// retry after a concurrent purge, so it cannot mark the link listed until its row swap wins.
+    pub(super) fn peek(&self) -> HashSet<String> {
+        self.link().purged.clone()
+    }
 }
 
 impl Hub {
