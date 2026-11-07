@@ -206,6 +206,23 @@ struct UpdatedCardDragTests {
         host.configure(nil)
     }
 
+    /// Review of #38020 at c4dbe0f3: a card taken away while hidden mid-drag kept dropping the page's
+    /// drag messages, so when it came back the first move of its next drag was lost.
+    @Test func aCardTakenAwayWhileHiddenMidDragDragsWhenItComesBack() throws {
+        for key in Self.keys { UserDefaults.standard.removeObject(forKey: key) }
+        defer { for key in Self.keys { UserDefaults.standard.removeObject(forKey: key) } }
+        let (sidebar, island) = try Self.sidebar()
+        let host = sidebar.updatedCardView
+        island.onDrag?(SidebarCardDrag(offset: CGPoint(x: 0, y: -120)))
+        host.isHidden = true
+        host.configure(nil)
+        host.configure(Self.card)
+        let again = try #require(host.island as? FakeIsland)
+        again.onDrag?(SidebarCardDrag(offset: CGPoint(x: 0, y: -10)))
+        #expect(host.heldOffset == CGPoint(x: 0, y: -10))
+        host.configure(nil)
+    }
+
     /// Through the App's real island and page provider: the page's drag reaches the host in points,
     /// and the host's place reaches the page.
     @Test func theAppsIslandCarriesTheDragAndThePlace() async throws {
