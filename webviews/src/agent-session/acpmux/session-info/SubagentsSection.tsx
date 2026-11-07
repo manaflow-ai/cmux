@@ -24,7 +24,7 @@ import { elapsed, running, useNow } from "../subagents/SubagentGroup";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { retrying } from "../subagents/retryState";
-import { subagentStateText, subagentStatus, type SubagentStatus } from "../summary/SubagentStatusList";
+import { subagentStateText, subagentStatus, type SubagentStatus } from "../summary/subagentStatusListModel";
 import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
 import "./SubagentsSection.css";
 import { SessionInfoFold } from "./SessionInfoSection";

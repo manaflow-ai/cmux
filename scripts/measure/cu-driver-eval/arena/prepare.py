@@ -96,6 +96,7 @@ def arm_cmux_cua(work, drivers, grants, **_):
     grants.append(binary)
     state = work / "cmux-cua"
     state.mkdir(exist_ok=True)
+    state.chmod(0o700)  # its serve refuses a runtime directory others can read ("unsafe permissions")
     sock, token = str(state / "cua.sock"), secrets.token_hex(16)
     # Its daemon with ComputerUseHelperDaemon's environment, its MCP server with agent_tools.rs's.
     return {

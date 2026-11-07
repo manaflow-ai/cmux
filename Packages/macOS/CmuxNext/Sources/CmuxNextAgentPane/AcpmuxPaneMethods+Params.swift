@@ -32,7 +32,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
         // `promptIndex`: the prompt rail's index of every turn (direct.ts readPromptIndex; acpmux
         // hub/paging.rs prompt_index, #34273). Refused, the rail never learns a long chat's turns.
-        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds", "promptIndex"], []),
+        // `subagent`: one subagent's own records, for its pane when the chat's page no longer holds
+        // it (subagents/subagentOwnLog.ts; acpmux hub/paging.rs EventFilter::of_subagent).
+        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds", "promptIndex", "subagent"], []),
         "_acpmux/attachment": (["sessionId", "id"], []),
         // The pane names the listed chat (its id or `HOST/id`) and takes acpmux's default bounds:
         // no `host`, `limit` or `maxBytes`.
