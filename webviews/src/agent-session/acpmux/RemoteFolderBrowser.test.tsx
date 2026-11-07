@@ -63,10 +63,11 @@ const tree: Record<string, BrowseReply["entries"]> = {
   [`${HOME}/Projects`]: [
     { name: "cmux", path: `${HOME}/Projects/cmux`, kind: "dir" },
     { name: "etc-link", path: "/etc", kind: "symlink", target: "dir", outside: true },
+    { name: "hosts-link", path: "/etc/hosts", kind: "symlink", target: "file", outside: true },
   ],
 };
 
-async function mount(list: (params: BrowseParams) => Promise<BrowseReply>) {
+async function mount(list: (params: BrowseParams) => Promise<BrowseReply>, size?: { width: number; height: number }) {
   const picked: string[] = [];
   const backs: number[] = [];
   root = createRoot(installDom());
@@ -76,6 +77,7 @@ async function mount(list: (params: BrowseParams) => Promise<BrowseReply>) {
         machine="big-red"
         peer="big-red"
         list={list}
+        size={size}
         onPick={(path) => picked.push(path)}
         onBack={() => backs.push(1)}
       />,
@@ -180,4 +182,11 @@ test("⌘Return picks nothing while a folder loads or after it failed, as Use is
   await click(rows()[0]!);
   await commandReturn();
   expect(failed.picked).toEqual([]);
+});
+
+test("the browser takes the menu's size exactly, also a short menu's", async () => {
+  await mount(fromTree([]), { width: 260, height: 120 });
+  const browser = document.querySelector<HTMLElement>(".acpmux-browse")!;
+  expect(browser.style.height).toBe("120px");
+  expect(browser.style.width).toBe("260px");
 });

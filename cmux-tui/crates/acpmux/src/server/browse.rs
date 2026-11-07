@@ -195,7 +195,7 @@ fn list(
                 };
                 row["kind"] = json!("symlink");
                 row["target"] = json!(target);
-                if target == "dir"
+                if target != "missing"
                     && roots.is_some()
                     && !std::fs::canonicalize(&path).is_ok_and(|p| inside(&p))
                 {
@@ -617,6 +617,10 @@ mod tests {
         std::os::unix::fs::symlink(&away, root.join("to-away")).unwrap();
         std::os::unix::fs::symlink(root.join("real"), root.join("to-real")).unwrap();
         std::os::unix::fs::symlink(t.path().join("gone"), root.join("dangling")).unwrap();
+        std::fs::write(away.join("notes.txt"), "x").unwrap();
+        std::fs::write(root.join("real/here.txt"), "x").unwrap();
+        std::os::unix::fs::symlink(away.join("notes.txt"), root.join("to-away-file")).unwrap();
+        std::os::unix::fs::symlink(root.join("real/here.txt"), root.join("to-here-file")).unwrap();
         let root = std::fs::canonicalize(&root).unwrap();
         let roots = [root.clone()];
         let reply = list(&ask(&root), Some(&roots), SCAN_CAP, later()).unwrap();
@@ -629,6 +633,9 @@ mod tests {
         assert_eq!(row("to-real")["target"], "dir");
         assert!(row("to-real").get("outside").is_none());
         assert_eq!(row("dangling")["target"], "missing");
+        assert_eq!(row("to-away-file")["target"], "file");
+        assert_eq!(row("to-away-file")["outside"], true, "a link to a file out of the roots says so");
+        assert!(row("to-here-file").get("outside").is_none());
         assert!(!reply.to_string().contains("held-behind-the-link"), "what a link names is not listed");
         // Opening the link resolves it, and the roots still hold.
         let e = list(&ask(&root.join("to-away")), Some(&roots), SCAN_CAP, later()).unwrap_err();

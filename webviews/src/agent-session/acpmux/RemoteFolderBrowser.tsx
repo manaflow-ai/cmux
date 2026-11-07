@@ -68,7 +68,9 @@ export function RemoteFolderBrowser({
   const rows = useMemo(
     () =>
       view.entries.filter(
-        (entry) => (opensAsFolder(entry) || entry.outside) && (!words || entry.name.toLowerCase().includes(words)),
+        (entry) =>
+          (opensAsFolder(entry) || (entry.outside && entry.target === "dir")) &&
+          (!words || entry.name.toLowerCase().includes(words)),
       ),
     [view.entries, words],
   );
@@ -134,7 +136,7 @@ export function RemoteFolderBrowser({
       data-loading={view.loading ? "" : undefined}
       style={{
         ...(size?.width ? { width: size.width } : {}),
-        height: Math.max(size?.height ?? 0, MIN_HEIGHT),
+        height: size?.height || MIN_HEIGHT,
       }}
     >
       <div className="acpmux-browse-head">
@@ -295,7 +297,8 @@ function failureText(t: ReturnType<typeof useT>, failure: BrowseFailure, machine
 
 /// A row's height before it is measured: the menu's row.
 const ROW = 28;
-/// The browser is never shorter than this, also when the list it replaced was (one known folder).
+/// The browser's height when the menu's size is not known; with it, the browser takes that size
+/// exactly (a short menu stays short) and its rows scroll inside.
 const MIN_HEIGHT = 220;
 /// Rows from the end at which the next page is asked for.
 const PREFETCH_ROWS = 40;
