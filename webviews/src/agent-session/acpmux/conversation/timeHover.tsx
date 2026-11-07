@@ -1,15 +1,22 @@
+import { useCallback } from "react";
+import { experimentArm } from "../../../experiments/experiment";
 import { useLabelClock } from "../clock";
 import { usePaneLanguage } from "../i18n";
-
 import { Tooltip } from "../../../ui/Tooltip";
-
+import { timeHoverWording } from "./timeHoverWording.experiment";
 import type { ReactNode } from "react";
 import { type TimeToken, timestampHoverLabel, nextTimestampHover } from "./timeHoverModel";
 
 export function TimeHover({ token }: { token: TimeToken }): ReactNode {
-  const now = useLabelClock(token.at, nextTimestampHover);
+  const { messageAt } = token;
+  const wording = experimentArm(timeHoverWording);
+  const next = useCallback(
+    (at: number, now: number) => nextTimestampHover(at, now, messageAt, wording),
+    [messageAt, wording],
+  );
+  const now = useLabelClock(token.at, next);
   const locale = usePaneLanguage();
-  const label = timestampHoverLabel(token.at, now, locale);
+  const label = timestampHoverLabel(token.at, now, locale, messageAt, wording);
   return (
     <Tooltip label={label} side="top">
       <time

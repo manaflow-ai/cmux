@@ -56,6 +56,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection } from "./ChangesSection";
 import { visibleChanges, type SessionInfoPullRequestStatus } from "./changesSectionModel";
 import { ConnectorsSection } from "./ConnectorsSection";
+import { summarizeConnectors } from "./connectorState";
 import { useIMessage, type IMessageView } from "./imessage";
 import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
 import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
@@ -599,7 +600,7 @@ export function SessionInfo({
     [madeFiles, missing],
   );
   const mcp = summary?.mcpServers ?? [];
-  const reconnect = mcp.filter((server) => server.status === "failed").length;
+  const connectorSummary = summarizeConnectors(mcp);
   const runningTasks = commands.filter((command) => command.state === "running").length;
   // Subagents shows only for a chat that has subagents or started chats: one that never used them
   // shows nothing.
@@ -694,19 +695,20 @@ export function SessionInfo({
       title={t("rail.connectors")}
       open={hasConnectors && state.connectors}
       onOpenChange={hasConnectors ? fold("connectors") : undefined}
-      // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
+      // This count describes the attached harness inventory. A loaded MCP server is not proof
+      // of provider authentication or authorization, so never present it as a green connected count.
       meta={value(
         !hasConnectors
           ? t("sessionInfo.none")
-          : reconnect > 0
-            ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-            : mcp.length === 0 && imessage && imessage.data.status !== "connected"
-              ? t("imessage.connect")
-              : t("rail.connected", {
-                  count:
-                    mcp.filter((server) => server.status === "connected").length +
-                    (mcp.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
-                }),
+          : mcp.length === 0 && imessage
+            ? imessage.data.status === "connected"
+              ? t("rail.connected", { count: 1 })
+              : t("imessage.connect")
+            : connectorSummary.kind === "reconnect"
+              ? t("sessionInfo.connectors.reconnect", { count: connectorSummary.count })
+              : connectorSummary.kind === "connecting"
+                ? t("sessionInfo.connectors.connecting", { count: connectorSummary.count })
+                : t("sessionInfo.connectors.loaded", { count: connectorSummary.count }),
       )}
     >
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} imessage={imessage} />

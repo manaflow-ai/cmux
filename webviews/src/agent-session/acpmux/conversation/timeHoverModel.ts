@@ -1,38 +1,25 @@
-import { nextRelativeTime, relativeTime } from "./relativeTime";
+import { translate } from "../i18n";
 import { textLinks } from "../chips/paths";
-
-/// Markdown's destination syntax also carries local paths, which `textLinks` intentionally does
-/// not return when their extension or timestamp looks unlike a bare path. Preserve all balanced
-/// destinations before inserting the parser's private time markers.
-function markdownDestinations(text: string): { start: number; end: number }[] {
-  const ranges: { start: number; end: number }[] = [];
-  for (let marker = text.indexOf("]("); marker >= 0; marker = text.indexOf("](", marker + 2)) {
-    const open = text.lastIndexOf("[", marker);
-    if (open < 0 || text.slice(open + 1, marker).includes("]")) continue;
-    let depth = 0;
-    for (let at = marker + 2; at < text.length; at++) {
-      const char = text[at];
-      if (char === "(") depth++;
-      else if (char === ")") {
-        if (depth === 0) {
-          ranges.push({ start: marker + 2, end: at });
-          break;
-        }
-        depth--;
-      }
-    }
-  }
-  return ranges;
-}
+import { nextRelativeTime, relativeTime } from "./relativeTime";
 
 const DAY_MS = 86_400_000;
 const TOKEN_START = "\uE000";
 const TOKEN_END = "\uE001";
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/;
-const CLOCK = /^(?<hour>[01]\d|2[0-3]):(?<minute>[0-5]\d)(?::(?<second>[0-5]\d))?(?<zone>Z| UTC)$/;
+const CLOCK = /^(?<hour>[01]\d|2[0-3]):(?<minute>[0-5]\d)(?::(?<second>[0-5]\d))?(?<zone>Z| UTC)?$/;
+const MERIDIEM = /^(?<hour>1[0-2]|0?[1-9])(?::(?<minute>[0-5]\d))?\s?(?<half>[AaPp])\.?[Mm]\.?(?<zone> UTC)?$/;
 const CLOCK_TIME = "(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?";
+const MERIDIEM_TIME = "(?:1[0-2]|0?[1-9])(?::[0-5]\\d)?\\s?(?:[AaPp][Mm]|[AaPp]\\.[Mm]\\.)";
+// In order, each tried first at its position: an ISO timestamp; a 12-hour time ("9pm",
+// "9:30 a.m.", "8:36 AM UTC"), in the person's zone unless it says UTC; a 24-hour time with Z or
+// UTC; and a 24-hour time right after "at" ("at 14:30"), in the person's zone.
 const DETECT = new RegExp(
-  `\\b(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})|(?<![\\d.:])(?:${CLOCK_TIME}Z|${CLOCK_TIME} UTC))\\b`,
+  [
+    "\\b\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})\\b",
+    `(?<![\\w.:])${MERIDIEM_TIME}(?: UTC)?(?!\\w)`,
+    `\\b(?<![\\d.:])${CLOCK_TIME}(?:Z| UTC)\\b`,
+    `(?<=\\b[Aa]t )${CLOCK_TIME}(?![\\w:]|\\.\\d)`,
+  ].join("|"),
   "g",
 );
 const CLOCK_TIMES = new RegExp(CLOCK_TIME, "g");
@@ -83,7 +70,8 @@ const SHORT_UNITS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] =
   ["minute", 60_000],
 ];
 
-export type TimeToken = { source: string; at: number };
+/** A marked time: its text, when it resolved to, and the message's own time it resolved from. */
+export type TimeToken = { source: string; at: number; messageAt?: number };
 
 /** A UTC/ISO time embedded in rendered Markdown, represented without rescanning at render time. */
 export function decorateTimes(text: string, messageAt?: number): string {
@@ -108,7 +96,7 @@ export function decorateTimes(text: string, messageAt?: number): string {
 }
 
 function decorateProse(text: string, messageAt?: number): string {
-  if (!text || (!text.includes("Z") && !text.includes("UTC") && !text.includes("T"))) return text;
+  if (!text || !/[:ZT]|\d\s?[AaPp]\.?[Mm]/.test(text)) return text;
   const ranges = mergeRanges([
     ...textLinks(text).map((link) => ({ start: link.start, end: link.end })),
     ...markdownDestinations(text),
@@ -137,6 +125,30 @@ function mergeRanges(ranges: { start: number; end: number }[]): { start: number;
   return merged;
 }
 
+/// Markdown's destination syntax also carries local paths, which `textLinks` intentionally does
+/// not return when their extension or timestamp looks unlike a bare path. Preserve all balanced
+/// destinations before inserting the parser's private time markers.
+function markdownDestinations(text: string): { start: number; end: number }[] {
+  const ranges: { start: number; end: number }[] = [];
+  for (let marker = text.indexOf("]("); marker >= 0; marker = text.indexOf("](", marker + 2)) {
+    const open = text.lastIndexOf("[", marker);
+    if (open < 0 || text.slice(open + 1, marker).includes("]")) continue;
+    let depth = 0;
+    for (let at = marker + 2; at < text.length; at++) {
+      const char = text[at];
+      if (char === "(") depth++;
+      else if (char === ")") {
+        if (depth === 0) {
+          ranges.push({ start: marker + 2, end: at });
+          break;
+        }
+        depth--;
+      }
+    }
+  }
+  return ranges;
+}
+
 function decorateProseSegment(text: string, messageAt?: number): string {
   let out = "";
   let from = 0;
@@ -162,7 +174,7 @@ function decorateSingles(text: string, messageAt?: number): string {
     const source = match[0]!;
     const resolved = resolveTimestamp(source, messageAt);
     if (resolved === undefined) continue;
-    out += text.slice(from, match.index) + encodeToken({ source, at: resolved });
+    out += text.slice(from, match.index) + encodeToken({ source, at: resolved, messageAt });
     from = match.index! + source.length;
   }
   return from ? out + text.slice(from) : text;
@@ -171,12 +183,13 @@ function decorateSingles(text: string, messageAt?: number): string {
 function encodeMatch(source: string, messageAt?: number): string | undefined {
   const times = [...source.matchAll(CLOCK_TIMES)];
   if (!Number.isFinite(messageAt)) return undefined;
-  // Walk back from the last time: it is the latest one at or before the message, and each
-  // earlier one is the latest at or before the time that follows it.
+  // Walk back from the last time: it is the one nearest the message, and each earlier one is
+  // the latest at or before the time that follows it.
   const resolved: number[] = [];
   let reference = messageAt!;
   for (let index = times.length - 1; index >= 0; index--) {
-    reference = resolveClock(times[index]![0], reference);
+    const clock = parseClock(times[index]![0]);
+    reference = index === times.length - 1 ? nearestClock(clock, "utc", reference) : latestClock(clock, reference);
     resolved[index] = reference;
   }
   let out = "";
@@ -185,43 +198,101 @@ function encodeMatch(source: string, messageAt?: number): string | undefined {
     const start = time.index!;
     // The last time keeps the zone it shares with the rest ("01:28 UTC").
     const end = index === times.length - 1 ? source.length : start + time[0].length;
-    out += source.slice(from, start) + encodeToken({ source: source.slice(start, end), at: resolved[index]! });
+    out +=
+      source.slice(from, start) + encodeToken({ source: source.slice(start, end), at: resolved[index]!, messageAt });
     from = end;
   });
   return out;
 }
 
-/** Resolve one supported timestamp to epoch milliseconds. Bare UTC clocks use messageAt's date. */
+/** Resolve one supported timestamp to epoch milliseconds. A time with no date is the occurrence
+ *  nearest `messageAt`, within 12 hours either way: "08:36Z" written at 08:21Z is that day's,
+ *  "23:50Z" written at 00:10Z the day before, "00:05Z" written at 23:55Z the day after. */
 export function resolveTimestamp(source: string, messageAt?: number): number | undefined {
   if (ISO.test(source)) {
     const parsed = Date.parse(source);
     return Number.isFinite(parsed) ? parsed : undefined;
   }
+  if (!Number.isFinite(messageAt)) return undefined;
   const clock = source.match(CLOCK);
-  if (!clock || !Number.isFinite(messageAt)) return undefined;
-  const { hour, minute, second } = clock.groups!;
-  return resolveClock(`${hour}:${minute}${second === undefined ? "" : `:${second}`}`, messageAt!);
+  if (clock) {
+    const { hour, minute, second, zone } = clock.groups!;
+    const time = { hour: Number(hour), minute: Number(minute), second: Number(second ?? 0) };
+    return nearestClock(time, zone ? "utc" : "local", messageAt!);
+  }
+  const meridiem = source.match(MERIDIEM);
+  if (!meridiem) return undefined;
+  const { hour, minute, half, zone } = meridiem.groups!;
+  const time = {
+    hour: (Number(hour) % 12) + (half!.toLowerCase() === "p" ? 12 : 0),
+    minute: Number(minute ?? 0),
+    second: 0,
+  };
+  return nearestClock(time, zone ? "utc" : "local", messageAt!);
 }
 
-/** The latest UTC occurrence of an "HH:MM[:SS]" clock time at or before `reference`. */
-function resolveClock(time: string, reference: number): number {
+type Clock = { hour: number; minute: number; second: number };
+/** UTC, or the person's own zone (the page's). */
+type Zone = "utc" | "local";
+
+function parseClock(time: string): Clock {
   const [hour, minute, second] = time.split(":").map(Number);
+  return { hour: hour!, minute: minute!, second: second ?? 0 };
+}
+
+/** `clock` on `reference`'s calendar day in `zone`, moved by `shift` days. */
+function onDay(clock: Clock, zone: Zone, reference: number, shift: number): number {
   const day = new Date(reference);
-  const resolved = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), hour!, minute!, second ?? 0);
+  return zone === "utc"
+    ? Date.UTC(
+        day.getUTCFullYear(),
+        day.getUTCMonth(),
+        day.getUTCDate() + shift,
+        clock.hour,
+        clock.minute,
+        clock.second,
+      )
+    : new Date(
+        day.getFullYear(),
+        day.getMonth(),
+        day.getDate() + shift,
+        clock.hour,
+        clock.minute,
+        clock.second,
+      ).getTime();
+}
+
+/** The occurrence of `clock` nearest `reference`; exactly 12 hours either way reads as the earlier. */
+function nearestClock(clock: Clock, zone: Zone, reference: number): number {
+  let best = onDay(clock, zone, reference, 0);
+  for (const shift of [-1, 1]) {
+    const candidate = onDay(clock, zone, reference, shift);
+    const distance = Math.abs(candidate - reference);
+    const bestDistance = Math.abs(best - reference);
+    if (distance < bestDistance || (distance === bestDistance && candidate < best)) best = candidate;
+  }
+  return best;
+}
+
+/** The latest UTC occurrence of `clock` at or before `reference` (an earlier time in a list). */
+function latestClock(clock: Clock, reference: number): number {
+  const resolved = onDay(clock, "utc", reference, 0);
   return resolved > reference ? resolved - DAY_MS : resolved;
 }
 
 function encodeToken(token: TimeToken): string {
-  return `${TOKEN_START}${encodeURIComponent(token.source)}|${token.at}${TOKEN_END}`;
+  const message = Number.isFinite(token.messageAt) ? `|${token.messageAt}` : "";
+  return `${TOKEN_START}${encodeURIComponent(token.source)}|${token.at}${message}${TOKEN_END}`;
 }
 
 function decodeToken(value: string): TimeToken | undefined {
-  const match = value.match(new RegExp(`^${TOKEN_START}([^|]+)\\|(-?\\d+)${TOKEN_END}$`));
+  const match = value.match(new RegExp(`^${TOKEN_START}([^|]+)\\|(-?\\d+)(?:\\|(-?\\d+))?${TOKEN_END}$`));
   if (!match) return undefined;
   try {
     const source = decodeURIComponent(match[1]!);
     const at = Number(match[2]);
-    return Number.isFinite(at) ? { source, at } : undefined;
+    if (!Number.isFinite(at)) return undefined;
+    return match[3] === undefined ? { source, at } : { source, at, messageAt: Number(match[3]) };
   } catch {
     return undefined;
   }
@@ -259,26 +330,84 @@ function localTime(at: number, locale?: string): string {
   }
 }
 
-/** The compact local time and age shown by a timestamp's hover tooltip. */
-export function timestampHoverLabel(at: number, now: number, locale?: string): string {
-  const age = Math.max(0, now - at);
-  if (age < 60_000) return `${localTime(at, locale)}, ${relativeTime(at, now, locale)}`;
-  const [unit, size] = SHORT_UNITS.find(([, unitSize]) => age >= unitSize) ?? SHORT_UNITS.at(-1)!;
-  const count = Math.max(1, Math.round(age / size));
-  let relative: string;
-  try {
-    relative = new Intl.RelativeTimeFormat(locale, { numeric: "always", style: "short" })
-      .format(-count, unit)
+/** A count in the largest short unit `ms` reaches: `-1` reads "15 min ago", `1` "in 15 min". */
+function shortRelative(ms: number, sign: 1 | -1, locale?: string): string {
+  const [unit, size] = SHORT_UNITS.find(([, unitSize]) => ms >= unitSize) ?? SHORT_UNITS.at(-1)!;
+  const count = Math.max(1, Math.round(ms / size));
+  const format = (tag?: string) =>
+    new Intl.RelativeTimeFormat(tag, { numeric: "always", style: "short" })
+      .format(sign * count, unit)
       .replace(/\.(?=\s|$)/g, "");
+  try {
+    return format(locale);
   } catch {
-    relative = `${count} ${unit === "minute" ? "min" : unit === "hour" ? "hr" : "day"} ago`;
+    return format(undefined);
   }
-  return `${localTime(at, locale)}, ${relative}`;
+}
+
+/** A length of time in the largest short unit it reaches ("15 min", "3 hr", "1 day"). */
+function shortDuration(ms: number, locale?: string): string {
+  const [unit, size] = SHORT_UNITS.find(([, unitSize]) => ms >= unitSize) ?? SHORT_UNITS.at(-1)!;
+  const count = Math.max(1, Math.round(ms / size));
+  const format = (tag?: string) =>
+    new Intl.NumberFormat(tag, { style: "unit", unit, unitDisplay: "short" }).format(count);
+  try {
+    return format(locale);
+  } catch {
+    return format(undefined);
+  }
+}
+
+/** How a time the message pointed ahead to reads once it has passed (timeHoverWording.experiment.ts). */
+export type TimeHoverWording = "message" | "now" | "both";
+
+/** Whether `at` is a minute or more after the message it was written in. */
+function afterMessage(at: number, messageAt?: number): messageAt is number {
+  return messageAt !== undefined && Number.isFinite(messageAt) && at - messageAt >= 60_000;
+}
+
+/** The compact local time and age shown by a timestamp's hover tooltip: "12:36 AM PST, in 15 min"
+ *  while it is ahead; once it has passed, "15 min after this message" for a time the message
+ *  pointed ahead to, and "15 min ago" for one before it. */
+export function timestampHoverLabel(
+  at: number,
+  now: number,
+  locale?: string,
+  messageAt?: number,
+  wording: TimeHoverWording = "message",
+): string {
+  const local = localTime(at, locale);
+  if (at - now >= 60_000) return `${local}, ${shortRelative(at - now, 1, locale)}`;
+  const age = Math.max(0, now - at);
+  const ago = age < 60_000 ? relativeTime(at, now, locale) : shortRelative(age, -1, locale);
+  if (wording === "now" || !afterMessage(at, messageAt)) return `${local}, ${ago}`;
+  const after = translate("transcript.timeAfterMessage", { duration: shortDuration(at - messageAt, locale) }, locale);
+  return wording === "both" ? `${local}, ${ago}, ${after}` : `${local}, ${after}`;
 }
 
 /** First shared minute where the tooltip or accessible age changes. Its source token is static. */
-export function nextTimestampHover(at: number, now: number): number {
+export function nextTimestampHover(
+  at: number,
+  now: number,
+  messageAt?: number,
+  wording: TimeHoverWording = "message",
+): number {
   if (!Number.isFinite(at)) return Infinity;
+  const ahead = at - now;
+  if (ahead >= 60_000) {
+    // "in N unit" changes when the rounded count drops, at the switch to a smaller unit, and
+    // when the time arrives (then it reads as passed).
+    const index = SHORT_UNITS.findIndex(([, size]) => ahead >= size);
+    const size = SHORT_UNITS[index]![1];
+    const count = Math.round(ahead / size);
+    const threshold = count >= 2 ? (count - 0.5) * size : size;
+    // The minute clock reads `now` floored to its minute; the label changes at the first minute
+    // where `at - now` falls below the threshold (one minute ahead reads as passed).
+    const change = at - threshold + 1;
+    return Math.max(now + 60_000, Math.ceil(change / 60_000) * 60_000);
+  }
+  // A passed time the message pointed ahead to reads "N after this message": it never changes.
+  if (wording === "message" && afterMessage(at, messageAt)) return Infinity;
   const age = Math.max(0, now - at);
   // Below one raw minute the tooltip uses relativeTime, whose rounded seconds can already say
   // "1 minute ago". Preserve that first update, and the switch to the short unit at 60 seconds.

@@ -138,7 +138,7 @@ test("the Connectors header keeps the MCP count beside an unconnected iMessage r
   });
   const section = container.querySelector('[data-section="connectors"]')!;
   expect(section.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe(
-    translate("rail.connected", { count: 1 }),
+    translate("sessionInfo.connectors.loaded", { count: 1 }),
   );
   expect(button(container, translate("imessage.connect"))).toBeDefined();
 });

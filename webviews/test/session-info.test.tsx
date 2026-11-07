@@ -911,12 +911,12 @@ test("Connectors says how many to reconnect, else how many connected, else None;
   );
   expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentryConnecting"]);
 
-  // None failed: how many are connected.
+  // None failed: how many the harness loaded, never a green connected count.
   await render(container, {
     ...base,
     summary: { ...base.summary!, mcpServers: [{ name: "github", status: "connected" }] },
   });
-  expect(meta(section(container, "connectors"))).toBe("1 connected");
+  expect(meta(section(container, "connectors"))).toBe("1 loaded");
 
   // A harness that reports none: the section stays, folded, with one plain line, None (Lucas,
   // 2026-11-05: Usage and Connectors always show).
