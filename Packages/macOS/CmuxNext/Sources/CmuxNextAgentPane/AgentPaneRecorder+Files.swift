@@ -48,13 +48,16 @@ extension AgentPaneRecorder {
         return FileIdentity(info)
     }
 
-    /// Off the main actor: moves `movie` into `upload`, a fresh folder made here, and removes its
-    /// temporary folder; nil, with `movie` left in place, when it could not. An `upload` that
+    /// Off the main actor: moves `movie` (a regular file, `expected` when given) into `upload`, a
+    /// fresh folder made here, and removes its own recording folder (the path as made, never
+    /// resolved through a link); nil, with `movie` left in place, when it could not. An `upload` that
     /// already exists is someone else's: it is neither used nor removed. Only the folder made
     /// here, still empty, is removed after a failed move.
-    nonisolated static func keep(_ movie: URL, in upload: URL) -> URL? {
+    nonisolated static func keep(_ movie: URL, in upload: URL, expected: FileIdentity? = nil) -> URL? {
         let kept = upload.appendingPathComponent(movie.lastPathComponent)
         let files = FileManager.checked
+        // Only the very file the writer finished (a link or another file in its place stays put).
+        guard let found = identity(movie.path), expected.map({ $0 == found }) ?? true else { return nil }
         do {
             try files.createDirectory(at: upload.deletingLastPathComponent(), withIntermediateDirectories: true)
             try files.createDirectory(at: upload, withIntermediateDirectories: false)

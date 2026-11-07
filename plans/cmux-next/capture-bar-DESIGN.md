@@ -19,7 +19,8 @@ and Save are the other destinations.
 - Swift (thin bridge, `CmuxNextAgentPane/AgentPaneCapture*.swift`): the pixels. A Region or Window
   pick is macOS `screencapture`'s own. The cmux window and a pane come from ScreenCaptureKit's
   `SCShareableContent.currentProcess`, which needs no Screen Recording grant. A recording is an
-  `SCStream` of the cmux window written to an H.264 `.mp4` in the temporary folder.
+  `SCStream` of the cmux window and its child windows only (never another cmux window over it)
+  written to an H.264 `.mp4` in the temporary folder.
 
 ## Contract
 

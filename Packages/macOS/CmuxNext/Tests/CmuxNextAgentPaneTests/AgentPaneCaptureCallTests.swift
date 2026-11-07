@@ -114,7 +114,11 @@ struct AgentPaneCaptureCallTests {
         try FileManager.default.createDirectory(at: movie.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("movie".utf8).write(to: movie)
         let upload = root.appendingPathComponent("uploads/sessions/S/U")
-        let kept = try #require(AgentPaneRecorder.keep(movie, in: upload))
+        // Another file than the one the writer finished is never moved.
+        let wrong = AgentPaneRecorder.FileIdentity(stat())
+        #expect(AgentPaneRecorder.keep(movie, in: upload, expected: wrong) == nil)
+        #expect(FileManager.default.fileExists(atPath: movie.path))
+        let kept = try #require(AgentPaneRecorder.keep(movie, in: upload, expected: AgentPaneRecorder.identity(movie.path)))
         #expect(kept == upload.appendingPathComponent("Recording.mp4"))
         #expect(try Data(contentsOf: kept) == Data("movie".utf8))
         #expect(!FileManager.default.fileExists(atPath: movie.deletingLastPathComponent().path))

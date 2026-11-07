@@ -34,13 +34,19 @@ final class AgentPaneRecorder {
     private var starting = false
     /// Its window's close, move and resize, and the app's quit, only while a recording runs.
     private var observers: [MainActorObservation] = []
-    /// The movies this process wrote, exactly as the page was given them (realpath's spelling):
+    /// The movies this process wrote, exactly as the page was given them (as made, never resolved):
     /// the only paths `capture.copy` and `capture.save` take.
     private(set) var written: Set<String> = []
     /// Each written movie's file identity when the page was given its path.
     private var identities: [String: FileIdentity] = [:]
-    /// A stop is finalizing a movie: no other recording starts until it is done (one at a time).
+    /// A stop is finalizing a movie: no other recording starts until it is done (one at a time),
+    /// and a quit waits for it (``finishForQuit()``).
     private var finishing = false
+    private var finishWaiters: [CheckedContinuation<Void, Never>] = []
+    /// Set by the quit: a stop that ends after it puts its movie on the clipboard too, since its
+    /// page's chip may come after the composers were saved.
+    private var quitting = false
+    private var quitKept: [NSURL] = []
     /// Whether the capture bar's save panel is up: one at a time.
     var saving = false
     /// The bar's last press (``AgentPaneCaptureBar/toggle(on:)``): the chat it opened on, held
@@ -126,7 +132,7 @@ final class AgentPaneRecorder {
         let folder = Self.folder.appendingPathComponent(id, isDirectory: true)
         let recording = AgentPaneRecording(AgentPaneRecording.Options(
             window: CGWindowID(window.windowNumber), scale: Double(window.backingScaleFactor), cursor: cursor, clicks: clicks,
-            url: folder.appendingPathComponent(Self.name(Date())))) { [weak self] over in
+            url: folder.appendingPathComponent(Self.name(Date())), windows: Self.family(window))) { [weak self] over in
             MainDelivery().run { self?.ended(over) }
         }
         starting = true
@@ -162,29 +168,28 @@ final class AgentPaneRecorder {
     /// lives as long as the chat's other uploads, so a draft or a sent message keeps its video past
     /// a relaunch.
     func stop(for model: AgentPaneModel) async -> [String: Any] {
-        let recording: AgentPaneRecording, session: String?
+        let recording: AgentPaneRecording, session: String?, incognito: Bool
         if let running = current, recordingModel === model {
             current = nil
             removeObservers()
-            (recording, session) = (running, recordingSession)
+            (recording, session, incognito) = (running, recordingSession, recordingIncognito)
         } else if let index = leftovers.firstIndex(where: { $0.model === model }) {
             let leftover = leftovers.remove(at: index)
-            (recording, session) = (leftover.recording, leftover.session)
+            (recording, session, incognito) = (leftover.recording, leftover.session, leftover.incognito)
         } else {
             return AgentPaneReply.success(["cancelled": true])
         }
         finishing = true
-        defer { finishing = false }
-        guard let made = await recording.finish() else { return AgentPaneReply.success(["cancelled": true]) }
+        defer { finished() }
+        guard let made = await recording.finish(), let identity = made.identity else { return AgentPaneReply.success(["cancelled": true]) }
         let movie = URL(fileURLWithPath: made.path)
         let upload = model.chatUploadFolders?.freshUpload(session: session)
-        let (path, identity) = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) {
-            let path = (upload.flatMap { Self.keep(movie, in: $0) } ?? movie).path
-            return (path, Self.identity(path))
+        let path = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) {
+            (upload.flatMap { Self.keep(movie, in: $0, expected: identity) } ?? movie).path
         }.value
-        guard let identity else { return AgentPaneReply.success(["cancelled": true]) }
         written.insert(path)
         identities[path] = identity
+        if quitting, !incognito { quitKept.append(URL(fileURLWithPath: path) as NSURL) }
         return AgentPaneReply.success(["path": path, "name": made.name, "seconds": made.seconds])
     }
 
@@ -194,6 +199,9 @@ final class AgentPaneRecorder {
     /// quit never loses a clip. An incognito chat's is discarded with the chat, never kept or
     /// copied. The stream's stop is under ``AgentPaneRecording/callLimit``.
     func finishForQuit() async {
+        quitting = true
+        // A stop finalizing now: its movie first, so the process never ends under its writer.
+        if finishing { await withCheckedContinuation { finishWaiters.append($0) } }
         var pending = leftovers.map { (recording: $0.recording, session: $0.session, model: $0.model, incognito: $0.incognito) }
         leftovers = []
         if let running = current {
@@ -201,23 +209,42 @@ final class AgentPaneRecorder {
             current = nil
             removeObservers()
         }
-        var kept: [NSURL] = []
+        var kept = quitKept
         for item in pending {
             if item.incognito {
                 await item.recording.discard()
                 continue
             }
-            guard let made = await item.recording.finish() else { continue }
+            guard let made = await item.recording.finish(), made.identity != nil else { continue }
             let movie = URL(fileURLWithPath: made.path)
             let upload = (item.model?.chatUploadFolders ?? ChatUploadFolders.standard)?.freshUpload(session: item.session)
             let moved = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) {
-                upload.flatMap { Self.keep(movie, in: $0) }
+                upload.flatMap { Self.keep(movie, in: $0, expected: made.identity) }
             }.value
             kept.append((moved ?? movie) as NSURL)
         }
         guard !kept.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects(kept)
+    }
+
+    /// A stop is done finalizing: a quit waiting for it goes on.
+    private func finished() {
+        finishing = false
+        let waiters = finishWaiters
+        finishWaiters = []
+        waiters.forEach { $0.resume() }
+    }
+
+    /// `window` and its child windows, all the way down: what a recording of it shows.
+    static func family(_ window: NSWindow) -> Set<CGWindowID> {
+        var ids: Set<CGWindowID> = []
+        var pending = [window]
+        while let next = pending.popLast() {
+            if next.windowNumber > 0 { ids.insert(CGWindowID(next.windowNumber)) }
+            pending.append(contentsOf: next.childWindows ?? [])
+        }
+        return ids
     }
 
     /// Discards the leftovers whose pane is gone (nobody can collect them any more) and those
@@ -293,6 +320,9 @@ nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDe
         let cursor: Bool
         let clicks: Bool
         let url: URL
+        /// The window and its child windows (its pages' Chromium windows, its panels): the only
+        /// windows the movie shows, never another cmux window that overlaps it.
+        let windows: Set<CGWindowID>
     }
 
     /// The finished movie, as the page gets it.
@@ -300,6 +330,8 @@ nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDe
         let path: String
         let name: String
         let seconds: Double
+        /// The movie file's identity when the writer finished: only that file is moved or handed out.
+        let identity: AgentPaneRecorder.FileIdentity?
     }
 
     nonisolated struct Failure: Error, CustomStringConvertible {
@@ -363,9 +395,9 @@ nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDe
         guard let display = content.value.displays.first(where: { $0.frame.intersects(target.frame) }) ?? content.value.displays.first else {
             throw Failure(description: "ScreenCaptureKit lists no display for this process")
         }
-        // The display with only this app's on-screen windows, cut to the window: its page child
-        // windows and panels show as on screen (a window filter misses changes outside them).
-        let own = content.value.windows.filter { $0.isOnScreen && $0.frame.intersects(display.frame) }
+        // The display with only this window and its child windows (its pages' Chromium windows, its
+        // panels), cut to the window: another cmux window over it, an incognito one too, never shows.
+        let own = content.value.windows.filter { $0.isOnScreen && options.windows.contains($0.windowID) }
         let filter = SCContentFilter(display: display, including: own.isEmpty ? [target] : own)
         guard let source = Self.source(target.frame, on: display.frame) else { throw Failure(description: "the window is off its display") }
         // The movie's size is the window's at the start: a later resize scales into it (aspect-fit).
@@ -459,8 +491,9 @@ nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDe
         let held = Handed(writer)
         writer.finishWriting {
             guard held.value.status == .completed else { return done(nil) }
-            let path = AcpmuxPathPolicy.canonical(url.path) ?? url.path
-            done(Made(path: path, name: url.lastPathComponent, seconds: seconds))
+            // The path as this recorder made it, never resolved through links: a link put in the
+            // folder's place is never followed to another file.
+            done(Made(path: url.path, name: url.lastPathComponent, seconds: seconds, identity: AgentPaneRecorder.identity(url.path)))
         }
     }
 
