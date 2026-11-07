@@ -11,6 +11,7 @@ description = "NEXT Cloud's API calls (classic /api/vm and /api/runs, the API Wo
 base64.workspace = true
 bytes.workspace = true
 cmux-cloud-client.workspace = true
+cmux-cloud-machine.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 rustls.workspace = true
 serde = { workspace = true, features = ["derive"] }
