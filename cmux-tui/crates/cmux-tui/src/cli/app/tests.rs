@@ -2049,7 +2049,7 @@ fn exchange_within_ends_at_its_deadline_for_an_app_that_trickles() {
         }
     });
     let started = std::time::Instant::now();
-    let answer = super::exchange_within(
+    let answer = exchange_within(
         &mut ours,
         "settings.get",
         json!({ "path": "chat.on" }),
@@ -2071,7 +2071,7 @@ fn exchange_within_reads_a_whole_line() {
         let _ = app.read(&mut request);
         app.write_all(b"{\"id\":1,\"ok\":true,\"result\":{\"value\":\"cloud\"}}\n").unwrap();
     });
-    let reply = super::exchange_within(
+    let reply = exchange_within(
         &mut ours,
         "settings.get",
         json!({ "path": "chat.on" }),
