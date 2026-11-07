@@ -121,7 +121,6 @@ export default componentEntry({
     "agent-session/acpmux/session-info/UsageSection.tsx",
     "agent-session/acpmux/session-info/ContextSection.tsx",
     "agent-session/acpmux/session-info/WorkflowTasks.tsx",
-    "agent-session/acpmux/session-info/foldMotion.ts",
   ],
   load: async () => Folds,
   variants: {
