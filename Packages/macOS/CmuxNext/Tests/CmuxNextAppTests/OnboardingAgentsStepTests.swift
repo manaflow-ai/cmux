@@ -129,6 +129,20 @@ import Testing
         #expect(rows.map(\.installed) == [true, false])
     }
 
+    /// With no answer from the agents service (no acpmux, or a daemon that did not list), nothing
+    /// says Claude Code or Codex is missing: the step offers no Install, which would only fail.
+    @Test func noListAnswerOffersNoInstall() async {
+        let health = Health(#"{"harnesses":[]}"#)
+        health.listed = false
+        let (unreachable, _) = await make(health: health)
+        #expect(await unreachable.agentSignIns(recheck: false).isEmpty)
+
+        let unavailable = SettingsHarnesses(environment: { nil }, fetch: { _ in [] }, fetchHealth: { _, _ in Data() },
+                                            openTerminal: { _ in true },
+                                            accountsCall: { _, _, _ in throw AcpmuxRPCError(code: -32601, message: "method not found") })
+        #expect(await unavailable.agentSignIns(recheck: false).isEmpty)
+    }
+
     /// Install runs `acpmux harness install ID --json` and answers acpmux's error message.
     @Test func installRunsTheHarnessInstallAndAnswersItsError() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-onboarding-install-\(UUID().uuidString)")
