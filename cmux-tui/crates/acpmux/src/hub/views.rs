@@ -706,6 +706,16 @@ impl Hub {
         let mut pending = session.permissions.lock().unwrap().pending_records();
         for p in &mut pending {
             p["personInstance"] = Value::String(self.person.instance().to_owned());
+            // Which options an enrolled Mac's or phone's signature could count here, with no answers
+            // and with answers (`mac_approvers::may_allow`), so a phone that reaches this run through
+            // its Mac asks the person to sign only what counts, and keeps no copy of the rule.
+            let (once, answered) = p
+                .get("request")
+                .map(super::mac_approvers::may_allow_options)
+                .map(|(once, answered)| (json!(once), json!(answered)))
+                .unwrap_or_else(|| (json!([]), json!([])));
+            p.set("enrolledMayAllow", once);
+            p.set("enrolledMayAnswer", answered);
         }
         v.set("pending", Value::Array(pending));
         v

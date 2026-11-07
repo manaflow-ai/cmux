@@ -465,3 +465,19 @@ fn a_macs_paired_phone_enrolled_here_allows_one_prompt_and_never_raises_a_policy
     let signed = json!({"approver": phone, "signature": sig});
     assert!(!set.policy_verifies_then("inst", "s1", "approve-all", "n1", &signed, || true));
 }
+
+#[test]
+fn info_reports_the_options_an_enrolled_signature_may_count() {
+    // A tool's ask: only the one-time allow, and only with no answers.
+    let (once, answered) = may_allow_options(&tool_ask());
+    assert_eq!(once, ["yes"]);
+    assert!(answered.is_empty());
+    // A mode switch or a plan: nothing, either way.
+    let mut switch = tool_ask();
+    switch["toolCall"]["kind"] = json!("switch_mode");
+    assert_eq!(may_allow_options(&switch), (vec![], vec![]));
+    // An option id offered twice: neither copy counts.
+    let mut twice = tool_ask();
+    twice["options"] = json!([{"optionId": "yes", "kind": "allow_once"}, {"optionId": "yes", "kind": "allow_once"}]);
+    assert!(may_allow_options(&twice).0.is_empty());
+}

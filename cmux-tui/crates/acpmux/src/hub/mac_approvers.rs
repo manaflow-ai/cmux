@@ -43,6 +43,9 @@
 //!   id signs only decisions, never a policy raise: on its own Mac a phone raises no policy.
 //!   The next `host enroll` or `machine doctor --fix` on the Mac removes a phone it no longer
 //!   pairs; `host approvals rm ID` here removes one at once.
+//! - `_acpmux/info` reports, with each pending prompt, the options such a signature could count
+//!   (`enrolledMayAllow` with no answers, `enrolledMayAnswer` with answers; [`may_allow_options`]), so a
+//!   phone asks the person to sign only those and keeps no copy of [`may_allow`].
 //! - The app on this machine gives its own public key with
 //!   `_acpmux/mac_approver_set {id, publicKey, name}` (the person only, memory
 //!   only), so `acpmux host enroll` here knows which key to enroll on a peer.
@@ -354,6 +357,22 @@ pub fn may_allow(request: &Value, option: &str, answers: Option<&Value>) -> bool
         None => super::permission_groups::plain_tool_ask(request),
         Some(_) => super::questions::needs_person(request),
     }
+}
+
+/// The option ids of `request` an enrolled Mac (or a Mac's paired phone) may give: with no answers,
+/// then with answers ([`may_allow`]). `_acpmux/info` reports them with each pending prompt.
+pub fn may_allow_options(request: &Value) -> (Vec<&str>, Vec<&str>) {
+    let ids: Vec<&str> = request
+        .get("options")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|o| o.get("optionId").and_then(Value::as_str))
+        .collect();
+    let answers = json!({});
+    let once = ids.iter().copied().filter(|id| may_allow(request, id, None)).collect();
+    let answered = ids.iter().copied().filter(|id| may_allow(request, id, Some(&answers))).collect();
+    (once, answered)
 }
 
 /// What an enrolled Mac signs.
