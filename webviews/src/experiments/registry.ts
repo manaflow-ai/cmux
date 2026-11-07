@@ -8,6 +8,7 @@ import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experime
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
+import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { selectionReplyWrap } from "../agent-session/acpmux/conversation/selectionReplyWrap.experiment";
@@ -126,6 +127,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   contextRingLook,
   planUsageLook,
   emojiShortcodeLook,
+  pastePlaceholderLook,
   sendStopMorph,
 ];
 
