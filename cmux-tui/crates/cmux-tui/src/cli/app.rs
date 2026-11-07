@@ -768,7 +768,7 @@ pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> 
 /// `--socket` kind probe (`system.ping`) has that hard deadline instead of waiting out a busy app.
 pub(super) fn connect_command_within(
     global: &GlobalArgs,
-    _probe: Option<Duration>,
+    probe: Option<Duration>,
 ) -> Result<UnixStream, Value> {
     let socket = command_socket(global)?;
     let Some(flag) = socket.named_by else {
@@ -792,7 +792,10 @@ pub(super) fn connect_command_within(
         // An app's refusal is an object with a code (a classic app in
         // older password-mode app refuses ping before `auth.login`; a daemon's
         // refusal of the unknown line is a plain string.
-        let pong = exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT);
+        let pong = match probe {
+            Some(timeout) => exchange_within(&mut stream, "system.ping", json!({}), timeout),
+            None => exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT),
+        };
         let is_app = match &pong {
             Ok(Ok(result)) => result.get("pong") == Some(&Value::Bool(true)),
             Ok(Err(error)) => error.get("code").is_some_and(Value::is_string),
