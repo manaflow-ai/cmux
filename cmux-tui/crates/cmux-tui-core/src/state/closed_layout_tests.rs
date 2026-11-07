@@ -495,7 +495,8 @@ fn a_reopened_right_agent_pane_opens_in_its_split_never_in_the_main_pane() {
         mux.new_workspace(Some("keeper".into()), None).unwrap();
         let first = mux.new_workspace(Some("agents".into()), None).unwrap().id;
         let left = pane_of(&mux, first);
-        let left_agent = json!({"agent_session": {"host": "install:mac-test", "session": "ses-left"}});
+        let left_agent =
+            json!({"agent_session": {"host": "install:mac-test", "session": "ses-left"}});
         named_conversation(&mux, left, false, left_agent, "left");
         let right = named_conversation(&mux, left, true, right_record, "right");
         let right_pane = pane_of(&mux, right);
@@ -529,7 +530,12 @@ fn a_reopened_right_agent_pane_opens_in_its_split_never_in_the_main_pane() {
             .collect::<Vec<_>>();
         assert_eq!(added.len(), 1, "one pane-added: {deltas:?}");
         let tabs = added[0].entity["tabs"].as_array().unwrap();
-        assert_eq!(tabs.len(), 1, "the new pane holds the tab when it appears: {}", added[0].entity);
+        assert_eq!(
+            tabs.len(),
+            1,
+            "the new pane holds the tab when it appears: {}",
+            added[0].entity
+        );
         assert_eq!(layout_of(&mux, "agents"), before, "back in its split at its share");
         mux.shutdown();
     }

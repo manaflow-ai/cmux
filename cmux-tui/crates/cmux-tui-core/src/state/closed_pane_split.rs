@@ -13,10 +13,10 @@ use serde_json::{Value, json};
 use anyhow::Context as _;
 
 use crate::model::State;
-use crate::state::conversation_tabs::ConversationTabTarget;
-use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::mux::tab_groups::{pane_by_public_id, pane_public_id};
 use crate::mux::*;
+use crate::state::conversation_tabs::ConversationTabTarget;
+use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::{Actor, PaneId, SurfaceId};
 use cmux_json::JsonSet as _;
 
