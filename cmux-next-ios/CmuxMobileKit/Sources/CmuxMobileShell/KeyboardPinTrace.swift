@@ -45,34 +45,38 @@ final class KeyboardPinTrace: NSObject {
     /// (`tapProbe(identifier:)`): one `label:hit|miss(...)` per probe.
     private var taps: [String] = []
 
-    /// Hit-tests where a finger on the accessibility element `identifier`
-    /// lands right now, as UIKit routes a touch: at the element's DRAWN
-    /// centre (its host view's presentation offset applied), through the
-    /// scene's windows from the top. A hit is the element's own host view
-    /// with the touch inside the element in that view's (model) coordinates,
-    /// which is what a SwiftUI button there reads; anything else is a miss.
-    static func tapProbe(identifier: String, label: String) {
+    /// Hit-tests where a finger lands on the moving dock right now, as UIKit
+    /// routes a touch: at the composer field's DRAWN centre (presentation
+    /// layers), through the scene's windows from the top. The key row rides
+    /// in the same dock as the field, so the field's drawn-minus-model offset
+    /// (`shift`) is the key's too: a 28 pt key is missed once it passes 14 pt.
+    /// `label:hit(shift)` when the touch reaches the field within a key's
+    /// half height, else
+    /// `label:miss(view hit/shift)`.
+    static func tapProbe(label: String) {
         guard let shared, let window = shared.keyWindow, let scene = window.windowScene else { return }
-        guard let (element, host) = Self.element(identifier, in: window) else {
-            shared.record(tap: "\(label):miss(no-element)")
+        guard let field = Self.composerField(in: window) else {
+            shared.record(tap: "\(label):miss(no-field)")
             return
         }
-        let model = host.convert(host.bounds, to: window)
-        let drawn = MobileKeyboardProbe().onScreen(host, in: window)
-        let frame = window.convert(element.accessibilityFrame, from: nil)
-        let point = CGPoint(x: frame.midX + drawn.minX - model.minX, y: frame.midY + drawn.minY - model.minY)
+        let model = field.convert(field.bounds, to: window)
+        let drawn = MobileKeyboardProbe().onScreen(field, in: window)
+        let point = CGPoint(x: drawn.midX, y: drawn.midY)
         var hit: UIView?
         for candidate in scene.windows.sorted(by: { $0.windowLevel > $1.windowLevel }) where !candidate.isHidden {
             if let view = candidate.hitTest(candidate.convert(point, from: window), with: nil) { hit = view; break }
         }
-        let inHost = hit.map { $0 === host || $0.isDescendant(of: host) } ?? false
-        let local = host.convert(point, from: window)
-        let inElement = host.convert(frame, from: window).contains(local)
         let shift = String(format: "%.0f", drawn.minY - model.minY)
-        if inHost, inElement {
+        let onField = hit.map { $0 === field || $0.isDescendant(of: field) } ?? false
+        if onField, abs(drawn.minY - model.minY) < 14 {
             shared.record(tap: "\(label):hit(\(shift))")
         } else {
-            let name = hit.map { NSStringFromClass(type(of: $0)).split(separator: ".").last.map(String.init) ?? "?" } ?? "none"
+            var name = "none"
+            if onField {
+                name = "field"
+            } else if let hit {
+                name = String(NSStringFromClass(type(of: hit)).split(separator: ".").last ?? "?")
+            }
             shared.record(tap: "\(label):miss(\(name)/\(shift))")
         }
     }
@@ -80,32 +84,6 @@ final class KeyboardPinTrace: NSObject {
     private func record(tap: String) {
         taps.append(tap)
         write(String(format: "t=%.4f tap=%@", CACurrentMediaTime() - start, tap))
-    }
-
-    /// The accessibility element `identifier` in `window`, with the view it
-    /// lives in. Each node is visited once and the walk stops after 4000
-    /// nodes: SwiftUI's accessibility tree can reach a node twice, and the
-    /// terminal exposes a node per row.
-    static func element(_ identifier: String, in window: UIWindow) -> (NSObject, UIView)? {
-        var seen = Set<ObjectIdentifier>()
-        func search(_ object: NSObject, host: UIView, depth: Int) -> (NSObject, UIView)? {
-            guard depth < 40, seen.count < 4000, seen.insert(ObjectIdentifier(object)).inserted else { return nil }
-            if (object as? UIAccessibilityIdentification)?.accessibilityIdentifier == identifier { return (object, host) }
-            if let view = object as? UIView {
-                guard !view.isHidden else { return nil }
-                if NSStringFromClass(type(of: view)).contains("Terminal") { return nil }
-                for sub in view.subviews { if let found = search(sub, host: sub, depth: depth + 1) { return found } }
-            }
-            let count = object.accessibilityElements?.count ?? object.accessibilityElementCount()
-            guard count > 0, count < 200 else { return nil }
-            let children: [Any] = object.accessibilityElements
-                ?? (0..<count).compactMap { object.accessibilityElement(at: $0) }
-            for case let child as NSObject in children where !(child is UIView) {
-                if let found = search(child, host: host, depth: depth + 1) { return found }
-            }
-            return nil
-        }
-        return search(window, host: window, depth: 0)
     }
 
     private var demo = "-"

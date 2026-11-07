@@ -214,7 +214,7 @@ struct DemoDriver {
             KeyboardPinTrace.note(label)
             // Mid-animation presses: where a finger on the key as drawn lands.
             if label.hasPrefix("re") || label == "burst" {
-                KeyboardPinTrace.tapProbe(identifier: "terminal.key.keyboard", label: label)
+                KeyboardPinTrace.tapProbe(label: label)
             }
             model.toggleKeyboard()
         }
