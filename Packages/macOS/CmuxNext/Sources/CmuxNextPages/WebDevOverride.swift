@@ -163,7 +163,7 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     static func bundledABI() -> Int? {
         nonisolated struct File: Decodable { var abi: Int }
         guard let pages = WebBundleOverlay.bundledPages,
-              let data = try? Data(contentsOf: pages.appending(path: "web-abi.json"))
+              let data = try? Data(blockingContentsOf: pages.appending(path: "web-abi.json"))
         else { return nil }
         return (try? JSONDecoder().decode(File.self, from: data))?.abi
     }
