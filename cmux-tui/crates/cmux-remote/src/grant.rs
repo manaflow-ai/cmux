@@ -158,11 +158,12 @@ pub fn owner_services(owner: bool) -> impl Iterator<Item = Service> {
 
 impl GrantVerifier for CarrierGrantVerifier {
     fn verify(&self, presentation: GrantPresentation<'_>) -> Result<GrantAdmission, String> {
-        let grant = CarrierGrantVerifier::verify(
+        let grant = CarrierGrantVerifier::verify_with(
             self,
             presentation.token,
             presentation.noise_key,
             presentation.link_group,
+            serves_any,
         );
         admit(grant, presentation.noise_key)
     }
@@ -172,15 +173,9 @@ impl GrantVerifier for CarrierGrantVerifier {
     }
 }
 
-/// The admission of a verified grant: its services this daemon knows. A name
-/// it does not know grants nothing; a grant naming only unknown services
-/// admits nothing.
-fn admit(
-    grant: Result<CarrierGrant, TokenRefusal>,
-    noise_key: &[u8; 32],
-) -> Result<GrantAdmission, String> {
-    let grant = grant.map_err(|refusal| format!("carrier grant refused: {refusal}"))?;
-    // `local-socket` comes only from the owner claim, never from `svc`.
+/// The services of a grant this daemon knows. A name it does not know grants
+/// nothing; `local-socket` comes only from the owner claim, never from `svc`.
+fn known_services(grant: &CarrierGrant) -> Vec<Service> {
     let mut services = grant
         .services
         .iter()
@@ -188,6 +183,26 @@ fn admit(
         .filter(|service| *service != Service::LocalSocket)
         .collect::<Vec<_>>();
     services.extend(owner_services(grant.owner()));
+    services
+}
+
+/// The verifier's last check, run before the grant's `jti` is spent: a grant
+/// naming only unknown services is refused and stays unspent.
+fn serves_any(grant: &CarrierGrant) -> bool {
+    !known_services(grant).is_empty()
+}
+
+/// The admission of a verified grant: its services this daemon knows (never
+/// empty: [`serves_any`] refused such a grant before it was spent).
+fn admit(
+    grant: Result<CarrierGrant, TokenRefusal>,
+    noise_key: &[u8; 32],
+) -> Result<GrantAdmission, String> {
+    let grant = grant.map_err(|refusal| match refusal.reason {
+        "no_known_service" => "carrier grant refused: no service this daemon serves".to_owned(),
+        _ => format!("carrier grant refused: {refusal}"),
+    })?;
+    let services = known_services(&grant);
     if services.is_empty() {
         return Err("carrier grant refused: no service this daemon serves".into());
     }
@@ -312,7 +327,12 @@ fn read_config(path: &Path) -> Result<GrantConfig, String> {
 impl GrantVerifier for FileGrantVerifier {
     fn verify(&self, presentation: GrantPresentation<'_>) -> Result<GrantAdmission, String> {
         let check = || {
-            self.inner.verify(presentation.token, presentation.noise_key, presentation.link_group)
+            self.inner.verify_with(
+                presentation.token,
+                presentation.noise_key,
+                presentation.link_group,
+                serves_any,
+            )
         };
         let mut grant = check();
         if matches!(&grant, Err(refusal) if refusal.kind == TokenRefused::UnknownKey)
@@ -397,6 +417,16 @@ mod tests {
         }
 
         fn grant(kid: &str, key: &Ed25519KeyPair, noise_key: &[u8; 32], jti: u8) -> String {
+            grant_for(kid, key, noise_key, jti, &["mux-control"])
+        }
+
+        fn grant_for(
+            kid: &str,
+            key: &Ed25519KeyPair,
+            noise_key: &[u8; 32],
+            jti: u8,
+            svc: &[&str],
+        ) -> String {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -405,7 +435,7 @@ mod tests {
                 json!({"alg": "EdDSA", "kid": kid, "typ": cmux_link::carrier_grant::GRANT_TYP});
             let claims = json!({
                 "iss": ISSUER, "aud": MACHINE, "team": TEAM, "sub": "user_1",
-                "svc": ["mux-control"],
+                "svc": svc,
                 "nk": cmux_link::carrier_grant::noise_key_digest(noise_key),
                 "jti": URL_SAFE_NO_PAD.encode([jti; 16]),
                 "iat": now - 5, "exp": now + 60,
@@ -421,6 +451,28 @@ mod tests {
 
         fn present<'a>(token: &'a str, noise_key: &'a [u8; 32]) -> GrantPresentation<'a> {
             GrantPresentation { token, noise_key, link_group: [1; 32] }
+        }
+
+        /// A grant refused only for naming unknown services keeps its jti:
+        /// the same jti in a grant this daemon serves is still admitted.
+        #[test]
+        fn a_grant_of_unknown_services_spends_no_jti() {
+            let dir = tempfile::tempdir().unwrap();
+            let file = dir.path().join("carrier-grant.json");
+            let key = signer();
+            std::fs::write(&file, config("k1", &key, MACHINE)).unwrap();
+            let verifier = FileGrantVerifier::load(&file).unwrap();
+            let noise_key = [4_u8; 32];
+            let unknown = grant_for("k1", &key, &noise_key, 7, &["not-a-service"]);
+            let refused = verifier.verify(present(&unknown, &noise_key)).unwrap_err();
+            assert_eq!(refused, "carrier grant refused: no service this daemon serves");
+            let known = grant_for("k1", &key, &noise_key, 7, &["mux-control"]);
+            let admitted = verifier.verify(GrantPresentation {
+                token: &known,
+                noise_key: &noise_key,
+                link_group: [2; 32],
+            });
+            assert!(admitted.is_ok(), "{admitted:?}");
         }
 
         #[test]

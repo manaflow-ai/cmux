@@ -47,11 +47,6 @@ use crate::daemon_spec::{ROOT_HOME, WORK_HOME, WORK_USER, binary_path};
 use crate::linux::fds::Inotify;
 use crate::linux::spawn::lookup_user;
 
-/// How often, and how far apart, a carrier bind waits for the session
-/// host's Noise key before binding without it (about 15 s in all).
-const NOISE_KEY_WAITS: u32 = 30;
-const NOISE_KEY_WAIT_MS: u64 = 500;
-
 /// The dev-only heartbeat test override (read once at role start).
 pub const HEARTBEAT_ENV: &str = "CMUX_VM_AGENT_HEARTBEAT_MS";
 /// Where a trajectory restore stages its bundles (the work user's, 0700).
@@ -516,9 +511,10 @@ struct Worker {
     relay: Option<Relay>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
-    /// Binds put off while a carrier bind waits for the session host's
-    /// Noise key (its identity file appears once the host has started).
-    noise_key_waits: u32,
+    /// A carrier bind waiting for the session host's Noise key (its
+    /// identity file appears once the host has started): the bind token it
+    /// waits for and when the wait began. A new token starts a new wait.
+    noise_key_wait: Option<(String, u64)>,
     /// The workload probe (`workload.rs`): its memory and when it runs next (while bound).
     workload: super::workload::Tracker,
     workload_at: Option<u64>,
@@ -571,7 +567,7 @@ impl Worker {
             relay: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
-            noise_key_waits: 0,
+            noise_key_wait: None,
             workload: super::workload::Tracker::default(),
             workload_at: None,
             rng: SystemRandom::new(),
@@ -837,7 +833,10 @@ impl Worker {
                 // `refused` revokes the receiver's retained policy at once;
                 // `unavailable` (no answer) lets local admission keep it.
                 let value = match value {
-                    Some(Ok(value)) => value,
+                    Some(Ok(value)) => {
+                        self.refresh_carrier_keyset(&value);
+                        value
+                    }
                     Some(Err(error)) if super::receiver::is_refusal(&error) => {
                         json!({ "ok": false, "error": super::receiver::POLICY_REFUSED })
                     }
@@ -931,20 +930,36 @@ impl Worker {
             Ok(poster) => PosterHttp(poster),
             Err(e) => return log(&e),
         };
-        // Only a bind with a relay carrier sends its daemon's Noise key. The
-        // token is not spent yet, so a short wait for the key costs nothing;
-        // after it the bind goes on without (the field is optional).
-        let carrier = self
+        // Only a bind with a relay carrier sends its daemon's Noise key, and
+        // it must: the device's dial requires it (#37211). The token is not
+        // spent yet, so the bind waits for the key, as long as the token
+        // lives (`daemon_noise_key::wait_after`), and never goes without it.
+        let carrier_token = self
             .store
             .read(BIND_FILE)
             .and_then(|text| super::wire::parse_bind_file(&text).ok())
-            .is_some_and(|file| file.carrier.is_some());
-        let noise_key = carrier.then(|| self.daemon_noise_key()).flatten();
-        if carrier && noise_key.is_none() && self.noise_key_waits < NOISE_KEY_WAITS {
-            self.noise_key_waits += 1;
-            self.bind_retry_at = Some(self.now() + NOISE_KEY_WAIT_MS);
-            return log("bind: waiting for the session host's Noise key");
+            .filter(|file| file.carrier.is_some())
+            .map(|file| file.bind_token);
+        let noise_key = carrier_token.as_ref().and_then(|_| self.daemon_noise_key());
+        if let Some(token) = carrier_token.filter(|_| noise_key.is_none()) {
+            let now = self.now();
+            let started = match &self.noise_key_wait {
+                Some((waiting, at)) if *waiting == token => *at,
+                _ => {
+                    log("bind: waiting for the session host's Noise key");
+                    self.noise_key_wait = Some((token, now));
+                    now
+                }
+            };
+            match super::daemon_noise_key::wait_after(now.saturating_sub(started)) {
+                Some(delay) => self.bind_retry_at = Some(now + delay),
+                None => log(
+                    "bind: the session host's Noise key did not appear while the bind token lives; not binding until a new bind.json",
+                ),
+            }
+            return;
         }
+        self.noise_key_wait = None;
         let result = bind_machine(
             &mut self.store,
             &http,
@@ -970,9 +985,32 @@ impl Worker {
         }
     }
 
-    /// The session host's Noise static public key, from its identity file.
+    /// A receiving-policy read's keyset, when it differs from the one the
+    /// bind kept in carrier.json: the file is rewritten so the session
+    /// host's grant config follows a rotation without a re-bind
+    /// (`carrier_entry::with_keyset`).
+    fn refresh_carrier_keyset(&mut self, reply: &Value) {
+        use crate::carrier_entry::{CARRIER_FILE, with_keyset};
+        let (Some(issuer), Some(keyset)) =
+            (reply["value"]["issuer"].as_str(), reply["value"].get("keyset"))
+        else {
+            return;
+        };
+        let Some(text) = with_keyset(self.store.read(CARRIER_FILE).as_deref(), issuer, keyset)
+        else {
+            return;
+        };
+        match self.store.write(CARRIER_FILE, &text, 0o600) {
+            Ok(()) => log("carrier: kept the refreshed keyset"),
+            Err(e) => log(&format!("carrier.json keyset write: {e}")),
+        }
+    }
+
+    /// The session host's Noise static public key, from its identity file
+    /// under the home the supervisor spawned it with (the layout marker).
     fn daemon_noise_key(&self) -> Option<String> {
-        let home = relay_runner().ok()?.home;
+        let marker = fs::read_to_string(self.paths.at(crate::config::LAYOUT_MARKER_FILE)).ok();
+        let home = super::daemon_noise_key::session_home(marker.as_deref())?;
         let file = super::daemon_noise_key::identity_path(&home, crate::daemon_spec::SESSION);
         super::daemon_noise_key::read(&self.paths.at(&file.to_string_lossy()))
     }

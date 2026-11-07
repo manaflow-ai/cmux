@@ -203,3 +203,35 @@ fn the_route_flags_of_a_running_session_host_are_read_back() {
     argv.extend(route().args(bin, grant));
     assert_eq!(args_in(&argv), route().args(bin, grant));
 }
+
+/// A refreshed keyset for the same issuer replaces the kept one, the rest
+/// of the file as it was; the same keyset, another issuer, an invalid
+/// keyset or no valid file change nothing.
+#[test]
+fn a_rotated_keyset_rewrites_the_carrier_file() {
+    let file = CarrierFile {
+        route: route(),
+        team: "team_0123456789abcdefghij".into(),
+        issuer: "cmux:cloud:production".into(),
+        keyset: keyset(),
+    };
+    let text = file.to_json().to_string();
+    let mut rotated = keyset();
+    rotated["version"] = Value::from("fedcba9876543210");
+    rotated["keys"]["k2"] = rotated["keys"]["k1"].clone();
+    rotated["keys"]["k2"]["kid"] = Value::from("k2");
+    let issuer = "cmux:cloud:production";
+    let written = with_keyset(Some(&text), issuer, &rotated).expect("a rotation is kept");
+    let kept = parse_file(Some(&written)).unwrap().unwrap();
+    assert_eq!(kept, CarrierFile { keyset: rotated.clone(), ..file.clone() });
+    assert_eq!(
+        file.route.args(Path::new("/b"), Path::new("/g")),
+        kept.route.args(Path::new("/b"), Path::new("/g"))
+    );
+    assert_eq!(with_keyset(Some(&text), issuer, &keyset()), None);
+    assert_eq!(with_keyset(Some(&text), "cmux:cloud:staging", &rotated), None);
+    let empty = serde_json::json!({"version": "fedcba9876543210", "keys": {}});
+    assert_eq!(with_keyset(Some(&text), issuer, &empty), None);
+    assert_eq!(with_keyset(None, issuer, &rotated), None);
+    assert_eq!(with_keyset(Some("{}"), issuer, &rotated), None);
+}

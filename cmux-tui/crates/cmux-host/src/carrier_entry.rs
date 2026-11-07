@@ -177,6 +177,23 @@ pub fn parse_file(text: Option<&str>) -> Result<Option<CarrierFile>, String> {
     Ok(Some(CarrierFile { route, team, issuer, keyset }))
 }
 
+/// [`CARRIER_FILE`]'s new text when a receiving-policy read brought a
+/// keyset for the same issuer that differs from the kept one; `None` when
+/// there is no valid file, the keyset is not valid, or nothing changed.
+/// The Cloud role writes it (temp file, then rename); the supervisor's
+/// watch then rewrites [`GRANT_CONFIG_FILE`] from it, and the session
+/// host's verifier re-reads that at the rotated key's first grant. The
+/// route is unchanged, so the session host keeps running.
+pub fn with_keyset(text: Option<&str>, issuer: &str, keyset: &Value) -> Option<String> {
+    let mut file = parse_file(text).ok().flatten()?;
+    if file.issuer != issuer || file.keyset == *keyset {
+        return None;
+    }
+    cmux_link::keyset::read_keyset(keyset).ok()?;
+    file.keyset = keyset.clone();
+    Some(format!("{}\n", file.to_json()))
+}
+
 /// The route flags in a session host's `argv` (`/proc/<pid>/cmdline`), in
 /// order: what [`CarrierRoute::args`] gave the running host, or nothing.
 pub fn args_in(argv: &[String]) -> Vec<String> {
