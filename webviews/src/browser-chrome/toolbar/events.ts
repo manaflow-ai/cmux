@@ -1,7 +1,8 @@
 // The host's numbered one-shot requests (`ToolbarHostState.events`): each `seq` is handled once,
 // in order, however many states repeat it before the page's ack reaches the host.
 
-export type Numbered<T> = { seq: number; event: T };
+/** `binding`: the host's tab binding when it queued the event (`ToolbarHostState.events`). */
+export type Numbered<T> = { seq: number; binding?: number; event: T };
 
 /** The events after `lastSeq`, oldest first, and the newest seq once they are handled. */
 export function freshEvents<T>(

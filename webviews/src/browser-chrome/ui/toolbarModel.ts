@@ -184,7 +184,8 @@ export type ResolvedToolbarButton = {
 /** The trailing badges inside the omnibar, before the star; the texts come localized. */
 export type OmnibarBadges = {
   focusMode?: { text: string } | null;
-  profile?: { monogram: string; color?: string | null; name: string } | null;
+  /** `symbol`: the host's template image of an SF Symbol monogram, drawn as a mask (else the monogram as text). */
+  profile?: { monogram: string; symbol?: string | null; color?: string | null; name: string } | null;
   machine?: { text: string; help: string } | null;
 };
 

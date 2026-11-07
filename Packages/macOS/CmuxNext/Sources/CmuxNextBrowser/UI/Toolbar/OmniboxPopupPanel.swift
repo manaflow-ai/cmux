@@ -25,6 +25,8 @@ final class OmniboxPopupPanel {
     private var upward = false
     private var bar = NSRect.zero
     private var revision = 0
+    /// The revision that first drew the rows shown now: a hover or pick drawn before it names other rows.
+    private var rowsRevision = 0
     /// The card's height the page reported for the newest state; zero before its first report.
     private var cardHeight: CGFloat = 0
     /// Site icons as data URLs, by page URL; bounded (`faviconLimit`), oldest first out.
@@ -53,6 +55,7 @@ final class OmniboxPopupPanel {
         guard let content = content ?? makeContent() else { return }
         // Another row count: the estimate until the page reports the new height.
         if rows.count != self.rows.count { cardHeight = 0 }
+        if rows != self.rows { rowsRevision = revision + 1 }
         self.rows = rows
         self.highlighted = highlighted
         self.upward = upward
@@ -144,6 +147,9 @@ final class OmniboxPopupPanel {
     private func received(_ kind: String, _ params: [String: Any]) {
         switch kind {
         case "command":
+            // A row index means the rows the page drew: rows shown since (another query, another tab
+            // after the card closed) or a closed card take no hover or pick.
+            guard isVisible, let drawn = OmniboxPopupCommand.revision(params), drawn >= rowsRevision else { return }
             switch OmniboxPopupCommand(wire: params) {
             case .hover(let index, let pointer): onHover?(index, pointer)
             case .pick(let index, let meta, let shift, let alt): onPick?(index, meta, shift, alt)

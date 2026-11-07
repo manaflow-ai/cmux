@@ -262,6 +262,47 @@ struct BrowserToolbarWireTests {
         #expect(draft["selection"] as? [Int] == [3, 2])
     }
 
+    /// A command the page made for the tab that left (an older binding) never runs on the tab that
+    /// came: A's Enter arriving after the chrome bound B navigates nothing. The ack and the layout
+    /// are the row's, and run from any binding.
+    @Test func aCommandOfAnOlderBindingIsDropped() {
+        let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
+        var commands: [BrowserToolbarPageCommand] = []
+        var ended: [OmnibarEvent] = []
+        bar.onCommand = { commands.append($0) }
+        bar.onEvent = { ended.append($0) }
+        bar.showTab("slot-a", shownURL: URL(string: "https://a.example/"))
+        let a = bar.binding
+        #expect(bar.wireState()["binding"] as? Int == a)
+        bar.showTab("slot-b", shownURL: URL(string: "https://b.example/"))
+        #expect(bar.binding > a, "every tab shown moves the binding")
+        let commit: [String: Any] = ["type": "effect", "effect": ["type": "ended", "reason": ["kind": "commit", "url": "https://a.example/typed"]]]
+        bar.received("command", commit.merging(["binding": a]) { $1 })
+        bar.received("command", ["type": "goBack", "binding": a])
+        bar.received("command", ["type": "reload"])
+        #expect(ended.isEmpty && commands.isEmpty, "A's commit and buttons never act on B")
+        bar.send(BrowserToolbarHostEvent.blur)
+        bar.received("command", ["type": "ack", "seq": 1, "binding": a])
+        #expect((bar.wireState()["events"] as? [Any])?.isEmpty == true, "an ack runs from any binding")
+        bar.received("command", ["type": "goBack", "binding": bar.binding])
+        bar.received("command", commit.merging(["binding": bar.binding]) { $1 })
+        #expect(commands == [.goBack])
+        #expect(ended.count == 1, "B's own commit runs")
+    }
+
+    /// A host event carries the binding it was queued under; the tab let go moves the binding too.
+    @Test func hostEventsCarryTheirBinding() throws {
+        let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
+        bar.showTab("slot-a", shownURL: nil)
+        bar.send(BrowserToolbarHostEvent.enter(.currentTab))
+        let queued = bar.binding
+        bar.beginBinding()
+        bar.send(BrowserToolbarHostEvent.forgetTab("slot-a"))
+        let entries = try #require(bar.wireState()["events"] as? [[String: Any]])
+        #expect(entries.map { $0["binding"] as? Int } == [queued, queued + 1])
+        #expect(OmniboxPopupCommand.revision(["type": "pick", "index": 0, "revision": 4]) == 4)
+    }
+
     @Test func aButtonsStateHasThePagesShape() throws {
         let state = BrowserToolbarPolicy.state(.overflow, BrowserToolbarFacts(engine: .cef, hostsDevTools: true))
         let wire = state.wire(.overflow, pressed: true)

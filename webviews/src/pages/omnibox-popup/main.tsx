@@ -63,8 +63,10 @@ export function mountOmniboxPopupPage(root: HTMLElement, client: PageClient): ()
     if (!current) return null;
     const [top, right, bottom, left] = current.margin;
     const onCommand = (command: SuggestionCommand) => {
-      if (command.type === "hover") send({ type: "hover", index: command.index, pointer });
-      else send(command);
+      // Each names the rows of the state drawn now (`revision`): the host drops one for rows it replaced.
+      const revision = current.revision;
+      if (command.type === "hover") send({ type: "hover", index: command.index, pointer, revision });
+      else send({ ...command, revision });
     };
     return (
       <div ref={card} className="op-card" style={{ padding: `${top}px ${right}px ${bottom}px ${left}px` }}>

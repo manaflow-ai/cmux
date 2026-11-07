@@ -14,7 +14,13 @@ import { indexAtX, layoutChanged, wireRect, wordRangeAt, type LayoutReport } fro
 import { ToolbarSession } from "./session";
 import { draftOf, TabSlotStore } from "./slots";
 import { barFills, chipFor, emphasisFor, starFor, wireCommand } from "./view";
-import type { OmnibarDraft, ToolbarHostEvent, ToolbarHostState, ToolbarPageCommand } from "./wire";
+import {
+  isTabIndependent,
+  type OmnibarDraft,
+  type ToolbarHostEvent,
+  type ToolbarHostState,
+  type ToolbarPageCommand,
+} from "./wire";
 
 const press = (key: string, modifiers: Partial<KeyPress> = {}): KeyPress => ({
   key,
@@ -355,10 +361,11 @@ describe("drafts move with their tab (two panes, two toolbar pages)", () => {
   function hostState(
     tab: string,
     url: string,
-    extra: { draft?: OmnibarDraft | null; events?: ToolbarHostState["events"] } = {},
+    extra: { draft?: OmnibarDraft | null; events?: ToolbarHostState["events"]; binding?: number } = {},
   ): ToolbarHostState {
     revision += 1;
     return {
+      binding: extra.binding,
       revision,
       tab,
       draft: extra.draft ?? null,
@@ -599,5 +606,139 @@ describe("drafts move with their tab (two panes, two toolbar pages)", () => {
     const opened = JSON.stringify(effects().at(-1));
     expect(opened).not.toContain("a-result");
     expect(opened).not.toContain("b-stale");
+  });
+  test("a forgotten shown tab keeps no slot: back in this pane, it rests on the draft it brings", () => {
+    const a = page();
+    // Pane A shows tab-1 with unsent text.
+    a.session.applyHostState(
+      hostState("tab-1", "https://one.example/", {
+        binding: 1,
+        events: [{ seq: 1, binding: 1, event: { kind: "focus", source: "programmatic" } }],
+      }),
+    );
+    a.session.runner.send({
+      type: "fieldChanged",
+      field: { text: "kept here", selection: { location: 9, length: 0 }, marked: null },
+      kind: "insert",
+    });
+    // The tab moves away: the host lets it go (`release`: a new binding, forgetTab, the slot unchanged)
+    // and the page hears it before the pane binds its next tab.
+    a.session.applyHostState(
+      hostState("tab-1", "https://one.example/", {
+        binding: 2,
+        events: [
+          { seq: 2, binding: 2, event: { kind: "blur" } },
+          { seq: 3, binding: 2, event: { kind: "forgetTab", tab: "tab-1" } },
+        ],
+      }),
+    );
+    // The pane binds tab-3: the departed tab is not saved again.
+    a.session.applyHostState(hostState("tab-3", "https://three.example/", { binding: 3 }));
+    // tab-1 comes back with the draft it carried from the other pane.
+    a.session.applyHostState(
+      hostState("tab-1", "https://one.example/", {
+        binding: 4,
+        draft: { text: "carried", selection: [7, 0] },
+      }),
+    );
+    expect(a.session.state.retainedText).toBe("carried");
+    expect(a.status()?.draft).toEqual({ text: "carried", selection: [7, 0] });
+  });
+
+  test("the forgotten shown tab bound again with no switch between rests on its draft", () => {
+    const a = page();
+    typeUnsent(a.session, "tab-1", "https://one.example/", "kept here", [9, 0]);
+    a.session.applyHostState(
+      hostState("tab-1", "https://one.example/", {
+        binding: 2,
+        events: [
+          { seq: 2, binding: 2, event: { kind: "blur" } },
+          { seq: 3, binding: 2, event: { kind: "forgetTab", tab: "tab-1" } },
+        ],
+      }),
+    );
+    // A state of the same binding (the empty page the chrome shows meanwhile) changes nothing.
+    a.session.applyHostState(hostState("tab-1", "https://one.example/", { binding: 2 }));
+    expect(a.session.state.retainedText).toBe("kept here");
+    a.session.applyHostState(
+      hostState("tab-1", "https://one.example/", { binding: 3, draft: { text: "carried", selection: [0, 7] } }),
+    );
+    expect(a.session.state.retainedText).toBe("carried");
+  });
+
+  test("every command carries the binding of the state the page applied", () => {
+    const a = page();
+    a.session.post({ type: "goBack" });
+    expect(a.sent.at(-1)).toMatchObject({ type: "goBack", binding: null });
+    a.session.applyHostState(hostState("tab-1", "https://one.example/", { binding: 5 }));
+    a.session.post({ type: "reload" });
+    expect(a.sent.at(-1)).toMatchObject({ type: "reload", binding: 5 });
+    // The omnibar's own commands (status, effects, popup) carry it too.
+    a.session.applyHostState(
+      hostState("tab-1", "https://one.example/", {
+        binding: 5,
+        events: [{ seq: 1, binding: 5, event: { kind: "focus", source: "keyboard" } }],
+      }),
+    );
+    const stamped = a.sent.filter((command) => ["status", "effect", "popup", "ack"].includes(command.type));
+    expect(stamped.length).toBeGreaterThan(0);
+    for (const command of stamped.slice(-3)) expect(command).toMatchObject({ binding: 5 });
+    // A switch's own messages (the leaving tab's blur, cancelQuery, the next tab's status) carry the new one.
+    a.session.applyHostState(hostState("tab-2", "https://two.example/", { binding: 6 }));
+    const after = a.sent.slice(a.sent.findIndex((command) => command === stamped.at(-1)) + 1);
+    expect(after.length).toBeGreaterThan(0);
+    for (const command of after) expect(command).toMatchObject({ binding: 6 });
+  });
+
+  test("a tab-scoped host event queued for the tab that left never acts on the tab shown now", () => {
+    const a = page();
+    typeUnsent(a.session, "tab-a", "https://a.example/", "aye", [3, 0]);
+    const effects = () => a.sent.flatMap((command) => (command.type === "effect" ? [command.effect] : []));
+    const before = effects().length;
+    // The Enter the App routed for tab-a (binding 1) arrives with the state that shows tab-b (binding 2),
+    // with a Paste and Go and a drop for tab-a; a focus for the row still applies.
+    a.session.applyHostState(
+      hostState("tab-b", "https://b.example/", {
+        binding: 2,
+        events: [
+          { seq: 2, binding: 1, event: { kind: "key", key: { kind: "enter", disposition: "currentTab" } } },
+          { seq: 3, binding: 1, event: { kind: "pasteAndGo", text: "https://evil.example/" } },
+          { seq: 4, binding: 1, event: { kind: "dropped", text: "https://drop.example/" } },
+          {
+            seq: 5,
+            binding: 1,
+            event: { kind: "rowClick", row: 0, modifiers: { meta: false, shift: false, alt: false } },
+          },
+          { seq: 6, binding: 1, event: { kind: "focus", source: "programmatic" } },
+        ],
+      }),
+    );
+    const ran = JSON.stringify(effects().slice(before));
+    expect(ran).not.toContain("a.example");
+    expect(ran).not.toContain("evil.example");
+    expect(ran).not.toContain("drop.example");
+    expect(ran).not.toContain('"commit"');
+    expect(a.session.state.phase).not.toBe("idle");
+    expect(a.sent.at(-1)).toMatchObject({ type: "ack", seq: 6, binding: 2 });
+  });
+
+  test("tab-independent commands are only the ack, the layout and effects outside the tab", () => {
+    expect(isTabIndependent({ type: "ack", seq: 1 })).toBe(true);
+    expect(isTabIndependent({ type: "layout", rects: {}, showsForward: true, visiblePinned: 0, collapse: 0 })).toBe(
+      true,
+    );
+    for (const type of ["cancelQuery", "beep"] as const)
+      expect(isTabIndependent({ type: "effect", effect: { type } })).toBe(true);
+    expect(isTabIndependent({ type: "effect", effect: { type: "copyAnswer", text: "4" } })).toBe(true);
+    expect(isTabIndependent({ type: "goBack" })).toBe(false);
+    expect(isTabIndependent({ type: "requestFocus" })).toBe(false);
+    expect(isTabIndependent({ type: "popup", rows: [], highlighted: null, upward: false })).toBe(false);
+    expect(
+      isTabIndependent({
+        type: "effect",
+        effect: { type: "ended", reason: { kind: "commit", url: "https://a.example/" } },
+      }),
+    ).toBe(false);
+    expect(isTabIndependent({ type: "effect", effect: { type: "query", generation: 1, text: "a" } })).toBe(false);
   });
 });
