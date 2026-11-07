@@ -115,7 +115,8 @@ extension TerminalSurfaceView {
     }
 
     /// After this turn's pass (``TerminalFramePresenter``): the draw-ahead size goes to Ghostty, render only (its reflow
-    /// preview re-wraps the text at it; the PTY's grid follows through the coalescer when the size shows). Not while a size
+    /// preview re-wraps the text at it). A key spring's landing in this pass already sent its grid (``frameDidLand()``,
+    /// RESIZE P0 8); otherwise the PTY's grid follows through the coalescer when the size shows. Not while a size
     /// still waits for its frame: the newer size would drop it, and the next refresh asks for its own size then.
     func applyAhead() { // perf-hot: 1ms motion-frame (each frame of a key resize, after the pass)
         guard let size = frameOwnership.pendingAhead else { return }
@@ -239,11 +240,15 @@ extension TerminalSurfaceView {
 
     /// After the presenter landed this terminal's frame, outside the Core Animation lock: the copy-mode cursor box
     /// follows the new size (it reads Ghostty under the terminal's lock, so never inside the lock span), the grid that size
-    /// fits goes to the PTY owner (`updateSurfaceSize`: a key spring's coalesced; a size drawn ahead reported nothing when
-    /// it went to Ghostty), and a drag's grid that waited for this size to show goes (``TerminalGridReporter/shown(_:live:)``).
+    /// fits goes to the PTY owner (`updateSurfaceSize`: a key spring's coalesced, or the grid of its next size when that size
+    /// is drawn ahead after this pass, RESIZE P0 8), and a drag's grid that waited for this size to show goes
+    /// (``TerminalGridReporter/shown(_:live:)``).
     func frameDidLand() {
         copyMode.syncCursor()
-        updateSurfaceSize()
+        // A key spring's next size, drawn ahead after this pass (``drawsAheadAfterLanding``: no request goes before it, so
+        // ``applyAhead()`` gives it to Ghostty in this turn). Never a drag's: its grid is the grid of a size shown (cmux-ad m29).
+        let followsKeySpring = !isFollowingResizeGesture && ((superview as? TerminalHostView)?.surfaceFollowsArea ?? false)
+        updateSurfaceSize(reportingAhead: followsKeySpring && drawsAheadAfterLanding ? frameOwnership.pendingAhead : nil)
         gridReports.shown(fittedGrid, live: isFollowingResizeGesture)
     }
 
