@@ -226,7 +226,7 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
           // A long scrollbar drag: start in the scroller, then drag down and out of it after the
           // press's input window expires. Chromium owns the scroll event from the changed native
           // offset. The drag moves down, as a thumb dragged to the end does: only a downward drag
-          // brings follow back (transcript-scrolled-up-stays-browser.test.ts).
+          // brings follow back (test/support/transcriptScrolledUpStays.ts).
           await page.mouse.down();
           await page.evaluate(async () => {
             const until = performance.now() + 1100;
