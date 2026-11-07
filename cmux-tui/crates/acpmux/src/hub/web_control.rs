@@ -296,6 +296,15 @@ impl Hub {
             .err(),
         };
         let Some(e) = refused else { return Ok(()) };
+        // No trust answer read once the shutdown began is the shutdown's, not the person's: a
+        // SIGTERM during a first prompt's check answered `trust.pending` for a trusted folder
+        // (chaos fault `daemon-restart-session-new`, e0a62c8d7). The prompt hears the daemon
+        // restarts, and no `prompt_refused` settles it: the next daemon queues it again
+        // (`unstarted_prompt.rs`, `lost_start.rs`) and its own gate reads the folder.
+        if crate::server::trust_gate::is_pending(&e) && self.shutting_down() {
+            tracing::info!(session = %session.id, "trust check ended by the shutdown: {e}");
+            return Err(super::shutdown::shutting_down_error());
+        }
         self.append(
             session,
             "mux",

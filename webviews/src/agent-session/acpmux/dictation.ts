@@ -1,5 +1,5 @@
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   applyDictation,
   type DictationAnchor,
@@ -261,61 +261,65 @@ export function useDictation(
     [call],
   );
 
-  return {
-    state,
-    notice,
-    toggle() {
-      if (!active) prompt.current?.focus();
-      // A dictation app the person picked gets the press (dictationSources.ts); a session of cmux's
-      // own that still runs is stopped by it as before.
-      const source = composerSettingsSnapshot().dictationSource;
-      if (source !== "cmux" && !active) {
-        setNotice(null);
-        void call("dictation.handoff").catch((error: unknown) => {
-          const code = error instanceof NativeError ? error.code : undefined;
+  // The same object while its state and notice are: the composer, memoized, is not drawn again for it.
+  return useMemo<Dictation>(
+    () => ({
+      state,
+      notice,
+      toggle() {
+        if (!active) prompt.current?.focus();
+        // A dictation app the person picked gets the press (dictationSources.ts); a session of cmux's
+        // own that still runs is stopped by it as before.
+        const source = composerSettingsSnapshot().dictationSource;
+        if (source !== "cmux" && !active) {
+          setNotice(null);
+          void call("dictation.handoff").catch((error: unknown) => {
+            const code = error instanceof NativeError ? error.code : undefined;
+            setNotice({
+              state: "failed",
+              text: "",
+              level: 0,
+              cancelled: false,
+              message: handoffFailure(code, source, t),
+            });
+          });
+          return;
+        }
+        requested.current = true;
+        void call("dictation.toggle").catch((error: unknown) => {
+          requested.current = false;
           setNotice({
             state: "failed",
             text: "",
             level: 0,
             cancelled: false,
-            message: handoffFailure(code, source, t),
+            // A page with no host to ask says so plainly rather than "Request failed".
+            message:
+              error instanceof Error &&
+              error.message &&
+              !(error instanceof NativeError && error.code === "native.not_connected")
+                ? error.message
+                : t("dictation.unavailable"),
           });
         });
-        return;
-      }
-      requested.current = true;
-      void call("dictation.toggle").catch((error: unknown) => {
-        requested.current = false;
-        setNotice({
-          state: "failed",
-          text: "",
-          level: 0,
-          cancelled: false,
-          // A page with no host to ask says so plainly rather than "Request failed".
-          message:
-            error instanceof Error &&
-            error.message &&
-            !(error instanceof NativeError && error.code === "native.not_connected")
-              ? error.message
-              : t("dictation.unavailable"),
-        });
-      });
-    },
-    finish(then) {
-      // The keyboard stays in (or returns to) the prompt, where the words are.
-      prompt.current?.focus();
-      if (then) afterFinish.current = then;
-      // Already finalizing: the last words are on their way, and `then` waits for them.
-      if (state !== "finalizing") void call("dictation.stop").catch(() => {});
-    },
-    cancel() {
-      void call("dictation.cancel").catch(() => {});
-    },
-    openSettings() {
-      if (notice?.permission) void call("dictation.openSettings", { permission: notice.permission }).catch(() => {});
-    },
-    dismiss() {
-      setNotice(null);
-    },
-  };
+      },
+      finish(then) {
+        // The keyboard stays in (or returns to) the prompt, where the words are.
+        prompt.current?.focus();
+        if (then) afterFinish.current = then;
+        // Already finalizing: the last words are on their way, and `then` waits for them.
+        if (state !== "finalizing") void call("dictation.stop").catch(() => {});
+      },
+      cancel() {
+        void call("dictation.cancel").catch(() => {});
+      },
+      openSettings() {
+        if (notice?.permission) void call("dictation.openSettings", { permission: notice.permission }).catch(() => {});
+      },
+      dismiss() {
+        setNotice(null);
+      },
+    }),
+    [state, notice, active, prompt, call, t],
+  );
 }

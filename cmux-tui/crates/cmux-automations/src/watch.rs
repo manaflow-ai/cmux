@@ -14,6 +14,12 @@
 //! The commands die with the runner: dropping [`Watches`] stops them, and on
 //! Unix the runner's SIGTERM, SIGINT and SIGHUP stop them too (a handler that
 //! signals the recorded process groups, then re-raises).
+//!
+//! Nothing here waits on a child without a bound: a stopped command (stopped,
+//! or done because its output closed) gets SIGTERM, is reaped without blocking
+//! on later passes, and gets SIGKILL after [`KILL_GRACE_MS`]. Lines go through
+//! a bounded queue and one pass takes at most [`MAX_DRAIN`] of them, so a
+//! command that never stops printing cannot hold events or timers back.
 
 use std::collections::HashMap;
 #[cfg(unix)]
@@ -22,7 +28,7 @@ use std::io::Read;
 use std::process::Child;
 #[cfg(unix)]
 use std::process::{Command, Stdio};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::time::Duration;
 
 use crate::automation::Automation;
@@ -32,7 +38,7 @@ use crate::store::Store;
 use crate::sys::private_file;
 use crate::trigger::Trigger;
 
-/// The longest an event is held while lines keep coming.
+/// The longest an event is held while lines keep coming, whatever the debounce.
 pub const MAX_HOLD_MS: i64 = 30_000;
 /// The longest kept line; the rest of a longer line is cut.
 const MAX_LINE_BYTES: usize = 4 * 1024;
@@ -41,6 +47,13 @@ const FIRST_BACKOFF_MS: i64 = 5_000;
 const MAX_BACKOFF_MS: i64 = 300_000;
 /// A command that ran this long before it exited starts over at the first backoff.
 const HEALTHY_MS: i64 = 60_000;
+/// The most messages one [`Watches::wait`] pass takes.
+const MAX_DRAIN: usize = 1024;
+/// Lines waiting for the runner; a reader blocks (and so does its command's
+/// output) while the queue is full.
+const LINE_QUEUE: usize = 4096;
+/// How long a stopped command has after SIGTERM before SIGKILL.
+const KILL_GRACE_MS: i64 = 5_000;
 
 /// One event a watch made.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,6 +88,13 @@ struct Watcher {
     last_error: Option<String>,
 }
 
+/// A command that was stopped and is not reaped yet.
+struct Dying {
+    child: Child,
+    kill_at_ms: i64,
+    killed: bool,
+}
+
 struct Pending {
     text: String,
     lines: u64,
@@ -95,9 +115,10 @@ pub struct WatchStatus {
 /// Every watch command of one runner.
 pub struct Watches {
     store: Store,
-    tx: Sender<Msg>,
+    tx: SyncSender<Msg>,
     rx: Receiver<Msg>,
     watchers: HashMap<String, Watcher>,
+    dying: Vec<Dying>,
     pending: HashMap<String, Pending>,
     next_generation: u64,
     events: u64,
@@ -105,7 +126,7 @@ pub struct Watches {
 
 impl Watches {
     pub fn new(store: Store) -> Watches {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = mpsc::sync_channel(LINE_QUEUE);
         #[cfg(unix)]
         signals::install();
         Watches {
@@ -113,6 +134,7 @@ impl Watches {
             tx,
             rx,
             watchers: HashMap::new(),
+            dying: Vec::new(),
             pending: HashMap::new(),
             next_generation: 1,
             events: 0,
@@ -143,8 +165,10 @@ impl Watches {
             .map(|(id, _)| id.clone())
             .collect();
         for id in gone {
-            if let Some(mut w) = self.watchers.remove(&id) {
-                stop(&mut w);
+            if let Some(mut w) = self.watchers.remove(&id)
+                && let Some(child) = w.child.take()
+            {
+                self.retire(child, now_ms);
             }
             self.pending.remove(&id);
         }
@@ -196,17 +220,52 @@ impl Watches {
         }
     }
 
-    /// Wait at most `timeout` for lines, then take every line already sent.
-    /// `now_ms` reads the clock after the wait (tests pass a fixed one).
+    /// Wait at most `timeout` for lines, then take the lines already sent (at
+    /// most [`MAX_DRAIN`]) and reap stopped commands. `now_ms` reads the clock
+    /// after the wait (tests pass a fixed one).
     pub fn wait(&mut self, timeout: Duration, now_ms: &dyn Fn() -> i64) {
-        let first = match self.rx.recv_timeout(timeout) {
-            Ok(msg) => msg,
-            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => return,
-        };
-        self.take(first, now_ms());
-        while let Ok(msg) = self.rx.try_recv() {
-            self.take(msg, now_ms());
+        match self.rx.recv_timeout(timeout) {
+            Ok(first) => {
+                self.take(first, now_ms());
+                for _ in 1..MAX_DRAIN {
+                    let Ok(msg) = self.rx.try_recv() else { break };
+                    self.take(msg, now_ms());
+                }
+            }
+            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {}
         }
+        self.reap(now_ms());
+    }
+
+    /// SIGTERM `child`'s process group; [`Watches::reap`] collects it.
+    fn retire(&mut self, child: Child, now_ms: i64) {
+        terminate(&child, false);
+        self.dying.push(Dying {
+            child,
+            kill_at_ms: now_ms.saturating_add(KILL_GRACE_MS),
+            killed: false,
+        });
+    }
+
+    /// Collect stopped commands that exited, without blocking; SIGKILL the
+    /// ones past their grace. An exited command's group gets SIGKILL too (its
+    /// id stays reserved while any member lives) and gives back its slot.
+    fn reap(&mut self, now_ms: i64) {
+        self.dying.retain_mut(|d| match d.child.try_wait() {
+            Ok(Some(_)) | Err(_) => {
+                terminate(&d.child, true);
+                #[cfg(unix)]
+                signals::forget(d.child.id() as libc::pid_t);
+                false
+            }
+            Ok(None) => {
+                if !d.killed && now_ms >= d.kill_at_ms {
+                    terminate(&d.child, true);
+                    d.killed = true;
+                }
+                true
+            }
+        });
     }
 
     fn take(&mut self, msg: Msg, now_ms: i64) {
@@ -222,14 +281,17 @@ impl Watches {
                 if w.generation != generation {
                     return;
                 }
-                if let Some(mut child) = w.child.take() {
-                    let _ = child.wait();
-                }
+                // Its output closed: it can make no more events, so it is
+                // stopped (it may still run) and starts again after the backoff.
+                let child = w.child.take();
                 if now_ms.saturating_sub(w.started_ms) >= HEALTHY_MS {
                     w.backoff_ms = FIRST_BACKOFF_MS;
                 }
                 w.restart_at_ms = Some(now_ms.saturating_add(w.backoff_ms));
                 w.backoff_ms = w.backoff_ms.saturating_mul(2).min(MAX_BACKOFF_MS);
+                if let Some(child) = child {
+                    self.retire(child, now_ms);
+                }
             }
         }
     }
@@ -259,7 +321,7 @@ impl Watches {
 
     fn due_at(&self, id: &str, p: &Pending) -> i64 {
         let debounce = self.debounce_ms(id);
-        p.last_ms.saturating_add(debounce).min(p.first_ms.saturating_add(MAX_HOLD_MS.max(debounce)))
+        p.last_ms.saturating_add(debounce).min(p.first_ms.saturating_add(MAX_HOLD_MS))
     }
 
     /// The events whose debounce ended by `now_ms`, oldest first.
@@ -291,11 +353,17 @@ impl Watches {
         out.into_iter().map(|(_, e)| e).collect()
     }
 
-    /// The next time something is due: a pending event or a restart.
+    /// The next time something is due: a pending event, a restart, or a
+    /// stopped command to reap or kill.
     pub fn next_deadline_ms(&self) -> Option<i64> {
         let events = self.pending.iter().map(|(id, p)| self.due_at(id, p));
         let restarts = self.watchers.values().filter_map(|w| w.restart_at_ms);
-        events.chain(restarts).min()
+        // A killed command is reaped on the next pass; check again soon.
+        let dying = self
+            .dying
+            .iter()
+            .map(|d| if d.killed { d.kill_at_ms.saturating_add(1_000) } else { d.kill_at_ms });
+        events.chain(restarts).chain(dying).min()
     }
 
     /// One row per watch command.
@@ -316,28 +384,52 @@ impl Watches {
 }
 
 impl Drop for Watches {
+    /// SIGTERM every command, wait for them at most [`KILL_GRACE_MS`], then
+    /// SIGKILL what is left.
     fn drop(&mut self) {
-        for w in self.watchers.values_mut() {
-            stop(w);
+        let mut children: Vec<Child> = self.dying.drain(..).map(|d| d.child).collect();
+        children.extend(self.watchers.values_mut().filter_map(|w| w.child.take()));
+        if children.is_empty() {
+            return;
+        }
+        for child in &children {
+            terminate(child, false);
+        }
+        let ids: Vec<u32> = children.iter().map(Child::id).collect();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            for mut child in children {
+                let _ = child.wait();
+            }
+            let _ = tx.send(());
+        });
+        let grace = Duration::from_millis(KILL_GRACE_MS as u64);
+        let done = rx.recv_timeout(grace).is_ok();
+        #[cfg(unix)]
+        for id in &ids {
+            // SAFETY: the process groups this runner started; a group id is
+            // never reused while any member lives.
+            unsafe { libc::kill(-(*id as libc::pid_t), libc::SIGKILL) };
+            signals::forget(*id as libc::pid_t);
+        }
+        if !done {
+            let _ = rx.recv_timeout(grace);
         }
     }
 }
 
-/// Stop a watch command's whole process group (a pipeline is several processes).
-fn stop(w: &mut Watcher) {
-    if let Some(mut child) = w.child.take() {
-        #[cfg(unix)]
-        {
-            let pgid = child.id() as libc::pid_t;
-            signals::forget(pgid);
-            // SAFETY: signals the process group this runner started for this command.
-            unsafe { libc::kill(-pgid, libc::SIGTERM) };
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = child.kill();
-        }
-        let _ = child.wait();
+/// Signal a watch command's whole process group (a pipeline is several
+/// processes): SIGTERM, or SIGKILL when `kill`.
+fn terminate(child: &Child, kill: bool) {
+    #[cfg(unix)]
+    {
+        let sig = if kill { libc::SIGKILL } else { libc::SIGTERM };
+        // SAFETY: signals the process group this runner started for this command.
+        unsafe { libc::kill(-(child.id() as libc::pid_t), sig) };
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (child, kill);
     }
 }
 
@@ -347,7 +439,7 @@ fn spawn(
     spec: &Spec,
     generation: u64,
     log: &std::path::Path,
-    tx: Sender<Msg>,
+    tx: SyncSender<Msg>,
 ) -> Result<Child, String> {
     use std::os::unix::process::CommandExt;
     if let Some(dir) = log.parent() {
@@ -390,14 +482,14 @@ fn spawn(
     _spec: &Spec,
     _generation: u64,
     _log: &std::path::Path,
-    _tx: Sender<Msg>,
+    _tx: SyncSender<Msg>,
 ) -> Result<Child, String> {
     Err(crate::sys::UNSUPPORTED_ON_WINDOWS.into())
 }
 
 /// Send every line of `out` until it closes, then `Closed`. A line longer
 /// than [`MAX_LINE_BYTES`] is cut; invalid UTF-8 is replaced.
-fn read_lines(id: String, generation: u64, mut out: impl Read, tx: Sender<Msg>) {
+fn read_lines(id: String, generation: u64, mut out: impl Read, tx: SyncSender<Msg>) {
     let mut line: Vec<u8> = Vec::new();
     let mut buf = [0u8; 8192];
     let now_ms = || {
@@ -450,6 +542,11 @@ mod signals {
             .any(|slot| slot.compare_exchange(0, pgid, Ordering::SeqCst, Ordering::SeqCst).is_ok())
     }
 
+    #[cfg(all(test, unix))]
+    pub(super) fn holds(pgid: libc::pid_t) -> bool {
+        GROUPS.iter().any(|slot| slot.load(Ordering::SeqCst) == pgid)
+    }
+
     pub(super) fn forget(pgid: libc::pid_t) {
         for slot in &GROUPS {
             let _ = slot.compare_exchange(pgid, 0, Ordering::SeqCst, Ordering::SeqCst);
@@ -478,5 +575,89 @@ mod signals {
                 unsafe { libc::signal(sig, on_signal as *const () as libc::sighandler_t) };
             }
         });
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    fn store(tag: &str) -> Store {
+        let dir =
+            std::env::temp_dir().join(format!("cmux-watch-unit-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        Store::open(&dir).unwrap()
+    }
+
+    fn now_ms() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn an_exited_watch_gives_back_its_signal_slot() {
+        let store = store("slot");
+        let spec = crate::AutomationSpec {
+            name: "once".into(),
+            trigger: Trigger::Watch { command: "echo hi".into(), debounce_seconds: 1 },
+            body: crate::Body::Command { command: "true".into(), folder: None },
+            catch_up: crate::CatchUp::default(),
+            timeout_seconds: 30,
+            enabled: true,
+            gate: crate::Gate::default(),
+        };
+        let a = store.create(spec, 0).unwrap();
+        let mut w = Watches::new(store);
+        w.reconcile(std::slice::from_ref(&a), now_ms());
+        let pid = w.status()[0].pid.unwrap() as libc::pid_t;
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while signals::holds(pid) && std::time::Instant::now() < deadline {
+            w.wait(Duration::from_millis(100), &now_ms);
+        }
+        assert!(!signals::holds(pid), "the exited command's slot is free");
+    }
+
+    #[test]
+    fn one_pass_takes_a_bounded_number_of_lines() {
+        let mut w = Watches::new(store("drain"));
+        w.watchers.insert(
+            "a".into(),
+            Watcher {
+                spec: Spec { command: String::new(), folder: None, debounce_ms: 1_000 },
+                generation: 1,
+                child: None,
+                started_ms: 0,
+                restart_at_ms: None,
+                backoff_ms: FIRST_BACKOFF_MS,
+                last_error: None,
+            },
+        );
+        for _ in 0..(MAX_DRAIN + 10) {
+            w.tx.send(Msg::Line { id: "a".into(), generation: 1, line: "x".into(), at_ms: 0 })
+                .unwrap();
+        }
+        w.wait(Duration::ZERO, &|| 0);
+        assert_eq!(w.pending["a"].lines, MAX_DRAIN as u64);
+    }
+
+    #[test]
+    fn a_stream_is_held_at_most_30_seconds_whatever_the_debounce() {
+        let mut w = Watches::new(store("hold"));
+        w.watchers.insert(
+            "a".into(),
+            Watcher {
+                spec: Spec { command: String::new(), folder: None, debounce_ms: 3_600_000 },
+                generation: 1,
+                child: None,
+                started_ms: 0,
+                restart_at_ms: None,
+                backoff_ms: FIRST_BACKOFF_MS,
+                last_error: None,
+            },
+        );
+        w.add_line("a", "x", 0);
+        assert_eq!(w.next_deadline_ms(), Some(MAX_HOLD_MS));
     }
 }
