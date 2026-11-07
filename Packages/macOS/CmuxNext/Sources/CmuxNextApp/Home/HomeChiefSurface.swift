@@ -30,7 +30,7 @@ protocol HomeChiefShowing: NSView {
 final class HomeChiefSurface {
     let conversation: ConversationID
     /// Which brain answers this conversation (this Mac's or a paired server's).
-    let control: HomeChiefControl
+    private(set) var control: HomeChiefControl
     /// The Chief's stop and stop-all, one request at a time.
     let turnActions = HomeChiefTurnActions()
     private(set) var isChief = false
@@ -139,8 +139,7 @@ final class HomeChiefSurface {
         if !placed { owner.addSubview(anchor) }
         if let pill {
             anchor.frame = Self.frame(of: pill, in: owner)
-        } else if !placed {
-            // Opened by the action before any click: under the header's pill, at the top centre.
+        } else if !placed {  // opened by the action before any click: under the header's pill, top centre
             anchor.frame = Self.frame(of: CGRect(x: owner.bounds.midX - 60, y: 46, width: 120, height: 24), in: owner)
         }
         made.view.refresh()
@@ -199,8 +198,9 @@ final class HomeChiefSurface {
             }
         }
         // Show Memory: this conversation's Chief (a named local Chief, or a cloud Chief's paired server).
-        view.onShowMemory = { [weak services] in
+        view.onShowMemory = { [weak self, weak services] in
             var invocation = ActionInvocation(origin: .user)
+            guard let control = self?.control else { return }
             if let machine = control.server?.machineID {
                 invocation.arguments["server"] = .string(machine)
             } else if let chief = control.named {
@@ -261,9 +261,8 @@ final class HomeChiefSurface {
             } else {
                 await HomeChiefAvatars.headerAvatar(files: files, fallback: fallback)
             }
-            let data = avatar.picture
             // task-owner: one decode of the avatar picture; ends when it is shown
-            let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { data.flatMap(Self.decode) }.value
+            let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { avatar.picture.flatMap(Self.decode) }.value
             // A read for the Chief shown before (another came in since) is dropped.
             guard let self, let made = self.made, control.brainHome == home else { return }
             let picture = decoded.map { NSImage(cgImage: $0, size: .zero) }
