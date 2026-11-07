@@ -12,6 +12,7 @@ use crate::resource::{
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
 mod layout_columns;
+mod layout_fit;
 mod layout_rows;
 mod split_around;
 
