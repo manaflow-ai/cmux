@@ -1078,13 +1078,15 @@ function aroundReplies(
     version: run.version * RUN_STATES + 3,
   });
   const flush = () => {
-    // A call that never got its input draws as nothing, as the open fold draws it (withoutDrafts).
-    const work = stretch.flatMap(withoutDrafts).filter((row) => !isEdit(row));
+    // A call that never got its input draws as nothing, as the open fold draws it (withoutDrafts),
+    // which drops it after mergeShortNotes, so a draft-only row still ends a run there.
+    const all = stretch.filter((row) => !isEdit(row));
     stretch = [];
     if (arm === "runs") {
-      shaped.push(...mergeShortNotes(work, keep, edits).filter(isRun).map(line));
+      shaped.push(...mergeShortNotes(all, keep, edits).flatMap(withoutDrafts).filter(isRun).map(line));
       return;
     }
+    const work = all.flatMap(withoutDrafts);
     const runs = work.filter(isRun);
     if (!runs.length) return;
     const from = work.indexOf(runs[0]!);
