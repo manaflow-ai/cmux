@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42414159520",
+  "recorded_at": "2026-11-07T21:09:41Z",
+  "reason": "cmux-tui 0e9696e55931 changes the image's cmux-tui (pinned 1b56dc04afee)",
+  "dry_run": false,
+  "cmux_tui": "0e9696e559312422358dd9aec5a4c731b8952617",
+  "fixes": [
+    {
+      "sha": "0e9696e559312422358dd9aec5a4c731b8952617",
+      "mergedAt": "2026-11-07T12:48:15-08:00",
+      "subject": "cmux-layout-reducer: the sidebar face answers Copy Agent Identifier's chat (front_chat) (#37999)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-07T21:09:41Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
