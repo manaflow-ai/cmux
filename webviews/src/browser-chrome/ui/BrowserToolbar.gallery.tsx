@@ -50,6 +50,7 @@ const comfortable: ToolbarRowMetrics = {
   fontSize: TEXT.find((step) => step.name === "title")!.px,
   toolbarIcon: 22,
   trailingIcon: 20,
+  starIcon: 22,
   chipIcon: 15,
   cornerRadius: 8,
 };
