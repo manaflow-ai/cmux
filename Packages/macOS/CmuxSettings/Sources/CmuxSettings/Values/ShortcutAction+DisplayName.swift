@@ -33,6 +33,7 @@ extension ShortcutAction {
         case .openFolder: return "Open Folder"
         case .reopenPreviousSession: return "Restore Previous App Launch"
         case .goToWorkspace: return "Go to Workspace…"
+        case .searchTabs: return String(localized: "shortcut.searchTabs.label", defaultValue: "Search Tabs")
         case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
         case .agentInbox: return String(localized: "shortcut.agentInbox.label", defaultValue: "Show Agent Inbox")
         case .openChief: return String(localized: "shortcut.openChief.label", defaultValue: "Open Chief")
