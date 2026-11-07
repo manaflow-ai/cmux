@@ -519,7 +519,7 @@ export class MockSettingsProvider {
       "cmux.settings.environments.state": () => this.environments,
       "cmux.settings.environments.run": (params) => this.runEnvironments(params as unknown as CloudEnvironmentsRun),
       // Settings > Agents > Worktree Setup: the session host's ops through the page relay.
-      "cmux.project.list": () => ({
+      "cmux.settings.worktree.list": () => ({
         projects: this.worktreeProjects.map((project) => ({
           path: project.path,
           name: project.name,
@@ -528,7 +528,7 @@ export class MockSettingsProvider {
         })),
         sources: [],
       }),
-      "cmux.project.update": (params) => {
+      "cmux.settings.worktree.save": (params) => {
         const { path, worktree } = params as { path: string; worktree: WorktreeRecipe | null };
         this.worktreeProjects = this.worktreeProjects.map((project) => {
           if (project.path !== path) return project;
@@ -537,7 +537,7 @@ export class MockSettingsProvider {
         });
         return { value: { path }, replayed: false };
       },
-      "cmux.git.worktree.setup": (params) => {
+      "cmux.settings.worktree.read": (params) => {
         const project = this.worktreeProjects.find((row) => row.path === (params as { path: string }).path);
         const repository = project?.repository ?? {};
         const saved = project?.saved;

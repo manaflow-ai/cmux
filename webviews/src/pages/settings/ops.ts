@@ -1179,11 +1179,12 @@ export type SettingsOps = {
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
   "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
-  /** Settings > Agents > Worktree Setup, through the host's page relay to the session host's
-   * `project.list`, `project.update` (field `worktree`) and `git.worktree.setup`. */
-  "cmux.project.list": [{ include_hidden?: boolean; limit?: number }, unknown];
-  "cmux.project.update": [Mutation<{ path: string; worktree: WorktreeRecipe | null }>, unknown];
-  "cmux.git.worktree.setup": [{ path: string }, unknown];
+  /** Native: Settings > Agents > Worktree Setup, the session host's `project.list`,
+   * `git.worktree.setup` and (on your click) `project.update` field `worktree`, on the app's own
+   * connection: a page may not reach them itself. */
+  "cmux.settings.worktree.list": [{ limit?: number }, unknown];
+  "cmux.settings.worktree.read": [{ path: string }, unknown];
+  "cmux.settings.worktree.save": [Mutation<{ path: string; worktree: WorktreeRecipe | null }>, unknown];
   /** Native: Settings > Devices; rejects with `cmux.page.unavailable` when the host has no device hub. */
   "cmux.settings.devices.state": [Record<string, never>, DevicesState];
   /** Native: one Devices gesture; a failure answers its localized text in `error`. */

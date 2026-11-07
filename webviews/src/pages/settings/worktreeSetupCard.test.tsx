@@ -42,7 +42,7 @@ test("a replaced script and a turned-off one save as the project's recipe", asyn
   expect(note(page.container, "run")).toContain("Off: the repository's does not run.");
   await type(field(page.container, "include"), "secrets/dev.json\n\n");
   await click(card(page.container).querySelector<HTMLButtonElement>('[data-worktree="save"]')!);
-  expect(ops(page.provider, "cmux.project.update")).toEqual([
+  expect(ops(page.provider, "cmux.settings.worktree.save")).toEqual([
     {
       path: "/Users/you/src/cmux",
       worktree: { setup: "bun install --frozen-lockfile", run: "", include: ["secrets/dev.json"] },
@@ -65,7 +65,7 @@ test("Use Repository's drops the project's script; Clear Saved sends null", asyn
   expect(field(page.container, "setup").value).toBe("");
   expect(note(page.container, "setup")).not.toContain("Replaces");
   await click(card(page.container).querySelector<HTMLButtonElement>('[data-worktree="clear"]')!);
-  expect(ops(page.provider, "cmux.project.update")).toEqual([{ path: "/Users/you/src/website", worktree: null }]);
+  expect(ops(page.provider, "cmux.settings.worktree.save")).toEqual([{ path: "/Users/you/src/website", worktree: null }]);
   expect(page.provider.worktreeProjects.find((row) => row.name === "website")?.saved).toBeUndefined();
   page.unmount();
 });
@@ -73,7 +73,7 @@ test("Use Repository's drops the project's script; Clear Saved sends null", asyn
 test("a build whose relay cannot reach the projects says so", async () => {
   const page = await renderPage({
     path: "/settings/agents",
-    mock: { failing: { "cmux.project.list": "cmux.protocol.unknown_op" } },
+    mock: { failing: { "cmux.settings.worktree.list": "cmux.protocol.unknown_op" } },
   });
   await settle();
   expect(card(page.container).querySelector("[data-worktree-unavailable]")).not.toBeNull();
