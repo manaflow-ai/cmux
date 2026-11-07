@@ -496,15 +496,36 @@ def _needs(jobs: dict, job_id: str, where: str) -> list[str]:
     return needs
 
 
+# PyYAML 6.0.3's pure-Python lib/yaml, unmodified (sdist sha256 d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f,
+# MIT, its LICENSE beside it): the YAML reader where the interpreter has no PyYAML. merge_hold runs this script as
+# `python3 -I` under Homebrew's Python on the Mac that lands PRs, which has none, and every cmuxterm-hq rollup red
+# was refused there with "no YAML parser" (2026-11-07, hq#7398).
+VENDORED_YAML = Path(__file__).resolve().with_name("_vendor")
+
+
+def yaml_module():
+    """PyYAML: the interpreter's own, else the vendored copy (VENDORED_YAML). Refused when neither imports."""
+    try:
+        import yaml  # noqa: PLC0415 - only deriving reads YAML; judging this repo reads ROLLUPS_FILE
+        return yaml
+    except ImportError:
+        pass
+    if (VENDORED_YAML / "yaml" / "__init__.py").is_file():
+        if str(VENDORED_YAML) not in sys.path:
+            sys.path.append(str(VENDORED_YAML))
+        try:
+            import yaml  # noqa: PLC0415
+            return yaml
+        except ImportError:
+            pass
+    raise Refused("no YAML parser to read the workflows' rollups; no rollup red is excused")
+
+
 def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTED_ROLLUPS, read=None) -> dict:
     """The rollups contract (ROLLUPS_FILE) derived from the workflow files; refuses any shape it does not know.
     RUN and ROUTED name the rollups (another repo's, OTHER_REPO_ROLLUPS); READ(file) gives a workflow's text when it
     is not under WORKFLOWS (another repo's, at its base)."""
-    try:
-        import yaml  # noqa: PLC0415 - only deriving reads YAML; judging this repo reads ROLLUPS_FILE
-    except ImportError:
-        raise Refused("no YAML parser to read the workflows' rollups; no rollup red is excused") from None
-
+    yaml = yaml_module()
     if read is None:
         def read(file: str) -> str:
             return (workflows / file).read_text()
@@ -962,29 +983,96 @@ BASE_STATUS_COMMITS = 10
 VERCEL_RATE_LIMITED = re.compile(r"Deployment rate limited\b")
 VERCEL_NOT_BUILT = re.compile(r"(?i)\bIgnored Build Step\b|\bcancel(?:l?ed)?\b")
 VERCEL_TREE = "web/"
-PR_FILES_QUERY = ("query($owner: String!, $name: String!, $oid: GitObjectID!) { repository(owner: $owner, name: $name) "
-                  "{ object(oid: $oid) { ... on Commit { associatedPullRequests(first: 10) { nodes { number "
-                  "baseRefName headRefOid changedFiles files(first: 100) { nodes { path } pageInfo { hasNextPage } } "
-                  "} } } } } }")
+# A PR's files are read PR_FILES_PAGE at a time through files(after:) until the last page (cmux#37362 at 54470673
+# changes 108 files; one page of 100 refused it). The PR's head and base commits must stay the same on every page, so
+# the pages all list one diff.
+PR_FILES_PAGE = 100
+PR_FILES_PAGES = 30  # 3000 files, GitHub's own limit on a PR's file list
+PR_FILES_QUERY = ("query($owner: String!, $name: String!, $oid: GitObjectID!, $after: String) { repository(owner: "
+                  "$owner, name: $name) { object(oid: $oid) { ... on Commit { associatedPullRequests(first: 10) { "
+                  f"nodes {{ number baseRefName baseRefOid headRefOid changedFiles files(first: {PR_FILES_PAGE}, "
+                  "after: $after) { nodes { path } pageInfo { hasNextPage endCursor } } } } } } } }")
 
 
 def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
-    """The open PR into BASE whose head is SHA, and every path it changes, in one GraphQL read (no REST). Refused when
-    there is no such PR or GitHub lists fewer files than the PR changes."""
+    """The open PR into BASE whose head is SHA, and every path it changes, over GraphQL (no REST), page by page.
+    Refused when there is no such PR, when its base moves while it is read, or when GitHub lists fewer files than
+    the PR changes."""
     owner, _, name = repo.partition("/")
-    found = json.loads(github.run(["api", "graphql", "-f", f"query={PR_FILES_QUERY}", "-f", f"owner={owner}",
-                                   "-f", f"name={name}", "-f", f"oid={sha}"]))
-    commit = (((found.get("data") or {}).get("repository") or {}).get("object") or {}) if isinstance(found, dict) else {}
-    for pr in (commit.get("associatedPullRequests") or {}).get("nodes") or []:
-        if pr.get("headRefOid") != sha or pr.get("baseRefName") != base:
-            continue
+    number, base_oid, paths, after, pr, info = None, None, [], None, {}, {}
+    for _page in range(PR_FILES_PAGES):
+        found = json.loads(github.run(["api", "graphql", "-f", f"query={PR_FILES_QUERY}", "-f", f"owner={owner}",
+                                       "-f", f"name={name}", "-f", f"oid={sha}",
+                                       "-F" if after is None else "-f", f"after={after or 'null'}"]))
+        commit = (((found.get("data") or {}).get("repository") or {}).get("object") or {}) \
+            if isinstance(found, dict) else {}
+        pr = next((node for node in (commit.get("associatedPullRequests") or {}).get("nodes") or []
+                   if node.get("headRefOid") == sha and node.get("baseRefName") == base
+                   and (number is None or node.get("number") == number)), None)
+        if pr is None:
+            if number is None:
+                raise Refused(f"no PR into {base} has head {sha} to read its changed files from")
+            raise Refused(f"#{number}: no longer a PR into {base} with head {sha} while its files were read")
+        if number is None:
+            number, base_oid = pr.get("number"), pr.get("baseRefOid")
+        elif pr.get("baseRefOid") != base_oid:
+            raise Refused(f"#{number}: its base moved from {base_oid} to {pr.get('baseRefOid')} while its files "
+                          "were read")
         files = pr.get("files") or {}
-        paths = [node.get("path") for node in files.get("nodes") or [] if isinstance(node.get("path"), str)]
-        if (files.get("pageInfo") or {}).get("hasNextPage") or len(paths) != pr.get("changedFiles"):
-            raise Refused(f"#{pr.get('number')}: GitHub listed {len(paths)} of its {pr.get('changedFiles')} changed "
-                          f"files, too few to show it stays out of {VERCEL_TREE}")
-        return pr.get("number"), paths
-    raise Refused(f"no PR into {base} has head {sha} to read its changed files from")
+        paths += [node.get("path") for node in files.get("nodes") or [] if isinstance(node.get("path"), str)]
+        info = files.get("pageInfo") or {}
+        after = info.get("endCursor")
+        if not info.get("hasNextPage") or not after:
+            break
+    if info.get("hasNextPage") or len(paths) != pr.get("changedFiles"):
+        raise Refused(f"#{number}: GitHub listed {len(paths)} of its {pr.get('changedFiles')} changed files, too "
+                      f"few to judge what it changes")
+    return number, paths
+
+
+# A step-A Rust change (cmux#37292, 2026-11-06): the app links one pinned release of the app FFI, and
+# scripts/cmux-next/check-app-ffi-pin.sh reports "error: the app FFI sources changed since the pinned source" on any PR
+# that changes its inputs. app-ffi-release.yml publishes only from a feat-cmux-next push, so such a PR can never carry
+# its own pin: its merge is what publishes the release the re-pin then names. That error alone, in the cmux-next checks
+# job, is excused when the PR changes FFI inputs, leaves Package.swift (the pin) alone and changes no Swift, so no app
+# code calls a symbol or op the pinned library lacks. Any other red in the job is judged as before.
+FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+FFI_PIN_CHECK = "Check the app FFI pin"
+FFI_PIN_ROLLUP_STEP = "Fail on any red check"  # the job's last step, red when a continue-on-error check is
+FFI_PIN_ERROR = "error: the app FFI sources changed since the pinned source"
+FFI_PIN_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
+FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh")
+
+
+def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], errors: set[str], tests: set[str],
+                   log: str, github) -> str | None:
+    """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR (the
+    rule above). Wherever the pin error shows, the PR must be one the rule covers, whatever else is red: Refused
+    when it changes Swift or Package.swift or no FFI input, since the base comparison may set the error aside beside
+    another red the base shares (review of d5c11dd8). None when there is no pin error, or when something else is red
+    too (another failed step, a failing test, a crash, another error): that red is judged as before. The caller asks
+    only after test_reds.read found no crash or cut-short run."""
+    pin, rollup = normalise_error(FFI_PIN_ERROR), normalise_error(f"red check: {FFI_PIN_CHECK}")
+    if name != FFI_PIN_JOB or not any(error.startswith(pin) for error in errors):
+        return None
+    number, paths = pr_paths(repo, base, sha, github)
+    if FFI_PIN_MANIFEST in paths:
+        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes {FFI_PIN_MANIFEST}: a PR that moves "
+                      "the pin must pin a release built from its own sources")
+    if swift := [path for path in paths if path.endswith(".swift")]:
+        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes Swift ({'; '.join(swift[:5])}): "
+                      "app code may call what the pinned library lacks; land the Rust alone, then the Swift after "
+                      "the re-pin")
+    if not any(touches(path, read) for path in paths for read in FFI_INPUTS):
+        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes no app FFI input")
+    others = {error for error in errors if not error.startswith(pin)} - {rollup}
+    # The rollup must have named the pin as its red check: a rollup that failed before saying so is another red.
+    if (tests or crash_signals(log) or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others
+            or rollup not in errors):
+        return None
+    return (f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{number} changes app FFI "
+            f"inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned by the release its merge "
+            "publishes")
 
 
 def vercel_not_built(repo: str, base: str, sha: str | None, name: str, description: str, found: dict, github) -> str | None:
@@ -2151,6 +2239,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if own.crashes or (own.truncated and not chromium_without_diagnostics):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                           + " (a crash or a cut-short run is never a base red)")
+        if (pinned := ffi_pin_step_a(repo, base, sha, name, head_steps, head_errors, head_tests, head_log,
+                                     github)) is not None:
+            audit.append(pinned)
+            continue
         workflow_info = rest_run(repo, job["run_id"], github, run_reads)
         workflow = workflow_info.get("workflow_id")
         if not isinstance(workflow, int):

@@ -4,46 +4,39 @@ import CmuxNextDesign
 
 /// Import from Browser's folder grants for the app: detection that reads only
 /// granted folders, the open panel that asks for one, and the scope around an
-/// import run. With Debug Settings `browserImport.folderGrant` off, every
-/// browser's folder is read on Find Browsers (the earlier behavior).
+/// import run.
 @MainActor
 public final class BrowserFolderAccess {
     private let environment: ImportEnvironment
     private let store: any BrowserFolderGrantStore
-    private let enabled: () -> Bool
 
     public init(environment: ImportEnvironment = .live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) },
-                store: any BrowserFolderGrantStore = UserDefaultsBrowserFolderGrantStore(),
-                enabled: (() -> Bool)? = nil) {
+                store: any BrowserFolderGrantStore = UserDefaultsBrowserFolderGrantStore()) {
         self.environment = environment
         self.store = store
-        self.enabled = enabled ?? { BrowserImportTunables.folderGrant.value }
     }
 
-    /// nil while the folder grant is off.
-    private var grants: BrowserFolderGrants? {
-        enabled() ? BrowserFolderGrants(environment: environment, store: store) : nil
-    }
+    private var grants: BrowserFolderGrants { BrowserFolderGrants(environment: environment, store: store) }
 
     public func detect() async -> [BrowserSource] {
-        let grants = grants, environment = environment
+        let grants = grants
         // The scan runs detached; cancelling the caller cancels it too, so it stops between browsers.
-        let scan = Task.detached { grants?.detect() ?? BrowserSourceDetector(environment: environment).detect() }
+        let scan = Task.detached { grants.detect() }
         return await withTaskCancellationHandler { await scan.value } onCancel: { scan.cancel() }
     }
 
     public func awaiting() async -> [ImportBrowser] {
-        guard let grants else { return [] }
+        let grants = grants
         let scan = Task.detached { grants.awaiting() }
         return await withTaskCancellationHandler { await scan.value } onCancel: { scan.cancel() }
     }
 
-    public func folder(_ browser: ImportBrowser) -> URL? { grants?.folder(browser) }
+    public func folder(_ browser: ImportBrowser) -> URL? { grants.folder(browser) }
 
     /// The open panel at `browser`'s data folder, prompt Allow Access; only
     /// that folder is accepted and kept (`BrowserFolderGrants`).
     public func request(_ browser: ImportBrowser) async -> Bool {
-        guard let grants else { return false }
+        let grants = grants
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -71,7 +64,7 @@ public final class BrowserFolderAccess {
     /// Puts the granted folders of the plan's browsers in scope; call the
     /// returned closure when the run ends.
     public func access(_ plan: ImportPlan) -> () -> Void {
-        guard let grants else { return {} }
+        let grants = grants
         let scoped = Set(plan.items.map(\.profile.browser)).compactMap(grants.grantedFolder)
             .filter { $0.startAccessingSecurityScopedResource() }
         return { scoped.forEach { $0.stopAccessingSecurityScopedResource() } }

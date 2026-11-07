@@ -235,8 +235,9 @@ export type AcpmuxAgentPair = {
 };
 
 /// What the chat's agent runs on, from its own start line (Claude Code's system/init, acpmux's
-/// `session_info_update._meta.claude`): drawn once, where the session started
-/// (conversation/SessionStartNote.tsx). `harness` and `cwd` are the chat's when the line came.
+/// `session_info_update._meta.claude`): the chat's summary keeps the latest, and a transcript line
+/// (conversation/SessionStartNote.tsx) marks a turn whose model or route is new. `harness` and `cwd`
+/// are the chat's when the line came.
 export type AcpmuxSessionStart = {
   agent: "claude";
   version: string;
@@ -1037,6 +1038,9 @@ export type AcpmuxSnapshot = {
     /// autocompact cap, its subagents. Unset while the harness has no readable transcript.
     usageStats?: SessionUsageStats;
     host?: string;
+    /// What Claude Code's last init line said the chat runs on: its version, model id, route and
+    /// folder, for Session Info's Environment and the `/status` card.
+    sessionStart?: AcpmuxSessionStart;
     /// The machine acpmux runs the chat on (acpmux `machine`), for the `/status` card only:
     /// unlike `host` it is set for a local chat too.
     machine?: string;
