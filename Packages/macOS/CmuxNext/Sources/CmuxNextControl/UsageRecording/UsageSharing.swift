@@ -82,7 +82,8 @@ public final class UsageSharing {
     private var switchPending: Bool?
     private var switchGeneration = 0
     private var askedThisLaunch = false
-    private var uploading = false
+    /// The running upload; cancelled (which ends its `cmux usage upload`) once sharing is off.
+    private var uploadTask: Task<Void, Never>?
 
     init(ports: Ports, defaults: UserDefaults) {
         self.ports = ports
@@ -136,6 +137,8 @@ public final class UsageSharing {
 
     private func follow() {
         let decision = decision
+        // Off while an upload runs: end it now; the CLI also checks consent before every batch.
+        if decision != .share { cancelUpload() }
         apply(decision == .share)
         guard decision == .confirm, !askedThisLaunch, let settings, let firstWindow else { return }
         askedThisLaunch = true
@@ -195,22 +198,29 @@ public final class UsageSharing {
     /// one started at least ``uploadInterval`` ago.
     func uploadIfDue() {
         let now = ports.now()
-        guard decision == .share, switchSent == true, !uploading,
+        guard decision == .share, switchSent == true, uploadTask == nil,
               Self.uploadDue(now: now, last: defaults.object(forKey: Self.lastUploadKey) as? Date)
         else { return }
         defaults.set(now, forKey: Self.lastUploadKey)
-        uploading = true
         let upload = ports.upload
-        // task-owner: one `cmux usage upload`, bounded by its own deadline (uploadDeadline).
-        Task { [weak self] in
+        // task-owner: one `cmux usage upload`, bounded by its own deadline (uploadDeadline); cancelled
+        // (killing the process) when sharing turns off.
+        uploadTask = Task { [weak self] in
             let ok = await upload()
-            self?.uploading = false
+            guard !Task.isCancelled else { return }
+            self?.uploadTask = nil
             if !ok { self?.logger.notice("usage upload did not finish; the next one is due in 6 hours") }
         }
     }
 
+    /// Ends the running upload, if any.
+    private func cancelUpload() {
+        uploadTask?.cancel()
+        uploadTask = nil
+    }
+
     /// Whether an upload is running (tests).
-    var isUploading: Bool { uploading }
+    var isUploading: Bool { uploadTask != nil }
 
     // MARK: Rules
 

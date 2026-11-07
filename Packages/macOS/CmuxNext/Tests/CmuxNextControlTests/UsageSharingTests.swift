@@ -109,6 +109,32 @@ import Testing
         #expect(log.all.count == 5)
     }
 
+    /// Sharing off during an upload ends it (Codex review of c9cdeb6e): the upload's task is
+    /// cancelled, which kills the `cmux usage upload` process, and none other starts.
+    @Test func turningSharingOffCancelsTheRunningUpload() async {
+        let log = SharingLog()
+        let ports = UsageSharing.Ports(
+            ask: { _, _, _, _ in false },
+            setSharing: { on in log.calls.withLock { $0.append("set-sharing \(on)") } },
+            upload: {
+                log.calls.withLock { $0.append("upload") }
+                while !Task.isCancelled { await Task.yield() }
+                log.calls.withLock { $0.append("upload cancelled") }
+                return false
+            })
+        let sharing = UsageSharing(ports: ports, defaults: Self.defaults(consented: true))
+        sharing.setting(true)
+        sharing.recording(true)
+        for _ in 0..<50 where !log.all.contains("upload") { await Task.yield() }
+        #expect(sharing.isUploading)
+
+        sharing.setting(false)
+        #expect(!sharing.isUploading)
+        for _ in 0..<50 where !log.all.contains("upload cancelled") { await Task.yield() }
+        #expect(log.all.contains("upload cancelled"))
+        #expect(log.all.filter { $0 == "upload" }.count == 1)
+    }
+
     @Test func noConsentNoMarkerAndNoUpload() async {
         let log = SharingLog()
         let defaults = Self.defaults(consented: false)

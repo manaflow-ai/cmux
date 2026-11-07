@@ -142,6 +142,8 @@ pub struct Pending {
     pub records: Vec<Record>,
     pub start: usize,
     cursor: Cursor,
+    /// When sharing was switched on as this was read; none while it was off.
+    since: Option<u64>,
 }
 
 /// Why an upload stopped before its end.
@@ -152,6 +154,9 @@ pub enum Stop<E> {
     /// The backend took a batch but the cursor could not be written; the next upload sends it
     /// again and the backend counts it once.
     Cursor(io::Error),
+    /// Recording or sharing was switched off (or sharing switched off and on again) since the
+    /// records were read: no further batch goes.
+    NotSharing,
 }
 
 /// What an upload did.
@@ -169,9 +174,10 @@ impl Pending {
     pub fn read(dir: &UsageDir) -> Option<Self> {
         let install = install_id(&dir.existing_salt()?);
         let cursor = Cursor::load(dir, &install);
-        let records = dir.sharing_since().map_or_else(Vec::new, |since| dir.read(since));
+        let since = dir.sharing_since();
+        let records = since.map_or_else(Vec::new, |since| dir.read(since));
         let start = cursor.start(&records);
-        Some(Self { install, records, start, cursor })
+        Some(Self { install, records, start, cursor, since })
     }
 
     /// How many records would go.
@@ -186,7 +192,8 @@ impl Pending {
 
     /// Sends every pending record with `send`, one [`Batch`] at a time within the backend's
     /// limits, saving the cursor in `dir` after each batch `send` accepted. Stops at the first
-    /// batch `send` refuses.
+    /// batch `send` refuses, and before any batch once recording or sharing is no longer on as
+    /// it was when the records were read (consent is checked again before every batch).
     pub fn send<E>(
         self,
         dir: &UsageDir,
@@ -197,6 +204,10 @@ impl Pending {
         let mut cursor = self.cursor;
         let mut from = self.start;
         while let Some(batch) = next_batch(&self.install, &self.records, from, limits.0, limits.1) {
+            if self.since.is_none() || !dir.is_enabled() || dir.sharing_since() != self.since {
+                sent.stopped = Some(Stop::NotSharing);
+                break;
+            }
             if let Err(error) = send(&batch) {
                 sent.stopped = Some(Stop::Send(error));
                 break;
@@ -349,6 +360,30 @@ mod tests {
         assert!(sent.stopped.is_none());
         assert_eq!(Pending::read(&dir).expect("pending").count(), 0);
         let _ = fs::remove_dir_all(dir.path());
+    }
+
+    /// Consent is checked before every batch (Codex review of c9cdeb6e): switching sharing or
+    /// recording off during an upload stops it before the next batch.
+    #[test]
+    fn switching_sharing_or_recording_off_stops_the_next_batch() {
+        for stop_recording in [false, true] {
+            let dir = shared_dir(if stop_recording { "stop-rec" } else { "stop-share" }, 10);
+            let pending = Pending::read(&dir).expect("pending");
+            let mut calls = 0;
+            let sent = pending.send(&dir, (4, MAX_BODY_BYTES), |_| {
+                calls += 1;
+                if stop_recording {
+                    dir.set_enabled(false).expect("recording off");
+                } else {
+                    dir.set_sharing(false).expect("sharing off");
+                }
+                Ok::<(), ()>(())
+            });
+            assert_eq!(calls, 1);
+            assert_eq!((sent.batches, sent.records), (1, 4));
+            assert!(matches!(sent.stopped, Some(Stop::NotSharing)));
+            let _ = fs::remove_dir_all(dir.path());
+        }
     }
 
     #[test]

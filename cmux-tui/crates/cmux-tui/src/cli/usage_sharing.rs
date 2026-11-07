@@ -134,6 +134,11 @@ pub(super) fn upload(
             exit: 1,
         }
         .print(output),
+        // Recording or sharing was switched off while it uploaded: the rest stays here.
+        Some(Stop::NotSharing) => {
+            Refusal { code: "usage.not_sharing", message: messages.not_sharing.into(), exit: 3 }
+                .print(output)
+        }
         Some(Stop::Cursor(error)) => Refusal {
             code: "usage.cursor_failed",
             message: messages
