@@ -385,15 +385,19 @@ if [[ "$suite" == route || "$suite" == bench-v2 || "$suite" == arena ]]; then
   [[ $answered == 1 ]] || { head -c 2000 "$out/route-probe.txt"; finish "the guest's claude -p did not answer through the route (route-probe.txt)"; exit 4; }
   note "the guest's Claude Code $cc_version answered through the route"
   if [[ "$suite" == arena && ",$harness," == *,codex:* ]]; then
-    # The pinned Codex, its native binary; its route is given per run on the command line (arena.py).
+    # The pinned Codex, its native binaries; its route is given per run on the command line (arena.py).
     codex_sum=$(pin arena codex sha256)
     codex_tgz="$lume_home/bin/codex-$codex_sum.tar.gz"
     if [[ "$(shasum -a 256 "$codex_tgz" 2>/dev/null | awk '{print $1}')" != "$codex_sum" ]]; then
       curl -fsSL --retry 3 -o "$codex_tgz.part" "$(pin arena codex url)" && mv "$codex_tgz.part" "$codex_tgz"
     fi
     [[ "$(shasum -a 256 "$codex_tgz" 2>/dev/null | awk '{print $1}')" == "$codex_sum" ]] || { rm -f "$codex_tgz"; finish "could not fetch the pinned Codex"; exit 4; }
-    tar -xzOf "$codex_tgz" "$(pin arena codex binary)" | guest 'cat >/opt/homebrew/bin/codex && chmod 755 /opt/homebrew/bin/codex && (codesign -v /opt/homebrew/bin/codex 2>/dev/null || codesign -s - -f /opt/homebrew/bin/codex)' ||
-      { finish "could not copy Codex into the guest"; exit 4; }
+    # codex finds its code-mode host next to itself, as npm lays them out.
+    for codex_bin in codex codex-code-mode-host; do
+      tar -xzOf "$codex_tgz" "$(pin arena codex bin_dir)/$codex_bin" |
+        guest "cat >/opt/homebrew/bin/$codex_bin && chmod 755 /opt/homebrew/bin/$codex_bin && (codesign -v /opt/homebrew/bin/$codex_bin 2>/dev/null || codesign -s - -f /opt/homebrew/bin/$codex_bin)" ||
+        { finish "could not copy $codex_bin into the guest"; exit 4; }
+    done
     setfact route codex "$(guest_n '/opt/homebrew/bin/codex --version' 2>/dev/null | head -1)"
   fi
   if [[ "$suite" == route ]]; then
