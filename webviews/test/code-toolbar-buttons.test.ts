@@ -5,6 +5,8 @@
 // gap: "why not just have it similar to how we have the, you know, the copy button or whatever,
 // where it doesn't really have anything until you highlight over it"). The buttons sit side by side
 // with no gap, as the reply row's do, and hit targets stay the same size.
+// An unlabeled card's long first line, scrolled to its start, middle or end, never paints under
+// its corner glyphs while they show (a pixel sample under each button, the buttons hidden).
 //
 // It renders `agent-pane.code-toolbar-buttons` on the gallery stage in Chromium, dark and light.
 // CI fails the file when it cannot launch (requireBrowserLane). Locally:
@@ -172,6 +174,85 @@ await requireBrowserLane("code-toolbar-buttons.test.ts", async () => {
             name: button.name,
             filled: false,
           });
+        await page.close();
+      });
+
+  /**
+   * How far any pixel under the buttons strays from the first: the buttons are hidden (the pointer
+   * stays on the card, so its hover state holds), their boxes captured and each pixel compared. A
+   * glyph of scrolled text shows as a spread far past the tint's noise.
+   */
+  const inkUnder = async (page: Page, buttons: string) => {
+    const boxes = await page.locator(buttons).evaluateAll((list) =>
+      list.map((button) => {
+        const box = button.getBoundingClientRect();
+        return { x: box.x, y: box.y, width: box.width, height: box.height };
+      }),
+    );
+    await page.addStyleTag({
+      content: ".cv-codeblock--corner .cv-codeblock__header { visibility: hidden !important; }",
+    });
+    const spreads: number[] = [];
+    for (const clip of boxes) {
+      const png = (await page.screenshot({ clip })).toString("base64");
+      spreads.push(
+        await page.evaluate(async (data) => {
+          const image = new Image();
+          image.src = `data:image/png;base64,${data}`;
+          await image.decode();
+          const canvas = document.createElement("canvas");
+          canvas.width = image.width;
+          canvas.height = image.height;
+          const context = canvas.getContext("2d")!;
+          context.drawImage(image, 0, 0);
+          const pixels = context.getImageData(0, 0, image.width, image.height).data;
+          let spread = 0;
+          for (let i = 0; i < pixels.length; i += 4)
+            for (let c = 0; c < 3; c++) spread = Math.max(spread, Math.abs(pixels[i + c]! - pixels[c]!));
+          return spread;
+        }, png),
+      );
+    }
+    return spreads;
+  };
+
+  // An unlabeled card floats its glyphs over its own text, with no strip behind them. Its first
+  // line keeps room after its end, which clears the glyphs only at the scroll end; before it, the
+  // line must fade out under them rather than paint through (cross-model review of #37521).
+  // The stage's first card: an unlabeled highlighted one, Wrap and Copy in its corner.
+  const CORNER = ".cv-codeblock--corner:first-child";
+  const SCROLLER = `${CORNER} .cv-code-plain`;
+  for (const theme of ["Catppuccin Mocha", "Apple System Colors Light"])
+    for (const at of ["start", "mid", "end"] as const)
+      test(`${theme}, a long first line at its ${at}: no text paints under the corner glyphs`, async () => {
+        const page = await open("code", theme);
+        // The pointer on the card's text, its second line's start, away from the glyphs; a raw move,
+        // so nothing scrolls the line into view.
+        const line = await page.locator(`${SCROLLER} .cv-code-plain__line`).last().boundingBox();
+        await page.mouse.move(line!.x + 24, line!.y + line!.height / 2);
+        const scroll = await page.locator(SCROLLER).evaluate((scroller, at) => {
+          const end = scroller.scrollWidth - scroller.clientWidth;
+          scroller.scrollLeft = at === "start" ? 0 : at === "mid" ? Math.round(end / 2) : end;
+          return { end, left: scroller.scrollLeft };
+        }, at);
+        expect(scroll.end, "the first line runs past the card").toBeGreaterThan(200);
+        await eased(page);
+        expect(
+          await page.locator(SCROLLER).evaluate((scroller) => scroller.scrollLeft),
+          "the line stays where it was scrolled",
+        ).toBe(scroll.left);
+        const buttons = `${CORNER} .cv-codeblock__actions > button`;
+        expect(await page.locator(buttons).count(), "Wrap and Copy show").toBe(2);
+        // The glyphs are on top where they are drawn.
+        const hits = await page.locator(buttons).evaluateAll((list) =>
+          list.map((button) => {
+            const box = button.getBoundingClientRect();
+            return button.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+          }),
+        );
+        expect(hits, "each button is hit at its centre").toEqual([true, true]);
+        const spreads = await inkUnder(page, buttons);
+        for (const spread of spreads) expect(spread, "only the card's tint under a button").toBeLessThanOrEqual(8);
         await page.close();
       });
 });

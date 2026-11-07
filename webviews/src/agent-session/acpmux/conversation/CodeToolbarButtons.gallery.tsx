@@ -6,6 +6,11 @@
 // (the block hovered, no button), with one button hovered, and with one pressed. The experiment's
 // arms (codeActions.experiment.ts) compare bare touching buttons (shipped), bare spaced ones, bare
 // ones shown only on the block's hover, and a faint shared strip.
+//
+// The `code-veil-*` states hover an unlabeled card whose first line runs past the card, scrolled to
+// its start, its middle and its end: the line fades out before the bare glyphs and never paints
+// under them (conversation.css `--cv-code-corner-veil`). `hover` ships (the veil comes with the
+// glyphs); `always` keeps it at rest too, `cut` has no fade and `wide` fades over 24px.
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -23,7 +28,9 @@ import { ShellBlock } from "./ShellBlock";
 import { ToolOutput } from "./ToolOutputBody";
 
 type Surface = "code" | "diff" | "output" | "table";
-type Props = { surface: Surface };
+/// How the scrolling text under an unlabeled card's corner glyphs is hidden (conversation.css).
+type Veil = "hover" | "always" | "cut" | "wide";
+type Props = { surface: Surface; veil?: Veil };
 
 const CODE = `An unlabeled block and a labeled one:
 
@@ -62,7 +69,9 @@ const FILE: TurnFile = {
 
 const OUTPUT = `{"status":"passed","checks":12,"warnings":0}\nwrote coverage/lcov.info\ndone in 4.2s`;
 
-const SNIPPET = "for (const attempt of [0, 1, 2]) await sleep(retry(attempt));\nreturn fetch(url);";
+/// Its first line runs past the card, so scrolled anywhere short of its end it reaches the corner.
+const SNIPPET =
+  "for (const attempt of [0, 1, 2, 3, 4, 5]) await sleep(retry(attempt)).then(() => log.debug(`retry ${attempt} of 6 after backoff`), (error) => log.warn(error));\nreturn fetch(url);";
 
 /// An unlabeled highlighted card's corner, Wrap then Copy, as HighlightedCode.tsx draws it in the
 /// app. The gallery has no highlight worker (highlightPool.ts runs only on the app's own schemes),
@@ -94,12 +103,19 @@ function HighlightedCorner() {
 /// The table's Open shows only where the page can open an artifact; the stage's opens nothing.
 const openNothing = () => {};
 
-function Stage({ surface }: Props) {
+function Stage({ surface, veil = "hover" }: Props) {
   return (
     <ArtifactContext.Provider value={openNothing}>
-      <div className="acpmux-shell" data-gallery-surface={surface} style={{ padding: 16, maxWidth: 640 }}>
+      <div
+        className="acpmux-shell"
+        data-gallery-surface={surface}
+        data-corner-veil={veil === "hover" ? undefined : veil}
+        style={{ padding: 16, maxWidth: 640 }}
+      >
         {surface === "code" && (
-          <div>
+          // A set width: the stage frame sizes to its content, and the long first line must scroll
+          // inside its card rather than widen it.
+          <div style={{ width: "min(608px, calc(100vw - 32px))" }}>
             <HighlightedCorner />
             <Markdown>{CODE}</Markdown>
           </div>
@@ -151,34 +167,72 @@ const pressed =
     await ctx.pointer.down({ selector: `${BUTTONS[surface]}:first-of-type` });
   };
 
+/// The surface the stage draws, so the experiment's steps press the buttons of the variant Compare
+/// shows (a diff, an output or a table has no `.cv-codeblock`).
+const activeSurface = (ctx: Parameters<Play>[0]): Surface => {
+  const surface = ctx.document.querySelector<HTMLElement>("[data-gallery-surface]")?.dataset.gallerySurface;
+  return surface === "diff" || surface === "output" || surface === "table" ? surface : "code";
+};
+
+/// The unlabeled card hovered (at its centre, on its text, not its glyphs), then its first line
+/// scrolled to `at`. The hover comes first: hovering a line inside the scroller would scroll it
+/// back into view.
+const CORNER_CARD = ".cv-codeblock--corner:first-child";
+const veiled =
+  (at: "start" | "mid" | "end"): Play =>
+  async (ctx) => {
+    await ctx.hover({ selector: CORNER_CARD });
+    const scroller = ctx.find({ selector: `${CORNER_CARD} .cv-code-plain` }) as HTMLElement;
+    const end = scroller.scrollWidth - scroller.clientWidth;
+    const left = at === "start" ? 0 : at === "mid" ? Math.round(end / 2) : end;
+    scroller.scrollLeft = left;
+    await ctx.waitFor(() => Math.abs(scroller.scrollLeft - left) < 1);
+  };
+
+const VEILS: { veil: Veil; at: "start" | "mid" | "end"; note: string }[] = [
+  { veil: "hover", at: "start", note: "veil (ships): the long first line at its start fades out before the glyphs." },
+  { veil: "hover", at: "mid", note: "veil (ships): scrolled halfway, the line still never runs under the glyphs." },
+  { veil: "hover", at: "end", note: "veil (ships): scrolled to its end, the line stops short of the glyphs." },
+  { veil: "always", at: "mid", note: "veil always on, at rest too: scrolled halfway." },
+  { veil: "cut", at: "mid", note: "a hard cut under the glyphs, no fade: scrolled halfway." },
+  { veil: "wide", at: "mid", note: "a 24px fade before the glyphs: scrolled halfway." },
+];
+
 const variants = Object.fromEntries(
-  (["code", "diff", "output", "table"] as const).flatMap((surface) => [
-    [surface, { note: `${surface}: at rest.`, props: { surface } }],
-    [
-      `${surface}-block-hover`,
-      {
-        note: `${surface}: the pointer on the block, on no button.`,
-        props: { surface },
-        play: onBlock(surface),
-      },
-    ],
-    [
-      `${surface}-button-hover`,
-      {
-        note: `${surface}: the pointer on its last button.`,
-        props: { surface },
-        play: onButton(surface),
-      },
-    ],
-    [
-      `${surface}-pressed`,
-      {
-        note: `${surface}: its first button held down.`,
-        props: { surface },
-        play: pressed(surface),
-      },
-    ],
-  ]),
+  (["code", "diff", "output", "table"] as const)
+    .flatMap((surface) => [
+      [surface, { note: `${surface}: at rest.`, props: { surface } }],
+      [
+        `${surface}-block-hover`,
+        {
+          note: `${surface}: the pointer on the block, on no button.`,
+          props: { surface },
+          play: onBlock(surface),
+        },
+      ],
+      [
+        `${surface}-button-hover`,
+        {
+          note: `${surface}: the pointer on its last button.`,
+          props: { surface },
+          play: onButton(surface),
+        },
+      ],
+      [
+        `${surface}-pressed`,
+        {
+          note: `${surface}: its first button held down.`,
+          props: { surface },
+          play: pressed(surface),
+        },
+      ],
+    ])
+    .concat(
+      VEILS.map(({ veil, at, note }) => [
+        `code-veil-${veil}-${at}`,
+        { note, props: { surface: "code" as const, veil }, play: veiled(at) },
+      ]),
+    ),
 );
 
 export default componentEntry<Props>({
@@ -203,8 +257,8 @@ export default componentEntry<Props>({
   experiment: {
     definition: codeActionsLook,
     script: [
-      { name: "Hover the block", run: onBlock("code") },
-      { name: "Hover Copy", run: onButton("code") },
+      { name: "Hover the block", run: (ctx) => onBlock(activeSurface(ctx))(ctx) },
+      { name: "Hover the last button", run: (ctx) => onButton(activeSurface(ctx))(ctx) },
     ],
   },
 });
