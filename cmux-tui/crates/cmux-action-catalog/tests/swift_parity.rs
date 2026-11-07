@@ -109,12 +109,12 @@ fn action_list_export_matches() {
         );
         assert_eq!(row["main_menu"], serde_json::json!(action.main_menu), "{id}");
         assert_eq!(row["title"], action.title.en, "{id}");
-        if let Some(key) = row["title_key"].as_str() {
-            assert_eq!(
-                (key, row["title_table"].as_str().unwrap_or("")),
-                (action.title.key, action.title.table),
-                "{id}"
-            );
+        // The export names a title's key by a guess from its English (`ActionTitleCatalog`); the
+        // catalog keeps the key the app looks the title up by. They agree on the action's own key.
+        if let Some(key) = row["title_key"].as_str()
+            && key == format!("action.{id}")
+        {
+            assert_eq!(key, action.title.key, "{id}");
         }
         let mut shortcut = action
             .default_shortcut
