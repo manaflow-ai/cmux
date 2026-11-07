@@ -157,5 +157,16 @@
   0%, 100% { transform: scaleY(0.35); }
   50% { transform: scaleY(1); }
 }
+/* Static status indicators, motion off or Reduce Motion: the bars hold still at three heights. */
+:root:is([data-status-indicators="static"], [data-agent-motion="off"], [data-agent-motion="reduced"]) .acpmux-mic-outside > span {
+  animation: none;
+}
+:root:is([data-status-indicators="static"], [data-agent-motion="off"], [data-agent-motion="reduced"]) .acpmux-mic-outside > span:nth-child(2) {
+  transform: scaleY(0.8);
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-mic-outside > span { animation: none; }
+  .acpmux-mic-outside > span:nth-child(2) { transform: scaleY(0.8); }
+}
 /* The wave takes the glyph's place; the glyph stays in the tree so the button never re-lays out. */
 .acpmux-mic[data-outside] > :is(svg, img) { display: none; }

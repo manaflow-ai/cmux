@@ -57,14 +57,15 @@ function setWatching(owner: object, on: boolean): void {
   void callHost("dictation.watchMicrophone", { on: after }).catch(() => undefined);
 }
 
-/// Whether the composer around `anchor` (its form) has the keyboard in a focused window.
+/// Whether the composer around `anchor` (its form, or New Tab's composer) has the keyboard in a focused window.
 function useComposerHasKeyboard(anchor: RefObject<Element | null>): boolean {
   const [has, setHas] = useState(false);
   useEffect(() => {
     const doc = anchor.current?.ownerDocument;
     if (!doc) return;
     const check = () => {
-      const box = anchor.current?.closest("form") ?? anchor.current?.parentElement;
+      // The chat composer is a form; New Tab's is `.nt-composer`, with no form around it.
+      const box = anchor.current?.closest("form, .nt-composer") ?? anchor.current?.parentElement;
       const active = doc.activeElement;
       setHas(!!box && !!active && active !== doc.body && box.contains(active) && doc.hasFocus());
     };
