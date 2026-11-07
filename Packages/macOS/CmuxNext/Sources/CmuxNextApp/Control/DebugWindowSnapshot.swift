@@ -73,10 +73,10 @@ enum DebugWindowSnapshot {
         do {
             // The window with its child windows and the app's menus, cards and popovers over it,
             // composited together as on screen; else AppKit drawing (no child windows).
+            // Read before the capture's await: a sheet may close meanwhile.
+            let children = window.visibleChildWindows.count
             let together = await window.compositedImageWithOverlays()
             let snapshot = try together.map { (image: $0.image, method: WindowSnapshotMethod.composited) } ?? window.snapshotImage()
-            // Read before the encode's await: a sheet may close meanwhile.
-            let children = window.visibleChildWindows.count
             let output = snapshot.image
             try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
             return .object([
@@ -130,17 +130,17 @@ enum DebugWindowSnapshot {
             // overlay panels painted on top at the end.
             // The overlays are cut from the composite in the same capture, before the page images' awaits: a popover
             // that opened meanwhile is not in the composite, and its cut would be the window under it.
+            // The child windows each layer brings, read with the capture's plan, so the result counts
+            // only the ones the image includes (none from a missing layer).
+            let children = window.visibleChildWindows
             let together = await window.compositedImageWithOverlays(cuttingOverlays: { !WindowOverlayHost.isPageWindow($0) })
             let base = try together.map { (image: $0.image, method: WindowSnapshotMethod.composited) }
                 ?? window.renderSnapshot(hiding: webViews)
             let overlays = together?.overlays
             var layers: [WindowImageLayer] = []
-            // The child windows each layer brings, so the result counts only
-            // the ones the image includes (none from a missing layer).
-            let children = window.visibleChildWindows
             let pageChildren = children.filter(WindowOverlayHost.isPageWindow).count
             var childrenIncluded = base.method == .composited ? children.count : 0
-            if base.method == .appkit, let pageWindows = window.childWindowsSnapshot(includeChild: WindowOverlayHost.isPageWindow) {
+            if base.method == .appkit, let pageWindows = await window.childWindowsImage(includeChild: WindowOverlayHost.isPageWindow) {
                 layers.append(.window(pageWindows))
                 childrenIncluded += pageChildren
             }
@@ -186,12 +186,12 @@ enum DebugWindowSnapshot {
                     layers.append(.window(overlays))
                 }
             } else {
-                if let panels = window.childWindowsSnapshot(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
+                if let panels = await window.childWindowsImage(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
                     layers.append(.window(panels))
                     childrenIncluded += children.count - pageChildren
                 }
                 // Menus, and cards or popovers not attached to the window, go on top.
-                let floating = window.floatingWindowsSnapshot()
+                let floating = await window.floatingWindowsImage()
                 if let floating { layers.append(.window(floating.image)) }
                 floatingCount = floating?.count ?? 0
             }
