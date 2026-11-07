@@ -694,6 +694,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                   stats: row.querySelector(".acpmux-summary-text > .acpmux-agent-line__stats")?.textContent ?? null,
                   state: row.querySelector(".acpmux-summary-agent__state")?.textContent ?? null,
                   timed: row.hasAttribute("data-timed"),
+                  done: Boolean(row.querySelector("[data-hat-done]")),
                   statsBelow: Boolean(row.querySelector(".acpmux-summary-text > .acpmux-agent-line__progress")),
                   timeLeft,
                   metaRight: meta?.right,
@@ -711,6 +712,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(row.words).not.toContain("Explore");
             // A running line with its time shows no state word (Leo, 2026-11-03); every other says it.
             if (row.timed) expect(row.state).toBeNull();
+            // A done line ends in a check; its word is for screen readers (DoneMark.tsx).
+            else if (row.done) expect(row.state).toBeNull();
             else {
               expect(row.state).not.toBeNull();
               expect(row.words).toContain(row.state!);
