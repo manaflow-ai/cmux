@@ -31,6 +31,8 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let statusGlyph: SidebarCompactStatusGlyph?
     /// Whether `sidebar.compactAgentStatus` is on; see the AppKit row model.
     var compactsAgentStatus = false
+    /// `sidebar.groupMemberIndent`, for the group-scoped bottom drop indicator.
+    var memberIndent = SidebarWorkspaceGroupingMetrics.memberIndent
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool

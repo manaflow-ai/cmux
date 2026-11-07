@@ -75,7 +75,8 @@ struct SidebarAppKitRowCellTests {
         compactStatusGlyph: SidebarCompactStatusGlyph? = nil,
         shortcutHintText: String? = nil,
         isMarkdownExpanded: Bool = false,
-        colorSchemeIsDark: Bool = true
+        colorSchemeIsDark: Bool = true,
+        isGrouped: Bool = false
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
             ?? SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!)
@@ -102,7 +103,7 @@ struct SidebarAppKitRowCellTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
-            isGrouped: false,
+            isGrouped: isGrouped,
             isFirstRow: true,
             shortcutHintText: shortcutHintText,
             showsShortcutHints: shortcutHintText != nil,
