@@ -15,6 +15,7 @@ import { markOneRowChange, oneRowChange, oneRowChangeFrom } from "./rowChanges";
 import { ToolActivityRow } from "./rows/ToolActivityRow";
 import type { RowProps } from "./rows/rowProps";
 import { RowContent } from "./VirtualTranscript";
+import { sendEntries, toolGroups } from "./conversation/toolGroups";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -86,6 +87,51 @@ test("anything else goes through the pane", () => {
   expect(toolOutputOnly(previous, { ...next, isWorking: true })).toBeUndefined();
   // Rows the client did not mark are never compared row by row.
   expect(toolOutputOnly(previous, snapshot([prompt, activity(call("pass 1\npass 2\n"), 2)]))).toBeUndefined();
+});
+
+test("a batch send's output updates go through the pane, so each recipient's row takes its state", () => {
+  // One call sends to three sessions; its output says, a line per recipient, whether each went.
+  const command = "for s in lane-a lane-b lane-c; do acpmux send --no-wait $s 'Merged.' 2>&1 | tail -1; done";
+  const batch = (output: string) => call(output, { command });
+  const steps = ["queued\n", "queued\ndelivered\n", "queued\ndelivered\nacpmux: not_found: no session lane-c\n"];
+  const states = (item: AcpmuxActivity) =>
+    sendEntries(toolGroups([item])).map(({ send }) => [send.target, send.state, send.delivery]);
+  expect(states(batch(steps[0]!))).toEqual([
+    ["lane-a", "sent", "queued"],
+    ["lane-b", "sending", undefined],
+    ["lane-c", "sending", undefined],
+  ]);
+  for (let at = 1; at < steps.length; at += 1) {
+    const before = batch(steps[at - 1]!);
+    const after = batch(steps[at]!);
+    // Plain text growing the output, as a fast-path update would be, yet the rows read it.
+    expect(states(after)).not.toEqual(states(before));
+    const pair = update(before, after);
+    expect(toolOutputOnly(pair.previous, pair.next), steps[at]).toBeUndefined();
+  }
+  expect(states(batch(steps[2]!))).toEqual([
+    ["lane-a", "sent", "queued"],
+    ["lane-b", "sent", "delivered"],
+    ["lane-c", "failed", undefined],
+  ]);
+  // A command that only names acpmux, sending nothing, still streams on the fast path.
+  const tail = (output: string) => call(output, { command: "acpmux logs lane-a --follow" });
+  const plain = update(tail("line 1\n"), tail("line 1\nline 2\n"));
+  expect(toolOutputOnly(plain.previous, plain.next)).toEqual({
+    id: "call-1",
+    output: "line 1\nline 2\n",
+    before: "line 1\n",
+  });
+});
+
+test("a who-else answer's or a dispatch's output updates go through the pane", () => {
+  const whoElse = (output: string) => call(output, { command: "acpmux who-else --json src/app.ts" });
+  const answer = '{"schema":"acpmux.who-else.v1","sessions":[]}';
+  const pending = update(whoElse("{\n"), whoElse(`{\n${answer.slice(1)}`));
+  expect(toolOutputOnly(pending.previous, pending.next)).toBeUndefined();
+  const dispatch = (output: string) => call(output, { command: "acpmux dispatch --to lane-a brief.md" });
+  const sent = update(dispatch("sending\n"), dispatch("sending\nok\n"));
+  expect(toolOutputOnly(sent.previous, sent.next)).toBeUndefined();
 });
 
 test("the client marks a snapshot that changed one row in place, and only that", () => {

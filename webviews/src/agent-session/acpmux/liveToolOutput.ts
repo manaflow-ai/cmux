@@ -14,7 +14,7 @@
 // its rows are the truth again. The store holds one entry per call updated since the pane drew.
 import { useMemo, useSyncExternalStore } from "react";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
-import { acpmuxSendCall } from "./conversation/acpmuxSends";
+import { outputShapesRows } from "./conversation/toolGroups";
 import { oneRowChangeFrom } from "./rowChanges";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -169,21 +169,25 @@ export function toolOutputOnly(
   const was = before.items;
   const now = after.items;
   if (!was || !now || was.length !== now.length) return undefined;
-  let changed: { from: Tool; to: Tool } | undefined;
+  let changed: { from: Tool; to: Tool; item: AcpmuxActivity } | undefined;
   for (let index = 0; index < now.length; index += 1) {
     const a = was[index]!;
     const b = now[index]!;
     if (a === b) continue;
     if (changed || !a.tool || !b.tool || !sameExcept(a, b, ITEM_KEYS)) return undefined;
-    changed = { from: a.tool, to: b.tool };
+    changed = { from: a.tool, to: b.tool, item: b };
   }
   if (!changed) return undefined;
-  const { from, to } = changed;
+  const { from, to, item } = changed;
   if (to.kind !== "execute" || to.status !== "in_progress" || from.id !== to.id) return undefined;
   if (!sameExcept(from, to, TOOL_KEYS)) return undefined;
-  // A call's first output makes it more than a draft (toolGroups.ts `isDraftCall`), and a send's
-  // output says whether it went (acpmuxSends.ts): both shape the transcript's rows in the pane.
-  if (!from.output || (to.command?.includes("acpmux") && acpmuxSendCall(to))) return undefined;
+  // A call's first output makes it more than a draft (toolGroups.ts `isDraftCall`), and the output
+  // of a send (single or batch: each recipient's queued, delivered or failed), a who-else question
+  // or a dispatch is read into rows of their own (toolGroups.ts `outputShapesRows`): both shape the
+  // transcript's rows in the pane. Such a shell call names acpmux, or prints JSON a dispatch card
+  // reads its kind from, so other commands skip the readers.
+  if (!from.output) return undefined;
+  if ((to.command?.includes("acpmux") || JSON_START.test(from.output)) && outputShapesRows(item)) return undefined;
   const old = from.output;
   const output = to.output;
   if (typeof output !== "string" || output.length <= old.length || !output.startsWith(old)) return undefined;
@@ -191,6 +195,7 @@ export function toolOutputOnly(
   return { id: to.id, output, before: from.output };
 }
 
+const JSON_START = /^\s*[[{]/;
 const ROW_KEYS = new Set(["version", "items"]);
 const ITEM_KEYS = new Set(["tool"]);
 const TOOL_KEYS = new Set(["output"]);
