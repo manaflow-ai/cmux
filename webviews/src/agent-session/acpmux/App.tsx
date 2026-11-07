@@ -275,7 +275,7 @@ import {
   useAutoOpenSubagents,
   useOpenNewSubagents,
 } from "./subagents/subagentPanes";
-import { useShownSubagent } from "./subagents/subagentShown";
+import { shownSubagentFacts, useShownSubagent } from "./subagents/subagentShown";
 import { turnCounts } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
@@ -515,7 +515,8 @@ import {
 import { ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { type Subagent } from "./subagents/subagentFold";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
-import { type SubagentRows, childView, runningGroups, subagentRowsFrom, subagentsIn } from "./subagents/subagentRows";
+import { type SubagentRows, runningGroups, subagentRowsFrom, subagentsIn } from "./subagents/subagentRows";
+import { subagentPaneView, useOwnLog } from "./subagents/subagentOwnLog";
 import { knownMark } from "../shared/AgentMark";
 import {
   SubagentHarnessContext,
@@ -2317,16 +2318,35 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const subagentViewsRef = useRef(snapshot.subagentViews);
   subagentViewsRef.current = snapshot.subagentViews;
   const readSubagentView = useCallback((id: string) => subagentViewsRef.current?.[id], []);
+  // A subagent the chat's loaded rows no longer hold (an old one, finished pages ago): its pane reads
+  // that subagent's own records (subagents/subagentOwnLog.ts) and draws them, loading until they
+  // come and empty if there are none, never the chat's rows (Leo, 2026-11-07: "is this your
+  // sub-agent, or is this literally just a duplicate of you?").
+  const subagentInChat = !!subagentView && freshAgents.some((agent) => agent.id === subagentView);
+  const readSubagentLog = useCallback(
+    // l10n-allow: internal transport error; the subagent pane renders its own localized state.
+    (id: string) => directClient.current?.readSubagentLog(id) ?? Promise.reject(new Error("Not connected")),
+    [],
+  );
+  const { log: ownLogged, loading: ownLoading } = useOwnLog(
+    subagentView && !workflowRequest && !subagentInChat ? subagentView : undefined,
+    { session: shownSessionId, harness: snapshot.summary?.harness },
+    readSubagentLog,
+  );
   const childRows = useMemo(() => {
     if (workflowTranscript.rows) return workflowTranscript.rows;
     if (!subagentView) return undefined;
-    if (!subagentTray) return childView(subagentView, snapshot.rows, snapshot.subagentViews, folds, chatName);
-    const view = childView(subagentView, snapshot.rows, snapshot.subagentViews, NO_EXPANDED, chatName);
-    return view && (withSubagentLines(view, childDoneLines.current, workflowLabsEnabled) as AcpmuxRow[]);
+    const chat = { rows: snapshot.rows, views: snapshot.subagentViews };
+    const own = { log: ownLogged, loading: ownLoading };
+    if (!subagentTray) return subagentPaneView(subagentView, chat, own, folds, chatName);
+    const view = subagentPaneView(subagentView, chat, own, NO_EXPANDED, chatName);
+    return withSubagentLines(view, childDoneLines.current, workflowLabsEnabled) as AcpmuxRow[];
   }, [
     subagentView,
     snapshot.rows,
     snapshot.subagentViews,
+    ownLogged,
+    ownLoading,
     folds,
     chatName,
     subagentTray,
@@ -4194,10 +4214,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // the subagent it was opened on has shown, or the name the app gave the tab would flash away; and not
   // while this page has no rows for the subagent yet (they load after the pane opens), which would name
   // it "Subagent of" over the name the chat's page gave it.
-  const shownSubagentKnown = !!subagentView && freshAgents.some((agent) => agent.id === subagentView);
+  // A subagent the chat's rows no longer hold is known from its own records (subagentOwnLog.ts).
+  const shownAgent = subagentView
+    ? (freshAgents.find((agent) => agent.id === subagentView) ?? ownLogged?.agent)
+    : undefined;
   const shownSubagentTitle =
-    ownSubagentPane && subagentView && shownSubagentKnown ? subagentTitle(subagentView) : undefined;
-  useShownSubagent(callNative, ownSubagentPane, subagentView, shownSubagentTitle);
+    ownSubagentPane && subagentView && shownAgent
+      ? subagentTabTitle(shownAgent, `${t("subagents.of")} ${chatName}`)
+      : undefined;
+  const shownFacts = useMemo(
+    () => (shownAgent ? shownSubagentFacts(shownAgent, snapshot.clockOffsetMs ?? 0) : undefined),
+    [shownAgent, snapshot.clockOffsetMs],
+  );
+  // Its tab's hover card and spinner say the subagent's own state, not its chat's.
+  useShownSubagent(callNative, ownSubagentPane, subagentView, shownSubagentTitle, shownFacts);
   const showWorkflowAgent = useCallback(
     (agent: WorkflowAgent) => {
       const workflow = workflows.find((entry) => entry.agents.some((candidate) => candidate.id === agent.id));

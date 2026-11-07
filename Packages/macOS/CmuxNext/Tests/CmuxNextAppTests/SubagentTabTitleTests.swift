@@ -161,7 +161,7 @@ struct SubagentTabTitleTests {
         var item = StripTabItem(id: "tab", title: "Diagnose nightly lag")
         item.indicator = .working(progress: nil)
         item.hover = TabHoverFacts(kind: .agentChat, activity: .working, model: "claude-opus-5-5")
-        facts?.apply(to: &item)
+        if let facts { item.showSubagent(state: facts.state.rawValue, since: facts.since, model: facts.model, spins: true) }
         #expect(item.hover.activity == .done, "a finished subagent's tab read its chat's Working")
         #expect(item.hover.model == "claude-haiku-5-5")
         #expect(item.indicator == .idle, "a finished subagent's tab spun with its chat")
